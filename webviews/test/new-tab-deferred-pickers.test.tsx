@@ -65,7 +65,9 @@ afterEach(() => {
   dom.window.localStorage.clear();
 });
 
-afterAll(() => {
+afterAll(async () => {
+  // React scheduler work queued on setImmediate runs while the JSDOM globals still exist.
+  for (let turn = 0; turn < 3; turn += 1) await new Promise((resolve) => setImmediate(resolve));
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;

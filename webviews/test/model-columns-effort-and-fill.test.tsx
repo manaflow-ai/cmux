@@ -60,8 +60,11 @@ beforeAll(() => {
   host = dom.window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
+  // A popover update left outside act() queues React scheduler work on setImmediate; let it run
+  // while the JSDOM globals still exist, or it throws "window is not defined" between tests.
+  for (let turn = 0; turn < 3; turn += 1) await new Promise((resolve) => setImmediate(resolve));
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
