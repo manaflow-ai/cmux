@@ -140,6 +140,7 @@ extension SidebarListViewComponents {
         for (key, view) in rowViews {
             guard case let .workspace(id) = key, layout.row(for: key) == nil, pinned.contains(id), !view.isHidden else { continue }
             sources.pins[id] = source(of: view)
+            SidebarPerfCounters.add(.pinOneApply)
         }
         // A pin's row an earlier update already closes (the rows reached the list before the blocks: an app that sends
         // them in two updates): the block's item flies from where the closing row is drawn, and the row goes in the
@@ -149,6 +150,7 @@ extension SidebarListViewComponents {
             else { continue }
             sources.pins[id] = source(of: view)
             sources.closing.append(view)
+            Self.countRowsFirstGap(CACurrentMediaTime() - view.closingSince)
         }
         for region in blockRegions {
             for view in region.itemViews.values where view.superview != nil && !view.isHidden {
@@ -160,6 +162,13 @@ extension SidebarListViewComponents {
             }
         }
         return sources
+    }
+
+    /// A rows-first pin's gap, from the rows' update to the blocks' (`SidebarPerfCounters.pin_rows_first`).
+    static func countRowsFirstGap(_ gap: CFTimeInterval) {
+        SidebarPerfCounters.add(.pinRowsFirst)
+        SidebarPerfCounters.add(.pinGapMicroseconds, max(0, Int(gap * 1_000_000)))
+        if gap > 0.1 { SidebarPerfCounters.add(.pinGapsOver100ms) }
     }
 
     /// The rows a pin or an unpin flies to: an unpin's list row and the block that takes a pin's item. The apply draws

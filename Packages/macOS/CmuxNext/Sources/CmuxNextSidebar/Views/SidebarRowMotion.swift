@@ -72,7 +72,8 @@ struct RowMotion {
         // Out of a window (or where nothing draws) the springs snap (`SidebarDragSpring.move`): no row opens.
         if list.window == nil || !Motion.canAnimate(in: list) { list.settleOpenings() }
         passOver(in: list, from: old, to: layout)
-        for (view, end) in leaving { view.closingEnd = end }
+        let closingSince = CACurrentMediaTime()
+        for (view, end) in leaving { view.closingEnd = end; view.closingSince = closingSince }
         let opens = appearing.map(\.0.opens)
         let generations = leaving.map(\.0.reuseGeneration)
         list.rowMoves &+= 1
