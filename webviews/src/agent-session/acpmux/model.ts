@@ -72,7 +72,7 @@ import {
   recordedBody,
 } from "./conversation/promptCollapse";
 import { sentPasteJoin } from "./conversation/sentPasteJoin.experiment";
-import { bubbleLayout } from "./conversation/bubbleParts";
+import { attachmentOnlyPrompt, bubbleLayout } from "./conversation/bubbleParts";
 import { composerSettingsSnapshot } from "./composerSettings";
 import { isPromptMarkdown } from "./conversation/promptMarkdown";
 import { SENT_IMAGE_HEIGHT, sentImageSize, sentImageWidth } from "./conversation/userBubbleModel";
@@ -756,6 +756,8 @@ export type AcpmuxRow = {
     promptIds: readonly string[];
     fromSession?: string;
     fromHarness?: string;
+    /// acpmux could not verify its sender (conversation/senderIdentity.ts).
+    unverified?: true;
   };
   laneNoticeBatch?: {
     kind: "report" | "inbox";
@@ -2093,6 +2095,42 @@ function fallbackRowHeight(
   // An agent a shell call started (subagents/AgentRunCard.tsx): one collapsed disclosure line; its
   // reply and Raw are measured once the reader opens it.
   if (isRunGroup(row)) return finish(cardHeight("working"));
+  // Image/file-only user prompts still draw their attachment strip before the action footer.
+  // Reserve the fixed thumbnail height so virtualization never places the next row over it.
+  // A prompt whose recorded parts give it nothing to read (bubbleParts.ts `attachmentOnlyPrompt`)
+  // draws the same strip and no bubble, whatever blank text it carries (UserBubble.tsx).
+  if (
+    row.kind === "user" &&
+    (!row.text?.trim() || attachmentOnlyPrompt(row)) &&
+    (row.images?.length || row.retryAttachments?.length || row.inlineParts?.some((part) => part.kind !== "text"))
+  ) {
+    // Sent thumbnails wrap at the 70% user column. Use the widest thumbnail (320px, plus its 6px
+    // gap; userBubbleModel.ts SENT_IMAGE_MAX_WIDTH) when estimating columns so a wide image never
+    // lets a second attachment row overlap the next row.
+    const inlineParts = row.inlineParts ?? [];
+    // A video sent with its frames draws as a 120px tile in the thumbnail row (UserBubble.tsx
+    // SentVideoTiles), not as a file chip.
+    const videoCount = sentVideosOf(row).length;
+    const imageCount =
+      Math.max(
+        row.images?.length ?? 0,
+        inlineParts.filter((part) => part.kind === "image").length,
+        row.retryAttachments?.filter((part) => part.kind === "image").length ?? 0,
+      ) + videoCount;
+    const columns = Math.max(1, Math.floor((width * 0.7 + 6) / 326));
+    const imageRows = imageCount ? Math.ceil(imageCount / columns) : 0;
+    const otherAttachments = Math.max(
+      0,
+      Math.max(
+        row.retryAttachments?.filter((part) => part.kind !== "image").length ?? 0,
+        inlineParts.filter((part) => part.kind !== "text" && part.kind !== "image").length,
+      ) - videoCount,
+    );
+    const attachmentHeight = imageRows * 128 + otherAttachments * 36;
+    // Its sending clock sits beside the last attachment band (UserBubble.tsx), taking no line of
+    // its own, so the row keeps its height when the send lands.
+    return finish(attachmentHeight + messageBelow(beforeFooter) + chromeHeight(row, actions));
+  }
   if (row.kind === SUBAGENTS) return finish(56);
   // A workflow's card (summary/WorkflowCard.css): three fixed lines in a hairline box.
   // WorkflowCard: head, metadata, latest line, progress bar and focus line.
@@ -2529,6 +2567,10 @@ function measuredRowHeight(
   // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx).
   if (onlyQuietThoughts(row)) return finish(0);
   if (!row.text) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
+  // A prompt with only attachments in its recorded parts draws them in the strip and no bubble
+  // (UserBubble.tsx `inlineAttachmentOnly`), so its text is never measured as a bubble's.
+  if (row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text) && attachmentOnlyPrompt(row))
+    return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
   let entry = cache.get(row.id);
   if (!entry) {
     entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };

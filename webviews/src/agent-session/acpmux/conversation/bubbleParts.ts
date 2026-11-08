@@ -4,6 +4,7 @@ import type { AcpmuxRow, PromptContentPart } from "../model";
 import { isImageOriginal } from "./userBubbleModel";
 import { withoutVideoFrames } from "../composer/videoPrompt";
 import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
+import { readsAsText } from "./inlinePromptContentModel";
 import type { AttachmentView } from "../composerSettings";
 
 /// The paths of the originals a prompt's images kept (an image the composer converted sends its
@@ -11,6 +12,26 @@ import type { AttachmentView } from "../composerSettings";
 export function imageOriginals(row: Pick<AcpmuxRow, "retryAttachments">): ReadonlySet<string> {
   return new Set(
     row.retryAttachments?.flatMap((file) => (file.kind === "image" && file.originalPath ? [file.originalPath] : [])),
+  );
+}
+
+/// Whether a prompt gives its bubble nothing to read: blank text, and every recorded part an
+/// attachment or blank text. UserBubble.tsx draws such a prompt's attachments in the strip above no
+/// bubble, in every attachment view, and the row's height estimate (model.ts) reserves that strip,
+/// so the two agree. A legacy prompt whose parts are only its files (direct.ts keeps them for the
+/// band) keeps its typed text, so its bubble draws.
+export function attachmentOnly(parts: readonly PromptContentPart[] | undefined, text: string | undefined): boolean {
+  return !text?.trim() && Boolean(parts?.length) && parts!.every((part) => !readsAsText(part));
+}
+
+/// `attachmentOnly` of a row's text and recorded parts as UserBubble.tsx reads them (less its
+/// images' retained originals).
+export function attachmentOnlyPrompt(row: Pick<AcpmuxRow, "text" | "inlineParts" | "retryAttachments">): boolean {
+  if (!row.inlineParts?.length || row.text?.trim()) return false;
+  const originals = imageOriginals(row);
+  return attachmentOnly(
+    row.inlineParts.filter((part) => !isImageOriginal(part, originals)),
+    row.text,
   );
 }
 
