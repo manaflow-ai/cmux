@@ -16,6 +16,7 @@ import { stripsEnvelopeImages, toolImages } from "../toolImages";
 import { toolKind } from "../toolNames";
 import { toolLabel } from "../toolPaths";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
+import { commandSaid } from "./commandActions";
 import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
@@ -38,7 +39,8 @@ import { WebSources } from "./WebSources";
 import { webSources, withoutLinks } from "./webSourceList";
 import { ToolLabel } from "./ToolVerb";
 import { callOutput, rowFailed, toolFailure } from "./toolFailure";
-import { RepoRecoveryCard, repoRecoveryFor } from "./RepoRecoveryCard";
+import { RepoRecoveryCard } from "./RepoRecoveryCard";
+import { repoRecoveryFor } from "./repoRecoveryCardModel";
 import { failureWord, InlineFailureCause, ToolFailureCause, useInStep } from "./ToolFailureCause";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
@@ -68,7 +70,15 @@ export function toolIcon(kind?: string): ReactNode {
 /// edit opens to its diff.
 // Unchanged item snapshots keep their rendered row as another call streams; local state and
 // context changes (Find, language, cwd) still reach this component through React's subscriptions.
-export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity }) {
+export const ToolRow = memo(function ToolRow({
+  item,
+  asRun = false,
+}: {
+  item: AcpmuxActivity;
+  /// The call as it was made (a sent message's Raw, SentMessageLine.tsx): a shell reads as its
+  /// command line, never as what it did or its description, since Raw is where the line is shown.
+  asRun?: boolean;
+}) {
   const t = useT();
   const step = useInStep();
   // Closed, or open in the Verbose transcript view.
@@ -98,6 +108,7 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
     (command) => t(foreground ? "tools.runningCommand" : "tools.ranCommand", { command }),
     cwd,
     t(foreground ? "tools.runningUnnamed" : "tools.ranUnnamed"),
+    !asRun,
   );
   // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
   const recovery = useMemo(() => repoRecoveryFor(tool), [tool]);
@@ -114,7 +125,13 @@ export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity })
   // Only a call with a command line is a shell; an MCP call can also say "execute".
   const shell = tool.kind === "execute" && Boolean(tool.command);
   // Find counts a shell's whole line: a shortened line is skipped.
-  const drawsCommand = shortCommand(tool.command ?? "", ROW_WIDTH) === tool.command?.trim();
+  // A label that names what the command did draws no command at all (commandActions.ts), even when
+  // its words hold it ("Checked git status"), as on a command row (CommandRow.tsx).
+  const drawsCommand =
+    shell &&
+    (asRun || !commandSaid(t, tool)) &&
+    shortCommand(tool.command ?? "", ROW_WIDTH) === tool.command?.trim() &&
+    label.includes(tool.command?.trim() ?? "");
   // A shell prints what it printed. Any other call's result is shown without the JSON envelope a
   // harness wrapped it in and the context a host injects into it (toolResult.ts). Memoize the
   // rendered result so the disclosure and its body agree, including image-only envelopes.

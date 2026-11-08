@@ -56,7 +56,7 @@ import {
 } from "./mentionItems";
 import type { ContextMenuItem } from "../../ui/ContextMenu";
 import { openChipMenu } from "./composerChipMenu";
-import type { Choice } from "./ComposerPickers";
+import type { Choice } from "./composerPickerModel";
 import type { FileSearchSource } from "./fileSearchModel";
 import {
   CMUX_PASS_THROUGH,
@@ -118,7 +118,7 @@ import {
   useAttachmentIntake,
   useSendWhenAttached,
   useSendWhenOriginals,
-} from "./composer/attachmentIntake";
+} from "./composer/attachmentIntakeModel";
 import { keepElsewhere, type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
@@ -1503,9 +1503,10 @@ function ComposerFrame({
       return true;
     }
     if (owned) {
-      // Side questions carry text only; staged files stay here for the main turn.
-      // A file still being read counts too: /btw must not cancel it.
-      if (owned.action === "btw" && (attachments.length > 0 || pending.length > 0)) return false;
+      // Side questions and /side's prompt carry text only; staged files stay here for the main
+      // turn. A file still being read counts too: /btw and /side must not cancel it.
+      if ((owned.action === "btw" || owned.action === "side") && (attachments.length > 0 || pending.length > 0))
+        return false;
       if (owned.name === "import") {
         if (importSandboxed) {
           setAttachError(t("composer.cmuxImportSandbox"));

@@ -317,7 +317,7 @@ declare namespace Cmux {
   type PaletteRankEntry = { title: string; keywords?: Array<string> | null; subtitle?: string | null; accessory?: string | null; rankBias?: number | null; frecencyKey?: string | null; isEnabled?: boolean | null; isVisibleWhenQueryEmpty?: boolean | null; queryPrefix?: string | null; hidesWhenTyping?: boolean | null; sectionIndex?: number | null; entersScope?: boolean | null; typingSectionIndex?: number | null; suggestedRank?: number | null; suggestedSectionIndex?: number | null; actionID?: string | null; demoted?: boolean | null; hasShortcut?: boolean | null; keycaps?: Array<string> | null; handles?: Array<string> | null }
   type PaletteRankFrecency = { entries?: Record<string, Cmux.PaletteRankUse> | null; halfLife?: number | null; picks?: Array<Cmux.PaletteRankPick> | null; pickHalfLife?: number | null; hidden?: Array<string> | null }
   type PaletteRankPick = { prefix: string; key: string; score: number; lastUsed: number; last: boolean }
-  type PaletteRankResult = { sections: Array<Cmux.PaletteRankSection> }
+  type PaletteRankResult = { sections: Array<Cmux.PaletteRankSection>; strictMatches: number }
   type PaletteRankRow = { index: number; score: number; highlights: Array<number> }
   type PaletteRankSection = { sectionIndex: number | null; rows: Array<Cmux.PaletteRankRow> }
   type PaletteRankUse = { score: number; lastUsed: number }
@@ -1294,7 +1294,7 @@ interface CmuxGlobal {
     /** `project.sync` (mutation, scope `project:write`) */
     sync: CmuxOp<{ machine?: string; session?: string; existing?: Array<string>; gone?: Array<string> }, Cmux.MutationResult<Cmux.ProjectChange>>
     /** `project.update` (mutation, scope `project:write`) */
-    update: CmuxOp<{ machine?: string; session?: string; path: string; rename?: string | null; pinned?: boolean; hidden?: boolean; order?: number | null; worktree?: Cmux.WorktreeRecipe | null }, Cmux.MutationResult<Cmux.ProjectChange>>
+    update: CmuxOp<{ machine?: string; session?: string; path: string; rename?: string | null; pinned?: boolean; hidden?: boolean; order?: number | null; worktree?: Cmux.WorktreeRecipe | null; keep_saved_worktree?: boolean }, Cmux.MutationResult<Cmux.ProjectChange>>
   }
   push: {
     target: {

@@ -2350,7 +2350,7 @@
     "pages.keybindings#search-keyboard": 0.10062,
     "pages.keybindings#search-readonly": 0,
     "pages.keybindings#selected-editing": 0,
-    "pages.keybindings#unsupported": 0,
+    "pages.keybindings#unsupported": 0.03666,
     "pages.markdown#edit-cue-rich": 0,
     "pages.markdown#edit-cue-source": 0,
     "pages.markdown#empty": 0,

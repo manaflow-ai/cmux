@@ -1,6 +1,7 @@
 // The highlighted fenced-code card: a Pierre `File` with the pane's syntax theme (a ```diff fence
 // is highlighted as a diff). Ported from the agent-pane reference prototype
 // (src/conversation/CodeBlock.tsx); CodeBlock.tsx loads it after the page's first frame.
+import { cornerAction } from "./cornerActions";
 import { useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { DIFFS_TAG_NAME, File as PierreFile } from "@pierre/diffs";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, diffUnsafeCSS, registerAgentDiffTheme } from "../diffTheme";
@@ -8,7 +9,8 @@ import { isHighlighted } from "../shikiLanguages";
 import { CopyButton } from "./CopyButton";
 import { menuPartRef } from "./menuParts";
 import { WrapLines } from "./icons";
-import { CodeHeader, codeHeaderClass, useCodeHeaderLook } from "./CodeHeader";
+import { CodeHeader } from "./CodeHeader";
+import { codeHeaderClass, useCodeHeaderLook } from "./codeHeaderModel";
 import { useT } from "../i18n";
 import { MAX_TOKENIZED_LINE } from "./highlightLimits";
 import { onHighlightTimeout, paneHighlightPool } from "./highlightPool";
@@ -44,7 +46,7 @@ pre[data-file] { display: flow-root; }
 /// An unlabeled card's first line keeps room after its end for the actions floating over its corner
 /// (conversation.css `--cv-code-corner-reserve`, which the shadow root inherits), so it never runs
 /// under them once scrolled to its end, and wraps short of them (cmux#30689).
-const cornerUnsafeCSS = `${codeUnsafeCSS}
+export const cornerUnsafeCSS = `${codeUnsafeCSS}
 [data-line="1"] { padding-inline-end: var(--cv-code-corner-reserve, 0px); }
 `;
 
@@ -93,7 +95,7 @@ export function HighlightedCode({
         <OpenPreview code={code} lang={lang} identity={artifactIdentity} revision={artifactRevision} />
         <button
           type="button"
-          className="cv-codeblock__action"
+          className={cornerAction()}
           aria-pressed={wrap}
           data-fold-toggle=""
           aria-label={t("changes.wrapLines")}

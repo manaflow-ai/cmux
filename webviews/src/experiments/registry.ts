@@ -32,9 +32,11 @@ import { threadMinimapWave } from "../agent-session/acpmux/threadMinimap/wave.ex
 import { threadMinimapIncoming } from "../agent-session/acpmux/threadMinimap/incoming.experiment";
 import { threadMinimapCard } from "../agent-session/acpmux/threadMinimap/card.experiment";
 import { chatMinimapPlaceholder } from "../agent-session/acpmux/chatMinimap/placeholder.experiment";
+import { codeActionsLook } from "../agent-session/acpmux/conversation/codeActions.experiment";
 import { startedSessionCards } from "../agent-session/acpmux/started/startedSessions.experiment";
 import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.experiment";
 import { claudeTurnFold } from "../agent-session/acpmux/conversation/claudeTurnFold.experiment";
+import { commandLabelLook } from "../agent-session/acpmux/conversation/commandLabel.experiment";
 import { turnFoldReplies } from "../agent-session/acpmux/conversation/turnFoldReplies.experiment";
 import { workedForMessages } from "../agent-session/acpmux/conversation/workedForMessages.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
@@ -63,6 +65,7 @@ import { composerPlusCommands } from "../agent-session/acpmux/composerPlusComman
 import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
 import { composerDeeplinkLook } from "../agent-session/acpmux/composer/deeplinkLook.experiment";
 import { pastedAgentLook } from "../agent-session/acpmux/conversation/pastedAgentLook.experiment";
+import { sentMessageLook } from "../agent-session/acpmux/conversation/sentMessageLook.experiment";
 import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
 import { contextRingMotion } from "../agent-session/acpmux/contextRingMotion.experiment";
 import { planUsageLook } from "../agent-session/acpmux/planUsageLook.experiment";
@@ -83,6 +86,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   fileKindIcon,
   finishedTaskLook,
   claudeTurnFold,
+  commandLabelLook,
   turnFoldReplies,
   workedForMessages,
   threadMinimapLayout,
@@ -97,6 +101,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   threadMinimapIncoming,
   threadMinimapCard,
   chatMinimapPlaceholder,
+  codeActionsLook,
   turnErrorCard,
   pausedMachineResume,
   codeRouterOffer,
@@ -142,6 +147,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   promptSuggestionLook,
   composerDeeplinkLook,
   pastedAgentLook,
+  sentMessageLook,
   contextRingLook,
   contextRingMotion,
   planUsageLook,

@@ -35,12 +35,8 @@ import {
 } from "../attachments";
 import { composerCommand } from "../cmuxCommands";
 import type { UploadResult } from "../cloudUploads";
-import {
-  AttachmentStrip,
-  backspacedAttachment,
-  useAttachmentIntake,
-  useSendWhenAttached,
-} from "../composer/attachmentIntake";
+import { AttachmentStrip } from "../composer/attachmentIntake";
+import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "../composer/attachmentIntakeModel";
 import { isPasteAsPlainTextKey, usePastedChips } from "../composer/pastedChips";
 import { DropOverlay } from "../composer/DropOverlay";
 import { AllChatsList } from "./AllChatsList";
@@ -136,6 +132,7 @@ import { NewTabExtras } from "./NewTabExtras";
 import type { SuggestionOrder } from "./suggestionOrder";
 import { newTabComposerTrailingGapArm } from "./composerGap.experiment";
 import { newTabIconColumnArm } from "./iconColumn.experiment";
+import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = NewTabCommandActions & {
@@ -489,7 +486,7 @@ export function NewTabScreen(props: Props) {
   // selection (inlineAttachments.tsx `place`): only a paste does.
   const inlinePlace = useRef<
     | ((
-        chips: readonly import("../composer/attachmentIntake").PendingAttachment[],
+        chips: readonly import("../composer/attachmentIntakeModel").PendingAttachment[],
         kind: DroppedKind | undefined,
       ) => void)
     | undefined
@@ -1076,6 +1073,9 @@ export function NewTabScreen(props: Props) {
   // under the whole composer instead, so they never cover those controls (a press there would pick
   // a row).
   const [composer, setComposer] = useState<HTMLDivElement | null>(null);
+  // At the page's foot (the stage layout) the app's toasts lift above the composer card and never
+  // cover it (toastAvoidance.ts). Elsewhere it sits at the top or the middle, clear of them.
+  useEffect(() => (stage && composer ? reportToastAvoidance(composer, elementBox) : undefined), [stage, composer]);
   const anchor = split ? (composer ?? box) : box;
   useEscapingPopup(host, shown, () => anchor, {
     // At the foot of the page (the stage layout) the rows open over the composer.

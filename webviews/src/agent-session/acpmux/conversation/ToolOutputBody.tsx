@@ -5,7 +5,8 @@ import { useT } from "../i18n";
 import { experimentArm } from "../../../experiments/experiment";
 import { hoverActions } from "../../../ui/hoverActions.experiment";
 import { useBlockWrap } from "./blockWrap";
-import { Lines, lineCount, PreviewMore, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
+import { Lines, PreviewMore, WrapButton } from "./BlockParts";
+import { lineCount, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef } from "./blockPartsModel";
 import { CopyButton } from "./CopyButton";
 import { ChevronRight } from "./icons";
 import { Markdown } from "./Markdown";
@@ -99,7 +100,7 @@ export const ToolOutput = memo(function ToolOutput({
         <span className="cv-tool-output__actions" data-find-skip="">
           {!rendered && <WrapButton kind="output" />}
           {ownCopy && experimentArm(hoverActions) === "all" && (
-            <CopyButton text={raw.text ?? ""} label={t("turn.copy")} className="cv-codeblock__action" />
+            <CopyButton text={raw.text ?? ""} label={t("turn.copy")} />
           )}
         </span>
         {rendered ? (

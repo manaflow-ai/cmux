@@ -361,6 +361,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SECRET_REQUEST, Request),
         keyed::<params::SecretSubmitParams>(method::MUX_SECRET_SUBMIT, Request),
         untyped(method::MUX_SECRET_RUN, Request),
+        untyped(method::MUX_ELEVATION_REQUEST, Request),
         untyped(method::MUX_MCP_CONNECT_REQUEST, Request),
         untyped(method::MUX_MCP_CONNECT_ANSWER, Request),
         // Chats (`server/chats.rs`).
