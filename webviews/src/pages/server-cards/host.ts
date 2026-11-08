@@ -13,21 +13,6 @@ export const CardOps = {
   commands: "cmux.card.commands",
 } as const;
 
-/** A control's `getBoundingClientRect()` (CSS px): a person-only action sends the rect of the button
- * that ran, and the host takes it only when the person's own click landed inside it
- * (WebCardPanel.isPersonClick). */
-export interface CardTarget {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export function targetOf(element: Element): CardTarget {
-  const { x, y, width, height } = element.getBoundingClientRect();
-  return { x, y, width, height };
-}
-
 /** The card a hash names (`#/pair-invite` → `pair-invite`), or null. */
 export function cardOfHash(hash: string): string | null {
   const match = /^#\/([a-z0-9-]+)/.exec(hash);

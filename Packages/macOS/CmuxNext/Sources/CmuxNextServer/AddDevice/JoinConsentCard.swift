@@ -11,11 +11,12 @@ public import Foundation
 /// the page draws who asked for what, the question, the note, why an Allow did not take, Deny and Allow.
 /// - `status` → `{ask: {requester, surface} | null, error: string | null, writing}`;
 /// - `deny` → closes the ask, writing nothing (the person's own click or key);
-/// - `allow {target}` → SECURITY: grants the asked surface only from the person's own click on Allow
+/// - `allow` → SECURITY: grants the asked surface only from the person's own click on Allow
 ///   (``WebCardPanel/isPersonClick(_:on:)``: a left click the panel saw from the HID system, its down
-///   and up inside `target`, Allow's rect; so no key, script, Accessibility press, posted event or
-///   Computer Use click, and no script press after a click elsewhere), and never while a write is in
-///   flight; the model then asks the device owner (Touch ID or the login password) before it sends;
+///   and up both on the enabled `data-action="allow"` button by the panel's own hit test; so no key,
+///   script, Accessibility press, posted event or Computer Use click, and no script press after a
+///   click elsewhere), and never while a write is in flight; the model then asks the device owner
+///   (Touch ID or the login password) before it sends;
 /// - stream `changes` → one empty event whenever `status` may have changed.
 ///
 /// Its panel is its own (``WebCardPanel/joinConsent(model:isPersonEvent:)``): out of screen capture and screen sharing, so
@@ -26,6 +27,8 @@ public final class JoinConsentCardProvider: WebCard {
     static let statusOp = "cmux.joinConsent.status"
     static let allowOp = "cmux.joinConsent.allow"
     static let denyOp = "cmux.joinConsent.deny"
+    /// Allow's `data-action` in the page (JoinConsentCard.tsx): the control the person's click must land on.
+    static let allowAction = "allow"
     static let changesStream = "cmux.joinConsent.changes"
 
     public var card: String { Self.route }
@@ -56,8 +59,10 @@ public final class JoinConsentCardProvider: WebCard {
         case Self.allowOp:
             // Both buttons are off while a write is in flight: no press lands over a grant still landing.
             guard model.ask != nil, !model.writing else { return .null }
-            // SECURITY: the person's own click on the card, read by the panel from the click's events.
-            guard host?.isPersonClick(context, on: params["target"]) == true else { throw Self.refused }
+            // SECURITY: the person's own click on Allow, read by the panel from the click's events and its own hit test.
+            guard await host?.isPersonClick(context, on: [Self.allowAction]) == true else { throw Self.refused }
+            // The ask may have closed or a write begun while the hit test answered.
+            guard model.ask != nil, !model.writing else { return .null }
             // task-owner: one answer per click; the write ends on its own
             Task { [model] in await model.answer(allow: true) }
             return .null

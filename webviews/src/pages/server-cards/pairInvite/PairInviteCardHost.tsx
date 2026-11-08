@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { PageClient } from "../../shared/pageClient";
 import type { Strings } from "../../shared/i18n";
-import { closeCard, useCardCancel, useCardSize, type CardTarget } from "../host";
+import { closeCard, useCardCancel, useCardSize } from "../host";
 import { phaseOf, type Action } from "./model";
 import { PairInviteCard } from "./PairInviteCard";
 import { PairInviteStore } from "./store";
@@ -31,7 +31,7 @@ export function PairInviteCardHost({ client, strings }: { client: PageClient | n
   useCardSize(client, PAIR_INVITE_CARD, ref);
   const close = () => closeCard(client, PAIR_INVITE_CARD);
   useCardCancel(client, close);
-  const onAction = (action: Action, name: string, target?: CardTarget) => {
+  const onAction = (action: Action, name: string) => {
     switch (action) {
       case "copyCode":
         return void store.copy("code");
@@ -41,7 +41,7 @@ export function PairInviteCardHost({ client, strings }: { client: PageClient | n
         return void store.copy("installLine");
       case "confirm":
       case "retry":
-        return void store.confirm(name, target);
+        return void store.confirm(name);
       case "newCode":
         return void store.newCode();
       case "done":

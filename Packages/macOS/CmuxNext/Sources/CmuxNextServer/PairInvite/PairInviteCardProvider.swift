@@ -23,8 +23,9 @@ extension PageDescriptor {
 /// - `newCode` → a new invite (the person's own click or key);
 /// - `copy {target}` → the code, the `cmux pair` line or the install line, concealed (the person's own click or key);
 /// - `setRunChief {on}` → the approver's Chief option (the person's own click or key);
-/// - `confirm {name?, target}` → SECURITY: approves the arrived machine, only from the person's own click on
-///   Confirm (``WebCardPanel/isPersonClick(_:on:)``, `target` its rect): no key, script, MCP call or page reaches it;
+/// - `confirm {name?}` → SECURITY: approves the arrived machine, only from the person's own click on
+///   Confirm or Try Again (``WebCardPanel/isPersonClick(_:on:)``, by the panel's own hit test): no key,
+///   script, MCP call or page reaches it;
 /// - stream `changes` → one empty event whenever `status` may have changed.
 ///
 /// Event driven: the socket pushes every change; the countdown is the page's.
@@ -190,7 +191,8 @@ public final class PairInviteCardProvider: WebCard {
             return .null
         case Self.confirmOp:
             // SECURITY: pairs a machine into the person's account: only their own click on the card.
-            guard host?.isPersonClick(context, on: params["target"]) == true else {
+            // Confirm and Try Again (after a failed approve) both send it (PairInviteCardHost.tsx).
+            guard await host?.isPersonClick(context, on: ["confirm", "retry"]) == true else {
                 throw PageError(code: PageNativeOp.userOnlyCode, message: PairInviteCardStrings.clickOnly)
             }
             confirm(name: params["name"]?.stringValue)

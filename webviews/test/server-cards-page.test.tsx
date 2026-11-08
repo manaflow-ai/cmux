@@ -126,9 +126,7 @@ test("a change event reads the status again: the arrived machine shows its words
   expect(ops(fake.calls, "cmux.pairInvite.confirm")).toEqual([]);
   await press("[data-action='confirm']");
   await flush();
-  expect(ops(fake.calls, "cmux.pairInvite.confirm").map((call) => call.params)).toEqual([
-    { name: "build-box", target: { x: 0, y: 0, width: 0, height: 0 } },
-  ]);
+  expect(ops(fake.calls, "cmux.pairInvite.confirm").map((call) => call.params)).toEqual([{ name: "build-box" }]);
 });
 
 test("an ended invite offers New Code on Return; Cancel and Escape close the card", async () => {

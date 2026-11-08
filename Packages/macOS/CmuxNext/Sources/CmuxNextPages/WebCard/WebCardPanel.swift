@@ -1,8 +1,9 @@
 public import AppKit
 public import CmuxNextDesign
-public import CmuxNextSettings
+import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
+import WebKit
 
 /// A floating web card host (first user: the server cards, design/server-cards.md): a borderless,
 /// non-activating glass panel near the top center of the cmux window, on every Space and over full
@@ -20,7 +21,7 @@ import Foundation
 /// A card plugs in as a ``WebCard``: a page provider for its own `cmux.<card>.` prefix that hears
 /// its opening and closing. A card that takes an action only from the person's own click
 /// (approve, allow) asks its ``WebCard/host`` ``isPersonClick(_:on:)``, which reads the click from the
-/// panel's own events and checks it landed on the control.
+/// panel's own events and the control under it from the panel's own hit test.
 @MainActor
 public final class WebCardPanel: NSPanel {
     /// The gap between the window's top edge and the card's.
@@ -52,9 +53,14 @@ public final class WebCardPanel: NSPanel {
     /// An opening waiting for its card's first size: where and how it shows.
     private var pending: (card: String, parent: NSRect?, visible: NSRect, intent: WindowActivation.Intent)?
     private let pendingTimeout = DemandTimer(owner: "web-card-first-size")
-    /// The person's last left click on the panel: its down and up event times, and where each
-    /// landed in the page (CSS px, ``pagePoint(_:)``).
-    private var personClick: (down: TimeInterval, downAt: CGPoint, up: TimeInterval?, upAt: CGPoint?)?
+    /// The person's last left click on the panel: its down and up event times, and the control each
+    /// landed on (``controlAt``, asked as the event arrived).
+    private var personClick: (down: TimeInterval, downOn: ControlProbe, up: TimeInterval?, upOn: ControlProbe?)?
+    /// SECURITY: the `data-action` of the enabled control under a point of the page (CSS px,
+    /// ``pagePoint(_:)``), or nil; it answers through `done`. The panel asks it for each mouse-down
+    /// and mouse-up of the person's, before the page gets the event. By default a hit test in a
+    /// content world of the panel's own, which the page's script cannot reach or patch (tests set a stand-in).
+    public var controlAt: @MainActor (CGPoint, @escaping @MainActor (String?) -> Void) -> Void = { _, done in done(nil) }
     /// When the card last drew anew (a click begun sooner is not aimed at what shows now).
     private var armedAt: TimeInterval = 0
     /// The click a person-only action already spent.
@@ -92,6 +98,12 @@ public final class WebCardPanel: NSPanel {
         contentView = glass
         host.panel = self
         for card in cards { card.host = self }
+        // SECURITY: a card takes person-only actions, so no page probe (`debug.page`) or Web Inspector reaches it.
+        page.refusesProbes = true
+        controlAt = { [weak self] point, done in
+            guard let self else { return done(nil) }
+            self.hitTest(point, done: done)
+        }
     }
 
     override public var canBecomeKey: Bool { true }
@@ -149,20 +161,20 @@ public final class WebCardPanel: NSPanel {
         armedAt = uptime
     }
 
-    /// SECURITY: whether a page call comes from the person's own left click on this card's control:
-    /// the call's gesture is a click the panel saw from the HID system (no key, script, Accessibility
-    /// press or posted event), begun at least a double-click interval after the card last drew,
-    /// not spent by an earlier call, and both its down and its up landed inside `target`, the
-    /// control's `getBoundingClientRect()` (`{x, y, width, height}`, CSS px) the page sends with the
-    /// call. A genuine click elsewhere on the card (the Name field) followed by a script's press of
-    /// the control lands outside it; with no target, nothing counts.
-    public func isPersonClick(_ context: PageCallContext, on target: JSONValue?) -> Bool {
+    /// SECURITY: whether a page call comes from the person's own left click on one of `actions`
+    /// (the controls' `data-action`): the call's gesture is a click the panel saw from the HID system
+    /// (no key, script, Accessibility press or posted event), begun at least a double-click interval
+    /// after the card last drew, not spent by an earlier call, and both its down and its up landed on
+    /// an enabled control of `actions`, as the panel's own hit test read it when each event arrived.
+    /// Nothing the page sends names the control: a genuine click on the Name field followed by a
+    /// script's press of Confirm, whatever it claims, is refused.
+    public func isPersonClick(_ context: PageCallContext, on actions: Set<String>) async -> Bool {
         guard context.userGesture, let gesture = context.gestureEvent, let click = personClick, let up = click.up,
-              let upAt = click.upAt, let rect = Self.rect(target),
-              gesture == up || gesture == click.down, rect.contains(click.downAt), rect.contains(upAt),
+              let upOn = click.upOn, gesture == up || gesture == click.down,
               click.down - armedAt >= NSEvent.doubleClickInterval, spentClick != up else { return false }
         spentClick = up
-        return true
+        guard let downAction = await click.downOn.value, let upAction = await upOn.value else { return false }
+        return downAction == upAction && actions.contains(downAction)
     }
 
     /// A point of the panel's window in the page's CSS px, top-left origin (what
@@ -174,21 +186,30 @@ public final class WebCardPanel: NSPanel {
         return CGPoint(x: local.x / zoom, y: y / zoom)
     }
 
-    /// `{x, y, width, height}` as a rect, nil unless all four are finite and the size is positive.
-    static func rect(_ value: JSONValue?) -> CGRect? {
-        guard let x = value?["x"]?.doubleValue, let y = value?["y"]?.doubleValue,
-              let width = value?["width"]?.doubleValue, let height = value?["height"]?.doubleValue,
-              [x, y, width, height].allSatisfy(\.isFinite), width > 0, height > 0 else { return nil }
-        return CGRect(x: x, y: y, width: width, height: height)
+    /// The hit test's content world: the page's script runs in another, so it can neither see this
+    /// script nor change the DOM methods it calls.
+    private static let hitTestWorld = WKContentWorld.world(name: "cmux.webCard.hitTest")
+    /// The enabled control (`[data-action]`) under `point`, read in ``hitTestWorld``. Sent before
+    /// the event reaches the page, so it reads the card as the person saw it. Chromium has no such
+    /// world here, so a card there takes no person-only action.
+    private func hitTest(_ point: CGPoint, done: @escaping @MainActor (String?) -> Void) {
+        guard chromiumSession == nil else { return done(nil) }
+        let script = """
+            const control = document.elementFromPoint(x, y)?.closest("[data-action]");
+            return control && !control.matches(":disabled") ? control.getAttribute("data-action") : null;
+            """
+        // Called now, not from a Task: the script then reaches the page's process before the event does.
+        page.webKitView.callAsyncJavaScript(script, arguments: ["x": Double(point.x), "y": Double(point.y)], in: nil,
+                                            in: Self.hitTestWorld) { result in done((try? result.get()) as? String) }
     }
 
     override public func sendEvent(_ event: NSEvent) {
         switch event.type {
         case .leftMouseDown:
-            personClick = isPersonEvent(event) ? (event.timestamp, pagePoint(event.locationInWindow), nil, nil) : nil
+            personClick = isPersonEvent(event) ? (event.timestamp, probe(event), nil, nil) : nil
         case .leftMouseUp:
             if let click = personClick, isPersonEvent(event) {
-                personClick = (click.down, click.downAt, event.timestamp, pagePoint(event.locationInWindow))
+                personClick = (click.down, click.downOn, event.timestamp, probe(event))
             } else {
                 personClick = nil
             }
@@ -198,6 +219,13 @@ public final class WebCardPanel: NSPanel {
             break
         }
         super.sendEvent(event)
+    }
+
+    /// Asks ``controlAt`` what `event` landed on, now, before the page gets it.
+    private func probe(_ event: NSEvent) -> ControlProbe {
+        let probe = ControlProbe()
+        controlAt(pagePoint(event.locationInWindow)) { probe.resolve($0) }
+        return probe
     }
 
     // MARK: - The page's requests
@@ -316,5 +344,27 @@ final class WebCardHostProvider: PageProvider {
     func send(_ command: JSONValue) -> Bool {
         for listener in listeners.values { listener(command) }
         return !listeners.isEmpty
+    }
+}
+
+/// One hit test's answer, awaited by ``WebCardPanel/isPersonClick(_:on:)``: the first answer counts.
+@MainActor
+final class ControlProbe {
+    private var answer: String??
+    private var waiters: [CheckedContinuation<String?, Never>] = []
+
+    func resolve(_ action: String?) {
+        guard answer == nil else { return }
+        answer = .some(action)
+        let waiting = waiters
+        waiters = []
+        for waiter in waiting { waiter.resume(returning: action) }
+    }
+
+    var value: String? {
+        get async {
+            if let answer { return answer }
+            return await withCheckedContinuation { waiters.append($0) }
+        }
     }
 }

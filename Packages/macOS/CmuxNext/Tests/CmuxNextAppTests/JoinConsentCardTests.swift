@@ -36,15 +36,16 @@ import Testing
             model = JoinConsentModel(services: fake.services())
         }
 
-        /// Where Allow is, in the panel's window, and another spot on the card (the words). Both are
-        /// outside the card's views: the panel reads the click, no view takes it.
+        /// Where Allow and Deny are, in the panel's window, and another spot on the card (the words).
+        /// All are outside the card's views: the panel reads the click, no view takes it.
         static let allowAt = NSPoint(x: -50, y: -50)
+        static let denyAt = NSPoint(x: -150, y: -50)
         static let elsewhere = NSPoint(x: -250, y: -50)
 
-        /// Allow's rect as the page sends it (`getBoundingClientRect()`, CSS px) around ``allowAt``.
-        var allowTarget: JSONValue {
-            let center = panel.pagePoint(Self.allowAt)
-            return ["x": .number(center.x - 30), "y": .number(center.y - 12), "width": 60, "height": 24]
+        /// The page's controls as the panel's hit test finds them (its stand-in for the page's DOM):
+        /// `data-action` by the point's place in the page.
+        func control(at point: CGPoint) -> String? {
+            [(Self.allowAt, "allow"), (Self.denyAt, "deny")].first { panel.pagePoint($0.0) == point }?.1
         }
 
         /// One left click on the panel at `at`: its mouse-down and mouse-up, the person's when `person`.
@@ -84,16 +85,15 @@ import Testing
             clock += NSEvent.doubleClickInterval
         }
 
-        /// A page call; Allow and Deny send their button's rect (`target`, Allow's by default).
-        func call(_ op: String, gesture: TimeInterval?, target: JSONValue? = nil) async throws -> JSONValue {
+        /// A page call. Whatever the page sends, it names no control: the panel's hit test does.
+        func call(_ op: String, gesture: TimeInterval?, params: JSONValue = .null) async throws -> JSONValue {
             let context = PageCallContext(page: "cmux.server-cards", userGesture: gesture != nil, gestureEvent: gesture)
-            let params: JSONValue = op == JoinConsentCardProvider.statusOp ? .null : ["target": target ?? allowTarget]
             return try await provider.call(op, params: params, context: context)
         }
 
-        func allow(_ gesture: TimeInterval?, target: JSONValue? = nil) async -> Bool {
+        func allow(_ gesture: TimeInterval?, params: JSONValue = .null) async -> Bool {
             do {
-                _ = try await call(JoinConsentCardProvider.allowOp, gesture: gesture, target: target)
+                _ = try await call(JoinConsentCardProvider.allowOp, gesture: gesture, params: params)
                 return true
             } catch let error as PageError {
                 #expect(error.code == PageNativeOp.userOnlyCode)
@@ -122,6 +122,7 @@ import Testing
         let panel = try #require(made)
         ask.panel = panel
         ask.provider = try #require(panel.cards[JoinConsentCardProvider.route] as? JoinConsentCardProvider)
+        panel.controlAt = { [weak ask] point, done in done(ask?.control(at: point)) }
         panel.rearm(at: 0)
         return ask
     }
@@ -168,16 +169,17 @@ import Testing
         #expect(ask.fake.writes == ["screen true"] && ask.model.ask == nil)
     }
 
-    /// SECURITY (review F1 on cmux#37286): a genuine click must land on Allow itself. A real click on
-    /// the card's words, then a script's press of Allow carrying that click's gesture and Allow's rect,
-    /// grants nothing; neither does a call with no rect or a bad one.
+    /// SECURITY (review F1 on cmux#37286): a genuine click must land on Allow itself, as the panel's
+    /// own hit test reads it; nothing the page sends names the control. A real click on the card's
+    /// words or on Deny, then a script's press of Allow carrying that click's gesture (and a rect or
+    /// action of its choosing), grants nothing; neither does a drag that began elsewhere.
     @Test func allowNeedsTheClickToLandOnAllow() async throws {
         let ask = try await ask()
+        let forged: JSONValue = ["target": ["x": -10_000, "y": -10_000, "width": 20_000, "height": 20_000], "action": "allow"]
         let elsewhere = try ask.click(at: Ask.elsewhere)
-        #expect(!(await ask.allow(elsewhere)), "a real click elsewhere, then a script's press of Allow")
-        let onAllow = try ask.click()
-        #expect(!(await ask.allow(onAllow, target: .null)), "no rect")
-        #expect(!(await ask.allow(onAllow, target: ["x": 0, "y": 0, "width": 0, "height": 0])), "an empty rect")
+        #expect(!(await ask.allow(elsewhere, params: forged)), "a real click on the words, then a script's press of Allow")
+        let onDeny = try ask.click(at: Ask.denyAt)
+        #expect(!(await ask.allow(onDeny, params: forged)), "a real click on Deny, then a script's press of Allow")
         let down = try ask.event(.leftMouseDown, at: Ask.elsewhere), up = try ask.event(.leftMouseUp, at: Ask.allowAt)
         ask.genuine.formUnion([down.eventNumber, up.eventNumber])
         ask.panel.sendEvent(down)
@@ -230,6 +232,7 @@ import Testing
         let ask = try await ask()
         let panel = ask.panel!
         #expect(panel.sharingType == .none)
+        #expect(panel.page.refusesProbes && !panel.page.webKitView.isInspectable, "no page probe or Web Inspector reaches the ask")
         #expect(panel.level == .statusBar)
         #expect(panel.collectionBehavior.contains(.stationary) && panel.collectionBehavior.contains(.canJoinAllSpaces))
         #expect(!panel.isMovableByWindowBackground && panel.becomesKeyOnlyIfNeeded && panel.ordersFrontRegardless)
