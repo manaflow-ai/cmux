@@ -99,21 +99,32 @@ test("a verdict hides the row until the folder's changes differ", () => {
   ).toHaveLength(0);
 });
 
-test("reads stay within a window past what is reached, however many chats there are", () => {
+test("reads stop once the rows reach the window past the cursor, however many chats there are", () => {
   const candidates = candidatesAt(
     Array.from({ length: 500 }, (_, index) =>
       session({ sessionId: `s${index}`, worktree: `/wt/${index}`, activityAt: minutesAgo(index + 1) }),
     ),
   );
-  expect(nextReads(candidates, new Map(), 0)).toHaveLength(12);
-  const reads = new Map<string, ReviewRead>(
+  expect(nextReads(candidates, new Map(), reviewRows(candidates, new Map()))).toHaveLength(12);
+  // Twelve clean folders show no row: the reads pass on to the next twelve.
+  const clean = new Map<string, ReviewRead>(
     candidates.slice(0, 12).map((candidate) => [readKey(candidate), { state: "read" }]),
   );
-  const { reached } = reviewRows(candidates, reads);
-  expect(reached).toBe(12);
-  expect(nextReads(candidates, reads, reached).map((candidate) => candidate.key)).toEqual(
+  const shownClean = reviewRows(candidates, clean);
+  expect(shownClean).toMatchObject({ reached: 12, pending: false });
+  expect(nextReads(candidates, clean, shownClean).map((candidate) => candidate.key)).toEqual(
     candidates.slice(12, 24).map((candidate) => candidate.key),
   );
+  // Every read answering with changes: once twelve rows show, finished reads ask for no more.
+  const stat = readReviewStat(diff(["a.ts"]), "branch")!;
+  const changed = new Map<string, ReviewRead>(
+    candidates.slice(0, 12).map((candidate) => [readKey(candidate), { state: "read", stat }]),
+  );
+  const shown = reviewRows(candidates, changed);
+  expect(shown.rows).toHaveLength(12);
+  expect(nextReads(candidates, changed, shown)).toEqual([]);
+  // The cursor moved to row 5: the window follows it.
+  expect(nextReads(candidates, changed, shown, 5 + 1 + 12)).toHaveLength(12);
 });
 
 test("Request changes names the branch and the change before the person's words", () => {

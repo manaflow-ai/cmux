@@ -37,8 +37,6 @@ type Props = ReviewActions & {
   initialComment?: string;
 };
 
-const SHOWN_FILES = 3;
-/// The cursor this close to the last row reads further down the queue.
 const NEAR_END = 3;
 
 const plain = (event: React.KeyboardEvent) => !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
@@ -81,11 +79,17 @@ export function ReviewScreen({
     if (index >= 0) lastIndex.current = index;
   });
   useEffect(() => {
-    if (index >= rows.length - NEAR_END) extend();
-  }, [index, rows.length, extend]);
+    extend(Math.max(0, index));
+  }, [index, extend]);
 
   const decide = useCallback(
-    (row: ReviewRow, verdict: ReviewVerdict, run: (tag: string) => Promise<unknown>, failed: string) => {
+    (
+      row: ReviewRow,
+      verdict: ReviewVerdict,
+      run: (tag: string) => Promise<unknown>,
+      failed: string,
+      restore?: () => void,
+    ) => {
       const mark = `${row.key}:${row.stat.signature}`;
       setLocal((previous) => new Set(previous).add(mark));
       setFailures((previous) => without(previous, row.key));
@@ -96,6 +100,7 @@ export function ReviewScreen({
           return next;
         });
         setFailures((previous) => new Map(previous).set(row.key, failed));
+        restore?.();
       });
     },
     [],
@@ -113,6 +118,8 @@ export function ReviewScreen({
       "changes",
       (tag) => send(row.owner.sessionId, changesPrompt(row, text), tag, promptId),
       t("review.failed.send"),
+      // A send that failed gives the person's words back, unless another comment is open now.
+      () => setComment((open) => open ?? { key: row.key, text }),
     );
     list.current?.focus({ preventScroll: true });
   };

@@ -20,7 +20,8 @@ export { REVIEW_DONE_TAG as REVIEW_TAG } from "../sessionList";
 /// Chats idle longer than this leave the queue: an old worktree is not waiting on anyone.
 export const REVIEW_HORIZON_MS = 14 * 24 * 60 * 60 * 1000;
 
-/// How many candidates past the last shown row are read ahead, and how many reads run at once.
+/// How many rows past the cursor are read ahead (and how many candidates past the last reached one
+/// a batch may look at), and how many reads run at once.
 export const READ_WINDOW = 12;
 export const READ_CONCURRENCY = 3;
 
@@ -147,8 +148,8 @@ export function decided(candidate: ReviewCandidate, stat: ReviewStat, local: Rea
 }
 
 /// What the page shows: the candidates read so far in order, stopping at the first one still being
-/// read (rows only ever arrive below), without the clean, failed and decided ones. `pending` is
-/// whether a read above the end still runs; `reachable` how many candidates the shown rows reach.
+/// read or not read yet (rows only ever arrive below), without the clean, failed and decided ones.
+/// `pending` is whether a read above the end still runs; `reached` how many candidates are read.
 export function reviewRows(
   candidates: readonly ReviewCandidate[],
   reads: ReadonlyMap<string, ReviewRead>,
@@ -158,7 +159,8 @@ export function reviewRows(
   let reached = 0;
   for (const candidate of candidates) {
     const read = reads.get(readKey(candidate));
-    if (!read || read.state === "reading") return { rows, pending: true, reached };
+    if (!read) return { rows, pending: false, reached };
+    if (read.state === "reading") return { rows, pending: true, reached };
     reached += 1;
     if (read.state === "read" && read.stat && !decided(candidate, read.stat, local))
       rows.push({ ...candidate, stat: read.stat });
@@ -170,14 +172,17 @@ export function reviewRows(
 export const readKey = (candidate: ReviewCandidate) =>
   `${candidate.key}\u0000${candidate.owner.sessionId}\u0000${candidate.at}`;
 
-/// The candidates to read next: unread ones within `READ_WINDOW` of the end of what is reached.
+/// The candidates to read next: none once `want` rows show (the cursor's place plus `READ_WINDOW`,
+/// so a finished read never pulls in more by itself), else the unread ones within `READ_WINDOW` of
+/// the last reached candidate. Clean and decided folders show no row, so the reads pass over them.
 export function nextReads(
   candidates: readonly ReviewCandidate[],
   reads: ReadonlyMap<string, ReviewRead>,
-  reached: number,
-  window = READ_WINDOW,
+  shown: { rows: readonly unknown[]; reached: number },
+  want = READ_WINDOW,
 ): ReviewCandidate[] {
-  return candidates.slice(0, reached + window).filter((candidate) => !reads.has(readKey(candidate)));
+  if (shown.rows.length >= want) return [];
+  return candidates.slice(0, shown.reached + READ_WINDOW).filter((candidate) => !reads.has(readKey(candidate)));
 }
 
 /// The prompt Request changes sends the folder's chat: the person's words, after one line saying
