@@ -188,6 +188,7 @@ mod elevation;
 mod git_watch;
 mod github_owner;
 mod lane_report_reads;
+mod lane_report_subagents;
 mod lane_report_text;
 mod lane_reports;
 mod loop_goal;

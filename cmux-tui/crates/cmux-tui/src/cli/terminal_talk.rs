@@ -4,7 +4,8 @@
 //! - `cmux terminal list --agents`: the terminals that run an agent, with
 //!   harness, status (blocked, done, working, idle, unknown; `state` keeps
 //!   the older busy, idle, waiting-for-input, ended), age, workspace and
-//!   title (roster.rs).
+//!   title (roster.rs), plus the agent's name, tab, pane and last reply
+//!   (roster_names.rs).
 //! - `cmux terminal <t> send --text <msg> [--wait idle|prompt|none]
 //!   [--timeout 5m] [--settle 3s] [--force]`: type the message, press
 //!   Enter, wait, and print only what the terminal printed after the
@@ -20,6 +21,7 @@
 
 pub(in crate::cli) mod reply;
 pub(in crate::cli) mod roster;
+pub(in crate::cli) mod roster_names;
 pub(in crate::cli) mod send;
 #[cfg(test)]
 mod tests;
@@ -228,15 +230,15 @@ fn list(global: &GlobalArgs) -> i32 {
         Ok(snapshot) => snapshot,
         Err(failure) => return fail(global, &failure, 1),
     };
-    let rows = roster::agent_rows(&snapshot);
+    let rows = roster_names::rows(&snapshot);
+    let facts = roster_names::facts(&snapshot);
     let now = now_ms();
+    let json = |row: &roster::AgentRow| roster_names::row_json(row, &facts, now);
     match global.output {
-        OutputMode::Human => println!("{}", roster::table(&rows, now)),
+        OutputMode::Human => println!("{}", roster_names::table(&rows, &facts, now)),
         OutputMode::Quiet => {}
-        OutputMode::Json => {
-            print_json(&Value::Array(rows.iter().map(|row| row.to_json(now)).collect()));
-        }
-        OutputMode::JsonLines => rows.iter().for_each(|row| print_json(&row.to_json(now))),
+        OutputMode::Json => print_json(&Value::Array(rows.iter().map(json).collect())),
+        OutputMode::JsonLines => rows.iter().for_each(|row| print_json(&json(row))),
     }
     0
 }
