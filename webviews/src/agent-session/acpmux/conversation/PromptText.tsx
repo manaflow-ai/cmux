@@ -22,7 +22,7 @@ import {
 } from "./promptCollapse";
 import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { foldMotion, foldMs, markHeightFold } from "./fold";
-import { holdHeader } from "./useAnchoredCollapse";
+import { type BlockHold, holdBlock } from "./useAnchoredCollapse";
 import { Markdown } from "./Markdown";
 import { SoftBroken } from "./softBreaks";
 import { softBreaks } from "./softBreaksModel";
@@ -131,8 +131,13 @@ export function PromptText({
   // bottom and you're in the same place"):
   // - Show more holds the bubble's top: the text grows below it, and the button rides the bubble's
   //   bottom edge down instead of jumping there.
-  // - Show less holds the button, where the reader clicked it: the text shrinks back above it into
-  //   its first lines, fully drawn until it is clipped.
+  // - Show less with the view where Show more left it holds the same top, so the pair puts the view
+  //   back where it was however often the reader does it (`holdBlock`; Leo, 2026-11-08: "as you do
+  //   that more and more ... there's the drift"). Holding the button here, as since #24050, moved the
+  //   view down by what opened on every pair.
+  // - Show less after a scroll (under a long prompt scrolled down to) holds the bubble's top while it
+  //   is in view, else the button, where the reader clicked it: the text shrinks back above it.
+  // At the very bottom a close pins the bottom, as every close there does (VirtualTranscript).
   // A toggle midway starts from the drawn height; unmounting cancels what plays.
   const resized = useRef<number | undefined>(undefined);
   const resizing = useRef<Animation[]>([]);
@@ -142,10 +147,11 @@ export function PromptText({
   };
   useEffect(() => stopResize, []);
   const more = () => body.current?.parentElement?.querySelector<HTMLElement>(":scope > .cv-user__more") ?? null;
+  const held = useRef<BlockHold["current"]>(undefined);
   const showMore = (next: boolean) => {
     const bubble = body.current?.parentElement;
     if (bubble) {
-      holdHeader(next ? bubble : (more() ?? bubble));
+      holdBlock(bubble, more(), held, next);
       resized.current = bubble.getBoundingClientRect().height;
     }
     stopResize();

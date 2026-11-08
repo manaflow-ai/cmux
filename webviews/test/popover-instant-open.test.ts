@@ -221,6 +221,10 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
   },
   "src/agent-session/acpmux/conversation/turnFold.ts": { count: 1, what: "a turn folds" },
   "src/agent-session/acpmux/session-info/SessionInfoGroup.tsx": { count: 1, what: "Session Info sections slide" },
+  "src/agent-session/acpmux/session-info/foldMotion.ts": {
+    count: 1,
+    what: "Session Info Show more / Show less grow and close in place",
+  },
   "src/agent-session/acpmux/newtab/listMotion.ts": { count: 1, what: "New Tab rows move to their new place" },
   "src/agent-session/acpmux/subagents/trayMotion.tsx": {
     count: 1,

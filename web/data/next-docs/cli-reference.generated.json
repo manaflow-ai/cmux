@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 858,
-    "mcp": 772
+    "verbs": 859,
+    "mcp": 773
   },
   "nouns": [
     {
@@ -2113,6 +2113,13 @@
           "id": "home.tab",
           "mcp": true,
           "mcpTool": "app_home_tab"
+        },
+        {
+          "command": "cmux home undock-chief",
+          "title": "Undock Chief",
+          "id": "home.undockChief",
+          "mcp": true,
+          "mcpTool": "app_home_undock_chief"
         },
         {
           "command": "cmux home unmute",
