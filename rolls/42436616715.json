@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42436616715",
+  "recorded_at": "2026-11-08T02:06:50Z",
+  "reason": "cmux-tui 188763edca7a changes the image's cmux-tui (pinned b838bf55625d)",
+  "dry_run": false,
+  "cmux_tui": "188763edca7aacfd931a3ca3c8cc47d06b48887a",
+  "fixes": [
+    {
+      "sha": "188763edca7aacfd931a3ca3c8cc47d06b48887a",
+      "mergedAt": "2026-11-07T17:45:41-08:00",
+      "subject": "acpmux: refresh a stale Codex model list after an update and follow its upgrade targets (#38058)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T02:06:50Z",
+    "snapshot_id": "sh-9a5fbe505f474ea68e32d713da77d2e4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42436616715): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "7843fb727e0111f27bf5fb59a6c8dde4c2aeeb91",
+    "image": "cloud-native-auto-188763ed-42436616715-1",
+    "revision": "ci-42436616715-1",
+    "at": "2026-11-08T02:06:50Z"
+  },
+  "rolled_back": false
+}
