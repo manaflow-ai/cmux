@@ -229,7 +229,14 @@ test("only reads wait for a slot; a write, a click's answer or a Stop goes at on
   const sent: string[] = [];
   budget.admit(1, PROBE, () => sent.push("read"));
   budget.admit(2, PROBE, () => sent.push("waits"));
-  const others = [ANSWER, "_acpmux/bookmark_set", "_acpmux/permission_chat_revoke", "_acpmux/kill", "acp.session.fork"];
+  const others = [
+    ANSWER,
+    "_acpmux/bookmark_set",
+    "_acpmux/memory_resolve",
+    "_acpmux/permission_chat_revoke",
+    "_acpmux/kill",
+    "acp.session.fork",
+  ];
   for (const [index, method] of others.entries()) {
     expect(waitsForSlot(method)).toBe(false);
     budget.admit(3 + index, method, () => sent.push(method));
