@@ -21,7 +21,8 @@ import OSLog
 
     /// Starts the warm as a tracked task the caller never awaits (one per account and team, ``CloudSpareWarms``).
     /// Rust's copy target is the only ownership check; the copy goes only there, while account and team are the warm's.
-    public func start(in warms: CloudSpareWarms = .shared) {
+    public func start() {
+        let warms = auth.spareWarms
         guard let userID = auth.user?.id else { return }
         let teamID = auth.teamID
         warms.start(auth.accountKey ?? "") { [self] in

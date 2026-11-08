@@ -6,9 +6,6 @@
     private var warms: [String: Task<Void, Never>] = [:]
     private var copies: [String: Task<Bool, Never>] = [:]
 
-    /// The app's warms: one per process, as a start and a warm must see the same copies.
-    public static let shared = CloudSpareWarms()
-
     public init() {}
 
     /// Starts `work` as the warm of `identity` (``CloudAuth/accountKey``) unless that identity's warm runs, and returns

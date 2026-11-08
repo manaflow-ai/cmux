@@ -43,6 +43,8 @@ public final class CloudAuth {
     public var teams: [CMUXAuthTeam] { activeTeam.teams }
     /// The team API calls use (``ActiveTeam/id``).
     public var teamID: String? { activeTeam.id }
+    /// This person's spare warms in flight and their login copies (``CloudSpareWarms``): a start and a warm see the same copies.
+    @ObservationIgnored public let spareWarms = CloudSpareWarms()
     /// Who is signed in and in which team, nil signed out: a change means the account's data (its
     /// machines, its team's lists) belongs to someone else now. Observable (both halves are).
     public var accountKey: String? { isSignedIn ? "\(user?.id ?? "")|\(teamID ?? "")" : nil }
