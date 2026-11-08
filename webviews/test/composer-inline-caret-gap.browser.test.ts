@@ -20,10 +20,12 @@ await requireBrowserLane("composer-inline-caret-gap.browser.test.ts", async () =
   const CARET = { r: 255, g: 0, b: 255 };
   /// The sizes the composer is drawn at: the default, compact density, and the interface sizes.
   /// The pane's width: the composer is Chat Text Width's 800px column (conversation.css --cv-column),
-  /// so at Agent Chat Zoom 1.5 in a 1400px pane WebKit's composer fits the first chip beside the text
-  /// and wraps the second, and the pair no longer sits on one line. At 1280px every size keeps both
-  /// chips on the line after the text, in Chromium and WebKit alike.
-  const WIDTH = 1280;
+  /// and WebKit draws that column narrower under Agent Chat Zoom 1.5 than Chromium does (its gutters
+  /// are zoomed twice). The chips are one text line tall (#38135), so both fit on the text's own line
+  /// when the column has room for them: at 1280px WebKit's zoomed column (332px) fits the text and
+  /// the first chip and wraps the second, so the pair no longer sits on one line; at 1400px (497px)
+  /// every size keeps the text and both chips on one line, in Chromium and WebKit alike.
+  const WIDTH = 1400;
   const SIZES: Record<string, Record<string, string | number>> = {
     default: {},
     compact: { density: "compact" },
