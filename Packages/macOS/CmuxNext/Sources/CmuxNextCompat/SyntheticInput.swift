@@ -19,7 +19,8 @@ internal import ObjectiveC
 /// pointer drag (the sidebar's Updated card) saw a move with no button and
 /// ended at the first synthesized move.
 @MainActor
-public enum SyntheticInput {
+public struct SyntheticInput {
+    public init() {}
     /// A registered event not dispatched yet, with the button its press or release changes.
     private struct Pending {
         var type: UInt
