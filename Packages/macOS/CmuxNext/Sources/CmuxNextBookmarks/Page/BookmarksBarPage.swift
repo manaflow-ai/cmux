@@ -297,7 +297,7 @@ public final class BookmarksBarProvider: PageProvider {
             return .object([:])
         case Self.prefix + "apply":
             guard context.userGesture, let event = context.gestureEvent, event != spentGesture else {
-                throw PageError(code: PageDescriptor.userOnlyCode, message: "A bookmarks bar edit needs a click or a drop.")
+                throw PageError(code: PageNativeOp.userOnlyCode, message: "A bookmarks bar edit needs a click or a drop.")
             }
             guard let operation = params["op"].flatMap(Self.operation) else {
                 throw PageError.invalidParams("a create or a move on the bookmarks bar")
