@@ -79,7 +79,7 @@ const notice = (promptIds: string[], preview: string): InboxNotice => ({
 const panel = (container: HTMLElement) => container.querySelector(".cv-received__text")?.textContent ?? "";
 
 async function open(container: HTMLElement): Promise<void> {
-  await act(async () => container.querySelector<HTMLButtonElement>(".cv-disclosure__toggle")!.click());
+  await act(async () => container.querySelector<HTMLButtonElement>(".cv-agentmsg__toggle")!.click());
 }
 
 test("a thread's line reads its messages again once a later notice brings new ones", async () => {
