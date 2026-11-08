@@ -48,8 +48,11 @@ pub(super) fn is_envelope_refusal(error: &Value) -> bool {
 /// The error to print instead of `error` when it is an envelope refusal of
 /// `operation` by a daemon of another build; `None` leaves `error` as it is
 /// (another error, or the daemon is this build: then the refusal is real).
-/// `socket` names the daemon in the fix command when the caller knows it;
-/// otherwise the fix names the session the daemon reports.
+/// `socket` names the daemon in the restart fix when the caller knows it.
+/// Otherwise the fix names the default socket of the session the daemon
+/// reports, but only when that socket reaches this same daemon (pid and
+/// generation): a restart there would else start another owner beside it.
+/// With neither, the error names no restart command.
 pub(super) fn replace(
     reader: &mut Reader,
     error: &Value,
@@ -70,14 +73,20 @@ pub(super) fn replace(
     let rerun = identity.get("cli_path").and_then(Value::as_str).map(|cli| {
         super::fix_command::run_with_daemon_cli(Path::new(cli), std::env::args_os().skip(1))
     });
-    let fixes = Fixes { restart: &fix_command(socket, session), rerun: rerun.as_deref() };
+    let cli = super::fix_command::this_cli();
+    let restart = socket
+        .map(Path::to_path_buf)
+        .or_else(|| session.and_then(|session| default_socket_of(session, &identity)))
+        .map(|socket| super::fix_command::restart_daemon_in_place(&cli, &socket));
+    let fixes = Fixes { restart: restart.as_deref(), rerun: rerun.as_deref() };
     explain(&identity, operation, &own, &fixes)
 }
 
 /// The commands an explanation may name: `restart` swaps an older daemon
-/// for this build; `rerun` runs this command with a newer daemon's own CLI.
+/// for this build (`None`: the daemon's socket is not known); `rerun` runs
+/// this command with a newer daemon's own CLI.
 pub(super) struct Fixes<'a> {
-    pub restart: &'a str,
+    pub restart: Option<&'a str>,
     pub rerun: Option<&'a str>,
 }
 
@@ -105,10 +114,11 @@ fn order(identity: &Value, own: &Own<'_>) -> Option<Order> {
     if identity.is_null() || own.build_time == 0 {
         return Some(Order::Unknown);
     }
-    Some(match identity.get("build_time").and_then(Value::as_u64) {
-        // A build before `identify` reported its time.
-        None => Order::DaemonOlder,
-        Some(0) => Order::Unknown,
+    // A build before `identify` reported its time has no `build_time` key;
+    // a later build without a stamp reports `null`, which orders nothing.
+    let Some(time) = identity.get("build_time") else { return Some(Order::DaemonOlder) };
+    Some(match time.as_u64() {
+        None | Some(0) => Order::Unknown,
         Some(time) if time < own.build_time => Order::DaemonOlder,
         Some(time) if time > own.build_time => Order::DaemonNewer,
         Some(_) => Order::Unknown,
@@ -131,7 +141,12 @@ pub(super) fn explain(
         commit.map_or_else(|| messages.unknown_build.to_owned(), |c| c.chars().take(8).collect())
     };
     let (code, action, template) = match (&order, daemon_version) {
-        (Order::DaemonOlder, _) => ("daemon.outdated", "restart_daemon", messages.older_daemon),
+        (Order::DaemonOlder, _) if fixes.restart.is_some() => {
+            ("daemon.outdated", "restart_daemon", messages.older_daemon)
+        }
+        (Order::DaemonOlder, _) => {
+            ("daemon.outdated", "restart_daemon", messages.older_daemon_no_socket)
+        }
         (Order::DaemonNewer, _) if fixes.rerun.is_some() => {
             ("cli.outdated", "use_daemon_cli", messages.newer_daemon)
         }
@@ -144,7 +159,7 @@ pub(super) fn explain(
         }
     };
     let fix = match order {
-        Order::DaemonOlder => Some(fixes.restart),
+        Order::DaemonOlder => fixes.restart,
         Order::DaemonNewer => fixes.rerun,
         Order::Unknown => None,
     };
@@ -169,21 +184,14 @@ pub(super) fn explain(
     Some(json!({"code": code, "message": message, "details": details, "retryable": false}))
 }
 
-/// `cmux daemon restart` for the daemon at `socket` (or of `session`), run
-/// by this CLI.
-fn fix_command(socket: Option<&Path>, session: Option<&str>) -> String {
-    let cli = super::fix_command::this_cli();
-    match (socket, session) {
-        (Some(socket), _) => super::fix_command::restart_daemon_in_place(&cli, socket),
-        (None, Some(session)) => format!(
-            "{} daemon restart --session {}",
-            super::fix_command::quote_arg(&cli.to_string_lossy()),
-            super::fix_command::quote_arg(session)
-        ),
-        (None, None) => {
-            format!("{} daemon restart", super::fix_command::quote_arg(&cli.to_string_lossy()))
-        }
-    }
+/// The default socket of `session` when it reaches the daemon that
+/// answered `identity` (the same pid and generation); `None` otherwise.
+fn default_socket_of(session: &str, identity: &Value) -> Option<std::path::PathBuf> {
+    let socket = cmux_tui_core::server::try_default_socket_path(session).ok()?;
+    let stream = cmux_tui_core::server::connect_session_socket(&socket, true).ok()?;
+    let there = identify(&mut BufReader::new(stream))?;
+    let same = |key: &str| there.get(key).is_some() && there.get(key) == identity.get(key);
+    (same("pid") && same("generation")).then_some(socket)
 }
 
 /// The daemon's `identify` data, asked on the connection that was refused
@@ -212,7 +220,7 @@ mod tests {
         Own { version: "1.0.0", build_commit: Some("af881f169c64"), build_time: 1_794_000_000 };
 
     fn fixes(restart: &str) -> Fixes<'_> {
-        Fixes { restart, rerun: None }
+        Fixes { restart: Some(restart), rerun: None }
     }
 
     fn refusal() -> Value {
@@ -277,7 +285,7 @@ mod tests {
         assert!(message.contains("newer than this cmux"), "{message}");
         assert!(!message.contains("daemon restart"), "{message}");
         let rerun = "'/opt/cmux/bin/cmux' --json workspace list";
-        let named = Fixes { restart: "cmux daemon restart", rerun: Some(rerun) };
+        let named = Fixes { restart: Some("cmux daemon restart"), rerun: Some(rerun) };
         let error = explain(&identity, "agent.message.send", &OWN, &named).unwrap();
         assert!(error["message"].as_str().unwrap().contains(rerun), "{error}");
         assert_eq!(error["details"]["fix"], rerun, "{error}");
@@ -299,6 +307,29 @@ mod tests {
             json!({"version":"0.1.0","build_commit":"316d139feaf89d9ab7c99dc9cffdce59309bef93"});
         let error =
             explain(&identity, "workspace.list", &own, &fixes("cmux daemon restart")).unwrap();
+        assert_eq!(error["code"], "daemon.build_mismatch", "{error}");
+        assert!(!error["message"].as_str().unwrap().contains("daemon restart"), "{error}");
+    }
+
+    #[test]
+    fn an_older_daemon_whose_socket_is_not_known_gets_no_restart_command() {
+        let identity =
+            json!({"version":"0.1.0","build_commit":"316d139feaf89d9ab7c99dc9cffdce59309bef93"});
+        let unknown = Fixes { restart: None, rerun: None };
+        let error = explain(&identity, "tab.rename", &OWN, &unknown).unwrap();
+        let message = error["message"].as_str().unwrap();
+        assert_eq!(error["code"], "daemon.outdated", "{error}");
+        assert!(error["details"].get("fix").is_none(), "{error}");
+        assert!(!message.contains("--session"), "{message}");
+        assert!(message.contains("is older than this cmux 1.0.0"), "{message}");
+        assert!(message.contains("terminals are kept"), "{message}");
+    }
+
+    #[test]
+    fn a_current_daemon_without_a_build_stamp_is_not_called_older() {
+        let identity = json!({"version":"1.0.0","build_commit":"0123456789ab","build_time":null});
+        let error =
+            explain(&identity, "workspace.list", &OWN, &fixes("cmux daemon restart")).unwrap();
         assert_eq!(error["code"], "daemon.build_mismatch", "{error}");
         assert!(!error["message"].as_str().unwrap().contains("daemon restart"), "{error}");
     }

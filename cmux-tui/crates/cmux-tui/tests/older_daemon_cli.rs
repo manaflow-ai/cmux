@@ -179,3 +179,55 @@ fn daemon_upgrade_a_newer_daemon_says_this_cli_is_stale_and_offers_no_restart() 
     assert_eq!(error["code"], "cli.outdated", "{error}");
     assert_eq!(error["details"]["action"], "use_daemon_cli", "{error}");
 }
+
+#[test]
+fn daemon_upgrade_an_mcp_tool_call_names_the_older_daemon_and_the_restart() {
+    let daemon = OldDaemon::start("mcp");
+    let config = daemon.dir.join("cmux-next.json");
+    fs::write(&config, r#"{"mcp": {"enabled": true}}"#).unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        .arg("--socket")
+        .arg(&daemon.socket)
+        .args(["--app-socket", daemon.dir.join("no-app.sock").to_str().unwrap()])
+        .args(["mcp", "serve"])
+        .env("HOME", daemon.dir.join("home"))
+        .env("CFFIXED_USER_HOME", daemon.dir.join("home"))
+        .env("XDG_RUNTIME_DIR", &daemon.dir)
+        .env("CMUX_NEXT_CONFIG_FILE", &config)
+        .env("CMUX_TUI_STATE_DIR", daemon.dir.join("state"))
+        .env_remove("CMUX_TUI_SOCKET")
+        .env_remove("CMUX_TUI_TERMINAL_ID")
+        .env_remove("CMUX_TUI_SESSION")
+        .env_remove("CMUX_MUX_SOCKET")
+        .env_remove("CMUX_AGENT_SESSION")
+        .env_remove("ACPMUX_SESSION_ID")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    for message in [
+        json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2025-06-18", "capabilities": {},
+            "clientInfo": {"name": "older-daemon", "version": "1"}}}),
+        json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+        json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
+            "name": "workspace_list", "arguments": {}}}),
+    ] {
+        writeln!(stdin, "{message}").unwrap();
+    }
+    drop(stdin);
+    let output = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    let answer = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find(|message| message["id"] == 2)
+        .unwrap_or_else(|| panic!("no tools/call answer; stderr: {stderr}"))
+        .to_string();
+    assert!(!answer.contains("invalid request envelope"), "bare envelope refusal: {answer}");
+    assert!(answer.contains("daemon.outdated"), "no daemon.outdated: {answer}");
+    assert!(answer.contains("is older than this cmux"), "no daemon version: {answer}");
+    assert!(answer.contains("daemon restart"), "no restart fix: {answer}");
+}
