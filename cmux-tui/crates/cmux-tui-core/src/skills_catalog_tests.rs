@@ -399,3 +399,75 @@ fn toggles_at_once_each_keep_their_edit() {
         .collect();
     assert!(leftovers.is_empty(), "temporary files left: {leftovers:?}");
 }
+
+#[cfg(unix)]
+#[test]
+fn a_linked_settings_file_keeps_its_link_and_a_dangling_one_is_refused() {
+    let f = fixture();
+    skill(&f.env.claude_dir.join("skills"), "deploy", &front("deploy", "Ship"));
+    let dotfiles = f.env.home.join("dotfiles");
+    fs::create_dir_all(&dotfiles).unwrap();
+    fs::write(dotfiles.join("claude.json"), "{\"model\": \"opus\"}").unwrap();
+    let settings = f.env.claude_dir.join("settings.json");
+    std::os::unix::fs::symlink(dotfiles.join("claude.json"), &settings).unwrap();
+    let id = list(&f.env, &[])[0].id.clone();
+
+    set_enabled(&f.env, &[], &id, false).unwrap();
+    assert!(fs::symlink_metadata(&settings).unwrap().file_type().is_symlink());
+    let target: Value =
+        serde_json::from_str(&fs::read_to_string(dotfiles.join("claude.json")).unwrap()).unwrap();
+    assert_eq!(target["skillOverrides"]["deploy"], "off");
+    assert_eq!(target["model"], "opus");
+
+    // A link to nothing is the person's to fix: refused, and the link stays as it was.
+    fs::remove_file(dotfiles.join("claude.json")).unwrap();
+    assert_eq!(set_enabled(&f.env, &[], &id, true).unwrap_err(), SkillsError::SettingsUnreadable);
+    assert!(fs::symlink_metadata(&settings).unwrap().file_type().is_symlink());
+    assert!(!dotfiles.join("claude.json").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_private_settings_file_stays_private_through_a_toggle() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = fixture();
+    skill(&f.env.claude_dir.join("skills"), "deploy", &front("deploy", "Ship"));
+    let settings = f.env.claude_dir.join("settings.json");
+    fs::write(&settings, "{\"apiKeyHelper\": \"secret\"}").unwrap();
+    fs::set_permissions(&settings, fs::Permissions::from_mode(0o600)).unwrap();
+    let id = list(&f.env, &[])[0].id.clone();
+    set_enabled(&f.env, &[], &id, false).unwrap();
+    assert_eq!(fs::metadata(&settings).unwrap().permissions().mode() & 0o777, 0o600);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_project_cannot_make_a_refresh_read_without_end_or_wait() {
+    let f = fixture();
+    skill(&f.project.join(".claude/skills"), "lint", &front("lint", "Lint"));
+    std::os::unix::fs::symlink("/dev/zero", f.project.join(".claude/settings.json")).unwrap();
+    let fifo = f.project.join(".claude/settings.local.json");
+    let c = std::ffi::CString::new(fifo.to_string_lossy().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+    // A SKILL.md that is a pipe is not a skill, and listing never waits on it.
+    let piped = f.project.join(".agents/skills/piped");
+    fs::create_dir_all(&piped).unwrap();
+    let c = std::ffi::CString::new(piped.join("SKILL.md").to_string_lossy().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+
+    let projects = projects_of(&f);
+    let rows = list(&f.env, &projects);
+    let lint = rows.iter().find(|s| s.name == "lint").unwrap();
+    assert!(lint.enabled);
+    assert!(rows.iter().all(|s| s.name != "piped"));
+    assert_eq!(
+        set_enabled(&f.env, &projects, &lint.id, false).unwrap_err(),
+        SkillsError::SettingsUnreadable
+    );
+}
+
+#[test]
+fn the_synced_folder_name_is_not_a_skill_name() {
+    assert!(!valid_name("synced"));
+    assert!(valid_name("synced-notes"));
+}

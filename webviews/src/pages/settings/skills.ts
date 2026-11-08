@@ -67,7 +67,8 @@ export function groupSkills(skills: readonly Skill[]): HarnessGroups[] {
 /** A skill's name as the daemon accepts it (skills_catalog.rs `valid_name`): lowercase letters and
  * digits in words joined by single hyphens, at most 64 characters. */
 export function validSkillName(name: string): boolean {
-  return name.length <= 64 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name);
+  // `synced` is the folder Claude Code syncs skills into, never one skill (the daemon refuses it).
+  return name !== "synced" && name.length <= 64 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name);
 }
 
 export function harnessTitle(harness: SkillHarness): string {

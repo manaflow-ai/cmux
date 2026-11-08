@@ -47,6 +47,8 @@ pub(crate) const MAX_PROJECTS: usize = 32;
 pub(crate) const MAX_HEAD_BYTES: usize = 64 * 1024;
 /// A SKILL.md larger than this is listed with `problem: "too_large"`.
 pub(crate) const MAX_SKILL_BYTES: u64 = 1024 * 1024;
+/// The most bytes of an agent settings file read; a bigger one reads as unreadable.
+pub(crate) const MAX_CONFIG_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_NAME: usize = 64;
 const MAX_DESCRIPTION: usize = 1024;
 
@@ -361,9 +363,11 @@ pub(crate) struct NewSkill {
 }
 
 /// Whether `name` is a skill name both harnesses load: lowercase letters, digits and single
-/// hyphens, at most 64 characters.
+/// hyphens, at most 64 characters. `synced` is the folder Claude Code syncs skills into, which
+/// discovery reads as a folder of skills, never as one.
 pub(crate) fn valid_name(name: &str) -> bool {
-    !name.is_empty()
+    name != "synced"
+        && !name.is_empty()
         && name.len() <= MAX_NAME
         && name.split('-').all(|part| {
             !part.is_empty() && part.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
@@ -544,9 +548,22 @@ fn describe(dir: &Path, file: &Path, size: u64, base: &Base<'_>) -> Skill {
     }
 }
 
+/// The first [`MAX_HEAD_BYTES`] of a regular SKILL.md; a pipe or device reads as nothing, opened
+/// without waiting for a writer.
 fn read_head(file: &Path) -> Option<String> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    let f = options.open(file).ok()?;
+    if !f.metadata().ok()?.is_file() {
+        return None;
+    }
     let mut buf = Vec::new();
-    fs::File::open(file).ok()?.take(MAX_HEAD_BYTES as u64).read_to_end(&mut buf).ok()?;
+    f.take(MAX_HEAD_BYTES as u64).read_to_end(&mut buf).ok()?;
     Some(String::from_utf8_lossy(&buf).into_owned())
 }
 
@@ -693,7 +710,47 @@ impl Overrides {
 }
 
 fn read_json(file: &Path) -> Option<Value> {
-    serde_json::from_str(&fs::read_to_string(file).ok()?).ok()
+    serde_json::from_str(&read_config(file).ok()??).ok()
+}
+
+/// Reads an agent settings file: `Ok(None)` when there is none. A file that is not a regular file
+/// (a pipe, a device such as `/dev/zero` behind a project's link) or is over [`MAX_CONFIG_BYTES`]
+/// is an error, so a repository can't make a refresh block or read without end. A pipe is opened
+/// without waiting for a writer, then refused by its type.
+fn read_config(file: &Path) -> std::io::Result<Option<String>> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    let f = match options.open(file) {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let meta = f.metadata()?;
+    if !meta.is_file() || meta.len() > MAX_CONFIG_BYTES {
+        return Err(std::io::Error::other("not a bounded regular file"));
+    }
+    let mut text = String::new();
+    f.take(MAX_CONFIG_BYTES + 1).read_to_string(&mut text)?;
+    if text.len() as u64 > MAX_CONFIG_BYTES {
+        return Err(std::io::Error::other("grew past the bound"));
+    }
+    Ok(Some(text))
+}
+
+/// The file a write to `file` lands in: a link's target (dotfile managers link these files), so
+/// the link stays and its target changes. A link to nothing is refused, never replaced.
+fn write_target(file: &Path) -> Result<PathBuf, SkillsError> {
+    match fs::symlink_metadata(file) {
+        Ok(meta) if meta.file_type().is_symlink() => {
+            fs::canonicalize(file).map_err(|_| SkillsError::SettingsUnreadable)
+        }
+        _ => Ok(file.to_path_buf()),
+    }
 }
 
 fn enabled_plugins(settings: &Path) -> std::collections::HashMap<String, bool> {
@@ -738,9 +795,9 @@ fn edit_json(
     file: &Path,
     edit: impl FnOnce(&mut Vec<(String, Box<RawValue>)>) -> Result<(), SkillsError>,
 ) -> Result<(), SkillsError> {
-    let text = match fs::read_to_string(file) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+    let file = &write_target(file)?;
+    let text = match read_config(file) {
+        Ok(text) => text.unwrap_or_default(),
         Err(_) => return Err(SkillsError::SettingsUnreadable),
     };
     let mut top = if text.trim().is_empty() {
@@ -865,14 +922,23 @@ fn write_atomic(file: &Path, text: &str) -> Result<(), SkillsError> {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.subsec_nanos());
     let temp = parent.join(format!(".{name}.cmux-{}-{n}-{nanos}", std::process::id()));
+    let existing = fs::metadata(file).ok().map(|meta| meta.permissions());
     let result = (|| {
-        let mut f = fs::OpenOptions::new().write(true).create_new(true).open(&temp)?;
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        // The temporary file is born no more open than the person's file (a 0600 settings file
+        // never has a readable copy), then takes its exact permissions before any byte is written.
+        #[cfg(unix)]
+        if let Some(permissions) = &existing {
+            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+            options.mode(permissions.mode() & 0o777);
+        }
+        let mut f = options.open(&temp)?;
+        if let Some(permissions) = existing {
+            f.set_permissions(permissions)?;
+        }
         f.write_all(text.as_bytes())?;
         f.sync_all()?;
-        // The person's file keeps its permissions.
-        if let Ok(meta) = fs::metadata(file) {
-            fs::set_permissions(&temp, meta.permissions())?;
-        }
         fs::rename(&temp, file)
     })();
     if result.is_err() {
@@ -896,7 +962,7 @@ enum CodexSelector {
 impl CodexRules {
     fn read(file: &Path) -> Self {
         let Some(doc) =
-            fs::read_to_string(file).ok().and_then(|t| t.parse::<toml_edit::DocumentMut>().ok())
+            read_config(file).ok().flatten().and_then(|t| t.parse::<toml_edit::DocumentMut>().ok())
         else {
             return Self(Vec::new());
         };
@@ -945,9 +1011,9 @@ fn codex_rule_tables(doc: &toml_edit::DocumentMut) -> Vec<&dyn toml_edit::TableL
 
 /// Removes this file's `path` rules (`None`), or appends `{path, enabled}` after them.
 fn edit_codex_rules(file: &Path, skill: &str, enabled: Option<bool>) -> Result<(), SkillsError> {
-    let text = match fs::read_to_string(file) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+    let file = &write_target(file)?;
+    let text = match read_config(file) {
+        Ok(text) => text.unwrap_or_default(),
         Err(_) => return Err(SkillsError::SettingsUnreadable),
     };
     let mut doc =
