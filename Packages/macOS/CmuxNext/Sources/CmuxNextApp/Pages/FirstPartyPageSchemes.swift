@@ -51,9 +51,6 @@ enum FirstPartyPageSchemes {
         roots.filter { refusal(id: $0.key, root: $0.value, bundleResources: bundleResources) == nil }
     }
 
-    /// Every page the app ships with a bundled root: the first-party table (`FirstPartyPages.ids`)
-    /// and the app's other `cmux.` pages, so each can show in Chromium (`PageEnginePolicy` still
-    /// keeps a page that cannot on WebKit, with its reason).
     static let descriptors: [PageDescriptor] = [
         .agent,
         .agentActivity,
@@ -85,8 +82,7 @@ enum FirstPartyPageSchemes {
         .onboarding,
         .passwords,
         .serverCards,
-        .settings,
-        .stats,
+        .settings, .skills, .stats,
         .tasks,
     ]
 
