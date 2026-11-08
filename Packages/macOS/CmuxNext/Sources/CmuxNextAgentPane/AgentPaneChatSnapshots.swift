@@ -88,9 +88,11 @@ public final class AgentPaneChatSnapshots {
         disk?.clear()
     }
 
-    /// The `savedAt` of the newest copy kept per chat this launch: two pages can show one chat, and a
-    /// copy one of them captured before the other's is never kept over it, whichever arrives last.
-    /// One number per chat written to this launch.
+    /// When the newest write per chat this launch was taken (`savedAt`, the page's `Date.now()`; a
+    /// write with none is stamped when it arrives): a copy, a miss or a forget. Two pages can show
+    /// one chat, and a forget (a purged chat) can arrive before a copy captured earlier, so a copy or
+    /// miss taken before the newest write is never kept over it, whichever arrives last. A forget
+    /// always applies. One number per chat written to this launch.
     private var newest: [String: Double] = [:]
 
     /// The ops the page sends: `chat.snapshot.put {sessionId, html, ...}` (no `html` forgets it) and
@@ -112,11 +114,12 @@ public final class AgentPaneChatSnapshots {
         guard allowed, pageGeneration == AgentPaneTailCache.shared.generation, AgentPaneTailCache.shared.acceptsTails
         else { return ["kept": .bool(false)] }
         body["sessionId"] = nil
-        // A copy captured before the one kept (another page of the same chat wrote since) is dropped.
-        if case .number(let savedAt)? = body["savedAt"] {
-            if let kept = newest[session], savedAt < kept { return ["kept": .bool(false)] }
-            newest[session] = savedAt
-        }
+        // A copy or miss taken before the newest write (another page of the chat wrote since, or the
+        // chat was forgotten) is dropped; a forget always applies.
+        let stamp: Double = if case .number(let savedAt)? = body["savedAt"] { savedAt } else { Date().timeIntervalSince1970 * 1000 }
+        let forgets = body["html"] == nil && body["miss"] == nil
+        if !forgets, let latest = newest[session], stamp < latest { return ["kept": .bool(false)] }
+        newest[session] = max(newest[session] ?? stamp, stamp)
         // Typed: an untyped `nil` could read as `JSONValue.null` (ExpressibleByNilLiteral). With no
         // markup, the page's reason (`miss`) is kept in its place, for the next document's record.
         let kept: JSONValue? = if case .string? = body["html"] {

@@ -191,7 +191,8 @@ export function watchChatSnapshot(
     // what this chat is, and keeps why, which the next document's record reads.
     writes.count += 1;
     const miss = captureMiss();
-    void put(snapshot ? { sessionId, ...snapshot } : { sessionId, miss }).then(
+    // A miss carries when it was taken too, so the host orders it with the copies (`savedAt`).
+    void put(snapshot ? { sessionId, ...snapshot } : { sessionId, miss, savedAt: Date.now() }).then(
       (reply) => {
         const kept = (reply as { kept?: unknown } | null)?.kept;
         writes.last = !snapshot ? `forgot: ${miss}` : kept === true ? "kept" : "refused";

@@ -151,6 +151,23 @@ struct ChatSnapshotStoreTests {
         }
     }
 
+    /// A forgotten chat (purged) stays forgotten: a copy captured before the forget and arriving
+    /// after it is not kept, and a copy captured after it is.
+    @Test func aCopyCapturedBeforeAForgetIsNotKept() async throws {
+        try await Self.withDisk { disk in
+            try await Self.put("s-11", html: "<main>shown</main>", savedAt: 1_000)
+            try await Self.put("s-11", html: nil, savedAt: 3_000)
+            let late = try await Self.put("s-11", html: "<main>purged</main>", savedAt: 2_000)
+            #expect(late["kept"] == .bool(false))
+            await disk.settled()
+            #expect(try await Self.get("s-11") == .null)
+            #expect(await disk.read("s-11") == nil)
+            try await Self.put("s-11", html: "<main>after</main>", savedAt: 4_000)
+            await disk.settled()
+            #expect(try await Self.get("s-11")["html"]?.stringValue == "<main>after</main>")
+        }
+    }
+
     /// A copy read ahead before a sign-out is never served after it, at once or the usual way, and
     /// the store's copies on disk are gone.
     @Test func aCopyReadAheadIsNotServedAfterSignOut() async throws {
