@@ -6,6 +6,3 @@ acp.trust.peer-v1 an initialize extension name acpmux advertises in _meta.acpmux
 _meta.acpmux#noProject the pane's own key (Do not work in a project): AcpmuxPathPolicy reads and strips it before the request reaches acpmux
 _meta.acpmux#ownerCloud a reply key: RemoteAcpmuxWire answers initialize as the remote daemon, and acpmux's own initialize reply carries it too
 _meta.acpmux#features a reply key: RemoteAcpmuxWire answers initialize as the remote daemon (agent_login), as acpmux's own initialize reply does
-_acpmux/review_queue the relay allowlist entry for History's Waiting on you tab (#38546); acpmux defines it in #38521, and whichever lands second removes this line
-_acpmux/review_verdict the relay allowlist entry for Waiting on you's Accept and Request changes (#38546); acpmux defines it in #38521, and whichever lands second removes this line
-_acpmux/audit the relay allowlist entry for Waiting on you's Export audit (#38546); acpmux defines it in #38521, and whichever lands second removes this line
