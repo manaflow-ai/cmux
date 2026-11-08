@@ -157,10 +157,13 @@ pub(in crate::cli) fn parse_send(
 
 /// `terminal <t> run [OPTIONS] -- <command...>` (or `--text <command>`):
 /// a send that waits for the prompt and exits with the command's status.
+/// One word after `--` is a shell line as it is (`run -- 'make && ./a'`);
+/// two or more are an argv, each word shell-quoted, so `run -- sh -c 'exit
+/// 7'` runs `sh` with the two arguments `-c` and `exit 7`.
 pub(in crate::cli) fn parse_run(target: &str, flags: &[String]) -> Result<SendRequest, UsageError> {
     let split = flags.iter().position(|word| word == "--").unwrap_or(flags.len());
     let (options, argv) = flags.split_at(split);
-    let command = argv.split_first().map(|(_, command)| command.join(" "));
+    let command = argv.split_first().map(|(_, command)| shell_line(command));
     let mut options = options.to_vec();
     if options.iter().any(|word| word == "--wait" || word.starts_with("--wait=")) {
         return Err(UsageError("terminal run waits for the prompt; it takes no --wait".into()));
@@ -182,6 +185,20 @@ pub(in crate::cli) fn parse_run(target: &str, flags: &[String]) -> Result<SendRe
     request.wait = Wait::Prompt;
     request.exit_with_status = true;
     Ok(request)
+}
+
+/// The shell line `terminal run` types for the words after `--`: one word
+/// as it is, more words each POSIX-quoted (sh, bash and zsh read them back
+/// as the same words).
+fn shell_line(argv: &[String]) -> String {
+    match argv {
+        [line] => line.clone(),
+        words => words
+            .iter()
+            .map(|word| super::cloud_start_chat::shell_quote(word))
+            .collect::<Vec<_>>()
+            .join(" "),
+    }
 }
 
 fn print_json(value: &Value) {

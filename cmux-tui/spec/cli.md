@@ -586,6 +586,9 @@ cmux workspace create --cwd ~/src/app --shell 'npm install && npm run dev'
 terminal` take the same exact argv after `--` or `--shell <script>`: the new
 terminal runs it instead of a shell. Apps need `workspace:execute` for these
 too. Text after `--` on a command that starts no terminal is a usage error.
+`screen create` does not move the focus: the workspace's focused screen
+stays, unless `--focus` is given (or the workspace had no screen). It takes
+`--workspace <selector>` to choose the workspace.
 
 ```bash
 cmux tab create terminal --pane current -- htop
@@ -665,7 +668,7 @@ workspace <selector> layout apply
 workspace [<selector>] open-url --url <url>
 workspace <selector> screen ...
 
-screen list|create
+screen list|create [--workspace <selector>] [--focus]
 screen <selector> show|rename|focus|close
 screen <selector> layout export|undo
 screen <selector> column <split_id> update
@@ -837,9 +840,16 @@ never matches) and when the command finishes first (`matched: false`, exit 1).
 reported none; a timeout still exits 124. `terminal <t> run [OPTIONS] --
 <command...>` (or `--text <command>`) is `send --wait prompt
 --exit-with-status`: it types the command into the terminal's shell, waits
-for it to finish, prints its output and exits with its status. `terminal <t>
-status` adds a `LAST COMMAND` line for a person; `--json` keeps the record
-list.
+for it to finish, prints its output and exits with its status. One word
+after `--` is a shell line as it is (`run -- 'make && ./a.out'`); two or more
+words are an argv: each word is shell-quoted, so the shell gets the same words
+(`run -- sh -c 'exit 7'` exits 7). `terminal <t> status` adds a `LAST
+COMMAND` line for a person; `--json` keeps the record list.
+
+Every `--pattern` regex (`screen wait`, `send`, `run`, and `agents wait
+--regex`) is multi-line: `^` and `$` match at the start and end of each line, so
+`'^READY$'` matches a line that is only `READY`. Start the pattern with
+`(?-m)` to anchor at the start and end of the whole text.
 
 `workspace create --worktree <name>` runs `git worktree create --name <name>`
 in the repository `--repo` names (default: the current directory), with
@@ -1130,12 +1140,18 @@ plugin names are slugs matching `[a-z0-9-_]+`.
 
 `agent list` is one `agent.list` read; the CLI ranks, limits and counts its
 rows, so the wire value is unchanged. `--state` and `--terminal` are the
-read's own filters. `--needs-me` lists the blocked agents (`state: blocked`)
-and is refused with any other `--state`.
+read's own filters. Every row has `status`, one of the words `terminal list
+--agents` and `agent wait` use: `blocked`, `done` (idle with an unread
+notification on its terminal), `working`, `idle` or `unknown`, and `null` for
+an agent whose session ended. The daemon's `state` field (`working`,
+`blocked`, `idle`, `done` = ended, `unknown`) stays as it was. `--state` takes
+the status words and `ended`; `--needs-me` lists the blocked agents and is
+refused with any other `--state`. An acpmux chat row keeps its own status in
+`acp_status`.
 
-`--sort needs-me`, the default, puts blocked agents first, then working, then
-idle and done together, then unknown; `recent` ignores state; `none` keeps the
-daemon's order. Within a group the most recently updated agent comes first,
+`--sort needs-me`, the default, puts blocked agents first, then done, then
+working, then idle, then unknown, then ended; `recent` ignores status; `none`
+keeps the daemon's order. Within a group the most recently updated agent comes first,
 and equal times fall back to the agent id. `--limit <n>` (at least 1) keeps
 the first `n` ranked rows.
 
@@ -1151,10 +1167,10 @@ can show its terminal's title and folder. A refused or failed terminal read
 leaves those out. AGE is the time since the agent's `updated_at_ms`, its
 last report.
 
-Human output starts with the counts by state over every listed agent, before
-`--limit` (`2 blocked · 1 working · 3 idle · 0 done`, plus `unknown` when
-there is one, and `(showing n of m)` when the limit hid rows), then one row per
-agent: STATE, AGE, AGENT (`extra.agent`), TITLE, FOLDER (with `~` for the
+Human output starts with the counts by status over every listed agent, before
+`--limit` (`2 blocked · 0 done · 1 working · 3 idle`, plus `unknown` and
+`ended` when there is one, and `(showing n of m)` when the limit hid rows),
+then one row per agent: STATE (the status word), AGE, AGENT (`extra.agent`), TITLE, FOLDER (with `~` for the
 home folder) and TERMINAL, with SESSION first under `--all-sessions`. With no
 agents it prints `No agents.`
 
@@ -1162,7 +1178,7 @@ agents it prints `No agents.`
 default order changed (it was the daemon's order). Each agent is the
 `AgentSnapshot` plus `age_ms` and, when its terminal was listed, its `title`
 and `cwd`. `--json --counts` prints `{"agents": [...], "counts": {...}}`
-instead: `counts` has `blocked`, `working`, `idle`, `done`, `unknown` and
+instead: `counts` has `blocked`, `done`, `working`, `idle`, `unknown`, `ended` and
 `total`, counted before `--limit`. `--jsonl` prints one agent per line with
 or without `--counts`.
 

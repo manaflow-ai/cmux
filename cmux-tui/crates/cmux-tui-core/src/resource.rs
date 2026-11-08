@@ -963,7 +963,10 @@ impl Selector {
         if value.contains('_') || is_reserved_selector_token(value) {
             return Err(ResourceError::validation_invalid(
                 None,
-                "reserved or ambiguous names must use the name: prefix",
+                format!(
+                    "{value} is not an id, and a name with _ or a command word needs the \
+                     name: prefix: pass name:{value}"
+                ),
             ));
         }
         Ok(Self::Name(value.to_string()))
@@ -1004,13 +1007,16 @@ fn is_registered_public_id(value: &str) -> bool {
 /// many, uppercase), with where real ids come from; `None` when it does not
 /// look like an id. An agent that copies an id wrong gets this instead of
 /// the name rules.
+/// Why `value`, which starts with a public id prefix (`term_`, `ws_`, ...),
+/// is not an id: wrong length, uppercase or other characters. `None` for a
+/// value without such a prefix.
 fn mistyped_id_reason(value: &str) -> Option<String> {
     let (prefix, payload) = value.rsplit_once('_')?;
     let (_, scope) = PUBLIC_ID_PREFIXES.iter().find(|(known, _)| *known == prefix)?;
-    if payload.is_empty() || !payload.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return None;
-    }
-    let shape = if payload.len() == 32 {
+    let hex = payload.bytes().all(|byte| byte.is_ascii_hexdigit());
+    let shape = if !hex || payload.is_empty() {
+        format!("an id is {prefix}_ and 32 lowercase hex digits (0-9, a-f)")
+    } else if payload.len() == 32 {
         format!("ids are lowercase: {prefix}_ and 32 hex digits in lowercase")
     } else {
         format!("an id is {prefix}_ and 32 hex digits, and this one has {}", payload.len())

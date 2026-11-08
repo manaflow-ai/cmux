@@ -284,6 +284,11 @@ impl Mux {
                 let name = optional_owned_string(fields, "name")?;
                 let cwd = optional_owned_string(fields, "cwd")?;
                 let argv = optional_effect_command(fields)?;
+                // Absent only on the daemon's and the user's own new
+                // screens: the resource router sends `focus: false` for a
+                // caller that did not ask.
+                let focus =
+                    fields.get(SCREEN_CREATE_FOCUS_FIELD).and_then(Value::as_bool).unwrap_or(true);
                 match slots.workspace {
                     Some(workspace) => self.effect_add_screen(
                         intent,
@@ -292,6 +297,7 @@ impl Mux {
                         cwd,
                         argv,
                         effect_cell_size(fields)?,
+                        focus,
                     ),
                     None => self.effect_create_workspace_terminal(
                         intent,

@@ -749,7 +749,7 @@ fn read_run_send_pattern_matches_only_output_after_the_typed_command() {
 fn read_run_run_is_send_wait_prompt_with_exit_status() {
     let words = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
     let request =
-        super::parse_run("term_a", &words(&["--timeout", "10s", "--", "sh", "-c", "'exit 7'"]))
+        super::parse_run("term_a", &words(&["--timeout", "10s", "--", "sh", "-c", "exit 7"]))
             .expect("parsed");
     assert_eq!(request.text, "sh -c 'exit 7'");
     assert_eq!(request.wait, Wait::Prompt);

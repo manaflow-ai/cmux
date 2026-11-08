@@ -1177,6 +1177,7 @@ mod sanitize;
 mod socket;
 mod workspace_created_by;
 pub(super) use agent_roster::across as agent_roster_across;
+pub(super) use agent_roster::{NOTIFICATION_LIMIT, daemon_state_for_status, unseen_terminals};
 pub(super) use hints::connect_failure;
 #[cfg(test)]
 use human::human_text;
