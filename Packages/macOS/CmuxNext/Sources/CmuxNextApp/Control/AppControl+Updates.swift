@@ -6,6 +6,7 @@ import Foundation
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextSidebar
 import WebKit
@@ -14,7 +15,6 @@ import WebKit
 // `updates.status`: the updater's state (channel, feed, Sparkle phase,
 // automatic-check settings, last probe). `updates.check`: a read-only probe
 // of the build's real feed; answers with the typed result (or `pending`
-// when the feed is slower than the control deadline), never installs.
 // `updates.web.*`: web updates (CmuxNextWebUpdates).
 extension AppControl {
     func registerUpdateMethods(_ updater: UpdaterService, services appServices: AppServices) {
@@ -133,7 +133,7 @@ extension AppControl {
                     let pressed = NSEvent.pressedMouseButtons
                     return .followUp { @MainActor in
                         let value = try? await web.evaluateJavaScript(js)
-                        return .object(["pressed": .number(Double(pressed)), "value": .string(value.map { "\($0)" } ?? "nil")])
+                        return .object(["pressed": .number(Double(pressed)), "synthetic": .string(SyntheticInput.debugLog()), "value": .string(value.map { "\($0)" } ?? "nil")])
                     }
                 case "dismiss-updated":
                     services.updater.whatsNew.dismissUpdated()

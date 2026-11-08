@@ -31,6 +31,12 @@ public enum SyntheticInput {
     private struct State {
         var pending: [Key] = []
         var held = 0
+        var log: [String] = []
+    }
+
+    /// SCRATCH readback probe (never landed).
+    public nonisolated static func debugLog() -> String {
+        state.withLock { "held=\($0.held) pending=\($0.pending.map { "\($0.type)@\($0.timestamp)" }.suffix(6)) log=\($0.log.suffix(16))" }
     }
 
     private nonisolated static let state = Mutex(State())
@@ -50,6 +56,9 @@ public enum SyntheticInput {
         let key = Key(type: event.type.rawValue, timestamp: event.timestamp)
         let bit = buttonBit(event)
         let user = state.withLock { state in
+            if bit != 0 || event.type == .leftMouseDragged {
+                state.log.append("\(event.type.rawValue)@\(event.timestamp) m=\(state.pending.contains(key))")
+            }
             guard let index = state.pending.firstIndex(of: key) else { return true }
             // Events dispatch in the order they were posted: one registered before this one that never came
             // was taken by a tracking loop (`nextEvent(matching:)`: a native button's or a text selection's),
