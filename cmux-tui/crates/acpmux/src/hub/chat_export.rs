@@ -341,7 +341,7 @@ pub fn import_session_dir(root: &Path, chat: &PortableChat, harness: &str) -> Re
             }))?
         }
     };
-    let events = imported_events(chat, &meta.id);
+    let mut events = imported_events(chat, &meta.id);
     meta.last_seq = events.iter().map(|event| event.seq).max().unwrap_or(0);
     meta.transcript_seq = meta.last_seq;
     meta.event_count = events.len() as u64;
