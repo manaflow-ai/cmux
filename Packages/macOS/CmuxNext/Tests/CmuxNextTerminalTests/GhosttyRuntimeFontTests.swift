@@ -1,5 +1,6 @@
 @testable import CmuxNextTerminal
 import Foundation
+import GhosttyNextKit
 import Testing
 
 struct GhosttyRuntimeFontTests {
