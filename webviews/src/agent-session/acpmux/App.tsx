@@ -3575,6 +3575,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 ? { turns: lastTurns.current.turns }
                 : {}),
             ...(restartChat ? { nextStepOwner: restartChat } : {}),
+            dismissed: askDismissals.keys,
             sessions: snapshot.sessions,
             asks: snapshot.asks ?? [],
           }),
@@ -3589,6 +3590,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       sourceRows,
       turnRowsShown,
       restartChat,
+      askDismissals,
       snapshot.sessions,
       snapshot.asks,
     ],

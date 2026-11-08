@@ -627,7 +627,7 @@ export function turnViewFrom(
   while (settleFrom > 0 && (!nextSteps[settleFrom - 1]!.spoke || nextSteps[settleFrom - 1]!.outOfOrder))
     settleFrom -= 1;
   reusedRows = Math.min(reusedRows, settleNextSteps(out, nextSteps, settleFrom));
-  markLaterTurns(nextSteps, rows, starts);
+  markLaterTurns(nextSteps, rows, starts, ends);
   return {
     source: rows,
     expanded,
@@ -668,17 +668,24 @@ type NextStepAt = {
 };
 
 /// Marks each card a prompt came after, of any kind (the person's, another agent's, one received
-/// from elsewhere, one still sending or that failed): a later turn started, or an unsent prompt
+/// from elsewhere, one still sending or that failed): a later turn started and drew something (a
+/// bookkeeping turn that draws nothing leaves the card the chat's last word), or an unsent prompt
 /// went after the card in its own turn. Read from the turns themselves, never from the drawn rows,
 /// where a folded prompt (`foldsPrompt`) or a batch of other agents' messages (laneNoticeBatches.ts)
 /// leaves no prompt row behind: the composer hat and the pinned stack read this one answer, so a
 /// waiting card is in exactly one of them (#38964). Only a card of the last turn reads rows, so this
 /// costs the cards and the last turn's rows.
-function markLaterTurns(cards: NextStepAt[], rows: readonly AcpmuxRow[], starts: readonly number[]): void {
+function markLaterTurns(
+  cards: NextStepAt[],
+  rows: readonly AcpmuxRow[],
+  starts: readonly number[],
+  ends: TurnView["ends"],
+): void {
   const lastTurn = starts.length - 1;
+  const drawn = ends[lastTurn]?.count ?? 0;
   for (let index = cards.length - 1; index >= 0; index -= 1) {
     const card = cards[index]!;
-    let later = card.turn < lastTurn;
+    let later = card.turn < lastTurn && drawn > (ends[card.turn]?.count ?? drawn);
     if (!later)
       for (let at = starts[card.turn]! + 1; at < rows.length && !later; at += 1) {
         const row = rows[at]!;
@@ -784,8 +791,8 @@ function settleNextSteps(out: AcpmuxRow[], cards: NextStepAt[], from: number): n
 }
 
 /// The cards still waiting on the person, oldest first: a question neither answered nor spoken after,
-/// with another turn after it, so it is no
-/// longer the chat's last word above the composer (PendingAsks.tsx pins these there). A prompt the
+/// with a prompt of any kind after it (`markLaterTurns`), so it is no longer the chat's last word,
+/// above the composer (PendingAsks.tsx pins these there). A prompt the
 /// person sent after a newer card answers that card, not an older one still waiting before it. Walks
 /// back from the newest card until one was taken over: every card before that one has the person's
 /// words after it too, so it costs the waiting cards, never the chat's length.

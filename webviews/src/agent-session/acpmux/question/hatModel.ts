@@ -19,7 +19,8 @@
 // Relevance fade (Leo: "what happens if they respond to it in another way, right? ... the question
 // fade from relevance is a thing that needs to be accounted for"): a tagged ask leaves the hat once
 // the person says anything after it (the transcript's card stays answerable, Leo 2026-11-05), or once
-// another turn starts after it (the pinned card holds it then, with its Dismiss); the chat's own question is declined when the person types a reply instead
+// any prompt follows it (turns.ts `markLaterTurns`: the pinned card holds it then, with its
+// Dismiss); the chat's own question is declined when the person types a reply instead
 // (App.tsx `withdrawForTypedReply`), and its transcript record then reads "Answered in chat"
 // (direct.ts `recordQuestion`); one the agent or a Stop withdrew leaves when acpmux says so.
 import { nextStepAsk, type NextStepAsk } from "../conversation/nextStepAsk";
@@ -216,6 +217,9 @@ export type HatQuestionInput = {
   /// itself: nothing is pinned there.
   rows?: readonly AcpmuxRow[];
   messages?: boolean;
+  /// The tagged asks the person dismissed in this chat (waitingAskStore.ts `dismissedAsks`, by
+  /// `askKey`): a dismissed ask never comes back in the hat.
+  dismissed?: ReadonlySet<string>;
   /// The chat a tagged ask's answer would go to (App.tsx `restartOwner`); none, no tagged ask.
   nextStepOwner?: string;
   sessions: readonly AcpmuxSessionEntry[];
@@ -251,7 +255,7 @@ export function hatQuestions(input: HatQuestionInput): HatQuestion[] {
           input.messages ? messagesNextStep(input.rows ?? []) : input.turns && lastWordAsk(input.turns),
           owner,
         );
-  if (next) out.push(next);
+  if (next && !(next.answerKey && input.dismissed?.has(next.answerKey))) out.push(next);
   if (input.sessionId) out.push(...childQuestions(input.sessionId, input.sessions, input.asks));
   return out;
 }

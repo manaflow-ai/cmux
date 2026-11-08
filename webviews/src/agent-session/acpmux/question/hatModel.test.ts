@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { NEXT_STEP, turnViewFrom, waitingAsks } from "../conversation/turns";
+import { askKey } from "../conversation/waitingAskStore";
 import type { AcpmuxPermission, AcpmuxRow } from "../model";
 import type { WatchedAsk } from "../needsYou/model";
 import type { AcpmuxSessionEntry } from "../sessionList";
@@ -210,10 +211,12 @@ describe("the questions the composer hat holds", () => {
   test("a list that draws the same keeps its identity, so a streamed chunk never redraws the hat", () => {
     const ask = tagged();
     const one = hatQuestions({ sessionId: "chat", nextStepOwner: "chat", ...lastWord(ask), sessions: [], asks: [] });
+    // A streamed chunk shapes a new turn view, with a new row after the card.
+    const streamed = { turns: { nextSteps: [{ at: 0, row: ask, turn: 0 }], rows: [ask, row("thinking")] } };
     const two = hatQuestions({
       sessionId: "chat",
       nextStepOwner: "chat",
-      ...lastWord({ ...ask }),
+      ...streamed,
       sessions: [],
       asks: [],
     });
@@ -313,6 +316,26 @@ describe("a waiting tagged ask is in the hat or pinned above the composer, never
       hat: [],
       pinned: [QUESTION],
     });
+  });
+
+  test("a bookkeeping turn that draws nothing after it: still the last word, in the hat only", () => {
+    const blank = [...asked, line("b1", "user", { text: "" }), line("s2", "turnSummary", { status: "completed" })];
+    expect(surfaces(blank)).toEqual({ hat: [QUESTION], pinned: [] });
+  });
+
+  test("a question the person dismissed never comes back in the hat", () => {
+    const view = turnViewFrom(asked, new Set());
+    const [card] = view.nextSteps;
+    const dismissed = new Set([askKey(view.rows[card!.at]!)]);
+    const hat = hatQuestions({
+      sessionId: "chat",
+      nextStepOwner: "chat",
+      turns: view,
+      dismissed,
+      sessions: [],
+      asks: [],
+    });
+    expect(hat).toEqual([]);
   });
 
   test("the person's reply after it: in neither", () => {
