@@ -1234,8 +1234,10 @@ impl Hub {
                 // auto-accept edits, claude_stdio `PLAN_ACCEPT_EDITS`): a paired device picks only
                 // modes that ask (cmux-mobile-host `acpmux_policy.rs`).
                 if control == Control::Web
-                    && let Some(mode) =
-                        offered[0].pointer("/_meta/acpmux/setsMode").and_then(Value::as_str)
+                    && let Some(mode) = offered
+                        .first()
+                        .and_then(|x| x.pointer("/_meta/acpmux/setsMode"))
+                        .and_then(Value::as_str)
                 {
                     return Err(super::web_control::mode_move_refused(mode));
                 }
