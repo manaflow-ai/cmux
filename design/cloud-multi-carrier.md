@@ -210,10 +210,13 @@ carrier.phases machine=<vm_id> phase=<connect|reconnect|stream> carrier=relay:0 
 
 The route line (`cloud.connect route=carrier machine=… phase=… outcome=… ms=…`) is unchanged: cmuxterm-hq's
 start matrix fails a row on any `cloud.connect` line of another shape, so the step times ride their own line.
-`phase=stream` is a `serve` connection carried on the held session (no ticket, relay or handshake).
+`phase=stream` is a `serve` connection carried on the held session (no ticket, relay or handshake): its
+`mux_ms` is the stream open alone, from when the slot hands the session over, and its `ms` runs from accept, so
+the gap is the wait for the slot or another connection's dial. `lanes` counts the lanes the relay allocated.
 
 `serve` holds one session per machine. The first connection dials it; each later connection opens its own mux
 control stream on it. A new dial happens only when the daemon no longer has the session, its reader failed for
-good, a credential for another person (a different JWT `sub`) arrived on stdin, or the session carried no
+good, a credential for another person (a different JWT `sub`, or for a credential that is not a JWT, a
+different credential) became current, or the session carried no
 stream for two minutes (`CMUX_CARRIER_SERVE_IDLE_MS` overrides). The stdio contract (stdin token and answer
 lines, the ready line, one ok or failure line per connection, exit codes) is unchanged.

@@ -60,6 +60,7 @@
 //! found", like `_acpmux/directories`. Agents and MCP get them only through
 //! the `chats.read` scope, which is never granted by default.
 
+mod ledger;
 mod offers;
 mod search;
 mod stats;
@@ -166,6 +167,10 @@ pub(super) async fn route(
     // Personal stats over the session logs (`stats.rs`): local, never a peer's.
     if m == crate::rpc::method::MUX_STATS {
         return stats::handle(hub, conn.origin, &params).await;
+    }
+    // What turns cost (`hub/ledger`): local and the app's pane, never a peer's.
+    if m == crate::rpc::method::MUX_LEDGER {
+        return ledger::handle(hub, conn.origin, &params);
     }
     // A chat's route (`routes.rs`) is a session method, not the chat index.
     if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {
