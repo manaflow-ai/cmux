@@ -382,3 +382,16 @@ test("the card reports its layout box, not its scaled drawn rect", () => {
   card.getBoundingClientRect = () => ({ left: 125, top: 83, width: 368, height: 174 }) as DOMRect;
   expect(layoutBox(card)).toEqual({ x: 120, y: 80, w: 380, h: 180 });
 });
+
+test("a long message's lines sit in one block that scrolls at a bounded height, above the buttons", async () => {
+  const lines = Array.from({ length: 40 }, (_, index) => `• Workspace ${index}: setup: bun install`);
+  const { host } = await render({ ...quit, lines });
+  const block = host.querySelector(".overlay-dialog-lines")!;
+  expect(block.querySelectorAll(".overlay-dialog-line").length).toBe(40);
+  expect(block.compareDocumentPosition(host.querySelector(".overlay-dialog-buttons")!)).toBe(
+    dom!.window.Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+  const css = await Bun.file(new URL("./dialog.css", import.meta.url)).text();
+  const rule = css.slice(css.indexOf(".overlay-dialog-lines {"));
+  expect(rule.slice(0, rule.indexOf("}"))).toMatch(/max-height:[^;]+;[\s\S]*overflow-y: auto;/);
+});

@@ -80,6 +80,7 @@ enum FirstPartyPageSchemes {
         .machines,
         .markdown,
         .mobilePairing,
+        .onboarding,
         .passwords,
         .settings,
         .stats,

@@ -23,4 +23,13 @@ struct GitHubPageImageSourcesTests {
         // A source that could split the directive is dropped.
         #expect(imageSources(PageCSP(image: ["https://a.example; script-src *", ""]).header) == ["'self'", "data:"])
     }
+
+    @Test func onlyABuiltInPageMayAddImageSourcesAndNothingElse() {
+        let wide = PageCSP(connect: ["https://a.example"], image: ["https://camo.githubusercontent.com"])
+        let app = PageDescriptor(id: "com.example.app", resource: "app", namespaces: [], csp: wide)
+        #expect(app.csp.header == PageCSP.strict.header)
+        let builtIn = PageDescriptor(id: "cmux.github-test", resource: "github", namespaces: [], csp: wide)
+        #expect(imageSources(builtIn.csp.header) == ["'self'", "data:", "https://camo.githubusercontent.com"])
+        #expect(!builtIn.csp.header.contains("connect-src"))
+    }
 }

@@ -31,7 +31,8 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// host shows the native confirmation of that kind, then runs the op as the user's own
     /// (deleting data, money, publishing, signing in). The page never calls them directly.
     public let confirmedOps: [String: PageConfirmation.Kind]
-    /// The page's Content Security Policy (``PageCSP``); strict unless a first-party page widens it.
+    /// The page's Content Security Policy (``PageCSP``); strict unless a first-party page widens it, or
+    /// another built-in page adds image sources.
     public let csp: PageCSP
     /// The file `cmux-page://<id>/` serves (default `index.html`): a page whose root is a shared
     /// build (the diff viewer in the one webviews-app build) names its own entry html.
@@ -70,8 +71,10 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.gestureActions = gestureActions.intersection(actions)
         self.commands = commands
         self.confirmedOps = confirmedOps
-        // Only a first-party page may widen its policy (PageID); any other id gets the strict one.
-        self.csp = PageID.isFirstParty(id) ? csp : .strict
+        // Only a first-party page may widen its policy (PageID). Another built-in (`cmux.`) page may
+        // add image sources only (the GitHub page's image proxy), which loads pixels and runs nothing,
+        // and keeps no daemon access; any other id gets the strict one.
+        self.csp = PageID.isFirstParty(id) ? csp : PageID.isReserved(id) ? PageCSP(image: csp.image) : .strict
         // One file name inside the root, never a path.
         self.entry = entry.isEmpty || entry.contains("/") || entry.hasPrefix(".") ? "index.html" : entry
         self.dynamicPrefixes = dynamicPrefixes
@@ -262,6 +265,12 @@ public extension PageDescriptor {
     static let siteSettings = PageDescriptor(id: "cmux.site-settings", resource: "site-settings", namespaces: ["cmux.site-settings."])
     static let siteData = PageDescriptor(id: "cmux.site-data", resource: "site-data", namespaces: ["cmux.site-data."])
     static let certificate = PageDescriptor(id: "cmux.certificate", resource: "certificate", namespaces: ["cmux.certificate."])
+    /// The browser's Import Cookies card (webviews/src/pages/cookie-import, its owner CmuxNextBrowser's
+    /// BrowserCookieImportCard through BrowserChromeWebHost), inside the card's native glass on the
+    /// window's overlay. `cmux.cookie-import.state` brings the card's lines; the page sends the
+    /// person's answer and its size. It takes the first click: the card's window is never key.
+    static let cookieImport = PageDescriptor(id: "cmux.cookie-import", resource: "cookie-import", namespaces: ["cmux.cookie-import."],
+                                             acceptsFirstMouse: true)
 
     /// Where the nightly publishes each build's reel (`ReleaseMediaStore.reelBase`): the changelog
     /// page's `media-src`, a folder, so nothing else on that host plays.
