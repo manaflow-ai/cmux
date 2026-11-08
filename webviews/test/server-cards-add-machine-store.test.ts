@@ -176,6 +176,32 @@ describe("Add Machine store", () => {
     expect(store.getSnapshot().name).toBe("lab");
   });
 
+  test("a second press while an action is in flight sends nothing; Change Host drops a picked peer", async () => {
+    const host = new FakeHost();
+    host.status = { request: { seq: 1, mode: { kind: "add" }, destination: "hb" } };
+    const { store } = await opened(host);
+    const first = store.submit();
+    expect(viewOf(store.getSnapshot()).buttons.at(-1)?.enabled).toBe(false);
+    await store.submit();
+    await first;
+    expect(host.ops("add").length).toBe(1);
+
+    const peer = new FakeHost();
+    peer.candidateAnswers = [[candidate({ alreadyPeer: true, peer: "hb" })]];
+    const second = await opened(peer);
+    second.store.pick(candidate({ alreadyPeer: true, peer: "hb" }));
+    await settle();
+    peer.change({
+      ...peer.status,
+      run: { id: 1, host: "huge-blue.tail1.ts.net", name: "hb", outcome: "failed", events: [] },
+    });
+    await settle();
+    peer.status = { request: peer.status.request };
+    await second.store.perform("changeHost");
+    await settle();
+    expect(second.store.getSnapshot().picked).toBeUndefined();
+  });
+
   test("a changed field cannot add until its own parse answers", async () => {
     const host = new FakeHost();
     host.status = { request: { seq: 1, mode: { kind: "add" }, destination: "hb" } };
