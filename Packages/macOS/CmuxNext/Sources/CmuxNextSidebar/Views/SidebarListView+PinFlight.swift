@@ -32,12 +32,16 @@ struct SidebarPinFlight {
     var glyph: NSView?
     /// The view's own ground before the flight gave it an opaque one (`raiseForFlight`), put back when it lands.
     var ground: SidebarFlightGround?
+    /// The parts of a block that opens with this pin other than the flying item (its section header): the block itself
+    /// shows at once so the item never fades, and these fade in on the move instead.
+    var revealed: [NSView] = []
 
     /// Starts the flight at `now`, the move's one begin time: the view starts where the leaving view is drawn then.
     func start(_ token: MotionSpring, now: CFTimeInterval) {
         SidebarDragSpring.fly(view, from: start(now), token, now: now)
         if let title { SidebarDragSpring.offset(title.view, by: title.offset, token, now: now) }
         if let layer = glyph?.layer { SidebarDragSpring.appear(layer, token, now: now) }
+        for layer in revealed.compactMap(\.layer) { SidebarDragSpring.appear(layer, token, now: now) }
     }
 
     /// The begin of a move with flights: the first frame that can show it, one refresh of `view`'s screen from now
@@ -231,10 +235,22 @@ extension SidebarListViewComponents {
             raiseForFlight(block)
             let ground = raiseForFlight(item)
             flights.append(SidebarPinFlight(view: item, start: start, title: titleOffset(of: item, from: source), glyph: item.pinGlyph,
-                                            ground: ground))
+                                            ground: ground, revealed: revealOpeningBlock(block, keeping: item)))
         }
         for region in blockRegions { region.flyingWorkspaces = [] }
         return flights
+    }
+
+    /// A block that opens with this pin (the first pin creates Pinned) would fade in, and its flying item with it: the
+    /// item must translate, opaque. The block shows at once instead; its other parts (the section header, any other item)
+    /// fade in on the move (`SidebarPinFlight.revealed`). Returns those parts; none when the block already showed.
+    private func revealOpeningBlock(_ block: SidebarBlockRowView, keeping item: NSView) -> [NSView] {
+        guard block.alphaValue < 1 else { return [] }
+        Motion.withoutAnimation { block.alphaValue = 1 }
+        block.layer?.removeAnimation(forKey: "opacity")
+        let region = block.region
+        let parts: [NSView] = Array(region.headerViews.values) + region.itemViews.values.filter { $0 !== item }
+        return parts.filter { $0.superview != nil && !$0.isHidden && $0.alphaValue > 0 }
     }
 
     /// An unpin's arriving list row: it is laid out on its slot, opaque and unclipped, and flies there from the item's
