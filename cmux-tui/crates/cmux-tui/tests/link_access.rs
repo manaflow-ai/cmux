@@ -437,6 +437,75 @@ fn upload(world: &World, tmp: &Path, files: &[&Path]) -> (bool, Value) {
     (output.status.success(), answer)
 }
 
+/// A folder the person dropped on a new Cloud chat's first message goes
+/// whole, as a shared folder's files do: never a secret file, a credential
+/// or dot folder's files, or a symlink. A folder no grant could share stays
+/// refused, and nothing of the call goes.
+#[test]
+fn an_upload_sends_a_dropped_folder_without_its_secrets() {
+    let world = World::new();
+    let home = &world.home;
+    let base = home.parent().unwrap().to_path_buf();
+    let tmp = base.join("tmp");
+    let app = home.join("projects/app");
+    for dir in ["src/deep", "gcloud", "nested/.ssh", "empty"] {
+        std::fs::create_dir_all(app.join(dir)).unwrap();
+    }
+    for dir in [".ssh", "Library/Preferences"] {
+        std::fs::create_dir_all(home.join(dir)).unwrap();
+    }
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::create_dir_all(base.join("elsewhere")).unwrap();
+    std::fs::write(app.join("README.md"), "the app\n").unwrap();
+    std::fs::write(app.join("src/deep/main.rs"), "fn main() {}\n").unwrap();
+    std::fs::write(app.join(".env"), "TOKEN=fake-folder-env\n").unwrap();
+    std::fs::write(app.join("server.pem"), "fake-folder-pem\n").unwrap();
+    std::fs::write(app.join("gcloud/adc.json"), "fake-folder-gcloud\n").unwrap();
+    std::fs::write(app.join("nested/.ssh/config"), "fake-folder-ssh\n").unwrap();
+    std::fs::write(base.join("elsewhere/other.txt"), "fake-folder-outside\n").unwrap();
+    std::os::unix::fs::symlink(base.join("elsewhere/other.txt"), app.join("link.txt")).unwrap();
+    let dropped = home.join("projects/shot.png");
+    std::fs::write(&dropped, b"\x89PNG fake image").unwrap();
+
+    let (ok, sent) = upload(&world, &tmp, &[&app, &dropped]);
+    assert!(ok, "{sent}");
+    let folder = &sent["uploads"][0];
+    assert_eq!(folder["folder"], true, "{sent}");
+    let at = PathBuf::from(folder["path"].as_str().unwrap());
+    assert!(at.starts_with(world.work().join("local/uploads")), "{sent}");
+    assert_eq!(at.file_name().unwrap(), "app", "{sent}");
+    assert_eq!(std::fs::read_to_string(at.join("README.md")).unwrap(), "the app\n");
+    assert_eq!(std::fs::read_to_string(at.join("src/deep/main.rs")).unwrap(), "fn main() {}\n");
+    assert_eq!(folder["files"], 2, "{sent}");
+    for name in [
+        ".env",
+        "server.pem",
+        "gcloud/adc.json",
+        "nested/.ssh/config",
+        "link.txt",
+        ".cmux-sync.json",
+    ] {
+        assert!(std::fs::symlink_metadata(at.join(name)).is_err(), "{name} went: {sent}");
+    }
+    assert!(sent["uploads"][1]["path"].as_str().unwrap().ends_with("/shot.png"), "{sent}");
+    for bytes in files_below(&world.machine_home) {
+        let text = String::from_utf8_lossy(&bytes);
+        assert!(!text.contains("fake-folder"), "a secret reached the machine: {text}");
+    }
+
+    // The home folder, a dot folder, ~/Library and a folder outside the
+    // home: refused, and the file beside them does not go either.
+    for refused in
+        [home.clone(), home.join(".ssh"), home.join("Library/Preferences"), base.join("elsewhere")]
+    {
+        let before = files_below(&world.machine_home).len();
+        let (ok, answer) = upload(&world, &tmp, &[&dropped, &refused]);
+        assert!(!ok, "{} was uploaded: {answer}", refused.display());
+        assert_eq!(answer["error_code"], "upload_refused", "{answer}");
+        assert_eq!(files_below(&world.machine_home).len(), before, "{answer}");
+    }
+}
+
 #[test]
 fn an_upload_sends_the_files_the_person_dropped_and_refuses_secret_files() {
     let world = World::new();
@@ -486,7 +555,7 @@ fn an_upload_sends_the_files_the_person_dropped_and_refuses_secret_files() {
         tmp.join("loose.txt"),
         tmp.join("cmux-pastes/.hidden/x.txt"),
         home.join("Desktop/missing.png"),
-        home.join("Desktop"),
+        home.join(".ssh"),
     ] {
         let before = files_below(&world.machine_home).len();
         let (ok, answer) = upload(&world, &tmp, &[&dropped, &refused]);
