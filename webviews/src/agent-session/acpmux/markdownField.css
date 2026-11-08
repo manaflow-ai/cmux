@@ -475,10 +475,10 @@
 .acpmux-md-inline-chip[data-preview="text"] .acpmux-md-inline-remove {
   top: 3px;
 }
-.acpmux-md-inline-chip[data-preview="text"][data-design="expand"] {
+.acpmux-md-inline-chip[data-preview="text"][data-opening="panel"] {
   height: auto;
 }
-.acpmux-md-inline-chip[data-preview="text"][data-design="expand"] > .acpmux-paste-chip__face {
+.acpmux-md-inline-chip[data-preview="text"][data-opening="panel"] > .acpmux-paste-chip__face {
   height: calc(var(--cmux-control-height, 24px) * 2);
 }
 /* A failed tile in the text: its kind's glyph and the strip's small retry button side by side. */

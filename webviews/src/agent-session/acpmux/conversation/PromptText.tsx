@@ -43,6 +43,8 @@ import { experimentArm } from "../../../experiments/experiment";
 import { pastedAgentLook } from "./pastedAgentLook.experiment";
 import { sentPasteLook } from "./sentPasteLook.experiment";
 import { pastedSize } from "../composer/textAttachmentCardModel";
+import { SentUIPicks } from "./SentUIPick";
+import { sentUIPickSegments } from "./sentUIPickModel";
 
 export function PromptText({
   rowId,
@@ -295,6 +297,9 @@ export function PromptTyped({
   // A skill's `/name` draws as the composer's command words do, its description on hover.
   const skills = useContext(SkillWordsContext).words;
   if (plain || isHugePrompt(text)) return <span className="cv-user__typed">{plainWithForeignFiles(shown)}</span>;
+  // An inspector pick the composer sent draws as its chip, opening its report in place (SentUIPick.tsx).
+  const picks = sentUIPickSegments(text);
+  if (picks) return <SentUIPicks segments={picks} typed={(part) => <PromptTyped text={part} show={show} />} />;
   // Drawn as Markdown, the renderer reads its code as send does (`commonmark`) and lights skills
   // only in its own plain text.
   return isPromptMarkdown(text) ? (

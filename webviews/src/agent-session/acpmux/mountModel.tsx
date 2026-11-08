@@ -29,6 +29,8 @@ import { installUiPointer, type UiPointerControl } from "./uiPointer/picker";
   document,
   {
     post: (report) => void postNative("uiPointer.report", report),
+    // Esc that reached the page: the native picker stops too (UIInspectorController.pageReport).
+    cancel: () => void postNative("uiPointer.report", { cancelled: true }),
   },
 );
 
