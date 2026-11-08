@@ -49,6 +49,14 @@ async fn coming_back_says_where_the_person_left_off_and_how_many_turns_ended() {
     let meta = s.meta();
     assert!(!meta.unread);
     assert_eq!(meta.unread_turns, 0, "seeing it clears the count");
+    let back = crate::store::LastReturn { since: left_at, turns: 2 };
+    assert_eq!(meta.last_return, Some(back), "the return is kept while the person stays");
+    // A second client opening it now still reads the return; leaving clears it.
+    hub.attach_count(&s, 1, true);
+    assert_eq!(s.meta().last_return, Some(back));
+    hub.attach_count(&s, -1, true);
+    hub.attach_count(&s, -1, true);
+    assert_eq!(s.meta().last_return, None, "leaving ends the return");
 }
 
 #[tokio::test]

@@ -8,8 +8,10 @@
 //! things that people would think \"wow this is awesome\""): when the last client showing the
 //! chat stops, its log seq is kept as `seen_seq`, and each turn that ends unseen counts in
 //! `unread_turns`. Showing it again logs the `read` status with both (`since`, `turns`), so a
-//! client draws "New since you looked" above the first record after `since`. Both are kept in
-//! `session.json` and change once per hide, show or turn, never per record.
+//! client draws "New since you looked" above the first record after `since`. That return is kept
+//! as `last_return` while the person stays (the summary's `lastReturn`), so a client whose attach
+//! answers before its list read still draws it. All are kept in `session.json` and change once
+//! per hide, show or turn, never per record.
 
 use super::*;
 
@@ -66,7 +68,8 @@ impl Hub {
         }
         let seq = session.seq.load(Ordering::SeqCst);
         let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-        let changed = meta.seen_seq.replace(seq) != Some(seq);
+        let returned = meta.last_return.take().is_some();
+        let changed = meta.seen_seq.replace(seq) != Some(seq) || returned;
         drop(meta);
         if changed {
             self.save_meta(session);
@@ -126,6 +129,10 @@ impl Hub {
         let was_unread = std::mem::replace(&mut meta.unread, false);
         let turns = std::mem::take(&mut meta.unread_turns);
         let since = meta.seen_seq;
+        // Kept until the person leaves again, so every client opening it now draws the divider.
+        if let Some(since) = since.filter(|_| turns > 0) {
+            meta.last_return = Some(crate::store::LastReturn { since, turns });
+        }
         drop(meta);
         if was_unread || turns > 0 {
             self.save_meta(session);

@@ -78,3 +78,15 @@ test("the session list reads unreadTurns and seenSeq, and leaves out what is not
   expect(older.unreadTurns).toBeUndefined();
   expect(older.seenSeq).toBeUndefined();
 });
+
+test("new content at the same place reaches the kept order: a recap that arrives, then its dismissal", () => {
+  const rows = eventRows([1, 2, 5]);
+  rows.setAfter(2, divider(2, 1));
+  expect(rows.sorted().find((row) => row.id === SINCE_DIVIDER)?.since?.recap).toBeUndefined();
+  const recap = { key: "s-1:9", text: "Where it stands." };
+  rows.setAfter(2, { ...divider(2, 1), version: 2, since: { key: "s:2", seq: 2, turns: 1, recap } });
+  expect(rows.sorted().find((row) => row.id === SINCE_DIVIDER)?.since?.recap).toEqual(recap);
+  rows.setAfter(2, { ...divider(2, 1), version: 3 });
+  expect(rows.sorted().find((row) => row.id === SINCE_DIVIDER)?.since?.recap).toBeUndefined();
+  expect(rows.sorted().map((row) => row.id)).toEqual(["row-1", "row-2", SINCE_DIVIDER, "row-5"]);
+});
