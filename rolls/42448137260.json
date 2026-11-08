@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42448137260",
+  "recorded_at": "2026-11-08T04:53:07Z",
+  "reason": "cmux-tui 4894aad168fd changes the image's cmux-tui (pinned bf4ecfd3b3e3)",
+  "dry_run": false,
+  "cmux_tui": "4894aad168fdcaa065793ae77f6a033850b05413",
+  "fixes": [
+    {
+      "sha": "4894aad168fdcaa065793ae77f6a033850b05413",
+      "mergedAt": "2026-11-08T04:31:58Z",
+      "subject": "acpmux: opt-in setting to compact an idle Claude chat before its prompt cache expires (#33119)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T04:53:07Z",
+    "snapshot_id": "sh-0e12a2171ed648e78c3dafdb12cc7e32",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42448137260): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "997b5894f1080691949db722e23f06b1400423ba",
+    "image": "cloud-native-auto-4894aad1-42448137260-1",
+    "revision": "ci-42448137260-1",
+    "at": "2026-11-08T04:53:07Z"
+  },
+  "rolled_back": false
+}
