@@ -3,6 +3,7 @@ import struct CmuxNextDaemon.FileSystemReadRequest
 import struct CmuxNextDaemon.FileSystemReplaceRequest
 import struct CmuxNextDaemon.FileSystemStatRequest
 import protocol CmuxNextDaemonService.RemoteFileClient
+import class CmuxNextDaemonService.RemoteFilePageFiles
 import Foundation
 import Testing
 
@@ -51,5 +52,16 @@ struct CloudPathLinkCheckTests {
         let files = Self.machine()
         #expect(await files.reachesThroughLink("/home/cmux/work/app/notes.md"))
         #expect(await files.reachesThroughLink("/home/cmux/work/app/linked/config"))
+    }
+
+    /// A path too deep to check stat by stat counts as one through a link, with no stat at all.
+    @Test func aPathDeeperThanTheCheckReachesOne() async {
+        let files = Self.machine()
+        let deep = "/home/cmux/work/app/" + Array(repeating: "d", count: RemoteFilePageFiles.linkCheckDepth).joined(separator: "/") + "/f.md"
+        #expect(await files.reachesThroughLink(deep))
+        #expect(files.asked.isEmpty)
+        let fits = "/" + Array(repeating: "d", count: RemoteFilePageFiles.linkCheckDepth).joined(separator: "/")
+        #expect(await !files.reachesThroughLink(fits))
+        #expect(files.asked.count == RemoteFilePageFiles.linkCheckDepth)
     }
 }

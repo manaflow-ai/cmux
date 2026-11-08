@@ -36,10 +36,13 @@ extension RemoteFileClient {
     /// prefix's `fs.stat`, which answers a link's own kind. A path a chat's reply names is checked
     /// against the deny list by its spelling only, so a link in it could name a secret
     /// (`notes.md -> ~/.ssh/config`): such a path opens nothing. A prefix the machine does not
-    /// serve (outside its roots) cannot be read through, so its failed stat counts as no link.
+    /// serve (outside its roots) cannot be read through, so its failed stat counts as no link. A
+    /// path deeper than ``linkCheckDepth`` folders counts as one: its stats would never end.
     public func reachesThroughLink(_ path: String) async -> Bool {
+        let parts = path.split(separator: "/")
+        guard parts.count <= RemoteFilePageFiles.linkCheckDepth else { return true }
         var prefix = ""
-        for part in path.split(separator: "/").prefix(256) {
+        for part in parts {
             prefix += "/" + part
             if (try? await stat(prefix))?.kind == "symlink" { return true }
         }
@@ -52,6 +55,8 @@ extension RemoteFileClient {
 /// shows the VM's file. A save replaces the file only at the revision the page's text was read
 /// at; the watch polls the file's revision (the daemon has no file events).
 public final class RemoteFilePageFiles: FilePageFiles {
+    /// The deepest path ``RemoteFileClient/reachesThroughLink(_:)`` checks, one stat per folder.
+    public static let linkCheckDepth = 64
     /// The largest file a page opens from a machine: the daemon's single-read cap.
     public static let maximumBytes = FileSystemReadRequest.maximumBytes
     /// Reads of a file that changes during each one before its revision counts as unknown.
