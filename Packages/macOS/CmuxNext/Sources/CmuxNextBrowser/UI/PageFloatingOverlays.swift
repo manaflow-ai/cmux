@@ -39,6 +39,9 @@ final class PageFloatingOverlays {
         var handle: OverlayHandle?
         /// Fading out: it no longer takes clicks (`release`).
         var isReleased = false
+        /// Presented but hidden while its tab does not have the keyboard (the cookie import card's
+        /// `waitsForFocus`): it takes no clicks, and shows again in place, with no new present.
+        var isWaiting = false
     }
 
     private var cards: [Card] = []
@@ -73,13 +76,14 @@ final class PageFloatingOverlays {
     }
 
     /// `view`, added passing its clicks through while it is not drawn yet (the cookie import card
-    /// waits for its page to measure itself), takes clicks from now on; the next ``sync()``
-    /// presents it again with its mouse region.
+    /// waits for its page to measure itself), takes clicks from now on, where it is: presenting it
+    /// again moved its page to a new view, which drew a blank frame as it faded in (Leo
+    /// 2026-11-08: "the import cookies from google chrome card flickers sometimes").
     func startTakingClicks(_ view: NSView) {
         guard let index = cards.firstIndex(where: { $0.view === view }), cards[index].passesThroughClicks,
               !cards[index].isReleased else { return }
         cards[index].passesThroughClicks = false
-        dismiss(index)
+        if !cards[index].isWaiting { cards[index].handle?.startTakingMouse() }
     }
 
     /// `view` starts to fade out: from now on clicks pass through it to the
@@ -117,10 +121,15 @@ final class PageFloatingOverlays {
         for index in cards.indices {
             let view = cards[index].view
             // A hidden card waits for its tab (one chrome per pane): off screen, it takes no clicks.
-            if view.isHidden || (view as? BrowserCookieImportCard)?.waitsForFocus == true {
+            if view.isHidden {
                 dismiss(index)
                 continue
             }
+            // Waiting for its tab's keyboard (focus moved to a terminal or chat beside it): hidden
+            // where it is. Each focus flip dismissed and presented it again, and its page drew a
+            // blank frame when it came back.
+            let waits = (view as? BrowserCookieImportCard)?.waitsForFocus == true
+            if waits, cards[index].handle == nil { continue }
             if view.themeScope !== scope { scope.root(view) }
             if let handle = cards[index].handle, !handle.isDismissed, view.window?.parent === window {
                 handle.update(paneClip: clip)
@@ -136,9 +145,16 @@ final class PageFloatingOverlays {
                 )
                 view.alphaValue = alpha
                 cards[index].handle = handle
+                cards[index].isWaiting = false
                 if let holder = view.superview { pin(view, in: holder, lift: cards[index].lift, placement: cards[index].placement) }
             }
             guard let holder = view.superview, let handle = cards[index].handle else { continue }
+            if waits != cards[index].isWaiting {
+                cards[index].isWaiting = waits
+                handle.setHiddenInPlace(waits)
+                if waits { handle.stopTakingMouse() }
+                else if !cards[index].isReleased, !cards[index].passesThroughClicks { handle.startTakingMouse() }
+            }
             holder.layoutSubtreeIfNeeded()
             let solved = view.frame
             handle.update(anchor: NSRect(x: clip.minX + solved.minX, y: clip.minY + solved.minY,
@@ -189,6 +205,7 @@ final class PageFloatingOverlays {
     private func dismiss(_ index: Int) {
         let handle = cards[index].handle
         cards[index].handle = nil
+        cards[index].isWaiting = false
         handle?.dismiss()
     }
 }
