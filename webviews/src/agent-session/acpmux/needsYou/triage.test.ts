@@ -47,6 +47,51 @@ describe("triageMove", () => {
   });
 });
 
+describe("triageMove follow-ups (#38526 review)", () => {
+  const choiceQuestion = {
+    id: "q",
+    source: { session: "s", permission: "p" },
+    items: [
+      {
+        id: "i",
+        question: "Which?",
+        options: [
+          { id: "a", label: "Staging" },
+          { id: "b", label: "Local" },
+        ],
+      },
+    ],
+  } as unknown as NonNullable<Parameters<typeof triageMove>[0]>["question"];
+  test("F2: with the Needs you list off, a question still takes its first choice", () => {
+    const move = triageMove({ permissionId: "p", question: choiceQuestion }, [], "s");
+    expect(move?.kind).toBe("choice");
+    if (move?.kind !== "choice") return;
+    expect(move.answer).toEqual({ id: "a", label: "Staging", tone: "choice" });
+    expect(move.item).toMatchObject({ sessionId: "s", permissionId: "p", question: choiceQuestion });
+  });
+  test("F1: a pending permission group is allowed once through its panel", () => {
+    const group = (state: string, decisions: string[]) => ({ state, decisions }) as never;
+    expect(
+      triageMove(undefined, [], "s", { supported: true, groups: [group("pending", ["allow_once", "deny"])] }),
+    ).toEqual({
+      kind: "allow",
+      plan: false,
+    });
+    // Nothing a key may allow: a group still collecting, one acpmux refuses allows for, or none.
+    expect(
+      triageMove(undefined, [], "s", { supported: true, groups: [group("collecting", ["allow_once"])] }),
+    ).toBeUndefined();
+    expect(
+      triageMove(undefined, [], "s", {
+        supported: true,
+        allowRefused: "web control",
+        groups: [group("pending", ["allow_once"])],
+      }),
+    ).toBeUndefined();
+    expect(triageMove(undefined, [], "s", { supported: false, groups: [] })).toBeUndefined();
+  });
+});
+
 describe("othersWaiting", () => {
   test("each other chat counts once; this chat and marked tabs never", () => {
     const items = [

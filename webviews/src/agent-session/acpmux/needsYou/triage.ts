@@ -7,7 +7,8 @@
 // takes its first choice through Needs you's one-click answer. An ask a key cannot answer (several
 // questions, a typed answer) stays waiting, and the key only moves on.
 import type { AcpmuxPermission } from "../model";
-import { askItemId, type NeedsYouAnswer, type NeedsYouItem } from "./model";
+import type { PermissionClientState } from "../permissions/protocol";
+import { askItemId, questionAnswers, type NeedsYouAnswer, type NeedsYouItem } from "./model";
 
 export type TriageMove =
   /// The card's Allow once (a plan's Approve plan).
@@ -17,15 +18,39 @@ export type TriageMove =
   /// Nothing a key can send: the chat stays waiting.
   | { kind: "skip" };
 
-/// What `triageAnswer` does for the chat's ask `permission` (the one its card shows); undefined
-/// when nothing waits here.
+/// What `triageAnswer` does for this chat: its ask `permission` (the one its card shows), else a
+/// pending permission group (whose panel takes the same Allow once event); undefined when nothing
+/// waits here. A question's first choice comes from its Needs you row, else from the question
+/// itself, so it works with the Needs you list turned off.
 export function triageMove(
   permission: Pick<AcpmuxPermission, "permissionId" | "question" | "plan"> | undefined,
   items: readonly NeedsYouItem[],
+  sessionId?: string,
+  groups?: Pick<PermissionClientState, "supported" | "groups" | "allowRefused">,
 ): TriageMove | undefined {
-  if (!permission) return undefined;
+  if (!permission) {
+    const pending =
+      groups?.supported && !groups.allowRefused
+        ? groups.groups.some((group) => group.state === "pending" && group.decisions.includes("allow_once"))
+        : false;
+    return pending ? { kind: "allow", plan: false } : undefined;
+  }
   if (!permission.question) return { kind: "allow", plan: Boolean(permission.plan) };
-  const item = items.find((each) => each.id === askItemId(permission.permissionId));
+  const listed = items.find((each) => each.id === askItemId(permission.permissionId));
+  const item: NeedsYouItem | undefined =
+    listed ??
+    (sessionId
+      ? {
+          id: askItemId(permission.permissionId),
+          kind: "decision",
+          sessionId,
+          ask: "",
+          who: { name: "", chief: false },
+          answers: questionAnswers(permission.question),
+          permissionId: permission.permissionId,
+          question: permission.question,
+        }
+      : undefined);
   const answer = item?.answers[0];
   return item && answer ? { kind: "choice", item, answer } : { kind: "skip" };
 }

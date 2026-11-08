@@ -8988,7 +8988,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     },
   });
   // Triage (needsYou/triage.ts): what Ctrl-Cmd-Y does to this chat's ask, said on the strip above it.
-  const triage = snapshot.permission?.pending ? triageMove(snapshot.permission, needsYou.items) : undefined;
+  const triage = triageMove(
+    snapshot.permission?.pending ? snapshot.permission : undefined,
+    needsYou.items,
+    snapshot.sessionId,
+    snapshot.permissionGroups,
+  );
   triageAnswerRef.current = () => {
     if (triage?.kind === "allow") window.dispatchEvent(new CustomEvent("cmux-acpmux-permissionAllowOnce"));
     else if (triage?.kind === "choice") void needsYou.actions.answer(triage.item, triage.answer).catch(() => undefined);
