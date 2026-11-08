@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42527957145",
+  "recorded_at": "2026-11-08T22:09:16Z",
+  "reason": "cmux-tui bfefcd23124b changes the image's cmux-tui (pinned 2cfc50085eb2)",
+  "dry_run": false,
+  "cmux_tui": "bfefcd23124bcdcb6246de1ae32e1577990577b6",
+  "fixes": [
+    {
+      "sha": "bfefcd23124bcdcb6246de1ae32e1577990577b6",
+      "mergedAt": "2026-11-08T13:43:40-08:00",
+      "subject": "cmux-host: the carrier ticket hand-out holds the generation's lock; a taken want marks the fetch at once (#38700)"
+    },
+    {
+      "sha": "67646dc3cd2ba5c74c653bc369c47f3e82afdf63",
+      "mergedAt": "2026-11-08T13:42:47-08:00",
+      "subject": "cmux NEXT Settings: \"Suggest Next Prompt\" turns Claude's next-prompt suggestions on or off (#33097)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T22:09:16Z",
+    "snapshot_id": "sh-c8ca3e00062f4e1ea161afacf91b55da",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42527957145): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "eb83d3fd512e3ddc8a58bfa44345c12969be1f33",
+    "image": "cloud-native-auto-bfefcd23-42527957145-1",
+    "revision": "ci-42527957145-1",
+    "at": "2026-11-08T22:09:16Z"
+  },
+  "rolled_back": false
+}
