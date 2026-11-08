@@ -85,6 +85,7 @@ public final class TerminalSurfaceView: NSView {
         var columns: UInt16 = 0, rows: UInt16 = 0
         guard ghostty_surface_fit_grid(surface, UInt32(pixels.width), UInt32(pixels.height), &columns, &rows), columns > 0, rows > 0,
               let report = geometry.viewSized(TerminalGridSize(columns: Int(columns), rows: Int(rows))) else { return }
+        FilmCloseVariant.counters["grid_sent", default: 0] += 1
         gridReports.now(report)
     }
     #endif
@@ -759,3 +760,25 @@ public final class TerminalSurfaceView: NSView {
 extension TerminalSurfaceView: ParkingObserver {
     public func parkingDidChange() { syncWindowState() }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+/// CLOSE VARIANTS film snap (``FilmCloseVariant/snapSendsGrid``; DEBUG and bench builds only, never merged): the grid of the
+/// size this surface takes at the snap's tick goes to the PTY owner now, in the close's turn before its commit.
+extension TerminalSurfaceView: FilmSnapGridSending {
+    public func filmSendSnapGrid(sizeChange: CGSize) {
+        guard isShown, !isFollowingResizeGesture, let surface else { return }
+        let size: CGSize
+        if let host = superview as? TerminalHostView {
+            let basis = host.paneMotionBasisSize
+            size = host.surfaceSize(forHostSize: CGSize(width: max(0, basis.width + sizeChange.width),
+                                                        height: max(0, basis.height + sizeChange.height)))
+        } else {
+            size = CGSize(width: max(0, bounds.width + sizeChange.width), height: max(0, bounds.height + sizeChange.height))
+        }
+        let pixels = convertToBacking(size)
+        guard pixels.width >= 1, pixels.height >= 1 else { return }
+        FilmCloseVariant.counters["snap_surfaces", default: 0] += 1
+        reportFilmSnapGrid(pixels: pixels, on: surface)
+    }
+}
+#endif

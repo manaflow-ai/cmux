@@ -118,6 +118,7 @@ extension TerminalSurfaceView {
         frameOwnership.pendingAhead = size
         #if DEBUG || CMUX_BENCH_HOOKS
         frameOwnership.filmSendsGrid = DesignSettings.shared.filmClose.snapSendsGrid
+        if frameOwnership.filmSendsGrid { FilmCloseVariant.counters["surface_drawAhead", default: 0] += 1 }
         #endif
         presenter.drawAhead(self)
     }
@@ -131,6 +132,11 @@ extension TerminalSurfaceView {
         #if DEBUG || CMUX_BENCH_HOOKS
         let filmSendsGrid = frameOwnership.filmSendsGrid
         frameOwnership.filmSendsGrid = false
+        if filmSendsGrid {
+            let why = surface == nil ? "no_surface" : !isShown ? "hidden" : frameOwnership.inFlight != nil ? "in_flight"
+                : size == bounds.size ? "at_bounds" : size == frameOwnership.wanted?.size ? "wanted" : "sent"
+            FilmCloseVariant.counters["applyAhead_\(why)", default: 0] += 1
+        }
         #endif
         guard let surface, isShown, frameOwnership.inFlight == nil, size != bounds.size,
               size != frameOwnership.wanted?.size else { return }

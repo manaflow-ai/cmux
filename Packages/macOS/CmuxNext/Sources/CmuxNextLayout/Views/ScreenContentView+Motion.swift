@@ -92,6 +92,9 @@ extension ScreenContentView {
     /// change the gap beside it); they all land in the frame the last one comes within a quarter point of rest.
     /// True while any of them still moves.
     func advancePaneAndDividerSprings(_ dt: Double, policy: MotionPolicy) -> Bool { // perf-hot: 4ms motion-frame
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let moving = advanceFilmCurve(dt) { return moving }
+        #endif
         var moving = false
         let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
         // Each spring is read, stepped and written back: an in-place `dict[key]?.advance(...)` goes through
@@ -127,13 +130,18 @@ extension ScreenContentView {
         leadsFrame = false
         let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
         // The same springs `step` uses: unsettled (no edge lands alone), each pane on its zoom spring token.
-        for key in Array(paneFrames.keys) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let filmCurve = advanceFilmCurve(dt) != nil
+        #else
+        let filmCurve = false
+        #endif
+        for key in Array(paneFrames.keys) where !filmCurve {
             guard var frame = paneFrames[key] else { continue }
             let token = zoomMotion.spring(for: key, fallback: motionState.frameSpring)
             _ = frame.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token), alphaParameters: appear)
             paneFrames[key] = frame
         }
-        for key in Array(dividerFrames.keys) {
+        for key in Array(dividerFrames.keys) where !filmCurve {
             guard var frame = dividerFrames[key] else { continue }
             _ = frame.advanceUnsettled(dt, parameters: frameSpring)
             dividerFrames[key] = frame

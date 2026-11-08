@@ -1,4 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
+public import AppKit
+public import CmuxNextDesignTokens
 public import Foundation
 public import QuartzCore
 
@@ -34,9 +36,101 @@ public struct FilmCloseVariant: Sendable, Equatable {
         case spring
     }
 
+    /// A named curve of the CURVE SET (cmux-ad m63, Lawrence: "i want to see a bunch of different curves, maybe springs,
+    /// faster"): K1-K5 and K10 are timed beziers, K6-K9 springs (response, damping fraction; SwiftUI semantics, mass 1).
+    public enum Shape: Sendable, Equatable {
+        case bezier(x1: Double, y1: Double, x2: Double, y2: Double, seconds: Double)
+        case spring(response: Double, damping: Double)
+
+        public static let named: [String: Shape] = [
+            "K1": .bezier(x1: 0.2, y1: 0, x2: 0, y2: 1, seconds: 0.08),
+            "K2": .bezier(x1: 0.2, y1: 0, x2: 0, y2: 1, seconds: 0.1),
+            "K3": .bezier(x1: 0.2, y1: 0, x2: 0, y2: 1, seconds: 0.12),
+            "K4": .bezier(x1: 0.22, y1: 1, x2: 0.36, y2: 1, seconds: 0.1),
+            "K5": .bezier(x1: 0.65, y1: 0, x2: 0.35, y2: 1, seconds: 0.12),
+            "K6": .spring(response: 0.15, damping: 1),
+            "K7": .spring(response: 0.18, damping: 0.9),
+            "K8": .spring(response: 0.2, damping: 0.8),
+            "K9": .spring(response: 0.25, damping: 0.7),
+            "K10": .bezier(x1: 0, y1: 0, x2: 1, y2: 1, seconds: 0.1),
+        ]
+
+        /// The fraction of the travel done `t` seconds in (a spring may pass 1 and come back).
+        public func progress(_ t: Double) -> Double {
+            switch self {
+            case let .bezier(x1, y1, x2, y2, seconds):
+                guard seconds > 0, t < seconds else { return 1 }
+                return Self.bezierY(max(0, t) / seconds, x1, y1, x2, y2)
+            case let .spring(response, damping):
+                let solved = SpringValue.solve(displacement: -1, velocity: 0, time: max(0, t),
+                                               parameters: SpringParameters(response: response, dampingFraction: damping))
+                return 1 + solved.displacement
+            }
+        }
+
+        /// When a travel of `points` ends: a bezier at its time, a spring once it stays within 0.5 pt of rest (m63: "settle
+        /// time to 0.5 px").
+        public func endSeconds(travel points: Double) -> Double {
+            switch self {
+            case let .bezier(_, _, _, _, seconds): return seconds
+            case .spring:
+                guard points > 0.5 else { return 0 }
+                var t = 2.0
+                while t > 0, abs(1 - progress(t)) * points < 0.5 { t -= 0.001 }
+                return min(2, t + 0.001)
+            }
+        }
+
+        /// y of the cubic bezier (0,0) (x1,y1) (x2,y2) (1,1) at `x` (Newton, then bisection).
+        static func bezierY(_ x: Double, _ x1: Double, _ y1: Double, _ x2: Double, _ y2: Double) -> Double {
+            func bx(_ t: Double) -> Double { let u = 1 - t; return 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t }
+            func by(_ t: Double) -> Double { let u = 1 - t; return 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t }
+            func dbx(_ t: Double) -> Double { let u = 1 - t; return 3 * u * u * x1 + 6 * u * t * (x2 - x1) + 3 * t * t * (1 - x2) }
+            var t = x
+            for _ in 0..<8 {
+                let d = dbx(t)
+                guard abs(d) > 1e-6 else { break }
+                t = min(1, max(0, t - (bx(t) - x) / d))
+            }
+            if abs(bx(t) - x) > 1e-5 {
+                var (lo, hi) = (0.0, 1.0)
+                t = x
+                for _ in 0..<40 {
+                    if bx(t) < x { lo = t } else { hi = t }
+                    t = (lo + hi) / 2
+                }
+            }
+            return by(t)
+        }
+    }
+
     public var kind: Kind
     public var milliseconds: Double
     public var curve: Curve
+    /// The CURVE SET curve this selection plays ("K2"), nil for the 150 ms default (``curve`` and ``milliseconds``).
+    public var named: String?
+    /// The shape a motion of this selection takes: the named curve, else ``curve`` over ``milliseconds``.
+    public var shape: Shape {
+        if let named, let shape = Shape.named[named] { return shape }
+        switch curve {
+        case .bezier: return .bezier(x1: 0.2, y1: 0, x2: 0, y2: 1, seconds: duration)
+        case .spring: return .spring(response: duration / 6.6 * 2 * .pi, damping: 1)
+        }
+    }
+
+    /// The current close (V0) and V2 (the same code path: the survivor's final grid goes at the spring's start and the
+    /// surface is held at its final size, clipped by its growing frame) with a CURVE SET curve: the pane and divider
+    /// frames move on that curve instead of the split spring. Nil with no curve named (the build's own close).
+    public var frameCurve: Shape? {
+        guard let named, let shape = Shape.named[named] else { return nil }
+        switch kind {
+        case .v0, .v2, .v2b: return shape
+        case .v1, .v3, .v4, .v5: return nil
+        }
+    }
+
+    /// Film diagnostics (``select(_:)`` answers them): how often each film grid path ran since the last read.
+    @MainActor public static var counters: [String: Int] = [:]
 
     public init(kind: Kind = .v0, milliseconds: Double = 150, curve: Curve = .bezier) {
         self.kind = kind
@@ -49,7 +143,9 @@ public struct FilmCloseVariant: Sendable, Equatable {
         self.init()
         if let raw = environment["CMUX_FILM_CLOSE_VARIANT"], let kind = Self.kind(raw) { self.kind = kind }
         if let raw = environment["CMUX_FILM_CLOSE_MS"], let ms = Double(raw), ms >= 0 { milliseconds = ms }
-        if let raw = environment["CMUX_FILM_CLOSE_CURVE"], let curve = Curve(rawValue: raw.lowercased()) { self.curve = curve }
+        if let raw = environment["CMUX_FILM_CLOSE_CURVE"] {
+            if let curve = Curve(rawValue: raw.lowercased()) { self.curve = curve } else if Shape.named[raw.uppercased()] != nil { named = raw.uppercased() }
+        }
     }
 
     /// `raw` as a kind, any letter case ("v2b", "V2B").
@@ -74,6 +170,9 @@ public struct FilmCloseVariant: Sendable, Equatable {
 
     public var duration: TimeInterval { milliseconds / 1000 }
 
+    /// The corner label a VIEW film shows for this selection ("V3 K6", "V0 150 ms").
+    public var label: String { "\(kind.rawValue) \(named ?? "\(Int(milliseconds)) ms")" }
+
     /// True only while a film snap (V1, V3, V4, V5) draws the survivors' final sizes ahead in the close's turn
     /// (`ScreenContentView.holdsSnapForContent`): each terminal given a size then also sends the grid of that size to its
     /// PTY in this turn, in the presenter's pass before the commit (lead m60: "the grid is sent in the key turn, before the
@@ -87,11 +186,15 @@ public struct FilmCloseVariant: Sendable, Equatable {
     @MainActor public static func select(_ command: String) -> [String: Any] {
         var film = DesignSettings.shared.filmClose
         for word in command.split(whereSeparator: { $0 == " " || $0 == ":" || $0 == "," }).dropFirst().map(String.init) {
-            if let kind = kind(word) { film.kind = kind } else if let curve = Curve(rawValue: word.lowercased()) { film.curve = curve }
+            if let kind = kind(word) { film.kind = kind } else if let curve = Curve(rawValue: word.lowercased()) { (film.curve, film.named) = (curve, nil) }
+            else if Shape.named[word.uppercased()] != nil { film.named = word.uppercased() } else if word.lowercased() == "nocurve" { film.named = nil }
             else if let ms = Double(word), ms >= 0 { film.milliseconds = ms } else { return ["error": "close_variant: unknown word \(word)"] }
         }
         DesignSettings.shared.filmClose = film
-        return ["variant": film.kind.rawValue, "ms": film.milliseconds, "curve": film.curve.rawValue, "plays": film.active?.kind.rawValue ?? "V0"]
+        let counters = Self.counters
+        Self.counters = [:]
+        return ["variant": film.kind.rawValue, "ms": film.milliseconds, "curve": film.curve.rawValue, "named": film.named ?? "",
+                "plays": film.active?.kind.rawValue ?? "V0", "frame_curve": film.frameCurve != nil, "counters": counters]
     }
 
     /// `layer.keyPath` from `from` to `value` over this variant's duration on its curve, through the pane motion gate
@@ -99,7 +202,7 @@ public struct FilmCloseVariant: Sendable, Equatable {
     /// Reduce Motion) the value applies at once. `completion` runs when it ends (at once with no animation).
     @MainActor public func animate(_ layer: CALayer, _ keyPath: String, from: Any, to value: Any,
                                    completion: @escaping @MainActor () -> Void) {
-        guard Motion.panes.animatesMovement, duration > 0 else {
+        guard Motion.panes.animatesMovement, duration > 0 || named != nil else {
             Motion.setModel(layer, keyPath, value)
             completion()
             return
@@ -109,24 +212,41 @@ public struct FilmCloseVariant: Sendable, Equatable {
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } } // main-proof: CATransaction.h: the completion block is called on the main thread
         Motion.setModel(layer, keyPath, value)
         let animation: CABasicAnimation
-        switch curve {
-        case .bezier:
+        switch shape {
+        case let .bezier(x1, y1, x2, y2, seconds):
             animation = CABasicAnimation(keyPath: keyPath)
-            animation.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0, 0, 1)
-        case .spring:
-            // Critically damped: (1 + wt) e^(-wt) is 1% at wt = 6.6, so it is at rest when the duration ends.
+            animation.timingFunction = CAMediaTimingFunction(controlPoints: Float(x1), Float(y1), Float(x2), Float(y2))
+            animation.duration = seconds
+        case let .spring(response, damping):
+            // SwiftUI response and damping fraction, mass 1: stiffness (2 pi / response)^2, damping 2 zeta omega.
             let spring = CASpringAnimation(keyPath: keyPath)
-            let omega = 6.6 / duration
+            let omega = 2 * Double.pi / max(response, 0.001)
             spring.mass = 1
             spring.stiffness = omega * omega
-            spring.damping = 2 * omega
+            spring.damping = 2 * damping * omega
             spring.initialVelocity = 0
+            spring.duration = spring.settlingDuration
             animation = spring
         }
-        animation.duration = duration
         animation.fromValue = from
         animation.toValue = value
         Motion.add(animation, to: layer, keyPath: keyPath, trace: "layer.\(keyPath).film-close")
+    }
+}
+
+/// A view that sends the PTY the grid of its final size in a film snap's turn (``FilmCloseVariant/snapSendsGrid``): the
+/// terminal surface. DEBUG and bench builds only, branch close-variants/film-selector-nomerge, never merged.
+@MainActor
+public protocol FilmSnapGridSending: NSView {
+    /// The enclosing pane's content area will be `sizeChange` larger (negative: smaller) at the snap's tick.
+    func filmSendSnapGrid(sizeChange: CGSize)
+}
+
+public extension NSView {
+    /// Every ``FilmSnapGridSending`` view in this subtree (this view included) sends its final grid now.
+    @MainActor func filmSendSnapGrids(sizeChange: CGSize) {
+        if let sender = self as? FilmSnapGridSending { sender.filmSendSnapGrid(sizeChange: sizeChange) }
+        for subview in subviews { subview.filmSendSnapGrids(sizeChange: sizeChange) }
     }
 }
 
