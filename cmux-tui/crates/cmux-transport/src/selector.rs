@@ -111,7 +111,9 @@ struct Path {
 pub struct Selector {
     config: SelectorConfig,
     paths: Vec<Path>,
-    current: Option<PathId>,
+    /// The held path (`chosen()`): `current()` is this path only while
+    /// it is alive.
+    held_id: Option<PathId>,
     retired: Vec<PathId>,
 }
 
@@ -123,20 +125,20 @@ pub enum SelectorError {
 
 impl Selector {
     pub fn new(config: SelectorConfig) -> Self {
-        Self { config, paths: Vec::new(), current: None, retired: Vec::new() }
+        Self { config, paths: Vec::new(), held_id: None, retired: Vec::new() }
     }
 
     /// The path the next datagram takes; `None` means every path (a dial,
     /// every path dead, or the chosen path is suspect).
     pub fn current(&self) -> Option<PathId> {
-        let id = self.current?;
+        let id = self.held_id?;
         let path = self.paths.iter().find(|path| path.view.id == id)?;
         (path.view.state == PathState::Alive).then_some(id)
     }
 
     /// The path the selector holds to, even while it is suspect.
     pub fn chosen(&self) -> Option<PathId> {
-        self.current
+        self.held_id
     }
 
     pub fn paths(&self) -> impl Iterator<Item = PathView> + '_ {
@@ -269,7 +271,7 @@ impl Selector {
     /// otherwise; an answer of the current path can only reset streaks (a
     /// challenger that no longer beats it starts over), never advance them.
     fn update_streaks(&mut self, answered: PathId) {
-        let Some(incumbent) = self.alive(self.current).map(|path| path.view) else {
+        let Some(incumbent) = self.alive(self.held_id).map(|path| path.view) else {
             return;
         };
         let config = self.config;
@@ -299,7 +301,7 @@ impl Selector {
     /// The chosen path while it is alive or suspect: a suspect is held (and
     /// sprayed around) until it answers or dies.
     fn held(&self) -> Option<&Path> {
-        let id = self.current?;
+        let id = self.held_id?;
         self.paths.iter().find(|path| {
             path.view.id == id && matches!(path.view.state, PathState::Alive | PathState::Suspect)
         })
@@ -308,7 +310,7 @@ impl Selector {
     /// Picks the chosen path and reports a change of what `current()`
     /// answers since `before`.
     fn reselect(&mut self, before: Option<PathId>) -> Option<Switch> {
-        let chosen = self.current;
+        let chosen = self.held_id;
         let to = match (self.held(), self.best_alive()) {
             (held, None) => held.map(|path| path.view.id),
             (None, Some(best)) => Some(best.view.id),
@@ -335,7 +337,7 @@ impl Selector {
             }
         };
         if to != chosen {
-            self.current = to;
+            self.held_id = to;
             for path in &mut self.paths {
                 path.better_streak = 0;
             }
@@ -344,7 +346,7 @@ impl Selector {
         // A held path that dies while it was being sprayed around changes
         // nothing visible (`current()` stays None) but is still news: it is
         // when callers learn the path is gone and what it lost.
-        let held_died = chosen.is_some() && self.current.is_none();
+        let held_died = chosen.is_some() && self.chosen().is_none();
         (after != before || held_died).then_some(Switch { from: before, to: after })
     }
 }
