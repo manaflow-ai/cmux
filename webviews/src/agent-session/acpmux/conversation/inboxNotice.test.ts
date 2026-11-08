@@ -3,6 +3,7 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import {
+  inboxMessages,
   inboxNotice,
   joinNotices,
   mergeInboxNotices,
@@ -126,4 +127,65 @@ test("a bare sender name keeps its record's label and session", () => {
   expect(thread.from).toEqual(["gcp-agent-lane-2/lock-proof-routes"]);
   expect(thread.sender).toMatchObject({ label: sender.label, session: "s-9" });
   expect(thread.messages![0]!.sender).toMatchObject({ label: sender.label, session: "s-9" });
+});
+
+test("an opened thread names each sender by its plain name, not the agent's words", () => {
+  // `_acpmux/inbox_thread` gives `fromName` for the transcript; `from` is what the agent reads.
+  const opened = [{ from: "dot (self-declared, unauthenticated)", fromName: "dot", text: "hello", at: 1 }];
+  // The agent's words still mark it unverified (the row's marker, never words in the name).
+  expect(inboxMessages(opened)).toEqual([{ from: "dot", text: "hello", at: 1, unverified: true }]);
+  // A daemon from before `fromName`: its `from` as given.
+  expect(inboxMessages([{ from: "lane-a", text: "hi" }])).toEqual([{ from: "lane-a", text: "hi" }]);
+});
+
+// Review of #37653: a sender record that says `authenticated: false` is unverified whatever else it
+// names; an acpmux that wrote no `verification` nor `labelDeclared` still said so.
+test("a sender record with authenticated false is unverified without labelDeclared", () => {
+  const [plain, proven] = inboxMessages([
+    { from: "lane-a", text: "hi", sender: { authenticated: false, label: "lane-a" } },
+    { from: "lane-b", text: "hi", sender: { authenticated: true, session: "s-b" } },
+  ]);
+  expect(plain?.unverified).toBe(true);
+  expect(proven?.unverified).toBeUndefined();
+});
+
+// Review of #37653: a later notice of the same sender that names less about it (no record, no
+// session, no harness, no unverified mark) keeps what the earlier one said; a later notice from
+// another sender speaks for itself.
+test("a joined thread keeps the earlier notice's sender metadata for the same sender", () => {
+  const earlier = thread("pr:9", "lane-a", 1, {
+    sender: { label: "vm-1/lane-a", session: "s-a" },
+    fromSession: "s-a",
+    fromHarness: "codex",
+    unverified: true,
+  });
+  const same = joinNotices({ threads: [earlier] }, { threads: [thread("pr:9", "lane-a")] }).threads[0]!;
+  expect(same).toMatchObject({
+    sender: { label: "vm-1/lane-a", session: "s-a" },
+    fromSession: "s-a",
+    fromHarness: "codex",
+    unverified: true,
+    count: 2,
+  });
+  // Two chats named lane-a (cmux#38642 review): the later notice's own record names s-b, so the
+  // joined thread opens s-b, and nothing of s-a's record fills a field of it.
+  const twin = joinNotices(
+    { threads: [earlier] },
+    { threads: [thread("pr:9", "lane-a", 1, { sender: { session: "s-b" } })] },
+  ).threads[0]!;
+  expect(twin.sender).toEqual({ session: "s-b" });
+  expect(twin.fromSession).toBeUndefined();
+  expect(twin.fromHarness).toBeUndefined();
+  expect(twin.unverified).toBeUndefined();
+  // The same chat by its session id: what the later notice leaves out still holds.
+  const agreed = joinNotices(
+    { threads: [earlier] },
+    { threads: [thread("pr:9", "lane-a", 1, { sender: { session: "s-a" } })] },
+  ).threads[0]!;
+  expect(agreed).toMatchObject({ sender: { session: "s-a" }, fromSession: "s-a", fromHarness: "codex" });
+  const other = joinNotices({ threads: [earlier] }, { threads: [thread("pr:9", "lane-b")] }).threads[0]!;
+  expect(other.sender).toBeUndefined();
+  expect(other.fromSession).toBeUndefined();
+  expect(other.fromHarness).toBeUndefined();
+  expect(other.unverified).toBeUndefined();
 });

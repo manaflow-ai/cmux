@@ -254,7 +254,10 @@ pub(super) const WRAP_UP_STEER: &str = " When you end a turn that did work, call
     where things stand, including what is not done or not verified. Add ask (one short question) \
     and actions (one or two answers, your pick first) only when a decision waits on the person, \
     in place of AskUserQuestion or a question in prose; their click comes back as their next \
-    message. Then end the turn without repeating the recap.";
+    message. When the person corrected you this turn, or a command failed and a later one \
+    worked, add learned: at most three one-line facts about this project for its instructions \
+    file (\"Use pnpm, not npm.\"); leave it out otherwise. Then end the turn without repeating the \
+    recap.";
 
 /// acpmux's `offer_session` behind this server (acpmux `offer_mcp.rs`, its upstream `cmux-sessions`
 /// folds as `sessions`): a new chat the agent suggests, which the agent pane draws as a card with

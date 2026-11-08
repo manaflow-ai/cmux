@@ -123,6 +123,10 @@ pub(crate) mod fake {
         pub close: tokio::sync::mpsc::Sender<()>,
         /// One message each time a connection's client side closed.
         pub closed: tokio::sync::mpsc::UnboundedReceiver<()>,
+        /// Sends the current connection a Ping with this payload.
+        pub ping: tokio::sync::mpsc::Sender<Vec<u8>>,
+        /// Each Pong payload the server receives.
+        pub pongs: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
         _dir: tempfile::TempDir,
     }
 
@@ -136,6 +140,8 @@ pub(crate) mod fake {
         let seen = Arc::new(Mutex::new(Seen::default()));
         let (close, mut closes) = tokio::sync::mpsc::channel::<()>(1);
         let (closed_tx, closed) = tokio::sync::mpsc::unbounded_channel();
+        let (ping, mut pings) = tokio::sync::mpsc::channel::<Vec<u8>>(1);
+        let (pongs_tx, pongs) = tokio::sync::mpsc::unbounded_channel();
         let record = seen.clone();
         tokio::spawn(async move {
             while let Ok((stream, _)) = listener.accept().await {
@@ -160,6 +166,9 @@ pub(crate) mod fake {
                             let _ = ws.close(None).await;
                             break;
                         }
+                        Some(payload) = pings.recv() => {
+                            let _ = ws.send(Message::Ping(payload.into())).await;
+                        }
                         frame = ws.next() => match frame {
                             Some(Ok(Message::Text(text))) => {
                                 record.lock().unwrap().frames.push(text.to_string());
@@ -170,13 +179,16 @@ pub(crate) mod fake {
                                 let _ = closed_tx.send(());
                                 break;
                             }
+                            Some(Ok(Message::Pong(payload))) => {
+                                let _ = pongs_tx.send(payload.to_vec());
+                            }
                             Some(Ok(_)) => {}
                         },
                     }
                 }
             }
         });
-        Fake { path, seen, close, closed, _dir: dir }
+        Fake { path, seen, close, closed, ping, pongs, _dir: dir }
     }
 }
 
@@ -259,6 +271,30 @@ mod relay_tests {
         fake.close.send(()).await.unwrap();
         let mut lines = BufReader::new(client_reader).lines();
         assert_eq!(within(lines.next_line()).await.unwrap(), None);
+        within(relay_task).await.unwrap().unwrap();
+    }
+
+    /// An idle bridge answers acpmux's keepalive Ping with its Pong, and the
+    /// client sees nothing of it.
+    #[tokio::test]
+    async fn an_idle_bridge_answers_pings() {
+        let mut fake = start();
+        let owner = grant(Some(VmKind::Owner), None);
+        let ws = connect(&fake.path, &header(Some(&owner)).unwrap()).await.unwrap();
+        let (client, bridge) = tokio::io::duplex(4096);
+        let (bridge_reader, bridge_writer) = tokio::io::split(bridge);
+        let relay_task = tokio::spawn(relay(ws, bridge_reader, bridge_writer));
+        let (client_reader, mut client_writer) = tokio::io::split(client);
+        for payload in [b"k1".to_vec(), b"k2".to_vec()] {
+            fake.ping.send(payload.clone()).await.unwrap();
+            assert_eq!(within(fake.pongs.recv()).await, Some(payload));
+        }
+        // The relay still carries frames, and no ping reached the client.
+        client_writer.write_all(b"{\"id\":1}\n").await.unwrap();
+        let mut lines = BufReader::new(client_reader).lines();
+        let answer = within(lines.next_line()).await.unwrap().unwrap();
+        assert_eq!(parsed(&answer), json!({"echo": "{\"id\":1}"}));
+        client_writer.shutdown().await.unwrap();
         within(relay_task).await.unwrap().unwrap();
     }
 
