@@ -53,7 +53,10 @@ await requireBrowserLane("guest-open-in-app-banner-browser.test.ts", async () =>
         return element !== null && getComputedStyle(element).position === "fixed";
       });
       const boxes = await banner.evaluate((element) => {
-        const box = (node: Element) => node.getBoundingClientRect().toJSON() as DOMRect;
+        const box = (node: Element) => {
+          const { left, right, width } = node.getBoundingClientRect();
+          return { left, right, width };
+        };
         return {
           banner: box(element),
           parts: [...element.children].map((child) => ({ name: child.className, ...box(child) })),
