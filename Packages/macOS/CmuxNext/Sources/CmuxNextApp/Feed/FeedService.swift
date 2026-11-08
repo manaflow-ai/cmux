@@ -146,7 +146,6 @@ final class FeedService {
         localOwner.post(card.item)
     }
 
-
     /// Live GitHub details are held by the source only while the app runs.
     func githubDetail(for id: String) -> GitHubFeedDetail? { github.githubDetail(for: id) }
 
