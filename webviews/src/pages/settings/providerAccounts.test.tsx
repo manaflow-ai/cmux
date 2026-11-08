@@ -211,9 +211,45 @@ test("Make Default, Rename, Sign Out and Remove each ask the host for their acco
   expect(row().querySelector(".harness-account-name")?.textContent).toContain("Work");
   await press("signOut");
   expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountSignOut", account: "codex-2" });
+  // Remove asks first, in the row; only the confirm sends it.
+  const runs = page.provider.harnessRuns.length;
   await press("remove");
+  expect(page.provider.harnessRuns.length).toBe(runs);
+  expect(row().querySelector("[data-account-remove-confirm]")?.textContent).toContain("Remove “Work” from cmux?");
+  await press("confirmRemove");
   expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountRemove", account: "codex-2" });
   expect(card(page.container).querySelector('[data-account="codex-2"]')).toBeNull();
+  page.unmount();
+});
+
+test("Remove's confirm cancels with Cancel or Escape and sends nothing", async () => {
+  const page = await withAccounts();
+  const row = () => card(page.container).querySelector<HTMLElement>('[data-account="codex-2"]')!;
+  const confirm = () => row().querySelector<HTMLElement>("[data-account-remove-confirm]");
+  const runs = page.provider.harnessRuns.length;
+  await act(async () => row().querySelector<HTMLButtonElement>('[data-account-action="remove"]')!.click());
+  expect(confirm()?.getAttribute("role")).toBe("alertdialog");
+  // Remove gives way to the question while it is open.
+  expect(row().querySelector('[data-account-action="remove"]')).toBeNull();
+  await act(async () => row().querySelector<HTMLButtonElement>('[data-account-action="cancelRemove"]')!.click());
+  expect(confirm()).toBeNull();
+  await act(async () => row().querySelector<HTMLButtonElement>('[data-account-action="remove"]')!.click());
+  await act(async () => {
+    confirm()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
+  expect(confirm()).toBeNull();
+  await settle();
+  expect(page.provider.harnessRuns.length).toBe(runs);
+  expect(row()).not.toBeNull();
+  page.unmount();
+});
+
+test("a signed-out account shows no usage, even one read before its sign-out", async () => {
+  const usage = { windows: [{ id: "session", usedPercent: 50, windowMins: 300 }], plan: "plus" };
+  const page = await withAccounts({
+    accounts: accounts.map((account) => (account.id === "codex-2" ? { ...account, usage, signedIn: false } : account)),
+  });
+  expect(card(page.container).querySelector('[data-account="codex-2"] [data-account-usage]')).toBeNull();
   page.unmount();
 });
 
