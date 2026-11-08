@@ -842,14 +842,15 @@ in the repository `--repo` names (default: the current directory), with
 `--base`, then `workspace create` with the remaining options, `--cwd` set to
 the worktree and `--name <name>` unless given (`--cwd` and `--empty` are
 refused), then `workspace.agent_folder.set` to the worktree's canonical
-folder, which names the worktree for its close. The result is the `workspace
-create` result plus `worktree`, the `git worktree create` result (`root` is
-the folder) and `workspace_folder` (whether the folder was recorded).
-`workspace <ws> close --remove-worktree [--discard]` runs `git worktree
-remove` of that recorded folder, then closes the workspace; a refused remove
-closes nothing, and a workspace with no recorded folder is refused with
-`worktree.not_recorded`. The result is the close result plus `worktree`, the
-removal. Each step has its own key derived from `--idempotency-key` (made
+folder (only an app connection may set it; an agent's CLI is refused, and the
+command goes on). The result is the `workspace create` result plus
+`worktree`, the `git worktree create` result (`root` is the folder) and
+`workspace_folder` (whether the agent folder was set). `workspace <ws> close
+--remove-worktree [--discard]` runs `git worktree remove` of the workspace's
+agent folder when it has one, else of the worktree its current terminal works
+in (`--workspace <ws>`; the main checkout is never removed), then closes the
+workspace; a refused remove closes nothing. The result is the close result
+plus `worktree`, the removal. Each step has its own key derived from `--idempotency-key` (made
 when absent), so retrying the whole command replays the steps that ran; a
 failed step's error names `step`, the command's `idempotency_key` and what
 the steps before it `made`.

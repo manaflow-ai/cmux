@@ -4,13 +4,14 @@
 //!   [workspace create options]`: `git worktree create` (a new branch
 //!   `cmux/<name>` in `~/.cmux/worktrees/<project>/<name>`), then a workspace
 //!   whose first terminal starts in it, named `<name>` unless `--name`. The
-//!   workspace records the folder as its agent folder
-//!   (`workspace.agent_folder.set`), so its agent chats start there and
-//!   `close --remove-worktree` knows which worktree is its own. The result
+//!   workspace also records the folder as its agent folder
+//!   (`workspace.agent_folder.set`, which only an app connection may do), so
+//!   its agent chats start there. The result
 //!   is the `workspace create` result with the worktree result as
 //!   `worktree` (`root` is the folder).
 //! - `cmux workspace <ws> close --remove-worktree [--discard]`: `git
-//!   worktree remove` of the workspace's recorded folder (refused, closing
+//!   worktree remove` of the workspace's agent folder, else of the worktree
+//!   its current terminal works in (refused, closing
 //!   nothing, with uncommitted or unpushed work unless `--discard`), then the
 //!   workspace close. The result is the close result with the removal as
 //!   `worktree`.
@@ -262,9 +263,10 @@ pub(in crate::cli) fn create<B: Daemon + ?Sized>(
     let mut result = backend
         .request(None, plan(&workspace_words, Some(step_key(command_key, "workspace")))?)
         .map_err(|failure| StepFailure::step(failure, "workspace", command_key, made))?;
-    // The workspace's agent folder names its worktree for `close
-    // --remove-worktree` (and starts its agent chats there). It must be the
-    // canonical folder; `~/.cmux/worktrees` is a link.
+    // The workspace's agent folder starts its agent chats in the worktree
+    // and names it for `close --remove-worktree`. Only an app connection may
+    // set it; without it the close finds the worktree from the terminal.
+    // It must be the canonical folder; `~/.cmux/worktrees` is a link.
     let folder = std::fs::canonicalize(&root).map(|path| path.to_string_lossy().into_owned());
     let workspace_id = created_workspace(&result);
     let recorded = match (folder, workspace_id) {
@@ -307,23 +309,13 @@ pub(in crate::cli) fn close<B: Daemon + ?Sized>(
         .request(None, plan(&words(&["workspace", &request.target, "show"]), None)?)
         .map_err(|failure| StepFailure::step(failure, "show", command_key, Value::Null))?;
     let id = shown.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
-    let Some(folder) =
-        shown.pointer("/extra/agent_folder").and_then(Value::as_str).map(str::to_owned)
-    else {
-        return Err(StepFailure {
-            error: json!({
-                "code": "worktree.not_recorded",
-                "message": format!(
-                    "workspace {id} has no worktree folder recorded (workspace create --worktree \
-                     records it); remove a worktree with cmux git worktree remove --path <folder>"
-                ),
-                "details": {"workspace": id},
-                "retryable": false,
-            }),
-            exit: 1,
-        });
+    // The worktree is the workspace's agent folder when one is recorded (an
+    // app connection can set it), else the one its current terminal works
+    // in. Either way `git.worktree.remove` refuses the main checkout.
+    let mut remove = match shown.pointer("/extra/agent_folder").and_then(Value::as_str) {
+        Some(folder) => words(&["git", "worktree", "remove", "--path", folder]),
+        None => words(&["git", "worktree", "remove", "--workspace", &id]),
     };
-    let mut remove = words(&["git", "worktree", "remove", "--path", &folder]);
     if request.discard {
         remove.push("--discard".into());
     }
@@ -344,12 +336,9 @@ pub(in crate::cli) fn close<B: Daemon + ?Sized>(
     Ok(result)
 }
 
-fn finish(global: &GlobalArgs, outcome: Result<Value, StepFailure>, warn: impl Fn(&Value)) -> i32 {
+fn finish(global: &GlobalArgs, outcome: Result<Value, StepFailure>) -> i32 {
     match outcome {
-        Ok(result) => {
-            warn(&result);
-            wire::print_local_success(&result, global.output)
-        }
+        Ok(result) => wire::print_local_success(&result, global.output),
         Err(failure) => wire::print_local_error(&failure.error, global.output, failure.exit),
     }
 }
@@ -357,20 +346,13 @@ fn finish(global: &GlobalArgs, outcome: Result<Value, StepFailure>, warn: impl F
 fn create_command(global: &GlobalArgs, request: &CreateRequest) -> i32 {
     let backend = super::mcp::cli_backend(global.clone());
     let outcome = command_key(global).and_then(|key| create(&backend, request, &key));
-    finish(global, outcome, |result| {
-        if result.pointer("/worktree/workspace_folder") == Some(&Value::Bool(false)) {
-            eprintln!(
-                "cmux: the workspace did not record its worktree folder; close it with \
-                 cmux git worktree remove --path <root>, then cmux workspace <ws> close"
-            );
-        }
-    })
+    finish(global, outcome)
 }
 
 fn close_command(global: &GlobalArgs, request: &CloseRequest) -> i32 {
     let backend = super::mcp::cli_backend(global.clone());
     let outcome = command_key(global).and_then(|key| close(&backend, request, &key));
-    finish(global, outcome, |_| {})
+    finish(global, outcome)
 }
 
 #[cfg(test)]

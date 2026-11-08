@@ -203,13 +203,21 @@ fn read_run_worktree_close_refused_by_git_closes_nothing() {
 }
 
 #[test]
-fn read_run_worktree_close_of_a_workspace_without_a_recorded_worktree_is_refused() {
-    let daemon =
-        FakeDaemon::new(vec![("workspace.get", Ok(json!({"id": WORKSPACE, "extra": {}})))]);
-    let request = parse_close(WORKSPACE, &strings(&["--remove-worktree"])).expect("parsed");
-    let failure = close(&daemon, &request, "key-5").expect_err("refused");
-    assert_eq!(failure.error["code"], "worktree.not_recorded");
-    assert_eq!(daemon.operations(), ["workspace.get"]);
+fn read_run_worktree_close_without_an_agent_folder_removes_the_terminals_worktree() {
+    // An agent's CLI cannot set the agent folder: the close names the
+    // workspace, whose current terminal's folder names the worktree.
+    let daemon = FakeDaemon::new(vec![
+        ("workspace.get", Ok(json!({"id": WORKSPACE, "extra": {}}))),
+        ("git.worktree.remove", Ok(json!({"value": {"root": "/w", "branch_deleted": true}}))),
+    ]);
+    let request = parse_close("feature-x", &strings(&["--remove-worktree"])).expect("parsed");
+    let result = close(&daemon, &request, "key-5").expect("closed");
+    assert_eq!(daemon.operations(), ["workspace.get", "git.worktree.remove", "workspace.close"]);
+    let remove = daemon.params("git.worktree.remove");
+    assert_eq!(remove["workspace"], WORKSPACE);
+    assert!(remove.get("path").is_none(), "{remove}");
+    assert_eq!(daemon.params("workspace.close")["workspace"], WORKSPACE);
+    assert_eq!(result["worktree"]["root"], "/w");
     assert!(parse_close("current", &strings(&["--remove-worktree"])).is_err());
     assert!(parse_close(WORKSPACE, &strings(&["--remove-worktree", "--others"])).is_err());
 }
