@@ -337,3 +337,46 @@ test("a checkout's origin without the .git suffix is accepted as manaflow-ai/cmu
   const forked = validateEvidence(candidate, baseline(), budget, { expectedHead: source.head });
   expect(forked.errors).toContain("source.repository must identify manaflow-ai/cmux");
 });
+
+test("a drag target paint run with no cadence window (frameGaps null) is accepted", () => {
+  const candidate = evidence();
+  candidate.results[0].metricType = "drag_target_painted";
+  candidate.results[0].samples = [];
+  candidate.results[0].latencyMs = { p50: 12, p95: 12, max: 12 };
+  candidate.results[0].adapterRuns = Array.from({ length: 10 }, () => ({
+    status: "complete",
+    observations: [{ status: "painted", latencyMs: 12, inputAt: 10, targetPaintAt: 22, raw: {} }],
+    frameGaps: null,
+    longTasks: [],
+    reactCommits: 1,
+    unsupportedReasons: {},
+  }));
+  const dragBudget = { ...budget, metricTypes: { [id]: "drag_target_painted" } };
+  expect(validateEvidence(candidate, baseline(), dragBudget, { expectedHead: source.head }).ok).toBe(true);
+  candidate.results[0].adapterRuns[0].frameGaps = ["8"];
+  expect(validateEvidence(candidate, baseline(), dragBudget, { expectedHead: source.head }).ok).toBe(false);
+});
+
+test("the measurement job runs the target base's harness, never the candidate's", () => {
+  const workflow = fs.readFileSync(path.join(import.meta.dir, "../../.github/workflows/cmux-next-web-perf.yml"), "utf8");
+  const pin = workflow.indexOf('git checkout "$BASE_SHA" -- webviews/scripts/latency webviews/test/latency');
+  expect(pin).toBeGreaterThan(-1);
+  expect(pin).toBeLessThan(workflow.indexOf("bun scripts/latency/run.ts"));
+});
+
+test("the gate rejects results not measured with the target base's harness", () => {
+  const options = { expectedHead: source.head, expectedBase: source.base, requireBaseHarness: true };
+  const own = evidence();
+  expect(validateEvidence(own, baseline(), budget, options).errors).toContain(
+    "results harness missing is not the target base's",
+  );
+  own.source = { ...source, harness: source.head };
+  expect(validateEvidence(own, baseline(), budget, options).ok).toBe(false);
+  own.source = { ...source, harness: source.base };
+  expect(validateEvidence(own, baseline(), budget, options).errors).not.toContain(
+    `results harness ${source.base} is not the target base's`,
+  );
+  const workflow = fs.readFileSync(path.join(import.meta.dir, "../../.github/workflows/cmux-next-web-perf.yml"), "utf8");
+  expect(workflow).toContain("CMUX_LATENCY_HARNESS_SHA: ${{ env.BASE_SHA }}");
+  expect(workflow).toContain("--require-base-harness");
+});

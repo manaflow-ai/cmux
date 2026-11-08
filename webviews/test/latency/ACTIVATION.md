@@ -34,6 +34,10 @@ The validator continues to reject a pending baseline. This stage does not satisf
 4. Land trusted policy plus that reviewed numeric baseline on `feat-cmux-next`, then activate this
    workflow in a separate PR by adding `pull_request: { branches: [feat-cmux-next] }` without a paths
    filter. That activation PR must retain the complete 16-case capture and obtain independent review.
+   The measurement job measures the candidate's app with the target base's harness
+   (`webviews/scripts/latency` and `webviews/test/latency` checked out from the base, recorded as
+   `source.harness`), and validation requires that (`--require-base-harness`), so a candidate can't report
+   numbers its own harness made up. A harness change therefore takes effect for the PRs after it lands.
    Validation runs on a separate fresh cloud runner that checks out only the exact target base.
    It downloads measurement artifacts as data, verifies every raw trace file's bytes, hash and timeline,
    and runs the base validator and policy with both expected head and expected base. Candidate code,

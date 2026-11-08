@@ -57,6 +57,7 @@ export interface EvidenceDocument {
     runner?: { platform?: string };
     mode?: string;
     dirty?: boolean;
+    harness?: string | null;
   };
   expectedCases?: string[];
   runs?: number;
@@ -172,7 +173,7 @@ function validateBaseline(value: unknown, errors: string[]): value is BaselineDo
 
 function parseEvidence(
   value: unknown,
-  options: { expectedHead?: string; expectedBase?: string },
+  options: { expectedHead?: string; expectedBase?: string; requireBaseHarness?: boolean },
   errors: string[],
 ): EvidenceDocument | null {
   if (!isRecord(value)) {
@@ -200,6 +201,10 @@ function parseEvidence(
     errors.push(`results head ${source?.head ?? "missing"} does not match expected ${options.expectedHead}`);
   if (options.expectedBase && source?.base !== options.expectedBase)
     errors.push(`results base ${source?.base ?? "missing"} does not match expected ${options.expectedBase}`);
+  // The gate measures a candidate with the target base's harness (cmux-next-web-perf.yml), so the numbers
+  // come from trusted code; results from any other harness are the candidate's own claims.
+  if (options.requireBaseHarness && (!options.expectedBase || source?.harness !== options.expectedBase))
+    errors.push(`results harness ${source?.harness ?? "missing"} is not the target base's`);
   if (source?.mode !== "production") errors.push("results must be production mode evidence");
   if (source?.dirty !== false) errors.push("results source.dirty must be false");
   if (source?.runner?.platform !== "linux") errors.push("results runner.platform must be linux");
@@ -281,8 +286,9 @@ function inspectResult(result: Record<string, unknown>, runs: number, errors: st
       !run.observations.some((entry) => isRecord(entry) && entry.status === "painted") ||
       !numbers(run.longTasks) ||
       !commits(run.reactCommits) ||
-      !numbers(run.frameGaps) ||
-      (cadence && run.frameGaps.length === 0)
+      // A drag target paint has no cadence window to report (rail-flow.ts sends null); only frame-time
+      // metrics are built from frame gaps, so only they must carry a nonempty list.
+      (cadence ? !numbers(run.frameGaps) || run.frameGaps.length === 0 : run.frameGaps !== null && !numbers(run.frameGaps))
     ) {
       errors.push(`${id}: incomplete or uninstrumented adapter run`);
       valid = false;
@@ -388,7 +394,7 @@ function inspectResult(result: Record<string, unknown>, runs: number, errors: st
 export function validateCapture(
   evidence: unknown,
   budget: unknown,
-  options: { expectedHead?: string; expectedBase?: string; traceDir?: string } = {},
+  options: { expectedHead?: string; expectedBase?: string; requireBaseHarness?: boolean; traceDir?: string } = {},
 ): string[] {
   const errors: string[] = [];
   const parsed = parseEvidence(evidence, options, errors);
@@ -436,7 +442,13 @@ export function validateEvidence(
   evidence: unknown,
   baseline: unknown,
   budget: unknown,
-  options: { expectedHead?: string; expectedBase?: string; verifiedOpenPrs?: number[]; traceDir?: string } = {},
+  options: {
+    expectedHead?: string;
+    expectedBase?: string;
+    requireBaseHarness?: boolean;
+    verifiedOpenPrs?: number[];
+    traceDir?: string;
+  } = {},
 ): ValidationResult {
   const errors: string[] = validateCapture(evidence, budget, options);
   const warnings: string[] = [];
@@ -556,7 +568,7 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
   const reportPath = option(args, "--report");
   if (!resultsPath || !baselinePath || !budgetPath)
     throw new Error(
-      "usage: validate.ts --results FILE --baseline FILE --budget FILE [--expected-head SHA] [--pr NUMBER] [--report FILE]",
+      "usage: validate.ts --results FILE --baseline FILE --budget FILE [--expected-head SHA] [--expected-base SHA] [--require-base-harness] [--pr NUMBER] [--report FILE]",
     );
   let evidence: unknown;
   let baseline: unknown;
@@ -629,6 +641,7 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
   const result = validateEvidence(evidence, baseline, budget, {
     expectedHead: option(args, "--expected-head"),
     expectedBase: option(args, "--expected-base"),
+    requireBaseHarness: args.includes("--require-base-harness"),
     traceDir: option(args, "--trace-dir"),
     verifiedOpenPrs,
   });

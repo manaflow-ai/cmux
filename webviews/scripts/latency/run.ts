@@ -300,11 +300,22 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
     },
     viewport: { width: 1280, height: 800 },
     mode: options.dev ? "development" : "production",
+    // The gate swaps in the target base's harness (these two directories) before measuring a candidate,
+    // and names that base here; everything else must still be the candidate's clean tracked tree.
+    harness: process.env.CMUX_LATENCY_HARNESS_SHA ?? null,
     dirty:
-      spawnSync("git", ["status", "--porcelain", "--untracked-files=no"], {
-        cwd: webviews,
-        encoding: "utf8",
-      }).stdout.trim().length > 0,
+      spawnSync(
+        "git",
+        [
+          "status",
+          "--porcelain",
+          "--untracked-files=no",
+          "--",
+          ".",
+          ...(process.env.CMUX_LATENCY_HARNESS_SHA ? [":(exclude)scripts/latency", ":(exclude)test/latency"] : []),
+        ],
+        { cwd: webviews, encoding: "utf8" },
+      ).stdout.trim().length > 0,
   };
   if (!expectedCases.length) throw new Error("no cases selected");
   if (options.ci && source.dirty) throw new Error("CI evidence requires a clean tracked source tree");
