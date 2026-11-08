@@ -5520,8 +5520,13 @@ a.cv-sha:focus-visible {
   /* A sent picture or video appears in its slot, at its size, with the prompt: it only fades, on the
      same clock, never rising or flying from the composer (Leo 2026-11-08, ask-104c134b68: "some
      sort of, like, fly-in animation ... I feel like that's kind of weird"). One whose bytes come
-     later still fades in where it is, and so does one in a new chat's first prompt. */
+     later still fades in where it is, and so does one in a new chat's first prompt. Only the row
+     being sent takes the send's clock; a picture drawn again in an older prompt fades on the
+     ordinary one. */
   .cv-user .cv-enter {
+    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+  .acpmux-user.acpmux-row--message-enter .cv-user .cv-enter {
     animation: cv-enter-fade var(--agent-motion-send-fade, var(--agent-motion-send, 265ms)) var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1))
       both;
   }
