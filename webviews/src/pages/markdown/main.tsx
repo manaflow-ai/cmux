@@ -38,7 +38,7 @@ import type { ReadingSettingsActions } from "./ReadingSettings";
 import { MARKDOWN_READING, bindMarkdownLook, markdownCodeTheme } from "./settings";
 import { MarkdownFontZoom, isMarkdownZoomCommand } from "./fontZoom";
 import type { RunLabel } from "./runButtons";
-import { parseRunbook, runbookPrompt } from "./runbook";
+import { runbookPrompt } from "./runbook";
 import { L } from "./strings";
 import { hostTableWidths, storedTableWidths } from "./tables";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
@@ -71,10 +71,10 @@ const RUN_LABELS: Record<RunLabel, string> = {
 };
 
 /** Run all: the runbook's steps and the prompt contract to an agent chat in the file's repository. */
-function runAll(store: MarkdownStore, client: PageClient | null): void {
+function runAll(store: MarkdownStore, client: PageClient | null, editor: MarkdownEditor | null): void {
   const path = store.getState().config?.path;
-  if (!client || !path) return;
-  const steps = parseRunbook(store.currentText());
+  if (!client || !path || !editor) return;
+  const steps = editor.runbookSteps();
   if (!steps.length) return;
   void client.call(MARKDOWN_RUN_ALL_OP, { path, prompt: runbookPrompt(path, steps) }).catch((error: unknown) => {
     console.warn("cmux markdown run all", error);
@@ -306,6 +306,7 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
       overlays,
       readOnly: store.getState().readOnly,
       onUserEdit: () => store.edited(),
+      onRunnable: (runnable) => store.setRunnable(runnable),
     });
     editor = next;
     void next.create().then(() => {
@@ -387,7 +388,7 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
         onBack={() => void router.go(-1)}
         onForward={() => void router.go(1)}
         reading={readingActions(store, zoom)}
-        onRunAll={client ? () => runAll(store, client) : undefined}
+        onRunAll={client ? () => runAll(store, client, editor) : undefined}
       />
     </UiProvider>,
   );

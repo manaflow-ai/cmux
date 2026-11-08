@@ -60,7 +60,7 @@ import {
 } from "./comments";
 import { NearCodeBlocks } from "./nearCode";
 import { NearRunBlocks, runControls, type RunButtonHost } from "./runButtons";
-import { isRunnableLanguage, runnableCommand } from "./runbook";
+import { isRunnableLanguage, runbookSteps, runnableCommand, type RunbookBlock, type RunbookStep } from "./runbook";
 import { imageSize, obsidianSyntaxPlugin } from "./obsidian";
 import { paddingSelectPlugin } from "./paddingSelect";
 import { isPointerSelecting, pointerChanged, pointerSelectPlugin } from "./pointerSelect";
@@ -134,6 +134,8 @@ export interface MarkdownEditorOptions {
   onUserEdit?(): void;
   /** Where the link bubble's state goes (the page renders it: LinkOverlayHost). */
   overlays?: LinkOverlays;
+  /** After each load: whether the document has a runnable shell block (the toolbar's Run all). */
+  onRunnable?(runnable: boolean): void;
 }
 
 /** The languages a diagram node view renders. */
@@ -567,6 +569,18 @@ export class MarkdownEditor {
     }
     // The lines moved with the new text: the markers go where their lines are now.
     if (this.comments.length) this.setComments(this.comments);
+    if (this.options.onRunnable) {
+      let runnable = false;
+      view.state.doc.descendants((node) => {
+        if (runnable) return false;
+        if (node.type.name !== "code_block") return true;
+        runnable =
+          isRunnableLanguage(String(node.attrs.language ?? "")) &&
+          !!runnableCommand(String(node.attrs.language), node.textContent);
+        return false;
+      });
+      this.options.onRunnable(runnable);
+    }
   }
 
   /** The markdown for the current document, and its source map (the next baseline after a save). */
@@ -620,6 +634,63 @@ export class MarkdownEditor {
       host,
     );
     view.dispatch(view.state.tr.setMeta(commentMarkersKey, set).setMeta("addToHistory", false));
+  }
+
+  /**
+   * The document's runnable steps (Run all, runbook.ts): its shell code blocks as the viewer holds
+   * them, inside lists and quotes too, each with the heading and paragraph above it and its fence's
+   * source line. The same blocks show a Run button; an HTML comment's fences are raw text, not
+   * steps. Walks the document once, on a click.
+   */
+  runbookSteps(): RunbookStep[] {
+    const view = this.view;
+    if (!view || !this.serializeDoc) return [];
+    const map = this.snapshot();
+    // Each top-level node's start offset in the current text.
+    const starts: number[] = [];
+    for (const block of map.blocks) for (const _ of block.nodes) starts.push(block.start);
+    // Offsets only grow (blocks come in document order), so lines are counted once, not per block.
+    let counted = 0;
+    let lines = 1;
+    const lineAt = (offset: number) => {
+      for (let at = map.text.indexOf("\n", counted); at >= 0 && at < offset; at = map.text.indexOf("\n", at + 1))
+        lines++;
+      counted = Math.max(counted, offset);
+      return lines;
+    };
+    const blocks: RunbookBlock[] = [];
+    let section = "";
+    let lead = "";
+    // Where the next block's text is searched from: its top-level node's start, then past the last match.
+    let from = 0;
+    // Visits one node in document order; true goes into its children.
+    const visit = (node: ProseNode): boolean => {
+      if (node.type.name === "heading") {
+        section = node.textContent;
+        lead = "";
+      } else if (node.type.name === "paragraph") lead = node.textContent;
+      else if (node.type.name === "code_block") {
+        const text = node.textContent;
+        // The fence line is the one above the code's first line.
+        const first = text.split("\n", 1)[0]!;
+        const at = first ? map.text.indexOf(first, from) : -1;
+        if (at >= 0) from = at + first.length;
+        blocks.push({
+          section,
+          lead,
+          language: String(node.attrs.language ?? ""),
+          text,
+          line: at >= 0 ? Math.max(1, lineAt(at) - 1) : lineAt(from),
+        });
+        lead = "";
+      } else return true;
+      return false;
+    };
+    view.state.doc.forEach((top, _offset, index) => {
+      from = Math.max(from, starts[index] ?? 0);
+      if (visit(top)) top.descendants(visit);
+    });
+    return runbookSteps(blocks);
   }
 
   /** The baseline text: what the file held at the last load or save. */

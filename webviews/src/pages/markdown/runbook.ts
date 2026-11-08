@@ -61,6 +61,7 @@ function shellOpen(line: string, before: ShellOpen): ShellOpen {
     return { ...before, heredoc: line.trim() === before.heredoc ? null : before.heredoc, escaped: false };
   let quote = before.quote;
   let heredoc: string | null = null;
+  let comment = false;
   for (let at = 0; at < line.length; at++) {
     const char = line[at]!;
     if (quote === "'") {
@@ -69,39 +70,53 @@ function shellOpen(line: string, before: ShellOpen): ShellOpen {
     else if (quote === '"') {
       if (char === '"') quote = null;
     } else if (char === "'" || char === '"') quote = char;
-    else if (char === "#" && (at === 0 || /\s/.test(line[at - 1]!))) break;
-    else if (char === "<" && line[at + 1] === "<" && line[at + 2] !== "<") {
+    else if (char === "#" && (at === 0 || /\s/.test(line[at - 1]!))) {
+      // A comment runs to the line's end: a `\\` there continues nothing.
+      comment = true;
+      break;
+    } else if (char === "<" && line[at + 1] === "<" && line[at + 2] !== "<") {
       heredoc = /^<<-?\s*(['"]?)([A-Za-z_][\w-]*)\1/.exec(line.slice(at))?.[2] ?? heredoc;
     }
   }
-  return { quote, heredoc, escaped: quote === null && /\\$/.test(line) };
+  return { quote, heredoc, escaped: quote === null && !comment && /\\$/.test(line) };
 }
 
 /** Why the agent, or the Run button, asks before a step runs. */
 export type StepRisk = "destructive" | "credentials" | "decision";
 
+/** Where a command word starts: the line's start, a separator, a subshell, a quote (the body of a
+ * wrapper: `bash -c 'rm -rf build'`), or a path or escape before it (`/bin/rm`, `\\rm`). */
+const AT = String.raw`(?:^|[\s;&|(){}'"\x60/\\])`;
+/** Any options or words before a subcommand or flag, never past the command's end. */
+const ARGS = String.raw`(?:[^\n;&|]*\s)?`;
+const pattern = (source: string, flags = "") => new RegExp(source, flags);
+
 /** Commands that delete, overwrite, force, deploy or run code fetched from the network. A tool's
- * global flags may stand before its subcommand (`kubectl --context prod delete`): `[^\n;&|]*\s`
- * spans them, never past the command's end. A command may start inside quotes or a subshell, as
- * the body of a wrapper does (`bash -c 'rm -rf build'`, `$(sudo …)`). */
+ * global flags and options may stand anywhere before the word that makes it destructive
+ * (`kubectl --context prod delete`, `git reset --quiet --hard`). Matching is a reader's net, not a
+ * sandbox: an obfuscated command (`eval "$(echo … | base64 -d)"`) is not caught, and every Run is
+ * still the person's own click on a command they can read. */
 const DESTRUCTIVE: RegExp[] = [
-  /(^|[\s;&|(){}'"`])rm\s+(-[a-z]*[rf][a-z]*\b|--recursive|--force)/i,
-  /(^|[\s;&|(){}'"`])sudo\s/,
-  /\bgit\b[^\n;&|]*\s(reset\s+--hard|clean\s+-[a-z]*f|push\b[^\n;&|]*\s(--force(-with-lease)?|-f)\b|branch\s+-D\b|checkout\s+--\s+\.|restore\s+\.|stash\s+(drop|clear))/,
+  pattern(String.raw`${AT}rm\s+${ARGS}(-[a-zA-Z]*[rRf][a-zA-Z]*\b|--recursive|--force)`),
+  pattern(String.raw`${AT}(sudo|doas)\s`),
+  pattern(
+    String.raw`${AT}git\s+${ARGS}(reset\s+${ARGS}--hard|clean\s+${ARGS}-[a-zA-Z]*f|push\s+${ARGS}(--force(-with-lease)?\b|-[a-zA-Z]*f\b|\+\S)|branch\s+${ARGS}-D\b|checkout\s+${ARGS}(--\s+)?\.(\s|$)|restore\s+${ARGS}\.(\s|$)|stash\s+(drop|clear)|filter-branch|update-ref\s+-d)`,
+  ),
   /\b(drop|truncate)\s+(table|database|schema)\b/i,
   /\bdelete\s+from\b/i,
-  /\b(kubectl|oc)\b[^\n;&|]*\s(delete|drain|replace\b[^\n;&|]*--force)\b/,
-  /\bhelm\b[^\n;&|]*\s(uninstall|delete)\b/,
-  /\bterraform\b[^\n;&|]*\s(destroy\b|apply\b[^\n;&|]*-auto-approve)/,
-  /\bdocker\b[^\n;&|]*\s(system\s+prune|volume\s+(rm|prune)|rm\s+-f|rmi\b)/,
-  /\baws\b[^\n;&|]*\ss3\s+(rm|rb)\b|\bgsutil\b[^\n;&|]*\srm\b|\bgcloud\b[^\n;&|]*\sdelete\b/,
-  /(^|[\s;&|(){}'"`])(dd\s+.*\bof=|mkfs(\.\w+)?\s|fdisk\s|diskutil\s+erase)/,
-  /(^|[\s;&|(){}'"`])(shutdown|reboot|halt)(\s|$)/,
-  /(^|[\s;&|(){}'"`])(kill\s+-9|pkill|killall)\s/,
-  /(^|[\s;&|(){}'"`])chmod\s+-R\s|(^|[\s;&|(){}'"`])chown\s+-R\s/,
-  /\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z|fi)?sh\b/,
-  /\b(npm|pnpm|yarn|cargo)\b[^\n;&|]*\spublish\b|\bgh\b[^\n;&|]*\srelease\s+create\b/,
-  /(^|[\s;&|(){}'"`])deploy\b|\b(wrangler|fly|flyctl|vercel)\b[^\n;&|]*\s(deploy|destroy|--prod)\b/,
+  pattern(String.raw`${AT}(kubectl|oc)\s+${ARGS}(delete|drain|replace\s+${ARGS}--force)\b`),
+  pattern(String.raw`${AT}helm\s+${ARGS}(uninstall|delete)\b`),
+  pattern(String.raw`${AT}terraform\s+${ARGS}(destroy\b|apply\s+${ARGS}-auto-approve)`),
+  pattern(String.raw`${AT}docker\s+${ARGS}(system\s+prune|volume\s+(rm|prune)|rm\s+${ARGS}-[a-zA-Z]*f|rmi\b)`),
+  pattern(String.raw`${AT}(aws\s+${ARGS}s3\s+(rm|rb)|gsutil\s+${ARGS}rm|gcloud\s+${ARGS}delete)\b`),
+  pattern(String.raw`${AT}(dd\s+.*\bof=|mkfs(\.\w+)?\s|fdisk\s|diskutil\s+erase|shred\s|truncate\s+-s)`),
+  pattern(String.raw`${AT}(shutdown|reboot|halt)(\s|$)`),
+  pattern(String.raw`${AT}(kill\s+${ARGS}-(9|KILL)\b|pkill|killall)\s`),
+  pattern(String.raw`${AT}(chmod|chown)\s+${ARGS}-[a-zA-Z]*R`),
+  pattern(String.raw`${AT}find\s+${ARGS}(-delete\b|-exec\s+rm\b)`),
+  /\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z|fi|da)?sh\b/,
+  pattern(String.raw`${AT}(npm|pnpm|yarn|cargo)\s+${ARGS}publish\b|${AT}gh\s+${ARGS}release\s+(create|delete)\b`),
+  pattern(String.raw`${AT}deploy\b|${AT}(wrangler|fly|flyctl|vercel)\s+${ARGS}(deploy|destroy|--prod)\b`),
 ];
 
 /** Commands that log in, take a secret, or carry a placeholder the reader fills in. */
@@ -131,107 +146,57 @@ export function runAsks(command: string): boolean {
   return stepRisks(command).includes("destructive");
 }
 
-/** Whether a Markdown source has a runnable step (the toolbar's Run all shows only then). */
-export function hasRunbookSteps(source: string): boolean {
-  return parseRunbook(source).length > 0;
-}
-
 /** One runnable block of a runbook. */
 export interface RunbookStep {
   /** 1-based, in document order. */
   index: number;
   /** The nearest heading above the block ("" before the first heading). */
   section: string;
-  /** The paragraph just above the block, flattened to one line (at most `LEAD_LIMIT` characters). */
+  /** The paragraph just above the block, on one line (at most `LEAD_LIMIT` characters). */
   lead: string;
   language: string;
   command: string;
-  /** The 1-based line of the opening fence. */
+  /** The 1-based source line of the block's opening fence. */
   line: number;
   risks: StepRisk[];
 }
 
 const LEAD_LIMIT = 240;
 
-/**
- * The runnable steps of a Markdown source: its fenced shell blocks with a command, in order. One
- * pass over the lines, so a long doc costs a scan and nothing per render. A fence opens at most
- * three spaces past its container (the page, or the list item it is in), as CommonMark reads it:
- * a line indented further is an indented code block's text, which the viewer shows without Run.
- */
-export function parseRunbook(source: string): RunbookStep[] {
-  const lines = source.replace(/\r\n?/g, "\n").split("\n");
+/** What the viewer holds of one code block: the editor reads these from its own document, so Run
+ * all has exactly the blocks that show Run (MarkdownEditor.runbookSteps). */
+export interface RunbookBlock {
+  section: string;
+  lead: string;
+  language: string;
+  text: string;
+  line: number;
+}
+
+/** The steps of a document's code blocks: the shell blocks with a command, numbered in order. */
+export function runbookSteps(blocks: Iterable<RunbookBlock>): RunbookStep[] {
   const steps: RunbookStep[] = [];
-  let section = "";
-  let paragraph: string[] = [];
-  // Where the content of the list item the scan is in starts (null outside a list).
-  let listContent: number | null = null;
-  for (let at = 0; at < lines.length; at++) {
-    const line = lines[at]!;
-    // An HTML comment hides what it holds, fences too: the viewer shows it as one raw block.
-    if (/^\s{0,3}<!--/.test(line)) {
-      while (at < lines.length && !lines[at]!.includes("-->")) at++;
-      paragraph = [];
-      continue;
-    }
-    const indent = line.length - line.trimStart().length;
-    if (line.trim()) {
-      const item = /^(\s*)([-*+]|\d{1,9}[.)])(\s+)\S/.exec(line);
-      if (item && (listContent === null ? item[1]!.length <= 3 : item[1]!.length < listContent + 4))
-        listContent = item[1]!.length + item[2]!.length + item[3]!.length;
-      else if (listContent !== null && indent < listContent && (!lines[at - 1]?.trim() || /^\s{0,3}#/.test(line)))
-        listContent = null;
-    }
-    const container = listContent !== null && indent >= listContent ? listContent : 0;
-    const fence = /^(\s*)(`{3,}|~{3,})(.*)$/.exec(line);
-    if (fence && indent - container <= 3 && !(fence[2]![0] === "`" && fence[3]!.includes("`"))) {
-      const [, indent, marker, info] = fence;
-      const body: string[] = [];
-      const start = at;
-      for (at++; at < lines.length; at++) {
-        const closing = /^\s*(`{3,}|~{3,})\s*$/.exec(lines[at]!);
-        if (closing && closing[1]![0] === marker![0] && closing[1]!.length >= marker!.length) break;
-        body.push(lines[at]!.startsWith(indent!) ? lines[at]!.slice(indent!.length) : lines[at]!.trimStart());
-      }
-      const language = fenceLanguage(info!);
-      const command = isRunnableLanguage(language) ? runnableCommand(language, body.join("\n")) : "";
-      if (command) {
-        const lead = flatten(paragraph.join(" "));
-        steps.push({
-          index: steps.length + 1,
-          section,
-          lead,
-          language,
-          command,
-          line: start + 1,
-          risks: stepRisks(command, lead),
-        });
-      }
-      paragraph = [];
-      continue;
-    }
-    const heading = /^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$/.exec(line);
-    if (heading) {
-      section = flatten(heading[1]!);
-      paragraph = [];
-    } else if (!line.trim()) {
-      // A blank line ends a paragraph only once the next one starts.
-    } else {
-      if (at > 0 && !lines[at - 1]!.trim()) paragraph = [];
-      paragraph.push(line.trim());
-    }
+  for (const block of blocks) {
+    const language = fenceLanguage(block.language);
+    const command = isRunnableLanguage(language) ? runnableCommand(language, block.text) : "";
+    if (!command) continue;
+    const lead = oneLine(block.lead);
+    steps.push({
+      index: steps.length + 1,
+      section: oneLine(block.section),
+      lead,
+      language,
+      command,
+      line: block.line,
+      risks: stepRisks(command, lead),
+    });
   }
   return steps;
 }
 
-/** Markdown inline syntax out, whitespace folded, cut at `LEAD_LIMIT`. */
-function flatten(text: string): string {
-  const plain = text
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/[*_]{1,2}([^*_]+)[*_]{1,2}/g, "$1")
-    .replace(/^\s*([-*+]|\d+[.)])\s+/, "")
-    .replace(/\s+/g, " ")
-    .trim();
+/** Whitespace folded, cut at `LEAD_LIMIT`. */
+function oneLine(text: string): string {
+  const plain = text.replace(/\s+/g, " ").trim();
   return plain.length > LEAD_LIMIT ? `${plain.slice(0, LEAD_LIMIT - 1)}…` : plain;
 }
 

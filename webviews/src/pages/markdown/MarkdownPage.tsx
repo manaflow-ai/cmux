@@ -2,16 +2,7 @@
 // file renders it: a toolbar (file, save status, rich text or source), the conflict banner, and the
 // editor or the source text. The editor mounts through a callback ref. Cmd/Ctrl chords (Cmd-S)
 // come from the app's key dispatcher as page commands, never from page key handlers.
-import {
-  lazy,
-  Suspense,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type ChangeEvent,
-  type ReactNode,
-} from "react";
+import { lazy, Suspense, useRef, useState, useSyncExternalStore, type ChangeEvent, type ReactNode } from "react";
 import type { Strings } from "../shared/i18n";
 import { Toolbar, ToolbarButton, ToolbarGroup, ToolbarToggleGroup } from "../../ui/Toolbar";
 import type { LinkOverlays } from "./overlays";
@@ -20,7 +11,6 @@ import type { MarkdownReadOnlyReason } from "./host";
 import type { MarkdownMode, MarkdownStore } from "./store";
 import type { ReadingSettingsActions } from "./ReadingSettings";
 import { toolbarFileLabel } from "./toolbarFile";
-import { hasRunbookSteps } from "./runbook";
 
 /** The note that says why a file is read only. */
 const READ_ONLY_NOTE: Record<MarkdownReadOnlyReason, string> = {
@@ -69,11 +59,6 @@ export function MarkdownPage({
   const [readingOpen, setReadingOpen] = useState(false);
   const readingAnchor = useRef<HTMLSpanElement | null>(null);
   const { t } = strings;
-  // Whether the document has a runnable step: read once per document (a load, a reload or another
-  // file), never per keystroke. A block typed into the open document counts after the next load.
-  // A recovered draft is what the editor shows, so it decides.
-  const shownText = state.config?.recoveredText ?? state.config?.text ?? "";
-  const runnable = useMemo(() => !!onRunAll && hasRunbookSteps(shownText), [onRunAll, shownText]);
 
   if (state.phase === "empty" && emptyState) return emptyState();
 
@@ -148,7 +133,9 @@ export function MarkdownPage({
           >
             {state.phase === "ready" ? status : ""}
           </span>
-          {runnable && state.phase === "ready" ? (
+          {/* The editor says after each load whether its document has a runnable block, never per
+              keystroke: a block typed into the open document counts from the next load. */}
+          {onRunAll && state.runnable && state.phase === "ready" && state.mode === "rich" ? (
             <ToolbarButton className="md-run-all-button" label={t(L.runAllTitle)} onPress={onRunAll}>
               {t(L.runAll)}
             </ToolbarButton>
