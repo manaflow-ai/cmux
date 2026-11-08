@@ -368,6 +368,18 @@ async fn app(
         ));
         let end = run_session(&client, &seen, &asked, &connected, done.clone()).await;
         connected.send_replace(false);
+        if matches!(end, SessionEnd::Ended(..)) {
+            let daemon = lock(&group.daemon).clone();
+            let held = match daemon {
+                Some(d) => format!("{:?}", d.connection_snapshots().await),
+                None => "no daemon".into(),
+            };
+            lock(&trace).push(format!(
+                "{:?} at the end, client: {:?}; daemon: {held}",
+                start.elapsed(),
+                client.snapshot().await
+            ));
+        }
         let _ = tokio::time::timeout(Duration::from_secs(3), client.close()).await;
         match end {
             SessionEnd::Done => break Ok(()),

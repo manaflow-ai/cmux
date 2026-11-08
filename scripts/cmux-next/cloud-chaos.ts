@@ -77,8 +77,14 @@ export const FAULTS: Array<{ name: string; secs: number; command: string }> = [
 
 /** Not injectable from the machine: recorded as not run, with whose lane can run them. */
 export const NOT_INJECTED: Array<{ name: string; why: string }> = [
-  { name: "vault down", why: "staging's vault is cmux-vault, outside this run's reach; asked cloud-vault-integration for a scoped way" },
-  { name: "image roll during a spare claim", why: "needs a staging image roll; asked cloud-backend-one-path for the scoped trigger" },
+  {
+    name: "vault down",
+    why: "not applicable yet: no staging path calls cmux-vault (inference leases and edge grants are not built); cloud-vault-integration adds a per-team fail switch when they land",
+  },
+  {
+    name: "image roll during a spare claim",
+    why: "not run live: a staging roll remakes every staging team's spares; the race is tested in-process by cmux-platform#1012's claim-vs-roll tests",
+  },
 ];
 
 /**
