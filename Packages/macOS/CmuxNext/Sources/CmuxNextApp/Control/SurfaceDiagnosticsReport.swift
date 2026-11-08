@@ -59,6 +59,14 @@ enum SurfaceDiagnosticsReport {
                     object["frame_held"] = .bool(diagnostics.holdingFrame)
                     if includeText { object["text"] = entry.session.surfaceView.viewportText().map(JSONValue.string) ?? .null }
                     #if DEBUG || CMUX_BENCH_HOOKS
+                    object["terminal_title"] = .string(entry.session.model.title)
+                    if let bar = entry.session.model.scrollbar {
+                        object["scrollbar"] = .object([
+                            "total_rows": .number(Double(bar.totalRows)),
+                            "offset_rows": .number(Double(bar.offsetRows)),
+                            "visible_rows": .number(Double(bar.visibleRows)),
+                        ])
+                    }
                     if let grid = Self.grid(entry.session.surfaceView, window: row.window) { object["grid"] = grid }
                     // The font zoom the terminal draws at, as a scale of the configured
                     // `font-size` (1 at that size); its tab record saves it (cx-mzuqi).
