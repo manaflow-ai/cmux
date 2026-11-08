@@ -32,7 +32,8 @@ test("a send's upload begins every file under the Send's ticket, one by one with
   const calls: { method: string; params: Record<string, unknown> }[] = [];
   const call = async (method: string, params: Record<string, unknown>): Promise<unknown> => {
     calls.push({ method, params });
-    if (method === "chat.upload.begin") return { token: `t-${params.name}`, size: params.size, chunkSize: 512 * 1024 };
+    if (method === "chat.upload.begin")
+      return { token: `t-${String(params.name)}`, size: params.size, chunkSize: 512 * 1024 };
     if (method === "chat.upload.chunk")
       return { offset: (params.offset as number) + atob(params.data as string).length };
     if (method === "chat.upload.finish") return { path: `/Users/me/.cmux/uploads/${String(params.token).slice(2)}` };
