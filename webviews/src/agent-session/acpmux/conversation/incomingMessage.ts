@@ -351,6 +351,15 @@ function fromAgent(msg: Parameters<typeof promptOf>[1]): boolean {
   return typeof msg?.client === "string" && (CLI_CLIENT.test(msg.client) || OUTBOX_CLIENT.test(msg.client));
 }
 
+/// Whether acpmux proved the record's sender (senderIdentity.ts `provenanceAuthenticated`): its
+/// provenance says so, or a queue list's record with none names the relay it came by (`fromRelay`).
+function senderProven(msg: Parameters<typeof promptOf>[1]): boolean {
+  const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;
+  if (provenance && typeof provenance === "object") return provenanceAuthenticated(provenance);
+  const relay = (msg as { fromRelay?: unknown } | undefined)?.fromRelay;
+  return relay ? provenanceAuthenticated({ fromRelay: relay }) : false;
+}
+
 /// What a `user_message` is when not the person's own as recorded, or undefined when it is.
 export function incomingPrompt(
   text: string,
@@ -365,8 +374,10 @@ export function incomingPrompt(
   if (!relay) {
     // A record cut short after the label's whole head: the message without it, the prompt as
     // written kept as `raw`. A head cut inside itself is a preview's (relayEnvelope.ts); a whole
-    // message that only starts like one keeps its words.
-    const cut = fromAgent(msg) ? withoutRelayLabelOfMessage(text) : text;
+    // message that only starts like one keeps its words. Anyone can type a head, so only a sender
+    // acpmux proved (a relay's record, a session it stamped) loses one with no closing line; any
+    // other agent's record keeps it as its own text (cmux#38642 review).
+    const cut = fromAgent(msg) && senderProven(msg) ? withoutRelayLabelOfMessage(text) : text;
     if (cut === text) return withSender(promptOf(text, msg, context), msg);
     const inner = promptOf(cut, msg, context);
     return withSender(
