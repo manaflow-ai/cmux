@@ -28680,6 +28680,75 @@
 
       ],
       "category" : "remote",
+      "cliName" : "remote stop-screen-session",
+      "computed" : {
+        "canonical_action_id" : "remote.stopScreenSession",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "CmuxRemoteActionCatalog",
+      "hint" : null,
+      "id" : "remote.stopScreenSession",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "cmux remote",
+        "screen sharing",
+        "mac screen",
+        "stop",
+        "end",
+        "disconnect",
+        "viewer",
+        "session"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "stop.circle",
+      "targets" : [
+
+      ],
+      "title" : "cmux Remote: End Screen Sharing Session",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "remote",
       "cliName" : "remote share-this-mac",
       "computed" : {
         "canonical_action_id" : "macScreen.shareThisMac",
@@ -58035,6 +58104,288 @@
           "isTargetDescription" : false,
           "isTargetName" : false,
           "kind" : {
+            "int" : {
+              "max" : 99,
+              "min" : 1
+            }
+          },
+          "name" : "index",
+          "suggestions" : null,
+          "title" : "Position"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-profile-move",
+      "computed" : {
+        "canonical_action_id" : "browserProfile.move",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserProfileActionCatalog",
+      "hint" : null,
+      "id" : "browserProfile.move",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "profile",
+        "chrome",
+        "cookies",
+        "account",
+        "person",
+        "move",
+        "reorder",
+        "order",
+        "position"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "arrow.up.arrow.down",
+      "targets" : [
+        "browser-profile"
+      ],
+      "title" : "Move Browser Profile to Position…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "title" : "SOCKS5",
+                "value" : "socks5"
+              },
+              {
+                "title" : "HTTP",
+                "value" : "http"
+              },
+              {
+                "title" : "HTTPS",
+                "value" : "https"
+              }
+            ]
+          },
+          "name" : "scheme",
+          "suggestions" : null,
+          "title" : "Proxy Type"
+        },
+        {
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "host",
+          "suggestions" : null,
+          "title" : "Proxy Host"
+        },
+        {
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "int" : {
+              "max" : 65535,
+              "min" : 1
+            }
+          },
+          "name" : "port",
+          "suggestions" : null,
+          "title" : "Port"
+        }
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-profile-set-proxy",
+      "computed" : {
+        "canonical_action_id" : "browserProfile.setProxy",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserProfileActionCatalog",
+      "hint" : null,
+      "id" : "browserProfile.setProxy",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "profile",
+        "chrome",
+        "cookies",
+        "account",
+        "person",
+        "proxy",
+        "socks",
+        "socks5",
+        "http",
+        "network",
+        "vpn"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "network",
+      "targets" : [
+        "browser-profile"
+      ],
+      "title" : "Set Browser Profile Proxy…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "browser",
+      "cliName" : "action browser-profile-clear-proxy",
+      "computed" : {
+        "canonical_action_id" : "browserProfile.clearProxy",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "BrowserProfileActionCatalog",
+      "hint" : null,
+      "id" : "browserProfile.clearProxy",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "browser",
+        "profile",
+        "chrome",
+        "cookies",
+        "account",
+        "person",
+        "proxy",
+        "direct",
+        "network",
+        "reset",
+        "clear"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "pointerMenuTrim",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "network.slash",
+      "targets" : [
+        "browser-profile"
+      ],
+      "title" : "Remove Browser Profile Proxy",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
             "target" : "browser-profile"
           },
           "name" : "browserProfile",
@@ -62003,6 +62354,76 @@
 
       ],
       "title" : "Notification Banners",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "notifications",
+      "cliName" : "action notifications-allow-desktop",
+      "computed" : {
+        "canonical_action_id" : "notifications.allowDesktop",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "NotificationActionCatalog",
+      "hint" : null,
+      "id" : "notifications.allowDesktop",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "permission",
+        "allow",
+        "enable",
+        "banner",
+        "desktop",
+        "system",
+        "macos",
+        "notifications",
+        "setup"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "bell.badge",
+      "targets" : [
+
+      ],
+      "title" : "Allow cmux Notifications",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -82273,6 +82694,77 @@
 
       ],
       "title" : "Upgrade to cmux Pro",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "settings",
+      "cliName" : "action billing-open-portal",
+      "computed" : {
+        "canonical_action_id" : "billing.openPortal",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : null,
+      "id" : "billing.openPortal",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "billing",
+        "subscription",
+        "invoice",
+        "receipt",
+        "payment",
+        "card",
+        "plan",
+        "pro",
+        "stripe",
+        "portal"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "creditcard",
+      "targets" : [
+
+      ],
+      "title" : "Manage Billing",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
@@ -104577,7 +105069,18 @@
     },
     {
       "arguments" : [
-
+        {
+          "isRequired" : true,
+          "isSuppliedByTarget" : true,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "target" : "machine"
+          },
+          "name" : "machine",
+          "suggestions" : null,
+          "title" : "Joined Machine"
+        }
       ],
       "category" : "remote",
       "cliName" : "action machine-joined-rotate",
@@ -104587,7 +105090,7 @@
         "default_aliases" : [
 
         ],
-        "is_palette_visible" : false,
+        "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
         "palette_tier" : "standard"
@@ -104638,11 +105141,10 @@
           }
         ],
         "mcpExemption" : null,
-        "palette" : {
-          "exempt" : "guiOnly"
-        }
+        "palette" : "offered"
       },
       "surfaces" : [
+        "palette",
         "contextMenu"
       ],
       "symbol" : "key",
@@ -104656,7 +105158,18 @@
     },
     {
       "arguments" : [
-
+        {
+          "isRequired" : true,
+          "isSuppliedByTarget" : true,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "target" : "machine"
+          },
+          "name" : "machine",
+          "suggestions" : null,
+          "title" : "Joined Machine"
+        }
       ],
       "category" : "remote",
       "cliName" : "action machine-joined-revoke",
@@ -104666,7 +105179,7 @@
         "default_aliases" : [
 
         ],
-        "is_palette_visible" : false,
+        "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
         "palette_tier" : "standard"
@@ -104717,11 +105230,10 @@
           }
         ],
         "mcpExemption" : null,
-        "palette" : {
-          "exempt" : "guiOnly"
-        }
+        "palette" : "offered"
       },
       "surfaces" : [
+        "palette",
         "contextMenu"
       ],
       "symbol" : "xmark.circle",
