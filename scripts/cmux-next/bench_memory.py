@@ -291,6 +291,9 @@ class App:
 
 
 FAKE_AGENT_ID = "bench-memory-fake"
+# The first prompt of each --fake-agent chat (--chat-prompt); the fake agent echoes it back, so a
+# long one gives the chat a long history to hold.
+CHAT_PROMPT = ""
 
 
 class FakeChats:
@@ -307,8 +310,13 @@ class FakeChats:
         self.app = app
         # The app splits `args` into words like a shell: a fleet step's checkout is under
         # "/Library/Application Support/...", so the path is quoted or the agent never starts.
-        added = app.run("agent.harness.add", id=FAKE_AGENT_ID, name="Memory bench", command=sys.executable,
-                        args=shlex.quote(os.path.abspath(script)), protocol="acp", replace="true")
+        for attempt in range(5):
+            added = app.run("agent.harness.add", id=FAKE_AGENT_ID, name="Memory bench", command=sys.executable,
+                            args=shlex.quote(os.path.abspath(script)), protocol="acp", replace="true")
+            # Just after launch the action can outrun its 2 s deadline while the app is still starting.
+            if "timeout" not in str(added.get("code") or added.get("error") or ""):
+                break
+            time.sleep(3)  # test script: the app is still starting; try again (5 tries)
         if added.get("error") or added.get("code"):
             raise SystemExit(f"bench-memory: agent.harness.add: {added.get('message') or added.get('error')}")
         self.env = dict(os.environ, ACPMUX_SOCKET=self.acpmux_socket(bundle))
@@ -332,7 +340,7 @@ class FakeChats:
     def open(self, index: int) -> str | None:
         """A new workspace on a new answered chat; returns the workspace id."""
         made = subprocess.run([self.app.cli_path, "acp", "new", "--json", "-d", "-m", FAKE_AGENT_ID,
-                               f"memory bench chat {index}"],
+                               f"memory bench chat {index}" + (f"\n\n{CHAT_PROMPT}" if CHAT_PROMPT else "")],
                               capture_output=True, text=True, timeout=120, env=self.env)
         try:
             session = json.loads(made.stdout)["sessionId"]
@@ -809,8 +817,12 @@ def main():
                         help="run with agents.hiddenChats.discard after MINUTES; sample released chats and time their restore")
     parser.add_argument("--restore-chats", type=int, default=10,
                         help="--release-hidden-chats: how many released chats to show again and time")
+    parser.add_argument("--chat-prompt", default="",
+                        help="--fake-agent: text added to each chat's first prompt (echoed back: a chat with history)")
     parser.add_argument("--out")
     args = parser.parse_args()
+    global CHAT_PROMPT
+    CHAT_PROMPT = args.chat_prompt
     if (args.purge_hidden or args.release_hidden_chats > 0) and len([n for n in args.workspaces.split(",") if n]) > 1:
         # A later count's idle sample would follow the earlier purge, not an unpurged app. Checked
         # before the launch, so a refused run leaves no app behind.
