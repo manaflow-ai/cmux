@@ -54,6 +54,9 @@ final class AgentTabStore {
     var locatePane: @MainActor (_ chat: String, _ key: String) -> (pane: PaneID, daemon: DaemonService)? = { _, _ in nil }
     /// Moves fork tab `key`, opened in chat tab `chat`'s pane, to a new strip column (`left`: before the chat's) or, nil, a new row.
     var placeFork: @MainActor (_ key: String, _ chat: String, _ left: Bool?) -> Void = { _, _, _ in }
+    /// Keeps a tab about to be made in pane `pane` for a move elsewhere out of its strip (``OutboundTab``).
+    var holdOutbound: @MainActor (_ pane: PaneID, _ daemon: DaemonService) -> OutboundTab? = { _, _ in nil }
+    var moveToNewWorkspace: @MainActor (_ key: String, _ machine: String, _ newWindow: Bool) async -> Bool = { _, _, _ in false } // true once its window is placed
     /// Selects tab `key` in its pane without moving keyboard focus (an unfocused subagent tab).
     var selectInPane: @MainActor (String) -> Void = { _ in }
     /// Main pane layout (``MainPaneLayout``): opens what chat tab `chat` opens beside it (through
