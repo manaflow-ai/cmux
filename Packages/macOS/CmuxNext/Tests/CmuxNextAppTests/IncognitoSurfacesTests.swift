@@ -100,6 +100,8 @@ struct IncognitoSurfacesTests {
         service.answerApproval(banner: posted.id, surface: SurfaceID(rawValue: 1), allow: true)
         for _ in 0..<50 { await Task.yield() }
         #expect(answerer.always.isEmpty && answerer.answered.isEmpty, "an incognito banner answered its ask")
+        // The service holds its services weakly and posts after the approval read: as the app does, keep them alive.
+        withExtendedLifetime(services) {}
     }
 
     @Test func aNormalBannerIsUnchanged() throws {
