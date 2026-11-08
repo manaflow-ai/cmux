@@ -2,12 +2,20 @@
 // request the worktree reviews with its comments, and Post sends every draft as one GitHub review.
 // Only the drafts posted and unchanged since leave; a refused post keeps them all and says so; a
 // retry after a lost reply reuses the post's opid, so the pull request never gets the review twice.
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "customElements",
+  "localStorage",
+  "IS_REACT_ACT_ENVIRONMENT",
+] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 
 beforeAll(() => {
@@ -18,9 +26,13 @@ beforeAll(() => {
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
     customElements: window.customElements,
+    localStorage: window.localStorage,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
 });
+
+// An unfinished post outlives its page (in the page's storage): each test starts with none.
+beforeEach(() => (scope.localStorage as Storage | undefined)?.clear());
 
 afterAll(() => {
   for (const [key, had, value] of saved) {
@@ -262,6 +274,16 @@ test("a page reopened after a lost reply posts the same drafts under the same op
       await act(async () => reopened.hook().post());
       expect(calls[1]!.opid).toBe(calls[0]!.opid!);
       reopened.unmount();
+      // A draft added before the page opened again waits: the unfinished post goes first, as it was.
+      const added = await mountHook([
+        comment("c1", "a.ts", 1),
+        comment("c2", "a.ts", 2),
+        comment("c3", "b.ts", 3),
+      ]);
+      await act(async () => added.hook().post());
+      expect(calls[2]!.opid).toBe(calls[0]!.opid!);
+      expect(calls[2]!.params.ids).toEqual(["c1", "c2"]);
+      added.unmount();
     },
   );
 });

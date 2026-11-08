@@ -236,7 +236,7 @@ export function useDiffComments({
     // A post that may have reached GitHub is retried under its own opid while any of its drafts is
     // still listed, edited or not: the host finds the review that opid posted (its marker) instead of
     // posting the same drafts again under a new one; a draft edited since stays for the next post.
-    const pending = fresh ? undefined : pendingPosts.current.get(targetRepoRoot);
+    const pending = fresh ? undefined : (pendingPosts.current.get(targetRepoRoot) ?? storedPost(targetRepoRoot));
     const listed = new Set(comments.map((comment) => comment.id));
     const batch =
       pending != null && pending.ids.some((id) => listed.has(id))
@@ -247,11 +247,13 @@ export function useDiffComments({
             opid: postOpid(targetRepoRoot, ids, versions),
           }));
     pendingPosts.current.set(targetRepoRoot, batch);
+    storePost(targetRepoRoot, batch);
     setPostState("posting");
     setPostError(undefined);
     bridgePostComments(targetRepoRoot, batch.ids, batch.versions, batch.opid)
       .then(({ cleared, ...result }) => {
         pendingPosts.current.delete(targetRepoRoot);
+        storePost(targetRepoRoot, undefined);
         if (activeRepoRoot.current !== targetRepoRoot) return setPostState("idle");
         // As with a send: a draft edited while the review was on its way stays, with its edit.
         removeUnchanged(cleared, batch.versions);
@@ -270,6 +272,7 @@ export function useDiffComments({
           error.reason === "nothing_to_post"
         ) {
           pendingPosts.current.delete(targetRepoRoot);
+          storePost(targetRepoRoot, undefined);
           setPostState("idle");
           postBatch(true);
           return;
@@ -296,6 +299,33 @@ export function useDiffComments({
     send,
     sendState,
   };
+}
+
+/**
+ * A post that may have reached GitHub outlives the page: kept in the page's storage until its
+ * answer comes, so a page reopened after a lost reply retries that batch under its opid before
+ * any draft added since goes out, and the host finds the review it may have posted.
+ */
+const POST_STORAGE_PREFIX = "cmux.diff.reviewPost:";
+
+function storedPost(repoRoot: string): PostBatch | undefined {
+  try {
+    const text = globalThis.localStorage?.getItem(POST_STORAGE_PREFIX + repoRoot);
+    const batch = text == null ? undefined : (JSON.parse(text) as Partial<PostBatch>);
+    if (batch == null || !Array.isArray(batch.ids) || typeof batch.opid !== "string") return undefined;
+    return { ids: batch.ids.map(String), versions: { ...batch.versions }, opid: batch.opid };
+  } catch {
+    return undefined;
+  }
+}
+
+function storePost(repoRoot: string, batch: PostBatch | undefined) {
+  try {
+    if (batch == null) globalThis.localStorage?.removeItem(POST_STORAGE_PREFIX + repoRoot);
+    else globalThis.localStorage?.setItem(POST_STORAGE_PREFIX + repoRoot, JSON.stringify(batch));
+  } catch {
+    // No storage (a private page): the batch lives as long as the page.
+  }
 }
 
 /**

@@ -20,7 +20,7 @@
 
 mod github;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
@@ -474,6 +474,42 @@ fn line_text(
     })
 }
 
+/// The drafts whose line is not, at the reviewed commits, the line they
+/// were left on: a comment from the diff page sees the worktree's files,
+/// whose local edits can shift lines. Those go in the review's body with
+/// their path and line, never inline on whatever line now has that number.
+fn moved(
+    repository: &Repository,
+    drafts: &[&Map<String, Value>],
+    hunks: &BTreeMap<String, Hunks>,
+    base: &str,
+    head: &str,
+) -> BTreeSet<String> {
+    let text = |draft: &Map<String, Value>, name: &str| {
+        draft.get(name).and_then(Value::as_str).unwrap_or_default().to_string()
+    };
+    drafts
+        .iter()
+        .filter(|draft| {
+            let expected = text(draft, "lineText");
+            let line = draft.get("endLine").and_then(Value::as_u64);
+            let line = line.and_then(|line| u32::try_from(line).ok());
+            let (Some(line), false) = (line, expected.is_empty()) else { return false };
+            let path = text(draft, "filePath");
+            let (revision, file) = match Side::parse(&text(draft, "side")) {
+                Some(Side::Deletions) => {
+                    let old = hunks.get(&path).and_then(|hunks| hunks.old_path.clone());
+                    (base, old.unwrap_or_else(|| path.clone()))
+                }
+                _ => (head, path.clone()),
+            };
+            let found = line_text(repository, revision, &file, line).ok();
+            found.as_deref() != Some(expected.trim_end_matches('\r'))
+        })
+        .map(|draft| text(draft, "id"))
+        .collect()
+}
+
 fn post(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
     mux.resolve_resource_path(crate::ResourceTarget::Session, &request.selectors)?;
     let root = diff_comments::root(&request.fields)?;
@@ -511,8 +547,9 @@ fn post(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resour
             .collect();
         let repository = open_repository(Path::new(root), POST).map_err(normalized)?;
         let marker = github::marker(key);
-        let drafted =
-            github::review(&head, &chosen, &hunks(&repository, &base, &head, POST)?, &marker);
+        let hunks = hunks(&repository, &base, &head, POST)?;
+        let moved = moved(&repository, &chosen, &hunks, &base, &head);
+        let drafted = github::review(&head, &chosen, &hunks, &moved, &marker);
         let git = UserGit { root: &repository.root, deadline: deadline() };
         let path = format!("repos/{}/pulls/{}/reviews", pull.repository(), pull.number);
         // A post whose answer was lost may still have reached GitHub: its

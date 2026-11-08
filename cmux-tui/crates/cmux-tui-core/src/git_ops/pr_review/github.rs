@@ -2,7 +2,7 @@
 //! repository, which lines of its diff GitHub takes a comment on, and the
 //! review GitHub is sent.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
@@ -251,6 +251,7 @@ pub(super) fn review(
     head: &str,
     comments: &[&Map<String, Value>],
     hunks: &BTreeMap<String, Hunks>,
+    moved: &BTreeSet<String>,
     marker: &str,
 ) -> Review {
     let mut inline = Vec::new();
@@ -267,8 +268,11 @@ pub(super) fn review(
             continue;
         }
         let Some(side) = Side::parse(text("side")) else { continue };
-        ids.push(text("id").to_string());
-        if hunks.get(path).is_some_and(|hunks| hunks.covers(side, start, end)) {
+        let id = text("id");
+        ids.push(id.to_string());
+        if !moved.contains(id)
+            && hunks.get(path).is_some_and(|hunks| hunks.covers(side, start, end))
+        {
             let mut entry =
                 json!({"path": path, "body": message, "line": end, "side": side.github()});
             if start < end
@@ -389,7 +393,7 @@ mod tests {
             "src/x.rs".to_string(),
             Hunks::parse("@@ -10,7 +10,9 @@\n@@ -40 +42,0 @@\n"),
         )]);
-        let review = review("abc", &[&a, &b, &c], &hunks, "<!-- m -->");
+        let review = review("abc", &[&a, &b, &c], &hunks, &BTreeSet::new(), "<!-- m -->");
         assert_eq!((review.inline, review.in_body), (2, 1));
         assert_eq!(review.ids, ["a", "b", "c"]);
         assert_eq!(review.payload["commit_id"], "abc");
@@ -406,5 +410,10 @@ mod tests {
             review.payload["body"],
             "On lines outside this pull request's diff:\n\n- `src/y.rs:5`: m c\n\n<!-- m -->"
         );
+        // A draft whose line moved since it was left goes in the body too.
+        let moved = BTreeSet::from(["a".to_string()]);
+        let review = review("abc", &[&a, &b, &c], &hunks, &moved, "<!-- m -->");
+        assert_eq!((review.inline, review.in_body), (1, 2));
+        assert!(review.payload["body"].as_str().unwrap().contains("- `src/x.rs:11-12`: m a"));
     }
 }
