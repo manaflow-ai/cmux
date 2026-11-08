@@ -209,6 +209,31 @@ pub(super) fn collect(folder: &Path, rules: Rules) -> anyhow::Result<LocalSet> {
     Ok(set)
 }
 
+/// A dropped folder's own files for a one-off upload: git's ignore rules
+/// apply when it is in a working copy, its top or any folder inside one, and
+/// no git state goes.
+pub(super) fn collect_files(folder: &Path) -> anyhow::Result<LocalSet> {
+    let skips = Skips::new(folder);
+    let mut set =
+        LocalSet { files: BTreeMap::new(), links: BTreeMap::new(), skipped: 0, skips, git: false };
+    let inside = git(folder, &["rev-parse", "--is-inside-work-tree"])
+        .is_ok_and(|answer| answer.trim() == "true");
+    if !inside {
+        walk_plain(&mut set, Rules::Share, folder, folder)?;
+        return Ok(set);
+    }
+    set.git = true;
+    // Run in the folder, git lists only what is under it, by paths from it.
+    for (path, untracked) in working_files(folder, &mut set.skipped)? {
+        if untracked && path.rsplit('/').next().is_some_and(|name| name.starts_with(".env")) {
+            set.skipped += 1;
+            continue;
+        }
+        add(&mut set, path.clone(), &folder.join(&path))?;
+    }
+    Ok(set)
+}
+
 /// Most alternates levels git follows.
 const ALTERNATES_DEPTH: usize = 5;
 
@@ -390,9 +415,17 @@ pub(super) fn git(folder: &Path, args: &[&str]) -> anyhow::Result<String> {
     String::from_utf8(git_bytes(folder, args)?).context("git printed text that is not UTF-8")
 }
 
+/// git reading a folder, never running anything the folder's own config
+/// names (an fsmonitor or a hook) and never taking a bare repository in it
+/// for its own.
 pub(super) fn git_bytes(folder: &Path, args: &[&str]) -> anyhow::Result<Vec<u8>> {
-    let output =
-        Command::new("git").arg("-C").arg(folder).args(args).output().context("cannot run git")?;
+    let output = Command::new("git")
+        .args(["-c", "core.fsmonitor=false", "-c", "safe.bareRepository=explicit"])
+        .args(["-c", "core.hooksPath=/dev/null", "-C"])
+        .arg(folder)
+        .args(args)
+        .output()
+        .context("cannot run git")?;
     if !output.status.success() {
         bail!("git {}: {}", args.join(" "), String::from_utf8_lossy(&output.stderr).trim());
     }

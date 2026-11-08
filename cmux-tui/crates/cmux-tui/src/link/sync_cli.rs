@@ -581,7 +581,7 @@ pub(super) fn copy_folder_with_progress(
 ) -> anyhow::Result<(u64, u64)> {
     let local =
         std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
-    let mut set = local::collect(&local, local::Rules::Share)?;
+    let mut set = local::collect_files(&local)?;
     let git = set.git;
     let before = set.files.len();
     set.files.retain(|relative, _| keep(relative, git));

@@ -530,6 +530,54 @@ fn an_upload_sends_a_dropped_folder_without_its_secrets() {
     }
 }
 
+/// A folder in a git working copy goes by git's ignore rules, its top or any
+/// folder inside it, and listing it never runs what the repository's own
+/// config names (here an fsmonitor that would leave a mark).
+#[test]
+fn an_upload_of_a_folder_in_git_keeps_its_ignore_rules_and_runs_none_of_its_config() {
+    let world = World::new();
+    let home = &world.home;
+    let base = home.parent().unwrap().to_path_buf();
+    let tmp = base.join("tmp");
+    std::fs::create_dir_all(&tmp).unwrap();
+    let repo = home.join("projects/repo");
+    std::fs::create_dir_all(repo.join("docs")).unwrap();
+    git(&repo, &["init", "-q"]);
+    std::fs::write(repo.join(".gitignore"), "*.log\n").unwrap();
+    std::fs::write(repo.join("docs/guide.md"), "the guide\n").unwrap();
+    std::fs::write(repo.join("docs/build.log"), "fake-git-ignored\n").unwrap();
+    std::fs::write(repo.join("top.txt"), "the top\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-qm", "first"]);
+    let mark = base.join("fsmonitor-ran");
+    let hook = repo.join(".git/watch");
+    std::fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\n", mark.display())).unwrap();
+    std::fs::set_permissions(&hook, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    git(&repo, &["config", "core.fsmonitor", hook.to_str().unwrap()]);
+
+    for (folder, kept, files) in [
+        (repo.join("docs"), vec!["guide.md"], 1),
+        (repo.clone(), vec!["top.txt", "docs/guide.md"], 2),
+    ] {
+        let (ok, sent) = upload(&world, &tmp, &[&folder]);
+        assert!(ok, "{} was refused: {sent}", folder.display());
+        let entry = &sent["uploads"][0];
+        assert_eq!(entry["folder"], true, "{sent}");
+        assert_eq!(entry["files"], files, "{sent}");
+        let at = PathBuf::from(entry["path"].as_str().unwrap());
+        for name in kept {
+            assert!(at.join(name).is_file(), "{name} did not go: {sent}");
+        }
+        for name in ["build.log", "docs/build.log", ".git", ".gitignore"] {
+            assert!(std::fs::symlink_metadata(at.join(name)).is_err(), "{name} went: {sent}");
+        }
+    }
+    assert!(!mark.exists(), "listing the folder ran the repository's fsmonitor");
+    for bytes in files_below(&world.machine_home) {
+        assert!(!String::from_utf8_lossy(&bytes).contains("fake-git"), "an ignored file went");
+    }
+}
+
 #[test]
 fn an_upload_sends_the_files_the_person_dropped_and_refuses_secret_files() {
     let world = World::new();
