@@ -33,8 +33,6 @@ extension ScreenContentView {
         let zoomed = zooming ? after.panes.keys.first : before.panes.keys.first { after.panes[$0] != nil }
         guard let zoomed, let zoomedLayer = context.hosts[zoomed]?.layer else { return }
         let animates = film.kind != .z1 && Motion.panes.animatesMovement
-        // Z4: this turn commits the model and the grid only; the presentation waits for the next frame tick.
-        if film.kind == .z4 { context.holdFramesPastCommit() }
         // Zoom in: the panes the zoom covers stay as they are and go hidden with the presentation (retired, not torn down).
         // Zoom out: the panes the unzoom shows again wait at opacity 0 until that presentation.
         var covered: [PaneID] = [], returning: [PaneID] = []

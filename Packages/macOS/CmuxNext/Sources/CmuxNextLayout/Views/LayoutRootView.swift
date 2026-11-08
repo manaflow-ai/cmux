@@ -27,11 +27,6 @@ public final class LayoutRootView: NSView {
     /// ``isInLayoutMotion`` at the last report: its end is reported even when no rect changed.
     var reportedLayoutMotion = false
     let driver = DisplayLinkDriver()
-    #if DEBUG || CMUX_BENCH_HOOKS
-    /// A film zoom's key turn has not committed yet: frame ticks wait for that commit (``holdFramesPastCommit()``).
-    var framesHeldPastCommit = false
-    var framesHeldObserver: MainRunLoopObserver?
-    #endif
     private var observationTask: Task<Void, Never>?
     private var eventMonitor: Any?
     /// Key-window observers of the current window (`observeKeyWindow()`).
@@ -177,9 +172,6 @@ public final class LayoutRootView: NSView {
         wantsLayer = true
         layer?.masksToBounds = true
         context.requestFrames = { [weak self] in self?.driver.start() }
-        #if DEBUG || CMUX_BENCH_HOOKS
-        context.holdFramesPastCommit = { [weak self] in self?.holdFramesPastCommit() }
-        #endif
         driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
         driver.onSettle = { [weak self] in self?.landMotion() }
         context.overlayNeedsSync = { [weak self] in self?.setNeedsOverlaySync() }
