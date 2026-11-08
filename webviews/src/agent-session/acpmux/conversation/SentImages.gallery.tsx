@@ -7,6 +7,7 @@ import { componentEntry } from "../../../gallery/format";
 import type { AcpmuxRow, PromptImage } from "../model";
 import { primeSentImages } from "./imageEntries";
 import { ImageViewerContext } from "./imageViewerContext";
+import { PresentationContext } from "./presentationContextModel";
 import { TurnActionsContext, type TurnActions } from "./turnActions";
 import { SentImages, UserBubble } from "./UserBubble";
 
@@ -118,9 +119,12 @@ function GalleryAttachmentOnly({ images, state }: { images: Props["images"]; sta
   return (
     <ImageViewerContext.Provider value={() => {}}>
       <TurnActionsContext.Provider value={actions}>
-        <div className="cv-user" style={{ padding: 16 }}>
-          <UserBubble row={row} text="" />
-        </div>
+        {/* The Messages view, where a delivered prompt draws its own Retry (MessageActions.tsx PromptActions). */}
+        <PresentationContext.Provider value={state === "actions" ? "messages" : "transcript"}>
+          <div className="cv-user" style={{ padding: 16 }}>
+            <UserBubble row={row} text="" />
+          </div>
+        </PresentationContext.Provider>
       </TurnActionsContext.Provider>
     </ImageViewerContext.Provider>
   );

@@ -7236,7 +7236,15 @@ export class AcpmuxDirectClient {
         // bookkeeping does. A prompt of images alone keeps its row: the images are what it says.
         // acpmux's own continuation of a failed turn or subagent (its retry, automatic or the Retry
         // button's) is not the person's prompt: it draws nothing either (subagents/retryState.ts).
-        const blank = !received && (isRetryContinuation(msg) || (!raw.trim() && promptImages(msg.images).length === 0));
+        // A prompt of only a document, audio, file or paste keeps its row too: its recorded parts
+        // are what it says, and its row draws them with its footer and Retry (UserBubble.tsx).
+        const inlineParts = recordedPromptParts(msg, knownParts) ?? knownParts;
+        const blank =
+          !received &&
+          (isRetryContinuation(msg) ||
+            (!raw.trim() &&
+              promptImages(msg.images).length === 0 &&
+              !inlineParts?.some((part) => part.kind !== "text")));
         const incoming = received
           ? undefined
           : blank
@@ -7310,7 +7318,6 @@ export class AcpmuxDirectClient {
             msg.turnId === this.stoppingTurn.turnId)
         )
           this.lateSteers = [...this.lateSteers, durableRowId];
-        const inlineParts = recordedPromptParts(msg, knownParts) ?? knownParts;
         const optimisticRow = optimisticRowId ? this.rows.get(optimisticRowId) : undefined;
         this.rows.set(durableRowId, {
           id: durableRowId,

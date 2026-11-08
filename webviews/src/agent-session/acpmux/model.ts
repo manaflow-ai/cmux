@@ -2083,15 +2083,16 @@ function fallbackRowHeight(
     !row.text?.trim() &&
     (row.images?.length || row.retryAttachments?.length || row.inlineParts?.some((part) => part.kind !== "text"))
   ) {
-    // Sent thumbnails wrap at the 70% user column. Use the widest thumbnail (192px) when
-    // estimating columns so a narrow pane never lets a second attachment row overlap the next row.
+    // Sent thumbnails wrap at the 70% user column. Use the widest thumbnail (320px, plus its 6px
+    // gap; userBubbleModel.ts SENT_IMAGE_MAX_WIDTH) when estimating columns so a wide image never
+    // lets a second attachment row overlap the next row.
     const inlineParts = row.inlineParts ?? [];
     const imageCount = Math.max(
       row.images?.length ?? 0,
       inlineParts.filter((part) => part.kind === "image").length,
       row.retryAttachments?.filter((part) => part.kind === "image").length ?? 0,
     );
-    const columns = Math.max(1, Math.floor((width * 0.7 + 6) / 198));
+    const columns = Math.max(1, Math.floor((width * 0.7 + 6) / 326));
     const imageRows = imageCount ? Math.ceil(imageCount / columns) : 0;
     const otherAttachments = Math.max(
       row.retryAttachments?.filter((part) => part.kind !== "image").length ?? 0,
