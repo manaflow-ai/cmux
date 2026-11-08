@@ -273,15 +273,16 @@ impl EnrollHub for Platform {
             Ok(body) => serde_json::to_value(body.into_inner())?,
             Err(error) => return Err(refused(error).await),
         };
-        Ok(body["machines"]
-            .as_array()
+        Ok(body
+            .get("machines")
+            .and_then(Value::as_array)
             .into_iter()
             .flatten()
             .filter_map(|row| {
                 Some((
-                    row["machineId"].as_str()?.to_owned(),
-                    row["wgPublicKey"].as_str()?.to_owned(),
-                    row["revoked"].as_bool().unwrap_or(false),
+                    row.get("machineId")?.as_str()?.to_owned(),
+                    row.get("wgPublicKey")?.as_str()?.to_owned(),
+                    row.get("revoked").and_then(Value::as_bool).unwrap_or(false),
                 ))
             })
             .collect())
@@ -302,7 +303,10 @@ impl EnrollHub for Platform {
             Ok(body) => serde_json::to_value(body.into_inner())?,
             Err(error) => return Err(refused(error).await),
         };
-        let token = minted["token"].as_str().ok_or_else(|| anyhow!("the hub minted no token"))?;
+        let token = minted
+            .get("token")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("the hub minted no token"))?;
         Ok(Zeroizing::new(parse_token_text(token).map_err(|_| anyhow!("minted token malformed"))?))
     }
 
