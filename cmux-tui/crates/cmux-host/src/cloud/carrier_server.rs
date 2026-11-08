@@ -275,22 +275,12 @@ struct Warm {
 impl Warm {
     /// The kept reply for a platform reply that is a ticket good past the
     /// refresh point at `now_ms`; `None` for a refusal or a ticket too short
-    /// to keep. Only a ticket asked for ahead (prefetched or refreshed in the
-    /// background) is held to this; one asked for an ask is good for
-    /// [`Warm::handout`].
+    /// to keep.
     fn of(reply: &Value, now_ms: u64) -> Option<Warm> {
-        Self::handout(reply, now_ms).filter(|warm| {
-            warm.expires_at.saturating_mul(1000) > now_ms + REFRESH_BEFORE.as_millis() as u64
-        })
-    }
-
-    /// The reply for a platform reply that is a ticket that may still be
-    /// handed out at `now_ms` ([`HAND_OUT_MARGIN`]); `None` for a refusal or
-    /// a ticket too close to its expiry.
-    fn handout(reply: &Value, now_ms: u64) -> Option<Warm> {
         let expires_at = reply.get("expires_at").and_then(Value::as_u64)?;
-        let warm = Warm { reply: reply.clone(), expires_at };
-        (reply.get("ok") == Some(&Value::Bool(true)) && warm.usable(now_ms)).then_some(warm)
+        let keep = reply.get("ok") == Some(&Value::Bool(true))
+            && expires_at.saturating_mul(1000) > now_ms + REFRESH_BEFORE.as_millis() as u64;
+        keep.then(|| Warm { reply: reply.clone(), expires_at })
     }
 
     /// How long from `now_ms` until it is refreshed (zero when due).
@@ -492,9 +482,8 @@ fn answer<H: Http>(stream: UnixStream, shared: &Shared<H>, stop: &Stop, hooks: H
         Ok(()) => ticket(shared, stop, hooks, started),
     };
     if reply.get("ok") == Some(&Value::Bool(true)) && !connected(&stream) {
-        // Gone while it waited: the ticket stays here for the next ask while
-        // it may be handed out (the fetch thread refreshes it when it is due).
-        if kept && let Some(warm) = Warm::handout(&reply, (hooks.now)()) {
+        // Gone while it waited: the ticket stays here for the next ask.
+        if kept && let Some(warm) = Warm::of(&reply, (hooks.now)()) {
             let mut state = shared.lock();
             if state.warm.is_none() {
                 state.warm = Some(warm);
@@ -537,7 +526,7 @@ fn ticket<H: Http>(
         // A ticket asked for an ask is this ask's while it is good; a
         // refusal only when it came after this ask did.
         if let Some((answered, at)) = state.answered.take() {
-            let good = Warm::handout(&answered, (hooks.now)()).is_some();
+            let good = Warm::of(&answered, (hooks.now)()).is_some_and(|w| w.usable((hooks.now)()));
             let fresh = answered.get("ok") != Some(&Value::Bool(true)) && at >= started;
             if good || fresh {
                 return (answered, false);
