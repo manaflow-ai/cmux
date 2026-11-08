@@ -1757,3 +1757,36 @@ fn a_guest_whose_picture_would_not_fit_joins_without_it() {
     assert_eq!(sam.avatar_url, None, "the picture was dropped to fit");
     let _ = std::fs::remove_dir_all(&directory);
 }
+
+/// An attempt is one way of joining: an account that joined by the link (talk) and is then
+/// invited as a viewer gets its invite's guest and role on its next redeem, even when the browser
+/// reuses the attempt; the link guest ends (review of #38102, F1).
+#[test]
+fn an_invite_never_reuses_the_accounts_link_guest() {
+    let fake = FakeAcpmux::start("share-link-then-invite");
+    let mux = mux_with(&fake, "share-link-then-invite");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-link-then-invite-owner");
+    let share = create(&mut owner, surface, json!({"role":"view", "uses":3}));
+    let by_link = redeem_signed_in(&mut owner, &share, "sam@example.com", "s1");
+    assert_eq!(by_link["data"]["role"], "talk", "{by_link}");
+    let (_link_client, bound) = bind(&mux, &share, &by_link, "share-link-then-invite-link");
+    assert_eq!(bound["ok"], true, "{bound}");
+    assert_eq!(invite(&mut owner, &share, "sam@example.com", Some("view"))["ok"], true);
+    let invited = redeem_as(&mut owner, &share, "sam@example.com", "s1");
+    assert_eq!(invited["ok"], true, "{invited}");
+    assert_eq!(invited["data"]["role"], "view", "the invite's role, not the link guest's");
+    assert_ne!(invited["data"]["guest_id"], by_link["data"]["guest_id"], "a new guest");
+    wait_unbound(&mux, 0);
+    let (_again, rebound) = bind(&mux, &share, &by_link, "share-link-then-invite-again");
+    assert_eq!(rebound["ok"], false, "the link guest ended: {rebound}");
+    // Its retries, with the secret or without, get the invite's guest.
+    for retry in [
+        redeem_signed_in(&mut owner, &share, "sam@example.com", "s1"),
+        redeem_as(&mut owner, &share, "sam@example.com", "s1"),
+    ] {
+        assert_eq!(retry["data"]["guest_id"], invited["data"]["guest_id"], "{retry}");
+        assert_eq!(retry["data"]["role"], "view", "{retry}");
+    }
+    assert_eq!(list(&mut owner)[0]["uses_left"], 2, "only the link join spent a use");
+}

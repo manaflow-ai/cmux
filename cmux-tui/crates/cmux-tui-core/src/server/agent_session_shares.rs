@@ -962,7 +962,8 @@ impl LinkShares {
                 answer.set("role", json!(role_of(g)));
                 answer
             };
-            if let Some(guest) = share.guests.iter().find(|g| same(&g.attempt_id_sha256, &attempt))
+            if let Some(guest) =
+                share.guests.iter_mut().find(|g| same(&g.attempt_id_sha256, &attempt))
             {
                 // An attempt is one account's: another account (or a link guest) never gets it.
                 if guest.account != account {
@@ -972,11 +973,23 @@ impl LinkShares {
                         "share.secret"
                     });
                 }
-                return match guest.state {
-                    GuestState::Active => Ok((reply(guest), false)),
-                    GuestState::Kicked => Err("share.kicked"),
-                    GuestState::Left => Err("share.left"),
-                };
+                // An attempt is one way of joining too. The account's earlier join by the link,
+                // now that the account is invited, is not its invite's guest (whose role the
+                // owner chose): it ends, its connections close, and the invite joins anew below.
+                if guest.via != via {
+                    if via.is_some() || guest.state != GuestState::Active {
+                        return Err("share.not_invited");
+                    }
+                    guest.state = GuestState::Left;
+                    // It answers no attempt any more: the invite's guest takes this one.
+                    guest.attempt_id_sha256 = String::new();
+                } else {
+                    return match guest.state {
+                        GuestState::Active => Ok((reply(guest), false)),
+                        GuestState::Kicked => Err("share.kicked"),
+                        GuestState::Left => Err("share.left"),
+                    };
+                }
             }
             match (&account, via) {
                 // An invite spends no link use; it bounds the account's live guests instead.
