@@ -25,6 +25,23 @@ import Testing
         #expect(await owner.grants.allSatisfy { !$0.contains("execute") })
     }
 
+    /// The #37775 F2 Cloud capture at 8fbc64d4 (2026-11-08) failed "identify (no reply within 10.0
+    /// seconds)": each Cloud broker answer (every link dial's `link_token`) minted a new team token
+    /// first, a challenge and a token request before the call itself. A valid one is reused now;
+    /// a refused one (``MacInstallIdentity/invalidate()``) is minted again.
+    @Test func aTeamTokenIsMintedOnceAndReusedUntilInvalidated() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let owner = MacTeamAuthOwner(), identity = make(owner, root: root)
+        try await identity.signedIn(stackUser: "stack_1", session: { "test-session" })
+        let first = try await identity.installToken(team: team)
+        #expect(try await identity.installToken(team: team) == first)
+        #expect(await owner.requestedTeams == [team])
+        await identity.invalidate()
+        _ = try await identity.installToken(team: team)
+        #expect(await owner.requestedTeams == [team, team])
+    }
+
     @Test func deniedTeamsPreserveTheMacKeyAndRegistration() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
