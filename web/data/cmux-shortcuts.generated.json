@@ -2804,7 +2804,7 @@
             "zh-TW": "下一個空間"
           },
           "shortcut": {
-            "key": "",
+            "key": "l",
             "modifiers": [
               "ctrl",
               "opt",
@@ -2813,6 +2813,19 @@
           },
           "chord": null,
           "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": [
+                    "ctrl",
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "!codeEditorFocused"
+            },
             {
               "keys": [
                 {
@@ -2853,7 +2866,7 @@
             "zh-TW": "上一個空間"
           },
           "shortcut": {
-            "key": "",
+            "key": "h",
             "modifiers": [
               "ctrl",
               "opt",
@@ -2862,6 +2875,19 @@
           },
           "chord": null,
           "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "",
+                  "modifiers": [
+                    "ctrl",
+                    "opt",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "!codeEditorFocused"
+            },
             {
               "keys": [
                 {
