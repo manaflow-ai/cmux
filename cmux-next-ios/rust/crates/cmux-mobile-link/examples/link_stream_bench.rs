@@ -63,8 +63,7 @@ struct Args {
 }
 
 fn args() -> Args {
-    let mut parsed =
-        Args { row: "both".into(), lan_rtt_ms: 2, relay_rtt_ms: 40, seconds: 12, cut_at: None };
+    let mut parsed = Args { row: "both".into(), lan_rtt_ms: 2, relay_rtt_ms: 40, seconds: 12, cut_at: None };
     let mut iter = std::env::args().skip(1);
     while let Some(flag) = iter.next() {
         let value = iter.next().unwrap_or_default();
@@ -228,7 +227,8 @@ async fn main() {
         });
     }
     let phone_id = uuid::Uuid::new_v4().to_string();
-    let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.expect("phone");
+    let phone =
+        SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.expect("phone");
     let connected = dial::connect(&phone, &mac_id, TransportKind::WireGuard, &options, LinkConfig::default())
         .await
         .expect("dial");
