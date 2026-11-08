@@ -775,8 +775,9 @@ fn caller_sends_no_files(
 /// A permission answer sent to a chat for an ask pending in an open sub-session below it (the
 /// parent's page draws its children's asks, `hub/asks_below.rs`) names that sub-session from here
 /// on, so every check below is the child's own, as if it had been sent there. Only on this
-/// machine's socket: the answer still needs what an answer to the child needs (the person, or a
-/// proof); a key that does not resolve, or an ask pending in the named chat, stays as it was.
+/// machine's socket and the app's own pane (`Origin::LocalApp`): the answer still needs what an
+/// answer to the child needs (the person, or a proof); a key that does not resolve, or an ask
+/// pending in the named chat, stays as it was.
 fn route_ask_below(hub: &Arc<Hub>, m: &str, params: &mut Value) {
     if m != method::MUX_PERMISSION_RESPOND {
         return;
@@ -878,6 +879,9 @@ pub(super) async fn handle_request(
     // peer; every check below reads the route it found (`hub/key_route.rs`).
     if conn.origin == Origin::Local {
         route_bare_key(hub, m, &mut params)?;
+    }
+    // The app's pane answers as `LocalApp`; a Web or peer connection never reaches a child so.
+    if matches!(conn.origin, Origin::Local | Origin::LocalApp) {
         route_ask_below(hub, m, &mut params);
     }
     // The pane's fork through a turn is a session/fork, checked as one from

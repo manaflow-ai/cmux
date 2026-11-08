@@ -16,7 +16,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
-use acpmux::server::{Origin, serve_connection_with};
+use acpmux::server::{ConnAuth, Origin, serve_connection_authed, serve_connection_with};
 use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::Arc;
@@ -24,6 +24,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+const KEY: &str = "5e1f0c2a9b8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f";
 
 fn hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
@@ -45,6 +46,34 @@ impl Client {
         let (out_tx, out_rx) = mpsc::channel(4096);
         tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
         Client(in_tx, out_rx, 0)
+    }
+
+    /// The app's agent pane: a LocalApp connection that proved this launch's person key
+    /// (`hub/person.rs`), as the pane that draws the parent chat does.
+    async fn app(hub: &Arc<Hub>) -> Self {
+        hub.person.enroll(KEY, true).unwrap();
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(serve_connection_authed(
+            hub.clone(),
+            in_rx,
+            out_tx,
+            Origin::LocalApp,
+            ConnAuth::LocalApp,
+        ));
+        let mut c = Client(in_tx, out_rx, 0);
+        let r = c.call("initialize", json!({"protocolVersion": 1})).await;
+        let challenge = &r["result"]["_meta"]["acpmux"]["personChallenge"];
+        let proof = acpmux::hub::person::person_proof(
+            KEY,
+            acpmux::hub::person::TRANSPORT_APP,
+            challenge["nonce"].as_str().unwrap_or_else(|| panic!("{r}")),
+            challenge["connection"].as_str().unwrap(),
+        )
+        .unwrap();
+        let r = c.call("_acpmux/person_prove", json!({"proof": proof})).await;
+        assert!(r.get("error").is_none(), "{r}");
+        c
     }
 
     /// The connection an agent's tools open: `initialize` with its caller token.
@@ -133,8 +162,10 @@ async fn a_childs_ask_shows_on_its_parent_and_the_persons_answer_there_answers_t
         .await;
     assert!(r.get("error").is_some(), "the agent allowed its child's ask: {r}");
 
-    // The person's answer, sent to the parent as its page sends it, answers the child.
-    app.ok(
+    // The person's answer, sent to the parent by the app's pane as its page sends it, answers
+    // the child.
+    let mut pane = Client::app(&hub).await;
+    pane.ok(
         "_acpmux/permission_respond",
         json!({"sessionId": parent, "permissionId": pid, "optionId": "yes"}),
     )
