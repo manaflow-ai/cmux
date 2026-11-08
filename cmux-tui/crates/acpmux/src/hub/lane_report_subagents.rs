@@ -26,8 +26,9 @@
 //! Not covered: a subagent that calls acpmux through the cmux MCP tools (`acpmux_bg_start`,
 //! `cmux_exec`) and not through Bash carries no mark, so its reports reach the lead as before.
 //! A subagent that ends with no `SubagentStop` keeps its reports until no subagent of the lead
-//! runs. A steered message, and one that joined another message's turn (`digest.rs`), report to
-//! whoever's message started the turn.
+//! runs. A message steered into a running turn, or one that joined another message's turn
+//! (`digest.rs`), reports with that turn; one Claude Code carried into a turn of its own
+//! (`carried_turn.rs`) reports to its subagent.
 
 use super::lane_reports::Report;
 use super::*;

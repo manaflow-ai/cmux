@@ -438,16 +438,26 @@ impl Hub {
     /// (`digest.rs`).
     pub(super) fn lane_turn_started(&self, session: &Session, provenance: Option<&Value>) {
         self.lane_turn_on(session, reports_only(provenance));
+        self.lane_turn_asked(session, provenance);
         let parent = self.lane_report_parent(&session.id);
         let turn = session.meta().turn_count;
-        if let Some(sub) =
-            super::lane_report_subagents::asking_subagent(parent.as_deref(), provenance)
-        {
-            self.lane_turns().subagents.insert((session.id.clone(), turn), sub);
-        }
         let kind = provenance.and_then(|p| p.get("kind")).and_then(Value::as_str);
         if parent.is_some() && kind == Some(super::digest::DIGEST_KIND) {
             self.lane_report_turn_joined(&session.id, turn);
+        }
+    }
+
+    /// `session`'s turn started (its turn count counts it) on the messages `provenance` names: a
+    /// subagent of the lane's parent that asked for it gets its report
+    /// (`lane_report_subagents.rs`). A carried turn's names the steers it carried
+    /// (`carried_turn.rs`).
+    pub(super) fn lane_turn_asked(&self, session: &Session, provenance: Option<&Value>) {
+        let parent = self.lane_report_parent(&session.id);
+        if let Some(sub) =
+            super::lane_report_subagents::asking_subagent(parent.as_deref(), provenance)
+        {
+            let turn = session.meta().turn_count;
+            self.lane_turns().subagents.insert((session.id.clone(), turn), sub);
         }
     }
 
@@ -458,6 +468,12 @@ impl Hub {
             let turn = session.meta().turn_count;
             self.lane_turns().report_only.insert((session.id.clone(), turn));
         }
+    }
+
+    /// The subagent of the lane's parent that asked for turn `turn` of session `id`.
+    #[cfg(test)]
+    pub(super) fn lane_turn_subagent(&self, id: &str, turn: u64) -> Option<Value> {
+        self.lane_turns().subagents.get(&(id.to_owned(), turn)).cloned()
     }
 
     /// Whether turn `turn` of session `id` is counted as one on lane reports only.
