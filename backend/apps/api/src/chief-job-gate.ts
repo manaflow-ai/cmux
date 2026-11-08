@@ -1,6 +1,7 @@
 import type { Automation } from "@cmux/protocol"
 import type { Principal } from "@cmux/ownership"
 import { FREE_CHIEF_JOBS, ownerPaid, UPSELL_PLAN } from "./chief-brain-cc/jobs.ts"
+import { personalTeamIdFor } from "./domains/user.ts"
 import type { Env } from "./env.ts"
 import { planLink, PRICING_URL } from "./plan-checkout.ts"
 import type { ReadResult } from "./owner-do.ts"
@@ -50,7 +51,9 @@ export const chiefJobGate = async (env: Env, p: Principal, list: (cursor?: strin
   }
   if (count < FREE_CHIEF_JOBS) return undefined
   if ((await ownerPaid(env, p.user)) !== "free") return undefined
-  const link = env.CLOUD_API_ORIGIN ? await planLink(env, env.CLOUD_API_ORIGIN, p.team, UPSELL_PLAN) : null
+  // The plan read above is the personal team's (ownerPaid), so the link buys the plan there too: a link for a
+  // shared team selected with x-cmux-team would turn that team's plan on and leave this cap where it was.
+  const link = env.CLOUD_API_ORIGIN ? await planLink(env, env.CLOUD_API_ORIGIN, personalTeamIdFor(p.user), UPSELL_PLAN) : null
   return {
     code: "automation.plan.required",
     message: `the free plan has ${FREE_CHIEF_JOBS} Cloud job; Pro ($50/month) has more. Nothing is charged until you pay on the checkout page.`,
