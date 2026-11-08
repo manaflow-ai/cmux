@@ -181,6 +181,9 @@ public final class LayoutRootView: NSView {
             self.setLayoutInMotion(false)
         }
         context.gridHoldDidChange = { [weak self] held in self?.onTerminalGridHold?(held) }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        context.filmMotionEnded = { [weak self] in self?.reportInteractiveRects() }
+        #endif
         highlight.needsFrame = { [weak self] in self?.driver.start() }
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)

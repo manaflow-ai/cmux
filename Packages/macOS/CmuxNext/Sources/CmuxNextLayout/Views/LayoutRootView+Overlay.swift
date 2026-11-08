@@ -153,6 +153,19 @@ extension LayoutRootView {
         isLayoutInMotion || screenViews.values.contains { !$0.isHidden && ($0.hasMotion || $0.activeDrag != nil) }
     }
 
+    /// Whether the window's divider catcher panels wait for the layout to land (`WindowOverlayLayer`): a layout motion
+    /// runs (``isInLayoutMotion``) or, in film builds, a film zoom plays on a shown screen (ZOOM VARIANTS 7: the film
+    /// snaps the layout in the key's turn and plays on layers; nobody grabs a divider during it, as on a spring). Its end
+    /// reports once (`LayoutViewContext.filmMotionEnded`).
+    public var catchersWaitForLanding: Bool {
+        if isInLayoutMotion { return true }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        return screenViews.values.contains { !$0.isHidden && $0.isFilmMoving }
+        #else
+        return false
+        #endif
+    }
+
     /// A divider, column-edge or row-edge drag runs on a shown screen (its catcher panel keeps the resize cursor).
     public var isDividerDragging: Bool { screenViews.values.contains { !$0.isHidden && $0.activeDrag != nil } }
 
@@ -160,7 +173,7 @@ extension LayoutRootView {
         guard let planeHost else { return }
         let rects = interactiveOverlayRects
         let areas = dividerMouseAreas
-        let moving = isInLayoutMotion, shapes = context.stripClipsChanged
+        let moving = catchersWaitForLanding, shapes = context.stripClipsChanged
         guard rects != reportedInteractiveRects || areas != reportedDividerMouseAreas || moving != reportedLayoutMotion || shapes else { return }
         reportedInteractiveRects = rects
         reportedDividerMouseAreas = areas

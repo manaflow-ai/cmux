@@ -71,5 +71,31 @@ import Testing
         try #require(!layout.root.screenViews["s"]!.frameInput.filmZoomFading.isEmpty, "Z4 zoom in plays its film")
         #expect(layout.catcherAreas == before, "the zoom's key turn moved the catcher panels: \(before) -> \(layout.catcherAreas)")
     }
+
+    /// The film's end (its last layer animation's completion) lets the catchers follow the layout once: none over the
+    /// zoomed pane, and the unzoom's catchers wait for its own film and then cover its dividers again.
+    @Test func theFilmsEndMovesTheCatchersOnce() throws {
+        let film = DesignSettings.shared.filmZoom
+        defer { DesignSettings.shared.filmZoom = film }
+        _ = FilmZoomVariant.select("zoom_variant Z4 K6")
+        let layout = Layout()
+        defer { layout.window.close() }
+        let before = layout.catcherAreas
+        let screen = try #require(layout.root.screenViews["s"])
+
+        layout.show(.leaf("p1"), zoomed: true)
+        _ = layout.root.advanceFrame(1.0 / 120)
+        #expect(screen.isFilmMoving && layout.root.catchersWaitForLanding, "the zoom in's film plays")
+        screen.filmMotionEnded(screen.frameInput.filmZoomGeneration) // what the film's completion runs
+        #expect(!layout.root.catchersWaitForLanding, "the film ended")
+        #expect(layout.catcherAreas == layout.dividerAreas && layout.catcherAreas.isEmpty,
+                "at the film's end the catchers follow the zoomed layout (no divider): \(layout.catcherAreas)")
+
+        layout.show(ZoomKeepsCoveredPanesTests.four, zoomed: false)
+        _ = layout.root.advanceFrame(1.0 / 120)
+        #expect(layout.catcherAreas.isEmpty, "the unzoom's key turn leaves the catchers until its film ends: \(layout.catcherAreas)")
+        screen.filmMotionEnded(screen.frameInput.filmZoomGeneration)
+        #expect(layout.catcherAreas == before, "after the unzoom's film the catchers cover the dividers again: \(layout.catcherAreas)")
+    }
 }
 #endif

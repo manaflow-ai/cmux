@@ -27,12 +27,16 @@ extension ScreenContentView {
         // A Z4 zoom in still fading its covered panes: a newer zoom takes them as they are now (an unzoom brings them
         // back from here: `returning` below), and that fade's end does nothing (`filmZoomGeneration`).
         frameInput.filmZoomGeneration &+= 1
+        frameInput.filmMotionUntil = 0 // an older film's end no longer counts (set again below when this one plays)
         stopFilmFade(retiring: zooming)
         layer?.sublayers?.filter { $0.name?.hasPrefix("film-zoom-pictures-") == true }.forEach { $0.removeFromSuperlayer() }
         guard let root = layer else { return }
         let zoomed = zooming ? after.panes.keys.first : before.panes.keys.first { after.panes[$0] != nil }
         guard let zoomed, let zoomedLayer = context.hosts[zoomed]?.layer else { return }
         let animates = film.kind != .z1 && Motion.panes.animatesMovement
+        // The film plays from the presentation on: the window's divider catchers wait for its end (`isFilmMoving`).
+        let generation = frameInput.filmZoomGeneration
+        frameInput.filmMotionUntil = animates ? CACurrentMediaTime() + film.driver.duration + 1 : 0
         // Zoom in: the panes the zoom covers stay as they are and go hidden with the presentation (retired, not torn down).
         // Zoom out: the panes the unzoom shows again wait at opacity 0 until that presentation.
         var covered: [PaneID] = [], returning: [PaneID] = []
@@ -92,6 +96,7 @@ extension ScreenContentView {
             self.frameInput.filmZoomRetire = []
             let container = self.layer?.sublayers?.first { $0.name == tag }
             guard animates, let container, let zoomedLayer = self.context.hosts[zoomed]?.layer else {
+                self.filmMotionEnded(generation)
                 container?.removeFromSuperlayer()
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
@@ -101,6 +106,7 @@ extension ScreenContentView {
             }
             let finish: @MainActor () -> Void = { [weak self] in
                 self?.layer?.sublayers?.first { $0.name == tag }?.removeFromSuperlayer()
+                self?.filmMotionEnded(generation)
             }
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -249,6 +255,7 @@ extension ScreenContentView {
             }
             guard self.frameInput.filmZoomGeneration == generation else { return }
             self.stopFilmFade(retiring: true)
+            self.filmMotionEnded(generation)
             self.context.requestFrames() // the next tick reports the retired panes hidden (`updateVisibility`)
         })
     }
@@ -354,6 +361,17 @@ extension ScreenContentView {
         let t = CGFloat(p)
         return CGRect(x: a.minX + (b.minX - a.minX) * t, y: a.minY + (b.minY - a.minY) * t,
                       width: a.width + (b.width - a.width) * t, height: a.height + (b.height - a.height) * t)
+    }
+
+    /// A film zoom's motion plays on this screen (``ScreenFrameInput/filmMotionUntil``).
+    var isFilmMoving: Bool { frameInput.filmMotionUntil > CACurrentMediaTime() }
+
+    /// The film zoom of `generation` ended (its last layer animation's completion, or no animation): the window's
+    /// divider catchers follow the layout now, once. A newer zoom's film keeps playing.
+    func filmMotionEnded(_ generation: Int) {
+        guard frameInput.filmZoomGeneration == generation, frameInput.filmMotionUntil != 0 else { return }
+        frameInput.filmMotionUntil = 0
+        context.filmMotionEnded()
     }
 
     /// The film zoom's motion starts with the presentation that shows its final layout (`applyPresentation`).
