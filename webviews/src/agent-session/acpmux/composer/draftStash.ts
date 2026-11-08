@@ -74,7 +74,9 @@ export function storedStacks(all: Stacks): string {
   const out: Record<string, StashedDraft[]> = {};
   for (const [chat, list] of all)
     out[chat] = list.map((entry) =>
-      entry.attachments.length && JSON.stringify(entry).length > STORED_ENTRY_MAX ? { ...entry, attachments: [] } : entry,
+      entry.attachments.length && JSON.stringify(entry).length > STORED_ENTRY_MAX
+        ? { ...entry, attachments: [] }
+        : entry,
     );
   return JSON.stringify(out);
 }

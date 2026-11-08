@@ -36,7 +36,9 @@ describe("saved prompts", () => {
       { name: "review pr", text: "other", source: "settings" },
       { name: "!!!", text: "no slug", source: "saved" },
     ]);
-    expect(rows).toEqual([{ name: "review-pr", description: "Review this PR", source: "saved", body: "Review this PR\nthoroughly" }]);
+    expect(rows).toEqual([
+      { name: "review-pr", description: "Review this PR", source: "saved", body: "Review this PR\nthoroughly" },
+    ]);
   });
 
   test("a saved prompt is offered mid-prompt too, and Return picks it typed in full", () => {

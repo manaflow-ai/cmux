@@ -874,11 +874,7 @@ function ComposerFrame({
     // goes after what is there (prompts a folder's trust held, sent after one already given
     // back: trustHeld.ts).
     const typed = field.current?.value() ?? "";
-    const next = !typed.trim()
-      ? restoredText
-      : behind
-        ? `${typed}\n\n${restoredText}`
-        : `${restoredText}\n\n${typed}`;
+    const next = !typed.trim() ? restoredText : behind ? `${typed}\n\n${restoredText}` : `${restoredText}\n\n${typed}`;
     // A field whose editor is still starting (the chat composer that mounts as a New Tab page
     // leaves) takes it as its value, which becomes the editor's first content.
     if (!field.current?.type(next)) {
@@ -887,9 +883,7 @@ function ComposerFrame({
     }
     if (restoredAttachments.length)
       setAttachments((current) => {
-        const others = current.filter(
-          (attachment) => !restoredAttachments.some((back) => back.id === attachment.id),
-        );
+        const others = current.filter((attachment) => !restoredAttachments.some((back) => back.id === attachment.id));
         return behind ? [...others, ...restoredAttachments] : [...restoredAttachments, ...others];
       });
   };
@@ -1274,10 +1268,7 @@ function ComposerFrame({
     () => [...savedPromptCommands(savedPrompts), ...(commands ?? [])],
     [savedPrompts, commands],
   );
-  const matches = useMemo(
-    () => (typedSlash ? slashMatches(menuCommands, typedSlash) : []),
-    [menuCommands, typedSlash],
-  );
+  const matches = useMemo(() => (typedSlash ? slashMatches(menuCommands, typedSlash) : []), [menuCommands, typedSlash]);
   const open = typedSlash !== undefined && (typedSlash.leading || matches.length > 0);
   const slashNames = useSlashNames(commands);
   // Each opening reads the list again, so a prompt saved in another chat is there.

@@ -82,7 +82,7 @@ test("a read prompt shows age, Copy, Edit and Fork, without receipt checks or st
     route: { name: "Claude Code", harness: "claude" },
   });
   // Leo's row, then the direct prompt actions: Copy, Edit and Fork (Retry is the reply footer's).
-  expect(labels()).toEqual(["3 days ago", "Copy", "Edit", "Fork from here"]);
+  expect(labels()).toEqual(["3 days ago", "Copy", "Edit", "Fork from here", "Save as Prompt"]);
   expect(host.querySelector(".cv-message-pin")).toBeNull();
   expect(host.querySelector(".cv-user__read")).toBeNull();
   expect(host.querySelector("time.cv-user__time")?.getAttribute("dateTime")).toBe(new Date(row.at).toISOString());
@@ -250,17 +250,17 @@ test("a chat that cannot fork at a prompt hides Fork there rather than showing i
     { id: "user-2", version: 1, at: Date.now(), kind: "user", seq: 2, text: "First" },
     { fork: () => {}, forkSeq: 9, promptTurns: new Map([["user-2", 3]]), retry: () => {} },
   );
-  expect(labels()).toEqual(["just now", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy", "Save as Prompt"]);
 });
 
 test("a prompt still being sent has no receipt, and one that cannot fork offers no Fork", async () => {
   await draw({ id: "user-9", version: 1, at: Date.now(), kind: "user", pending: true, text: "Next" }, {});
-  expect(labels()).toEqual(["just now", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy", "Save as Prompt"]);
 });
 
 test("the normal hover actions never add an unread receipt", async () => {
   await draw({ id: "user-9", version: 1, at: Date.now(), kind: "user", steer: "waiting", text: "Also this" }, {});
-  expect(labels()).toEqual(["just now", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy", "Save as Prompt"]);
   expect(host.querySelector(".cv-user__read")).toBeNull();
   // No "Steering" / "Steered" line under the bubble any more.
   expect(host.textContent).not.toContain("Steer");
@@ -268,7 +268,7 @@ test("the normal hover actions never add an unread receipt", async () => {
 
 test("a read steer shows only normal hover actions", async () => {
   await draw({ id: "user-9", version: 1, at: Date.now(), kind: "user", steer: "landed", text: "Also this" }, {});
-  expect(labels()).toEqual(["just now", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy", "Save as Prompt"]);
   // No receipt check or Steered state label.
   expect(host.querySelector(".cv-user__read")).toBeNull();
   expect(host.textContent).not.toContain("Steer");
@@ -303,20 +303,20 @@ test("a recorded steer has no receipt checks in its normal hover actions", async
   const delivery = { state: "read", promptId: "p-1", sessionId: "s-1", sentAt: Date.now() } as const;
   const steer: AcpmuxRow = { id: "user-7", version: 1, at: Date.now(), kind: "user", seq: 7, text: "Rebase first" };
   await draw({ ...steer, steer: "waiting", delivery }, {});
-  expect(labels()).toEqual(["just now", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy", "Save as Prompt"]);
   await draw({ ...steer, steer: "landed", delivery }, {});
-  expect(labels()).toEqual(["just now", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy", "Save as Prompt"]);
 });
 
 test("normal hover actions stay free of receipt checks across sending, delivered and read", async () => {
   const sent = { promptId: "p-2", sessionId: "s-1", sentAt: Date.now() };
   const prompt: AcpmuxRow = { id: "user-8", version: 1, at: Date.now(), kind: "user", seq: 8, text: "Ship it" };
   await draw({ ...prompt, delivery: { ...sent, state: "sending" } }, {});
-  expect(labels()).toEqual(["just now", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy", "Save as Prompt"]);
   await draw({ ...prompt, delivery: { ...sent, state: "delivered" } }, {});
-  expect(labels()).toEqual(["just now", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy", "Save as Prompt"]);
   await draw({ ...prompt, delivery: { ...sent, state: "read" } }, { route: { name: "Codex" } });
-  expect(labels()).toEqual(["just now", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy", "Save as Prompt"]);
 });
 
 test("the relative time words a message's age as Claude's hover row does, in the pane's language", async () => {

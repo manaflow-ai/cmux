@@ -58,8 +58,17 @@ export default componentEntry<Props>({
   variants: {
     empty: { note: "Nothing stashed: the row as it was; the chip has no width and no focus.", props: { drafts: [] } },
     one: { note: "Picked look: the tray glyph and a count, after the mode.", props: { drafts: three.slice(0, 1) } },
-    three: { note: "Three stashed drafts; the menu lists them newest first, ⌃S on the newest.", props: { drafts: three } },
-    word: { note: "Rejected: the word takes room and cuts first in a narrow row.", props: { drafts: three, look: "word" } },
-    dot: { note: "Rejected: a dot on the mode chip says nothing about what it is.", props: { drafts: three, look: "dot" } },
+    three: {
+      note: "Three stashed drafts; the menu lists them newest first, ⌃S on the newest.",
+      props: { drafts: three },
+    },
+    word: {
+      note: "Rejected: the word takes room and cuts first in a narrow row.",
+      props: { drafts: three, look: "word" },
+    },
+    dot: {
+      note: "Rejected: a dot on the mode chip says nothing about what it is.",
+      props: { drafts: three, look: "dot" },
+    },
   },
 });

@@ -3,11 +3,11 @@
    whatever it says, so the buttons never move while the person types. */
 .cv-save-prompt-popover {
   width: min(300px, var(--available-width, 300px));
-  padding: 10px;
+  padding: 12px;
 }
 .cv-save-prompt-form {
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
 .cv-save-prompt-label {
   display: grid;
@@ -17,7 +17,7 @@
 }
 .cv-save-prompt-input {
   min-width: 0;
-  height: 26px;
+  height: var(--grid-row, 28px);
   padding-inline: 8px;
   border: var(--cmux-hairline, 0.5px) solid var(--agent-edge, currentColor);
   border-radius: 6px;
@@ -43,5 +43,5 @@
 .cv-save-prompt-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 6px;
+  gap: 8px;
 }

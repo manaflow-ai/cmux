@@ -96,6 +96,8 @@ describe("draft stash", () => {
   });
 
   test("the preview is one line", () => {
-    expect(stashPreview({ id: "x", text: "line one\n\n  line   two", attachments: [], at: 0 })).toBe("line one line two");
+    expect(stashPreview({ id: "x", text: "line one\n\n  line   two", attachments: [], at: 0 })).toBe(
+      "line one line two",
+    );
   });
 });

@@ -45,7 +45,9 @@ export function StashedChip({
                   onSelect={() => onRestore(draft.id)}
                 >
                   <span className="acpmux-stash-row">
-                    <span className="acpmux-stash-preview">{stashPreview(draft) || t("composer.stashAttachmentsOnly")}</span>
+                    <span className="acpmux-stash-preview">
+                      {stashPreview(draft) || t("composer.stashAttachmentsOnly")}
+                    </span>
                     {draft.attachments.length > 0 && (
                       <span className="acpmux-stash-files" aria-hidden="true">
                         +{draft.attachments.length}

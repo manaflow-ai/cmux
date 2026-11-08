@@ -634,7 +634,9 @@ export class MockAcpmuxSocket {
       }
       case "_acpmux/prompts_list":
         return {
-          prompts: [...this.prompts.values()].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" })),
+          prompts: [...this.prompts.values()].sort((a, b) =>
+            a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+          ),
         };
       case "_acpmux/prompts_save": {
         const name = String(params.name ?? "").trim();
@@ -645,7 +647,13 @@ export class MockAcpmuxSocket {
         return { prompt };
       }
       case "_acpmux/prompts_delete":
-        return { removed: this.prompts.delete(String(params.name ?? "").trim().toLowerCase()) };
+        return {
+          removed: this.prompts.delete(
+            String(params.name ?? "")
+              .trim()
+              .toLowerCase(),
+          ),
+        };
       case "_acpmux/events":
         return this.page(target, params);
       case "_acpmux/attachment": {
