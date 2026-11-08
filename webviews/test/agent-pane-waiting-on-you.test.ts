@@ -207,11 +207,11 @@ test("a pull request's verdict names the PR and its chat; other kinds and other 
     sessionId: "s1",
     verdict: "accepted",
   });
-  expect(verdictParams(pr, "changes", "  Split the commit  ")).toEqual({
+  // No comment: acpmux records the verdict only, so the page sends none it would drop.
+  expect(verdictParams(pr, "changes")).toEqual({
     prUrl: "https://example.com/pull/7",
     sessionId: "s1",
     verdict: "changes",
-    comment: "Split the commit",
   });
   expect(verdictParams(item(), "accept")).toBeUndefined();
   // acpmux records a verdict on this Mac only, for a chat it has.

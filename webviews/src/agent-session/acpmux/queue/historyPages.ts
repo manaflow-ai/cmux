@@ -98,11 +98,11 @@ export function historyPages({
           peer: Boolean(item.host),
           open: () => open(item),
         }),
-      verdict: async (item, verdict, comment) => {
+      verdict: async (item, verdict) => {
         // Another machine's pull request is reviewed there (its row offers no verdict): refused, so
         // the row stays rather than hiding while acpmux still lists it.
         if (item.host) throw new Error("answered on its machine");
-        const params = verdictParams(item, verdict, comment);
+        const params = verdictParams(item, verdict);
         if (!params) throw new Error("unanswerable");
         return connected().reviewVerdict(params);
       },

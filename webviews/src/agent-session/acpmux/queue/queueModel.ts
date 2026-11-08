@@ -228,14 +228,12 @@ export function queueReasons(item: QueueItem): QueueReason[] {
 export function verdictParams(
   item: QueueItem,
   verdict: "accept" | "changes",
-  comment?: string,
 ): Record<string, unknown> | undefined {
   if (item.kind !== "pr" || !item.prUrl || !item.sessionId || item.host) return undefined;
   return {
     prUrl: item.prUrl,
     sessionId: item.sessionId,
     verdict: verdict === "accept" ? "accepted" : "changes",
-    ...(comment?.trim() ? { comment: comment.trim() } : {}),
   };
 }
 

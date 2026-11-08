@@ -201,10 +201,10 @@ test("a question is answered in its chat; on a pull request Deny asks for the ch
   expect(calls.opened).toEqual(["s2"]);
   await press(list, "j");
   expect(selected()).toBe("wq-row-pr_u");
+  // Deny is Request changes: it sends the verdict at once, with no box to type words acpmux drops.
   await shortcut("Deny");
-  expect(host.querySelector(".wq-comment-field")).not.toBeNull();
-  await shortcut("AllowOnce");
-  expect(calls.verdicts).toEqual([["pr:u", "accept"]]);
+  expect(host.querySelector("textarea")).toBeNull();
+  expect(calls.verdicts).toEqual([["pr:u", "changes"]]);
 });
 
 test("another machine's pull request offers no verdict here and keeps its row", async () => {
@@ -219,21 +219,11 @@ test("another machine's pull request offers no verdict here and keeps its row", 
   expect(host.querySelector("#wq-row-pr_peer")?.hasAttribute("data-leaving")).toBe(false);
 });
 
-test("a refused Request changes brings its box back with what was typed", async () => {
+test("a refused Request changes keeps its row and says so", async () => {
   const pr = items[2]!;
   await render(async () => ({ items: [pr], now: 10 }), true);
   await shortcut("Deny");
-  const field = host.querySelector<HTMLTextAreaElement>(".wq-comment-field")!;
-  await act(async () => {
-    const set = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!;
-    set.call(field, "Split the commit");
-    field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-  });
-  const send = host.querySelector<HTMLButtonElement>('.wq-comment-actions button[data-tone="allow"]')!;
-  await act(async () => {
-    send.click();
-  });
-  expect(host.querySelector<HTMLTextAreaElement>(".wq-comment-field")?.value).toBe("Split the commit");
+  expect(host.querySelector("textarea")).toBeNull();
   expect(host.querySelector(".wq-failure")?.textContent).toBe(translate("waiting.answerFailed"));
   expect(host.querySelector("#wq-row-pr_u")?.hasAttribute("data-leaving")).toBe(false);
 });

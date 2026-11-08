@@ -31,7 +31,7 @@ export type QueueActions = {
   /// "opened" when the chat had to take it instead.
   answer(item: QueueItem, choice: NeedsYouAnswer): Promise<"answered" | "opened">;
   /// A pull request's verdict (`_acpmux/review_verdict`).
-  verdict(item: QueueItem, verdict: "accept" | "changes", comment?: string): Promise<unknown>;
+  verdict(item: QueueItem, verdict: "accept" | "changes"): Promise<unknown>;
   /// Shows the item's chat in this tab, as History's own rows open one (`chat.select`).
   open(item: QueueItem): void;
   /// Copies the audit trail (`_acpmux/audit`); resolves to how many entries it copied.
@@ -69,7 +69,6 @@ export function QueueScreen({
   const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set());
   const [failures, setFailures] = useState<ReadonlyMap<string, string>>(() => new Map());
   const [selected, setSelected] = useState<string | undefined>();
-  const [comment, setComment] = useState<{ id: string; text: string } | undefined>();
   const [notice, setNotice] = useState<Notice | undefined>();
   const lastIndex = useRef(0);
   const list = useRef<HTMLDivElement>(null);
@@ -134,16 +133,10 @@ export function QueueScreen({
   );
 
   const sendVerdict = useCallback(
-    (item: QueueItem, kind: "accept" | "changes", text?: string) => {
-      // The box closes with the row; a refused verdict brings both back with what was typed, so
-      // the person never writes the request again.
-      setComment(undefined);
-      settle(
-        item,
-        () => verdict(item, kind, text),
-        t("waiting.answerFailed"),
-        text === undefined ? undefined : () => setComment({ id: item.id, text }),
-      );
+    (item: QueueItem, kind: "accept" | "changes") => {
+      // A verdict carries no comment: acpmux records only the verdict, so the page asks for no
+      // words it would drop. What should change is said in the chat (the row opens it).
+      settle(item, () => verdict(item, kind), t("waiting.answerFailed"));
       list.current?.focus({ preventScroll: true });
     },
     [settle, verdict, t],
@@ -188,8 +181,7 @@ export function QueueScreen({
   shortcut.current = (kind) => {
     if (!current || current.host) return;
     if (current.kind === "pr") {
-      if (kind === "allow") sendVerdict(current, "accept");
-      else setComment({ id: current.id, text: "" });
+      sendVerdict(current, kind === "allow" ? "accept" : "changes");
       return;
     }
     give(
@@ -258,18 +250,12 @@ export function QueueScreen({
               now={now ?? reply?.now}
               selected={item === current}
               failure={failures.get(item.id)}
-              comment={comment?.id === item.id ? comment.text : undefined}
               onSelect={setSelected}
               onOpen={open}
               onAnswer={give}
               allowKey={allowKey}
               denyKey={denyKey}
               onVerdict={sendVerdict}
-              onComment={setComment}
-              onCancel={() => {
-                setComment(undefined);
-                list.current?.focus({ preventScroll: true });
-              }}
             />
           ))}
         </ul>
@@ -359,16 +345,13 @@ type RowProps = {
   now?: number;
   selected: boolean;
   failure?: string;
-  comment?: string;
   onSelect(id: string): void;
   onOpen(item: QueueItem): void;
   onAnswer(item: QueueItem, choice: NeedsYouAnswer): boolean;
   /// The app's Allow Once and Deny shortcuts, shown on the selected row's answers.
   allowKey?: string | undefined;
   denyKey?: string | undefined;
-  onVerdict(item: QueueItem, verdict: "accept" | "changes", comment?: string): void;
-  onComment(comment: { id: string; text: string } | undefined): void;
-  onCancel(): void;
+  onVerdict(item: QueueItem, verdict: "accept" | "changes"): void;
 };
 
 /// One item. Memoized: moving the cursor redraws the two rows it leaves and enters, whatever the
@@ -381,15 +364,12 @@ const Row = memo(function Row({
   now,
   selected,
   failure,
-  comment,
   onSelect,
   onOpen,
   onAnswer,
   allowKey,
   denyKey,
   onVerdict,
-  onComment,
-  onCancel,
 }: RowProps) {
   const t = useT();
   const answers = queueAnswers(item);
@@ -464,7 +444,7 @@ const Row = memo(function Row({
                     className="wq-button"
                     tabIndex={-1}
                     aria-keyshortcuts={changesKey}
-                    onClick={() => onComment({ id: item.id, text: "" })}
+                    onClick={() => onVerdict(item, "changes")}
                   >
                     {changesKey && <Keycap>{changesKey}</Keycap>}
                     {t("waiting.pr.changes")}
@@ -495,72 +475,8 @@ const Row = memo(function Row({
               )}
             </div>
           )}
-          {comment !== undefined && (
-            <CommentBox
-              text={comment}
-              onChange={(text) => onComment({ id: item.id, text })}
-              onSend={(text) => onVerdict(item, "changes", text)}
-              onCancel={onCancel}
-            />
-          )}
         </div>
       </div>
     </li>
   );
 });
-
-function CommentBox({
-  text,
-  onChange,
-  onSend,
-  onCancel,
-}: {
-  text: string;
-  onChange(text: string): void;
-  onSend(text: string): void;
-  onCancel(): void;
-}) {
-  const t = useT();
-  const field = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    field.current?.focus();
-  }, []);
-  return (
-    <div className="wq-comment">
-      <textarea
-        ref={field}
-        className="wq-comment-field"
-        rows={2}
-        value={text}
-        placeholder={t("waiting.comment.placeholder")}
-        aria-label={t("waiting.pr.changes")}
-        onChange={(event) => onChange(event.target.value)}
-        onKeyDown={(event) => {
-          event.stopPropagation();
-          if (event.nativeEvent.isComposing) return;
-          if (event.key === "Escape") {
-            event.preventDefault();
-            onCancel();
-          } else if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            if (text.trim()) onSend(text);
-          }
-        }}
-      />
-      <div className="wq-comment-actions">
-        <button type="button" className="wq-button" onClick={onCancel}>
-          {t("waiting.comment.cancel")}
-        </button>
-        <button
-          type="button"
-          className="wq-button"
-          data-tone="allow"
-          disabled={!text.trim()}
-          onClick={() => onSend(text)}
-        >
-          {t("waiting.comment.send")}
-        </button>
-      </div>
-    </div>
-  );
-}
