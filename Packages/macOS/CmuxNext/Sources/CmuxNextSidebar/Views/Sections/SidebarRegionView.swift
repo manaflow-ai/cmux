@@ -269,7 +269,8 @@ final class SidebarRegionView: NSView {
                 guard let section = sections[sectionID], let item = section.items.first(where: { $0.id == id }) else { continue }
                 liveItems.insert(id)
                 let new = itemViews[id] == nil
-                let view = itemViews[id] ?? makeItem(id, workspace: content.infos[id]?.workspace)
+                let parked = new ? unparkItem(content.infos[id]?.workspace) : nil // the view this workspace's last pin showed
+                let view = itemViews[id] ?? makeItem(id, reusing: parked)
                 let style: SidebarItemRowView.Style = switch row.kind {
                 // An icon-only built-in item (the account, an icon-only Settings)
                 // has no fill until hover in every arrangement (Lawrence
@@ -290,7 +291,9 @@ final class SidebarRegionView: NSView {
                 view.setAccessibilityIdentifier("cmux.sidebar.item.\(id.rawValue)")
                 view.activatesOnPress = item.ref.activatesOnPress
                 view.isMovable = item.isMovable // Home's press never drags (`LayoutItem.isMovable`)
-                if new, let workspace = info.workspace, flyingWorkspaces.contains(workspace) {
+                // A flight's item and a parked view are placed at once: one flies from the row, the other never slides
+                // in from where it was parked (as the list places a parked row, cx-ai79).
+                if new, let workspace = info.workspace, parked != nil || flyingWorkspaces.contains(workspace) {
                     Motion.withoutAnimation {
                         view.frame = row.frame
                         view.layoutSubtreeIfNeeded()
@@ -371,9 +374,9 @@ final class SidebarRegionView: NSView {
         needsDisplay = true
     }
 
-    /// `id`'s item view: `workspace`'s parked one (an unpin left it here) or a new one, wired to `id`.
-    private func makeItem(_ id: LayoutItemID, workspace: WorkspaceID?) -> SidebarItemRowView {
-        let view = unparkItem(workspace) ?? SidebarItemRowView()
+    /// `id`'s item view, wired to `id`: `parked` (the view an unpin left here for the workspace) or a new one.
+    private func makeItem(_ id: LayoutItemID, reusing parked: SidebarItemRowView? = nil) -> SidebarItemRowView {
+        let view = parked ?? SidebarItemRowView()
         view.onPressWithModifiers = { [weak self] flags in
             if let onActivateWithModifiers = self?.onActivateWithModifiers {
                 onActivateWithModifiers(id, flags)
