@@ -17,9 +17,9 @@ extension PaneController {
         switch intent {
         case .select(let id): select(id)
         case .close(let id, _): CloseUndoToasts.close(in: self, [id])
-        case .closeOthers(let keep): CloseUndoToasts.close(in: self, stripModel.closedByCloseOthers(keeping: keep))
+        case .closeOthers(let keep): closeKeeping(keep, closing: stripModel.closedByCloseOthers(keeping: keep))
         // Pinned tabs after `id` stay, as in Chrome.
-        case .closeToRight(let id): CloseUndoToasts.close(in: self, stripModel.closedByCloseToRight(of: id))
+        case .closeToRight(let id): closeKeeping(id, closing: stripModel.closedByCloseToRight(of: id))
         case .reorder(let id, _, let to): StripOrder.reorder(id, to: to, in: self)
         case .reorderTabs(let order): StripOrder.reorder(toward: order, in: self)
         case .newTab(_, let opensWorkspace, let sameKind):
@@ -48,6 +48,14 @@ extension PaneController {
         case .toggleGroupCollapsed, .moveGroup, .addToGroup, .removeFromGroup, .group, .createGroup:
             handleGroup(intent)
         }
+    }
+
+    /// Close Other Tabs, Close Tabs to the Left or Close Tabs to the Right started from `actedOn`:
+    /// one gesture that closes `ids` and selects `actedOn`, which stays, unless the selection is one
+    /// of `kept` (cmux-ad i7, `TabStripModel.selectionKeeping`). The tab menu, the palette, the
+    /// shortcut, the app's action run and the strip's own intents all close here.
+    func closeKeeping(_ actedOn: StripTabID, kept: [StripTabID] = [], closing ids: [StripTabID]) {
+        CloseUndoToasts.close(in: self, ids, selecting: stripModel.selectionKeeping(actedOn, kept: kept))
     }
 
     /// Toggle Pane Zoom for pane `pane` (a tab's double-click): the pane, not the tab, so a window's

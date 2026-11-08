@@ -47,6 +47,7 @@ enum TabHandlers {
         registry.bind("closeTab", invoke: { TabLifecycle.close(ctx, $0) })
         // Close Other Tabs keeps every selected tab when the menu is on one of several (Chrome).
         // Each close names what it closes; with nothing to close the row is disabled with the reason.
+        // The tab it was started from stays and is selected (cmux-ad i7, `PaneController.closeKeeping`).
         let closes: [(ActionID, String, @MainActor (AppActionContext, ActionInvocation, PaneController, StripTabID) -> [StripTabID])] = [
             ("closeOtherTabsInPane", RefusalStrings.noOtherTabsToClose, { ctx, invocation, pane, id in
                 pane.stripModel.closedByCloseOthers(keepingAll: ctx.actingTabs(invocation, pane, id)) }),
@@ -58,7 +59,8 @@ enum TabHandlers {
                 guard let (pane, tab) = ctx.tab(invocation) else { return }
                 let closed = closing(ctx, invocation, pane, tab)
                 guard !closed.isEmpty else { return ctx.refuse(none) }
-                CloseUndoToasts.close(in: pane, closed)
+                let kept = id == "closeOtherTabsInPane" ? ctx.actingTabs(invocation, pane, tab) : [tab]
+                pane.closeKeeping(tab, kept: kept, closing: closed)
             })
             ctx.setTargetReason(id) { invocation in
                 ctx.tab(invocation).flatMap { pane, tab in closing(ctx, invocation, pane, tab).isEmpty ? none : nil }
