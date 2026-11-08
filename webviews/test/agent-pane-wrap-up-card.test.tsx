@@ -206,6 +206,39 @@ describe("NextStepCard with a recap", () => {
     expect(html.match(/acpmux-next-step__answer\b/g)).toHaveLength(2);
   });
 
+  // https://github.com/manaflow-ai/cmux/issues/38134: raw addresses in a recap drew as plain text,
+  // wrapped over lines. They draw as links with short labels; a pull request as its reference chip.
+  test("raw addresses in the recap and question draw as short links", () => {
+    const pr = "https://github.com/manaflow-ai/cmux/pull/38140";
+    const run = "https://github.com/manaflow-ai/cmux/actions/runs/19234567890/job/54321098765";
+    const dashboard = "https://cmux-dev-backend-1.tail137216.ts.net:4321/dashboard/vms";
+    const ask = wrapUpAsk(
+      call({
+        recap: `Opened ${pr} with the fix. CI is green on ${run} and the preview is up at ${dashboard}.`,
+        ask: `Deploy it to dev now (see ${dashboard}), or wait until \`${pr}\` merges?`,
+        actions: ["Deploy to dev", "Wait for merge"],
+      }).tool!,
+    )!;
+    const html = renderToStaticMarkup(
+      createElement(NextStepCard, { ask, onAnswer: async () => undefined, registerKey: () => () => undefined }),
+    );
+    const links = [...html.matchAll(/<a [^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)].map(([, href, inner]) => ({
+      href,
+      label: inner!.replace(/<[^>]+>/g, ""),
+    }));
+    expect(links).toEqual([
+      { href: pr, label: "manaflow-ai/cmux#38140" },
+      { href: run, label: "github.com/…/54321098765" },
+      { href: dashboard, label: "cmux-dev-backend-1.tail137216.ts.net/…/vms" },
+      { href: dashboard, label: "cmux-dev-backend-1.tail137216.ts.net/…/vms" },
+    ]);
+    // An address in code stays code, and no label is a raw address.
+    expect(html).toContain(`<code class="cv-code">`);
+    expect(links.every((link) => !link.label.includes("://"))).toBe(true);
+    // The buttons' labels stay plain text, so a click on one always answers.
+    expect(html.match(/acpmux-next-step__answer\b[^>]*>(?:(?!<\/button>)[\s\S])*<a /g)).toBeNull();
+  });
+
   test("a recap alone: the box with its text and no buttons", () => {
     const ask = wrapUpAsk(call({ recap: RECAP }).tool!)!;
     const html = renderToStaticMarkup(createElement(NextStepCard, { ask, onAnswer: async () => undefined }));
