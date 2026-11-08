@@ -56,6 +56,9 @@ public struct FilmCloseVariant: Sendable, Equatable {
             "K8": .spring(response: 0.2, damping: 0.8),
             "K9": .spring(response: 0.25, damping: 0.7),
             "K10": .bezier(x1: 0, y1: 0, x2: 1, y2: 1, seconds: 0.1),
+            // m68 (Lawrence: no bounce): critically damped springs, no overshoot.
+            "K11": .spring(response: 0.12, damping: 1),
+            "K12": .spring(response: 0.2, damping: 1),
             // The current close spring (PaneMotionVariant.standard.closeSpring, `.split`), for V6 on the current curve.
             "CUR": .spring(response: 0.23, damping: 0.95),
         ]
