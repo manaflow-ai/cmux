@@ -456,7 +456,7 @@ const LAST_PROMPT_CHARS = 200;
 /// of the message and titles nothing (cmux#38642 review).
 const firstPrompt = (prompt: string | undefined) => {
   const line = prompt?.trim() ?? "";
-  const cut = line.endsWith("…") && [...line].length > LAST_PROMPT_CHARS;
+  const cut = line.endsWith("…") && Array.from(line).length > LAST_PROMPT_CHARS;
   return (cut ? withoutRelayLabel(line) : withoutRelayLabelOfMessage(line)).trim();
 };
 
