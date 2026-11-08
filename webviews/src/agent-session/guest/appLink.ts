@@ -93,7 +93,8 @@ export function tryOpenApp(
   signal?: AbortSignal,
 ): Promise<boolean> {
   if (win.document.visibilityState !== "hidden") return attempt(win, url, waitMs);
-  return whenVisible(win, signal).then((shown) => (shown ? attempt(win, url, waitMs) : false));
+  // An unmount between the page showing and this callback still ends it: `shown` alone is not enough.
+  return whenVisible(win, signal).then((shown) => (shown && !signal?.aborted ? attempt(win, url, waitMs) : false));
 }
 
 /**
