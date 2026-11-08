@@ -516,10 +516,17 @@ def light_side_label(label: str) -> str:
 
 
 def _family(label: str) -> str:
-    """An owned label's class and Xcode with its role and namespace dropped (portable_job_placement.family())."""
-    if not pool.OWNED_LABEL.fullmatch(label or ""):
+    """`<class>-xcode-<version>` for any glaeda label naming a class, whatever its role or namespace
+    (side, fast, trusted, nightly, promote, signing, aws), else "". Wider than
+    portable_job_placement.family(), which reads only pool.OWNED_LABEL: the nightly builder's pool
+    (glaeda-trusted-light-xcode-26.6, cmux22) is a light mini, and its queue must hold the light minis too."""
+    parts = (label or "").split("-")
+    if not parts or parts[0] != "glaeda":
         return ""
-    return "-".join(part for part in label.split("-")[1:] if part not in pool.ROLE_NAMES and part != "fast")
+    own = next((index for index, part in enumerate(parts) if part in (*pool.RUN_CLASSES, "xl")), None)
+    if own is None or own + 2 >= len(parts) or parts[own + 1] != "xcode":
+        return ""
+    return "-".join(parts[own:own + 3])
 
 
 def light_fast_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None, seen: Any) -> str:
