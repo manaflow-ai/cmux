@@ -12,7 +12,7 @@ import { withoutInlineTokens, type ComposerAttachment } from "../attachments";
 export type StashedDraft = {
   id: string;
   text: string;
-  /// A list row's chips have no contents; `readStashed`'s have them.
+  /// A list row's chips have no contents and its text is only the start; `readStashed`'s are whole.
   attachments: ComposerAttachment[];
   at: number;
 };
@@ -142,15 +142,18 @@ export async function dropStashed(chat: string, id: string): Promise<void> {
   await link.drop(chat, id).catch(() => undefined);
 }
 
-/// A new chat's stack follows it once it has a session: each draft is stashed under the session
-/// before it leaves the new chat's, so a failed step leaves it where it was.
+/// A new chat's stack follows it once it has a session. Every draft is read whole first, so a push
+/// under the session that lets acpmux trim old chats (the new chat's own file among them) loses
+/// none; each leaves the new chat's stack only once it is stashed under the session.
 export async function moveStash(from: string, to: string): Promise<void> {
   if (from === to || !transport) return;
   await refreshStash(from);
+  const whole: StashedDraft[] = [];
   for (const row of [...(stacks.get(from) ?? NONE)].reverse()) {
     const entry = await readStashed(from, row.id);
-    if (entry && (await stashDraft(to, entry.text, entry.attachments))) await dropStashed(from, entry.id);
+    if (entry) whole.push(entry);
   }
+  for (const entry of whole) if (await stashDraft(to, entry.text, entry.attachments)) await dropStashed(from, entry.id);
 }
 
 const subscribe = (listener: () => void) => {

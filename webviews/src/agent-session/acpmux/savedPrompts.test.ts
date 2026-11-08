@@ -148,4 +148,29 @@ describe("saved prompts", () => {
     await Promise.resolve();
     expect(savedPromptsNow()).toEqual([]);
   });
+
+  test("a list read while a save was out never takes the save back; the list is read again", async () => {
+    const lists: ((value: unknown) => void)[] = [];
+    const daemon: SavedPrompt[] = [];
+    setSavedPromptsTransport({
+      list: () => new Promise<unknown>((resolve) => lists.push(resolve)),
+      save: async (name: string, text: string) => {
+        const prompt: SavedPrompt = { name, text, source: "saved" };
+        daemon.push(prompt);
+        return { prompt };
+      },
+      remove: async () => ({}),
+    });
+    // The connection's first read, still out while the save lands.
+    const read = refreshSavedPrompts();
+    await savePrompt("fresh", "text");
+    expect(savedPromptsNow().map((prompt) => prompt.name)).toEqual(["fresh"]);
+    lists.shift()!({ prompts: [] });
+    for (let turn = 0; turn < 5 && !lists.length; turn++) await Promise.resolve();
+    expect(savedPromptsNow().map((prompt) => prompt.name)).toEqual(["fresh"]);
+    // The read again answers with what acpmux holds now.
+    lists.shift()!({ prompts: daemon });
+    await read;
+    expect(savedPromptsNow().map((prompt) => prompt.name)).toEqual(["fresh"]);
+  });
 });

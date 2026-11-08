@@ -69,14 +69,22 @@ export function setSavedPromptsTransport(next: SavedPromptsTransport | undefined
   if (next) void refreshSavedPrompts();
 }
 
+/// Saves and deletes begun or ended: a list read while one was out may not hold it.
+let changes = 0;
+
 /// Reads the list again from acpmux; the copy shown stays until the answer comes, and stays on a refusal.
+/// An answer read while a save or delete was out is dropped and the list read again, so it never
+/// takes back a save the page already shows.
 export function refreshSavedPrompts(): Promise<void> {
   const via = transport;
   if (!via) return Promise.resolve();
   if (reading) return reading;
+  const at = changes;
+  let stale = false;
   const read = via.list().then(
     (reply) => {
       if (via !== transport) return;
+      if (at !== changes) return void (stale = true);
       prompts = promptsFrom(reply);
       emit();
     },
@@ -86,7 +94,7 @@ export function refreshSavedPrompts(): Promise<void> {
     if (reading === settled) reading = undefined;
   });
   reading = settled;
-  return settled;
+  return settled.then(() => (stale && via === transport ? refreshSavedPrompts() : undefined));
 }
 
 const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
@@ -97,10 +105,15 @@ export async function savePrompt(name: string, text: string): Promise<void> {
   const row: SavedPrompt = { name: trimmed, text, source: "saved", updatedAt: Date.now() };
   if (transport) {
     const via = transport;
-    const reply = await via.save(trimmed, text);
-    const saved = promptsFrom([(reply as { prompt?: unknown } | undefined)?.prompt])[0] ?? row;
-    if (via !== transport) return;
-    prompts = withPrompt(prompts, saved);
+    changes += 1;
+    try {
+      const reply = await via.save(trimmed, text);
+      const saved = promptsFrom([(reply as { prompt?: unknown } | undefined)?.prompt])[0] ?? row;
+      if (via !== transport) return;
+      prompts = withPrompt(prompts, saved);
+    } finally {
+      changes += 1;
+    }
   } else prompts = withPrompt(prompts, row);
   emit();
 }
@@ -108,7 +121,14 @@ export async function savePrompt(name: string, text: string): Promise<void> {
 /// Deletes the saved prompt `name`. Rejects with acpmux's reason (a cmux-next.json prompt is removed there).
 export async function deletePrompt(name: string): Promise<void> {
   const via = transport;
-  if (via) await via.remove(name);
+  if (via) {
+    changes += 1;
+    try {
+      await via.remove(name);
+    } finally {
+      changes += 1;
+    }
+  }
   if (via !== transport) return;
   prompts = prompts.filter((prompt) => !sameName(prompt.name, name));
   emit();

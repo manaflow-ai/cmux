@@ -141,6 +141,22 @@ describe("draft stash", () => {
     expect(texts("new-b")).toEqual(["another new chat's"]);
   });
 
+  test("a move loses no draft when the first push trims the new chat's file", async () => {
+    await stashDraft("new-a", "older", []);
+    await stashDraft("new-a", "newer", []);
+    // acpmux at its chat limit: the session's first push lets the new chat's file go.
+    setStashTransport({
+      ...fake,
+      push: async (chat, text, attachments, replaces) => {
+        const answer = await fake.push(chat, text, attachments, replaces);
+        if (chat === "session-1") daemon.delete("new-a");
+        return answer;
+      },
+    });
+    await moveStash("new-a", "session-1");
+    expect(texts("session-1")).toEqual(["newer", "older"]);
+  });
+
   test("an answer that is not a stack reads as none", () => {
     expect(draftsFrom(undefined)).toEqual([]);
     expect(draftsFrom({ drafts: [{ id: 1 }, "x", null] })).toEqual([]);

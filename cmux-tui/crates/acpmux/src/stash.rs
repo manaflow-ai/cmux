@@ -7,8 +7,8 @@
 //! session id, or a new chat's own key until it has one. A draft is its text and its chips as the
 //! page sent them (contents included), so a reload, a new page or a relaunch brings it back whole.
 //!
-//! A list answers the chips without their contents (`data`, `text`): the row needs only their
-//! count. A take is two steps: `stash_get` reads the whole draft, and `stash_drop` removes it once
+//! A list answers the chips without their contents (`data`, `text`) and the start of the text
+//! ([`ROW_TEXT_CHARS`]): the row needs only a preview and the chips' count. A take is two steps: `stash_get` reads the whole draft, and `stash_drop` removes it once
 //! the composer holds it, so a page that goes away in between loses nothing.
 //!
 //! A push may name the draft it `replaces` (a restore that puts the prompt's own draft on the stack
@@ -41,6 +41,8 @@ pub const STASH_LIMIT: usize = 5;
 pub const STASH_CHATS: usize = 50;
 /// The longest chat key.
 pub const MAX_CHAT_CHARS: usize = 256;
+/// The most of a draft's text a list row holds (`stash_get` answers it whole).
+pub const ROW_TEXT_CHARS: usize = 2000;
 /// What a `stash_get` reply holds besides the draft: its framing, id and field names.
 pub const REPLY_SLACK: usize = 64 * 1024;
 
@@ -61,7 +63,8 @@ pub struct Draft {
 }
 
 impl Draft {
-    /// The draft as a list shows it: its chips without their contents.
+    /// The draft as a list shows it: its chips without their contents, and at most
+    /// [`ROW_TEXT_CHARS`] of its text, so a full stack of large drafts still lists in one message.
     pub fn row(&self) -> Value {
         let chips: Vec<Value> = self
             .attachments
@@ -76,7 +79,8 @@ impl Draft {
                 other => other.clone(),
             })
             .collect();
-        json!({"id": self.id, "text": self.text, "attachments": chips, "at": self.at})
+        let text: String = self.text.chars().take(ROW_TEXT_CHARS).collect();
+        json!({"id": self.id, "text": text, "attachments": chips, "at": self.at})
     }
 }
 
@@ -185,6 +189,8 @@ pub fn remove(dir: &Path, chat: &str, id: &str) -> Result<bool, RpcError> {
         return Ok(false);
     }
     if drafts.is_empty() {
+        // A home that was replaced keeps its files, as a write would refuse it.
+        crate::config::refuse_lost_home(&path).map_err(io::Error::other).map_err(not_saved)?;
         match fs::remove_file(&path) {
             Ok(()) => {}
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
@@ -208,6 +214,9 @@ fn trim_chats(dir: &Path, keep: &Path) {
     let over = (files.len() + 1).saturating_sub(STASH_CHATS);
     files.sort();
     for (_, path) in files.into_iter().take(over) {
+        if crate::config::refuse_lost_home(&path).is_err() {
+            return;
+        }
         let _ = fs::remove_file(path);
     }
 }
@@ -407,5 +416,15 @@ mod tests {
         let stack = load(&chat_path(&dir, "chat")).unwrap();
         assert_eq!(stack[0], draft);
         assert_eq!(stack[1].text, format!("kept {next}"));
+    }
+
+    #[test]
+    fn a_list_row_holds_only_the_start_of_a_long_draft() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = home.path().join(DIR);
+        let long = "é".repeat(ROW_TEXT_CHARS * 4);
+        let draft = push(&dir, "chat", &long, Vec::new(), None, 1).unwrap();
+        assert_eq!(draft.row()["text"].as_str().unwrap().chars().count(), ROW_TEXT_CHARS);
+        assert_eq!(load(&chat_path(&dir, "chat")).unwrap()[0].text, long);
     }
 }
