@@ -935,6 +935,20 @@ pub(super) async fn handle_request(
         }
         _ => {}
     }
+    // What the socket peer's process chain shows of a send that names its harness, looked at
+    // once here, before the outbox keeps it or a peer gets it (`sender_harness.rs`).
+    if matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE) {
+        let (pid, carried) = crate::sender_harness::check_trust(
+            conn.socket_peer,
+            conn.origin == super::Origin::Local,
+            conn.origin == super::Origin::Peer && conn.auth == super::ConnAuth::PeerToken,
+        );
+        let prompt =
+            if m == method::MUX_SEND_QUEUE { params.get_mut("request") } else { Some(&mut params) };
+        if let Some(prompt) = prompt {
+            crate::sender_harness::stamp_checked(prompt, pid, carried).await;
+        }
+    }
     let key = super::session_key(&params).ok().map(str::to_owned);
     // Audited on arrival, once every gate above took it: a `session/prompt`'s reply comes only
     // when its turn ends, which may be minutes (2026-11-05: a message between two lane machines
@@ -1842,6 +1856,14 @@ async fn dispatch_request_with_identity(
             }
             // From here the prompt's own uploads go only if the session refuses it.
             let saved = crate::attach::Saved::with_owned(saved, &s.id, owned.take());
+            // Where the send came from, as its harness says and the daemon checked: a record of
+            // its own beside the prompt, never part of who sent it (`sender_harness.rs`). Not from
+            // the app or a Web client, which name no harness.
+            if matches!(conn.origin, super::Origin::Local | super::Origin::Peer)
+                && let Some(claim) = crate::sender_harness::recorded(&params, prompt_id.as_deref())
+            {
+                hub.append(&s, "mux", crate::sender_harness::RECORD_KIND, claim);
+            }
             let cloud_turn: Option<crate::cloud_rewind::CloudTurnEnvelope> =
                 match params.get("cloud_turn") {
                     Some(value) => Some(

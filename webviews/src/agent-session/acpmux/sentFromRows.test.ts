@@ -1,0 +1,120 @@
+import { afterAll, beforeAll, expect, test } from "bun:test";
+import { JSDOM } from "jsdom";
+import type { AcpmuxSnapshot } from "./model";
+
+const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
+const scope = globalThis as Record<string, unknown>;
+const saved = (["window", "document"] as const).map((key) => [key, key in scope, scope[key]] as const);
+beforeAll(() => {
+  Object.assign(scope, { window: dom.window, document: dom.window.document });
+});
+afterAll(() => {
+  for (const [key, had, value] of saved)
+    if (had) scope[key] = value;
+    else delete scope[key];
+  dom.window.close();
+});
+
+type Feed = {
+  emit: (target: string, step: unknown, at?: number) => void;
+  touch: (target: string, fields: Record<string, unknown>, moved?: boolean) => void;
+  record: (target: string, step: unknown, at?: number) => void;
+};
+
+const settle = async (check: () => boolean) => {
+  const deadline = performance.now() + 2_000;
+  while (!check()) {
+    if (performance.now() > deadline) throw new Error("timed out waiting for the sent-from row");
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
+};
+
+async function connect(records: unknown[]) {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const { forgetTail } = await import("./tailCache");
+  forgetTail(mockHost.sessionId!);
+  const socket = new MockAcpmuxSocket(() => Promise.resolve());
+  const feed = socket as unknown as Feed;
+  const target = mockHost.sessionId!;
+  for (const step of records) feed.record(target, step);
+  let shown: AcpmuxSnapshot | undefined;
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => {
+      shown = snapshot;
+    },
+    undefined,
+    () => socket as unknown as WebSocket,
+  );
+  await settle(() => shown?.summary?.sessionId === target);
+  return { client, feed, target, snapshot: () => shown, close: () => client.close?.() };
+}
+
+const claim = (promptId: string) => ({
+  mux: "sender_claim",
+  msg: {
+    promptId,
+    claimed: { harness: "claude-code", entrypoint: "claude-desktop", sessionId: "cc-1", selfReported: true },
+    checked: { harness: "claude-code", app: "Claude.app", peerPid: 50 },
+  },
+});
+const prompt = (promptId: string) => ({ mux: "user_message", msg: { promptId, text: "from the desktop" } });
+const row = (shown: AcpmuxSnapshot | undefined, promptId: string) =>
+  shown?.rows.find((r) => r.kind === "user" && r.promptId === promptId);
+
+test("a replayed sender_claim draws on the row of the prompt it names, and on no other", async () => {
+  const io = await connect([claim("p-desktop"), prompt("p-desktop"), prompt("p-own")]);
+  try {
+    await settle(() => row(io.snapshot(), "p-own") !== undefined);
+    expect(row(io.snapshot(), "p-desktop")?.sentFrom).toMatchObject({
+      label: "Claude desktop",
+      sessionId: "cc-1",
+      confirmed: true,
+    });
+    expect(row(io.snapshot(), "p-own")?.sentFrom).toBeUndefined();
+  } finally {
+    io.close();
+  }
+});
+
+test("a live sender_claim draws on the prompt that follows it", async () => {
+  const io = await connect([]);
+  try {
+    io.feed.emit(io.target, claim("p-live"));
+    io.feed.emit(io.target, prompt("p-live"));
+    await settle(() => row(io.snapshot(), "p-live") !== undefined);
+    expect(row(io.snapshot(), "p-live")?.sentFrom?.label).toBe("Claude desktop");
+  } finally {
+    io.close();
+  }
+});
+
+test("a send its harness shell named (fromAgent) draws its sender_claim on the incoming message", async () => {
+  const named = {
+    mux: "user_message",
+    // As acpmux records it (prompt_provenance.rs `named_sender`).
+    msg: {
+      promptId: "p-named",
+      text: "from the desktop",
+      fromAgent: "Claude Code desktop on mac · cc-1",
+      _meta: {
+        provenance: {
+          kind: "agent_message",
+          from: "fromAgent",
+          fromName: "Claude Code desktop on mac · cc-1",
+          to: "x",
+        },
+      },
+    },
+  };
+  const io = await connect([claim("p-named"), named]);
+  try {
+    await settle(() => row(io.snapshot(), "p-named") !== undefined);
+    const shown = row(io.snapshot(), "p-named");
+    expect(shown?.incoming?.kind).toBe("message");
+    expect(shown?.sentFrom).toMatchObject({ label: "Claude desktop", confirmed: true });
+  } finally {
+    io.close();
+  }
+});

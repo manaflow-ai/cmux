@@ -7204,3 +7204,14 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 .cv-command__dim {
   color: var(--cv-text-dim);
 }
+
+/* Where a prompt was sent from (SentFromLine.tsx): the sender chip, then "self-reported" when acpmux
+   could not confirm it. */
+.cv-user__sent-from {
+  align-items: center;
+  min-width: 0;
+}
+.cv-user__sent-from-note {
+  color: var(--agent-muted);
+  white-space: nowrap;
+}
