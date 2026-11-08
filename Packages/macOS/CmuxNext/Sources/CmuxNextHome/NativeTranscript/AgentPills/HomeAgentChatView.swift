@@ -369,6 +369,8 @@ final class HomeAgentChatView: NSView {
         button.action = #selector(runAction)
         button.bezelStyle = .push
         button.controlSize = .small
+        // A narrow pane truncates the title and status, never a button's words.
+        button.setContentCompressionResistancePriority(.required, for: .horizontal)
         if let symbol { button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil); button.imagePosition = .imageLeading }
         return button
     }
