@@ -348,19 +348,31 @@ describe("opRetryable", () => {
 });
 
 describe("guest carrier timeline", () => {
-  test("each guest time is ms after create's answer, corrected by the guest's clock offset", () => {
-    // The guest's clock runs 1000 ms ahead: guest_now 21_500 against the exec's midpoint 20_500.
-    const out = ["guest_now 21500", "bound.json 11000", "carrier.json 12500", "session_host_start 27000",
-      "journal 26900 cmux-host[7]: cmux-host: session host 40 exited after 900 ms", "noise line"].join("\n");
+  test("each guest time is ms after create's answer on the guest's boot clock, whatever its wall clock reads", () => {
+    // The guest's wall clock runs 1000 ms ahead: guest_now 21_500 at uptime 10_500, the exec's midpoint 20_500, so
+    // the guest booted at 10_000 here, the moment create answered.
+    const out = ["guest_now 21500 10500", "clock 11200 11000", "wall bound.json 12500", "mono session_host_start 6000",
+      "journal 5900 cmux-host[7]: cmux-host: session host 40 exited after 900 ms", "noise line"].join("\n");
     expect(guestTimeline(out, 10_000, 20_000, 21_000)).toBe(
-      'after create\'s answer (guest clock +1000 ms, ±500 ms): bound.json +0 ms; carrier.json +1500 ms; session_host_start +16000 ms; '
-      + 'journal "cmux-host[7]: cmux-host: session host 40 exited after 900 ms" +15900 ms');
+      'after create\'s answer (±500 ms): guest boot +0 ms; bound.json +1500 ms; session_host_start +6000 ms; '
+      + 'journal "cmux-host[7]: cmux-host: session host 40 exited after 900 ms" +5900 ms');
+  });
+
+  test("a file written before the guest's wall clock stepped is read in the clock it was written in", () => {
+    // Booted with its wall clock 96 s behind (resumed from a snapshot), synced at 30 s after boot. bound.json was
+    // written 4319 ms after boot under the old clock, carrier.json 40 s after boot under the new one.
+    const out = ["guest_now 200100 100100", "clock 4500 4000", "clock 130000 100000", "wall bound.json 8319",
+      "wall carrier.json 140000"].join("\n");
+    expect(guestTimeline(out, 100_000, 200_000, 200_200)).toBe(
+      "after create's answer (±100 ms; the guest's wall clock stepped +96000 ms after boot): guest boot +0 ms; "
+      + "bound.json +4319 ms; carrier.json +40000 ms");
   });
 
   test("says so when the guest showed nothing", () => {
-    expect(guestTimeline("", 10_000, 20_000, 20_100)).toBe("after create's answer (guest clock +0 ms, ±50 ms): nothing read");
+    expect(guestTimeline("", 10_000, 20_000, 20_100)).toBe("after create's answer (±50 ms): no guest clock read");
   });
 });
+
 
 describe("cloud journey: carrier ticket without a cmux binary", () => {
   const key = Buffer.alloc(32, 7).toString("base64url");
