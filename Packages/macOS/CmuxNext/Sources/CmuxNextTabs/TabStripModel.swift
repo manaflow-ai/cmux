@@ -110,9 +110,10 @@ public final class TabStripModel {
     /// Closing the selected tab selects the tab before it, or the one after it when it was
     /// first (``FocusAfterClose/tab(selected:old:surviving:shown:)``). Returns the current
     /// selection when the closed tab was not selected.
-    public static func selectionAfterClosing(_ closed: TabID, in ordered: [TabID], selected: TabID?) -> TabID? {
+    /// `visible` are the tabs a collapsed group does not hide; the tab before is the nearest visible one.
+    public static func selectionAfterClosing(_ closed: TabID, in ordered: [TabID], visible: Set<TabID>, selected: TabID?) -> TabID? {
         guard selected == closed, ordered.contains(closed) else { return selected }
         let surviving = ordered.filter { $0 != closed }
-        return FocusAfterClose.tab(selected: closed, old: ordered, surviving: surviving, shown: Set(surviving))
+        return FocusAfterClose.tab(selected: closed, old: ordered, surviving: surviving, shown: visible.intersection(surviving))
     }
 }

@@ -26,4 +26,18 @@ struct CmdWTargetTests {
         // Not closing: the selected tab itself.
         #expect(strip.cmdWTarget(StripTabID("b"), closing: { _ in false }) == StripTabID("b"))
     }
+
+    /// The tab that close selects is the target even when it cannot close: the press then closes
+    /// nothing, never the tab after it, which that close never selects. Home's first tab cannot
+    /// close: from Home, a, b with a closing, the close selects Home, so the press closes nothing.
+    @Test func aPressNeverClosesATabTheCloseBeforeItDoesNotSelect() {
+        var tabs = ["home", "a", "b"].map { TabItem(id: TabID($0), title: $0) }
+        tabs[0].isClosable = false
+        let strip = TabStripModel(tabs: tabs, selectedID: TabID("a"))
+        #expect(strip.cmdWTarget(StripTabID("a"), closing: { $0.rawValue == "a" }) == nil)
+        // A tab whose question shows is selected after the close too: the press closes nothing.
+        let plain = Self.strip(["x", "a", "b"], selected: "a")
+        #expect(plain.cmdWTarget(StripTabID("a"), closing: { $0.rawValue == "a" }, skipped: { $0.rawValue == "x" }) == nil)
+        #expect(plain.cmdWTarget(StripTabID("a"), closing: { $0.rawValue == "a" }) == StripTabID("x"))
+    }
 }
