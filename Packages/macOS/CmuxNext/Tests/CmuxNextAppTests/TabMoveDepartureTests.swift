@@ -258,18 +258,22 @@ import Testing
     }
 
     /// F4: Move Pane to Dock with no dock moves the pane's other tabs into the new workspace
-    /// (`TabMoves.join`) through the same departure as any move: their strip drops them with no close.
-    @Test func joiningTabsIntoAWorkspaceMarksTheirDeparture() async throws {
+    /// (`TabMoves.join`) as Move to Workspace moves a tab: each shows there in this turn and its strip
+    /// drops it with no close (`TabMoves.depart`), and the pane the moves empty leaves with them.
+    @Test func joiningTabsIntoAWorkspaceMovesThemAsMoveToWorkspaceDoes() async throws {
         let first = ScreenSnapshot(id: 1, layout: Self.sideBySide, panes: [PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: SurfaceID(rawValue: 100), title: "~")]),
                                                                           PaneSnapshot(id: 2, tabs: [TabSnapshot(surface: SurfaceID(rawValue: 200), title: "~"), TabSnapshot(surface: SurfaceID(rawValue: 201), title: "~")])])
         let second = ScreenSnapshot(id: 2, layout: .leaf(3), panes: [PaneSnapshot(id: 3, tabs: [TabSnapshot(surface: SurfaceID(rawValue: 300), title: "~")])])
         let tree = DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w1", screens: [first]), WorkspaceSnapshot(id: 2, key: nil, name: "w2", screens: [second])])
         let shown = try PaneCloseControllerTests.Shown(tree: tree)
         defer { shown.end() }
-        let source = try shown.controller(2)
-        let other = try #require(shown.services.daemon.store.workspaces.last)
+        let source = try shown.controller(2), store = shown.services.daemon.store
+        let other = try #require(store.workspaces.last)
         let tabs = source.pane.tabs
         await TabMoves.join(tabs[...], workspace: WorkspaceKey(rawValue: other.id), services: shown.services)
-        for tab in tabs { #expect(source.stripModel.departures.contains(StripTabID(tab.id)), "\(tab.id) left its strip as a close") }
+        for tab in tabs {
+            #expect(store.pane(holding: tab).flatMap { store.workspace(containing: $0.handle) } === other, "\(tab.id) waited for the daemon to move it")
+        }
+        #expect(shown.content.layoutModel.isClosing(source.layoutPaneID), "the pane the moves emptied waited for the daemon's tree")
     }
 }

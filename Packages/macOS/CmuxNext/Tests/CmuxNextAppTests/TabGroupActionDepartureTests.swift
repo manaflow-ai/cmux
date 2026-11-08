@@ -23,7 +23,10 @@ struct TabGroupActionDepartureTests {
             let group = try #require(browser.tabGroup)
             var invocation = MoveToNewWindowTests.on(.tabGroup, group.rawValue)
             if action == "tabGroup.moveToWorkspace" {
-                let other = try await MoveToNewWindowTests.newWorkspace(services)
+                // Made in the background (no focus), so the group's window keeps showing its pane.
+                let created = try await connection.state.createWorkspace(name: "move-to", ephemeral: false, terminal: true, focus: false)
+                try await PinnedPageTests.until({ services.daemon.store.workspaces.contains { $0.resourceID == created.workspaceID && $0.screens.contains { !$0.panes.isEmpty } } })
+                let other = try #require(services.daemon.store.workspaces.first { $0.resourceID == created.workspaceID })
                 invocation = ActionInvocation(target: invocation.target, arguments: ["workspace": .target(ActionTargetRef(kind: .workspace, id: other.id))])
             }
             let strip = try #require(services.paneController(for: pane), "no controller shows the group's pane").stripModel
