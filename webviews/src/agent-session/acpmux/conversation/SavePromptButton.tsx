@@ -6,6 +6,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { Popover } from "../../../ui/Popover";
 import { useT } from "../i18n";
+import { Icon } from "../icons/Icon";
 import { PROMPT_NAME_MAX, promptSlug, savePrompt, suggestedName } from "../savedPrompts";
 import { useTranscriptReadOnly } from "./readOnly";
 import { ROW_ICON } from "./messageActionsModel";
@@ -59,7 +60,7 @@ export function SavePromptButton({ text }: { text: string }) {
           setOpen(true);
         }}
       >
-        <SavePromptGlyph />
+        <Icon name="action.save" size={ROW_ICON} />
       </button>
       <Popover
         open={open}
@@ -120,20 +121,5 @@ export function SavePromptButton({ text }: { text: string }) {
         </form>
       </Popover>
     </>
-  );
-}
-
-/// A page with a plus at its corner: keep this as a prompt.
-function SavePromptGlyph() {
-  return (
-    <svg width={ROW_ICON} height={ROW_ICON} viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        d="M9 2.5H4.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V8M5.75 7.5h3M5.75 10h4.5M12 1.75v4M10 3.75h4"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.25"
-        strokeLinecap="round"
-      />
-    </svg>
   );
 }

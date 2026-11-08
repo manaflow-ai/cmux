@@ -13,7 +13,7 @@
   display: grid;
   gap: 4px;
   color: var(--agent-muted);
-  font-size: var(--text-caption, 11px);
+  font-size: var(--text-caption);
 }
 .cv-save-prompt-input {
   min-width: 0;
@@ -24,14 +24,14 @@
   background: transparent;
   color: var(--agent-text, inherit);
   font: inherit;
-  font-size: var(--text-control, 13px);
+  font-size: var(--text-control);
 }
 .cv-save-prompt-note {
-  min-height: 16px;
+  min-height: 1lh;
   margin: 0;
   overflow: hidden;
   color: var(--agent-muted);
-  font-size: var(--text-caption, 11px);
+  font-size: var(--text-caption);
   line-height: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;

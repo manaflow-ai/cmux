@@ -67,5 +67,5 @@
 .acpmux-stash-files {
   flex: none;
   color: var(--agent-muted);
-  font-size: var(--text-caption, 11px);
+  font-size: var(--text-caption);
 }

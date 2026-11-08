@@ -885,6 +885,9 @@ function ComposerFrame({
         return behind ? [...others, ...restoredAttachments] : [...restoredAttachments, ...others];
       });
   };
+  /// The handle's restore, the current render's (the handle is made once).
+  const restoreNow = useRef(restoreDraft);
+  restoreNow.current = restoreDraft;
   // Stash (composer/draftStash.ts): ⌃S puts the draft aside and empties the prompt; ⌃S on an empty
   // prompt, or a pick from the Stashed chip, brings the newest (or the picked) one back. A draft
   // typed meanwhile goes on the stack in its place, so nothing typed is ever replaced.
@@ -944,7 +947,8 @@ function ComposerFrame({
       clearAttachmentCarrySuppression() {
         suppressedAttachmentCarry.current = undefined;
       },
-      restore: restoreDraft,
+      restore: (restoredText, restoredAttachments, behind) =>
+        restoreNow.current(restoredText, restoredAttachments, behind),
       attach(attachment) {
         // A pick past the most the composer holds says so, as a dropped file does.
         const held = attachmentsRef.current;
