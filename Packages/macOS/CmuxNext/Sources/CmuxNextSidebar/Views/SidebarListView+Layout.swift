@@ -418,6 +418,7 @@ extension SidebarListViewComponents {
             return adoptRows(targets: targets, leaving: leaving, lines: lines)
         }
         if !flightSources.pins.isEmpty { flights += pinFlights(flightSources) }
+        for view in flightSources.closing { recycle(view) }
         if !pinHolds.isEmpty { settlePinHolds() }
         if !flightSources.unpins.isEmpty { releaseUnpinnedItems(flightSources.unpins.keys) }
         // A flight and the rows it passes start from where they are drawn, at rest: a retarget carries no velocity (m68).

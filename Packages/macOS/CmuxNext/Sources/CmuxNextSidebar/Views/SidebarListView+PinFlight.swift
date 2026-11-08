@@ -45,6 +45,8 @@ struct SidebarPinFlightSource {
 struct SidebarPinFlightSources {
     var pins: [WorkspaceID: SidebarPinFlightSource] = [:]
     var unpins: [WorkspaceID: SidebarPinFlightSource] = [:]
+    /// Rows already closing that a pin's item takes over: they go in the same transaction.
+    var closing: [SidebarRowView] = []
     var isEmpty: Bool { pins.isEmpty && unpins.isEmpty }
 
     /// The unpin source of row `key` (a listed workspace an unpin brings back).
@@ -85,6 +87,15 @@ extension SidebarListViewComponents {
         // A row a pin held in place (`holdsForPin`) until this update's block draws its workspace.
         for (id, view) in pinHolds where pinned.contains(id) && !view.isHidden && sources.pins[id] == nil {
             sources.pins[id] = source(of: view)
+        }
+        // A pin's row the rows' update already closes (the app sends the rows a frame or two before the blocks, and the
+        // document's pin state comes with the blocks, so `holdsForPin` cannot know it then): the block's item flies
+        // from where the closing row is drawn, and the row goes in the same transaction. No wait at the key.
+        for view in subviews.lazy.compactMap({ $0 as? SidebarRowView }) where view.closingEnd != nil && !view.isHidden {
+            guard case let .workspace(id) = view.key, rowViews[view.key] == nil, pinned.contains(id), sources.pins[id] == nil
+            else { continue }
+            sources.pins[id] = source(of: view)
+            sources.closing.append(view)
         }
         for region in blockRegions {
             for view in region.itemViews.values where view.superview != nil && !view.isHidden {

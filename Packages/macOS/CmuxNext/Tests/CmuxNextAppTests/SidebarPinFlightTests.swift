@@ -278,12 +278,19 @@ struct SidebarPinFlightTests {
 
     /// The app's pin reaches the list in two updates: the rows (the workspace leaves the list), then a frame later the
     /// blocks (the Pinned item). The row stays where it is drawn until the item takes over its frame, then moves.
-    @Test func aPinWhoseBlockComesLaterStartsOnTheRow() throws {
+    @Test func aPinWhoseBlockComesLaterStartsOnTheRow() throws { try blockComesLater(pinStateWithTheRows: true) }
+
+    /// The app's document pin state comes with the blocks: at the rows' update the workspace is not pinned yet, its row
+    /// starts to close, and the block's item then flies from where the closing row is drawn (no wait at the key).
+    @Test func aPinWhoseStateComesWithTheBlockStartsOnTheClosingRow() throws { try blockComesLater(pinStateWithTheRows: false) }
+
+    func blockComesLater(pinStateWithTheRows: Bool) throws {
         let (list, window) = Self.list(pins: [])
         defer { window.close() }
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
-        list.model.workspacePin = (isPinned: { $0 == Self.moved }, toggle: { _ in })
+        var pinnedNow = pinStateWithTheRows
+        list.model.workspacePin = (isPinned: { pinnedNow && $0 == Self.moved }, toggle: { _ in })
         let start = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
         let startFrame = list.convert(start.bounds, from: start)
         let (sections, blocks) = Self.state([Self.moved])
@@ -291,13 +298,17 @@ struct SidebarPinFlightTests {
         list.reload(animated: true)
         CATransaction.flush()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+        // Where the person sees the workspace when the block comes: the held or the closing row, as drawn.
+        let drawnRow = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
+        let drawnStart = pinStateWithTheRows ? startFrame : list.drawnFrame(of: drawnRow)
+        pinnedNow = true
         list.blocks = blocks
         list.reload(animated: true)
         let now = CACurrentMediaTime()
         let probes = Self.probes(Self.moved, list, now: now)
         let arrived = try #require(Self.copies(of: Self.moved, in: list).first { !$0.isHiddenOrHasHiddenAncestor })
         var failures: [String] = []
-        Self.checkPath("pinned d (rows first)", probes: probes, now: now, start: startFrame,
+        Self.checkPath("pinned d (rows first)", probes: probes, now: now, start: drawnStart,
                        end: list.convert(arrived.bounds, from: arrived), failures: &failures)
         #expect(failures.isEmpty, "\(failures.prefix(16).joined(separator: "\n"))")
         #expect(list.pinHolds.isEmpty, "the row still waits after its block came")
