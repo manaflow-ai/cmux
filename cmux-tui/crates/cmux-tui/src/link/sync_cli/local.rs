@@ -257,10 +257,16 @@ fn work_tree_top(folder: &Path) -> anyhow::Result<Option<PathBuf>> {
         .args(["-c", "core.hooksPath=/dev/null", "-C"])
         .arg(folder)
         .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .context("cannot run git")?;
+        .output();
+    let in_git =
+        || folder.ancestors().any(|dir| std::fs::symlink_metadata(dir.join(".git")).is_ok());
+    let output = match output {
+        // With no git on this Mac, a folder with no `.git` on its way is plain.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound && !in_git() => return Ok(None),
+        other => other.context("cannot run git")?,
+    };
     if !output.status.success() {
-        if !folder.ancestors().any(|dir| std::fs::symlink_metadata(dir.join(".git")).is_ok()) {
+        if !in_git() {
             return Ok(None);
         }
         bail!(
