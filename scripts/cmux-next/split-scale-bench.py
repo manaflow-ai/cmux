@@ -21,7 +21,10 @@ and in each cell every transition of --transitions, each sent through the real i
   bottom_open   Cmd-Shift-D on the bottom-left pane: a pane grows up from the window's bottom edge
   bottom_close  Cmd-W on it: the pane above grows back down (Leo's 2026-11-08 recording: a page above a terminal)
   divider_drag  the first divider dragged 120 pt left (and back, untimed); cells with one pane have none
-  side_open     Option-Cmd-B: the right side pane opens       side_close    Option-Cmd-B again
+  side_open     Option-Cmd-B: the right sidebar opens         side_close    Option-Cmd-B again
+                (Toggle Right Sidebar, a window panel at its remembered section; it needs no chat or tab. Which way
+                the toggle went is read from the trace's pane widths: a press that went the other way is dropped and
+                the key pressed once more, and a press that moved nothing fails the round)
 
 Per transition, from two recordings of the same gesture (split_scale_metrics.py has the definitions):
 
@@ -398,6 +401,26 @@ def record(run, gesture, label, content="focused", static=True):
     return ssm.transition(strip, trace, opts.strip_tolerance, static=static)
 
 
+def side_toggle(run, label, want, static):
+    """Option-Cmd-B recorded as the side pane's `want` ("opened" or "closed"). The key toggles, and the app keeps the
+    right sidebar's visibility across launches (RightSidebarModel, UserDefaults), so a sidebar left open by an earlier
+    run or a key that missed would swap open and close for every later cell: the trace says which way the panes went
+    (ssm.side_way), and a press that went the other way restored `want`'s starting state, so it is pressed again and
+    that press is the record. A press that moved no pane is the round's error."""
+    for attempt in range(2):
+        row = record(run, OPT_CMD_B, label if not attempt else f"{label}-again", content="none", static=static)
+        way = ssm.side_way(row)
+        if way == want:
+            return row
+        if way is None:
+            problem = "Option-Cmd-B moved no pane (the right sidebar neither opened nor closed)"
+            row["error"] = f"{row['error']}; {problem}" if row.get("error") else problem
+            return row
+        time.sleep(opts.settle)  # test script: the wrong-way toggle's motion ends before the press that is timed
+    row["error"] = f"Option-Cmd-B {way} the right sidebar twice in a row, not {want}"
+    return row
+
+
 def pane_ids(run, workspace):
     return [p["id"] for p in run.stress.panes(run.stress.workspace(workspace))]
 
@@ -459,11 +482,11 @@ def run_cell(run, workspace, columns, results, cell, content):
         if "side_open" in WANTED or "side_close" in WANTED:
             stress.focus_pane(top_left)
             time.sleep(opts.settle)  # test script: the last gesture's motion ends
-            opened = record(run, OPT_CMD_B, f"{cell}-side_open-{rnd}", content="none", static=static)
+            opened = side_toggle(run, f"{cell}-side_open-{rnd}", "opened", static)
             if "side_open" in WANTED:
                 add("side_open", opened)
             time.sleep(opts.settle)  # test script: the last gesture's motion ends
-            closed = record(run, OPT_CMD_B, f"{cell}-side_close-{rnd}", content="none", static=static)
+            closed = side_toggle(run, f"{cell}-side_close-{rnd}", "closed", static)
             if "side_close" in WANTED:
                 add("side_close", closed)
             time.sleep(opts.settle)  # test script: the last gesture's motion ends

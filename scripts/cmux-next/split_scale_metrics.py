@@ -32,13 +32,15 @@ import statistics
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from one_motion_series import EPS, series  # noqa: E402
+from one_motion_series import EPS, PANE_FRAME, series  # noqa: E402
 
 TOLERANCE = 0.002
 # A re-acceleration counts as a retarget only past this speed (points per ms) and this ratio over the slowest speed
 # since the peak: a dropped frame or a rounding step must not read as a new target.
 RETARGET_MIN_SPEED = 0.05
 RETARGET_RATIO = 1.5
+# The pane frame's width in a trace pane row (one_motion_series PANE_FRAME: fx, fy, fwidth, fheight).
+PANE_FRAME_WIDTH = PANE_FRAME.start + 2
 
 TARGETS = {
     "first_frame_ms": 16.0,
@@ -149,7 +151,33 @@ def trace_stats(trace, sent_host_s=None):
     if sent is not None:
         out["layout_first_ms"] = round(first - sent, 1) if first is not None else None
         out["layout_settled_ms"] = round(last - sent, 1) if last is not None else None
+    out["pane_width_change"] = pane_width_change(samples)
     return out
+
+
+def pane_width_change(samples):
+    """The panes' summed frame width at the trace's last tick minus at its first, over the panes in both (points):
+    negative when the panes narrowed (a right sidebar opened beside them), positive when they widened (it closed),
+    None without a pane in both. The side pane's toggle is one key for both ways, so this says which way it went."""
+    def widths(sample):
+        return {str(row[0]): float(row[PANE_FRAME_WIDTH]) for row in sample.get("panes") or []
+                if isinstance(row, list) and len(row) > PANE_FRAME_WIDTH and _number(row[PANE_FRAME_WIDTH])}
+    if not samples:
+        return None
+    start, end = widths(samples[0]), widths(samples[-1])
+    both = start.keys() & end.keys()
+    if not both:
+        return None
+    return round(sum(end[p] - start[p] for p in both), 1)
+
+
+def side_way(row):
+    """Which way a side pane toggle went in `row` (a transition record): "opened" (the panes narrowed), "closed"
+    (they widened), or None (they kept their width, or the trace had none)."""
+    change = (row or {}).get("pane_width_change")
+    if not _number(change) or abs(change) <= EPS:
+        return None
+    return "opened" if change < 0 else "closed"
 
 
 def strip_stats(strip, tolerance=TOLERANCE, settle_frames=6):
