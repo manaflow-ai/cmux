@@ -24,11 +24,11 @@ pub(super) enum AcpmuxTarget {
     /// This link serves no `acpmux` stream.
     #[cfg_attr(not(test), allow(dead_code))]
     Off,
-    /// The listener of the acpmux daemon whose home is this directory, read
-    /// for each stream, so a listener that moved port is still found: the
-    /// address the running daemon recorded (`listener.json`, which a DEV
-    /// build's free port goes to), else `websocket.listen` of its
-    /// `config.json`.
+    /// The listener the running acpmux daemon of this home recorded
+    /// (`listener.json`, `acpmux::listener_handoff`), read for each stream,
+    /// and only while that daemon's pid runs. Never `websocket.listen` of
+    /// config.json: it outlives the daemon, and a stale port could reach an
+    /// unrelated local service.
     Home(PathBuf),
     /// A fixed listener address.
     #[cfg_attr(not(test), allow(dead_code))]
@@ -48,28 +48,15 @@ impl AcpmuxTarget {
             Self::Off => None,
             Self::Fixed(address) => loopback(*address),
             Self::Home(home) => {
-                let recorded = {
-                    let home = home.clone();
-                    tokio::task::spawn_blocking(move || acpmux::listener_handoff::read_live(&home))
-                        .await
-                        .ok()
-                        .flatten()
-                };
-                if let Some(address) = recorded.and_then(loopback) {
-                    return Some(address);
-                }
-                let bytes = tokio::fs::read(home.join("config.json")).await.ok()?;
-                listen_address(&bytes)
+                let home = home.clone();
+                tokio::task::spawn_blocking(move || acpmux::listener_handoff::read_live(&home))
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(loopback)
             }
         }
     }
-}
-
-/// `websocket.listen` of an acpmux `config.json`, as a loopback address.
-fn listen_address(config: &[u8]) -> Option<SocketAddr> {
-    let config: serde_json::Value = serde_json::from_slice(config).ok()?;
-    let listen = config.get("websocket")?.get("listen")?.as_str()?;
-    loopback(listen.parse().ok()?)
 }
 
 /// A wildcard listener is reached on loopback; a listener only on a network
@@ -108,39 +95,92 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_listener_comes_from_websocket_listen_on_loopback_only() {
-        let at = |text: &str| listen_address(text.as_bytes());
-        assert_eq!(
-            at(r#"{"websocket":{"listen":"127.0.0.1:7788"}}"#),
-            "127.0.0.1:7788".parse().ok()
-        );
-        assert_eq!(at(r#"{"websocket":{"listen":"0.0.0.0:7788"}}"#), "127.0.0.1:7788".parse().ok());
-        assert_eq!(at(r#"{"websocket":{"listen":"[::]:7788"}}"#), "[::1]:7788".parse().ok());
-        assert_eq!(at(r#"{"websocket":{"listen":"192.168.1.4:7788"}}"#), None);
-        assert_eq!(at(r#"{"websocket":{"listen":"127.0.0.1:0"}}"#), None);
-        assert_eq!(at(r#"{"websocket":{"listen":"localhost:7788"}}"#), None);
-        assert_eq!(at(r#"{"peers":{}}"#), None);
-        assert_eq!(at("not json"), None);
+    fn only_a_loopback_listener_with_a_port_is_reached() {
+        let at = |text: &str| loopback(text.parse().unwrap());
+        assert_eq!(at("127.0.0.1:7788"), "127.0.0.1:7788".parse().ok());
+        assert_eq!(at("0.0.0.0:7788"), "127.0.0.1:7788".parse().ok());
+        assert_eq!(at("[::]:7788"), "[::1]:7788".parse().ok());
+        assert_eq!(at("192.168.1.4:7788"), None);
+        assert_eq!(at("127.0.0.1:0"), None);
     }
 
     #[tokio::test]
-    async fn the_running_daemons_recorded_port_wins_over_config_json() {
+    async fn the_running_daemons_record_is_the_only_listener_read() {
         let home = tempfile::tempdir().unwrap();
         let target = AcpmuxTarget::Home(home.path().to_path_buf());
-        // A DEV build: `--listen 127.0.0.1:0` is never saved, config.json has no listener.
-        std::fs::write(home.path().join("config.json"), r#"{"peers":{}}"#).unwrap();
-        assert_eq!(target.websocket().await, None);
-        let bound: SocketAddr = "127.0.0.1:52341".parse().unwrap();
-        acpmux::listener_handoff::write(home.path(), bound).unwrap();
-        assert_eq!(target.websocket().await, Some(bound));
-        // A saved listener is still read when the daemon recorded none.
-        acpmux::listener_handoff::remove_if_owned(home.path());
+        // A saved `websocket.listen` alone is never read.
         std::fs::write(
             home.path().join("config.json"),
             r#"{"websocket":{"listen":"127.0.0.1:7788"}}"#,
         )
         .unwrap();
-        assert_eq!(target.websocket().await, "127.0.0.1:7788".parse().ok());
+        assert_eq!(target.websocket().await, None);
+        // The running daemon's record (this test process is that daemon here).
+        let bound: SocketAddr = "127.0.0.1:52341".parse().unwrap();
+        acpmux::listener_handoff::write(home.path(), bound).unwrap();
+        assert_eq!(target.websocket().await, Some(bound));
+        acpmux::listener_handoff::remove_if_owned(home.path());
+        assert_eq!(target.websocket().await, None);
+    }
+
+    /// A listener that counts the bytes anyone sends it.
+    async fn counting_listener() -> (SocketAddr, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::io::AsyncReadExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let got = std::sync::Arc::new(AtomicUsize::new(0));
+        let counted = got.clone();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let counted = counted.clone();
+                tokio::spawn(async move {
+                    let mut buffer = [0u8; 256];
+                    while let Ok(n) = socket.read(&mut buffer).await {
+                        if n == 0 {
+                            break;
+                        }
+                        counted.fetch_add(n, Ordering::SeqCst);
+                    }
+                });
+            }
+        });
+        (address, got)
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_stale_record_or_a_config_port_gets_no_peer_bytes() {
+        use std::sync::atomic::Ordering;
+        use tokio::io::AsyncWriteExt;
+        let home = tempfile::tempdir().unwrap();
+        // An unrelated local service on the port config.json still names.
+        let (config_port, config_got) = counting_listener().await;
+        std::fs::write(
+            home.path().join("config.json"),
+            format!(r#"{{"websocket":{{"listen":"{config_port}"}}}}"#),
+        )
+        .unwrap();
+        // Another one on the port a crashed daemon recorded: its pid no longer runs.
+        let (stale_port, stale_got) = counting_listener().await;
+        let mut ended = std::process::Command::new("true").spawn().unwrap();
+        let dead = ended.id();
+        ended.wait().unwrap();
+        std::fs::write(
+            home.path().join(acpmux::listener_handoff::FILE_NAME),
+            format!(r#"{{"version":1,"listen":"{stale_port}","pid":{dead}}}"#),
+        )
+        .unwrap();
+        let target = AcpmuxTarget::Home(home.path().to_path_buf());
+        let (mut peer, link_side) = tokio::io::duplex(256);
+        peer.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n").await.unwrap();
+        assert_eq!(
+            hand_to_acpmux(link_side, &target).await,
+            Err(InboundRefused::AcpmuxUnavailable)
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(config_got.load(Ordering::SeqCst), 0, "the config port got peer bytes");
+        assert_eq!(stale_got.load(Ordering::SeqCst), 0, "the stale record's port got peer bytes");
     }
 
     #[tokio::test]

@@ -2,10 +2,12 @@
 //! cmux link, which carries a paired peer's `acpmux` stream to it (`cmux-tui`
 //! `link/acpmux.rs`).
 //!
-//! `websocket.listen` in config.json is not enough: a DEV build listens on `127.0.0.1:0` and
-//! never saves the port it got, and a daemon whose saved port was taken moves to a free one.
-//! The daemon writes this file once its listener is bound and removes it on a clean exit; a
-//! reader takes it only while its pid runs, else falls back to config.json.
+//! It is the only place the link learns the port. `websocket.listen` in config.json is never
+//! read for this: it outlives the daemon (a stale port could reach an unrelated local service),
+//! a DEV build listens on `127.0.0.1:0` and never saves its port, and a daemon whose saved port
+//! was taken moves to a free one. The daemon writes this file once its listener is bound and
+//! removes it on a clean exit; a reader takes it only while its pid runs, and otherwise sends
+//! nothing.
 //!
 //! Format (mode 0600, replaced through a temp file and a rename):
 //! `{"version":1,"listen":"127.0.0.1:52341","pid":1234}`.
@@ -98,7 +100,7 @@ mod tests {
     #[test]
     fn the_bound_port_is_handed_to_the_link_while_the_daemon_runs() {
         let home = tempfile::tempdir().unwrap();
-        assert_eq!(read_live(home.path()), None, "no file: the link reads config.json");
+        assert_eq!(read_live(home.path()), None, "no record: the link sends nothing");
         let bound: SocketAddr = "127.0.0.1:52341".parse().unwrap();
         write(home.path(), bound).unwrap();
         assert_eq!(read_live(home.path()), Some(bound));
