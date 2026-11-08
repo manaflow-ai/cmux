@@ -166,7 +166,7 @@ impl Hub {
         // Every candidate and the reviewer take a child slot, and a finished candidate keeps
         // its slot while its harness lives: the reviewer must fit beside them from the start.
         let max = self.subsession_effective(&parent.meta()).max_children;
-        let used = self.subsessions.used(&parent.id, &self.waking_children(&parent.id));
+        let used = self.subsession_slots_used(&parent.id);
         let needed = targets.len() + 1;
         if used as usize + needed > max as usize {
             return Err(RpcError::invalid_params(format!(

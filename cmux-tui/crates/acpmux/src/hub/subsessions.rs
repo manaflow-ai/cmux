@@ -421,6 +421,12 @@ impl Hub {
         })
     }
 
+    /// How many of `parent`'s child slots are in use now, counted as a start's reservation
+    /// counts them (`races.rs` checks a race fits before it starts).
+    pub(super) fn subsession_slots_used(&self, parent: &str) -> u32 {
+        self.subsessions.used(parent, &self.waking_children(parent))
+    }
+
     /// `parent`'s open children with a prompt on its way to a turn: queued (for the turn lock or
     /// a run slot), or holding the turn lock while their harness starts. The index counts the
     /// ones among them that are not live (`Index::reserve`), so a wake never lets a start take
