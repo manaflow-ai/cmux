@@ -2570,7 +2570,19 @@ function TranscriptView({
       held: last?.held ?? [],
     };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [estimated, drawn, registry, rows, sessionId, chatLook, attachmentView, scaledRowWidth, canLoadOlder, earlier, promptCount]);
+  }, [
+    estimated,
+    drawn,
+    registry,
+    rows,
+    sessionId,
+    chatLook,
+    attachmentView,
+    scaledRowWidth,
+    canLoadOlder,
+    earlier,
+    promptCount,
+  ]);
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view.
   // The bottom stack's room follows the rows, so the latest row ends above it.
