@@ -5,7 +5,7 @@ import Foundation
 /// A click on an agent's pill opens the agent's own workspace (user 2026-11-07, msg 23836: "we need to get rid
 /// of the imessage home split pane completely"). Home never splits: with no link to the agent's session yet
 /// (a queued agent) the click shows a small card over the pill with where it stands and, for a queued agent,
-/// Start now; the pill's context menu has Start now too (user 2026-11-08).
+/// Start now; the pill's context menu has Start now too, as a registered action's row (user 2026-11-08).
 extension HomeNativeTranscriptView {
     /// Opens agent `peer`'s workspace through the host (``onAppLink``) and marks its newest report seen; with no
     /// link, shows its card over `pill` (the pill's frame in this view; nil: near this view's top).
@@ -37,7 +37,7 @@ extension HomeNativeTranscriptView {
     }
 
     /// True while agent `peer` waits in the Chief's queue (not started).
-    func isQueued(_ peer: String) -> Bool {
+    public func isQueued(_ peer: String) -> Bool {
         binding.store.agentThread(peer, in: conversationID)?.state == .queued
     }
 
@@ -54,16 +54,17 @@ extension HomeNativeTranscriptView {
         }
     }
 
-    /// The pill's context menu: Start now on a queued agent the host can start; none otherwise.
+    /// The pill's context menu: Start now (the host's registered row, ``startAgentMenuItem``) on a queued agent
+    /// the host can start; none otherwise.
     func agentPillMenuItems(_ peer: String) -> [NSMenuItem] {
-        guard onStartAgent != nil, isQueued(peer) else { return [] }
-        return [HomeAgentPillAction.item(HomeAgentPillStrings.startNow, symbol: "play.circle") { [weak self] in
-            self?.startAgent(peer)
-        }]
+        guard onStartAgent != nil, isQueued(peer), let item = startAgentMenuItem?(peer) else { return [] }
+        item.title = HomeAgentPillStrings.startNow
+        item.image = NSImage(systemSymbolName: "play.circle", accessibilityDescription: nil)
+        return [item]
     }
 
-    /// Start now on queued agent `peer` (the card's button and the menu's item share it): the host asks the
-    /// Chief to start it past the cap. A refusal beeps and gives the card its button back; a start closes it.
+    /// Start now on queued agent `peer` from its card's button: the host asks the Chief to start it past the
+    /// cap. A refusal beeps and gives the card its button back; a start closes it.
     func startAgent(_ peer: String) {
         guard let onStartAgent, isQueued(peer) else { return }
         // task-owner: one start request; the view keeps it so tests and a second press see it

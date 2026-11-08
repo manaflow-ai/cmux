@@ -231,7 +231,14 @@ export class AskTracker {
       if (!permission) continue;
       if (typeof entry.turnId === "string" && !permission.turnId) permission.turnId = entry.turnId;
       open.add(permission.permissionId);
-      if (this.asks.has(permission.permissionId)) continue;
+      if (this.asks.has(permission.permissionId)) {
+        // A reissued request's notice may not name its group (`permission_reissued`); the read does.
+        if (grouped(entry.groupId) && !this.inGroup.has(permission.permissionId)) {
+          this.inGroup.add(permission.permissionId);
+          moved = true;
+        }
+        continue;
+      }
       if (grouped(entry.groupId)) this.inGroup.add(permission.permissionId);
       // An ask found by a read was asked before the page saw it: the chat's last change dates it.
       const at = Math.min(this.now(), this.updatedAt.get(sessionId) ?? Number.POSITIVE_INFINITY);

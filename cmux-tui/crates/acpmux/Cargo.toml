@@ -113,6 +113,8 @@ regex = "1"
 time.workspace = true
 # Log lines a reader passes on their head are searched, not parsed (src/store.rs `scan_heads`).
 memchr.workspace = true
+# The chats page's search by what was said: case-blind word search over held text (src/chats/text.rs).
+aho-corasick = "1"
 # The typed protocol registry (src/protocol): JSON Schema for spec/acpmux-protocol.json.
 schemars = "1"
 # The model catalog fetch (src/catalog/fetch.rs): HTTPS only, through the

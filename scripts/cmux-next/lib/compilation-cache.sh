@@ -88,8 +88,10 @@ cmux_next_runtime_cas_failed() {
   local diag='^([^[:space:]]+: )?(fatal )?error: ' errors
   errors="$(awk '/^xcodebuild exit status:/ { exit } { print }' "$1" | grep -E "$diag" || true)"
   # A cached module whose CAS object reads back corrupt ("module file X.pcm not found: unloadable casid ...:
-  # corrupt object '<hash>'", then "clang importer creation failed"; run 42100189059) is the cache failing too.
-  grep -Eqi "CAS error(:| encountered during)|cannot (create|open) (the )?CAS|failed to (load .* from CAS|open .*CAS|replay cached diagnostics)|cannot create cache key for compilation|((compilation|remote) cache).*(error|failed|unavailable)|((remote service|cache plugin).*(error|failed|unavailable))|unloadable casid|corrupt object '[0-9a-f]+'" <<<"$errors"
+  # corrupt object '<hash>'", then "clang importer creation failed"; run 42100189059) is the cache failing too,
+  # as is one whose object the CAS no longer holds ("module file X.pcm not found: missing module cache key ...:
+  # module file is not available in the CAS"; run 42524304475).
+  grep -Eqi "CAS error(:| encountered during)|cannot (create|open) (the )?CAS|failed to (load .* from CAS|open .*CAS|replay cached diagnostics)|cannot create cache key for compilation|((compilation|remote) cache).*(error|failed|unavailable)|((remote service|cache plugin).*(error|failed|unavailable))|unloadable casid|corrupt object '[0-9a-f]+'|missing module cache key|not available in the CAS" <<<"$errors"
 }
 
 # Drop the CAS (after a cache failure, or when it is over the bound). A CAS
