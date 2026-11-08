@@ -2,7 +2,7 @@ public import AppKit
 import CmuxNextDesign
 import SwiftUI
 
-/// Hosts the feed panel (variants `list` and `inbox`). The App creates it
+/// Hosts the feed (variants `list` and `inbox`) in a page tab or the right sidebar. The App creates it
 /// with a model over its feed sources; demos use `MockFeedSource`. Resolves
 /// the panel colors in this view's theme scope and again on every theme or
 /// appearance change.
@@ -18,14 +18,15 @@ public final class FeedHostView: NSView {
     public enum Surface: Sendable {
         /// A page tab: the pane's fill (`Palette.paneFill`) under the list.
         case page
-        /// The Feed panel, a window of its own with no pane under it: the content background.
-        case panel
         /// A right sidebar section: no ground of its own, the sidebar's shows through.
         case sidebar
     }
 
     /// Where this host is shown (``Surface``).
     let surface: Surface
+    #if DEBUG
+    private var bench: FeedBench?
+    #endif
 
     /// - Parameters:
     ///   - model: The feed.
@@ -56,6 +57,12 @@ public final class FeedHostView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         resolveColors()
+        #if DEBUG
+        if window != nil, bench == nil, let settings = FeedBench.Settings(environment: ProcessInfo.processInfo.environment) {
+            bench = FeedBench(settings: settings, model: model, host: self)
+            bench?.start()
+        }
+        #endif
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -66,11 +73,9 @@ public final class FeedHostView: NSView {
     private func resolveColors() {
         let colors = performWithTheme {
             let background: NSColor = switch surface {
-            case .panel: Palette.contentBackground
             case .page: Palette.surfaceOverride(.internalPage) ?? Palette.paneFill
             case .sidebar: .clear
             }
-            layer?.backgroundColor = surface == .panel ? background.cgColor : nil
             return FeedColors.resolved(background: background)
         }
         if appearanceState.colors != colors { appearanceState.colors = colors }

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// A person's divider drag reaches the pane contents that follow it their own way
@@ -8,6 +9,7 @@ import Testing
 /// release's spring landed, with the pane at its final frame. A click on the divider tells nothing.
 /// Leo, 2026-10-26: "resizing the panes it propagates so fucking slowly to the right side browser tab thing".
 @MainActor
+@Suite(.closesItsWindows)
 struct PaneResizeGestureTests {
     final class Follower: NSView, PaneResizeGestureFollowing {
         var heard: [Bool] = []
@@ -74,6 +76,7 @@ struct PaneResizeGestureTests {
 
     @Test func aDragTellsTheFollowerOnceAtTheStartAndOnceWhenItsReleaseLanded() throws {
         let harness = Harness()
+        defer { harness.window.closeAfterTest() }
         let handle = try harness.handle
         let start = try harness.center()
         handle.mouseDown(with: harness.event(.leftMouseDown, start))
@@ -96,6 +99,7 @@ struct PaneResizeGestureTests {
 
     @Test func reduceMotionDuringTheLandingStillEndsTheDrag() throws {
         let harness = Harness()
+        defer { harness.window.closeAfterTest() }
         let handle = try harness.handle
         let start = try harness.center()
         handle.mouseDown(with: harness.event(.leftMouseDown, start))
@@ -115,6 +119,7 @@ struct PaneResizeGestureTests {
 
     @Test func aWorkspaceHiddenMidDragEndsItAndTheNextDragStartsAgain() throws {
         let harness = Harness()
+        defer { harness.window.closeAfterTest() }
         let handle = try harness.handle
         let start = try harness.center()
         handle.mouseDown(with: harness.event(.leftMouseDown, start))
@@ -137,6 +142,7 @@ struct PaneResizeGestureTests {
 
     @Test func aClickOnTheDividerTellsNothing() throws {
         let harness = Harness()
+        defer { harness.window.closeAfterTest() }
         let handle = try harness.handle
         let point = try harness.center()
         handle.mouseDown(with: harness.event(.leftMouseDown, point))

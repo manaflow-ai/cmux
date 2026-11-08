@@ -7,7 +7,7 @@
 //! for a silent fallback at the next turn.
 //!
 //! Answer: `{"engine": {harness, model, effort, compactor_harness,
-//! compactor_model}, "choice": <engine.json>, "last_turn": <turn.end>|null,
+//! compactor_model, permission_mode, permission_mode_source, ...}, "choice": <engine.json>, "last_turn": <turn.end>|null,
 //! "recent": [<turn.end>...], "offered": {"models": [{id, name, family?,
 //! efforts?, fast?, aliases?, ...}...], "efforts": [...], "speeds": [...],
 //! "harnesses": [{id, displayName, family, chiefFamily, kind, capabilities,
@@ -79,9 +79,22 @@ impl Brain {
             compactor_speed,
             compactor_harness,
             compactor_model,
+            turn_routing,
             reactions,
         } = request
         {
+            if let Some(value) = turn_routing {
+                match crate::engine::parse_turn_routing(&value) {
+                    Ok(value) => choice.turn_routing = value,
+                    Err(reason) => return error("invalid_value", reason),
+                }
+            }
+            if let Some(value) = reactions.permission_mode.clone() {
+                match crate::engine::parse_mode_flag(&value) {
+                    Ok(value) => choice.permission_mode = value,
+                    Err(reason) => return error("invalid_value", reason),
+                }
+            }
             // A speed the target harness has (the turns' after this set;
             // the compactor's when acpmux says its family).
             let s = &self.settings;
@@ -178,6 +191,7 @@ impl Brain {
         // The reaction classifier this Chief runs now (its engine.json over
         // the user's cmux.json, reaction_wake.rs).
         let reactions = self.reaction_config_for(choice);
+        let permission = self.chief_permission_mode(choice);
         let s = &self.settings;
         let engine = resolve(choice, &s.harness, s.model.as_deref(), s.effort.as_deref());
         let ends: Vec<Value> = s
@@ -235,6 +249,10 @@ impl Brain {
                     reactions.prompt.as_str()
                 },
                 "reactions_can_wake": reactions.can_wake,
+                "turn_routing": choice.turn_routing.as_deref().unwrap_or("off"),
+                // What the next Claude turn runs in, and what chose it (cmux#37392).
+                "permission_mode": permission.0,
+                "permission_mode_source": permission.1,
             },
             "choice": choice,
             "last_turn": recent.first().cloned().unwrap_or(Value::Null),
@@ -251,6 +269,25 @@ impl Brain {
     pub(super) fn owner_stop(&mut self) -> Value {
         let turn = self.phase == Phase::Running;
         if turn {
+            if self.turn_side().is_none() {
+                let answers = self
+                    .state
+                    .turn
+                    .as_ref()
+                    .map(|t| t.answers.clone())
+                    .unwrap_or_default();
+                self.state.stopped_reply = Some(crate::state::StoppedReply {
+                    messages: self
+                        .state
+                        .awaiting
+                        .iter()
+                        .filter(|a| answers.contains(&a.id))
+                        .cloned()
+                        .collect(),
+                    requires_approval: self.turn_ask,
+                });
+                self.save();
+            }
             self.owner_stopped = true;
             self.interrupt.request_hard();
             (self.log)("the owner stopped the running turn");

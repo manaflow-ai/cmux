@@ -13,7 +13,6 @@ use crate::resource::RequestId as ResourceRequestId;
 use crate::resource::ResourceError;
 use crate::resource::ResourceOperation;
 use crate::resource::WireDecimal;
-use regex::Regex;
 use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
@@ -92,10 +91,10 @@ fn run_terminal_resource_wait(
 ) -> Result<Option<Value>, ResourceError> {
     let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
     let pattern = crate::resource_router::required_string(&request.fields, "pattern")?;
-    let regex = Regex::new(pattern).map_err(|_| {
+    let regex = crate::wait_pattern::compile(pattern).map_err(|error| {
         ResourceError::validation_invalid(
-            None,
-            "terminal wait pattern is not a valid regular expression",
+            Some("pattern"),
+            crate::wait_pattern::invalid_message(pattern, &error),
         )
     })?;
     let timeout = resource_wait_timeout(request)?;
@@ -109,12 +108,10 @@ fn run_terminal_resource_wait(
             })
         })
         .transpose()?;
-    let check = || -> Result<String, ResourceError> {
-        surface
-            .try_with_terminal(|terminal| terminal.viewport_text())
-            .map_err(resource_wait_runtime_error)?
-            .map_err(resource_wait_runtime_error)
-    };
+    // `new` (`terminal-wait-new-v1`): only text printed below the cursor's
+    // line as the wait starts can match, never a typed command's echo.
+    let text = crate::resource_router::WaitText::start(&surface, &request.fields)?;
+    let check = || text.read();
     loop {
         if resource_wait_stopped(canceled, writer) {
             return Ok(None);

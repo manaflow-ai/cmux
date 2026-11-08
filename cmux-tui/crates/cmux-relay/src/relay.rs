@@ -386,7 +386,7 @@ impl Relay {
                     .map_err(ConnectionEnd::Failed)?;
                 self.run_daemon_control(reader, peer, &slot).await
             }
-            RelayControl::Connect { protocol, slot, ticket, lane, generation } => {
+            RelayControl::Connect { protocol, slot, ticket, lane, generation, .. } => {
                 self.allocate(peer, protocol, slot.clone(), ticket, lane, generation)
                     .await
                     .map_err(ConnectionEnd::Failed)?;
@@ -458,7 +458,7 @@ impl Relay {
     ) -> ConnectionResult {
         loop {
             match self.read_authenticated_control(reader, peer).await? {
-                RelayControl::Connect { protocol, slot, ticket, lane, generation } => {
+                RelayControl::Connect { protocol, slot, ticket, lane, generation, .. } => {
                     let allocation = if slot == attached_slot {
                         self.allocate(peer, protocol, slot, ticket, lane, generation).await
                     } else {
@@ -1672,6 +1672,7 @@ mod tests {
                 ticket: format!("{slot}-client-ticket"),
                 lane: LaneToken(lane.into()),
                 generation,
+                accepts_parked: false,
             },
         )
         .await;
@@ -1752,6 +1753,7 @@ mod tests {
                 ticket: "client-ticket".into(),
                 lane: LaneToken("interactive".into()),
                 generation: 7,
+                accepts_parked: false,
             },
         )
         .await;
@@ -2014,6 +2016,7 @@ mod tests {
                 ticket: connect_ticket,
                 lane: lane.clone(),
                 generation,
+                accepts_parked: false,
             },
         )
         .await;
@@ -2213,6 +2216,7 @@ mod tests {
                 ticket: "slot-a-client-ticket".into(),
                 lane: LaneToken("bulk".into()),
                 generation: 1,
+                accepts_parked: false,
             },
         )
         .await;
@@ -2242,6 +2246,7 @@ mod tests {
                 ticket: "slot-a-client-ticket".into(),
                 lane: LaneToken("bulk".into()),
                 generation: 1,
+                accepts_parked: false,
             },
         )
         .await;
@@ -2272,6 +2277,7 @@ mod tests {
                 ticket: "slot-a-client-ticket".into(),
                 lane: LaneToken("bulk".into()),
                 generation: 1,
+                accepts_parked: false,
             },
         )
         .await;

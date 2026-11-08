@@ -1,66 +1,22 @@
 import React from "react";
-import { pressToOpen } from "../../ui/pressToOpen";
+
 import { HomeInbox, type HomeInboxActions, type HomeInboxLook } from "./HomeInbox";
-import { type StringKey, type Translate, translate, useT } from "./i18n";
-import { needsYouItems, type NeedsYouItem, type WatchedAsk } from "./needsYou/model";
-import { activityTime, type AcpmuxSessionEntry, listed, projectLabel, withoutChildren } from "./sessionList";
+import { useT } from "./i18n";
 
-/// Home-list copy: keys of the pane's string table.
-export const HOME_LABELS = {
-  readyForReview: "home.readyForReview",
-  /// `{time}` is a compact age: "now", "5m", "3h", "6d", "2mo" or "1y".
-  ago: "home.ago",
-} as const satisfies Record<string, StringKey>;
-
-/// Each list shows at most this many rows, newest first.
-export const HOME_ROWS = 3;
-
-/// What a new chat's home offers besides the composer (its welcome screen): every ask waiting on
-/// the person (the inbox, HomeInbox.tsx: each open request of every other chat, newest first, none
-/// capped, so no ask is left to find in its chat), and the open pull requests ready for review. A
-/// session can sit in both. The current session, archived ones and side chats never show.
-export function homeLists(
-  sessions: AcpmuxSessionEntry[],
-  currentId?: string,
-  asks: readonly WatchedAsk[] = [],
-): { waiting: NeedsYouItem[]; review: AcpmuxSessionEntry[] } {
-  const others = withoutChildren(sessions.filter(listed))
-    .filter((session) => session.sessionId !== currentId)
-    .sort((left, right) => (activityTime(right) ?? 0) - (activityTime(left) ?? 0));
-  const shown = new Set(others.map((session) => session.sessionId));
-  return {
-    waiting: needsYouItems({ sessions, asks }).filter((item) => shown.has(item.sessionId)),
-    review: others
-      .filter((session) => session.pullRequest?.state === "open" && session.pullRequest.reviewReady)
-      .slice(0, HOME_ROWS),
-  };
-}
-
-/// A compact age for a row's right edge, from milliseconds since the epoch.
-export function age(updatedAt: number | undefined, now = Date.now(), t: Translate = translate): string | undefined {
-  if (updatedAt === undefined) return undefined;
-  const minutes = Math.floor(Math.max(0, now - updatedAt) / 60_000);
-  if (minutes < 1) return t("age.now");
-  const steps: [number, StringKey][] = [
-    [60 * 24 * 360, "age.years"],
-    [60 * 24 * 30, "age.months"],
-    [60 * 24, "age.days"],
-    [60, "age.hours"],
-    [1, "age.minutes"],
-  ];
-  const [size, unit] = steps.find(([size]) => minutes >= size)!;
-  // A year starts at 12 months of 30 days, so no age reads "12mo".
-  const count = unit === "age.years" ? Math.max(1, Math.round(minutes / (60 * 24 * 365))) : Math.floor(minutes / size);
-  return t(HOME_LABELS.ago, { time: t(unit, { n: count }) });
-}
-
+import { type WatchedAsk } from "./needsYou/model";
+import type { AttentionTab } from "./needsYou/attentionTabs";
+import { activityTime, type AcpmuxSessionEntry, projectLabel } from "./sessionList";
+import { HOME_LABELS, homeLists, age } from "./homeListsModel";
+import { pressToOpen } from "../../ui/pressToOpen";
 /// The lists under a new chat's composer. Each row opens its session. Renders
 /// nothing when neither list has a row, so the home is the hero and composer alone.
 export function HomeLists({
   sessions,
   currentId,
   asks,
+  tabs,
   onSelect,
+  onOpen,
   onAnswer,
   look,
   shortcuts = true,
@@ -69,14 +25,17 @@ export function HomeLists({
   currentId?: string;
   /// Every chat's open requests (snapshot `asks`), for the inbox.
   asks?: readonly WatchedAsk[];
+  /// Marked tabs have no session id; callers route them through chat.attention.open.
+  tabs?: readonly AttentionTab[];
   onSelect: (sessionId: string) => void;
+  onOpen?: HomeInboxActions["open"];
   /// Answers another chat's ask in place; rejects when it did not go through.
   onAnswer: HomeInboxActions["answer"];
   look?: HomeInboxLook;
   /// False while the home's own chat shows an ask card, which takes the permission shortcuts.
   shortcuts?: boolean;
 }) {
-  const { waiting, review } = homeLists(sessions, currentId, asks);
+  const { waiting, review } = homeLists(sessions, currentId, asks, tabs);
   const t = useT();
   if (waiting.length === 0 && review.length === 0) return null;
   return (
@@ -86,7 +45,16 @@ export function HomeLists({
         sessions={sessions}
         look={look}
         shortcuts={shortcuts}
-        actions={{ answer: onAnswer, open: (item) => onSelect(item.sessionId) }}
+        actions={{
+          answer: onAnswer,
+          open: (item) => {
+            if (onOpen) {
+              onOpen(item);
+            } else {
+              onSelect(item.sessionId);
+            }
+          },
+        }}
       />
       {review.length > 0 && (
         <HomeList label={t(HOME_LABELS.readyForReview)}>
@@ -135,9 +103,19 @@ function HomeRow({
     <li>
       <button type="button" className="acpmux-home-row" {...pressToOpen(() => onSelect(session.sessionId))}>
         {mark}
-        <span className="acpmux-home-title">{title ?? session.displayTitle}</span>
-        {detail && <span className="acpmux-home-detail">{detail}</span>}
-        {project && <span className="acpmux-home-meta">{project}</span>}
+        <span className="acpmux-home-title" title={title ?? session.displayTitle}>
+          {title ?? session.displayTitle}
+        </span>
+        {detail && (
+          <span className="acpmux-home-detail" title={detail}>
+            {detail}
+          </span>
+        )}
+        {project && (
+          <span className="acpmux-home-meta acpmux-home-project" title={session.cwd}>
+            {project}
+          </span>
+        )}
         {when && <span className="acpmux-home-meta">{when}</span>}
         <ChevronIcon />
       </button>

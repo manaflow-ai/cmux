@@ -7,7 +7,10 @@
 //!    (`start_mode_state.rs`): an administrator's choice beats everything
 //!    below. A forced value this build does not know is `standard`, never
 //!    full access;
-//! 1. acpmux config.json `defaultPermissionMode` (acpmux without the app,
+//! 1. acpmux config.json `defaults.<harness>.permissionMode` for that family or
+//!    profile (`acpmux config --set permissions.codex=ask`), then
+//!    `defaultPermissionMode` (`acpmux config --set permissions.default=yolo`;
+//!    acpmux without the app,
 //!    tests), else the cmux setting `agents.defaultPermissionMode` (the
 //!    settings file, `user_settings.rs`, else the value the app pushed):
 //!    `fullAccess` (the default), `standard` (the harness's own start mode:
@@ -30,11 +33,27 @@
 //! start model it is soft: a refusal is logged (`start_default_skipped`)
 //! and the chat runs the harness's own mode. Not for: a remote-origin
 //! (Web) session (the remote guard settles its mode,
-//! `server/remote_guard.rs`), a preset's chat, a folder profile's chat, an
+//! `server/remote_guard.rs`), a preset's chat (but see below), a folder profile's chat, an
 //! adopted conversation, and a profile that pins its mode in its argv
 //! (`profile_sets_mode`).
 //!
-//! Only the person widens a mode later (`hub/person.rs`).
+//! A built-in Chief subagent preset that names no mode (`optchat-sub-<home id>`,
+//! `config/chief_builtins.rs`) is not a preset's chat here: its chat starts as a plain one
+//! (`plain_for_mode`, cmux#27847). The Chief host starts every subagent from it, and as a
+//! preset's chat each ran in its harness's asking mode, which every chat it started then
+//! inherited. It widens nothing a plain `acpmux new` cannot: its env is acpmux's own
+//! definition or the person's (`hub/person.rs`), its args only take capabilities away, and its
+//! policy is one any unix socket client may name. Chief's turn and compactor presets keep their
+//! harness's own mode.
+//!
+//! Only the person widens a mode later (`hub/person.rs`), with two exceptions
+//! ([`Hub::may_move_without_person`]), from the unix socket or the local app: a running chat may
+//! move to the full-access mode new chats of its profile start in now
+//! ([`Hub::is_start_full_access`]), and a Claude chat to Claude Code's own Auto
+//! (`claude_stdio::OWN_MODE`) while new chats start in full access or the harness's own mode. The
+//! person already chose that level for every new chat (Lawrence 2026-11-04: "set EVERY running
+//! ACP chat ... to bypass permissions (yolo) now, not only new sessions"; 2026-11-05, workers stuck
+//! in Manual: "u gotta fix this this is huge blocker"); no other mode that does not ask.
 //!
 //! Inherit (Leo 2026-10-25: "shouldn't sub-agents just inherit the bypass
 //! permission situation?"): a chat an agent starts, by `session/new` from
@@ -45,8 +64,13 @@
 //! `start_gate.rs`), never the person, a peer, a Web connection or a request
 //! value, and never a session a remote connection started (`remote_origin`:
 //! its chats keep the rule below, a caller that asks keeps the harness's own
-//! mode); a start with none is unchanged. Each field the start leaves out is
-//! inherited on its own:
+//! mode); a start with none is unchanged. A `session/new` start (not a
+//! sub-session) inherits only from a starter in full access, or from any
+//! starter under `holdAgentStartsToStarter` (off by default, user 2026-11-03:
+//! "make sure cmux agent open by default will be in yolo mode"); else it runs
+//! the person's configured default as a start with none does. A starter's
+//! limits never bound an agent that drops its caller token anyway. Each field
+//! the start leaves out is inherited on its own:
 //!
 //! - no policy: the defaults' (family or preset) when no wider than the
 //!   starter's effective policy, else the starter's own. A starter with no
@@ -68,8 +92,8 @@
 //! under a starter that asks). A mode the start names is held by
 //! `start_gate.rs` (a mode that does not ask needs the starter's exact mode
 //! or the person), and a sub-session by `subsession_guard.rs`. A policy the
-//! start names is not held to the starter (`hub/person.rs`: open to the unix
-//! socket since before this).
+//! start names is held to the starter unless the starter runs in full access
+//! (`full_access_children.rs`).
 
 use super::*;
 use cmux_json::JsonSet as _;
@@ -99,12 +123,13 @@ pub(crate) enum DefaultMode {
 }
 
 impl DefaultMode {
+    /// `fullAccess` (also `yolo`, `full-access`, `bypassPermissions`), `standard` or `ask`
+    /// (`config::normalize_permission_mode`).
     fn parse(value: &str) -> Option<Self> {
-        match value {
+        match crate::config::normalize_permission_mode(value)? {
             "fullAccess" => Some(Self::FullAccess),
             "standard" => Some(Self::Standard),
-            "ask" => Some(Self::Ask),
-            _ => None,
+            _ => Some(Self::Ask),
         }
     }
 
@@ -163,11 +188,13 @@ impl DefaultMode {
     }
 }
 
-/// What chose a start level: a value policy forces, config.json, the cmux
-/// setting, or nothing (full access).
+/// What chose a start level: a value policy forces, the harness's own
+/// `defaults.<harness>.permissionMode`, config.json, the cmux setting, or
+/// nothing (full access).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Source {
     Managed,
+    Harness,
     Config,
     Settings,
     Default,
@@ -177,6 +204,7 @@ impl Source {
     fn as_str(self) -> &'static str {
         match self {
             Self::Managed => "managed",
+            Self::Harness => "harness",
             Self::Config => "config",
             Self::Settings => "settings",
             Self::Default => "default",
@@ -206,11 +234,23 @@ pub(crate) fn setting_snapshot() -> Option<String> {
 /// chose it.
 fn start_level(
     managed: Option<&str>,
+    harness: Option<&str>,
     configured: Option<&str>,
     pushed: Option<&str>,
     allowed: bool,
 ) -> (DefaultMode, Source) {
-    let (level, source) = if let Some(value) = managed {
+    let (level, source) = if managed.is_none()
+        && let Some(value) = harness
+    {
+        let level = DefaultMode::parse(value).unwrap_or_else(|| {
+            tracing::warn!(
+                value,
+                "defaults permissionMode: unknown value; new chats keep the harness's own mode"
+            );
+            DefaultMode::Standard
+        });
+        (level, Source::Harness)
+    } else if let Some(value) = managed {
         let level = DefaultMode::parse(value).unwrap_or_else(|| {
             tracing::warn!(
                 value,
@@ -322,6 +362,15 @@ pub(super) fn mode_eligible(
     plain && !remote && !keep_harness_mode && !profile_sets_mode(profile)
 }
 
+/// Whether a chat from `preset` (none: no preset) starts in the start mode as a plain chat does
+/// (module docs): no preset, or a built-in Chief subagent preset that names no mode.
+pub(super) fn plain_for_mode(preset: Option<&str>, cfg: &crate::config::Config) -> bool {
+    preset.is_none_or(|name| {
+        crate::config::chief_builtins::parse(name).is_some_and(|b| b.is_subagent())
+            && cfg.presets.get(name).is_some_and(|p| p.mode.is_none())
+    })
+}
+
 /// The mode ids a session's harness offers, for the policy modes (`policy_mode.rs`).
 pub(super) fn offered_ids(meta: &crate::store::SessionMeta) -> Vec<String> {
     available(meta)
@@ -387,6 +436,11 @@ fn mode_for(access: DefaultMode, family: &str, available: &[String]) -> Option<S
 /// `--ask-for-approval`, `-a`, a full-auto or bypass flag, or `-c
 /// approval_policy=` / `sandbox_mode=`). Then no start mode is set over it.
 pub(super) fn profile_sets_mode(profile: &HarnessProfile) -> bool {
+    argv_sets_mode(&profile.argv)
+}
+
+/// `profile_sets_mode` of an argv (a session's recorded `harness_argv`).
+pub(super) fn argv_sets_mode(argv: &[String]) -> bool {
     const FLAGS: [&str; 9] = [
         "--permission-mode",
         "--dangerously-skip-permissions",
@@ -398,7 +452,6 @@ pub(super) fn profile_sets_mode(profile: &HarnessProfile) -> bool {
         "--ask-for-approval",
         "-a",
     ];
-    let argv = &profile.argv;
     argv.iter().enumerate().any(|(i, a)| {
         FLAGS.iter().any(|f| a == f || a.starts_with(&format!("{f}=")))
             || ((a == "-c" || a == "--config")
@@ -469,6 +522,91 @@ impl DefaultMode {
 }
 
 impl Hub {
+    /// Whether `mode` is the full-access mode a new chat on `meta`'s profile starts in now (module
+    /// docs): the start level is full access, full access is allowed here, and `mode` is the
+    /// harness's own full-access mode. A running chat may move to it without the person. Never a
+    /// chat a remote connection started: the start mode never applies to one (module docs).
+    pub(super) async fn is_start_full_access(
+        &self,
+        meta: &crate::store::SessionMeta,
+        mode: &str,
+    ) -> bool {
+        !meta.remote_origin
+            && self.full_access_allowed()
+            && full_access_mode(&available(meta)).as_deref() == Some(mode)
+            && self.start_level(&meta.harness).await.0 == DefaultMode::FullAccess
+    }
+
+    /// Whether a plain new chat of profile `agent` (no folder profile, a profile that does not
+    /// pin its mode) would start in `mode` now (module docs): the start level is full access, full
+    /// access is allowed here, and `mode` is the full-access mode the harness offers as its chats
+    /// report it (`known_modes`). The start gate grants a request that names it
+    /// (`start_gate.rs` `names_start_level`); the started session is checked again with
+    /// `is_start_full_access`.
+    pub(super) async fn plain_start_is(
+        &self,
+        agent: &str,
+        profile: &HarnessProfile,
+        folder: bool,
+        mode: &str,
+    ) -> bool {
+        let ids: Vec<String> =
+            self.known_modes(agent, profile).into_iter().map(|(id, _)| id).collect();
+        !folder
+            && !profile_sets_mode(profile)
+            && self.full_access_allowed()
+            && full_access_mode(&ids).as_deref() == Some(mode)
+            && self.start_level(agent).await.0 == DefaultMode::FullAccess
+    }
+
+    /// `plain_start_is` for a chat that started: the mode is the full-access one it offers and
+    /// its profile's chats start in (`is_start_full_access`), and the argv it started with does
+    /// not pin its mode.
+    pub(super) async fn plain_session_is(
+        &self,
+        meta: &crate::store::SessionMeta,
+        mode: &str,
+    ) -> bool {
+        !argv_sets_mode(&meta.harness_argv) && self.is_start_full_access(meta, mode).await
+    }
+
+    /// Whether a running chat may move to `mode` without the person (module docs): the
+    /// full-access mode its profile's new chats start in now (`is_start_full_access`), or Claude
+    /// Code's own start mode (`claude_stdio::OWN_MODE`, Auto) while new chats start at a level no
+    /// narrower than it: full access (allowed here) or the harness's own (`standard`). Auto asks
+    /// less than Manual but more than full access, so either level the person picked already
+    /// covers it; under `ask` it stays the person's. Never a chat a remote connection started.
+    pub(super) async fn may_move_without_person(
+        &self,
+        meta: &crate::store::SessionMeta,
+        mode: &str,
+    ) -> bool {
+        if self.is_start_full_access(meta, mode).await {
+            return true;
+        }
+        // A Claude chat: its family, or (a profile under another name) Claude Code's own modes.
+        let offered = available(meta);
+        let claude = crate::web_modes::family_of(meta) == "claude"
+            || crate::claude_stdio::MODES.iter().all(|(id, ..)| offered.iter().any(|m| m == id));
+        if meta.remote_origin
+            || mode != crate::claude_stdio::OWN_MODE
+            || !claude
+            || !offered.iter().any(|m| m == mode)
+        {
+            return false;
+        }
+        // A chat whose policy is narrower than approve-all keeps the mode that holds it
+        // (`policy_mode.rs`).
+        let default = self.config.read().await.permission_policy;
+        if super::policy_mode::narrow_policy(meta, default).is_some() {
+            return false;
+        }
+        match self.start_level(&meta.harness).await.0 {
+            DefaultMode::FullAccess | DefaultMode::Standard => true,
+            DefaultMode::Ask => false,
+        }
+    }
+
     /// The mode a new chat on `session` starts in (module docs), or `None`
     /// to keep the harness's own.
     pub(super) async fn start_mode(&self, session: &Session) -> Option<String> {
@@ -483,7 +621,7 @@ impl Hub {
         let mode = match Self::mode_for_policy(&meta, &offered, default) {
             Some(mode) => mode,
             None => {
-                let (level, _) = self.start_level().await;
+                let (level, _) = self.start_level(&meta.harness).await;
                 mode_for(level, &crate::web_modes::family_of(&meta), &offered)
             }
         };
@@ -534,7 +672,7 @@ impl Hub {
             return full_access_mode(offered);
         }
         let asks = access == super::subsession_guard::Access::Asks
-            || self.start_level().await.0 == DefaultMode::Ask;
+            || self.start_level(&meta.harness).await.0 == DefaultMode::Ask;
         if !asks {
             return None;
         }
@@ -683,18 +821,20 @@ impl Hub {
         self.append(session, "mux", "full_access_refused", json!({}));
     }
 
-    /// The level new chats start at now, and what chose it.
-    async fn start_level(&self) -> (DefaultMode, Source) {
-        let (state, configured) = {
+    /// The level new chats on profile `harness` start at now, and what chose it.
+    async fn start_level(&self, harness: &str) -> (DefaultMode, Source) {
+        let (state, own, configured) = {
             let cfg = self.config.read().await;
             let path = super::start_mode_state::state_file(&cfg);
             (
                 self.update_start_mode_state(path.as_deref(), |_| {}).1,
+                cfg.defaults_for(harness).permission_mode,
                 cfg.default_permission_mode.clone(),
             )
         };
         start_level(
             state.managed.as_deref(),
+            own.as_deref(),
             configured.as_deref(),
             state.pushed.as_deref(),
             self.full_access_allowed(),
@@ -738,7 +878,7 @@ impl Hub {
         let (agent, profile, eligible, policy) = {
             let cfg = self.config.read().await;
             let r = self.resolve_new(&cfg, harness, &preset, None, remote, cwd.as_deref())?;
-            let plain = r.preset_name.is_none() && r.folder_root.is_none();
+            let plain = plain_for_mode(r.preset_name.as_deref(), &cfg) && r.folder_root.is_none();
             let terminal = r.profile.kind == crate::config::HarnessKind::Terminal;
             let eligible = !terminal && mode_eligible(plain, remote, false, &r.profile);
             // The policy the new chat would hold (`policy_mode.rs`): its preset's or defaults',
@@ -775,7 +915,7 @@ impl Hub {
         if !eligible {
             return Ok(mark(none));
         }
-        let (level, source) = self.start_level().await;
+        let (level, source) = self.start_level(&agent).await;
         let mode = mode_for(level, &family, &ids);
         Ok(mark(json!({
             "harness": agent,

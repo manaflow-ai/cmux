@@ -9,8 +9,10 @@
 // they were drawn, the rows it reveals fade in and copies of the rows it hides fade out.
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { MOTION_SETTLE_MS } from "../src/motion/scale.generated";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
+import { FOLD_SETTLE_MS } from "../src/agent-session/acpmux/conversation/foldAnchor";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -66,7 +68,8 @@ const scroller = () => dom.window.document.querySelector<HTMLElement>(".acpmux-s
 /// no drawn height (0 is "not laid out"), so they place by their estimates.
 dom.window.HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
   const row = this.closest<HTMLElement>(".acpmux-row");
-  const at = row ? (Number.parseFloat(row.style.top) || 16) - 16 : 0; // less the thread's top padding
+  // Less the thread's top padding.
+  const at = row ? (Number.parseFloat(row.style.top) || 16) + (Number.parseFloat(row.style.marginTop) || 0) - 16 : 0;
   const top = row ? at - (scroller()?.scrollTop ?? 0) : 0;
   return { top, bottom: top, left: 0, right: 0, width: 0, height: 0, x: 0, y: top, toJSON() {} } as DOMRect;
 };
@@ -254,13 +257,13 @@ test("opening Worked for marks the thread, fades in the rows it reveals and slid
     expect(line(11).getAttribute("aria-expanded")).toBe("true");
     expect(thread().getAttribute("data-turn-fold")).toBe("open");
     expect(spacerHeight()).toBeGreaterThan(closed);
-    // Each revealed row fades in once, on the fold's token (180 ms with no host).
+    // Each revealed row fades in once, on the fold's token (the settle's length with no host).
     const revealed = shownBy(11);
     expect(revealed.length).toBeGreaterThan(0);
     const faded = fades(0).map((one) => rowOf(one.node));
     for (const id of revealed) expect(faded).toContain(id);
     expect(new Set(faded).size).toBe(faded.length);
-    expect(fades(0)[0]!.options.duration).toBe(180);
+    expect(fades(0)[0]!.options.duration).toBe(MOTION_SETTLE_MS);
     // The rows below start where they were drawn (above their new place) and slide down; the
     // clicked line and the rows above it never move.
     const moved = slides();
@@ -271,10 +274,23 @@ test("opening Worked for marks the thread, fades in the rows it reveals and slid
     }
     // No row's own entrance plays on top of the fold.
     expect(dom.window.document.querySelectorAll(".acpmux-row--enter").length).toBe(0);
-    // The state goes once the fold is over.
-    skew += 10_000;
-    await act(async () => render());
+    // The state goes once the fold is over, with no render of the transcript: a pane snapshot with
+    // the same rows draws nothing again (VirtualTranscript's memo), so the fold's own timer ends it.
+    const started = clock();
+    await act(
+      () =>
+        new Promise<void>((done) => {
+          const watch = new dom.window.MutationObserver(() => {
+            if (thread().hasAttribute("data-turn-fold")) return;
+            watch.disconnect();
+            done();
+          });
+          watch.observe(thread(), { attributes: true, attributeFilter: ["data-turn-fold"] });
+        }),
+    );
     expect(thread().hasAttribute("data-turn-fold")).toBe(false);
+    // On the fold's timer (its 180 ms and the settle hold), not before.
+    expect(clock() - started).toBeGreaterThan(FOLD_SETTLE_MS);
   } finally {
     await act(async () => root.unmount());
   }

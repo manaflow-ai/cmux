@@ -1,0 +1,419 @@
+import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable } from "./cloud-journey";
+
+describe("cloud journey", () => {
+  test("--sign-in oidc trades the job's OIDC token for the API's session and keeps both out of the output", async () => {
+    const calls: Array<{ method: string; url: string; auth: string }> = [];
+    const fake = async (method: string, url: string, _body: unknown, headers: Record<string, string>) => {
+      calls.push({ method, url, auth: headers.authorization ?? "" });
+      if (url.startsWith("https://gh.example/token")) return { status: 200, body: { value: "gh-oidc-jwt-value" } };
+      return { status: 200, body: { access_token: "stack-access-value", user: "user_x", session_expires_at: "2026-11-04T18:00:00.000Z" } };
+    };
+    const secrets: string[] = [];
+    const s = await oidcSignIn("https://cloud-api.cmux.dev", { ACTIONS_ID_TOKEN_REQUEST_URL: "https://gh.example/token?x=1", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "request-bearer" }, secrets, fake as never);
+    expect(s).toEqual({ token: "stack-access-value", user: "user_x", expiresAt: "2026-11-04T18:00:00.000Z" });
+    expect(calls[0]).toEqual({ method: "GET", url: "https://gh.example/token?x=1&audience=https%3A%2F%2Fcloud-api.cmux.dev", auth: "bearer request-bearer" });
+    expect(calls[1]).toEqual({ method: "POST", url: "https://cloud-api.cmux.dev/v1/auth/github-actions", auth: "Bearer gh-oidc-jwt-value" });
+    expect(secrets).toEqual(["request-bearer", "gh-oidc-jwt-value", "stack-access-value"]);
+    // What the journey renders goes through scrub with that list: none of the three survives.
+    const rendered = scrub(`GET bearer request-bearer -> gh-oidc-jwt-value; session stack-access-value`, secrets);
+    for (const v of secrets) expect(rendered).not.toContain(v);
+    await expect(oidcSignIn("https://cloud-api.cmux.dev", {}, [], fake as never)).rejects.toThrow("id-token: write");
+    const refused = async () => ({ status: 401, body: { error: "this token is not trusted to sign in", value: "gh-oidc-jwt-value" } });
+    await expect(oidcSignIn("https://cloud-api.cmux.dev", { ACTIONS_ID_TOKEN_REQUEST_URL: "https://gh.example/t", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "rb" }, [], refused as never)).rejects.toThrow("GitHub OIDC token HTTP 401");
+  });
+  test("backend names map to the cmux API Worker of each environment", () => {
+    expect(resolveBackend("staging").api).toBe("https://cloud-api-staging.cmux.dev");
+    expect(resolveBackend("prod")).toEqual({ name: "prod", api: "https://cloud-api.cmux.dev", stack: "prod" });
+    expect(resolveBackend("preview-35100").api).toBe("https://cmux-api-preview-35100.debussy.workers.dev");
+    expect(resolveBackend("preview-leo1").stack).toBe("dev");
+    expect(resolveBackend("local", undefined, undefined, 9000).api).toBe("http://127.0.0.1:9000");
+    expect(resolveBackend("custom", "https://x.example/", "prod")).toEqual({ name: "custom", api: "https://x.example", stack: "prod" });
+    expect(() => resolveBackend("classic")).toThrow();
+    expect(() => resolveBackend("preview-A_B")).toThrow();
+  });
+  test("secrets never reach the output", () => {
+    const out = scrub("token eyJabcdefghijk.payload Bearer abc cmuxvm_sk_0123456789 pw hunter22", ["hunter22"]);
+    expect(out).not.toContain("eyJabcdefghijk");
+    expect(out).not.toContain("cmuxvm_sk_0123456789");
+    expect(out).not.toContain("hunter22");
+    expect(out).not.toMatch(/Bearer abc/);
+  });
+  test("env files and the summary table", () => {
+    expect(readEnvFile("export A='1'\nB=\"two\"\n# c\n")).toEqual({ A: "1", B: "two" });
+    const md = summaryMarkdown(resolveBackend("staging"), [
+      { step: "health", status: "pass", ms: 10, detail: "a|b" },
+      { step: "reply", status: "fail", ms: 5, detail: "x" },
+    ]);
+    expect(md.startsWith("FAIL")).toBe(true);
+    expect(md).toContain("| **FAIL** | reply | 5 | x |");
+    expect(md).toContain("a\\|b");
+  });
+
+  test("a carrier dial's detail keeps its phases in the summary, up to 1000 characters", () => {
+    const phases = Array.from({ length: 8 }, (_, i) => `reconnect relay: ticket 300, relay ${15_000 + i}, parked 0, handshake 0, mux 0 ms, lanes 0, ${15_300 + i} ms`);
+    const detail = dialDetail({ connectMs: 640, replyMs: 900, retries: 5, failed: [], phases, reply: "{}" });
+    expect(detail.length).toBeGreaterThan(600);
+    const md = summaryMarkdown(resolveBackend("staging"), [{ step: "connect (carrier dial)", status: "pass", ms: 900, detail }]);
+    expect(md).toContain(phases[7]);
+  });
+
+  test("newReds: only steps the deploy turned red", () => {
+    const st = (step: string, status: "pass" | "fail" | "skip") => ({ step, status, ms: 1, detail: "" });
+    const before = [st("health", "pass"), st("create machine", "pass"), st("running (status)", "fail")];
+    const after = [st("health", "fail"), st("create machine", "pass"), st("running (status)", "fail")];
+    // running (status) was already red before the deploy (a known bug): not a rollback.
+    expect(newReds(before, after).map((s) => s.step)).toEqual(["health"]);
+    expect(newReds(before, [st("health", "pass"), st("running (status)", "fail")])).toEqual([]);
+    // No baseline: every failed step counts.
+    expect(newReds(null, after).map((s) => s.step)).toEqual(["health", "running (status)"]);
+  });
+  test("the login copy runs the Mac installer's own programs", () => {
+    expect(swiftRawString('  static let x = #"""\n      a\n        b\n      """#', "x")).toBe("a\n  b");
+    const programs = claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"));
+    expect(programs.preflight.startsWith("set -eu\n")).toBe(true);
+    expect(programs.preflight).toContain("/etc/cmux/vm-kind");
+    const install = programs.install("/home/cmux/.cmux/credential-transfer/A.json");
+    expect(install).toContain("python3 - 'claude' '/home/cmux/.cmux/credential-transfer/A.json' owner <<'CMUX_CREDENTIAL_INSTALL'\nimport json, os");
+    expect(install).toContain("env['CLAUDE_CODE_OAUTH_TOKEN'] = value");
+    expect(install.endsWith("\nCMUX_CREDENTIAL_INSTALL")).toBe(true);
+  });
+  test("a run is one probe row", () => {
+    const at = new Date("2026-11-04T11:00:00.123Z");
+    const ok = probeRow("cloud-chat-replies-production", [
+      { step: "send chat", status: "pass", ms: 800, detail: "" },
+      { step: "reply", status: "pass", ms: 4200, detail: "Earth." },
+    ], "https://x/runs/1", at);
+    expect(ok).toEqual({ probe: "cloud-chat-replies-production", at: "2026-11-04T11:00:00Z", runner: "github-actions", run: "https://x/runs/1", outcome: "ok", ms: 5000 });
+    const bad = probeRow("p", [{ step: "create machine", status: "fail", ms: 5, detail: "HTTP 503" }], undefined, at);
+    expect(bad).toMatchObject({ outcome: "fail", error: "create machine: HTTP 503" });
+  });
+  test("the journey's stub script is valid for the shared model stub and its reply repeats the tool output", () => {
+    expect(readFileSync(MODEL_STUB_PY, "utf8")).toContain("--ready-file");
+    expect(JOURNEY_STUB_SCRIPT.steps[0].shell).not.toContain("{{nonce}}-tool");
+    expect(JOURNEY_STUB_SCRIPT.steps[1].text).toContain("{{result.0}}");
+  });
+  test("a team machine gets the DEV creator allowance, as a nightly build copies", () => {
+    const team = claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), true);
+    expect(team.preflight).toContain("owner|team");
+    expect(team.install("/p.json")).toContain("'/p.json' owner,team <<");
+    expect(claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8")).install("/p.json")).toContain("'/p.json' owner <<");
+  });
+  test("Codex: the made-up sign-in passes the app's validation and the installer gets the codex provider", () => {
+    const auth = stubCodexAuth("ab".repeat(16), new Date("2026-11-04T00:00:00Z"));
+    expect(validLogin("codex", auth)).toBe(true);
+    expect(validLogin("codex", JSON.stringify({ OPENAI_API_KEY: "sk-x", tokens: {} }))).toBe(false);
+    expect(validLogin("claude", auth)).toBe(false);
+    expect(loginBearer("codex", auth)).toBe(JSON.parse(auth).tokens.access_token);
+    expect(loginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), "codex").install("/p.json")).toContain("python3 - 'codex' '/p.json' owner <<");
+  });
+  test("Codex: the stub config pins the stub's model and keeps the made-up sign-in off chatgpt.com", () => {
+    const dir = mkdtempSync(join(tmpdir(), "journey-codex-config-"));
+    // Runs CODEX_STUB_CONFIG on a config.toml, then reads it back with Python's own TOML parser.
+    const point = (before: string | null) => {
+      const file = join(dir, "config.toml");
+      rmSync(file, { force: true });
+      if (before !== null) writeFileSync(file, before);
+      const run = (args: string[], input: string) => spawnSync("python3", args, { input, encoding: "utf8" });
+      const r = run(["-", "4711", file], CODEX_STUB_CONFIG);
+      expect(r.stderr).toBe("");
+      expect(r.stdout.trim()).toBe("stub-ready");
+      const read = run(["-c", "import json, sys, tomllib; print(json.dumps(tomllib.load(open(sys.argv[1], 'rb'))))", file], "");
+      expect(read.stderr).toBe("");
+      return JSON.parse(read.stdout);
+    };
+    try {
+      const want = (c: any) => {
+        expect(c.model).toBe("stub-model");
+        expect(c.model_provider).toBe("journeystub");
+        expect(c.chatgpt_base_url).toBe("http://127.0.0.1:4711/backend-api/");
+        expect(c.model_providers.journeystub).toEqual({ name: "journey stub", base_url: "http://127.0.0.1:4711/v1", wire_api: "responses", requires_openai_auth: true });
+        expect(c.features).toMatchObject({ apps: false, plugins: false, remote_plugin: false });
+        expect(c.analytics.enabled).toBe(false);
+      };
+      want(point(null));
+      // The image's own settings stay; the keys the stub needs replace theirs, in the tables they already have.
+      const image = 'model = "gpt-6.1-sol"\napproval_policy = "never"\n\n[features]\nplugins = true\nshell_snapshot = true\n\n[analytics]\nenabled = true\n\n[projects."/home/cmux"]\ntrust_level = "trusted"\n';
+      const c = point(image);
+      want(c);
+      expect(c.approval_policy).toBe("never");
+      expect(c.features.shell_snapshot).toBe(true);
+      expect(c.projects["/home/cmux"].trust_level).toBe("trusted");
+      // An active profile's model and model_provider would win over the root ones: no profile stays active.
+      const profiled = point('profile = "work"\n\n[profiles.work]\nmodel = "gpt-6.1-sol"\nmodel_provider = "openai"\n');
+      want(profiled);
+      expect(profiled.profile).toBeUndefined();
+      expect(profiled.profiles.work.model).toBe("gpt-6.1-sol");
+      // A second run (a resumed machine) rewrites the provider table instead of adding one TOML refuses.
+      want(point(readFileSync(join(dir, "config.toml"), "utf8")));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("cloud journey: login preflight", () => {
+  test("the login preflight waits for the guest's bind, then names the failing check", async () => {
+    const noPause = async () => {};
+    let calls = 0;
+    const late = async (command: string) => ({ code: command === "pre" && ++calls >= 3 ? 0 : 1, stdout: "", stderr: "" });
+    expect(await waitPreflight(late, "pre", "owner", 90_000, 0, noPause)).toMatchObject({ tries: 3 });
+    const never = async (command: string) => ({ code: command === PREFLIGHT_PROBE ? 0 : 1, stdout: command === PREFLIGHT_PROBE ? "vm-kind= agent-auth.sh=yes user=cmux\n" : "", stderr: "" });
+    await expect(waitPreflight(never, "pre", "owner", 0, 0, noPause)).rejects.toThrow(/preflight exit 1 after 1 tries .*not an owner machine with the image's launchers \(vm-kind= agent-auth.sh=yes user=cmux\)/);
+  });
+});
+
+describe("cloud journey: app cli", () => {
+  test("app cli: machines new since a create are listed, never picked", () => {
+    expect(machineIds([{ id: "vm_a" }, { machine_id: "vm_b" }, { id: "vm_c", status: "deleted" }, {}])).toEqual(["vm_a", "vm_b"]);
+    expect(newMachineIds(["vm_a"], ["vm_a", "vm_b", "vm_b"])).toEqual(["vm_b"]);
+    expect(newMachineIds(["vm_a"], ["vm_a"])).toEqual([]);
+  });
+});
+
+describe("carrier dial step", () => {
+  // A stand-in for `cmux carrier dial`: its status and route lines on stderr, then the daemon's answer to each line.
+  const fakeCmux = (body: string) => {
+    const dir = mkdtempSync(join(tmpdir(), "journey-carrier-"));
+    const bin = join(dir, "cmux");
+    writeFileSync(bin, `#!/bin/bash\nprintf '%s\\n' "$*" > "${dir}/args"\nprintf '%s\\n' "$CMUX_CLOUD_API_URL $CMUX_CLOUD_ACCESS_TOKEN \${CMUX_CLOUD_TEAM:--}" > "${dir}/env"\n${body}\n`, { mode: 0o755 });
+    return { dir, bin };
+  };
+  const api = { origin: "https://api.example", bearer: "session-value", team: "team_0123456789abcdef0123" };
+
+  test("passes on the carrier route and the daemon's answer, with the dial's own connect time", async () => {
+    const { dir, bin } = fakeCmux(`echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=812' >&2
+read -r line; echo '{"event":"pushed","conn":0}'; echo '{"id":1,"ok":true,"data":{"app":"cmux-tui","protocol":12}}'; cat >/dev/null`);
+    process.env.CMUX_CLOUD_TEAM = "team_inherited000000000000";
+    const d = await carrierDial(bin, { ...api, team: undefined }, "vm_abcdefghij0123456789", 2_000).finally(() => delete process.env.CMUX_CLOUD_TEAM);
+    expect(d.connectMs).toBe(812);
+    expect(d.reply).toBe('{"id":1,"ok":true,"data":{"app":"cmux-tui","protocol":12}}');
+    expect(d.replyMs).toBeGreaterThanOrEqual(0);
+    // No team of its own: none is passed, and the inherited CMUX_CLOUD_TEAM is dropped.
+    expect(readFileSync(join(dir, "args"), "utf8").trim()).toBe("carrier dial --machine vm_abcdefghij0123456789 --deadline-ms 2000");
+    expect(readFileSync(join(dir, "env"), "utf8").trim()).toBe("https://api.example session-value -");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a failed attempt the dial retries is counted, and the ok attempt's time is the connect time", async () => {
+    const { dir, bin } = fakeCmux(`echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=relay ms=3001' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=640' >&2
+read -r line; echo '{"id":1,"ok":true,"data":{"app":"cmux-tui"}}'; cat >/dev/null`);
+    const d = await carrierDial(bin, api, "vm_abcdefghij0123456789", 2_000);
+    expect({ connectMs: d.connectMs, retries: d.retries, failed: d.failed }).toEqual({ connectMs: 640, retries: 1, failed: ["relay 3001 ms"] });
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a dial that gives up names every failed attempt, from the route lines after its status line", async () => {
+    const { dir, bin } = fakeCmux(`echo '{"ok":false,"error_code":"relay"}' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=relay ms=15003' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=reconnect outcome=handshake ms=902' >&2
+exit 1`);
+    await expect(carrierDial(bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("(failed attempts: relay 15003 ms, handshake 902 ms)");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a dial cut off before an ok attempt names the failed ones", async () => {
+    const { dir, bin } = fakeCmux(`echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=relay ms=3001' >&2
+exit 1`);
+    await expect(carrierDial(bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("ended with no ok route line (failed attempts: relay 3001 ms)");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("each attempt's phases come from the dial's own connect log, and the state dir goes with the dial", async () => {
+    const { dir, bin } = fakeCmux(`mkdir -p "$CMUX_TUI_STATE_DIR/carrier"; echo "$CMUX_TUI_STATE_DIR" > "${"$"}{0%/*}/state"
+log="$CMUX_TUI_STATE_DIR/carrier/connect.log"
+echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=relay ms=3001' >&2
+echo 'carrier.phases machine=vm_x phase=connect carrier=relay:0 outcome=relay ticket_ms=410 relay_ms=2591 parked_ms=0 handshake_ms=0 mux_ms=0 lanes=0 ms=3001' >> "$log"
+echo 'cloud.connect route=carrier machine=vm_x phase=reconnect outcome=ok ms=640' >&2
+echo 'carrier.phases machine=vm_x phase=reconnect carrier=relay:0 outcome=ok ticket_ms=300 relay_ms=40 parked_ms=120 handshake_ms=150 mux_ms=30 lanes=3 ms=640' >> "$log"
+read -r line; echo '{"id":1,"ok":true,"data":{"app":"cmux-tui"}}'; cat >/dev/null`);
+    const d = await carrierDial(bin, api, "vm_abcdefghij0123456789", 2_000);
+    expect(d.phases).toEqual(["connect relay: ticket 410, relay 2591, parked 0, handshake 0, mux 0 ms, lanes 0, 3001 ms",
+      "reconnect ok: ticket 300, relay 40, parked 120, handshake 150, mux 30 ms, lanes 3, 640 ms"]);
+    expect(dialDetail(d)).toContain("1 retried attempts (relay 3001 ms); phases: connect relay: ticket 410");
+    expect(dialDetail(d)).not.toContain("vm_x");
+    expect(existsSync(readFileSync(join(dir, "state"), "utf8").trim())).toBe(false);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a dial that gives up shows each attempt's phases too", async () => {
+    const { dir, bin } = fakeCmux(`mkdir -p "$CMUX_TUI_STATE_DIR/carrier"
+echo 'carrier.phases machine=vm_x phase=connect carrier=relay:0 outcome=parked_timeout ticket_ms=200 relay_ms=30 parked_ms=1700 handshake_ms=0 mux_ms=0 lanes=1 ms=1930' >> "$CMUX_TUI_STATE_DIR/carrier/connect.log"
+echo '{"ok":false,"error_code":"parked_timeout"}' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=parked_timeout ms=1930' >&2
+exit 1`);
+    await expect(carrierDial(bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow(
+      "(failed attempts: parked_timeout 1930 ms) (phases: connect parked_timeout: ticket 200, relay 30, parked 1700, handshake 0, mux 0 ms, lanes 1, 1930 ms)");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a refused identify shows the attempts' phases too", async () => {
+    const { dir, bin } = fakeCmux(`mkdir -p "$CMUX_TUI_STATE_DIR/carrier"
+echo 'carrier.phases machine=vm_x phase=connect carrier=relay:0 outcome=ok ticket_ms=200 relay_ms=30 parked_ms=90 handshake_ms=110 mux_ms=20 lanes=3 ms=450' >> "$CMUX_TUI_STATE_DIR/carrier/connect.log"
+echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=450' >&2
+read -r line; echo '{"id":1,"ok":false,"error":"denied"}'; cat >/dev/null`);
+    await expect(carrierDial(bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow(
+      /identify answered .* \(phases: connect ok: ticket 200, relay 30, parked 90, handshake 110, mux 20 ms, lanes 3, 450 ms\)/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("dialPhases keeps a field it does not know, and nothing but phases lines", () => {
+    expect(dialPhases("noise\ncarrier.phases machine=vm_x phase=connect outcome=relay ticket_ms=1 ms=2 detail=4003\n")).toEqual(
+      ["connect relay: ticket 1 ms, detail 4003, 2 ms"]);
+  });
+
+  test("a route line before the status line is out of contract", async () => {
+    const { dir, bin } = fakeCmux(`echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=5' >&2
+echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+read -r line; echo '{"id":1,"ok":true,"data":{"app":"cmux-tui"}}'; cat >/dev/null`);
+    await expect(carrierDial(bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("a route line before the status line");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("names the step the dial did not get past", async () => {
+    const { dir, bin } = fakeCmux(`echo '{"ok":false,"error_code":"parked_timeout"}' >&2; exit 1`);
+    await expect(carrierDial(bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("parked_timeout");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("refuses another route, and a stream that ends with no answer", async () => {
+    const other = fakeCmux(`echo '{"ok":true,"path_state":"relay","route":"link"}' >&2; cat >/dev/null`);
+    await expect(carrierDial(other.bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("route link, not carrier");
+    const silent = fakeCmux(`echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=5' >&2
+exit 0`);
+    await expect(carrierDial(silent.bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("before the daemon answered");
+    for (const d of [other.dir, silent.dir]) rmSync(d, { recursive: true, force: true });
+  });
+
+  test("an identify refused or answered with no identity fails, and a dial that exits before the write fails the step", async () => {
+    const connected = `echo '{"ok":true,"path_state":"relay","route":"carrier"}' >&2
+echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=5' >&2`;
+    const refused = fakeCmux(`${connected}\nread -r line; echo '{"id":1,"ok":false,"error":"denied"}'; cat >/dev/null`);
+    await expect(carrierDial(refused.bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("identify answered");
+    const bare = fakeCmux(`${connected}\nread -r line; echo '{"id":1,"ok":true,"data":{}}'; cat >/dev/null`);
+    await expect(carrierDial(bare.bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("identify answered");
+    const gone = fakeCmux(`${connected}\nexec 0<&-; exit 0`);
+    await expect(carrierDial(gone.bin, api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("carrier dial");
+    await expect(carrierDial("/nonexistent/cmux", api, "vm_abcdefghij0123456789", 2_000)).rejects.toThrow("carrier dial: ");
+    for (const d of [refused.dir, bare.dir, gone.dir]) rmSync(d, { recursive: true, force: true });
+  });
+
+  test("the gateway hop cost drops the warm-up, needs every call answered 200, and reports ms percentiles", () => {
+    const lines = (rows: string[]) => ["noise", ...rows.map((r) => `hop-t ${r}`)].join("\n");
+    const out = lines(["200 9.000 9.000 0", ...Array.from({ length: 10 }, (_, i) => `200 ${((i + 1) / 100).toFixed(3)} ${((i + 1) / 10).toFixed(3)} 0`)]);
+    expect(hopTimes(out, 10)).toEqual({ ttfb_p50: 50, ttfb_p90: 90, total_p50: 500, total_p90: 900 });
+    expect(() => hopTimes(lines(["200 0.1 0.1 0", "200 0.1 0.1 0"]), 2)).toThrow("1 of 2 timed calls");
+    expect(() => hopTimes(lines(["200 0.1 0.1 0", "502 0.1 0.1 0"]), 1)).toThrow("did not answer 200 whole (502 exit 0)");
+    expect(() => hopTimes(lines(["200 0.1 0.1 0", "200 0.1 0.1 18"]), 1)).toThrow("(200 exit 18)");
+  });
+
+  test("the hop split reads each call's Server-Timing after its timing line and derives the object's own hop", () => {
+    const call = (ttfb: number, st: string | null) => [`hop-t 200 ${(ttfb / 1000).toFixed(3)} 0.300 0`, ...(st ? [`hop-s ${st}`] : [])];
+    const st = (auth: number, wd: number, wait: number, gw: number) => `auth;dur=${auth}, worker-do;dur=${wd}, do-wait;dur=${wait}, do-gateway;dur=${gw}`;
+    const out = [
+      ...call(900, st(90, 900, 90, 90)), // warm-up, dropped
+      ...call(230, st(5, 200, 2, 150)),
+      ...call(240, st(7, 210, 4, 160)),
+      ...call(250, st(9, 220, 6, 170)),
+    ].join("\n");
+    expect(hopSpans(out)).toEqual({ calls: 3, untimed: 0, auth: 7, "worker-do": 210, "do-wait": 4, "do-gateway": 160, object_hop: 46, edge: 23 });
+    // A counted call without the spans is reported, not hidden in a smaller sample.
+    expect(hopSpans([out, ...call(260, null), ...call(270, "auth;dur=1")].join("\n"))).toMatchObject({ calls: 3, untimed: 2 });
+    expect(hopSpans([...call(200, null), ...call(200, null)].join("\n"))).toBeNull();
+    expect(hopSpans([...call(200, null), ...call(200, "auth;dur=1, worker-do;dur=2")].join("\n"))).toBeNull();
+  });
+});
+
+describe("opRetryable", () => {
+  test("retries only a cut-off provider call the API marks retryable", () => {
+    expect(opRetryable({ ok: false, error: { code: "mutation.indeterminate", message: "the provider call was cut off; retry with the same key", retryable: true } })).toBe(true);
+    expect(opRetryable({ ok: false, error: { code: "mutation.indeterminate", retryable: false } })).toBe(false);
+    expect(opRetryable({ ok: false, error: { code: "cloud.provider.unavailable", retryable: true } })).toBe(false);
+    expect(opRetryable({ ok: true, value: {} })).toBe(false);
+    expect(opRetryable("vm_unavailable")).toBe(false);
+  });
+});
+
+describe("guest carrier timeline", () => {
+  test("each guest time is ms after create's answer on the guest's boot clock, whatever its wall clock reads", () => {
+    // The guest's wall clock runs 1000 ms ahead: guest_now 21_500 at uptime 10_500, the exec's midpoint 20_500, so
+    // the guest booted at 10_000 here, the moment create answered.
+    const out = ["guest_now 21500 10500", "clock 11200 11000", "wall bound.json 12500", "mono session_host_start 6000",
+      "journal 5900 cmux-host[7]: cmux-host: session host 40 exited after 900 ms", "noise line"].join("\n");
+    expect(guestTimeline(out, 10_000, 20_000, 21_000)).toBe(
+      'after create\'s answer (±500 ms): guest boot +0 ms; bound.json +1500 ms; session_host_start +6000 ms; '
+      + 'journal "cmux-host[7]: cmux-host: session host 40 exited after 900 ms" +5900 ms');
+  });
+
+  test("a file written before the guest's wall clock stepped is read in the clock it was written in", () => {
+    // Booted with its wall clock 96 s behind (resumed from a snapshot), synced at 30 s after boot. bound.json was
+    // written 4319 ms after boot under the old clock, carrier.json 40 s after boot under the new one.
+    const out = ["guest_now 200100 100100", "clock 4500 4000", "clock 130000 100000", "wall bound.json 8319",
+      "wall carrier.json 140000"].join("\n");
+    expect(guestTimeline(out, 100_000, 200_000, 200_200)).toBe(
+      "after create's answer (±100 ms; the guest's wall clock stepped +96000 ms after boot): guest boot +0 ms; "
+      + "bound.json +4319 ms; carrier.json +40000 ms");
+  });
+
+  test("a machine bound before create answered reads as a claimed spare", () => {
+    // Booted 8.8 days ago from its snapshot base and bound 231.5 s before create answered.
+    const out = ["guest_now 1000000000 760954248", "wall bound.json 999768500"].join("\n");
+    expect(guestTimeline(out, 1_000_000_000, 999_999_900, 1_000_000_100)).toBe(
+      "after create's answer (±100 ms; a claimed spare: bound 231500 ms before create answered): guest boot -760954248 ms; bound.json -231500 ms");
+  });
+
+  test("says so when the guest showed nothing", () => {
+    expect(guestTimeline("", 10_000, 20_000, 20_100)).toBe("after create's answer (±50 ms): no guest clock read");
+  });
+
+  test("the journal field reader reads a message past its escaped quotes", () => {
+    const line = '{"__MONOTONIC_TIMESTAMP":"5900000","MESSAGE":"carrier \\"relay:0\\" registered","X":"y"}';
+    const r = spawnSync("awk", [`${JOURNAL_FIELD} { print field("MESSAGE") "|" field("__MONOTONIC_TIMESTAMP") "|" field("missing") }`], { input: `${line}\n`, encoding: "utf8" });
+    expect(r.stdout).toBe('carrier "relay:0" registered|5900000|\n');
+  });
+});
+
+
+describe("cloud journey: carrier ticket without a cmux binary", () => {
+  const key = Buffer.alloc(32, 7).toString("base64url");
+  const whole = { relay: "relay+do://cmux-remote-relay-production.debussy.workers.dev", slot: "s_1-x", ticket: "t.t", grant: "g.g.g", daemon_key: key, expires_at: 2_000 };
+  const answer = (patch: Record<string, unknown>) => ({ ok: true, value: { ...whole, ...patch } });
+  test("an answer the dial takes passes", () => {
+    expect(carrierTicketProblem(200, answer({}), 1_000)).toBeNull();
+  });
+  test("a refusal names its status", () => {
+    expect(carrierTicketProblem(503, { ok: false, error: { code: "owner.unreachable" } }, 1_000)).toContain("HTTP 503");
+  });
+  test("the dial's relay rule: a bare relay+do:// with a host", () => {
+    for (const relay of ["relay+do://", "wss://x", "relay+do://h/path", "relay+do://h?q=1", "relay+do://u@h", undefined])
+      expect(carrierTicketProblem(200, answer({ relay }), 1_000)).toMatch(/relay/);
+    expect(carrierTicketProblem(200, answer({ relay: "relay+do://h/" }), 1_000)).toBeNull();
+  });
+  test("the dial's slot, ticket and grant rules", () => {
+    for (const slot of ["", " ", "a b", "x".repeat(129), 3]) expect(carrierTicketProblem(200, answer({ slot }), 1_000)).toContain("slot");
+    for (const ticket of ["", "a b", undefined]) expect(carrierTicketProblem(200, answer({ ticket }), 1_000)).toContain("ticket");
+    for (const grant of ["", " ", undefined]) expect(carrierTicketProblem(200, answer({ grant }), 1_000)).toContain("grant");
+    expect(carrierTicketProblem(200, answer({}), 3_000)).toContain("not live");
+  });
+  test("the daemon key the dial pins is canonical 32-byte base64url", () => {
+    expect(canonicalKey(key)).toBe(true);
+    const lastChar = key.at(-1)!;
+    const noncanonical = key.slice(0, -1) + (lastChar === "c" ? "d" : "c"); // same 32 bytes, other trailing bits
+    expect(Buffer.from(noncanonical, "base64url").length).toBe(32);
+    for (const daemon_key of [undefined, "k", `${key}=`, noncanonical, key.replace(/.$/, "+")])
+      expect(carrierTicketProblem(200, answer({ daemon_key }), 1_000)).toContain("daemon_key");
+  });
+});

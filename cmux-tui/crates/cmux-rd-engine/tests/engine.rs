@@ -172,3 +172,27 @@ fn an_empty_encode_reopens_the_gate_and_silence_is_measured() {
     e.on_datagram(&feedback(&Feedback::default()), true, 3_000_000);
     assert_eq!(e.silent_for_us(3_000_010), 10);
 }
+
+#[test]
+fn with_input_frame_now_an_injected_input_lifts_the_frame_rate_cap() {
+    for on in [false, true] {
+        let mut e = MediaEngine::new(
+            EngineConfig {
+                width: 640,
+                height: 480,
+                max_fps: 60,
+                frames_in_flight: 4,
+                input_frame_now: on,
+                ..EngineConfig::default()
+            },
+            0,
+        );
+        let r = Rect { x: 0, y: 0, width: 8, height: 8 };
+        assert!(e.damage(0, r, 0).is_some());
+        let packet =
+            InputPacket { first_seq: 1, events: vec![InputEvent::Key { usage: 4, down: true }] };
+        assert_eq!(e.on_datagram(&input(&packet), true, 1_000).inject, packet.events);
+        // 5 ms after the last frame: inside the 60 fps interval, so only the input lets it go.
+        assert_eq!(e.damage(0, r, 5_000).is_some(), on, "input_frame_now {on}");
+    }
+}

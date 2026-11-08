@@ -1,11 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   aptClosureProblems,
   basePackageProblems,
   bakedPrograms,
   chromeForTestingShape,
   cmuxCuaReleaseShape,
+  cmuxRdReleaseShape,
   DEFAULT_LOCK_PATH,
   diffCounts,
   diffFileManifests,
@@ -49,10 +53,22 @@ function problemsOf(raw: unknown): string[] {
 describe("images/cmux-vm/inputs.lock.json", () => {
   test("the checked-in lock is valid and lists every known program once", () => {
     const lock = readInputsLock();
-    expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing", "cmux-browser-host"].sort());
+    expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop", "cmux-rd"].sort());
     expect(lock.apt.ubuntu.uri).toContain(lock.apt.ubuntu.snapshot);
-    expect(lock.apt.ubuntu.snapshot).toBe("20261022T000000Z");
+    expect(lock.apt.ubuntu.snapshot).toBe("20261104T000000Z");
     expect(profileLinks(lock).map((l) => l.command)).toContain("cr");
+  });
+
+  test("Claude Code is the devbox Dockerfile's pin, so the native image never ships an older one", () => {
+    // One source of truth: the native bake installs the lock's claude, the devbox image the Dockerfile's
+    // CMUX_IMAGE_CLAUDE_CODE_VERSION. A lock left behind shipped 2.1.267, which the API refuses (2.1.280 or newer).
+    const dockerfile = readFileSync(new URL("../services/vms/images/devbox/Dockerfile", import.meta.url), "utf8");
+    const pin = /^ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=(\S+)$/m.exec(dockerfile)?.[1];
+    const claude = readInputsLock().programs.find((p) => p.name === "claude");
+    expect(pin).toBeDefined();
+    expect(claude?.version).toBe(pin);
+    expect(claude?.expect).toBe(pin);
+    expect(claude?.url).toBe(`https://downloads.claude.ai/claude-code-releases/${pin}/linux-x64/claude`);
   });
 
   test("acpmux is cmux-tui under its own name (argv0 dispatch), checked by version and by a session list", async () => {
@@ -65,6 +81,9 @@ describe("images/cmux-vm/inputs.lock.json", () => {
     expect(programChecksCommand(lock)).toContain("acpmux --version");
     const list = acpmuxListCommand();
     expect(list).toContain("acpmux ls --json");
+    // acpmux ls no longer starts a daemon (#28046), so the smoke starts one before listing.
+    expect(list.indexOf("acpmux daemon start")).toBeGreaterThan(-1);
+    expect(list.indexOf("acpmux daemon start")).toBeLessThan(list.indexOf("acpmux ls --json"));
     const syntax = await runChild("bash", ["-n"], { input: list, timeout: 20_000 });
     expect(syntax.stderr).toBe("");
     expect(syntax.status).toBe(0);
@@ -182,7 +201,7 @@ describe("base fingerprint and closure checks", () => {
   test("base packages and npm globals must be in the lock", () => {
     expect(basePackageProblems(lock, new Map(Object.entries(lock.base.basePackages)))).toEqual([]);
     expect(basePackageProblems(lock, new Map())).toHaveLength(Object.keys(lock.base.basePackages).length);
-    const globals = new Map([["npm", "11.19.0"], ["openclaw", "2026.7.1-2"], ["left-pad", "1.3.0"], ["corepack", "0.37.0"]]);
+    const globals = new Map([["npm", lock.base.npmGlobals.keep.npm], ["openclaw", "2026.7.1-2"], ["left-pad", "1.3.0"], ["corepack", "0.37.0"]]);
     expect(npmGlobalProblems(lock, globals)).toEqual([
       "base npm global left-pad@1.3.0 is not in the lock (keep or strip it)",
       "base npm global corepack@0.37.0, lock keeps 0.36.0",
@@ -204,6 +223,14 @@ describe("reproducibility diff and helpers", () => {
     const result = diffFileManifests(a, b);
     expect(result.allowed).toHaveLength(1);
     expect(result.diffs).toEqual(["/usr/local/bin/x: F bbb vs F ddd"]);
+  });
+
+  test("the repro diff allows the npm download cache by directory, and only under it", () => {
+    const a = new Map([["/home/cmux/.npm/_cacache/index-v5/aa/bb", "F 1"], ["/home/cmux/.npm/_cacache/content-v2/sha512/x", "F 2"], ["/home/cmux/.npm/_logs/1.log", "F 3"], ["/home/cmux/.npmrc", "F 4"]]);
+    const b = new Map([["/home/cmux/.npm/_cacache/index-v5/aa/bb", "F 9"], ["/home/cmux/.npm/_cacache/content-v2/sha512/y", "F 2"], ["/home/cmux/.npm/_logs/1.log", "F 8"], ["/home/cmux/.npmrc", "F 7"]]);
+    const result = diffFileManifests(a, b);
+    expect(result.allowed).toHaveLength(3);
+    expect(result.diffs.map((l) => l.split(":")[0])).toEqual(["/home/cmux/.npm/_logs/1.log", "/home/cmux/.npmrc"]);
   });
 
   test("names: branch resources carry cmuxnp-dev-", () => {
@@ -297,6 +324,32 @@ describe("roles: baked packages that stay off, first-use packages, optional prog
     expect(problemsOf(raw)).toEqual([]);
     raw.programs.find((p: { name: string }) => p.name === "cmux-cua").roles = ["cua", "nope"];
     expect(problemsOf(raw).some((p) => p.includes('roles: unknown role "nope"'))).toBe(true);
+  });
+});
+
+describe("agent-desktop (vercel-labs, Lawrence's ask 2026-10-30)", () => {
+  test("1.0.2 x86_64 is baked by release URL, sha256, size and checksums.txt, with its clipboard helper beside the binary", () => {
+    const lock = readInputsLock();
+    const pinned = lock.programs.find((p) => p.name === "agent-desktop")!;
+    expect(pinned).toMatchObject({
+      version: "1.0.2",
+      url: "https://github.com/vercel-labs/agent-desktop/releases/download/v1.0.2/agent-desktop-v1.0.2-x86_64-unknown-linux-gnu.tar.gz",
+      sha256: "ad661b7a3fd8f990a769243f4889a240ca0e2c8dab3ef5bddd6019086c71e0b4",
+      size: 3359127,
+      format: "tar.gz",
+      bin: { "agent-desktop": "agent-desktop" },
+      versionArgs: ["--version"],
+      expect: "agent-desktop 1.0.2",
+      checksumsUrl: "https://github.com/vercel-labs/agent-desktop/releases/download/v1.0.2/checksums.txt",
+      checksumsName: "agent-desktop-v1.0.2-x86_64-unknown-linux-gnu.tar.gz",
+    });
+    expect(pinned.firstUse).toBeUndefined();
+    expect(bakedPrograms(lock).map((p) => p.name)).toContain("agent-desktop");
+    expect(profileLinks(lock).map((l) => l.command)).toContain("agent-desktop");
+    expect(programChecksCommand(lock)).toContain("agent-desktop --version");
+    const install = programInstallCommand(pinned);
+    expect(install).toContain("agent-desktop-v1.0.2-x86_64-unknown-linux-gnu.tar.gz' ");
+    expect(install).toContain("ad661b7a3fd8f990a769243f4889a240ca0e2c8dab3ef5bddd6019086c71e0b4");
   });
 });
 
@@ -428,5 +481,84 @@ describe("cmux-browser-host 1.0.0-r1 in the browser role (release cmux-browser-h
     expect(problems).toContain(`programs[${hostIndex()}].otherArches.aarch64.sha256: missing or not 64 lowercase hex`);
     expect(problems).toContain(`programs[${hostIndex()}].otherArches.riscv: unknown arch`);
     expect(problems).toContain(`programs[${hostIndex()}].notices: "../LICENSE" must be a relative path inside the store entry`);
+  });
+});
+
+describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> on manaflow-ai/cmux)", () => {
+  const entry = (version = "0.1.0") => ({ ...cmuxRdReleaseShape(version), sha256: "cd".repeat(32), size: 4096 });
+  const withRd = (patch: Record<string, unknown> = {}) => {
+    const raw = fresh();
+    raw.programs = raw.programs.filter((p: { name: string }) => p.name !== "cmux-rd");
+    raw.programs.push({ ...entry(), ...patch });
+    return raw;
+  };
+  const rdIndex = (raw: ReturnType<typeof fresh>) => raw.programs.findIndex((p: { name: string }) => p.name === "cmux-rd");
+
+  test("the shape is the release tarball, checked against the release checksums.txt, baked in role desktop", () => {
+    expect(cmuxRdReleaseShape("0.1.0")).toEqual({
+      name: "cmux-rd",
+      version: "0.1.0",
+      url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.1.0/cmux-rd-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
+      format: "tar.gz",
+      bin: { "cmux-rd": "bin/cmux-rd" },
+      versionArgs: [],
+      checksumsUrl: "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.1.0/checksums.txt",
+      checksumsName: "cmux-rd-0.1.0-x86_64-unknown-linux-gnu.tar.gz",
+      notices: ["LICENSE", "THIRD_PARTY_LICENSES.md"],
+      roles: ["desktop"],
+    });
+    expect(problemsOf(withRd())).toEqual([]);
+    const lock = validateInputsLock(withRd());
+    expect(bakedPrograms(lock).map((p) => p.name)).toContain("cmux-rd");
+    expect(profileLinks(lock).find((l) => l.command === "cmux-rd")?.target).toBe(`/opt/cmux/store/${"cd".repeat(32)}/bin/cmux-rd`);
+    expect(programInstallCommand(lock.programs[rdIndex(withRd())])).toContain(`grep -qx '${"cd".repeat(32)}  cmux-rd-0.1.0-x86_64-unknown-linux-gnu.tar.gz'`);
+  });
+
+  test("the install unpacks an archive packed as scripts/release.py packs it (bin/cmux-rd, LICENSE, THIRD_PARTY_LICENSES.md at the root)", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-rd-archive-"));
+    try {
+      const archive = path.join(dir, "cmux-rd-0.1.0-x86_64-unknown-linux-gnu.tar.gz");
+      // The members, modes and order of release.py package(); written here, not derived from the shape.
+      const pack = [
+        "import gzip, io, sys, tarfile",
+        "raw = io.BytesIO()",
+        "with tarfile.open(fileobj=raw, mode='w', format=tarfile.PAX_FORMAT) as tar:",
+        "    for name, mode, payload in (('LICENSE', 0o644, b'GPL'), ('THIRD_PARTY_LICENSES.md', 0o644, b'# notices'), ('bin', 0o755, None), ('bin/cmux-rd', 0o755, b'#!/bin/sh\\necho rd\\n')):",
+        "        info = tarfile.TarInfo(name); info.mode = mode",
+        "        if payload is None: info.type = tarfile.DIRTYPE; tar.addfile(info)",
+        "        else: info.size = len(payload); tar.addfile(info, io.BytesIO(payload))",
+        "open(sys.argv[1], 'wb').write(gzip.compress(raw.getvalue(), mtime=0))",
+      ].join("\n");
+      expect((await runChild("python3", ["-I", "-c", pack, archive], { timeout: 20_000 })).status).toBe(0);
+      const bytes = readFileSync(archive);
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      const program = { ...cmuxRdReleaseShape("0.1.0"), sha256, size: bytes.length, url: `file://${archive}`, checksumsUrl: undefined, checksumsName: undefined };
+      const store = path.join(dir, "store");
+      const command = programInstallCommand(program).replaceAll("/opt/cmux/store", store).replaceAll("/tmp/cmux-dl", path.join(dir, "dl"));
+      const r = await runChild("bash", ["-c", command], { timeout: 60_000 });
+      expect(r.stderr).toBe("");
+      expect(r.status).toBe(0);
+      const entry = path.join(store, sha256);
+      for (const target of [...Object.values(program.bin), ...program.notices]) expect(existsSync(path.join(entry, target))).toBe(true);
+      expect((await runChild(path.join(entry, program.bin["cmux-rd"]), [], { timeout: 20_000 })).stdout.trim()).toBe("rd");
+    } finally {
+      await runChild("chmod", ["-R", "u+w", dir]);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("0.2.2 is pinned from release cmux-rd-v0.2.2 (#36765, run 42097002278) by URL, sha256, size and checksums.txt, baked in role desktop", () => {
+    const pinned = readInputsLock().programs.find((p) => p.name === "cmux-rd")!;
+    expect(pinned).toMatchObject({ ...cmuxRdReleaseShape("0.2.2"), sha256: "9c7190c62274bd0bc755223d03d8057dab388c724f733579665c8c6f89071ae1", size: 7058496 });
+    expect(pinned.firstUse).toBeUndefined();
+    expect(bakedPrograms(readInputsLock()).map((p) => p.name)).toContain("cmux-rd");
+  });
+
+  test("another URL, no checksums.txt, no desktop role or a first-use entry is refused", () => {
+    const at = rdIndex(withRd());
+    expect(problemsOf(withRd({ url: "https://example.com/cmux-rd.tar.gz" }))).toContain(`programs[${at}].url: must be ${cmuxRdReleaseShape("0.1.0").url}`);
+    expect(problemsOf(withRd({ checksumsUrl: undefined, checksumsName: undefined })).some((p) => p.startsWith(`programs[${at}].checksumsUrl: must be`))).toBe(true);
+    expect(problemsOf(withRd({ roles: ["cua"] }))).toContain(`programs[${at}].roles: cmux-rd is in the desktop role`);
+    expect(problemsOf(withRd({ firstUse: true })).some((p) => p.includes("cmux-rd is baked"))).toBe(true);
   });
 });

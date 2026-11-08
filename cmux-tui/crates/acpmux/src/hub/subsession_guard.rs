@@ -100,7 +100,8 @@ fn policy_rank(p: PermissionPolicy) -> u8 {
     match p {
         PermissionPolicy::DenyAll => 0,
         PermissionPolicy::Ask => 1,
-        PermissionPolicy::ApproveReads => 2,
+        // Review approves what approve-reads does and denies the rest.
+        PermissionPolicy::ApproveReads | PermissionPolicy::Review => 2,
         PermissionPolicy::ApproveEdits => 3,
         PermissionPolicy::ApproveAll => 4,
     }
@@ -379,6 +380,21 @@ impl Hub {
         let started = Box::pin(crate::cwd_pin::CwdPin::scope(checked.pin, pinned)).await;
         // A spawn its harness's own check failed (the folder moved since) says why.
         started.map_err(|e| checked.still_at(&cwd).err().unwrap_or(e))
+    }
+
+    /// Starts `session`'s harness (`child_for`) pinned to `checked`, as
+    /// [`Hub::ensure_checked_child`] spawns a new sub-session's: a sub-session's fork
+    /// (`fork.rs` `fork_with_boundary`).
+    pub(super) async fn start_checked_child(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        checked: &CheckedFolder,
+    ) -> Result<(), RpcError> {
+        let cwd = session.meta().cwd;
+        checked.still_at(&cwd)?;
+        let started =
+            Box::pin(crate::cwd_pin::CwdPin::scope(checked.pin, self.child_for(session))).await;
+        started.map(|_| ()).map_err(|e| checked.still_at(&cwd).err().unwrap_or(e))
     }
 
     /// Everything a new sub-session takes before its first prompt: the

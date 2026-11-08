@@ -16,7 +16,10 @@ which runs the app's scripts as a gesture). For each engine:
      Cancel opens nothing; Open (this time) opens it; asked again, Open with
      "Always allow" opens it, and the next click opens it with no prompt;
   3. a link to a scheme no app opens does nothing and asks nothing;
-  4. a script that sets location to mailto: without a click opens nothing.
+  4. a script or HTTP redirect to another app's scheme asks before opening it,
+     including mailto:; Cancel delivers nothing and Open delivers it once.
+  5. a cmux sign-in callback from a script or an HTTP redirect asks before
+     delivering the exact callback to its registered app; Cancel delivers nothing.
 
 GUI host only (a capture mini). The app is quit and the tag's daemons stopped at the
 end. Exits 1 when a check fails.
@@ -160,11 +163,49 @@ def run_engine(engine):
         return
     time.sleep(1)
 
-    # 4. A script, not a click (first: a click before it would leave Chromium's user activation on).
+    # 4. A non-gesture navigation must ask before opening any app, including a
+    # well-known scheme. A fresh document runs its onload script before any
+    # agent evaluation, so Chromium has no transient user activation here.
     before = len(opens())
-    check(run(engine, f"location.href = {json.dumps(MAIL)}; true", gesture=False), f"{engine}: the script runs")
-    got = settled_opens(before)
-    check(got == [] and not asked(), f"{engine}: a script's mailto: navigation opens nothing ({got})")
+    rpc("browser.page.navigate", {"tab": TAB, "url": url.replace("index.html", "script-mail")})
+    script_mail_prompt = wait_for(asked, f"{engine}: a scripted mailto: return asks before opening its app", 10)
+    if script_mail_prompt:
+        check(len(opens()) == before, f"{engine}: the scripted mailto: waits for consent")
+        prompts("cancel")
+        check(len(opens()) == before and not asked(), f"{engine}: cancelling the scripted mailto: opens nothing")
+
+    before = len(opens())
+    rpc("browser.page.navigate", {"tab": TAB, "url": url.replace("index.html", "redirect-mail")})
+    redirect_mail_prompt = wait_for(asked, f"{engine}: an HTTP mailto: redirect asks before opening its app", 10)
+    if redirect_mail_prompt:
+        check(len(opens()) == before, f"{engine}: the mailto: redirect waits for consent")
+        prompts("allowOnce")
+        wait_for(lambda: opens()[before:] == [MAIL],
+                 f"{engine}: Open delivers the redirected mailto: exactly once", 10)
+
+    # Classic's browser fallback returns by HTTP redirect, without a gesture.
+    # Record the app open so fixture tokens never reach a real sign-in attempt.
+    before = len(opens())
+    rpc("browser.page.navigate", {"tab": TAB, "url": url.replace("index.html", "script-callback")})
+    scripted_prompt = wait_for(asked, f"{engine}: a scripted sign-in return asks before opening its app", 10)
+    rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, f"{engine}-scripted-return.png")})
+    if scripted_prompt:
+        check(len(opens()) == before, f"{engine}: the callback waits for consent")
+        prompts("cancel")
+        check(len(opens()) == before and not asked(), f"{engine}: cancelling delivers no callback")
+
+    before = len(opens())
+    rpc("browser.page.navigate", {"tab": TAB, "url": url.replace("index.html", "redirect")})
+    redirect_prompt = wait_for(asked, f"{engine}: an HTTP sign-in redirect asks before opening its app", 10)
+    rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, f"{engine}-http-return.png")})
+    if redirect_prompt:
+        check(len(opens()) == before, f"{engine}: a redirect cannot open an app without consent")
+        prompts("allowOnce")
+        wait_for(lambda: opens()[before:] == [CALLBACK],
+                 f"{engine}: Open delivers the complete sign-in callback exactly once", 10)
+    check(page("!!document.getElementById('mail')") is True,
+          f"{engine}: a sign-in return preserves the page instead of showing a scheme error")
+
     # 1. mailto: opens at once.
     before = len(opens())
     click(engine, "mail")
@@ -209,9 +250,34 @@ def run_engine(engine):
 def serve():
     root = tempfile.mkdtemp(prefix="external-schemes-page-")
     with open(os.path.join(root, "index.html"), "w") as f:
-        f.write(PAGE)
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=root)
-    handler.log_message = lambda *args: None
+        f.write(PAGE + '<a id="redirect" href="/redirect">return to cmux</a>')
+
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def do_GET(self):
+            if self.path in ("/script-mail", "/script-callback"):
+                target = MAIL if self.path == "/script-mail" else CALLBACK
+                body = (PAGE + "<script>addEventListener('load', () => { location.href = "
+                        + json.dumps(target) + "; });</script>").encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            elif self.path == "/redirect-mail":
+                self.send_response(302)
+                self.send_header("Location", MAIL)
+                self.end_headers()
+            elif self.path == "/redirect":
+                self.send_response(302)
+                self.send_header("Location", CALLBACK)
+                self.end_headers()
+            else:
+                super().do_GET()
+
+        def log_message(self, *args):
+            pass
+
+    handler = functools.partial(Handler, directory=root)
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return f"http://127.0.0.1:{server.server_address[1]}/index.html"
@@ -223,6 +289,16 @@ if not APP:
     sys.exit(f"no tagged app for {opts.tag}")
 with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
     INFO = plistlib.load(f)
+callback_scheme = next((scheme for entry in INFO.get("CFBundleURLTypes", [])
+                        for scheme in entry.get("CFBundleURLSchemes", [])
+                        if scheme.startswith("cmux-dev-")), None)
+if not callback_scheme:
+    sys.exit("the fixture requires a tagged cmux-dev callback scheme")
+CALLBACK = (f"{callback_scheme}://auth-callback?stack_refresh=fixture-refresh"
+            "&stack_access=fixture-access&cmux_auth_state=fixture-state")
+# Register only this test's unique tag, without changing any default handler.
+subprocess.run(["/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
+                "-f", APP], check=True)
 BINARY = os.path.join(APP, "Contents/MacOS", INFO["CFBundleExecutable"])
 # "Always allow" choices persist in user defaults: start without any.
 subprocess.run(["defaults", "delete", INFO["CFBundleIdentifier"], "CmuxNextBrowser.externalSchemes"], capture_output=True)

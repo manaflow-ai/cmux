@@ -11,9 +11,9 @@ import os
 /// order, and a bad or repeated item is dropped with a diagnostic. The headline stays over the
 /// composer, and the template dots stay where they are.
 nonisolated extension NewTabWidgetSettings {
-    public static let orderPath = ["tabs", "newTabWidgets", "order"]
-    /// The widgets the edit mode moves, in Settings' order: the default order.
-    public static let movable = ["projects", "actions", "chats"]
+    /// The widgets the edit mode moves, in Settings' order: the default order (`orderPath` and
+    /// `orderDefault` are generated from schemas/settings/source/new-tab-widgets.json).
+    public static var movable: [String] { orderDefault }
 
     static func parseOrder(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> [String] {
         guard let value = root.value(at: orderPath) else { return movable }
@@ -45,25 +45,6 @@ nonisolated extension NewTabWidgetSettings {
     static func completed(_ order: [String]) -> [String] {
         let known = order.filter(movable.contains)
         return known + movable.filter { !known.contains($0) }
-    }
-
-    /// The order's row, after the generated switches (SettingsSchema+NewTabWidgets.generated.swift).
-    static var editDescriptors: [SettingDescriptor] { [orderDescriptor(group: SettingsText.keyed("settings.group.tabs", "Tabs"))] }
-
-    static func orderDescriptor(group: SettingText) -> SettingDescriptor {
-        let titles = [
-            SettingsText.keyed("settings.tabs.newTabWidgets.order.projects", "Projects"),
-            SettingsText.keyed("settings.tabs.newTabWidgets.order.actions", "Quick Actions"),
-            SettingsText.keyed("settings.tabs.newTabWidgets.order.chats", "Recent Chats"),
-        ]
-        return SettingDescriptor(
-            orderPath, section: .general, group: group,
-            title: SettingsText.keyed("settings.tabs.newTabWidgets.order", "New Tab Widget Order"),
-            help: SettingsText.keyed("settings.tabs.newTabWidgets.order.help",
-                                     "The order of the widgets on New Tab. Right-click New Tab and choose Edit New Tab to drag them."),
-            kind: .orderedChoices(zip(movable, titles).map { SettingChoice($0, $1) }),
-            default: .array(movable.map(JSONValue.string)), keywords: ["new tab", "widget", "order", "arrange", "edit"]
-        )
     }
 }
 
@@ -113,7 +94,10 @@ extension SettingsController {
     public func saveNewTabTemplate(_ value: String) async {
         guard let template = NewTabTemplate(rawValue: value), template != .terminal,
               let descriptor = SettingsSchema.descriptor(for: NewTabTemplate.configPath) else { return }
-        do { try await setSetting(descriptor, to: .string(template.rawValue), by: .caller("page")) } catch {
+        // The old Composer page is no longer selectable. Normalize page writes too, so a stale
+        // caller cannot put the retired value back into cmux.json.
+        let savedTemplate: NewTabTemplate = template == .composer ? .minimal : template
+        do { try await setSetting(descriptor, to: .string(savedTemplate.rawValue), by: .caller("page")) } catch {
             Logger(subsystem: "com.cmuxterm.app.next", category: "newtab")
                 .error("new tab template write failed: \(String(describing: error), privacy: .public)")
         }

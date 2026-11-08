@@ -3,7 +3,7 @@
 // white rounded ring round the queued prompt being edited, and a blue ring that kept appearing).
 //
 // - The composer box and the New Tab box: at rest one device pixel in the composer edge (18% text);
-//   focused, the same one device pixel a step brighter (28% text). No wider line, no extra shadow,
+//   focused, the same one device pixel a step brighter (22% text). No wider line, no extra shadow,
 //   no outline. A page that is not the key one keeps the resting edge.
 // - The queued prompt's editor: no outline, the same focused hairline.
 // - A button reached from the keyboard: no outline (neither the shared accent ring nor WebKit's
@@ -24,7 +24,7 @@ type Inset = { spread: number; alpha: number };
 await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
   /** The composer edge's alpha over the harness's transparent page, at rest and focused. */
   const REST = 0.18;
-  const FOCUSED = 0.28;
+  const FOCUSED = 0.22;
   setDefaultTimeout(120_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -65,7 +65,7 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
   }
 
   /** Every entry of an element's computed box-shadow, inset or not: spread in CSS px and alpha. */
-  function shadows(page: Page, id: string): Promise<(Inset & { inset: boolean })[]> {
+  function shadows(page: Page, id: string): Promise<(Inset & { inset: boolean; blur: number })[]> {
     return page.evaluate((id) => {
       const shadow = getComputedStyle(document.getElementById(id)!).boxShadow;
       if (shadow === "none") return [];
@@ -88,14 +88,17 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
         const alphaMatch = color.match(/\/\s*([\d.]+)\)|rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\)/);
         const alpha =
           color === "" || color.includes("transparent") ? 0 : alphaMatch ? Number(alphaMatch[1] ?? alphaMatch[2]) : 1;
-        return { inset: /\binset\b/.test(entry), spread: lengths[3] ?? 0, alpha };
+        return { inset: /\binset\b/.test(entry), spread: lengths[3] ?? 0, blur: lengths[2] ?? 0, alpha };
       });
     }, id);
   }
   // The ring is the inset layer with a spread. Since #24593 (2026-10-23) a glass card on every window
   // also draws the glass's light rim, a top and a bottom line with no spread (composerStates.css,
   // --acpmux-composer-rim); those are not a ring, and focus leaves them as they rest (checked below).
-  const isRing = ({ inset, spread }: { inset: boolean; spread: number }) => inset && spread !== 0;
+  // Nor are the glass material's blurred highlights (glass.css, "GLASS MATERIAL": the specular band,
+  // its return and the sheen), which draw with a spread but are soft light: a ring is crisp.
+  const isRing = ({ inset, spread, blur }: { inset: boolean; spread: number; blur: number }) =>
+    inset && spread !== 0 && blur === 0;
   const rims = async (page: Page, id: string) => (await shadows(page, id)).filter(isRing);
   const outline = (page: Page, id: string) =>
     page.evaluate((id) => getComputedStyle(document.getElementById(id)!).outlineStyle, id);
@@ -285,6 +288,49 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
         ).toBeLessThanOrEqual(3);
       }
     }
+    await page.close();
+  });
+
+  test("rail ticks retain their inset keyboard outline through the shared button focus cascade", async () => {
+    const page = await open(2);
+    await page.evaluate(() => {
+      const tick = document.createElement("button");
+      tick.id = "rail-tick";
+      tick.className = "acpmux-minimap__tick";
+      tick.dataset.focusRing = "tick";
+      tick.textContent = "Prompt 3";
+      document.getElementById("plain")!.after(tick);
+    });
+    await page.focus("#plain");
+    await page.keyboard.press("Tab");
+    const ring = await page.evaluate(() => {
+      const tick = document.getElementById("rail-tick")!;
+      const style = getComputedStyle(tick);
+      return {
+        focused: tick.matches(":focus-visible"),
+        style: style.outlineStyle,
+        width: parseFloat(style.outlineWidth),
+        offset: parseFloat(style.outlineOffset),
+      };
+    });
+    expect(ring.focused).toBe(true);
+    expect(ring.style).toBe("solid");
+    expect(ring.width).toBe(1);
+    // Chromium quantizes the specified -1.5px outline offset to -1px at 1x.
+    expect(ring.offset).toBe(-1);
+    await page.emulateMedia({ contrast: "more" });
+    const contrastRing = await page.evaluate(() => {
+      const tick = document.getElementById("rail-tick")!;
+      const style = getComputedStyle(tick);
+      return {
+        style: style.outlineStyle,
+        width: parseFloat(style.outlineWidth),
+        offset: parseFloat(style.outlineOffset),
+      };
+    });
+    expect(contrastRing.style).toBe("solid");
+    expect(contrastRing.width).toBe(2);
+    expect(contrastRing.offset).toBe(2);
     await page.close();
   });
 

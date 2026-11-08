@@ -78,7 +78,7 @@ extension DiffPageProvider {
             default: break
             }
         } catch {
-            throw Self.pageError(error)
+            throw remote ? remoteError(error) : Self.pageError(error)
         }
         guard context.userGesture else {
             throw PageError(code: "transport.gesture_required", message: AgentPaneGitStage.needsGestureMessage)
@@ -118,7 +118,7 @@ extension DiffPageProvider {
     }
 
     /// SHA-256 of the diff's compact JSON, hex.
-    static func fingerprint(_ diff: JSONValue) -> String {
+    nonisolated static func fingerprint(_ diff: JSONValue) -> String {
         SHA256.hash(data: Data(diff.compactText.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
@@ -154,7 +154,7 @@ extension DiffPageProvider {
 
 /// The running app's diff git: the agent pane's local git link and its staging.
 public final class DiffAgentGit: DiffGitRunning {
-    private let link: AgentPaneGitLink
+    let link: AgentPaneGitLink
 
     public init(link: AgentPaneGitLink) {
         self.link = link

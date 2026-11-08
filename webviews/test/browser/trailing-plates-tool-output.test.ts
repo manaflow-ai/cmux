@@ -32,11 +32,13 @@ await requireBrowserLane("trailing-plates-tool-output.test.ts", async () => {
       await page.addInitScript(() => {
         localStorage.setItem("cmux.experiments", JSON.stringify({ "hover-actions": "all" }));
       });
+      // The frame emulates its own media (gallery/frame/media.ts): Reduce Motion there too, so the
+      // actions' fade in (transcript-hover-fade.test.ts) has nothing to wait for when they are read.
       await page.goto(
-        `http://127.0.0.1:${port}${galleryFrame("agent-pane.tool-group-overlap", { variant: "mixed", colorScheme: mode })}`,
+        `http://127.0.0.1:${port}${galleryFrame("agent-pane.tool-group-overlap", { variant: "mixed", colorScheme: mode, reducedMotion: 1 })}`,
       );
       await page.locator(".cv-tool.is-toggle").first().click();
-      await page.locator(".cv-tool.is-toggle").filter({ hasText: "Read coordination.md" }).click();
+      await page.locator(".cv-tool.is-toggle").filter({ hasText: "Summarize the coordination note" }).click();
       const output = page.locator(".cv-tool-output__box").first();
       await output.waitFor();
       const actions = output.locator(".cv-tool-output__actions");
@@ -45,6 +47,9 @@ await requireBrowserLane("trailing-plates-tool-output.test.ts", async () => {
       // Focus is deterministic in headless CI; :focus-within reveals the same actions without
       // depending on the pointer still being over the output box when styles are sampled.
       await button.focus();
+      // Reduce Motion still runs every transition, for 0.01ms (shared/desktop.css): the reveal's
+      // opacity reads 0 in the frame it starts. Read the actions once it has run.
+      await actions.evaluate((node) => Promise.all(node.getAnimations().map((animation) => animation.finished)));
       const style = await actions.evaluate((node) => {
         const computed = getComputedStyle(node);
         return {
@@ -68,9 +73,14 @@ await requireBrowserLane("trailing-plates-tool-output.test.ts", async () => {
         const actionsBounds = await actions.boundingBox();
         expect(textBounds!.x + textBounds!.width).toBeLessThanOrEqual(actionsBounds!.x);
       };
+      // The corner stays clear in both wrap states. Output opens aligned (blockWrap.ts), so the
+      // click folds the long lines back under their start; the test reads the state it lands in
+      // rather than assuming which way the toggle goes.
       await expectClearCorner();
+      const before = await text.getAttribute("data-wrap");
+      expect(before).toBe("false");
       await button.click();
-      expect(await text.getAttribute("data-wrap")).toBe("false");
+      expect(await text.getAttribute("data-wrap")).toBe("true");
       await expectClearCorner();
       await page.close();
     });

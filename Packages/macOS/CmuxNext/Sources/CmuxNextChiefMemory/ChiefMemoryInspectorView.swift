@@ -160,7 +160,7 @@ public struct ChiefMemoryInspectorView: View {
                 TextEditor(text: $model.draft)
                     .font(.body)
                     .frame(minHeight: 120)
-                    .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.3)))
+                    .overlay(RoundedRectangle(cornerRadius: Metrics.controlCornerRadius).stroke(Color.secondary.opacity(0.3)))
                 HStack {
                     Spacer()
                     CmuxDialogActionButton(ChiefMemoryStrings.cancel, hint: .escape) { model.cancelEdit() }

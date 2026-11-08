@@ -10,14 +10,24 @@ the panes rest:
   close       closing the pane that split made (closePane)
   column      New Column (newColumn), then its close (column-close)
   zoom        Cmd-Shift-Enter (toggleSplitZoom) and back (unzoom)
+  window      Window > Zoom (the titlebar double-click's resize path) and back (window-unzoom)
   drag        the first vertical divider pressed and dragged 120 pt out and back, one event per 120 Hz frame
+              (not applicable to a one-column layout, 1xN: it has no vertical divider; no rows then)
+  keys        a held key resize: resizePaneRight pressed 4 times at key-repeat pace (33 ms), then resizePaneLeft
+              4 times (Ctrl-Cmd-Right / Left by default, through the action path, which takes the key-resize hold); 4 steps
+              of 5% each way stay inside the pane minimums, so the split ends where it started
   sidepanel   the window's right sidebar shown (switchRightSidebarToFiles, keyboard stays put) and hidden
               (toggleRightSidebar, sidepanel-close): the main pane loses and regains its width at once, no spring
   scroll      (--browser) the page scrolled 1500 px down and back over about 1 s, one step per page animation frame
   idle        nothing for 1 s: with --browser the page keeps animating, so this is the Chromium pump at rest
+  page        a browser page opening on the right (splitBrowserRight, Leo's "opening up a new thing on the
+              right"), then its close (page-close)
 
-The bench app activates and its window is key where the host allows it (CMUX_NEXT_NO_ACTIVATE is removed from
-the bench environment), as for a person. Each layout reads whether the window really is key (`debug.window_list`)
+The bench app activates and its window is key, as for a person: CMUX_NEXT_NO_ACTIVATE is removed from the bench
+environment, and once the app that the bench started answers, the bench opens its bundle through LaunchServices
+(`open`, which brings that running app to the front and starts no second copy, as a Dock click,
+close-flash-bench.py and the film kits' `capture-host launch --activate` do), because macOS does not let an app
+that a script started take the front from the app in front. Each layout reads whether the window really is key (`debug.window_list`)
 when it starts: a layout measured with a window that is not key is named `<layout>-inactive` (rows
 `panes.<action>.<layout>-inactive.*`), so it is never compared with rows of a key window. The window goes on the
 main screen at the STRESS size (perf-stress-session.py `place_window`). A layout asked for and not measured (a
@@ -25,9 +35,16 @@ STRESS shape refused, a Chromium page that never ran) fails the run, --gate or n
 
 Per action: display frame intervals p50/p95/p99/max and missed frames (`debug.frames`), the layout's main-thread
 work per frame (`debug.motion` clock), each Core Animation commit (`debug.motion` work `ca.commit`: with Chromium
-pages it holds the resize wait of fork API 27), frames the springs moved, grids sent to the PTY owner
+pages it holds the resize wait of fork API 27), frames the springs moved (`moving_frames`: a pane or divider
+spring, or the strip camera: New Column moves only the camera), grids sent to the PTY owner
 (`debug.window_transition`) and hangs (`debug.hangs`). With --record, a second pass records each action with
 `debug.window_record` (frames/ in --out; the recording itself costs frames, so it never runs in the timed pass).
+The window action also samples its size once per display frame (`debug.motion trace_*`), reports the active
+resize's p95/max interval, missed intervals and largest geometry step, and rejects a snap, a no-op or a failed restore even without
+--gate. Run this script from the candidate checkout against both the base and candidate app for an A/B.
+
+With --browser-engine webkit the probe page and the --pages pages are WebKit pages instead (no `debug.cef` counters
+change then; Lawrence 2026-11-05: "resize webviews (both chrome and webkit) more often").
 
 With --browser the top-left pane of each layout shows a Chromium page instead of a fed terminal (a local probe: a
 requestAnimationFrame loop counting into window.__frames, a spinner, a tall grid of cards; the first split terminal
@@ -38,10 +55,11 @@ frames (page_frames), of `debug.layers` divider catcher panel updates and child 
 the fork geometry posts per moving frame (posts_per_frame). A layout whose page never runs fails one row and is skipped.
 
 Usage: pane-perf-terminal.py --tag <tag> --app PATH [--layouts 1x2,4x2,6x5] [--browser]
-       [--actions split,close,column,zoom,drag,sidepanel,scroll,idle] [--rounds 3] [--scrollback 5000] [--stream]
+       [--browser-engine chromium|webkit]
+       [--actions split,close,column,zoom,window,drag,keys,sidepanel,scroll,idle,page] [--rounds 3] [--scrollback 5000] [--stream]
        [--record] [--json PATH] [--out DIR] [--gate] [--missed-budget N]
 """
-import argparse, glob, json, os, pathlib, signal, subprocess, sys, tempfile, time
+import argparse, glob, json, math, os, pathlib, signal, subprocess, sys, tempfile, time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -56,6 +74,8 @@ parser.add_argument("--scrollback", type=int, default=5000)
 parser.add_argument("--stream", action="store_true", help="keep output streaming in the first terminal")
 parser.add_argument("--record", action="store_true", help="record each action once (a separate, untimed pass)")
 parser.add_argument("--browser", action="store_true", help="the top-left pane shows a Chromium page (pump and tracker counters)")
+parser.add_argument("--browser-engine", default="chromium", choices=["chromium", "webkit"],
+                    help="with --browser: the engine of the probe page and the --pages pages")
 parser.add_argument("--sample", default="", help="LAYOUT:ACTION[,...]: `sample` the app while it repeats ACTION")
 parser.add_argument("--sample-repeats", type=int, default=8)
 parser.add_argument("--content", default="terminal", choices=["terminal", "chromium"],
@@ -73,6 +93,7 @@ SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, LaunchError  # noqa: E402  the shared GUI launch (session check, failure report)
+import bench_background  # noqa: E402  background daemon CPU per round (a reader drops a round over its limit)
 
 
 def load_stress():
@@ -86,6 +107,8 @@ def load_stress():
 
 
 STRESS_MODULE = load_stress()
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ci", "frame-pacing"))
+from golden import THRESHOLDS as MOTION_THRESHOLDS, motion as frame_motion, percentile  # noqa: E402  the shared display-frame analysis
 # 30 panes in 6 columns leave ~230 pt each: the 200 pt default minimum refused the timed split there
 # ("not enough room to split this pane"), so the 30-pane split row measured nothing.
 CONFIG = {"layout": {"minimumPaneWidth": 80, "minimumPaneHeight": 32}}
@@ -158,7 +181,24 @@ LAYER_DELTAS = [("catcher_updates", "divider_catcher_updates"), ("reorders", "re
 BROWSER_KEYS = [key for key, _, _ in CEF_DELTAS] + ["page_frames"] + [key for key, _ in LAYER_DELTAS] + ["posts_per_frame"]
 BROWSER_HEADS = ["pump", "pumpms", "long", "nowreq", "dlyreq", "clipr", "occlr", "clipb", "cliph", "clipms", "posts", "skips",
                  "rAF", "catch", "reord", "post/f"]
-STILL = ("drag", "sidepanel", "sidepanel-close", "scroll", "idle")  # actions that move no layout spring
+WINDOW_ACTIONS = ("window-zoom", "window-unzoom")
+STILL = ("drag", "sidepanel", "sidepanel-close", "scroll", "idle", *WINDOW_ACTIONS)  # actions that move no layout spring
+WINDOW_RESTORE = None  # before each window-zoom, checked after its paired window-unzoom
+# Window geometry is sampled from the native display-link trace and cross-checked against the
+# action's display-frame probe. Keep this acceptance local to the window rows: other action rows
+# retain their existing informational missed-frame semantics. The 15% tolerance matches the
+# virtual-display readiness check in split-spring.sh; this proves native geometry pacing, not the
+# final composited pixels or absence of a tear (the separate recording/readback remains required).
+WINDOW_TARGET_HZ = 120.0
+WINDOW_REFRESH_TOLERANCE = 0.15
+WINDOW_MAX_STEP = MOTION_THRESHOLDS["window_resize"]["max_step"]
+WINDOW_MIN_INTERMEDIATE = MOTION_THRESHOLDS["window_resize"]["min_intermediate"]
+
+
+def finite_nonnegative(value):
+    """Whether a native counter or interval is a real, non-negative number."""
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value) and value >= 0)
 
 
 def rpc(method, params=None, timeout=30):
@@ -227,9 +267,10 @@ def open_page():
     path = os.path.join(opts.out, "pane-perf-probe.html")
     open(path, "w").write(PROBE_PAGE)
     # The URL goes under `args` (a top-level `url` opens the New Tab page).
-    opened = action("openBrowser.chromium", {"url": pathlib.Path(path).resolve().as_uri()}, timeout=120)  # --out may be relative
+    verb = f"openBrowser.{opts.browser_engine}"
+    opened = action(verb, {"url": pathlib.Path(path).resolve().as_uri()}, timeout=120)  # --out may be relative
     if isinstance(opened, dict) and opened.get("error"):
-        return f"openBrowser.chromium refused: {opened['error']}"
+        return f"{verb} refused: {opened['error']}"
 
     def ready():  # the focused tab: the page's once it lands
         reply = rpc("browser.page.eval", {"script": "document.readyState === 'complete' && window.__frames > 2"}, timeout=20)
@@ -240,7 +281,7 @@ def open_page():
     if not wait(ready, 60, step=0.5):
         cef = rpc("debug.cef")
         cef = cef if isinstance(cef, dict) else {}
-        return (f"the probe page never ran in a Chromium tab within 60 s (openBrowser.chromium {json.dumps(opened)[:160]}; "
+        return (f"the probe page never ran in a {opts.browser_engine} tab within 60 s ({verb} {json.dumps(opened)[:160]}; "
                 f"debug.cef state {cef.get('state')} unavailable {json.dumps(cef.get('unavailable'))[:160]})")
     time.sleep(1.0)  # test harness: the page's first paints settle
     return None
@@ -265,7 +306,7 @@ def layout(columns, rows):
             pages[0] -= 1
             global PAGE
             PAGE = PAGE or serve_page()
-            action("openBrowser.chromium", {"url": PAGE}, settle=1.5, timeout=120)
+            action(f"openBrowser.{opts.browser_engine}", {"url": PAGE}, settle=1.5, timeout=120)
             return
         feed(pending.pop() if pending else False)
     if opts.browser:
@@ -350,13 +391,28 @@ def drag_divider():
     return None
 
 
+def key_resize():
+    """A held resizePaneRight, then a held resizePaneLeft, on the focused pane: one press per key repeat (33 ms), 4 each
+    way, so the split comes back to where it started for the next round."""
+    for verb in ["resizePaneRight"] * 4 + ["resizePaneLeft"] * 4:
+        reply = action(verb)
+        if isinstance(reply, dict) and reply.get("error"):
+            return f"{verb}: {reply['error']}"
+        time.sleep(0.033)  # test harness: the system's key repeat interval
+    return None
+
+
 def perform(name):
     """Runs one action; returns an error string or None."""
     verbs = {"split": "splitRight", "split-down": "splitDown", "close": "closePane", "close-down": "closePane",
              "column": "newColumn", "column-close": "closePane", "zoom": "toggleSplitZoom", "unzoom": "toggleSplitZoom",
-             "sidepanel": "switchRightSidebarToFiles", "sidepanel-close": "toggleRightSidebar"}
+             "window-zoom": "zoomWindow", "window-unzoom": "zoomWindow",
+             "sidepanel": "switchRightSidebarToFiles", "sidepanel-close": "toggleRightSidebar",
+             "page": "splitBrowserRight", "page-close": "closePane"}
     if name == "drag":
         return drag_divider()
+    if name == "keys":
+        return key_resize()
     if name == "idle":
         time.sleep(1.0)  # test harness: nothing happens but the page's own animation
         return None
@@ -367,6 +423,49 @@ def perform(name):
     # The right sidebar shows without taking the keyboard, so the focused pane keeps it.
     reply = action(verbs[name], focus=not name.startswith("sidepanel"))
     return str(reply.get("error")) if isinstance(reply, dict) and reply.get("error") else None
+
+
+def moving_frames(samples):
+    """Display frames the layout moved: per frame a screen steps, its `layout.travel` sample (the points its pane and
+    divider springs have left) and the `layout.camera` sample right after it (the strip camera's points left). New
+    Column moves only the camera (a new column never resizes the columns there, column-scroll.md R3b), so a count of
+    `layout.travel` alone read 0 for every New Column. A build without `layout.camera` counts the springs alone."""
+    samples = samples if isinstance(samples, list) else []
+    count = 0
+    for index, sample in enumerate(samples):
+        if not isinstance(sample, dict) or sample.get("name") != "layout.travel":
+            continue
+        after = samples[index + 1] if index + 1 < len(samples) else None
+        camera = after.get("v") if isinstance(after, dict) and after.get("name") == "layout.camera" else 0
+        if (sample.get("v") or 0) > 0 or (camera or 0) > 0:
+            count += 1
+    return count
+
+
+def not_applicable(step, columns):
+    """Why `step` does not apply to a layout of `columns` columns (None when it does, and for STRESS: None
+    columns). A drag presses the first vertical divider: a one-column layout (1x2) has none."""
+    if step == "drag" and columns == 1:
+        return "one column: no vertical divider to drag"
+    return None
+
+
+def activate(app_path, read_state=None, timeout=10.0):
+    """Brings the bench app to the front with a key window: LaunchServices opens its bundle (`open`, the running
+    app, as a Dock click), then `debug.window_list` is read until a main window is key. An app a script started
+    is not let take the front from the app in front by itself (cmux-ad BENCH BASE REDS 2: no fleet run had a key
+    window). Returns the last window state."""
+    read_state = read_state or window_state
+    try:
+        subprocess.run(["open", app_path], capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as error:
+        print(f"  (open {app_path}: {error})", flush=True)
+    deadline = time.monotonic() + timeout
+    state = read_state()
+    while not state.get("window_key") and time.monotonic() < deadline:
+        time.sleep(0.25)  # test harness: LaunchServices activates the app
+        state = read_state()
+    return state
 
 
 def change(before, after):
@@ -387,10 +486,19 @@ def first_window(report):
 
 
 def measure(label, name):
+    global WINDOW_RESTORE
+    window_geometry = first_window(rpc("debug.layers")) if name in WINDOW_ACTIONS else {}
+    window_before = window_geometry.get("frame")
+    if name == "window-zoom":
+        WINDOW_RESTORE = window_before
+    if name in WINDOW_ACTIONS:
+        rpc("debug.motion", {"action": "trace_start", "targets": ["window"]})
+        time.sleep(0.05)  # test harness: record the resting geometry before the input
     cef_before = rpc("debug.cef") if opts.browser else None  # outside the timed window, like the reads after it
     layers_before = first_window(rpc("debug.layers")) if opts.browser else None
     page_before = page_eval("window.__frames") if opts.browser else None
     rpc("debug.hangs", {"clear": True})
+    background = bench_background.sample()
     rpc("debug.motion", {"action": "start"})
     rpc("debug.frames", {"action": "start"})
     rpc("debug.window_transition", {"action": "start"})
@@ -399,19 +507,21 @@ def measure(label, name):
     trace = rpc("debug.window_transition", {"action": "stop"}) or {}
     frames = rpc("debug.frames", {"action": "stop"}) or {}
     motion = rpc("debug.motion", {"action": "stop"}) or {}
+    background_cpu = bench_background.delta(background)
+    window_trace = rpc("debug.motion", {"action": "trace_stop"}) if name in WINDOW_ACTIONS else None
     hangs = rpc("debug.hangs") or {}
     work = (motion.get("work") or {}).get("clock", {}) if isinstance(motion, dict) else {}
     # Each Core Animation commit while recording (MotionCommitProbe): with Chromium pages, how long a page's
     # resize wait (fork API 27 resize sync) held the frame. None on builds without the probe.
     commit = (motion.get("work") or {}).get("ca.commit") if isinstance(motion, dict) else None
-    moving = sum(1 for s in (motion.get("samples") or []) if s.get("name") == "layout.travel" and (s.get("v") or 0) > 0) \
-        if isinstance(motion, dict) else 0
+    moving = moving_frames(motion.get("samples")) if isinstance(motion, dict) else 0
     hang_list = hangs.get("hangs") if isinstance(hangs, dict) else None
     result = {
         "label": label, "action": name, "error": error,
         "missed": frames.get("missed"), "frames_max_ms": frames.get("max_ms"), "frames_p99_ms": frames.get("p99_ms"),
         "frames_p50_ms": frames.get("p50_ms"), "frames_p95_ms": frames.get("p95_ms"), "frames": frames.get("frames"),
         "refresh_ms": frames.get("refresh_ms"), "moving_frames": moving,
+        "background_cpu": background_cpu,
         "layout_max_ms": work.get("max_ms"), "layout_p95_ms": work.get("p95_ms"), "layout_p50_ms": work.get("p50_ms"),
         "commit_p50_ms": (commit or {}).get("p50_ms"), "commit_p95_ms": (commit or {}).get("p95_ms"),
         "commit_max_ms": (commit or {}).get("max_ms"), "commit_over_4": (commit or {}).get("over_4_ms"),
@@ -419,7 +529,61 @@ def measure(label, name):
         "grid_reports": trace.get("terminal_grid_reports"), "resizes_sent": trace.get("terminal_resizes_sent"),
         "hangs": len(hang_list) if isinstance(hang_list, list) else hangs.get("count"),
     }
+    if name in WINDOW_ACTIONS:
+        window_after = first_window(rpc("debug.layers")).get("frame")
+        samples = [s for s in (window_trace or {}).get("samples") or [] if len(s.get("window") or []) == 2]
+        # Analyze the axis that moved farthest, using the golden-interactions harness's active
+        # interval (rest frames after the animation cannot hide a slow zoom in the p95).
+        axis = max(range(2), key=lambda i: abs(samples[-1]["window"][i] - samples[0]["window"][i])) if samples else 0
+        travel = frame_motion([s["window"][axis] for s in samples], [s["t"] for s in samples])
+        intervals = travel["intervals"]
+        trace_refresh = (window_trace or {}).get("refresh_ms")
+        refresh = trace_refresh if finite_nonnegative(trace_refresh) else 0
+        result.update(window_before=window_before, window_after=window_after, window_trace=window_trace,
+                      window_intermediate=travel["intermediate"], window_max_step=travel["max_step"],
+                      window_frame_p95_ms=round(percentile(intervals, 0.95), 2),
+                      window_frame_max_ms=round(max(intervals, default=0), 2), window_refresh_ms=refresh,
+                      window_frame_missed=sum(dt > refresh * 1.5 for dt in intervals) if refresh > 0 else None,
+                      window_monitor_refresh_ms=frames.get("refresh_ms"),
+                      window_monitor_missed=frames.get("missed"))
+        if not window_before or not window_after or not any(abs(a - b) > 1 for a, b in zip(window_before, window_after)):
+            error = error or "window zoom changed no frame"
+        elif name == "window-unzoom" and (not WINDOW_RESTORE or any(abs(a - b) > 1 for a, b in zip(WINDOW_RESTORE, window_after))):
+            error = error or f"window unzoom did not restore {WINDOW_RESTORE}: {window_after}"
+        standard = window_geometry.get("screen_visible_frame")
+        if name == "window-zoom" and (not standard or not window_after or any(abs(a - b) > 1 for a, b in zip(standard, window_after))):
+            error = error or f"window zoom did not reach its screen's visible frame {standard}: {window_after}"
+        if travel["intermediate"] == 0:
+            error = error or "window zoom had no intermediate display frame (snapped or trace unavailable)"
+        target_period = 1000.0 / WINDOW_TARGET_HZ
+        min_period = target_period * (1 - WINDOW_REFRESH_TOLERANCE)
+        max_period = target_period * (1 + WINDOW_REFRESH_TOLERANCE)
+        monitor_refresh = frames.get("refresh_ms")
+        if not finite_nonnegative(trace_refresh) or not frames.get("frames"):
+            error = error or "window zoom has no display refresh evidence"
+        if not (finite_nonnegative(trace_refresh) and min_period <= refresh <= max_period) or not (
+                finite_nonnegative(monitor_refresh) and min_period <= monitor_refresh <= max_period):
+            error = error or (f"window zoom display is not near {WINDOW_TARGET_HZ:.0f} Hz "
+                              f"(trace {refresh}, monitor {monitor_refresh})")
+        if travel["max_step"] > WINDOW_MAX_STEP:
+            error = error or (f"window zoom geometry step {travel['max_step']:.3f} exceeds "
+                              f"{WINDOW_MAX_STEP:.2f} of travel")
+        if result["window_frame_missed"]:
+            error = error or f"window zoom missed {result['window_frame_missed']} native display frame(s)"
+        monitor_missed = result["window_monitor_missed"]
+        if not finite_nonnegative(monitor_missed):
+            error = error or f"window zoom display probe has invalid missed-frame count {monitor_missed!r}"
+        elif monitor_missed:
+            error = error or f"window zoom display probe missed {monitor_missed} frame(s)"
+        if travel["intermediate"] < WINDOW_MIN_INTERMEDIATE:
+            error = error or (f"window zoom had {travel['intermediate']} intermediate display frames; "
+                              f"expected at least {WINDOW_MIN_INTERMEDIATE}")
+        result["error"] = error
     extra = ""
+    if name in WINDOW_ACTIONS:
+        extra = (f"  window active p95 {result['window_frame_p95_ms']} max {result['window_frame_max_ms']} ms "
+                 f"missed {result['window_frame_missed']} (refresh {result['window_refresh_ms']}) "
+                 f"intermediate {result['window_intermediate']} max step {result['window_max_step']}")
     if opts.browser:
         cef_after = rpc("debug.cef")
         for key, group, field in CEF_DELTAS:
@@ -431,7 +595,7 @@ def measure(label, name):
         # Geometry posts per display frame the springs moved (a still action: per frame of the action).
         span = moving if name not in STILL else (frames.get("frames") or 0)
         result["posts_per_frame"] = round(result["trk_posts"] / span, 2) if isinstance(result["trk_posts"], (int, float)) and span else None
-        extra = (f"  pump {result['pump_runs']} runs {result['pump_ms']} ms long {result['pump_long']} "
+        extra += (f"  pump {result['pump_runs']} runs {result['pump_ms']} ms long {result['pump_long']} "
                  f"req {result['pump_now_req']}/{result['pump_delayed_req']}  clip {result['trk_clip_reads']} reads "
                  f"{result['trk_clip_builds']} builds {result['trk_clip_hits']} hits {result['trk_clip_ms']} ms  occl {result['trk_occl_reads']}  "
                  f"posts {result['trk_posts']} ({result['posts_per_frame']}/frame) skips {result['trk_skips']}  "
@@ -440,13 +604,16 @@ def measure(label, name):
           f"p99 {result['frames_p99_ms']} max {result['frames_max_ms']} ms  missed {result['missed']} "
           f"(refresh {result['refresh_ms']})  tick p95 {result['layout_p95_ms']} max {result['layout_max_ms']} ms  "
           f"commit p95 {result['commit_p95_ms']} max {result['commit_max_ms']} ms  "
-          f"grids {result['grid_reports']}/{result['resizes_sent']}  hangs {result['hangs']}  err {error}{extra}", flush=True)
+          f"grids {result['grid_reports']}/{result['resizes_sent']}  hangs {result['hangs']}  "
+          f"background {background_cpu['total_s']} s{' OVER LIMIT' if background_cpu['over_limit'] else ''}  err {error}{extra}", flush=True)
     return result
 
 
 SEQUENCE = {"split": ["split", "close"], "split-down": ["split-down", "close-down"], "close": [],
             "column": ["column", "column-close"], "zoom": ["zoom", "unzoom"], "drag": ["drag"],
-            "sidepanel": ["sidepanel", "sidepanel-close"], "scroll": ["scroll"], "idle": ["idle"]}
+            "keys": ["keys"], "window": ["window-zoom", "window-unzoom"],
+            "sidepanel": ["sidepanel", "sidepanel-close"], "scroll": ["scroll"], "idle": ["idle"],
+            "page": ["page", "page-close"]}
 
 
 def steps():
@@ -474,8 +641,10 @@ def profile(name, label):
     thread's heaviest frames (the report's "Sort by top of stack" list) and keeps the whole report."""
     pair = {"split": ["split", "close"], "close": ["split", "close"], "split-down": ["split-down", "close-down"], "column": ["column", "column-close"],
             "column-close": ["column", "column-close"], "zoom": ["zoom", "unzoom"], "unzoom": ["zoom", "unzoom"],
-            "drag": ["drag"], "sidepanel": ["sidepanel", "sidepanel-close"],
-            "sidepanel-close": ["sidepanel", "sidepanel-close"], "scroll": ["scroll"], "idle": ["idle"]}[name]
+            "window-zoom": ["window-zoom", "window-unzoom"], "window-unzoom": ["window-zoom", "window-unzoom"],
+            "drag": ["drag"], "keys": ["keys"], "sidepanel": ["sidepanel", "sidepanel-close"],
+            "sidepanel-close": ["sidepanel", "sidepanel-close"], "scroll": ["scroll"], "idle": ["idle"],
+            "page": ["page", "page-close"], "page-close": ["page", "page-close"]}[name]
     path = os.path.join(opts.out, f"sample-{label}.txt")
     seconds = max(3, int(opts.sample_repeats * len(pair) * 1.0) + 1)
     sampler = subprocess.Popen(["/usr/bin/sample", str(app.pid), str(seconds), "1", "-mayDie", "-file", path],
@@ -610,6 +779,8 @@ def main():
     placed, window_problem = STRESS_MODULE.place_window(rpc)
     row("the window is placed on the main screen", f"{list(WINDOW)} pt on its screen", window_problem or str(placed.get("frame") if isinstance(placed, dict) else placed),
         window_problem is None)
+    front = activate(APP)
+    print(f"activated: window key {front['window_key']}, frontmost {front['frontmost']}", flush=True)
     # The bench conditions: the environment the app was really started with (mocked agent chats, the
     # isolated chief, no CMUX_NEXT_NO_ACTIVATE), the window's placement, and per layout whether the window
     # was key when it started (`layouts`).
@@ -634,6 +805,8 @@ def main():
             UNMEASURED.append(name)
             continue
         state = window_state()
+        if not state["window_key"]:
+            state = activate(APP)  # another app took the front since the last layout
         if name == "stress":
             # A bottom Dock over the window's lower edge, and chats the session replaced (none in STRESS).
             state.update(dock_overlap_pt=STRESS.get("dock_overlap_pt"), chat_fallbacks=STRESS.get("chat_fallbacks"))
@@ -644,14 +817,21 @@ def main():
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, f"{name}-before.png")})
         for index in range(opts.rounds):
             for step in sequence:
-                if opts.browser and step not in ("close", "close-down", "column-close", "unzoom", "sidepanel-close"):
+                skip = not_applicable(step, columns if name != "stress" else None)
+                if skip:
+                    if index == 0:
+                        print(f"  {label} {step}: not applicable ({skip}), not measured", flush=True)
+                    continue
+                if opts.browser and step not in ("close", "close-down", "column-close", "unzoom", "window-unzoom", "sidepanel-close", "page-close"):
                     focus_page()  # each pair starts on the Chromium pane
                 run = measure(f"{panes:>2}p {step} #{index}", step)
                 run.update(layout=label, panes=panes, round=index)
                 report["runs"].append(run)
+                if step in WINDOW_ACTIONS and run["error"]:
+                    UNMEASURED.append(f"{label} {step} #{index}: {run['error']}")
                 row(f"{label} {step} #{index}: ran", "no error", str(run["error"]), run["error"] is None)
                 if step not in STILL:
-                    row(f"{label} {step} #{index}: animated (layout springs moved)", "> 0 frames",
+                    row(f"{label} {step} #{index}: animated (layout springs or the strip camera moved)", "> 0 frames",
                         str(run["moving_frames"]), (run["moving_frames"] or 0) > 0)
                 missed = run["missed"]
                 row(f"{label} {step} #{index}: missed frames" + ("" if opts.gate else " (info)"),
@@ -661,11 +841,12 @@ def main():
                 time.sleep(0.4)  # test harness: idle between runs
         for wanted in filter(None, opts.sample.split(",")):
             where, _, what = wanted.partition(":")
-            if where == name:
+            if where == name and not not_applicable(what, columns if name != "stress" else None):
                 profile(what, f"{name}-{what}")
         if opts.record:
             for step in sequence:
-                record(step, f"{name}-{step}")
+                if not not_applicable(step, columns if name != "stress" else None):
+                    record(step, f"{name}-{step}")
     print("\n== summary (median over rounds)")
     browser_keys = BROWSER_KEYS if opts.browser else []
     wide = max([13] + [len(step) for step in sequence])  # sidepanel-close
@@ -674,13 +855,17 @@ def main():
     for name in labels:
         for step in sequence:
             runs = [r for r in report["runs"] if r["layout"] == name and r["action"] == step]
+            if not runs:
+                continue  # not applicable to this layout (1x2 drag): no all-None row for perf-budgets.py
 
             def med(key):
                 values = sorted(v for v in (r.get(key) for r in runs) if v is not None)
                 return values[len(values) // 2] if values else None
             summary = {key: med(key) for key in ["frames_p50_ms", "frames_p95_ms", "frames_p99_ms", "frames_max_ms", "missed",
                                                  "moving_frames", "layout_p95_ms", "layout_max_ms", "grid_reports",
-                                                 "resizes_sent", "commit_p95_ms", "commit_max_ms", "refresh_ms"] + browser_keys}
+                                                 "resizes_sent", "commit_p95_ms", "commit_max_ms", "refresh_ms",
+                                                 "window_intermediate", "window_max_step", "window_frame_p95_ms", "window_frame_max_ms",
+                                                 "window_frame_missed", "window_refresh_ms"] + browser_keys}
             report.setdefault("summary", []).append({"layout": name, "action": step, **summary})
 
             def f(v):

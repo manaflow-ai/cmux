@@ -7,14 +7,19 @@ public import CmuxNextSidebar
 public protocol SidebarArchiveHost: AnyObject {
     /// The invocation's workspace id; throws when it targets none.
     func archiveWorkspace(_ invocation: ActionInvocation) throws -> String
-    /// The workspace ids the run acts on: the selection for a person's menu run, else the target.
-    func archiveRows(_ invocation: ActionInvocation) throws -> [String]
+    /// The workspace ids the run acts on. With no `close`: the selection for a person's menu run, else
+    /// the target. With `close` (Close Other Workspaces, Close Other Workspaces in Group, Close
+    /// Workspaces Below or Above): the rows, in sidebar order, that it would close for `invocation`,
+    /// less the pinned ones (what its archive counterpart archives).
+    func archiveRows(_ invocation: ActionInvocation, closedBy close: ActionID?) throws -> [String]
     /// The personal or document id of the invocation's group; throws when there is none.
     func archiveGroupID(_ invocation: ActionInvocation) throws -> String
     /// The document item that places workspace `id`; nil while it is not placed yet.
     func archiveItem(workspace id: String) -> String?
     /// What the person reads for an error the host threw.
     func archiveRefusal(_ error: any Error) -> String
+    /// The app's own sidebar document store; nil before it starts.
+    var archiveDocument: SidebarDocStore? { get }
 }
 
 /// Archive and Unarchive (plans/cmux-next/archiving-DESIGN.md): a workspace, a group or a link, tab
@@ -27,11 +32,11 @@ public protocol SidebarArchiveHost: AnyObject {
 public final class SidebarArchiveActions {
     /// Held for the registry's life: the bound actions are its only owner.
     private let host: any SidebarArchiveHost
-    private let store: () -> SidebarDocStore?
+    private let store: @MainActor () -> SidebarDocStore?
 
-    public init(host: any SidebarArchiveHost, store: @escaping () -> SidebarDocStore? = { SidebarDocStore.current }) {
+    public init(host: any SidebarArchiveHost) {
         self.host = host
-        self.store = store
+        store = { [weak host] in host?.archiveDocument }
     }
 
     public func bind(into registry: ActionRegistry) {
@@ -39,7 +44,7 @@ public final class SidebarArchiveActions {
         registry.bindEffect("workspace.toggleArchive", unavailable: unavailable, effect: { [self] invocation in
             // Every selected row takes the right-clicked row's new state, as Pin does.
             self.toggle(invocation, ArchiveStrings.archiveWorkspace, ArchiveStrings.unarchiveWorkspace) { [self] host in
-                (try self.placed(host.archiveWorkspace(invocation)), try host.archiveRows(invocation).map { try self.placed($0) })
+                (try self.placed(host.archiveWorkspace(invocation)), try host.archiveRows(invocation, closedBy: nil).map { try self.placed($0) })
             }
         })
         registry.bindEffect("workspaceGroup.toggleArchive", unavailable: unavailable, effect: { [self] invocation in

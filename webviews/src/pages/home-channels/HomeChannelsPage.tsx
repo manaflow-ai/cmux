@@ -4,6 +4,7 @@
 // create popover, the inline editor, the keyboard's current message and a short notice.
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
+import { useLasting } from "../../ui/lasting";
 import { AttachmentContext } from "./AttachmentViews";
 import { AvatarContext } from "./avatars";
 import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
@@ -11,7 +12,7 @@ import { Composer } from "./Composer";
 import { GoalStrip } from "./GoalStrip";
 import { useHostSelection, type HomeSelection } from "./hostSelection";
 import { useHostMove } from "./hostMove";
-import { ConversationList, useStamp } from "./ConversationList";
+import { ConversationList, useStamp, type CloudEntryLook } from "./ConversationList";
 import { HomeIcon } from "./icons";
 import {
   activityAt,
@@ -48,20 +49,32 @@ import { Timeline } from "./Timeline";
 import type { HomeConversation, HomeMessage, HomeParticipant, HomeRun } from "./types";
 import { useHomeKeys } from "./useHomeKeys";
 import { useWebSwapHold } from "../shared/useWebSwapHold";
+import { PresentationToggle, usePresentation } from "./presentation";
+import { sliceWhole } from "../../ui/wholeChars";
+import { ChiefWorkPane } from "./ChiefWorkPane";
 
 const NOTICE_MS = 1600;
+
+/** The page op that runs one of this page's allowed app actions (HomeChannelsPage.swift). */
+export const APP_ACTION_RUN = "cmux.app.action.run";
+/** The app's New Cloud Machine action (CloudActionCatalog): its sheet makes the machine. */
+export const NEW_CLOUD_MACHINE = "newCloudMachine";
 
 export function HomeChannelsPage({
   store,
   strings,
   pane: fixedPane,
+  cloudEntry,
 }: {
   store: HomeChannelsStore;
   strings: Strings;
   /** The pane a narrow page shows, instead of the hash's (the gallery, whose hash is its own). */
   pane?: Pane;
+  /** Where the list shows New Cloud Machine (default: a row under the search field). */
+  cloudEntry?: CloudEntryLook;
 }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const presentation = usePresentation(snap.selected);
   // WEB-SWAP: a web update's reload waits while a message lives only in this page: one on its way
   // to the owner, or a failed one with Retry (pages/shared/webSwap.ts).
   useWebSwapHold(
@@ -83,14 +96,20 @@ export function HomeChannelsPage({
   const [notice, setNotice] = useState<string | undefined>();
   /** The run the run sheet shows (an agent turn's whole trajectory). */
   const [openRun, setOpenRun] = useState<{ conversation: string; author: string; id: string } | undefined>();
+  /** The conversation whose local Chief work panel is open. Switching conversations hides it. */
+  const [workConversation, setWorkConversation] = useState<string | undefined>();
+  const workOpen = workConversation !== undefined && workConversation === snap.selected;
   // WEB-SWAP: an open thread, run sheet, palette or edit lives only in this page's state, so a reload
   // would close it: the update waits until it closes (pages/shared/webSwap.ts).
-  useWebSwapHold(snap.thread || openRun || palette || editing || sheetState.route ? "home.sheet" : null);
+  useWebSwapHold(snap.thread || openRun || workOpen || palette || editing || sheetState.route ? "home.sheet" : null);
   const runs = useMemo<RunsContextValue>(
     () => ({
       book: store.runs,
       strings,
-      onOpen: (run: HomeRun) => setOpenRun({ conversation: run.conversation, author: run.author, id: run.id }),
+      onOpen: (run: HomeRun) => {
+        setWorkConversation(undefined);
+        setOpenRun({ conversation: run.conversation, author: run.author, id: run.id });
+      },
       onLoad: (run: HomeRun) => void store.loadRunSteps(run),
       live: store.live,
     }),
@@ -144,11 +163,14 @@ export function HomeChannelsPage({
     return map;
   }, [conversations, snap.me]);
   const runsWithPeople = useMemo<RunsContextValue>(
-    () => ({ ...runs, people, draftTurn: snap.draft?.turn }),
-    [runs, people, snap.draft?.turn],
+    () => ({ ...runs, people, draftTurn: snap.draft?.turn, presentation }),
+    [runs, people, snap.draft?.turn, presentation],
   );
   const mentionable = useMemo(() => others(open, me), [open, me]);
   const online = snap.connection === "online";
+  // The header says the page is offline or connecting only once that has lasted past the grace
+  // (ui/lasting.ts): a daemon restart or a dropped link that comes back shows nothing.
+  const offlineLasting = useLasting(!online);
   const name = open ? conversationName(open, me) : "";
   const channel = open ? channels.has(open.id) : false;
   const place = channel ? `#${name}` : name;
@@ -194,6 +216,20 @@ export function HomeChannelsPage({
     window.clearTimeout(noticeTimer.current);
     noticeTimer.current = window.setTimeout(() => setNotice(undefined), NOTICE_MS);
   };
+  // New Cloud Machine runs the app's own action, which shows its sheet; only the app host has it.
+  const host = store.host;
+  const newCloudMachine = host
+    ? () =>
+        void host.call<{ ran?: boolean }>(APP_ACTION_RUN, { action: NEW_CLOUD_MACHINE }).then(
+          // An action the app did not run (turned off, unavailable) answers `ran: false`; one that
+          // ran and then stopped (sign-in declined) says so in the app.
+          (reply) => {
+            if (reply?.ran === false) say(t("notice.cloudNotRun"));
+          },
+          // A refusal (the host's own words) shows as the page's short notice.
+          (error: unknown) => say(error instanceof Error && error.message ? error.message : t("notice.cloudNotRun")),
+        )
+    : undefined;
   const copyLink = (message?: HomeMessage, conversation = snap.selected) => {
     if (!conversation || !navigator.clipboard) return;
     // The notice only when the copy happened.
@@ -243,6 +279,7 @@ export function HomeChannelsPage({
     target?.focus({ preventScroll: true });
   }, [store, measured, narrow, listShown]);
   const openThread = (root: string | undefined) => {
+    if (root) setWorkConversation(undefined);
     setEditing(undefined);
     void store.openThread(root);
   };
@@ -309,6 +346,7 @@ export function HomeChannelsPage({
       else if (palette) setPalette(false);
       else if (listShown) return false;
       else if (editing) setEditing(undefined);
+      else if (workOpen) setWorkConversation(undefined);
       else if (openRun) setOpenRun(undefined);
       else if (snap.thread) openThread(undefined);
       else if (focused) setFocused(undefined);
@@ -525,6 +563,8 @@ export function HomeChannelsPage({
                 onOpenPalette={() => setPalette(true)}
                 onCompose={online && caps.start ? () => store.sheets.open({ kind: "newMessage" }) : undefined}
                 onNewChief={online && caps.chiefs ? () => store.sheets.open({ kind: "newChief" }) : undefined}
+                onNewCloudMachine={newCloudMachine}
+                cloudEntry={cloudEntry}
                 actions={rowActions}
                 chiefs={sheetState.chiefs}
               />
@@ -580,7 +620,24 @@ export function HomeChannelsPage({
                         )}
                       </p>
                       <span className="lg-spacer" />
-                      {!online && (
+                      <PresentationToggle conversation={open.id} strings={strings} />
+                      {caps.chiefWork && openChief && open.owner === "local" && (
+                        <button
+                          type="button"
+                          className="hc-icon-button hc-chief-work-toggle"
+                          aria-label={t("work.open")}
+                          title={t("work.open")}
+                          aria-pressed={workOpen}
+                          onClick={() => {
+                            setOpenRun(undefined);
+                            openThread(undefined);
+                            setWorkConversation(workOpen ? undefined : open.id);
+                          }}
+                        >
+                          <HomeIcon name="bulletList" size={16} />
+                        </button>
+                      )}
+                      {offlineLasting && (
                         <output className="lg-connection">
                           {t(snap.connection === "connecting" ? "connection.connecting" : "connection.offline")}
                         </output>
@@ -737,6 +794,16 @@ export function HomeChannelsPage({
                             onLoad={runs.onLoad}
                           />
                         )}
+                        {workOpen && caps.chiefWork && openChief && open.owner === "local" && (
+                          <ChiefWorkPane
+                            key={openChief.id}
+                            book={store.chiefWork}
+                            chief={openChief.id}
+                            online={online}
+                            strings={strings}
+                            onClose={() => setWorkConversation(undefined)}
+                          />
+                        )}
                       </div>
                     </RunsContext.Provider>
                   </>
@@ -749,7 +816,14 @@ export function HomeChannelsPage({
                 conversations={conversations}
                 me={me}
               />
-              {palette && <Palette items={paletteItems} strings={strings} onClose={() => setPalette(false)} />}
+              {palette && (
+                <Palette
+                  items={paletteItems}
+                  rank={store.rankPalette}
+                  strings={strings}
+                  onClose={() => setPalette(false)}
+                />
+              )}
             </div>
           </div>
         </PicturesContext.Provider>
@@ -796,5 +870,5 @@ function askedLine(id: string | undefined, messages: readonly HomeMessage[]): st
   const message = id ? messages.find((entry) => entry.id === id) : undefined;
   const text = message?.parts.find((part) => part.type === "text");
   const line = text && text.type === "text" ? text.text.split("\n")[0]!.trim() : "";
-  return line ? (line.length > 120 ? `${line.slice(0, 119)}…` : line) : undefined;
+  return line ? (line.length > 120 ? `${sliceWhole(line, 119)}…` : line) : undefined;
 }

@@ -29,9 +29,30 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     private var frameRates: [CGDirectDisplayID: Int] = [:]
     /// The capture rate (``setFrameRate(_:)``).
     private var frameRate = ScreenQuality.baselineFrameRate
+    /// The cursor is drawn into the picture (``setDrawsCursor(_:)``).
+    private var drawsCursor = true
+    /// The processes whose windows are left out of the picture, as last applied.
+    private var excludedApplied: Set<pid_t> = []
+    /// Processes whose windows stay out of the picture while the cursor does
+    /// (``setDrawsCursor(_:)`` false): the Computer Use agent's cursor
+    /// overlay, which a viewer that draws pointers shows itself. A viewer
+    /// that doesn't keeps both in the picture. Read when a capture starts and
+    /// every 2 s. Set by the app; nil by default (nothing left out).
+    public var excludedProcessIDs: (@Sendable () -> [pid_t])? {
+        get { lock.withLock { excludedSource } }
+        set { lock.withLock { excludedSource = newValue } }
+    }
+    private var excludedSource: (@Sendable () -> [pid_t])?
+    /// The most pixels on the captured picture's long edge (``setMaximumLongEdge(_:)``; nil: the display's size).
+    private var longEdgeCap: Int?
+    /// The last reconfiguration failed: the running capture may not be at
+    /// ``longEdgeCap``, so the same cap set again reconfigures.
+    private var configurationFailed = false
     private var onFrame: (@Sendable (CVPixelBuffer, CGRect) -> Void)?
     private var onDisplays: (@Sendable ([CGSize], Int) -> Void)?
-    private let input = EventInjector()
+    private let input: EventInjector
+    /// The screen stream eval's per-frame times (measurement only; nil unless `CMUX_VNC_TIMING_LOG` is set).
+    private let timing: CaptureTimingLog?
     /// Stopped by the viewer: no recovery after that.
     private var stopped = false
     /// The display-change callback, and the backend it holds (retained, so a
@@ -40,6 +61,8 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
 
     public init(log: @escaping @Sendable (String) -> Void) {
         self.log = log
+        timing = CaptureTimingLog()
+        input = EventInjector(timing: timing)
     }
 
     public func start(frame: @escaping @Sendable (CVPixelBuffer, CGRect) -> Void,
@@ -60,6 +83,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         displays(found.map { pixelSize($0) }, main)
         try await capture(found[main])
         watchDisplays()
+        watchExclusions()
     }
 
     /// A display added, removed or changing mode: read the displays again
@@ -144,6 +168,20 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         fps > ScreenQuality.baselineFrameRate ? 6 : 4
     }
 
+    public func setDrawsCursor(_ draws: Bool) {
+        let generation = lock.withLock { () -> Int? in
+            guard draws != drawsCursor else { return nil }
+            drawsCursor = draws
+            return stream == nil || streamDisplay == nil ? nil : streamGeneration
+        }
+        guard let generation else { return }
+        reconfigure(generation: generation)
+    }
+
+    public var displayFrame: CGRect? {
+        lock.withLock { displays.indices.contains(current) ? displays[current].frame : nil }
+    }
+
     public func setFrameRate(_ fps: Int) {
         let rate = Self.captureFrameRate(for: fps)
         let generation = lock.withLock { () -> Int? in
@@ -155,8 +193,24 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         reconfigure(generation: generation)
     }
 
-    /// Brings a running capture to the current ``setFrameRate(_:)`` rate
-    /// without restarting it. Changes in quick succession each start one of
+    public var scalesToDemand: Bool { true }
+
+    /// Captures the display scaled down to at most `pixels` on its long edge
+    /// (the viewer's demand; nil: its full size). ScreenCaptureKit scales,
+    /// so the encoder gets the smaller picture with no extra copy.
+    public func setMaximumLongEdge(_ pixels: Int?) {
+        let generation = lock.withLock { () -> Int? in
+            guard pixels != longEdgeCap || configurationFailed else { return nil }
+            longEdgeCap = pixels
+            configurationFailed = false
+            return stream == nil || streamDisplay == nil ? nil : streamGeneration
+        }
+        guard let generation else { return }
+        reconfigure(generation: generation)
+    }
+
+    /// Brings a running capture to the current ``setFrameRate(_:)`` rate and
+    /// ``setMaximumLongEdge(_:)`` size without restarting it. Changes in quick succession each start one of
     /// these; each reads the rate again after applying, so the capture
     /// always ends at the latest one whatever order they finish in.
     ///
@@ -166,60 +220,68 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     private func reconfigure(generation: Int) {
         let log = self.log
         Task {
-            var applied: Int?
+            var applied: (rate: Int, cursor: Bool, cap: Int?)?
             while true {
-                let running = lock.withLock { () -> (stream: SCStream, display: SCDisplay, rate: Int)? in
+                let running = lock.withLock { () -> (stream: SCStream, display: SCDisplay, rate: Int, cursor: Bool, cap: Int?)? in
                     guard !stopped, streamGeneration == generation, let stream = self.stream,
                           let streamDisplay else { return nil }
-                    return (stream, streamDisplay, self.frameRate)
+                    return (stream, streamDisplay, self.frameRate, self.drawsCursor, self.longEdgeCap)
                 }
-                guard let running, running.rate != applied else { return }
+                guard let running, running.rate != applied?.rate || running.cursor != applied?.cursor
+                    || running.cap != applied?.cap else { return }
                 let rate = running.rate
+                let configuration = configuration(for: running.display, frameRate: rate, cursor: running.cursor, cap: running.cap)
                 do {
-                    try await running.stream.updateConfiguration(configuration(for: running.display, frameRate: rate))
-                    log("capturing display \(running.display.displayID) at \(rate) fps")
+                    try await running.stream.updateConfiguration(configuration)
+                    log("capturing display \(running.display.displayID) at \(configuration.width)x\(configuration.height), \(rate) fps\(running.cursor ? "" : ", no cursor")")
                 } catch {
-                    log("capture frame rate \(rate) not applied: \(error.localizedDescription)")
+                    log("capture \(configuration.width)x\(configuration.height) at \(rate) fps not applied: \(error.localizedDescription)")
+                    lock.withLock { configurationFailed = true }
                     return
                 }
-                applied = rate
+                applied = (rate, running.cursor, running.cap)
             }
         }
     }
 
     /// The pointer stays in the picture (`showsCursor`): the viewer shows the
-    /// Mac's own cursor, never one drawn locally.
-    private func configuration(for display: SCDisplay, frameRate: Int) -> SCStreamConfiguration {
+    /// Mac's own cursor, never one drawn locally. A viewer that draws
+    /// pointers from the host's `telepointers` messages turns it off.
+    private func configuration(for display: SCDisplay, frameRate: Int, cursor: Bool, cap: Int?) -> SCStreamConfiguration {
         let configuration = SCStreamConfiguration()
-        let size = pixelSize(display)
+        let size = ViewerDemand.fit(pixelSize(display), cap: cap)
         configuration.width = Int(size.width)
         configuration.height = Int(size.height)
         configuration.minimumFrameInterval = CMTime(value: 1, timescale: CMTimeScale(frameRate))
         configuration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
         configuration.colorSpaceName = CGColorSpace.sRGB
         configuration.queueDepth = Self.queueDepth(for: frameRate)
-        configuration.showsCursor = true
+        configuration.showsCursor = cursor
         return configuration
     }
 
     private func capture(_ display: SCDisplay) async throws {
-        let rate = lock.withLock { frameRate }
-        let configuration = configuration(for: display, frameRate: rate)
-        let size = pixelSize(display)
-        let filter = SCContentFilter(display: display, excludingWindows: [])
+        let (rate, cursor, cap, excluded) = lock.withLock { (frameRate, drawsCursor, longEdgeCap, excludedSource) }
+        let configuration = configuration(for: display, frameRate: rate, cursor: cursor, cap: cap)
+        let size = CGSize(width: configuration.width, height: configuration.height)
+        let pids = Self.excluded(excluded, drawsCursor: cursor)
+        let (filter, applied) = await Self.filter(display: display, excluding: pids)
+        // Not applied (the window list failed): the watcher tries again.
+        lock.withLock { excludedApplied = applied ? pids : [] }
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await stream.startCapture()
         // stop() may have run while this capture started: it then ends here, never stored.
-        let (previous, late, latest, generation) = lock.withLock { () -> (SCStream?, Bool, Int, Int) in
-            if stopped { return (nil, true, rate, streamGeneration) }
+        let (previous, late, latest, generation) = lock.withLock { () -> (SCStream?, Bool, (Int, Bool), Int) in
+            if stopped { return (nil, true, (rate, cursor), streamGeneration) }
             defer {
                 self.stream = stream
                 streamDisplay = display
                 streamGeneration += 1
             }
-            return (self.stream, false, frameRate, streamGeneration + 1)
+            return (self.stream, false, (frameRate, drawsCursor), streamGeneration + 1)
         }
+        let latestCap = lock.withLock { longEdgeCap }
         if late {
             try? await stream.stopCapture()
             return
@@ -227,8 +289,58 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         if let previous { try? await previous.stopCapture() }
         input.display = display.frame
         log("capturing display \(display.displayID) at \(Int(size.width))x\(Int(size.height)), \(rate) fps")
-        // The rate changed while this capture started (setFrameRate found no stream to update).
-        if latest != rate { reconfigure(generation: generation) }
+        // The rate, the cursor or the size changed while this capture started
+        // (setFrameRate, setDrawsCursor or setMaximumLongEdge found no stream to update).
+        if latest != (rate, cursor) || latestCap != cap { reconfigure(generation: generation) }
+    }
+
+    /// The processes to leave out: none while the cursor is in the picture
+    /// (the viewer draws no pointers, so the agent's overlay stays too).
+    static func excluded(_ source: (@Sendable () -> [pid_t])?, drawsCursor: Bool) -> Set<pid_t> {
+        drawsCursor ? [] : Set(source?() ?? [])
+    }
+
+    /// The display, without the windows of `pids` (none: the whole display),
+    /// and whether `pids` are left out (false when the window list failed:
+    /// the whole display, until the next try).
+    private static func filter(display: SCDisplay, excluding pids: Set<pid_t>) async -> (SCContentFilter, Bool) {
+        guard !pids.isEmpty else { return (SCContentFilter(display: display, excludingWindows: []), true) }
+        guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false) else {
+            return (SCContentFilter(display: display, excludingWindows: []), false)
+        }
+        let apps = content.applications.filter { pids.contains($0.processID) }
+        return (SCContentFilter(display: display, excludingApplications: apps, exceptingWindows: []), true)
+    }
+
+    /// Every 2 s: when the processes to leave out changed (the agent's helper
+    /// started or restarted), the running capture's filter follows.
+    private func watchExclusions() {
+        Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2)) // exclusion refresh period
+                guard let self else { return }
+                let state = lock.withLock { () -> (stopped: Bool, source: (@Sendable () -> [pid_t])?, cursor: Bool, applied: Set<pid_t>, generation: Int) in
+                    (stopped, excludedSource, drawsCursor, excludedApplied, streamGeneration)
+                }
+                if state.stopped { return }
+                let pids = Self.excluded(state.source, drawsCursor: state.cursor)
+                guard pids != state.applied else { continue }
+                let running = lock.withLock { () -> (SCStream, SCDisplay)? in
+                    guard streamGeneration == state.generation, let stream, let streamDisplay else { return nil }
+                    return (stream, streamDisplay)
+                }
+                guard let running else { continue }
+                let (filter, applied) = await Self.filter(display: running.1, excluding: pids)
+                guard applied else { continue }
+                do {
+                    try await running.0.updateContentFilter(filter)
+                    lock.withLock { excludedApplied = pids }
+                    log("capture leaves out \(pids.count) process(es)")
+                } catch {
+                    log("capture filter not applied: \(error.localizedDescription)")
+                }
+            }
+        }
     }
 
     public func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
@@ -236,6 +348,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
               let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
               let statusRaw = attachments.first?[.status] as? Int, SCFrameStatus(rawValue: statusRaw) == .complete,
               let buffer = sampleBuffer.imageBuffer else { return }
+        timing?.frame(displayTime: attachments.first?[.displayTime] as? UInt64)
         let sink = lock.withLock { onFrame }
         sink?(buffer, CGRect(x: 0, y: 0, width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer)))
     }
@@ -253,6 +366,11 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
 
     public func handle(_ message: ScreenInput) {
         input.handle(message)
+    }
+
+    /// Pixel scrolling (`u: "px"`) and pointer events that carry the held modifiers.
+    public var inputCapabilities: [String] {
+        [ScreenHostMessage.pixelScrollCapability, ScreenHostMessage.modifiedPointerCapability]
     }
 
     public func stop() {
@@ -275,40 +393,73 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
             }
             if Thread.isMainThread { release() } else { DispatchQueue.main.async(execute: release) }
         }
+        input.releaseAll()
         if let stream { Task { try? await stream.stopCapture() } }
     }
 }
 
 /// Posts input with CGEvent at the HID level (Accessibility permission):
 /// absolute pointer positions on the streamed display, button transitions
-/// with click counting, wheel scrolling, keys by virtual key code, and text
-/// as Unicode strings.
-// crash-allow: one per backend, driven only by the input channel's callbacks, which libwebrtc delivers one at a time.
+/// with click counting, wheel scrolling (lines, or pixels for `u: "px"`),
+/// keys by virtual key code, and text as Unicode strings. Every event
+/// carries the modifiers the viewer holds down (a modifier `key` down stays
+/// on until its up), so a ⌘, ⇧ or ⌥ key down, then a click, is a modified click.
+// crash-allow: one per backend; input state is touched only under `lock` (the channel's callbacks and the session's end).
 final class EventInjector: @unchecked Sendable {
-    // @unchecked: used from the data channel's callbacks, one at a time.
+    // @unchecked: input state behind `lock`; `display` is set once per capture start.
     var display = CGRect.zero
-    private let source = CGEventSource(stateID: .hidSystemState)
+    private let source: CGEventSource?
+    private let poster: @Sendable (CGEvent) -> Void
+    private let timing: CaptureTimingLog?
+
+    /// `post` sends each event (tests capture them; the backend posts at the HID tap); `timing` notes
+    /// each key or click for the screen stream eval.
+    init(source: CGEventSource? = CGEventSource(stateID: .hidSystemState),
+         post: @escaping @Sendable (CGEvent) -> Void = { $0.post(tap: .cghidEventTap) },
+         timing: CaptureTimingLog? = nil) {
+        self.source = source
+        poster = post
+        self.timing = timing
+    }
+
     private var buttons: UInt8 = 0
     private var point = CGPoint.zero
     private var lastClick: (time: TimeInterval, button: UInt8, count: Int64) = (0, 0, 0)
     private var flags: CGEventFlags = []
+    /// The session ended (``releaseAll()``): late input posts nothing.
+    private var ended = false
+    /// Input and ``releaseAll()`` come from different tasks (the channel, the session's end).
+    private let lock = NSLock()
 
     func handle(_ input: ScreenInput) {
+        lock.withLock {
+            guard !ended else { return }
+            let held = buttons
+            apply(input)
+            // The eval times a key or a click, not a plain pointer move.
+            if input.t != "move" || buttons != held { timing?.input() }
+        }
+    }
+
+    private func apply(_ input: ScreenInput) {
         switch input.t {
         case "move":
             point = location(input)
             setButtons(input.b ?? 0)
         case "scroll":
             point = location(input)
-            post(CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left))
-            post(CGEvent(scrollWheelEvent2Source: source, units: .line, wheelCount: 2,
-                         wheel1: Int32(input.dy ?? 0), wheel2: Int32(input.dx ?? 0), wheel3: 0))
+            postPointer()
+            // Pixels take the same sign as lines: positive dy is wheel 1 up either way.
+            let units: CGScrollEventUnit = input.u == ScreenInput.pixelUnit ? .pixel : .line
+            post(CGEvent(scrollWheelEvent2Source: source, units: units, wheelCount: 2,
+                         wheel1: Self.wheelDelta(input.dy), wheel2: Self.wheelDelta(input.dx), wheel3: 0))
         case "key":
             guard let keysym = input.k else { return }
             key(keysym, down: input.d ?? true)
         case "chord":
             guard let keysym = input.k else { return }
-            let modifiers = input.m ?? []
+            // A modifier the viewer already holds stays held after the chord.
+            let modifiers = (input.m ?? []).filter { keysym in Self.modifierFlags[keysym].map { held in !flags.contains(held) } ?? true }
             for modifier in modifiers { key(modifier, down: true) }
             key(keysym, down: true)
             key(keysym, down: false)
@@ -320,20 +471,51 @@ final class EventInjector: @unchecked Sendable {
         }
     }
 
+    /// Lets go of every button and modifier the viewer holds (a viewer that
+    /// drops mid-click or with ⌘ down leaves none stuck on the Mac); input
+    /// after it posts nothing.
+    func releaseAll() {
+        lock.withLock {
+            guard !ended else { return }
+            setButtons(0)
+            for (keysym, flag) in Self.releaseOrder where flags.contains(flag) { key(keysym, down: false) }
+            flags = []
+            ended = true
+        }
+    }
+
+    /// One keysym per modifier flag, for ``releaseAll()``.
+    private static let releaseOrder: [(UInt32, CGEventFlags)] = [
+        (0xFFE7, .maskCommand), (0xFFE9, .maskAlternate), (0xFFE3, .maskControl), (0xFFE1, .maskShift),
+    ]
+
     private func location(_ input: ScreenInput) -> CGPoint {
         CGPoint(x: display.minX + (input.x ?? 0) * display.width, y: display.minY + (input.y ?? 0) * display.height)
+    }
+
+    /// A scroll delta for the wheel field (clamped: a huge value never traps).
+    private static func wheelDelta(_ value: Int?) -> Int32 {
+        Int32(clamping: value ?? 0)
+    }
+
+    /// The pointer at `point` with the buttons held: a drag of the first of
+    /// left, right and middle that is down, or a plain move.
+    private func postPointer() {
+        let (type, button): (CGEventType, CGMouseButton) = buttons & 1 != 0 ? (.leftMouseDragged, .left)
+            : buttons & 4 != 0 ? (.rightMouseDragged, .right)
+            : buttons & 2 != 0 ? (.otherMouseDragged, .center)
+            : (.mouseMoved, .left)
+        post(CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: button))
     }
 
     /// Moves, then posts a down or up for each button whose state changed.
     private func setButtons(_ next: UInt8) {
         let changed = next ^ buttons
-        let held = buttons
-        buttons = next
-        if changed == 0 {
-            let type: CGEventType = held & 1 != 0 ? .leftMouseDragged : held & 4 != 0 ? .rightMouseDragged : .mouseMoved
-            post(CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: .left))
+        guard changed != 0 else {
+            postPointer()
             return
         }
+        buttons = next
         for (bit, button, down, up) in [(UInt8(1), CGMouseButton.left, CGEventType.leftMouseDown, CGEventType.leftMouseUp),
                                         (4, .right, .rightMouseDown, .rightMouseUp), (2, .center, .otherMouseDown, .otherMouseUp)]
             where changed & bit != 0 {
@@ -373,8 +555,13 @@ final class EventInjector: @unchecked Sendable {
         }
     }
 
+    /// Posts `event` with the held modifiers (keys set their own flags first).
+    /// The viewer's modifiers replace the source state's, so a key held on
+    /// the Mac's own keyboard is not added to a remote click.
     private func post(_ event: CGEvent?) {
-        event?.post(tap: .cghidEventTap)
+        guard let event else { return }
+        if event.type != .keyDown, event.type != .keyUp, event.type != .flagsChanged { event.flags = flags }
+        poster(event)
     }
 
     private static let modifierFlags: [UInt32: CGEventFlags] = [

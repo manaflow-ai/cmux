@@ -49,6 +49,17 @@ impl Surface {
             .prompt_since()
     }
 
+    /// The last command the terminal's shell finished (OSC 133 `D`):
+    /// `extra.last_command` (`terminal-exit-status-v1`).
+    pub(crate) fn terminal_last_command(&self) -> Option<crate::terminal_activity::LastCommand> {
+        self.as_pty()?
+            .terminal_metadata
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .activity
+            .last_command()
+    }
+
     /// When the terminal last printed anything: `extra.last_output`
     /// (`terminal-activity-v1`).
     pub(crate) fn terminal_last_output(&self) -> Option<u64> {
@@ -76,22 +87,93 @@ impl Surface {
         records.shown(!self.is_dead())
     }
 
+    /// The output reader's side of this terminal's publications. The reader
+    /// calls this after each output chunk, outside the parser lock, and never
+    /// waits for the workspace registry here (#35413: under load the next
+    /// output frame, a key's echo, waited up to 501 ms behind such a commit).
+    /// - The alerts its OSC 7501 records raised are taken and rate-limited
+    ///   now, in output order, as the inline publication did.
+    /// - When its output left a directory, progress, activity or program
+    ///   status change to publish (checked in memory under the terminal's
+    ///   own locks), the mux's terminal publisher commits it.
+    /// - The publisher posts the alerts after that commit (or after one
+    ///   already queued, which publishes the latest state), so a client that
+    ///   opens the notification finds the record, and after the
+    ///   notifications that earlier output queued.
+    pub(crate) fn queue_pending_publications(self: &Arc<Self>) {
+        let Some(mux) = self.as_pty().and_then(|pty| pty.mux.upgrade()) else { return };
+        let alerts = self.take_program_status_alerts();
+        if self.publication_due() {
+            mux.queue_terminal_publication(self);
+        }
+        mux.queue_terminal_notifications(self.id, alerts);
+    }
+
+    /// Whether `publish_pending_directory` or `publish_pending_state` would
+    /// publish or emit something now. Marks nothing.
+    fn publication_due(&self) -> bool {
+        let Some(pty) = self.as_pty() else { return false };
+        if pty.directory_pending.load(Ordering::Acquire) {
+            return true;
+        }
+        let records = {
+            let metadata =
+                pty.terminal_metadata.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if metadata.has_publication_change() {
+                return true;
+            }
+            metadata.program_status()
+        };
+        let records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        records.has_publication_change(!self.is_dead())
+    }
+
+    /// The alerts this terminal's OSC 7501 records raised since the last
+    /// take, as the notifications that pass its rate limit now.
+    fn take_program_status_alerts(&self) -> Vec<crate::terminal_metadata::TerminalNotification> {
+        let Some(pty) = self.as_pty() else { return Vec::new() };
+        let records = pty.program_status_records();
+        let alerts =
+            records.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take_alerts();
+        if alerts.is_empty() {
+            return Vec::new();
+        }
+        pty.terminal_metadata
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .admit_program_status_alerts(alerts, Instant::now())
+    }
+
     /// Publish a changed OSC 9;4 progress, shell busy state, or OSC 7501
-    /// program status as a terminal upsert, then post the notifications the records asked for
-    /// (after the upsert, so a client that opens the notification finds the
-    /// record). The reader calls this after each output chunk, outside the
-    /// parser lock.
+    /// program status as a terminal upsert (and a program's wait starting or
+    /// ending as agent roster evidence), then post the notifications the
+    /// records asked for (after the upsert, so a client that opens the
+    /// notification finds the record). Adoption, the first view of an app
+    /// terminal and its readiness call this directly.
     pub(crate) fn publish_pending_progress(&self) {
+        self.publish_progress_change(true);
+    }
+
+    /// `publish_pending_progress` for the terminal publisher: the output
+    /// reader took the alerts itself, in output order
+    /// (`queue_pending_publications`).
+    pub(crate) fn publish_pending_state(&self) {
+        self.publish_progress_change(false);
+    }
+
+    fn publish_progress_change(&self, with_alerts: bool) {
         let Some(pty) = self.as_pty() else { return };
         let (progress_changed, records) = {
             let mut metadata = pty.terminal_metadata.lock().unwrap();
             let progress = metadata.take_progress_change().is_some();
             (metadata.take_busy_change() || progress, metadata.program_status())
         };
-        let (status_changed, shown_changed, alerts) = {
+        let (status_changed, shown_changed, alerts, blocker) = {
             let mut records = records.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let shown = records.take_shown_change(!self.is_dead());
-            (records.take_change(), shown, records.take_alerts())
+            let alerts = if with_alerts { records.take_alerts() } else { Vec::new() };
+            let blocker = records.take_blocker_change(!self.is_dead());
+            (records.take_change(), shown, alerts, blocker)
         };
         // A publish after the terminal died (reconnect) can hide its
         // running records with no new report: send that shown change too.
@@ -104,6 +186,10 @@ impl Surface {
             && let Err(error) = mux.publish_terminal_progress(self, mutation)
         {
             eprintln!("cmux-tui: terminal {mutation} publication failed: {error}");
+        }
+        // After the terminal's upsert, so the roster's row follows it.
+        if let Some(state) = blocker {
+            mux.record_program_status_evidence(self, state);
         }
         // The tab indicator (TUI) changes only with the shown status.
         if let Some(status) = shown_changed {

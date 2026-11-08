@@ -6,12 +6,13 @@ use std::fs::{File, OpenOptions};
 use std::io::Read;
 use std::path::{Component, Path};
 
+use base64::Engine as _;
 use cmux_git::diff::{Comparison, ScopeError, diff_args, untracked_args};
-use cmux_git::run::GitOutput;
+use cmux_git::run::{GitOutput, GitWindow};
 use serde_json::{Map, Value, json};
 
 use super::{Repository, clamp, git_failed, parse};
-use crate::resource::ResourceError;
+use crate::resource::{ResourceError, WireDecimal};
 use cmux_json::JsonSet as _;
 
 const OPERATION: &str = "git.diff";
@@ -23,12 +24,10 @@ const MAX_PATCH_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_REPLY_PATCH_BYTES: usize = 8 * 1024 * 1024;
 /// Paths per patch run, so a long file list never exceeds the argument limit.
 const PATCH_BATCH: usize = 256;
-/// Untracked files are read to count their lines; past this many the rest
-/// are left out and counted in `untracked_skipped`.
-const MAX_UNTRACKED_FILES: usize = 200;
-const MAX_UNTRACKED_FILE_BYTES: u64 = 2 * 1024 * 1024;
 /// git's own test for a binary file: a NUL in the first 8000 bytes.
 const BINARY_PROBE_BYTES: usize = 8000;
+/// Base64 keeps arbitrary UTF-8 boundaries intact across bounded replies.
+const PATCH_PAGE_BYTES: usize = 512 * 1024;
 
 #[derive(Debug)]
 struct ChangedFile {
@@ -88,16 +87,132 @@ impl ChangedFile {
     }
 }
 
+/// Stable request identity, independent of the current HEAD/tree. The revision
+/// separately identifies immutable bytes. No caller supplies a cache key.
+fn capture_key(
+    repository: &Repository,
+    fields: &Map<String, Value>,
+    operation: &'static str,
+) -> Result<String, ResourceError> {
+    let scope = (operation == OPERATION)
+        .then(|| fields.get("scope").and_then(Value::as_str).unwrap_or("uncommitted"));
+    Ok(json!([
+        repository.root,
+        operation,
+        pathspecs(fields)?,
+        limit(fields, "context_lines", 3).min(MAX_CONTEXT_LINES),
+        scope,
+        fields.get("from"),
+        fields.get("to"),
+        fields.get("base"),
+        fields.get("head")
+    ])
+    .to_string())
+}
+
+fn page_offset(fields: &Map<String, Value>) -> Result<Option<u64>, ResourceError> {
+    fields
+        .get("patch_offset")
+        .map(|value| {
+            serde_json::from_value::<WireDecimal>(value.clone()).map(WireDecimal::get).map_err(
+                |_| {
+                    ResourceError::validation_invalid(
+                        Some("patch_offset"),
+                        "patch_offset must be an unsigned decimal string",
+                    )
+                },
+            )
+        })
+        .transpose()
+}
+
+/// Serve a continuation before rebuilding a live comparison. Unrelated
+/// working-tree changes must not invalidate an already-issued page cursor.
+pub(super) fn continuation(
+    repository: &Repository,
+    fields: &Map<String, Value>,
+    operation: &'static str,
+) -> Result<Option<Value>, ResourceError> {
+    let Some(offset) = page_offset(fields)?.filter(|offset| *offset > 0) else {
+        return Ok(None);
+    };
+    if fields.get("include_patch").and_then(Value::as_bool) != Some(true)
+        || pathspecs(fields)?.len() != 1
+    {
+        return Err(ResourceError::validation_invalid(
+            Some("patch_offset"),
+            "a patch page requires include_patch and exactly one file path",
+        ));
+    }
+    let revision = fields.get("patch_revision").and_then(Value::as_str).ok_or_else(|| {
+        ResourceError::validation_invalid(
+            Some("patch_revision"),
+            "continuing a patch requires the first page's revision",
+        )
+    })?;
+    let key = capture_key(repository, fields, operation)?;
+    let Some((window, mut metadata)) = super::diff_pages::get(&key, revision) else {
+        return Err(ResourceError::operation_failed(
+            operation,
+            "the patch capture expired; restart at offset zero",
+            json!({"code":"patch_expired"}),
+        ));
+    };
+    let bytes = window.read(offset, PATCH_PAGE_BYTES).map_err(|_| {
+        ResourceError::operation_failed(
+            operation,
+            "could not read the captured patch",
+            json!({"code":"patch_read_failed"}),
+        )
+    })?;
+    metadata.set("patch_page", page_value(&window, revision, offset, bytes)?);
+    Ok(Some(metadata))
+}
+
 pub(super) fn read(
     repository: &Repository,
     fields: &Map<String, Value>,
 ) -> Result<Value, ResourceError> {
     let scope = fields.get("scope").and_then(Value::as_str).unwrap_or("uncommitted");
     pathspecs(fields)?;
-    let comparison = comparison(repository, scope)?;
-    let mut value = report(repository, &comparison, OPERATION, fields)?;
-    value.set("scope", json!(scope));
-    Ok(value)
+    if let Some(value) = continuation(repository, fields, OPERATION)? {
+        return Ok(value);
+    }
+    let comparison = match scope {
+        "commits" => commits(repository, fields)?,
+        scope => comparison(repository, scope)?,
+    };
+    report(repository, &comparison, OPERATION, fields, json!({"scope":scope}))
+}
+
+/// The commits scope: `head` against its merge base with `base`, both full
+/// commit ids the repository already has (a pull request's head and base, read
+/// with no fetch). A missing one is `commit_missing`, so the caller reads the
+/// diff elsewhere.
+fn commits(
+    repository: &Repository,
+    fields: &Map<String, Value>,
+) -> Result<Comparison, ResourceError> {
+    let field = |name: &'static str| {
+        fields.get(name).and_then(Value::as_str).ok_or_else(|| {
+            ResourceError::validation_invalid(Some(name), "the commits scope needs base and head")
+        })
+    };
+    let (base, head) = (field("base")?, field("head")?);
+    cmux_git::diff::commits(repository, base, head).map_err(|error| match error {
+        ScopeError::MissingCommit { commit } => ResourceError::operation_failed(
+            OPERATION,
+            format!("the repository has no commit {commit}"),
+            json!({"code":"commit_missing","commit":commit}),
+        ),
+        ScopeError::NoMergeBase { .. } => ResourceError::operation_failed(
+            OPERATION,
+            format!("{base} and {head} have no common commit"),
+            json!({"code":"no_merge_base","base":base}),
+        ),
+        ScopeError::Git(failure) => git_failed(OPERATION, &failure),
+        other => ResourceError::validation_invalid(Some("scope"), other.to_string()),
+    })
 }
 
 /// One tree against another.
@@ -107,9 +222,14 @@ pub(in crate::git_ops) fn between(
     to: String,
     fields: &Map<String, Value>,
     operation: &'static str,
+    complete: bool,
 ) -> Result<Value, ResourceError> {
     let comparison = cmux_git::diff::between(repository, from, to);
-    report(repository, &comparison, operation, fields)
+    let mut metadata = json!({"from":fields.get("from"), "complete":complete});
+    if let Some(to) = fields.get("to") {
+        metadata.set("to", to.clone());
+    }
+    report(repository, &comparison, operation, fields, metadata)
 }
 
 /// The most unchanged lines a patch carries around each change.
@@ -128,6 +248,7 @@ fn report(
     comparison: &Comparison,
     operation: &'static str,
     fields: &Map<String, Value>,
+    metadata: Value,
 ) -> Result<Value, ResourceError> {
     let include_patch = fields.get("include_patch").and_then(Value::as_bool).unwrap_or(false);
     let max_patch_bytes = limit(fields, "max_patch_bytes", 262_144);
@@ -136,9 +257,19 @@ fn report(
     // changes view show more lines (cx-ncc.85).
     let context_lines = limit(fields, "context_lines", 3).min(MAX_CONTEXT_LINES);
     let paths = pathspecs(fields)?;
+    let page_offset = page_offset(fields)?;
+    if page_offset.is_some() && (!include_patch || paths.len() != 1) {
+        return Err(ResourceError::validation_invalid(
+            Some("patch_offset"),
+            "a patch page requires include_patch and exactly one file path",
+        ));
+    }
+    let page_key = capture_key(repository, fields, operation)?;
+    if let Some(value) = continuation(repository, fields, operation)? {
+        return Ok(value);
+    }
 
     let mut files = tracked(repository, comparison, operation, &paths)?;
-    let mut untracked_skipped = 0;
     if comparison.untracked {
         let listing = git(repository, operation, &untracked_args(&paths), MAX_LISTING_BYTES)?;
         let mut names = parse::file_list(&listing.stdout);
@@ -146,21 +277,27 @@ fn report(
             // The last name may be cut short.
             names.pop();
         }
-        untracked_skipped = names.len().saturating_sub(MAX_UNTRACKED_FILES);
-        let counted = names.into_iter().take(MAX_UNTRACKED_FILES);
-        files.extend(counted.map(|name| untracked(&repository.root, name)));
+        files.extend(names.into_iter().map(|name| untracked(&repository.root, name)));
     }
     files.sort_by(|left, right| left.path.cmp(&right.path));
     let additions = files.iter().map(|file| file.additions).sum::<u64>();
     let deletions = files.iter().map(|file| file.deletions).sum::<u64>();
     let total_files = files.len();
+    if let Some(after_path) = fields.get("after_path").and_then(Value::as_str) {
+        files.retain(|file| file.path.as_str() > after_path);
+    }
+    let page_files = files.len();
+    // The commit preview uses this warning before staging all untracked files.
+    // Count only this page's omissions: every one is available via next_path.
+    let untracked_skipped =
+        files.iter().skip(max_files).filter(|file| file.status == "untracked").count();
     files.truncate(max_files);
-    let files_omitted = total_files - files.len();
-    let wants_patch = include_patch && comparison.revisions.is_some();
+    let files_omitted = page_files - files.len();
+    let wants_patch = include_patch && page_offset.is_none() && comparison.revisions.is_some();
     if wants_patch && files.iter().any(|file| file.status != "untracked") {
-        let batches = if files_omitted == 0 {
+        let batches = if files_omitted == 0 && !fields.contains_key("after_path") {
             // Every file is returned: the request's own paths select them.
-            vec![paths]
+            vec![paths.clone()]
         } else {
             returned_paths(&files).chunks(PATCH_BATCH).map(<[String]>::to_vec).collect()
         };
@@ -185,7 +322,123 @@ fn report(
     if untracked_skipped > 0 {
         value.set("untracked_skipped", json!(clamp(untracked_skipped as u64)));
     }
+    if files_omitted > 0
+        && let Some(last) = files.last()
+    {
+        value.set("next_path", json!(last.path));
+    }
+    if let Some(extra) = metadata.as_object()
+        && let Some(object) = value.as_object_mut()
+    {
+        object.extend(extra.clone());
+    }
+    if let Some(offset) = page_offset {
+        let file = match files.as_slice() {
+            [file] if paths.first() == Some(&file.path) && file.has_patch() => file,
+            _ => {
+                return Err(ResourceError::validation_invalid(
+                    Some("paths"),
+                    "a patch page requires one changed text file",
+                ));
+            }
+        };
+        let (page, revision) = patch_page(
+            repository,
+            comparison,
+            operation,
+            file,
+            context_lines,
+            offset,
+            fields,
+            &value,
+        )?;
+        super::diff_pages::put(page_key, revision, value.clone());
+        value.set("patch_page", page);
+    }
     Ok(value)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn patch_page(
+    repository: &Repository,
+    comparison: &Comparison,
+    operation: &'static str,
+    file: &ChangedFile,
+    context_lines: usize,
+    offset: u64,
+    fields: &Map<String, Value>,
+    metadata: &Value,
+) -> Result<(Value, super::diff_pages::Capture), ResourceError> {
+    let paths = returned_paths(std::slice::from_ref(file));
+    let unified = format!("--unified={context_lines}");
+    let arguments = diff_args(comparison, &["--patch", "--full-index", &unified], &paths);
+    let output = repository
+        .run_window(&arguments, offset, PATCH_PAGE_BYTES)
+        .map_err(|failure| git_failed(operation, &failure))?;
+    let Some(window) = output.window else {
+        return Err(ResourceError::operation_failed(
+            operation,
+            "could not read the patch page",
+            json!({"code":"patch_read_failed"}),
+        ));
+    };
+    let revision = page_revision(&window, metadata);
+    if fields
+        .get("patch_revision")
+        .and_then(Value::as_str)
+        .is_some_and(|expected| expected != revision)
+    {
+        return Err(ResourceError::operation_failed(
+            operation,
+            "the file changed while its patch was loading",
+            json!({"code":"repository_changed"}),
+        ));
+    }
+    if offset > window.total_bytes {
+        return Err(ResourceError::validation_invalid(
+            Some("patch_offset"),
+            "patch_offset is past the end of the patch",
+        ));
+    }
+    let page = page_value(&window, &revision, offset, output.stdout)?;
+    Ok((page, super::diff_pages::Capture { revision, window }))
+}
+
+/// A page revision names the captured patch bytes and the listing returned
+/// with page zero together. Continuations replay that listing, so a later
+/// page zero with the same bytes but a different listing (say `complete`
+/// changed) is a different revision and can never lend its listing to an
+/// earlier reader's continuation, or the reverse.
+fn page_revision(window: &GitWindow, metadata: &Value) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hash = Sha256::new();
+    hash.update(window.sha256.as_bytes());
+    hash.update([0]);
+    hash.update(metadata.to_string().as_bytes());
+    hash.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn page_value(
+    window: &GitWindow,
+    revision: &str,
+    offset: u64,
+    bytes: Vec<u8>,
+) -> Result<Value, ResourceError> {
+    if offset > window.total_bytes {
+        return Err(ResourceError::validation_invalid(
+            Some("patch_offset"),
+            "patch_offset is past the end of the patch",
+        ));
+    }
+    let next = offset + bytes.len() as u64;
+    Ok(json!({
+        "offset": WireDecimal::new(offset),
+        "next_offset": WireDecimal::new(next),
+        "total_bytes": WireDecimal::new(window.total_bytes),
+        "revision": revision,
+        "data_base64": base64::engine::general_purpose::STANDARD.encode(bytes),
+        "complete": next == window.total_bytes,
+    }))
 }
 
 /// A scope's comparison, with `git.diff`'s errors.
@@ -203,6 +456,11 @@ fn comparison(repository: &Repository, scope: &str) -> Result<Comparison, Resour
             OPERATION,
             format!("HEAD and {base} have no common commit"),
             json!({"code":"no_merge_base","base":base}),
+        ),
+        ScopeError::MissingCommit { commit } => ResourceError::operation_failed(
+            OPERATION,
+            format!("the repository has no commit {commit}"),
+            json!({"code":"commit_missing","commit":commit}),
         ),
         ScopeError::Git(failure) => git_failed(OPERATION, &failure),
     })
@@ -324,26 +582,39 @@ fn returned_paths(files: &[ChangedFile]) -> Vec<String> {
         .collect()
 }
 
-/// An untracked file counts its lines as additions; a binary, special or
-/// large one counts none.
+/// Count every text line without retaining the file. Binary and special files
+/// count none; the binary probe has the same 8000-byte scope as git.
 fn untracked(root: &Path, path: String) -> ChangedFile {
     let mut file = ChangedFile::new(path, "untracked");
-    let Some(handle) = open_regular(&root.join(&file.path)) else { return file };
-    let mut bytes = Vec::new();
-    if handle.take(MAX_UNTRACKED_FILE_BYTES).read_to_end(&mut bytes).is_err() {
-        return file;
+    let Some(mut handle) = open_regular(&root.join(&file.path)) else { return file };
+    let mut buffer = [0_u8; 32 * 1024];
+    let mut probe_remaining = BINARY_PROBE_BYTES;
+    let mut newlines = 0_u64;
+    let mut last = None;
+    loop {
+        let read = match handle.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return file,
+        };
+        let Some(bytes) = buffer.get(..read) else { return file };
+        let probe = probe_remaining.min(read);
+        if bytes.get(..probe).is_some_and(|prefix| prefix.contains(&0)) {
+            file.binary = true;
+            return file;
+        }
+        probe_remaining -= probe;
+        newlines += bytes.iter().filter(|byte| **byte == b'\n').count() as u64;
+        last = bytes.last().copied();
     }
-    if bytes[..bytes.len().min(BINARY_PROBE_BYTES)].contains(&0) {
-        file.binary = true;
-        return file;
-    }
-    let newlines = bytes.iter().filter(|byte| **byte == b'\n').count() as u64;
-    file.additions = newlines + u64::from(!bytes.is_empty() && !bytes.ends_with(b"\n"));
+    file.additions = newlines + u64::from(last.is_some_and(|byte| byte != b'\n'));
     file
 }
 
-/// Opens a regular file without following a link or waiting on a FIFO.
-fn open_regular(path: &Path) -> Option<File> {
+/// Opens a regular file without following a link or waiting on a FIFO. Read
+/// its initial extent so concurrent appends cannot keep this request running.
+fn open_regular(path: &Path) -> Option<std::io::Take<File>> {
     let mut options = OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
@@ -353,7 +624,7 @@ fn open_regular(path: &Path) -> Option<File> {
     }
     let handle = options.open(path).ok()?;
     let metadata = handle.metadata().ok()?;
-    (metadata.is_file() && metadata.len() <= MAX_UNTRACKED_FILE_BYTES).then_some(handle)
+    metadata.is_file().then(|| handle.take(metadata.len()))
 }
 
 /// The request's paths, which must stay inside the repository.
@@ -369,7 +640,19 @@ fn pathspecs(fields: &Map<String, Value>) -> Result<Vec<String>, ResourceError> 
                 .components()
                 .all(|component| matches!(component, Component::Normal(_) | Component::CurDir));
             if inside {
-                Ok(raw.to_string())
+                let normalized = Path::new(raw)
+                    .components()
+                    .filter_map(|part| match part {
+                        Component::Normal(name) => Some(name.to_string_lossy()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("/");
+                Ok(if normalized.is_empty() && !raw.is_empty() {
+                    ".".to_owned()
+                } else {
+                    normalized
+                })
             } else {
                 Err(ResourceError::validation_invalid(
                     Some("paths"),

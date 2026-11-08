@@ -13,9 +13,12 @@ import pendingMulti from "../../../../../Packages/Shared/CmuxAgentQuestion/Sourc
 import pendingOther from "../../../../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/pending-other-typing.json";
 import pendingSingle from "../../../../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/pending-single.json";
 import pendingPreview from "../../../../../Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/pending-with-preview.json";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
+import type { ChatUiFont } from "../chatUiFont";
+import type { AcpmuxPermission } from "../model";
+import { CardFontCaption, fontMeasured, PAIRED_UI_FONTS, useCardFont } from "../permissions/cardFontGallery";
 import type { AgentQuestion, QuestionReply } from "./model";
 import { questionPreviewLayout } from "./previewLayout.experiment";
 import { QuestionCard } from "./QuestionCard";
@@ -24,13 +27,21 @@ type Props = {
   question: AgentQuestion;
   onReply(reply: QuestionReply): void | Promise<unknown>;
   otherText?: string;
-  look?: "compact" | "inset" | "quiet";
+  look?: "compact" | "inset" | "quiet" | "capsule" | "outline" | "bare";
+  /// The answered card's look (QuestionCard.gallery.css): `stacked` ships.
+  answeredLook?: AnsweredLook;
+  /// The chat's Interface Font, with the row estimator's first height under the card (cardFontGallery.tsx).
+  uiFont?: ChatUiFont;
 };
+type AnsweredLook = "stacked" | "inline" | "check";
 
 /// The card sits where the agent pane puts it: inside .acpmux-shell (which defines the card tokens,
 /// the amber input color among them) and the bottom ask stack.
-function QuestionCardInPane({ otherText, look, ...props }: Props) {
+function QuestionCardInPane({ otherText, look, answeredLook, uiFont, ...props }: Props) {
   const pane = useRef<HTMLDivElement>(null);
+  const stack = useRef<HTMLDivElement>(null);
+  const asked = useMemo(() => ({ question: props.question }) as unknown as AcpmuxPermission, [props.question]);
+  const font = useCardFont(uiFont, asked, stack);
   // A variant with `otherText` picks Other on the first question and types it, as a person does.
   useEffect(() => {
     const root = pane.current;
@@ -53,13 +64,15 @@ function QuestionCardInPane({ otherText, look, ...props }: Props) {
       ref={pane}
       className="acpmux-shell acpmux-question-visual-gallery"
       data-question-look={look}
-      style={{ flexDirection: "column", justifyContent: "flex-end", paddingTop: 16 }}
+      data-answered-look={answeredLook}
+      style={{ flexDirection: "column", justifyContent: "flex-end", paddingTop: 16, ...font.style }}
     >
       <div className="acpmux-permission">
-        <div className="acpmux-asks-stack">
+        <div className="acpmux-asks-stack" ref={stack}>
           <QuestionCard {...props} />
         </div>
       </div>
+      <CardFontCaption caption={font.caption} />
     </div>
   );
 }
@@ -95,6 +108,28 @@ const answeredBySession: AgentQuestion = {
     },
   },
 };
+
+/// Four questions answered at once: a multi-select, an Other answer typed in place of an option,
+/// and plain picks, each question with its answer under it.
+const answeredFour: AgentQuestion = {
+  ...(pending4 as unknown as AgentQuestion),
+  state: {
+    kind: "answered",
+    answer: {
+      selections: {
+        q0: { optionIDs: ["Passkeys"] },
+        q1: { optionIDs: ["macOS", "iOS"] },
+        q2: { optionIDs: [], other: "Inline, and a toast when the window is hidden" },
+        q3: { optionIDs: ["Yes, off by default"] },
+      },
+      respondent: { participant: "user_local", displayName: "Lawrence", device: "MacBook Pro", isRemote: false },
+    },
+  },
+};
+const answeredLook = (question: unknown, look: AnsweredLook, note: string) => ({
+  ...variant(question, note),
+  props: { ...variant(question, "").props, answeredLook: look },
+});
 
 /// How an unanswered ask ended, as its record says (record.ts `cancelReason`).
 const skipped: AgentQuestion = {
@@ -245,6 +280,46 @@ export default componentEntry({
     ],
   },
   variants: {
+    // cmux#38886 review: the pending card's first estimate in each Interface Font of a shared stack.
+    ...Object.fromEntries(
+      PAIRED_UI_FONTS.map((font) => [
+        `font-${font}`,
+        {
+          ...variant(
+            pendingSingle,
+            `The pending card in the ${font} Interface Font, with the row estimator's first height beside the drawn one.`,
+          ),
+          props: { ...variant(pendingSingle, "").props, uiFont: font },
+          play: fontMeasured,
+        },
+      ]),
+    ),
+    // Leo 2026-11-05, of the Needs your input pill, the option rows and the custom answer: "kind of
+    // ugly". Three restyles on the card he showed (two options, a typed custom answer); capsule ships.
+    "restyle-capsule": {
+      ...variant(
+        pendingOther,
+        "Shipped: one small-radius rect (no capsule: agent-pane-no-capsules) tinted with the mark holding the Needs you dot (as the floating pill), regular-weight question and options, the typed custom answer in a quiet hairline field, Skip and Submit with outlined keycaps (esc, ⌘ ↩) as the permission card's.",
+        "do whatever's reasonable",
+      ),
+      props: { ...variant(pendingOther, "", "do whatever's reasonable").props, look: "capsule" },
+    },
+    "restyle-outline": {
+      ...variant(
+        pendingOther,
+        "Alternative: the pill ringed instead of tinted, full-width ruled rows, the custom answer underlined.",
+        "do whatever's reasonable",
+      ),
+      props: { ...variant(pendingOther, "", "do whatever's reasonable").props, look: "outline" },
+    },
+    "restyle-bare": {
+      ...variant(
+        pendingOther,
+        "Alternative: the dot and words with no capsule, the chosen radio filled with the accent, the custom answer a soft filled row.",
+        "do whatever's reasonable",
+      ),
+      props: { ...variant(pendingOther, "", "do whatever's reasonable").props, look: "bare" },
+    },
     "visual-compact": {
       ...variant(pendingSingle, "Compact rules: tighter rows and footer, with full-width hairlines."),
       props: { ...variant(pendingSingle, "").props, look: "compact" },
@@ -308,7 +383,21 @@ export default componentEntry({
     },
     answered: variant(
       answeredCollapsed,
-      "Answered: one line per question (header: the chosen answers), and who answered.",
+      "Answered (shipped, Claude desktop's): a compact bordered card, the question, the chosen answer in grey under it, and who answered.",
+    ),
+    "answered-four": variant(
+      answeredFour,
+      "Shipped look, four questions: each question with its answer under it; a multi-select joins its picks; Other shows the typed text.",
+    ),
+    "answered-look-inline": answeredLook(
+      answeredFour,
+      "inline",
+      "Alternative: each question and its grey answer on one line, wrapping when long.",
+    ),
+    "answered-look-check": answeredLook(
+      answeredFour,
+      "check",
+      "Alternative: stacked, with a check glyph before each answer.",
     ),
     "answered-remote": variant(
       answeredRemote,
@@ -320,10 +409,13 @@ export default componentEntry({
     ),
     cancelled: variant(
       cancelled,
-      "Ended unanswered where the record can't say how (no reject option): one muted line, Not answered, and the question.",
+      "Ended unanswered where the record can't say how (no reject option): the answered card's shape, the question, and Not answered in grey.",
     ),
-    skipped: variant(skipped, "The person pressed Skip: the line says Skipped."),
-    stopped: variant(stopped, "The turn was stopped (or the chat closed) before an answer: the line says so."),
+    skipped: variant(skipped, "The person pressed Skip: Skipped in grey under the question."),
+    stopped: variant(
+      stopped,
+      "The turn was stopped (or the chat closed) before an answer: the card says so under the question.",
+    ),
     "answered-elsewhere": variant(
       answeredElsewhere,
       "Answered on the person's phone through the feed, which names an install, not a device: another device.",

@@ -1,7 +1,8 @@
 // cx-ae9eb: the model rail listed a harness this Mac's acpmux found signed out like any other, so a
 // pick started a chat that failed on its first turn ("authentication failed"). At the composer's
 // boundary: the real catalog and compact picker, and what the pane sends. A signed-out harness's
-// tab offers Log In (its login command) in place of its models, and no pick or search reaches them.
+// tab offers Log In (its login command) in place of its models; a search lists them, and a pick of
+// one signs in before any chat starts on it (harnessSetup.ts).
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useState } from "react";
@@ -185,11 +186,18 @@ const openQuickPicker = () =>
   );
 
 const tabFor = (name: string) =>
-  [...dom.window.document.querySelectorAll<HTMLButtonElement>(".acpmux-quick-rail-tab")].find(
-    (button) => button.getAttribute("aria-label") === name,
+  [...dom.window.document.querySelectorAll<HTMLElement>('.acpmux-cols-tab[role="tab"]')].find(
+    (tab) => tab.getAttribute("aria-label") === name,
   );
+/// The model rows of either menu: the columns' (a menu with a rail) or the list's (a started chat's).
 const modelRows = () => [
-  ...dom.window.document.querySelectorAll<HTMLElement>('.acpmux-quick-menu .acpmux-quick-item[role="menuitemradio"]'),
+  ...dom.window.document.querySelectorAll<HTMLElement>(
+    '.acpmux-cols [role="listbox"] [role="option"], .acpmux-quick-menu .acpmux-quick-item[role="menuitemradio"]',
+  ),
+];
+/// The models column's rows that are not models (notes, Log In, Install…).
+const columnRows = () => [
+  ...dom.window.document.querySelectorAll<HTMLElement>('.acpmux-cols [role="listbox"] .acpmux-cols-row'),
 ];
 
 test("a signed-out harness offers Log In, never its models", async () => {
@@ -206,38 +214,93 @@ test("a signed-out harness offers Log In, never its models", async () => {
   expect(tab, "the Codex rail tab").toBeDefined();
   expect(tab!.title).toContain("Signed out");
   await act(async () => tab!.click());
+  expect(tab!.getAttribute("aria-selected")).toBe("true");
   expect(modelRows().map((row) => row.textContent)).toEqual([]);
-  const login = [
-    ...dom.window.document.querySelectorAll<HTMLButtonElement>(".acpmux-quick-menu .acpmux-quick-item"),
-  ].find((item) => item.textContent === "Log In");
+  expect(columnRows().map((row) => row.textContent)).toEqual(["Signed out", "Log In"]);
+  const login = columnRows().find((row) => row.getAttribute("role") === "button");
   expect(login?.textContent).toBe("Log In");
   await act(async () => login!.click());
   expect(logins).toEqual(["codex: codex login"]);
   expect(sent).toEqual([]);
+  // Log In closes the menu.
+  expect(dom.window.document.querySelector(".acpmux-cols")).toBeNull();
 });
 
-test("a search never lists a signed-out harness's models", async () => {
+// Leo 2026-10-26: "if user picks a model they don't have api key, we offer them to add credits or add
+// their own api key". cmux credits pay only for the cmux model router: buying a plan signs no local
+// harness in, so a signed-out Claude Code, Codex or Gemini tab offers its own Log In alone, even where
+// the pane can run Add Credits… (the turn card offers that on the router's refusal). Its API key goes in
+// through that Log In; a key saved in Settings > Accounts never reaches the harness's process.
+test("a signed-out harness offers its own Log In alone, never credits or a key that cannot sign it in", async () => {
+  const asked: string[] = [];
+  const signIn = {
+    signedOut: { codex: "codex login" },
+    logIn: () => undefined,
+    access: { addCredits: () => asked.push("credits") },
+  };
+  const { sent, catalog } = await mount({ harness: "claude", signIn });
+  const codex = catalog.harnesses.find((entry) => entry.id === "codex")!;
+  await act(async () => {
+    openQuickPicker();
+  });
+  await act(async () => tabFor(codex.name)!.click());
+  // The models column and the account card (the avatar opens it) are where a sign-in shows.
+  const profile = dom.window.document.querySelector<HTMLButtonElement>(".acpmux-cols-profile");
+  expect(profile, "the account avatar").not.toBeNull();
+  await act(async () => profile!.click());
+  const card = dom.window.document.querySelector<HTMLElement>(".acpmux-cols-card");
+  expect(card, "the account card").not.toBeNull();
+  const labels = [
+    ...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-cols .acpmux-cols-row, .acpmux-cols button"),
+  ].map((item) => item.textContent);
+  expect(labels).toContain("Log In");
+  expect(labels).toContain(`Sign in to ${codex.name}…`);
+  expect(labels).not.toContain("Add Credits…");
+  expect(labels).not.toContain("Add API Key…");
+  expect(labels).not.toContain("Use an API key…");
+  expect(asked).toEqual([]);
+  expect(sent).toEqual([]);
+});
+
+// Lawrence 2026-11-07 ("search for any model ... it needs to 'just work'"): a search lists a
+// signed-out harness's models too, after the ready ones and marked Signed out, and a pick of one
+// opens its login (the pick's own gesture) and starts no chat until it is signed in.
+test("a search lists a signed-out harness's models after the ready ones, and a pick signs in first", async () => {
+  const logins: string[] = [];
   const { sent } = await mount({
     harness: "claude",
-    signIn: { signedOut: { codex: "codex login" }, logIn: () => undefined },
+    signIn: {
+      signedOut: { codex: "codex login" },
+      logIn: (harness, login) => void logins.push(`${harness}: ${login}`),
+    },
   });
   await act(async () => {
     openQuickPicker();
   });
-  const input = dom.window.document.querySelector<HTMLInputElement>(".acpmux-quick-search input")!;
+  const input = dom.window.document.querySelector<HTMLInputElement>(".acpmux-cols-search input")!;
   const setValue = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
   await act(async () => {
     setValue.call(input, "gpt");
     input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
   });
-  // Other providers can offer GPT models; none of these results may come from signed-out Codex.
-  expect(modelRows().length).toBeGreaterThan(0);
-  expect(modelRows().every((row) => !row.querySelector(".acpmux-quick-value")?.textContent?.includes("Codex"))).toBe(
-    true,
+  // A searched row's title is its name, its harness, then its provider ("GPT 5.3 Codex" is a model).
+  const codexRows = modelRows().filter((row) => row.title.split(" · ")[1] === "Codex");
+  expect(codexRows.length).toBeGreaterThan(0);
+  expect(codexRows.every((row) => row.title.includes("Signed out"))).toBe(true);
+  const headings = [...dom.window.document.querySelectorAll(".acpmux-cols .acpmux-cols-group")].map(
+    (heading) => heading.textContent,
   );
-  const headings = [...dom.window.document.querySelectorAll(".acpmux-quick-menu .ui-menu-group-label")];
-  expect(headings.map((heading) => heading.textContent)).not.toContain("Codex");
+  // Its heading says a pick signs in first.
+  expect(headings).toContain("CodexSigned out");
+  // Other providers can offer GPT models; those that are ready come first.
+  if (headings.length > 1) expect(headings[0]).not.toBe("CodexSigned out");
+  await act(async () => {
+    codexRows[0]!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(logins).toEqual(["codex: codex login"]);
   expect(sent).toEqual([]);
+  (await import("../src/agent-session/acpmux/harnessSetup")).resetHarnessSetupForTests();
 });
 
 // Review of #20692: a chat already running on a harness keeps its models (a stale or wrong row
@@ -268,8 +331,8 @@ test("Starred lists no model of a signed-out harness", async () => {
   await act(async () => {
     openQuickPicker();
   });
-  const starred = dom.window.document.querySelector<HTMLButtonElement>('.acpmux-quick-rail-tab[aria-label="Starred"]');
-  expect(starred, "the Starred tab").not.toBeNull();
+  const starred = tabFor("Starred");
+  expect(starred, "the Starred tab").toBeDefined();
   await act(async () => starred!.click());
   const names = modelRows().map((row) => row.textContent ?? "");
   expect(names).toHaveLength(1);

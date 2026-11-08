@@ -4,13 +4,6 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         [
             ActionDescriptor(
-                id: "feed.show",
-                title: String(localized: "action.feed.show", defaultValue: "Show Feed", bundle: .module),
-                keywords: ["inbox", "requests", "notifications", "approvals"], defaultShortcut: Shortcut("i", modifiers: [.command, .shift]),
-                category: .notifications, symbol: "tray.full", surfaces: [.palette, .keyboard, .menu],
-                cliName: "feed show", mainMenu: .window
-            ),
-            ActionDescriptor(
                 id: "showNotifications",
                 title: String(localized: "action.showNotifications", defaultValue: "Show Notifications", bundle: .module),
                 keywords: ["inbox", "alerts"],
@@ -18,11 +11,29 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
                 cliName: "notification show", mainMenu: .window
             ),
             ActionDescriptor(
+                id: "agent.jumpToNextNeedingInput",
+                title: String(localized: "action.agent.jumpToNextNeedingInput", defaultValue: "Go to Next Agent Needing Input", bundle: .module),
+                keywords: ["agent", "approval", "question", "needs input", "next"],
+                category: .notifications, symbol: "exclamationmark.bubble", surfaces: [.palette, .keyboard, .menu],
+                mainMenu: .window
+            ),
+            ActionDescriptor(
                 id: "jumpToUnread",
                 title: String(localized: "action.jumpToUnread", defaultValue: "Jump to Latest Unread", bundle: .module),
                 keywords: ["notifications", "next"], defaultShortcut: Shortcut("u", modifiers: [.command, .shift]),
                 category: .notifications, symbol: "bell.badge", surfaces: [.palette, .keyboard, .menu],
                 cliName: "notification jump-to-latest-unread", mainMenu: .window
+            ),
+            // Go to What Needs Me (tab-attention-v1): the tabs agents marked as needing the person,
+            // in a palette page that jumps to the chosen one (Leo 2026-10-22). No default key, so
+            // no Ghostty-reserved key; the palette and Window menu reach it.
+            ActionDescriptor(
+                id: "attention.goTo",
+                title: String(localized: "action.attention.goTo", defaultValue: "Go to What Needs Me", bundle: .module),
+                keywords: ["needs you", "attention", "waiting", "agent", "action", "login", "approve", "tab"],
+                category: .notifications, symbol: "hand.raised", surfaces: [.palette, .keyboard, .menu],
+                mainMenu: .window,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.focusMove), contextMenuExemption: .focusMove)
             ),
             // Classic's Jump to Last Prompt (hq#1870 P1 7); classic's ⇧⌘B is the bookmarks bar here.
             ActionDescriptor(
@@ -96,7 +107,7 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "notifications.toggleBanners",
-                title: String(localized: "action.notifications.toggleBanners", defaultValue: "Toggle Notification Banners", bundle: .module),
+                title: String(localized: "action.notifications.toggleBanners", defaultValue: "Notification Banners", bundle: .module),
                 keywords: ["banner", "desktop", "system", "macos", "notifications"], category: .notifications, symbol: "rectangle.stack.badge.minus",
                 surfaces: [.palette, .keyboard], cliName: "notification toggle-banners"
             ),

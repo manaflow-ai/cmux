@@ -18,6 +18,7 @@ use cmux_link::owner_session::{IDENTIFY_REQUEST, OwnerRefused, OwnerSession, is_
 use cmux_link::pairing::Pairings;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 
+use super::acpmux::{AcpmuxTarget, hand_to_acpmux};
 use super::lines::read_line;
 
 /// Why an inbound stream was closed without reaching the daemon.
@@ -35,6 +36,11 @@ pub(super) enum InboundRefused {
     NotAnEntry,
     /// An owner session that the link refused (who, or which socket).
     Owner(OwnerRefused),
+    /// This link serves no `acpmux` stream.
+    AcpmuxUnavailable,
+    /// No live, proven acpmux listener (`acpmux::listener_record`); no byte
+    /// of the stream was sent anywhere.
+    AcpmuxNotLive(acpmux::listener_record::NotLive),
 }
 
 pub(super) use super::paired_streams::Revocations;
@@ -62,19 +68,33 @@ pub(super) async fn serve_inbound<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    serve_inbound_watched(stream, peer_key, peer_addr, pairings, session_socket, owner, None).await
+    serve_inbound_watched(
+        stream,
+        peer_key,
+        peer_addr,
+        pairings,
+        Some(session_socket),
+        owner,
+        &AcpmuxTarget::Off,
+        None,
+    )
+    .await
 }
 
 /// [`serve_inbound`], where `revocations` carries every new pairing view: a
 /// handshake or stream closes when the view no longer pairs its key to
 /// the same identity (a peer-map update or `cmux link peer remove`).
+/// Without a `session_socket` a `daemon` stream is refused; an `acpmux`
+/// stream goes to `acpmux` (`super::acpmux`).
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn serve_inbound_watched<S>(
     mut stream: S,
     peer_key: [u8; 32],
     peer_addr: SocketAddr,
     pairings: &Pairings,
-    session_socket: &Path,
+    session_socket: Option<&Path>,
     owner: Option<&OwnerSession>,
+    acpmux: &AcpmuxTarget,
     mut revocations: Option<Revocations>,
 ) -> Result<(), InboundRefused>
 where
@@ -105,6 +125,7 @@ where
     // owner (decided here, from the key's pairing record) the owner session.
     let (served, owner_requested) = match parse_line::<ServiceHello>(&hello) {
         Some(ServiceHello { service: Service::Daemon, link_token: None, epoch: None }) => {
+            let session_socket = session_socket.ok_or(InboundRefused::EntryUnavailable)?;
             // A paired peer's stream carries no control-plane check.
             (
                 while_paired(
@@ -126,6 +147,17 @@ where
             )
             .await,
             true,
+        ),
+        // acpmux checks its own token on the upgrade; the link only carries it.
+        Some(ServiceHello { service: Service::Acpmux, link_token: None, epoch: None }) => (
+            while_paired(
+                revocations.as_mut(),
+                peer_key,
+                &peer,
+                hand_to_acpmux(&mut stream, acpmux),
+            )
+            .await,
+            false,
         ),
         _ => return Err(InboundRefused::BadHello),
     };
@@ -209,10 +241,17 @@ where
     // A revocation can cancel this future while verification is running.
     // Give the blocking task its own descriptor so it cannot inspect a reused fd.
     let fd = entry.as_fd().try_clone_to_owned().map_err(|_| InboundRefused::NotAnEntry)?;
+    // That copy keeps the socket open until the check returns (the macOS
+    // signature check can take seconds): a cancel shuts the socket down,
+    // so the entry sees the end at once.
+    let mut verifying = ShutdownOnCancel(Some(
+        entry.as_fd().try_clone_to_owned().map_err(|_| InboundRefused::NotAnEntry)?,
+    ));
     tokio::task::spawn_blocking(move || cmux_link::caller::verify_fd(fd.as_raw_fd()))
         .await
         .map_err(|_| InboundRefused::NotAnEntry)?
         .map_err(|_| InboundRefused::NotAnEntry)?;
+    verifying.finished();
     let banner =
         read_line(&mut entry, MAX_LINE_BYTES).await.map_err(|_| InboundRefused::NotAnEntry)?;
     if banner != cmux_link::entry_path::ENTRY_BANNER {
@@ -221,6 +260,25 @@ where
     write_stamp(&mut entry, &stamp).await.map_err(|_| InboundRefused::EntryUnavailable)?;
     let _ = tokio::io::copy_bidirectional(&mut stream, &mut entry).await;
     Ok(())
+}
+
+/// Shuts a socket down for reading and writing when dropped before
+/// [`Self::finished`] (a cancel or a refused check): every copy of the
+/// descriptor then reads its end.
+struct ShutdownOnCancel(Option<std::os::fd::OwnedFd>);
+
+impl ShutdownOnCancel {
+    fn finished(&mut self) {
+        self.0 = None;
+    }
+}
+
+impl Drop for ShutdownOnCancel {
+    fn drop(&mut self) {
+        if let Some(fd) = self.0.take() {
+            let _ = std::os::unix::net::UnixStream::from(fd).shutdown(std::net::Shutdown::Both);
+        }
+    }
 }
 
 async fn write_stamp(entry: &mut tokio::net::UnixStream, stamp: &str) -> io::Result<()> {

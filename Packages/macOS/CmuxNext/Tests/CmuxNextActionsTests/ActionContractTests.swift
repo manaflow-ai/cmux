@@ -11,12 +11,16 @@ import Testing
     /// noun-verb form (e.g. `remote open`) when its owner next touches it.
     static let topLevelVerbs: [ActionID: String] = ["remote.openRemote": "open-remote"]
 
+    /// Nested groups (noun, group, verb): `chat channel create` is the path the
+    /// backend protocol declares (`ops-home-inbox.ts`, chief-channels-DESIGN.md).
+    static let nestedNames: [ActionID: String] = ["home.createChannel": "chat channel create"]
+
     @Test func everyActionHasAUniqueNounVerbCLIName() {
         var seen: [String: ActionID] = [:]
         for descriptor in catalog {
             let parts = descriptor.cliName.split(separator: " ")
-            if let verb = Self.topLevelVerbs[descriptor.id] {
-                #expect(descriptor.cliName == verb, "\(descriptor.id): \(descriptor.cliName)")
+            if let name = Self.topLevelVerbs[descriptor.id] ?? Self.nestedNames[descriptor.id] {
+                #expect(descriptor.cliName == name, "\(descriptor.id): \(descriptor.cliName)")
             } else {
                 #expect(parts.count == 2, "\(descriptor.id): \(descriptor.cliName)")
             }
@@ -49,11 +53,12 @@ import Testing
             #expect((reason == .paletteInternal) == descriptor.requires.contains(.paletteOpen), "\(descriptor.id)")
         }
         #expect(catalog.filter { !$0.isPaletteVisible }.map(\.id.rawValue).sorted()
-            == (["agent.openSessionTab", "agent.openSessionWorkspace", "browser.findPrevious", "browser.image.copy", "browser.image.copyAddress", "browser.image.saveAs", "browser.link.copy",
+            == (["agent.openSessionTab", "agent.openSessionWorkspace", "agent.share.kick", "agent.share.list", "agent.share.revoke", "agent.share.uninvite", "browser.findPrevious", "browser.image.copy", "browser.image.copyAddress", "browser.image.saveAs", "browser.link.copy",
                 "browser.link.copyText", "browser.link.saveAs", "browser.selection.copy", "browser.selection.lookUp",
-                "chief.openSubagent", "commandPaletteNext", "commandPalettePrevious", "history.goTo", "home.archiveChief", "home.deleteChief", "home.messageAbout", "home.messageChiefFromAnyApp", "home.openConversation", "home.sendSelectionTo",
+                "chief.openSubagent", "commandPaletteNext", "commandPalettePrevious", "history.goTo", "home.messageAbout", "home.messageChiefFromAnyApp", "home.openConversation", "home.sendSelectionTo", "home.showHideChiefFromAnyApp",
                 "home.sendSelectionToChief", "list.next", "list.previous",
                 "import.card", "import.list", "import.suggest",
+                "machine.joined.check", "machine.joined.revoke", "machine.joined.rotate",
                 "omnibar.openInBackgroundTab", "omnibar.openInForegroundTab", "openBrowser.chromium", "palette.startAgentFromAnyApp",
                 "sidebar.chat.togglePin", "sidebar.density.comfortable", "sidebar.density.compact", "toggleTabAudioMute"]
             + ["paletteKey.firstItem", "paletteKey.lastItem", "paletteKey.pageUp", "paletteKey.pageDown", "paletteKey.submit",

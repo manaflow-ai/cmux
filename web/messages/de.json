@@ -131,13 +131,13 @@
       "action": "cmux cloud new-machine"
     },
     "goLimit": {
-      "savedMessage": "Go umfasst zwei gespeicherte VMs einschließlich der laufenden VM.",
+      "savedMessage": "Plus: Insgesamt 1 gespeicherte VM, auch im pausierten Zustand",
       "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
-      "activeMessage": "Go umfasst eine gleichzeitig laufende VM.",
+      "activeMessage": "Plus: 1 Cloud-VM",
       "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
-      "hoursMessage": "Die 40 VM-Stunden für diesen Monat sind aufgebraucht. Gespeicherte VMs können im nächsten Abrechnungszeitraum wieder genutzt werden.",
+      "hoursMessage": "Plus: Keine monatliche Stundenbegrenzung",
       "hoursAction": "https://cmux.com/pricing",
-      "shapeMessage": "Go unterstützt 2 vCPU, 4 GiB RAM und 16 GiB Speicherplatz.",
+      "shapeMessage": "Plus: 2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
       "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
     },
     "planBudget": {
@@ -158,7 +158,7 @@
       "action": "Pausieren oder löschen Sie eine VM."
     },
     "activeLimit": {
-      "counted": "Derzeit gezählt: {machines}. Pausierte Maschinen zählen nicht.",
+      "counted": "Aktuell gezählt: {machines}. Pausierte Maschinen zählen zum Limit.",
       "provisioning": "{name} (wird bereitgestellt)",
       "separator": ", "
     }
@@ -423,13 +423,13 @@
     "faqCustomizeQ": "Kann ich cmux anpassen?",
     "faqCustomizeA": "Ja. Das Terminal-Rendering nutzt Ihre Ghostty-Konfiguration, sodass Themes, Schriftarten, Farben und Cursor direkt übernommen werden. Die eigenen Einstellungen von cmux in <path>~/.config/cmux/cmux.json</path> steuern die Seitenleiste, die Tab-Leiste, geteilte Bereiche und das Verhalten, und jeder <shortcutsLink>Tastenkürzel</shortcutsLink> ist editierbar. Siehe <link>Konfiguration</link>.",
     "faqIosQ": "Gibt es eine iOS-App?",
-    "faqIosA": "Ja, in der Beta. Koppeln Sie Ihr iPhone über das Mobile-Connect-Fenster mit Ihrem Mac und verbinden Sie sich von Ihrem Telefon aus mit Ihren Terminals, mit optionaler Weiterleitung der Terminal-Benachrichtigungen. Sie wird über TestFlight als cmux BETA verteilt. Früher Zugang ist in <foundersLink>cmux Founders Edition</foundersLink> enthalten.",
+    "faqIosA": "Ja, in der Beta. Koppeln Sie Ihr iPhone über das Mobile-Connect-Fenster mit Ihrem Mac und verbinden Sie sich von Ihrem Telefon aus mit Ihren Terminals, mit optionaler Weiterleitung der Terminal-Benachrichtigungen. Sie wird über TestFlight als cmux BETA verteilt.",
     "faqSkillsQ": "Hat cmux Skills?",
     "faqSkillsA": "Ja. Skills sind wiederverwendbare Workflows, die Sie jedem in cmux laufenden Agenten geben können, für Dinge wie CLI-Steuerung, Workspace-Automatisierung, Einstellungen und Browser-Oberflächen. Durchstöbern Sie die offene Sammlung unter <skillsLink>cmux-skills</skillsLink> oder lesen Sie die <link>Skills-Dokumentation</link>.",
     "faqBrowserQ": "Was kann der integrierte Browser?",
     "faqBrowserA": "cmux kann einen echten Browser-Bereich neben Ihrem Terminal öffnen, und er ist vollständig programmierbar: navigieren, das DOM erfassen, klicken, tippen, JavaScript auswerten sowie Konsolen- und Netzwerkaktivität über dieselbe socket API auslesen. Agenten nutzen ihn, um ihre eigenen Web-Änderungen zu überprüfen, ohne cmux zu verlassen. Siehe <link>Browser-Automatisierung</link>.",
     "faqSupportQ": "Wie kann ich cmux unterstützen?",
-    "faqSupportA": "cmux ist kostenlos und quelloffen und wird es immer bleiben. Wenn Sie die Entwicklung unterstützen und frühen Zugang zu dem bekommen möchten, was als Nächstes kommt, darunter cmux AI, die iOS-App und Cloud VMs, schauen Sie sich <foundersLink>cmux Founders Edition</foundersLink> an.",
+    "faqSupportA": "cmux ist kostenlos und quelloffen und wird es immer bleiben.",
     "faqFeatureQ": "Ich habe einen Feature-Wunsch oder einen Bug gefunden",
     "faqFeatureA": "Wir möchten davon hören. Öffnen Sie ein <issuesLink>Issue</issuesLink> oder einen <prLink>Pull Request</prLink> auf GitHub, oder <mailLink>schreiben Sie uns</mailLink>."
   },
@@ -552,12 +552,12 @@
           "granted": "Von cmux gewährt. Es gibt nichts zu ändern.",
           "grantedNoCancel": "Von cmux gewährt, daher gibt es nichts zu kündigen.",
           "paymentFailed": "Aktualisiere deine Zahlungsmethode, bevor du den Plan wechselst.",
-          "foundersLifetime": "Founder's Edition enthält Pro auf Lebenszeit.",
+          "foundersLifetime": "Dein lebenslanger Kauf enthält Pro.",
           "adminOnly": "Nur Team-Admins können den Plan ändern."
         },
         "names": {
           "free": "Free",
-          "go": "Go",
+          "go": "Plus",
           "pro": "Pro",
           "max": "Max",
           "team": "Team"
@@ -569,9 +569,10 @@
             "Lokaler Sitzungsverlauf"
           ],
           "go": [
-            "1 aktive Cloud VM",
-            "40 VM-Stunden pro Monat",
-            "2 gespeicherte VMs"
+            "Insgesamt 1 gespeicherte VM, auch im pausierten Zustand",
+            "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB Speicher",
+            "Community-Support",
+            "Keine monatliche Stundenbegrenzung"
           ],
           "pro": [
             "Cloud-Agenten auf Cloud VMs",
@@ -608,8 +609,8 @@
         "title": "{plan} kündigen?",
         "body": "Du behältst {plan} bis zum {date}. Danach verlierst du:",
         "bodyNoDate": "Du behältst {plan} bis zum Ende dieses Abrechnungszeitraums. Danach verlierst du:",
-        "foundersBody": "Dein {plan}-Abonnement endet am {date}. Danach hast du Pro, das Founder's Edition auf Lebenszeit enthält.",
-        "foundersBodyNoDate": "Dein {plan}-Abonnement endet zum Ende dieses Abrechnungszeitraums. Danach hast du Pro, das Founder's Edition auf Lebenszeit enthält.",
+        "foundersBody": "Dein {plan}-Abonnement endet am {date}. Danach behältst du Pro aus deinem lebenslangen Kauf.",
+        "foundersBodyNoDate": "Dein {plan}-Abonnement endet zum Ende dieses Abrechnungszeitraums. Danach behältst du Pro aus deinem lebenslangen Kauf.",
         "reasonLabel": "Warum kündigst du? (optional)",
         "otherPlaceholder": "Erzähl uns mehr (optional)",
         "confirm": "Plan kündigen",
@@ -636,6 +637,12 @@
         "title": "Abrechnung über den App Store",
         "body": "Dein Tarif wurde in der cmux iPhone-App gekauft und wird von Apple abgerechnet. Ändere oder kündige ihn in deinen App Store-Abonnements.",
         "manage": "Im App Store verwalten"
+      },
+      "go": {
+        "name": "cmux Plus",
+        "activeBody": "Dein Plus-Tarif verlängert sich am {date}.",
+        "pendingBody": "Dein Plus-Tarif endet am {date}.",
+        "monthlyPrice": "${amount}/Monat"
       }
     },
     "mobileDevices": {
@@ -970,7 +977,7 @@
       },
       "plan": {
         "free": "Kostenlos",
-        "go": "Go",
+        "go": "Plus",
         "pro": "Pro",
         "max": "Max",
         "team": "Team"
@@ -2877,7 +2884,7 @@
       "intro": "Die cmux-App für iOS ist ein Begleiter für deinen Mac. Koppele dein iPhone oder iPad mit einem Mac, auf dem cmux läuft, und verbinde dich vom Telefon aus mit deinen Terminals, mit optionaler Weiterleitung von Terminal-Benachrichtigungen.",
       "betaNote": "Die iOS-App ist in der Beta. Sie wird über TestFlight als cmux BETA bereitgestellt.",
       "accessTitle": "Zugang erhalten",
-      "accessDesc": "Die App wird über TestFlight verteilt. Früher Zugang ist in <foundersLink>cmux Founders Edition</foundersLink> enthalten, zusammen mit weiteren frühen Funktionen.",
+      "accessDesc": "Die App wird über TestFlight verteilt. Beta-Zugang ist in cmux Pro enthalten; tritt über die TestFlight-Seite in deinem Dashboard bei.",
       "prereqTitle": "Voraussetzungen",
       "prereqIntro": "Bevor du loslegst, brauchst du:",
       "prereq1": "Einen Mac, auf dem cmux läuft und du angemeldet bist.",
@@ -2965,9 +2972,9 @@
       "limitsTitle": "Planlimits",
       "limitsDesc": "Deine aktiven Maschinen teilen sich einen Pool aus vCPUs und Arbeitsspeicher. Betreibe eine große Maschine oder mehrere kleine. Pausierte Maschinen belegen den Pool nicht. Die Festplatte gilt pro Maschine und gehört nicht zum Pool.",
       "limitsFree": "Kostenlose Konten können keine Maschinen erstellen.",
-      "limitsPaid": "Pro- und Founder's-Edition-Konten können bis zu 5 aktive Maschinen haben, die sich 20 vCPUs und 40 GB Arbeitsspeicher teilen. Eine Maschine ist aktiv, solange sie läuft oder startet.",
-      "limitsTeam": "Team-Konten können pro bezahltem Platz bis zu 5 aktive Maschinen haben. Jeder bezahlte Platz fügt dem Pool des Teams 20 vCPUs und 40 GB Arbeitsspeicher hinzu.",
-      "limitsMax": "Max-Konten können bis zu 5 aktive Maschinen haben, die sich 80 vCPUs und 160 GB Arbeitsspeicher teilen. Eine Max-Maschine kann bis zu 64 GB und 32 vCPUs nutzen, einschließlich der Größen 24 GB / 12 vCPU und 32 GB / 16 vCPU; Pro und Team enden bei 16 GB und 8 vCPUs.",
+      "limitsPaid": "Pro-Konten können bis zu 5 Maschinen einschließlich pausierter Maschinen haben, die sich 20 vCPUs und 40 GB Arbeitsspeicher teilen.",
+      "limitsTeam": "Team-Konten können pro bezahltem Platz bis zu 5 Maschinen einschließlich pausierter Maschinen haben. Jeder bezahlte Platz fügt dem Pool des Teams 20 vCPUs und 40 GB Arbeitsspeicher hinzu.",
+      "limitsMax": "Max-Konten können bis zu 5 Maschinen einschließlich pausierter Maschinen haben, die sich 80 vCPUs und 160 GB Arbeitsspeicher teilen. Eine Max-Maschine kann bis zu 64 GB und 32 vCPUs nutzen, einschließlich der Größen 24 GB / 12 vCPU und 32 GB / 16 vCPU; Pro und Team enden bei 16 GB und 8 vCPUs.",
       "limitsPoolFull": "Würde eine neue, fortgesetzte, vergrößerte oder geforkte Maschine den Pool überschreiten, lehnt cmux die Anfrage ab und zeigt, wie viel vom Pool belegt ist. Pausiere oder lösche eine Maschine, um Ressourcen freizugeben, oder führe ein Upgrade auf Max durch.",
       "limitsPricing": "Aktuelle Preise findest du auf der Preisseite. Es gibt keine nutzungsbasierte Abrechnung und keine Überschreitungsgebühren.",
       "agentUpdatesTitle": "Coding-Agents aktuell halten",
@@ -2977,7 +2984,7 @@
       "agentUpdatesToggle": "Im Dialog Neue Maschine ist diese Einstellung standardmäßig aktiv. Um sie für eine bestehende Maschine zu ändern, klicke mit der rechten Maustaste auf die Maschine und wähle Agents aktuell halten, oder führe cmux vm agent-updates aus. cmux vm new behält die Versionen des Images, außer du übergibst --agent-updates latest. Wenn du Updates ausschaltest, bleiben die installierten Versionen erhalten.",
       "agentUpdatesNetwork": "Updates nutzen nur github.com, api.github.com, objects.githubusercontent.com und release-assets.githubusercontent.com. cmux erlaubt diese Hosts in jedem Netzwerkmodus, auch bei Zulassungsliste und Kein Internet, daher blockiert eine Netzwerkrichtlinie Updates nie.",
       "resizeTitle": "Größe ändern",
-      "resizeDesc": "Du kannst eine Maschine ohne Datenverlust vergrößern. Klicke mit der rechten Maustaste auf die Maschine und wähle Resize machine, oder nutze cmux vm resize. Eine Maschine lässt sich nur vergrößern. Die Festplatte wächst in 4-GB-Schritten bis 128 GB bei Pro und Team oder 256 GB bei Max (Go ist auf 16 GB begrenzt). Arbeitsspeicher und CPU wachsen bei Pro und Team bis 16 GB und 8 vCPU, bei Max bis 64 GB und 32 vCPU. Eine größere Maschine belegt mehr von deinem Pool. Das tatsächliche Maximum legt dein Plan fest.",
+      "resizeDesc": "Du kannst eine Maschine ohne Datenverlust vergrößern. Klicke mit der rechten Maustaste auf die Maschine und wähle Resize machine, oder nutze cmux vm resize. Eine Maschine lässt sich nur vergrößern. Die Festplatte wächst in 4-GB-Schritten bis 128 GB bei Pro und Team oder 256 GB bei Max (Plus ist auf 128 GB begrenzt). Arbeitsspeicher und CPU wachsen bei Pro und Team bis 16 GB und 8 vCPU, bei Max bis 64 GB und 32 vCPU. Eine größere Maschine belegt mehr von deinem Pool. Das tatsächliche Maximum legt dein Plan fest.",
       "pauseTitle": "Pausieren und fortsetzen",
       "pauseDesc": "cmux vm pause stoppt die Rechenleistung der Maschine. Festplatte, Workspaces und Terminalverlauf bleiben erhalten. Laufende Prozesse werden beendet. cmux vm resume startet die Maschine wieder. Auch das Öffnen einer pausierten Maschine oder das Ausführen eines Befehls darauf startet sie.",
       "pauseIdle": "Maschinen pausieren nicht von selbst, wenn sie im Leerlauf sind. Eine Maschine läuft weiter, bis du sie pausierst oder löschst.",
@@ -5257,7 +5264,18 @@
     "billingUnavailable": "Die Abrechnung ist derzeit nicht verfügbar. Bitte versuche es später erneut.",
     "signedOutNotice": "Du bist nicht angemeldet. Melde dich an, um deinen aktuellen Tarif zu sehen oder einen bestehenden Kauf wiederherzustellen.",
     "signedOutSignIn": "Anmelden",
-    "manageInAppStore": "Im App Store verwalten"
+    "manageInAppStore": "Im App Store verwalten",
+    "go": {
+      "name": "Plus",
+      "cta": "Plus wählen",
+      "featuresLead": "Enthalten:",
+      "features": [
+        "Insgesamt 1 gespeicherte VM, auch im pausierten Zustand",
+        "2–8 vCPU · 4–16 GiB RAM · 16–128 GiB disk",
+        "Community-Support",
+        "Keine monatliche Stundenbegrenzung"
+      ]
+    }
   },
   "platforms": {
     "macos": "macOS",

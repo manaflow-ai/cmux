@@ -10,12 +10,23 @@ import { Lexer, lexer, type Token, walkTokens } from "marked";
 import { turnRows } from "../diff";
 import type { AcpmuxSnapshot } from "../model";
 import { menuPartAt, type MenuPart } from "./menuParts";
+import { retryHelps, sendCause } from "../sendFailure";
+import { withoutSkillDollars } from "../slashCommands";
+import { currentLanguage } from "../i18n";
+import { replyMenuTime } from "./relativeTime";
+import { selectionText } from "./chipCopy";
 
 export const MESSAGE_MENU_HANDLER = "cmuxAgentContextMenu";
 
 export type MessageMenuTarget = {
+  /// The transcript row id, used by the native menu's Pin as chapter seam.
+  rowId?: string;
+  /// The session that owns the transcript row. Native actions reject a stale menu after a chat switch.
+  sessionId?: string;
   text: string;
   markdown?: string;
+  /// A reply's localized date and time, shown as its menu's non-interactive header.
+  replyTime?: string;
   forkSeq?: number;
   /// The chat opens a side chat through `forkSeq` (the chat menu's New side chat, from this turn).
   sideChat?: true;
@@ -37,7 +48,21 @@ export type MessageMenuReport = Partial<MessageMenuTarget> & {
   /// The message's More button (MessageActions.tsx MessageMore), in CSS px: the host opens the
   /// menu a right-click on the message opens under it, now (the report is the right-click's).
   popUp?: { left: number; top: number; right: number; bottom: number };
+  /// Identifies the native popup until the host reports its dismissal.
+  popupId?: string;
 };
+
+/// A native menu action may run after its page report. Require the selected and drawn sessions to
+/// still agree with that report before applying an action to a transcript row.
+export function messageMenuSessionMatches(
+  requestedSessionId: string,
+  selectedSessionId: string | undefined,
+  drawnSessionId: string | undefined,
+): boolean {
+  return (
+    requestedSessionId.length > 0 && requestedSessionId === selectedSessionId && requestedSessionId === drawnSessionId
+  );
+}
 
 /// Whether acpmux can fork the chat at all here: it serves forks, the pane is connected and the
 /// chat is on this computer (acpmux refuses the rest).
@@ -129,18 +154,35 @@ export function messageMenuTarget(
   const id = rowId.endsWith(":fold") ? rowId.slice(0, -":fold".length) : rowId;
   const row = snapshot.rows.find((candidate) => candidate.id === id);
   if (!row?.text || (row.kind !== "user" && row.kind !== "assistant")) return undefined;
-  const turnSeq = canFork(snapshot)
-    ? turnRows(snapshot.rows, id).find((candidate) => candidate.kind === "turnSummary")?.seq
-    : undefined;
+  // Pinning remains valid for an older completed turn while a later one works. Fork eligibility
+  // is a separate concern: a working chat cannot offer Fork from here, but its completed summary
+  // still owns the rail chapter marker shown by PinButton.
+  const completedTurnSeq = turnRows(snapshot.rows, id).find((candidate) => candidate.kind === "turnSummary")?.seq;
   const forkSeq =
-    turnSeq !== undefined && (forksAnyTurn(snapshot.summary?.family) || turnSeq === latestForkSeq(snapshot.rows))
-      ? turnSeq
+    canFork(snapshot) &&
+    completedTurnSeq !== undefined &&
+    (forksAnyTurn(snapshot.summary?.family) || completedTurnSeq === latestForkSeq(snapshot.rows))
+      ? completedTurnSeq
       : undefined;
+  // Assistant bodies mark the turn's summary row in the rail. Prompts keep their own user row.
+  const markRowId =
+    row.kind === "user" ? id : completedTurnSeq !== undefined ? `summary-${completedTurnSeq}` : undefined;
+  const sessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
   const target: MessageMenuTarget =
-    row.kind === "user" ? { text: row.text } : { text: plainText(row.text), markdown: row.text };
+    // A prompt copies as its bubble reads: a Codex skill `/name`, not `/$name` as sent.
+    row.kind === "user"
+      ? { rowId: id, ...(sessionId ? { sessionId } : {}), text: withoutSkillDollars(row.text, snapshot.commands) }
+      : {
+          ...(markRowId ? { rowId: markRowId } : {}),
+          ...(sessionId ? { sessionId } : {}),
+          text: plainText(row.text),
+          markdown: row.text,
+          replyTime: replyMenuTime(row.at, Date.now(), currentLanguage()),
+        };
   if (forkSeq !== undefined) target.forkSeq = forkSeq;
   if (forkSeq !== undefined && sideChat) target.sideChat = true;
-  if (row.kind === "user" && row.failed) target.retryRowId = row.id;
+  // A prompt too large to send is refused the same way again: no Retry, Edit takes an attachment out.
+  if (row.kind === "user" && row.failed && retryHelps(sendCause(row.delivery))) target.retryRowId = row.id;
   const links = webLinks(row.text);
   if (links.length > 0) target.links = links;
   return target;
@@ -237,6 +279,12 @@ const webkitHandler = () =>
     ?.messageHandlers?.[MESSAGE_MENU_HANDLER];
 /// Where reports go: the handler `installMessageMenuReporter` was given.
 let menuHandler: () => Handler | undefined = () => undefined;
+let openPopup: { id: string; anchor: Element } | undefined;
+
+function clearMessagePopup() {
+  openPopup?.anchor.removeAttribute("data-popup-open");
+  openPopup = undefined;
+}
 
 /// Whether a host shows this page's message menu (its More button would do nothing without one).
 export const hasMessageMenuHost = () => menuHandler() !== undefined;
@@ -248,18 +296,44 @@ export function openForkMenu(throughSeq: number, anchor?: Element): boolean {
   const handler = menuHandler();
   if (!handler) return false;
   const { left, top, right, bottom } = (anchor ?? document.body).getBoundingClientRect();
-  handler.postMessage({ forkDestinations: throughSeq, popUp: { left, top, right, bottom } });
+  // Its opener stays lit while the destination menu is open, as More's does; the host reports the close.
+  clearMessagePopup();
+  const popupId = anchor ? crypto.randomUUID() : undefined;
+  if (anchor && popupId) {
+    openPopup = { id: popupId, anchor };
+    anchor.setAttribute("data-popup-open", "");
+  }
+  try {
+    handler.postMessage({
+      forkDestinations: throughSeq,
+      popUp: { left, top, right, bottom },
+      ...(popupId ? { popupId } : {}),
+    });
+  } catch {
+    clearMessagePopup();
+    return false;
+  }
   return true;
 }
 
 export function openMessageMenu(rowId: string, anchor: Element): boolean {
+  if (anchor.closest("[data-read-only-transcript]")) return false;
   const message = source?.(rowId);
   const handler = menuHandler();
   if (!message || !handler) return false;
   reportedImage = undefined;
   reportedPicture = undefined;
   const { left, top, right, bottom } = anchor.getBoundingClientRect();
-  handler.postMessage({ ...message, popUp: { left, top, right, bottom } } satisfies MessageMenuReport);
+  clearMessagePopup();
+  const popupId = crypto.randomUUID();
+  openPopup = { id: popupId, anchor };
+  anchor.setAttribute("data-popup-open", "");
+  try {
+    handler.postMessage({ ...message, popUp: { left, top, right, bottom }, popupId } satisfies MessageMenuReport);
+  } catch {
+    clearMessagePopup();
+    return false;
+  }
   return true;
 }
 
@@ -294,6 +368,8 @@ export function installMessageMenuReporter(
   menuHandler = handler;
   const report = (event: Event) => {
     const target = event.target as Element | null;
+    // A read-only transcript (a guest's) has no owner menu: nothing is reported from inside it.
+    if (target?.closest?.("[data-read-only-transcript]")) return;
     const rowId = target?.closest?.("[data-row-id]")?.getAttribute("data-row-id");
     const message = (rowId && source?.(rowId)) || undefined;
     reportedImage = target?.closest?.<HTMLElement>("[data-open-image]") ?? undefined;
@@ -313,10 +389,18 @@ export function installMessageMenuReporter(
         : null;
     handler()?.postMessage(body);
   };
+  const closed = (event: Event) => {
+    if ((event as CustomEvent<unknown>).detail === openPopup?.id) clearMessagePopup();
+  };
+  doc.defaultView?.addEventListener("cmux-message-menu-closed", closed);
   doc.addEventListener("contextmenu", report, true);
   return () => {
     doc.removeEventListener("contextmenu", report, true);
-    if (menuHandler === handler) menuHandler = () => undefined;
+    doc.defaultView?.removeEventListener("cmux-message-menu-closed", closed);
+    if (menuHandler === handler) {
+      menuHandler = () => undefined;
+      clearMessagePopup();
+    }
   };
 }
 
@@ -338,5 +422,6 @@ function selectionAt(doc: Document, target: Element | null): string | undefined 
   };
   if (endpointIsEditable(selection.anchorNode) || endpointIsEditable(selection.focusNode)) return undefined;
   if (!range.intersectsNode(target)) return undefined;
-  return selection.toString().trim() || undefined;
+  // A cmux link chip copies and quotes as its link (chipCopy.ts).
+  return selectionText(selection).trim() || undefined;
 }

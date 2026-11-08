@@ -8,6 +8,47 @@ import Testing
 /// Any file attaches in a chat on this Mac (Lawrence 2026-10-20): what the composer can't put in
 /// the prompt (a binary, a large text file) is saved owner-only and named by its path.
 @Suite struct AgentChatUploadsTests {
+    @Test @MainActor func stagingHasNoPerFileOrBatchByteCap() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "uncapped-stage-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let stage = AgentChatUploads.stager(root: root, session: "new")
+        for size in [1_073_741_825, Int.max] {
+            let manifest = [AgentPaneUploadBatchEntry(name: "a.bin", size: size),
+                            AgentPaneUploadBatchEntry(name: "b.bin", size: size)]
+            let reply = await stage(.begin(name: "a.bin", size: size, batchToken: nil, batch: manifest), nil)
+            #expect(reply["ok"] as? Bool == true)
+            let value = try #require(reply["value"] as? [String: Any])
+            let token = try #require(value["token"] as? String)
+            let batchToken = try #require(value["batchToken"] as? String)
+            let file = root.appending(path: "staged-" + token).appending(path: "a.bin")
+            let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+            #expect((attributes[.size] as? NSNumber)?.intValue == 0)
+            let wrongSession = await stage(.chunk(token: token, offset: 0, data: Data([1])), "other-chat")
+            #expect(wrongSession["ok"] as? Bool == false)
+            let oversizedChunk = await stage(.chunk(token: token, offset: 0, data: Data(repeating: 0, count: 512 * 1024 + 1)), nil)
+            #expect(oversizedChunk["ok"] as? Bool == false)
+            let invalidOffset = await stage(.chunk(token: token, offset: Int.max, data: Data([1])), nil)
+            #expect(invalidOffset["ok"] as? Bool == false)
+            let chunk = await stage(.chunk(token: token, offset: 0, data: Data([1, 2])), nil)
+            #expect(chunk["ok"] as? Bool == true)
+            let prematureFinish = await stage(.finish(token: token), nil)
+            #expect(prematureFinish["ok"] as? Bool == false)
+            let second = await stage(.begin(name: "b.bin", size: size, batchToken: batchToken, batch: nil), nil)
+            #expect(second["ok"] as? Bool == true)
+            let secondValue = try #require(second["value"] as? [String: Any])
+            let secondToken = try #require(secondValue["token"] as? String)
+            let wrongCancel = await stage(.cancel(token: token), "other-chat")
+            #expect(wrongCancel["ok"] as? Bool == false)
+            #expect(FileManager.default.fileExists(atPath: file.path))
+            _ = await stage(.cancel(token: token), nil)
+            _ = await stage(.cancel(token: secondToken), nil)
+            #expect(!FileManager.default.fileExists(atPath: file.deletingLastPathComponent().path))
+            #expect(!FileManager.default.fileExists(atPath: root.appending(path: "staged-" + secondToken).path))
+            let afterCancel = await stage(.chunk(token: token, offset: 2, data: Data([3])), nil)
+            #expect(afterCancel["ok"] as? Bool == false)
+        }
+    }
+
     @Test func savesEachFileOwnerOnlyUnderItsOwnName() throws {
         let folder = FileManager.default.temporaryDirectory
             .appending(path: "agent-chat-uploads-\(UUID().uuidString)", directoryHint: .isDirectory)
@@ -62,18 +103,6 @@ import Testing
         #expect(manager.fileExists(atPath: notes.path))
         #expect(manager.fileExists(atPath: outside.appending(path: "keep.txt").path))
         #expect(AgentChatUploads.sweep(root, now: now) == 0)
-
-        // A deleted chat's folder goes; another chat's, a link and a name that is no session id stay.
-        let uuidChat = try upload("0190a000-0000-7000-8000-000000000001", age: 1)
-        AgentChatUploads.remove(session: "chat-a", in: root)
-        AgentChatUploads.remove(session: "0190a000-0000-7000-8000-000000000001", in: root)
-        #expect(!manager.fileExists(atPath: new.deletingLastPathComponent().path))
-        #expect(!manager.fileExists(atPath: uuidChat.deletingLastPathComponent().path))
-        #expect(manager.fileExists(atPath: newChatNew.path))
-        AgentChatUploads.remove(session: "chat-d", in: root)
-        AgentChatUploads.remove(session: "../outside", in: root)
-        #expect(manager.fileExists(atPath: outside.appending(path: "keep.txt").path))
-        #expect(manager.fileExists(atPath: notes.path))
     }
 
     @Test func aSessionIdIsOneFolderName() {

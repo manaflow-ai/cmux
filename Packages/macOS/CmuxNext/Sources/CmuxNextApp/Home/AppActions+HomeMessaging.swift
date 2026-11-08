@@ -1,7 +1,7 @@
 import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextDaemon
-import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 import Foundation
 
@@ -16,8 +16,8 @@ extension AppActions {
         let registry = services.registry
         let suggestions = registry.argumentSuggestions
         registry.argumentSuggestions = { [weak services] source in
-            guard source == ActionSuggestions.homeRecipients else { return suggestions?(source) ?? [] }
-            return services?.home.messageRouting.recipients().map { ActionEnumCase(value: $0.value, title: $0.title) } ?? []
+            guard let home = services?.home else { return suggestions?(source) ?? [] }
+            return home.messageRouting.suggestions(for: source, members: home.chiefRoster.groupMembers(home.contacts(), rows: home.homeStore.rows, excluding: home.homeStore.me?.id), chiefs: home.directory.chiefSuggestions()) ?? suggestions?(source) ?? []
         }
         registry.bind("home.messageTo", invoke: { invocation in
             let routing = services.home.messageRouting

@@ -73,7 +73,7 @@
    text, focused or not (Chromium shows it only on focus or hover; search by keys keeps the focus
    on the page, not the field). */
 .keys-search::-webkit-search-cancel-button {
-  cursor: pointer;
+  cursor: default;
   opacity: 1;
   pointer-events: auto;
 }
@@ -401,6 +401,11 @@
 
 .keys-row .keys-icon-button {
   opacity: 0;
+  transition: var(--cmux-hover-reveal-out-transition);
+}
+
+.keys-row:hover .keys-icon-button {
+  transition: var(--cmux-hover-reveal-in-transition);
 }
 
 .keys-row:hover .keys-icon-button,
@@ -408,6 +413,13 @@
 .keys-row:focus-within .keys-icon-button,
 .keys-row.recording .keys-icon-button {
   opacity: 1;
+}
+
+/* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
+.keys-row.selected .keys-icon-button,
+.keys-row.recording .keys-icon-button,
+.keys-row:has(:focus-visible) .keys-icon-button {
+  transition: none;
 }
 
 /* Text fields draw no ring: their caret and their box show focus (desktop.css, cx-ncc.57). */

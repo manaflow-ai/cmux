@@ -36,7 +36,7 @@ set -euo pipefail
 # The measurement's version (scripts/cmux-next/perf-cron.py MEASURE_VERSION_RE): the perf cron measures and compares only
 # commits whose version is the tip's. Bump it in an edit that changes what is measured or how (the build, the display,
 # the suites, the args); a comment, log or report-key edit keeps it, so it keeps the history measurable.
-SPLIT_SPRING_MEASURE_VERSION=4  # 4: STRESS sessions open their extra terminal, Chromium and WebKit tabs (add_tab had a pane target the actions refuse; 3: the virtual display is 1920x1200)
+SPLIT_SPRING_MEASURE_VERSION=5  # 5: workspace-scaling adds a dispatcher suite (historical commits without it must not be bisected as another suite); 4: STRESS sessions open their extra terminal, Chromium and WebKit tabs (add_tab had a pane target the actions refuse; 3: the virtual display is 1920x1200)
 cd "$(git rev-parse --show-toplevel)"
 build_only=0 app_cache=0 vdisplay_hz="" vdisplay_hold=1200 vdisplay_size=1920x1200 args=() reload_config=()
 for arg in "$@"; do
@@ -54,9 +54,12 @@ tag="split-spring"
 out="$(pwd)/artifacts/split-spring"
 mkdir -p "$out"
 sha="$(git rev-parse HEAD)"
-# A bench build (--config=bench) is cached apart from the default Debug build of the same commit.
-key="$sha"
-[[ ${#reload_config[@]} -gt 0 && "${reload_config[1]}" != debug ]] && key="$sha-${reload_config[1]}"
+# Keyed by the app's sources, not the commit: the bench's own scripts (scripts/cmux-next, scripts/measure) build
+# nothing, so a change to them alone reuses the app. Every other path, the build scripts in scripts/ too, is in the key.
+key="$( { git ls-tree HEAD | grep -v $'\tscripts$'; git ls-tree HEAD:scripts | grep -v -E $'\t(cmux-next|measure)$'; } \
+  | git hash-object --stdin)"
+# A bench build (--config=bench) is cached apart from the default Debug build of the same sources.
+[[ ${#reload_config[@]} -gt 0 && "${reload_config[1]}" != debug ]] && key="$key-${reload_config[1]}"
 cache=""
 if [[ "$app_cache" == 1 && -n "${CI_SHARED_CACHE_DIR:-}" ]]; then
   cache="$CI_SHARED_CACHE_DIR/split-spring-apps"
@@ -70,6 +73,23 @@ if [[ -n "$cache" && -f "$cache/$key/ok" ]]; then
   app="$out/app/cmux DEV $tag.app" cached=true
   echo "split-spring: the app of $sha from the app cache ($((SECONDS - build_start)) s)"
 fi
+# >>> follow-log (scripts/measure/tests/split-spring-follow-log.test.sh runs these two)
+# follow_log FILE: prints FILE's lines as they come, each prefixed "reload-log: ", from a `tail` this script starts
+# (its PID in follow_pid). FILE starts empty, so only this run's lines show.
+follow_log() {
+  : > "$1" 2>/dev/null || true
+  tail -n +1 -F "$1" 2>/dev/null > >(awk '{ print "reload-log: " $0; fflush() }') &
+  follow_pid=$!
+}
+# unfollow_log: ends the `tail` follow_log started, by its own PID; its awk ends with it.
+unfollow_log() {
+  if [[ -n "${follow_pid:-}" ]]; then
+    kill "$follow_pid" 2>/dev/null || true
+    wait "$follow_pid" 2>/dev/null || true
+  fi
+  follow_pid=""
+}
+# <<< follow-log
 if [[ -z "$app" ]]; then
   for sub in ghostty ghostty-next; do
     [ -e "$sub/.git" ] || git submodule update --init --depth 1 "$sub"
@@ -84,7 +104,16 @@ if [[ -z "$app" ]]; then
   # Streamed, not `| tail -n 40`: the tail held back reload.sh's pre-build lines (the pin-cmux-tui.sh wait, the
   # cargo and web-bundle builds) until it exited, which read as a hang (cmux20-bench step 0b17cb3f). The
   # xcodebuild compile itself still prints nothing until reload.sh exits (it keeps that in its own log).
+  # reload.sh keeps its own log in /tmp/cmux-reload-<tag>.log and prints nothing while xcodebuild runs: follow that
+  # log into this step's output, so a hang or a long build names its step (FC-1: cmux-austin-mini-1 step 9e972777
+  # stopped after 45 min with no output after "reload starting").
+  # Only an EXIT trap while reload.sh runs: bash runs a TERM/INT/HUP trap only after the foreground pipeline ends (a
+  # hung reload never does), while an EXIT trap alone runs at once when such a signal ends the script.
+  follow_log "/tmp/cmux-reload-$tag.log"
+  trap 'unfollow_log' EXIT
   CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag "$tag" ${reload_config[@]+"${reload_config[@]}"} 2>&1 | tee "$out/reload.log"
+  unfollow_log
+  trap - EXIT
   app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$out/reload.log" | tail -n 1)"
   if [[ -z "$app" || ! -d "$app" ]]; then
     echo "split-spring: the tagged reload printed no app path" >&2
@@ -141,6 +170,7 @@ stop_vdisplay() {
 # shellcheck disable=SC2329 # run by the traps below
 cleanup() {
   trap - EXIT TERM INT HUP
+  unfollow_log
   if [[ -n "$bench_pid" ]] && kill -0 "$bench_pid" 2>/dev/null; then
     kill -TERM "$bench_pid" 2>/dev/null || true  # the bench this script started, by its PID
     wait "$bench_pid" 2>/dev/null || true

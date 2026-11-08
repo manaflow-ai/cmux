@@ -42,6 +42,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// `lens`, `plain` or `spectrum` (``GlassLensMode/current``, already `plain` under Reduce
     /// Transparency and Low Power Mode): `data-glass` on `<html>`, which `.ui-glass` reads.
     public let glass: String
+    /// The filled personality slots (``ThemeDecorations/payload``): `data-cmux-decoration-<slot>` on
+    /// `<html>`, which the page draws. Empty sends no `decorations` key at all.
+    public let decorations: [String: String]
 
     /// The terminal colors a page highlights code with: the scope's opaque background and
     /// readable foreground, and its ANSI palette as the theme names it (the page lifts each
@@ -74,6 +77,20 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         }
     }
 
+    /// The page background (`--cmux-surface-background`) of a page made with these arguments, in the
+    /// active scope: the surface's own background (`appearance.surfaces`) when it has one, else the
+    /// surface token, opaque in an opaque window and clear over a material. A host asks it for what
+    /// the page paints under its content (an agent page's saved picture, `PageImageBackground`).
+    @MainActor
+    public static func pageBackground(_ tokens: ThemeTokens, reduceTransparency: Bool = false, surface surfaceKind: SurfaceKind? = nil,
+                                      backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> ThemeRGB {
+        let pageOpaque = WindowBackdrop.current(tokens, reduceTransparency: reduceTransparency).panesPaintBackground
+        let surface = tokens.surfaceBackground
+        let windowTint = WindowBackdrop.currentTint(tokens)
+        return surfaceKind.flatMap { backgrounds.fill(for: $0, tokens: tokens, windowTint: windowTint) }
+            ?? (pageOpaque ? surface.withAlpha(1) : surface.withAlpha(0))
+    }
+
     /// - Parameter tokens: The theme tokens of the view's scope.
     /// - Parameter reduceTransparency: The user's Reduce Transparency setting.
     /// - Parameter surface: The surface the page is (agent chat, new tab
@@ -88,11 +105,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false, surface surfaceKind: SurfaceKind? = nil,
                 backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds, scrollers: String? = nil,
                 app: AppTheme? = nil, glass: GlassLensMode? = nil) {
-        let pageOpaque = WindowBackdrop.current(tokens, reduceTransparency: reduceTransparency).panesPaintBackground
         let surface = tokens.surfaceBackground
         let windowTint = WindowBackdrop.currentTint(tokens)
-        let page = surfaceKind.flatMap { backgrounds.fill(for: $0, tokens: tokens, windowTint: windowTint) }
-            ?? (pageOpaque ? surface.withAlpha(1) : surface.withAlpha(0))
+        let page = Self.pageBackground(tokens, reduceTransparency: reduceTransparency, surface: surfaceKind, backgrounds: backgrounds)
         let cardMaterial = CardMaterial(tokens, lift: ChromeTunables.opaqueOverlayLift.value,
                                         minimumOpacity: ChromeTunables.cardOpacity.value)
         let tooltip = TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value)
@@ -104,6 +119,11 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             "--cmux-surface-solid": Self.css(surfaceKind.map {
                 backgrounds.opaqueFill(for: $0, tokens: tokens, base: surface.withAlpha(1), windowTint: windowTint)
             } ?? surface.withAlpha(1)),
+            // Reading pages (the Markdown viewer): clear over a picture, which hides what is behind
+            // the window, so they show the App Theme's one veil like the terminals; else the page
+            // color made opaque, so desktop text never reads through a document (#30818).
+            "--cmux-reading-background": Self.css(WindowBackdrop.current(tokens, reduceTransparency: reduceTransparency).hidesWhatIsBehind
+                ? tokens.surfaceBackground.withAlpha(0) : tokens.surfaceBackground.withAlpha(1)),
             "--cmux-elevated-background": Self.css(tokens.elevatedBackground),
             // The solid surface of menus, popovers and tooltips (`--surface-popup`), the same
             // opaque fill as native overlays (`Palette.popupSurface`).
@@ -139,6 +159,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             // The modal scrim (`Scrim`), the same as native dialogs'.
             "--cmux-scrim": Self.css(tokens.scrim),
         ].merging((app ?? ThemeScope.app.store.appTheme ?? tokens.app).cssVariables) { own, _ in own }
+            // The sidebar cards' sizes at `sidebar.density` (the Updated card's page, 2026-11-01).
+            .merging(SidebarRowTokens.current.card.cssVariables(pageZoom: DesignSettings.shared.uiScale)) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         let colors = ColorTransition.current
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]
@@ -148,6 +170,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         workingLook = StatusWorkingLook.tunable.value.rawValue
         motion = Self.motionValue(Motion.web.policy)
         self.glass = (glass ?? .current).rawValue
+        decorations = ThemeDecorations.current.payload
     }
 
     /// `data-cmux-motion` for `policy`: `off` when the web category, the master switch or speed
@@ -158,16 +181,18 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         return policy.reduceMotion ? "reduced" : "full"
     }
 
-    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, workingLook, motion, glass}`
+    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, workingLook, motion, glass}`,
+    /// and `decorations` while a personality slot is filled
     /// (`terminal.fontFamily` is null when the terminal has no named face).
     /// How the page's color variables move to new values (`appearance.colorTransition`, the same
     /// duration, curve and blend space as native): `{duration, easing, space}`.
     public let transition: [String: String]
 
     public var payloadJSON: String {
-        let object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
+        var object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
                                      "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators,
                                      "workingLook": workingLook, "motion": motion, "glass": glass]
+        if !decorations.isEmpty { object["decorations"] = decorations }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json
@@ -308,6 +333,12 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           if (payload.workingLook) root.setAttribute('data-working-look', payload.workingLook);
           if (payload.motion) root.setAttribute('data-cmux-motion', payload.motion);
           if (payload.glass) root.setAttribute('data-glass', payload.glass);
+          // The filled personality slots (ThemeDecorations): one attribute per slot; a slot the
+          // last theme filled and this one leaves empty loses its attribute.
+          var decorations = payload.decorations || {};
+          var lastDecorations = (window.cmuxTheme.current && window.cmuxTheme.current.decorations) || {};
+          for (var slot in lastDecorations) if (!(slot in decorations)) root.removeAttribute('data-cmux-decoration-' + slot);
+          for (var filled in decorations) root.setAttribute('data-cmux-decoration-' + filled, decorations[filled]);
           window.cmuxTheme.current = payload;
           window.dispatchEvent(new CustomEvent('cmux-theme', { detail: payload }));
           if (!first) settled(payload);

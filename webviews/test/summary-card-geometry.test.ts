@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { inlineChatFloor } from "../src/agent-session/acpmux/summary/cardState";
+import { transcriptColumn } from "../src/agent-session/acpmux/model";
 
 const css = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/summary/summary.css"), "utf8");
 
@@ -20,4 +22,23 @@ test("the pane's shell clips and cannot be scrolled sideways", () => {
   const styles = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
   const shell = /\.acpmux-shell\{position:relative;[^}]*\}/.exec(styles)?.[0] ?? "";
   expect(shell).toContain("overflow:clip");
+});
+
+test("the inline summary keeps the chat's whole Chat Text Width column, at the effective page scale", () => {
+  // The default 800px column at 1.25x zoom: its 640 CSS px cap and a 16px page edge on each side,
+  // above the 528 readable floor.
+  expect(inlineChatFloor({ min: 720 / 1.25, max: 800 / 1.25 }, 1.25)).toBe(672);
+  // A narrow Chat Text Width keeps the readable floor; Full Width has no cap and keeps the floor too.
+  expect(inlineChatFloor({ min: 480, max: 480 }, 1)).toBe(660);
+  expect(inlineChatFloor({ min: 0, max: Infinity }, 1.25)).toBe(528);
+  expect(inlineChatFloor({ min: 720, max: 960 }, 1)).toBe(992);
+  // Beside the summary, that room draws the whole column (no 768px column in an 800px chat).
+  expect(transcriptColumn(inlineChatFloor({ min: 720, max: 800 }, 1), { min: 720, max: 800 }).width).toBe(800);
+});
+
+test("summary room measurement reruns when the effective page scale changes", () => {
+  const source = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/summary/cardState.ts"), "utf8");
+  expect(source).toContain("const { scale } = useChatSizing();");
+  expect(source).toContain("[shell, blocked, display, scale]");
+  expect(source).toContain("inlineChatFloor(chatColumnOf(display, scale), scale)");
 });

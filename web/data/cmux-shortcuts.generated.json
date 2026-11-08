@@ -655,7 +655,7 @@
                   ]
                 }
               ],
-              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
             },
             {
               "keys": [
@@ -667,7 +667,7 @@
                   ]
                 }
               ],
-              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
             }
           ]
         },
@@ -708,7 +708,7 @@
                   ]
                 }
               ],
-              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
             }
           ]
         },
@@ -749,7 +749,7 @@
                   ]
                 }
               ],
-              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
             }
           ]
         },
@@ -1007,6 +1007,40 @@
           ]
         },
         {
+          "id": "home.openChiefDock",
+          "title": {
+            "en": "Show/Hide Chief",
+            "ar": "إظهار/إخفاء Chief",
+            "bs": "Prikaži/sakrij Chief",
+            "da": "Vis/skjul Chief",
+            "de": "Chief ein-/ausblenden",
+            "es": "Mostrar/ocultar Chief",
+            "fr": "Afficher/masquer Chief",
+            "it": "Mostra/nascondi Chief",
+            "ja": "Chief を表示/非表示",
+            "km": "បង្ហាញ/លាក់ Chief",
+            "ko": "Chief 보기/숨기기",
+            "no": "Vis/skjul Chief",
+            "pl": "Pokaż/ukryj Chief",
+            "pt-BR": "Mostrar/ocultar Chief",
+            "ru": "Показать/скрыть Chief",
+            "th": "แสดง/ซ่อน Chief",
+            "tr": "Chief'i göster/gizle",
+            "uk": "Показати/сховати Chief",
+            "vi": "Hiện/ẩn Chief",
+            "zh-CN": "显示/隐藏 Chief",
+            "zh-TW": "顯示/隱藏 Chief"
+          },
+          "shortcut": {
+            "key": "i",
+            "modifiers": [
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
           "id": "focusHistoryBack",
           "title": {
             "en": "Go Back",
@@ -1032,9 +1066,10 @@
             "zh-TW": "上一頁"
           },
           "shortcut": {
-            "key": "-",
+            "key": ",",
             "modifiers": [
-              "ctrl"
+              "opt",
+              "cmd"
             ]
           },
           "chord": null,
@@ -1049,6 +1084,17 @@
                 }
               ],
               "when": "surfaceKind != page && !codeEditorFocused"
+            },
+            {
+              "keys": [
+                {
+                  "key": "-",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": "surfaceKind != terminal"
             }
           ]
         },
@@ -1078,10 +1124,10 @@
             "zh-TW": "下一頁"
           },
           "shortcut": {
-            "key": "-",
+            "key": ".",
             "modifiers": [
-              "ctrl",
-              "shift"
+              "opt",
+              "cmd"
             ]
           },
           "chord": null,
@@ -1096,6 +1142,18 @@
                 }
               ],
               "when": "surfaceKind != page && !codeEditorFocused"
+            },
+            {
+              "keys": [
+                {
+                  "key": "-",
+                  "modifiers": [
+                    "ctrl",
+                    "shift"
+                  ]
+                }
+              ],
+              "when": "surfaceKind != terminal"
             }
           ]
         },
@@ -2072,31 +2130,7 @@
             ]
           },
           "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "",
-                  "modifiers": [
-                    "ctrl"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "]",
-                  "modifiers": [
-                    "ctrl",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            }
-          ]
+          "aliases": []
         },
         {
           "id": "prevSidebarTab",
@@ -2131,31 +2165,7 @@
             ]
           },
           "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "",
-                  "modifiers": [
-                    "ctrl"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "[",
-                  "modifiers": [
-                    "ctrl",
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            }
-          ]
+          "aliases": []
         },
         {
           "id": "moveWorkspaceUp",
@@ -2262,107 +2272,7 @@
             ]
           },
           "chord": null,
-          "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "1",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "2",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "3",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "4",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "5",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "6",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "7",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "8",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
-                  "key": "9",
-                  "modifiers": [
-                    "cmd"
-                  ]
-                }
-              ],
-              "when": null
-            }
-          ]
+          "aliases": []
         },
         {
           "id": "renameWorkspace",
@@ -3174,7 +3084,7 @@
             "zh-TW": "在右側新增欄"
           },
           "shortcut": {
-            "key": "d",
+            "key": "x",
             "modifiers": [
               "ctrl",
               "cmd"
@@ -3209,7 +3119,7 @@
             "zh-TW": "新增列"
           },
           "shortcut": {
-            "key": "d",
+            "key": "x",
             "modifiers": [
               "ctrl",
               "shift",
@@ -4673,17 +4583,6 @@
             {
               "keys": [
                 {
-                  "key": "\t",
-                  "modifiers": [
-                    "ctrl"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
                   "key": "]",
                   "modifiers": [
                     "shift",
@@ -4729,18 +4628,6 @@
           },
           "chord": null,
           "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "\t",
-                  "modifiers": [
-                    "ctrl",
-                    "shift"
-                  ]
-                }
-              ],
-              "when": null
-            },
             {
               "keys": [
                 {
@@ -6455,7 +6342,7 @@
             "zh-TW": "向右分割瀏覽器"
           },
           "shortcut": {
-            "key": "d",
+            "key": "x",
             "modifiers": [
               "opt",
               "cmd"
@@ -6490,7 +6377,7 @@
             "zh-TW": "向下分割瀏覽器"
           },
           "shortcut": {
-            "key": "d",
+            "key": "x",
             "modifiers": [
               "opt",
               "shift",
@@ -7753,41 +7640,6 @@
       },
       "shortcuts": [
         {
-          "id": "feed.show",
-          "title": {
-            "en": "Show Feed",
-            "ar": "إظهار الموجز",
-            "bs": "Prikaži feed",
-            "da": "Vis feed",
-            "de": "Feed anzeigen",
-            "es": "Mostrar feed",
-            "fr": "Afficher le flux",
-            "it": "Mostra feed",
-            "ja": "フィードを表示",
-            "km": "បង្ហាញ​ព័ត៌មាន",
-            "ko": "피드 보기",
-            "no": "Vis feed",
-            "pl": "Pokaż kanał",
-            "pt-BR": "Mostrar feed",
-            "ru": "Показать ленту",
-            "th": "แสดงฟีด",
-            "tr": "Akışı Göster",
-            "uk": "Показати стрічку",
-            "vi": "Hiện bảng tin",
-            "zh-CN": "显示动态",
-            "zh-TW": "顯示動態"
-          },
-          "shortcut": {
-            "key": "i",
-            "modifiers": [
-              "shift",
-              "cmd"
-            ]
-          },
-          "chord": null,
-          "aliases": []
-        },
-        {
           "id": "jumpToUnread",
           "title": {
             "en": "Jump to Latest Unread",
@@ -8083,12 +7935,7 @@
             "zh-CN": "新建代理聊天",
             "zh-TW": "新增代理程式聊天"
           },
-          "shortcut": {
-            "key": "i",
-            "modifiers": [
-              "cmd"
-            ]
-          },
+          "shortcut": null,
           "chord": [
             {
               "key": "j",
@@ -8500,11 +8347,23 @@
           "title": {
             "en": "Fork Conversation",
             "ar": "إنشاء فرع للمحادثة",
+            "bs": "Račvaj razgovor",
+            "da": "Fork samtale",
             "de": "Unterhaltung verzweigen",
             "es": "Crear rama de la conversación",
             "fr": "Créer une branche de la conversation",
+            "it": "Duplica conversazione",
             "ja": "会話を分岐",
+            "km": "Fork ការសន្ទនា",
             "ko": "대화 분기",
+            "no": "Forgren samtale",
+            "pl": "Rozwidl rozmowę",
+            "pt-BR": "Bifurcar Conversa",
+            "ru": "Форк беседы",
+            "th": "Fork บทสนทนา",
+            "tr": "Konuşmayı Çatalla",
+            "uk": "Відгалузити розмову",
+            "vi": "Fork cuộc hội thoại",
             "zh-CN": "创建对话分支",
             "zh-TW": "建立對話分支"
           },

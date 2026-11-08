@@ -67,9 +67,29 @@ extension DaemonConnection {
     @discardableResult
     public func closeWorkspace(_ key: WorkspaceKey, endTerminals: Bool = false,
                                reason: CloseReason? = nil, ifEmpty: Bool = false) async throws -> WorkspaceMutationResult {
-        try await request(CloseWorkspaceRequest(workspace: .key(key), endTerminals: endTerminals,
-                                                reason: endTerminals ? reason : nil,
-                                                ifEmpty: ifEmpty && supportsCloseIfEmpty, mutation: mutation()))
+        try await request(closeWorkspaceRequest(key, endTerminals: endTerminals, reason: reason, ifEmpty: ifEmpty))
+    }
+
+    /// How long a workspace close waits for the daemon's answer before its caller decides it from the store: the
+    /// safety net for a daemon that keeps its socket open and never answers. Not a deadline for a busy daemon.
+    public static let closeReplyBound: Duration = .seconds(60)
+
+    /// ``closeWorkspace(_:endTerminals:reason:ifEmpty:)`` answered by the daemon: its reply or refusal, the connection's
+    /// end (``LineTransport`` fails every pending request on close), or `bound` (``closeReplyBound``) with no answer
+    /// (`DaemonError.timedOut`), never the client request deadline (2 s then, 30 s since #35075). A busy daemon still
+    /// commits a close it answers late (a
+    /// batch of 50 under load took 11.7 s), so a close that gave up on the 2 s clock called a closed workspace refused:
+    /// its row came back, "The workspace could not be closed." showed, and Undo missed it. Sent once: a close waiting on
+    /// a slow daemon adds no re-sends to its load.
+    @discardableResult
+    public func closeWorkspaceAwaitingReply(_ key: WorkspaceKey, endTerminals: Bool = false, reason: CloseReason? = nil,
+                                            ifEmpty: Bool = false, within bound: Duration) async throws -> WorkspaceMutationResult {
+        try await request(closeWorkspaceRequest(key, endTerminals: endTerminals, reason: reason, ifEmpty: ifEmpty), timeout: bound)
+    }
+
+    private func closeWorkspaceRequest(_ key: WorkspaceKey, endTerminals: Bool, reason: CloseReason?, ifEmpty: Bool) -> CloseWorkspaceRequest {
+        CloseWorkspaceRequest(workspace: .key(key), endTerminals: endTerminals, reason: endTerminals ? reason : nil,
+                              ifEmpty: ifEmpty && supportsCloseIfEmpty, mutation: mutation())
     }
 
     /// Whether this daemon takes `if_empty` on `close-workspace`.
@@ -126,11 +146,17 @@ extension DaemonConnection {
     }
 
     /// New terminal tab in `pane` (the daemon's focused pane when nil).
+    ///
+    /// With `terminal-placement-env-v1` the tab carries its client-chosen terminal id (the Ctrl-` stand-in's), and the
+    /// request waits for its reply or the connection's end, never for a client deadline: cmux-tui runs a connection's
+    /// requests in order and makes the tab however late it answers, and it does not replay a `new-tab` sent again. A
+    /// deadline here took the stand-in back while the daemon still made the tab (P0 2026-10-30: behind a slow
+    /// `new-conversation-tab`, Ctrl-` made no terminal and its keys went to the old one; principled-audit R5).
     @discardableResult
     public func newTab(in pane: PaneID?, options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
         if supportsPlacementEnv {
             let options = await placed(options)
-            return Self.created(try await request(NewTabRequest(pane: pane, options: options)), options: options)
+            return Self.created(try await requestAwaitingStart(NewTabRequest(pane: pane, options: options)), options: options)
         }
         if let pane, let placed = try await spawnPlacedByMove(options, into: .tab(pane)) { return placed }
         var options = served(options)
@@ -139,23 +165,30 @@ extension DaemonConnection {
     }
 
     /// Splits `pane` with a new terminal. With `tab`, moves that existing tab
-    /// into the new pane instead (`move-tab-to-split`, right or bottom edge)
-    /// and returns it; `options` then do not apply.
+    /// into the new pane instead (`move-tab-to-split`: the right or bottom edge, the left or top one with `before`)
+    /// and returns it; `options` then do not apply. `before` puts the new pane
+    /// before `pane` on the split axis (`split-before-v1`; callers check the
+    /// capability, a daemon without it refuses the field).
     @discardableResult
-    public func split(_ pane: PaneID, direction: SplitDirection, movingTab tab: SurfaceID? = nil,
+    public func split(_ pane: PaneID, direction: SplitDirection, before: Bool = false, movingTab tab: SurfaceID? = nil,
                       options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
         if let tab {
-            let moved = try await moveTabToSplit(tab, pane: pane, edge: direction == .right ? .right : .bottom)
+            // `before` puts the moved tab's pane on the near edge, as it does a new pane (#38602 review F2).
+            let edge: PaneEdge = direction == .right ? (before ? .left : .right) : (before ? .top : .bottom)
+            let moved = try await moveTabToSplit(tab, pane: pane, edge: edge)
             return SurfaceCreated(surface: moved.surface ?? tab)
         }
         if supportsPlacementEnv {
             let options = await placed(options)
-            return Self.created(try await request(SplitRequest(pane: pane, direction: direction, options: options)), options: options)
+            // The client-minted terminal id keys the split: a late start is waited for, not taken back.
+            return Self.created(try await requestPaneCreation(SplitRequest(pane: pane, direction: direction, options: options, before: before)),
+                                options: options)
         }
-        if let placed = try await spawnPlacedByMove(options, into: .split(pane, direction)) { return placed }
+        // The move lands the tab on the right or bottom edge only, so a before split skips it (#38602 review F1).
+        if !before, let placed = try await spawnPlacedByMove(options, into: .split(pane, direction)) { return placed }
         var options = served(options)
         options.env = await terminalEnvironment(options.env)
-        return try await request(SplitRequest(pane: pane, direction: direction, options: options))
+        return try await request(SplitRequest(pane: pane, direction: direction, options: options, before: before))
     }
 
     /// New pane in `pane`'s column. `cwd`, `env`, and `keep` reach the
@@ -164,7 +197,7 @@ extension DaemonConnection {
     public func newPaneInColumn(of pane: PaneID, options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
         guard supportsPlacementEnv else { return try await request(NewPaneRequest(pane: pane, options: served(options))) }
         let options = await placed(options)
-        return Self.created(try await request(NewPaneRequest(pane: pane, options: options)), options: options)
+        return Self.created(try await requestPaneCreation(NewPaneRequest(pane: pane, options: options)), options: options)
     }
 
     /// New scrolling column right of `pane`'s. `cwd`, `env`, and `keep`
@@ -182,7 +215,7 @@ extension DaemonConnection {
             return try await request(NewColumnRequest(pane: pane, width: width, left: left, options: served(options)))
         }
         let options = await placed(options)
-        return Self.created(try await request(NewColumnRequest(pane: pane, width: width, left: left, options: options)), options: options)
+        return Self.created(try await requestPaneCreation(NewColumnRequest(pane: pane, width: width, left: left, options: options)), options: options)
     }
 
     @discardableResult
@@ -214,9 +247,16 @@ extension DaemonConnection {
 
     /// App-rendered browser tab (`frontend-browser-tabs-v1`); `activate: false` keeps the pane's active tab, `after` puts it right after that tab.
     @discardableResult
+    /// `split` opens it in a new pane split from `pane` instead (`frontend-browser-tab-split-v1`); a daemon
+    /// without that capability gets `missingCapabilities` and no request, never a tab in `pane`.
     public func newFrontendBrowserTab(url: String, engine: BrowserEngine, in pane: PaneID?, title: String? = nil, profileID: String? = nil,
-                                      activate: Bool? = nil, after: SurfaceID? = nil) async throws -> NewFrontendBrowserTabRequest.Response {
-        try await NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID, activate: activate, after: after).send(on: self)
+                                      activate: Bool? = nil, after: SurfaceID? = nil,
+                                      split: ConversationTabSplit? = nil) async throws -> NewFrontendBrowserTabRequest.Response {
+        if split != nil, identity?.supports(DaemonCapability.frontendBrowserTabSplit.rawValue) != true {
+            throw DaemonError.missingCapabilities([DaemonCapability.frontendBrowserTabSplit.rawValue])
+        }
+        return try await NewFrontendBrowserTabRequest(url: url, engine: engine, pane: pane, title: title, profileID: profileID,
+                                                      activate: activate, after: after, split: split).send(on: self)
     }
 
     @discardableResult
@@ -272,6 +312,14 @@ extension DaemonConnection {
                      expectForeground: String? = nil) async throws {
         _ = try await request(SendInputRequest(surface: surface, text: text, bytes: bytes, paste: paste ? true : nil,
                                                expectForeground: expectForeground))
+    }
+
+    /// `surface`'s process, read for something the person did not ask for (the close question, the quit facts, the
+    /// transfer list), within `timeout`; nil when it did not answer, and for a stand-in tab, which has no process yet and
+    /// is never asked (``TerminalProcessInfoRequest/init(reading:)``: no "still opening" refusal for a read).
+    public func readProcessInfo(_ surface: SurfaceID, timeout: Duration) async -> TerminalProcessInfoRequest.Response? {
+        guard let read = TerminalProcessInfoRequest(reading: surface) else { return nil }
+        return try? await request(read, timeout: timeout)
     }
 
     /// Pastes `text`, then Return, into `surface` only while a program other than its shell runs in the

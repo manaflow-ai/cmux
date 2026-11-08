@@ -17,7 +17,6 @@ public nonisolated enum ActionCatalog {
         // Classic cmux shortcut IDs next renamed (hq#1870 parity audit): a binding
         // from classic's Settings or cmux.json keeps working.
         "showWindowHints": "hints.show",
-        "agentInbox": "feed.show",
         "resize-pane-left": "resizePaneLeft",
         "resize-pane-right": "resizePaneRight",
         "resize-pane-up": "resizePaneUp",
@@ -92,6 +91,14 @@ public nonisolated enum ActionCatalog {
         "browser.link.openInNewWorkspace", "browser.selection.search",
     ]
 
+    /// Actions that open a new tab or pane in the window's workspace
+    /// (`ActionDescriptor.opensWorkspaceContent`): the New Tab family and the new panes.
+    static let workspaceContentActionIDs: Set<ActionID> = [
+        "newSurface", "newTab.default", "newTab.afterCurrent", "newTab.atStart", "newTab.atEnd", "newTab.toRight", "newTab.ofKind",
+        "openBrowser", "openBrowser.chromium", "openBrowser.webkit", "reopenClosedBrowserPanel",
+        "splitRight", "splitDown", "newColumn", "newColumnLeft", "newRow", "newPaneAutoLayout",
+    ]
+
     /// The catalog's domain groups, in inventory order. `all` concatenates
     /// their descriptors in this order, which menu ranks tie-break on.
     static let groups: [any ActionCatalogGroup.Type] = [
@@ -102,7 +109,11 @@ public nonisolated enum ActionCatalog {
         ProfileActionCatalog.self,
         ThemeActionCatalog.self,
         PaneActionCatalog.self,
+        NewPlacementActionCatalog.self,
         TabActionCatalog.self,
+        VerticalTabsActionCatalog.self,
+        AgentChatRailActionCatalog.self,
+        CmuxRemoteActionCatalog.self,
         TabIconActionCatalog.self,
         ResourceActionCatalog.self,
         HomeActionCatalog.self,
@@ -130,8 +141,10 @@ public nonisolated enum ActionCatalog {
         AgentConfigurationActionCatalog.self,
         AgentTranscriptActionCatalog.self,
         AgentChatIdentifierActionCatalog.self,
+        AgentShareActionCatalog.self,
         AgentChatCopyActionCatalog.self,
         AgentChatViewActionCatalog.self,
+        AgentSideQuestionActionCatalog.self,
         AgentHarnessActionCatalog.self,
         CloudActionCatalog.self,
         CloudPortActionCatalog.self,
@@ -147,17 +160,20 @@ public nonisolated enum ActionCatalog {
         PaneBackgroundActionCatalog.self,
         HibernationActionCatalog.self,
         AutoArchiveActionCatalog.self,
+        WorkspaceBulkArchiveActionCatalog.self,
         LayoutActionCatalog.self,
         HistoryActionCatalog.self,
         StashActionCatalog.self,
         MusicActionCatalog.self,
         VoiceRoomActionCatalog.self,
+        ChiefScreenShareActionCatalog.self,
         NowPlayingCardActionCatalog.self,
         BookmarkActionCatalog.self,
         SidebarSectionActionCatalog.self,
         SidebarPriorityActionCatalog.self,
         JoinedMachineActionCatalog.self,
         AppStoreActionCatalog.self,
+        AutomationsActionCatalog.self,
         TasksActionCatalog.self,
         PhoneActionCatalog.self,
         FilesPaneActionCatalog.self,
@@ -169,6 +185,7 @@ public nonisolated enum ActionCatalog {
         PaletteKeyActionCatalog.self,
         ImportActionCatalog.self,
         HangReportsActionCatalog.self,
+        PaletteHistoryActionCatalog.self,
     ]
 
     private static func makeAll() -> [ActionDescriptor] {
@@ -176,6 +193,7 @@ public nonisolated enum ActionCatalog {
         for group in groups { all += group.descriptors() }
         for index in all.indices where focusActionIDs.contains(all[index].id) { all[index].focuses = true }
         for index in all.indices where keyedCreateActionIDs.contains(all[index].id) { all[index].waitsForKeyedCreate = true }
+        for index in all.indices where workspaceContentActionIDs.contains(all[index].id) { all[index].opensWorkspaceContent = true }
         return ActionSurfaceCatalog.apply(to: all).withLeaderChords()
     }
 }

@@ -29,18 +29,26 @@ enum ServerHandlers {
                 }
             })
         })
-        registry.bind("server.showPanel", run: { _ in menuBar.open(.panel(nil)) })
-        registry.bind("server.showHealth", run: { _ in menuBar.open(.health(nil)) })
+        registry.bind("server.showPanel", run: { _ in menuBar.open(.panel) })
+        registry.bind("server.showHealth", run: { _ in menuBar.open(.health) })
+        registry.bind("server.pairAnotherMachine", run: { invocation in
+            // Minting an invite lets a machine ask to join the account: a person's run only. The
+            // descriptor's person-only gate refuses every CLI, MCP, script, page and remote run first.
+            guard ServerHeadlessApproval.allows(origin: invocation.origin) else {
+                throw ActionFailure(message: RefusalStrings.text("refusal.server.inviteLocalOnly", "Pair machines from this Mac only."))
+            }
+            menuBar.openInvite()
+        })
         registry.bind("server.addServer", run: { invocation in
             // No code: the sheet. A code may come only from an in-process person action; the
             // descriptor's person-only gate refuses every CLI, MCP, script, page and remote run.
-            guard let code = invocation["code"]?.stringValue, !code.isEmpty else { return menuBar.open(.approver) }
+            guard let code = invocation["code"]?.stringValue, !code.isEmpty else { return menuBar.openAddServer() }
             guard ServerHeadlessApproval.allows(origin: invocation.origin) else {
                 throw ActionFailure(message: ServerHeadlessApproval.notFromThisMac)
             }
             let services = context.services
             registry.track(Task { @MainActor in
-                let source = CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
+                let source = CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, cli: services.bundledCLI, chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
                 let reject = await ServerHeadlessApproval.run(source: source, code: code, words: invocation["words"]?.stringValue,
                                                               name: invocation["name"]?.stringValue,
                                                               runChief: invocation["chief"]?.boolValue)

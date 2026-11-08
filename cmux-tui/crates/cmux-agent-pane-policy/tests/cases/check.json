@@ -40,6 +40,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -80,6 +81,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -175,6 +177,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -283,6 +286,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -336,6 +340,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -388,6 +393,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -429,6 +435,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -469,6 +476,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -510,6 +518,49 @@
     "foreign_source": true,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "live fork from outside the scope uses scope credit",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"acp.session.fork\",\"params\":{\"sessionId\":\"s9\",\"live\":true}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 13,
+    "method": "acp.session.fork",
+    "params": {
+     "sessionId": "s9",
+     "live": true
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "acp.session.fork",
+    "page_id": "13",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": true,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -550,6 +601,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -591,6 +643,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -631,6 +684,7 @@
     "foreign_source": true,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -672,6 +726,7 @@
     "foreign_source": true,
     "handoff_id": "h1",
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -712,7 +767,90 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": true,
     "free": false
+   }
+  }
+ },
+ {
+  "name": "a remote wire's session/new starts no session on this Mac",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":14,\"method\":\"session/new\",\"params\":{\"cwd\":\"/x\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": [],
+   "remote_wire": true
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 14,
+    "method": "session/new",
+    "params": {
+     "cwd": "/x"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "session/new",
+    "page_id": "14",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": true,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "a later frame never gets the token (on a remote wire too)",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"_acpmux/harnesses\",\"params\":{}}",
+  "state": {
+   "first": false,
+   "token": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": [],
+   "remote_wire": true
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "_acpmux/harnesses",
+    "params": {}
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/harnesses",
+    "page_id": "2",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": true
    }
   }
  },
@@ -753,6 +891,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -794,6 +933,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -835,6 +975,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -876,6 +1017,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -923,6 +1065,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -970,6 +1113,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1009,6 +1153,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -1079,6 +1224,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1120,6 +1266,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": true,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1187,6 +1334,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1301,6 +1449,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1354,6 +1503,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": true
    }
   }
@@ -1516,6 +1666,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1590,6 +1741,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1719,6 +1871,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1739,6 +1892,72 @@
    "refuse": "transport.session_not_in_pane",
    "method": "_acpmux/btw",
    "id": "51",
+   "spend": null
+  }
+ },
+ {
+  "name": "memory_resolve for the pane's chat passes and needs a gesture",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":52,\"method\":\"_acpmux/memory_resolve\",\"params\":{\"sessionId\":\"s1\",\"offerId\":\"o1\",\"file\":\"CLAUDE.md\",\"accept\":[\"Use pnpm, not npm.\"],\"dismiss\":[]}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 52,
+    "method": "_acpmux/memory_resolve",
+    "params": {
+     "sessionId": "s1",
+     "offerId": "o1",
+     "file": "CLAUDE.md",
+     "accept": [
+      "Use pnpm, not npm."
+     ],
+     "dismiss": []
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/memory_resolve",
+    "page_id": "52",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": true,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "memory_resolve for a chat outside the scope is refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":53,\"method\":\"_acpmux/memory_resolve\",\"params\":{\"sessionId\":\"s9\",\"offerId\":\"o1\",\"file\":\"CLAUDE.md\",\"accept\":[\"Use pnpm, not npm.\"],\"dismiss\":[]}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.session_not_in_pane",
+   "method": "_acpmux/memory_resolve",
+   "id": "53",
    "spend": null
   }
  },
@@ -1792,6 +2011,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1843,6 +2063,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1897,6 +2118,7 @@
     "foreign_source": false,
     "handoff_id": null,
     "harness_enable": false,
+    "starts_local_session": false,
     "free": false
    }
   }
@@ -1964,6 +2186,208 @@
    "refuse": "transport.intent_invalid",
    "method": "_acpmux/permission_respond",
    "id": "48",
+   "spend": null
+  }
+ },
+ {
+  "name": "session/auth of the pane's chat, with refresh, is free",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":60,\"method\":\"_acpmux/session/auth\",\"params\":{\"sessionId\":\"s1\",\"refresh\":true}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 60,
+    "method": "_acpmux/session/auth",
+    "params": {
+     "sessionId": "s1",
+     "refresh": true
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/session/auth",
+    "page_id": "60",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": true
+   }
+  }
+ },
+ {
+  "name": "session/auth of a New Tab target names no session and is free",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":61,\"method\":\"_acpmux/session/auth\",\"params\":{\"target\":{\"harness\":\"claude\",\"host\":\"hb\",\"routeId\":\"work\"},\"refresh\":true}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 61,
+    "method": "_acpmux/session/auth",
+    "params": {
+     "target": {
+      "harness": "claude",
+      "host": "hb",
+      "routeId": "work"
+     },
+     "refresh": true
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/session/auth",
+    "page_id": "61",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "starts_local_session": false,
+    "free": true
+   }
+  }
+ },
+ {
+  "name": "session/auth of a chat outside the scope is refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":62,\"method\":\"_acpmux/session/auth\",\"params\":{\"sessionId\":\"s9\",\"refresh\":true}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.session_not_in_pane",
+   "method": "_acpmux/session/auth",
+   "id": "62",
+   "spend": null
+  }
+ },
+ {
+  "name": "session/auth naming a null chat is refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":63,\"method\":\"_acpmux/session/auth\",\"params\":{\"sessionId\":null}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.session_not_in_pane",
+   "method": "_acpmux/session/auth",
+   "id": "63",
+   "spend": null
+  }
+ },
+ {
+  "name": "session/auth with a command param is refused (P1)",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":64,\"method\":\"_acpmux/session/auth\",\"params\":{\"sessionId\":\"s1\",\"command\":\"sh -c id\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.intent_invalid",
+   "method": "_acpmux/session/auth",
+   "id": "64",
+   "spend": null
+  }
+ },
+ {
+  "name": "session/auth with a target and a command param is refused (P1)",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":65,\"method\":\"_acpmux/session/auth\",\"params\":{\"target\":{\"harness\":\"claude\"},\"initial_command\":\"sh -c id\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.intent_invalid",
+   "method": "_acpmux/session/auth",
+   "id": "65",
+   "spend": null
+  }
+ },
+ {
+  "name": "session/auth with _meta is refused (P1)",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":66,\"method\":\"_acpmux/session/auth\",\"params\":{\"sessionId\":\"s1\",\"_meta\":{\"acpmux\":{\"via\":\"app\"}}}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.intent_invalid",
+   "method": "_acpmux/session/auth",
+   "id": "66",
+   "spend": null
+  }
+ },
+ {
+  "name": "session/auth with MCP servers in its target is refused (C1)",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":67,\"method\":\"_acpmux/session/auth\",\"params\":{\"target\":{\"harness\":\"claude\",\"mcpServers\":[{\"name\":\"x\",\"command\":\"sh\",\"args\":[\"-c\",\"id\"]}]}}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "refuse": "transport.mcp_servers_refused",
+   "method": "_acpmux/session/auth",
+   "id": "67",
    "spend": null
   }
  }

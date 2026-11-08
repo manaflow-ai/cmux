@@ -24,15 +24,14 @@
 //!
 //! The tombstones live on the peer instance (`Peer::purge_tombstones`), so
 //! they go with it: a removed or replaced peer's never reach another instance
-//! of the name. Every change happens under the rows lock once the notice's
-//! instance was found current (`Hub::is_current`).
+//! of the name. Every change starts from a peer Arc found current; callers use that Arc directly so
+//! a rows lock is never held while looking up `peers` again.
 
-use super::Hub;
 use std::collections::HashSet;
 use std::sync::Mutex;
 
 /// One peer instance's link: whether its list came, and the sessions it
-/// purged before. Lock order: `Hub::remote_sessions`, then this.
+/// purged before. This mutex is independent of the hub's shared lock order.
 #[derive(Default)]
 pub(crate) struct PurgeTombstones(Mutex<Link>);
 
@@ -73,18 +72,11 @@ impl PurgeTombstones {
         link.listed = true;
         std::mem::take(&mut link.purged)
     }
-}
 
-impl Hub {
-    /// Runs `f` on the tombstones of instance `generation` of peer `peer`, if
-    /// it is still the registered one.
-    pub(super) fn with_tombstones<T>(
-        &self,
-        peer: &str,
-        generation: u64,
-        f: impl FnOnce(&PurgeTombstones) -> T,
-    ) -> Option<T> {
-        self.peer(peer).filter(|p| p.generation == generation).map(|p| f(&p.purge_tombstones))
+    /// Reads the current tombstones without consuming them. A full-list projection may have to
+    /// retry after a concurrent purge, so it cannot mark the link listed until its row swap wins.
+    pub(super) fn peek(&self) -> HashSet<String> {
+        self.link().purged.clone()
     }
 }
 

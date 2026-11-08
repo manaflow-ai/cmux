@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAppCore
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextSettings
@@ -8,15 +9,17 @@ import CmuxNextSettings
 /// App's wiring of its sidebar pass, question, toast and window.
 @MainActor
 enum WorkspaceSelectionClose {
-    /// Closes the workspaces `ids` that window `state` lists.
-    static func close(_ ids: [String], in state: WindowState, _ services: AppServices) {
+    /// Closes the workspaces `ids` that window `state` lists. `asked`: the person already answered this
+    /// close's question (a palette or menu bulk close, `DestructiveConfirmation`), so none is asked again.
+    static func close(_ ids: [String], in state: WindowState, _ services: AppServices, asked: Bool = false) {
         let windows = services.windows, controller = windows.controller(for: state.id), shownAtPress = controller?.state.workspaceID
         let members = ids.compactMap { services.machines.workspace(id: $0) }.filter { workspace, _ in
-            workspace.key != nil && !HomeRules.isHome(workspace) && WorkspaceSelectionCloseFlow.canStart(workspace.id)
+            workspace.key != nil && !HomeRules.isHome(workspace) && services.selectionCloses.canStart(workspace.id)
         }
         let closing = members.map(\.0.id), undoWindow = WorkspaceBulkClose.survivor(closing: closing, AppActionContext(services: services))
         let incognito = members.contains { windows.isIncognito(workspace: $0.0.id) }, selected = WorkspaceCloseSelection()
-        let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id)), warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
+        let cleanups = WorkspaceGroupClose.closeCleanups(closing, services)
+        let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id)), warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.warnBeforeClosingTabDefault
         let flow = WorkspaceSelectionCloseFlow(
             hide: { ids in
                 defer { selected.afterPress = controller?.state.workspaceID }
@@ -26,9 +29,9 @@ enum WorkspaceSelectionClose {
                 return InstantClose.begin(ids, in: state.id, windows: windows)
             },
             // A terminal that may run a program, or nothing left to undo it: the rows stay until the person answers.
-            mayAsk: { WorkspaceBulkClose.mayAsk(members, warn: warn, askWithoutUndo: undoWindow == nil) },
+            mayAsk: { !asked && WorkspaceClose.mayAsk(members, warn: warn, askWithoutUndo: undoWindow == nil) },
             question: {
-                guard var prompt = await WorkspaceBulkClose.prompt(members, warn: warn, askWithoutUndo: undoWindow == nil, incognito: incognito) else { return nil }
+                guard !asked, var prompt = await WorkspaceBulkClose.prompt(members, warn: warn, askWithoutUndo: undoWindow == nil, incognito: incognito) else { return nil }
                 prompt.returnConfirms = false
                 return { await withCheckedContinuation { answer in
                     DestructiveConfirmation.present(prompt, in: controller?.window ?? windows.active?.window, settings: services.settings) { answer.resume(returning: $0) }
@@ -42,9 +45,14 @@ enum WorkspaceSelectionClose {
             listed: { services.workspace(id: $0) != nil }, machines: { services.machines.daemons },
             offerUndo: { names, undone in
                 guard names.count > 1, let undoWindow else { return }
-                WorkspaceGroupClose.offerUndo("workspaces-closed", WorkspaceBulkClose.closedToast(names.count), groups: [(nil, names)], after: seen, in: undoWindow, services, undone: undone)
+                WorkspaceGroupClose.offerUndo("workspaces-closed", WorkspaceBulkClose.closedToast(names.count), groups: [(nil, names)], after: seen, in: undoWindow, services,
+                                              cleanups: cleanups, undone: undone)
             },
-            window: state.id, toastWindow: controller?.window)
+            settled: {
+                // task-owner: one cleanup per group (a later settle of the batch may run a kept one again)
+                for cleanup in cleanups { Task { @MainActor in await cleanup.run() } }
+            },
+            window: state.id, toastWindow: controller?.window, running: services.selectionCloses)
         if let work = flow.start(members) { services.registry.track(work) }
     }
 }

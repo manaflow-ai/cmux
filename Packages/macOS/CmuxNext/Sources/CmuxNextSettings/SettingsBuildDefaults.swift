@@ -30,6 +30,14 @@ extension SettingsController {
         buildDefaults.values[descriptor.path] ?? descriptor.defaultValue
     }
 
+    /// Whether `value` is what `descriptor` has with its key unset: this build's default, and no layer
+    /// below the file fills the key. The file then leaves the key out, so it follows a later change of
+    /// the default (Leo 2026-11-08: "if I'm on the default selection and the default selection changes
+    /// its properties, that's something that should happen").
+    func isUnsetValue(_ value: JSONValue, of descriptor: SettingDescriptor) -> Bool {
+        value == defaultValue(of: descriptor) && !layerBelowFileSets(descriptor.id)
+    }
+
     /// Whether the person's file sets `descriptor` to something other than this build's default,
     /// so Settings offers Reset (an explicit off in NIGHTLY, whose default is on, counts).
     public func isCustomized(_ descriptor: SettingDescriptor) -> Bool {

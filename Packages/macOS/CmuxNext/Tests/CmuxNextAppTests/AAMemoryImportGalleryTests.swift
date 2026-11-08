@@ -4,15 +4,17 @@ import AppKit
 @testable import CmuxNextDesign
 import CmuxNextDesignTokens
 @testable import CmuxNextHome
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
 
 /// The memory import flow as the person sees it, drawn offscreen with the real views: the Chief's front page with the
-/// "Bring your memory from …" row, and the Import Memories dialog with the sources found on a Mac. PNGs under
+/// "Bring your memory from …" row (the Import Memories dialog is the overlay page's, pictured by the webviews
+/// gallery entry pages.overlay.dialog). PNGs under
 /// `memory-import-gallery/` in the package, bundled to `memory-import-gallery.tar` for `cmux-ci run --artifact`.
 /// Runs only with `CMUX_TEST_REQUIRE_GUI=1`.
-@MainActor @Suite(.serialized) struct AAMemoryImportGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AAMemoryImportGalleryTests {
     private static let sources = MemorySource.parse(Data("""
     {"sources":[
       {"source":"claude-code","kind":"claude-code","count":95,"bytes":187814733,"path":"/Users/me/.claude/projects"},
@@ -59,28 +61,15 @@ import Testing
         panel.layoutSubtreeIfNeeded()
     }
 
-    private static func dialog(_ root: NSView, _ window: NSWindow) {
-        let fields = sources.enumerated().map { CmuxDialogField.check(id: String($0.offset), title: $0.element.title, on: true) }
-        let spec = CmuxDialogSpec(
-            title: ChiefMemoryImportStrings.title,
-            lines: [ChiefMemoryImportStrings.lead, ChiefMemoryImportStrings.safety, ChiefMemoryImportStrings.restartNote],
-            fields: fields,
-            buttons: [.cancel(), CmuxDialogButton(id: "file", title: ChiefMemoryImportStrings.chooseFile),
-                      CmuxDialogButton(id: "import", title: ChiefMemoryImportStrings.importButton, role: .default)])
-        let view = CmuxDialogView(spec: spec)
-        view.translatesAutoresizingMaskIntoConstraints = false
-        root.addSubview(view)
-        NSLayoutConstraint.activate([view.centerXAnchor.constraint(equalTo: root.centerXAnchor), view.centerYAnchor.constraint(equalTo: root.centerYAnchor)])
-    }
-
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
     func renderGallery() throws {
         let out = AANestedGroupsGalleryTests.packageRoot.appending(path: "memory-import-gallery")
         try? FileManager.default.removeItem(at: out)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         for (mode, theme, dark) in [("light", "Soft Blue Light", false), ("dark", "Soft Blue", true)] {
-            for (name, build, size) in [("front-page", Self.frontPage, CGSize(width: 520, height: 560)),
-                                        ("dialog", Self.dialog, CGSize(width: 640, height: 520))] as [(String, (NSView, NSWindow) -> Void, CGSize)] {
+            // The import dialog is the overlay page's (its pictures: the webviews gallery's pages.overlay.dialog).
+            for (name, build, size) in [("front-page", Self.frontPage, CGSize(width: 520, height: 560))]
+                as [(String, (NSView, NSWindow) -> Void, CGSize)] {
                 let image = try Self.shot(build, width: size.width, height: size.height, theme: theme, dark: dark)
                 let url = out.appending(path: "\(name)-\(mode).png")
                 let dest = try #require(CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil))

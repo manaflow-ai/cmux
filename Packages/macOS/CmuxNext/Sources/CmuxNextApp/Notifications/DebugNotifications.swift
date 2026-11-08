@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextNotifications
 import CmuxNextSettings
 
 /// `debug.notifications`: unread tabs with their source, the attention marks
@@ -26,9 +27,9 @@ enum DebugNotifications {
             let surface = params["surface"]?.doubleValue.map { UInt64($0) }
             center.desktop.reply(id: params["id"]?.stringValue ?? "", surface: surface, text: text)
         }
-        if let action = params["action"]?.stringValue, action == "allow" || action == "deny" {
+        if let action = params["action"]?.stringValue, ["allow", "deny", "always_allow"].contains(action) {
             let surface = params["surface"]?.doubleValue.map { UInt64($0) }
-            center.desktop.approve(id: params["id"]?.stringValue ?? "", surface: surface, allow: action == "allow")
+            center.desktop.approve(id: params["id"]?.stringValue ?? "", surface: surface, allow: action != "deny", always: action == "always_allow")
         }
         if params["action"]?.stringValue == "mark_read" {
             let surface = params["surface"]?.doubleValue.map { UInt64($0) }
@@ -73,7 +74,9 @@ enum DebugNotifications {
             "log": .array(center.log.map(JSONValue.string)),
             "feed_log": .array((center.feedDriver?.log ?? []).map(JSONValue.string)),
             "dock_badge": center.dockBadge.label.map(JSONValue.string) ?? .null,
-            "dismissed_highlights": .object(center.dismissedHighlights.mapValues { .number(Double($0)) }),
+            "dismissed_highlights": .object(Dictionary(uniqueKeysWithValues: center.dismissedHighlights.map { key, value in
+                ("\(key.machine):\(key.session ?? ""):\(key.id)", .number(Double(value)))
+            })),
             "highlight_look": .string(AttentionHighlightLook.tunable.value.rawValue),
             "preferences": [
                 "dismissal": .string(prefs.dismissal.rawValue), "desktop": .string(prefs.desktop.rawValue),

@@ -373,6 +373,12 @@ fn fake_daemon(socket: &Path) -> JoinHandle<Vec<Value>> {
         while reader.read_line(&mut line).unwrap_or(0) > 0 {
             let request: Value = serde_json::from_str(&line).expect("CLI sent invalid JSON");
             line.clear();
+            if request["cmd"] == "set-client-info" {
+                writeln!(writer, "{}", json!({"id": request["id"], "ok": true, "data": {}}))
+                    .and_then(|()| writer.flush())
+                    .unwrap();
+                continue;
+            }
             let result = match incomplete_chain(&request["params"]) {
                 Some(message) => Err(("selector.invalid", message)),
                 None => daemon_result(&request).map_err(|message| ("resource.not_found", message)),

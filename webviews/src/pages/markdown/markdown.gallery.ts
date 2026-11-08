@@ -316,6 +316,13 @@ export default markdownPageEntry({
       text: RUNBOOK,
       themeCSS: RUN_ICON_ONLY,
     },
+    find: {
+      note: "Cmd-F: the find pill over the document, every match highlighted, the active one apart.",
+      path: "/Users/you/src/atlas-web/README.md",
+      text: README,
+      githubRepository: "manaflow-ai/cmux",
+      find: "retr",
+    },
     "github-references": {
       note: "Bare and qualified GitHub references link in the rich viewer; code remains literal.",
       path: "/Users/you/src/atlas-web/REFERENCES.md",

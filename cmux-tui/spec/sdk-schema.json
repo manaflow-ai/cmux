@@ -476,6 +476,75 @@
    },
    "additional_properties": false
   },
+  "LayoutSizeSplitRatio": {
+   "kind": "object",
+   "fields": {
+    "split": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "ratio": {
+     "type": {
+      "kind": "scalar",
+      "name": "float32"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      {
+       "clamped_minimum": 0.05,
+       "clamped_maximum": 0.95
+      }
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "LayoutSizePaneWidth": {
+   "kind": "object",
+   "fields": {
+    "pane": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "width": {
+     "type": {
+      "kind": "scalar",
+      "name": "float32"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      {
+       "minimum": 0.1,
+       "maximum": 1.0
+      }
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "LayoutSizeValue": {
+   "kind": "untagged_union",
+   "variants": [
+    {
+     "kind": "ref",
+     "name": "LayoutSizeSplitRatio"
+    },
+    {
+     "kind": "ref",
+     "name": "LayoutSizePaneWidth"
+    }
+   ]
+  },
   "Size": {
    "kind": "object",
    "fields": {
@@ -1897,6 +1966,77 @@
       "items": {
        "kind": "ref",
        "name": "Workspace"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "SelectionPane": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "active_tab": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "focused_at": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "SelectionScreen": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "active": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "active_pane": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "panes": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "SelectionPane"
       }
      },
      "presence": "required",
@@ -5089,6 +5229,16 @@
      "presence": "required",
      "nullable": false
     },
+    "status": {
+     "type": {
+      "kind": "ref",
+      "name": "AgentState"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "What the person sees: `working`, `blocked`, `done` (the agent finished a turn and no client has shown its tab since; `state` is `idle` then), `idle` or `unknown`; null for an ended session (`state` `done`). Reading never clears `done`; a frontend's tab acknowledgement does. Absent from older daemons: use `state`."
+    },
     "source": {
      "type": {
       "kind": "ref",
@@ -6034,6 +6184,22 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "locks": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsLocks"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "hook_queue": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHookQueue"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -6042,7 +6208,44 @@
     "journal_writer is null for ephemeral sessions without a durable journal.",
     "Counters accumulate since daemon start; reading them never touches SQLite or the journal.",
     "resource_projection is present only when the request names it in include.",
-    "write_path is present only when the request names it in include."
+    "write_path is present only when the request names it in include.",
+    "locks is present only when the request names it in include.",
+    "hook_queue is present only when the request names it in include and the session serves a socket."
+   ]
+  },
+  "ServerStatsHookQueue": {
+   "kind": "object",
+   "fields": {
+    "queued_events": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "reset_dropped_events": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "undeliverable_events": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "queued_events counts the hook event lines in this session's queues (hook-spool/ beside the socket): events no daemon answered yet, and answered ones a sender has not removed yet.",
+    "reset_dropped_events counts hook events that cmux session NAME reset-state dropped with a session's saved state, for every session whose socket shares this one's directory.",
+    "undeliverable_events counts hook events a live daemon took several times in a row and never answered (it closed on them, or did not reply within its own longest journal wait), so their senders gave them up, for every session whose socket shares this one's directory."
    ]
   },
   "ServerStatsResourceProjection": {
@@ -6235,12 +6438,224 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "wal_commits": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "wal_synced_commits": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "registry_wal_frame_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
    "constraints": [
     "Counters accumulate since daemon start.",
-    "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect."
+    "writer_registry_locks counts process-wide and is zero unless the journal writer took the workspace registry lock, a lock-order defect.",
+    "wal_commits counts registry commits written to the WAL and wal_synced_commits those the WAL syncer flushed to disk; registry_wal_frame_bytes counts the bytes of the WAL frames those commits appended (a 24-byte header and one page each). Each is absent from daemons older than its field."
+   ]
+  },
+  "ServerStatsLockSiteDetail": {
+   "kind": "object",
+   "fields": {
+    "site": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "acquisitions": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "hold_total_us": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "hold_max_us": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "hold_p99_us": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "wait_total_us": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "wait_max_us": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "wait_p99_us": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "hold_p99_us and wait_p99_us are power-of-two bucket bounds: at most twice the true value and never above the matching maximum."
+   ]
+  },
+  "ServerStatsLockDetail": {
+   "kind": "object",
+   "fields": {
+    "wait_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "hold_us": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsHistogram"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "contended_acquisitions": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "stalls": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "holder": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsLockHolder"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "last_stall": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsLockStall"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "sites": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "by_hold_total": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsLockSiteDetail"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "by_hold_p99": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsLockSiteDetail"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "contended_acquisitions counts waits of at least 1 ms; stalls counts waits of at least 100 ms.",
+    "sites counts the distinct acquiring source locations since daemon start.",
+    "by_hold_total is ordered by hold_total_us descending and by_hold_p99 by hold_p99_us descending; each holds at most twenty entries."
+   ]
+  },
+  "ServerStatsLocks": {
+   "kind": "object",
+   "fields": {
+    "registry": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsLockDetail"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "state": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsLockDetail"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "registry is the workspace registry lock and state the mux state lock; sites are the source locations that acquired them."
    ]
   },
   "GuestUrlOpenResult": {
@@ -8459,6 +8874,36 @@
    },
    "additional_properties": false
   },
+  "RemoteHostAppResult": {
+   "kind": "object",
+   "fields": {
+    "socket": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "secret": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "host_pid": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
   "TabGroupRecord": {
    "kind": "object",
    "fields": {
@@ -9458,6 +9903,201 @@
     "left",
     "right"
    ]
+  },
+  "ChiefWorkAgent": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "state": {
+     "type": {
+      "kind": "enum",
+      "values": [
+       "working",
+       "waiting",
+       "idle",
+       "failed"
+      ]
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "task": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "startedAt": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "updatedAt": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false
+  },
+  "ChiefWorkTask": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "sessionId": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "title": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "command": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "status": {
+     "type": {
+      "kind": "enum",
+      "values": [
+       "running",
+       "done",
+       "failed",
+       "cancelled",
+       "unknown"
+      ]
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "startedAt": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "endedAt": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "detail": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false
+  },
+  "TerminalLastCommand": {
+   "kind": "object",
+   "fields": {
+    "command": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "exit_code": {
+     "type": {
+      "kind": "scalar",
+      "name": "int32"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "started_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "ended_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "TerminalLastCommandResult": {
+   "kind": "object",
+   "fields": {
+    "terminal_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "last_command": {
+     "type": {
+      "kind": "ref",
+      "name": "TerminalLastCommand"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -11327,6 +11967,53 @@
     "A terminal that is not kept is ended, as close-terminal does, once it has had no tab placement for the owner's reap grace period (default 30 seconds); a placement restored within the period cancels it."
    ]
   },
+  "terminal-last-command": {
+   "authority": "control",
+   "since": 12,
+   "capability": "terminal-last-command-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "terminal_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       {
+        "pattern": "^(term_)?[0-9a-f]{32}$",
+        "format": "terminal host id (UUIDv4 hex without dashes) or public term_ resource id"
+       }
+      ]
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Exactly one of surface or terminal_id is present."
+    ]
+   },
+   "result": {
+    "kind": "ref",
+    "name": "TerminalLastCommandResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Kept in memory only while terminal command history or workspace freeing is on; never for an incognito terminal.",
+    "Null for a terminal without a live runtime and before its shell finished a command."
+   ]
+  },
   "terminal-resume-command": {
    "authority": "control",
    "since": 12,
@@ -13175,6 +13862,17 @@
         "format": "client-minted public split id"
        }
       ]
+     },
+     "before": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "split-before-v1"
      }
     },
     "additional_properties": false,
@@ -13192,7 +13890,8 @@
     "terminal_id names the new terminal's host id so a caller can put it in env before the child starts; a malformed or existing id is rejected and nothing is created (terminal-placement-env-v1).",
     "kind \"browser\" requires a non-empty url and creates a browser pane at that url; url without kind \"browser\", an unknown kind, and cwd, env, keep, terminal_id or shell_args with kind \"browser\" are rejected and nothing is created (pane-browser-kind-v1).",
     "pane_id and tab_id are the caller-minted public ids of the new pane and its tab; a request that names pane_id (else terminal_id) is keyed by it: a retry of the same request returns the first result with replayed:true, another request with the same key is refused with creation.conflict, and an id that names an existing or deleted resource is refused with pane_id_exists or tab_id_exists before anything is created (split-client-keys-v1).",
-    "split_id is the caller-minted public id of the split the request makes; every later layout names that split by it (the split node's split_id), and an id that names an existing or deleted resource is refused with split_id_exists before anything is created (split-client-split-id-v1)."
+    "split_id is the caller-minted public id of the split the request makes; every later layout names that split by it (the split node's split_id), and an id that names an existing or deleted resource is refused with split_id_exists before anything is created (split-client-split-id-v1).",
+    "before:true puts the new pane before pane on the split axis (left of it for dir right, above it for dir down) in the one split commit, with the even ratio; the layout equals split then swap-pane, so a client that shows the split before the reply sends no swap (split-before-v1)."
    ]
   },
   "set-ratio": {
@@ -13342,6 +14041,46 @@
    "stream": null,
    "constraints": [
     "width must be finite."
+   ]
+  },
+  "set-layout-sizes": {
+   "authority": "control",
+   "since": 12,
+   "capability": "layout-sizes-batch-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "values": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "LayoutSizeValue"
+       },
+       "min_items": 1,
+       "max_items": 64
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "All values are on one screen; a refused value refuses them all, and nothing changes."
    ]
   },
   "set-column-dock": {
@@ -16107,6 +16846,16 @@
       "default": null,
       "capability": "attach-identity-v1"
      },
+     "replay_history_rows": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "attach-replay-history-rows-v1"
+     },
      "snapshot": {
       "type": {
        "kind": "scalar",
@@ -16217,7 +16966,9 @@
     "ordering": "Initial state precedes the command response. Later surface events preserve order. A resized replay replaces the previous byte mirror; overflow ends that surface stream.",
     "terminal_event": "detached"
    },
-   "constraints": []
+   "constraints": [
+    "replay_history_rows (bytes mode, no snapshot) limits the vt-state replay to the active area and that many of the newest history rows; the vt-state then carries history_rows_omitted."
+   ]
   },
   "register-browser-provider": {
    "authority": "local-admin",
@@ -16391,6 +17142,18 @@
       "default": false,
       "since": 12,
       "capability": "end-terminals-keep-layout-v1"
+     },
+     "restart": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "since": 12,
+      "constraints": [
+       "true when a replacement daemon follows (`server restart`), false when the session stops (`server stop`). The daemon repeats it as `restart` on the daemon-shutdown event; omit it (or send null) when unknown."
+      ]
      }
     },
     "additional_properties": false
@@ -16406,7 +17169,8 @@
     "Clients must require daemon-handoff-force-v1 before sending force:true.",
     "end_terminals:true ends every terminal and removes its tabs before the handoff; without it terminal hosts stay alive for the next owner. Clients must require terminal-reap-v1 before sending end_terminals:true.",
     "keep_layout:true (with end_terminals:true) ends every terminal but keeps the tabs of placed terminals, so the next owner shows the same screens, splits and tabs, each dead until a frontend starts a new shell in it; keep_layout without end_terminals is refused. Clients must require end-terminals-keep-layout-v1 before sending keep_layout:true.",
-    "The daemon exits only after the success response is queued."
+    "The daemon exits only after the success response is queued.",
+    "restart is repeated on the daemon-shutdown event, so an attached TUI reconnects after a restart and exits after a stop."
    ]
   },
   "pairing-response": {
@@ -16639,7 +17403,7 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, locks, hook_queue); unknown names are ignored."
    ]
   },
   "paste-image": {
@@ -16724,6 +17488,16 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "filename": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "terminal-file-paste-v1"
      }
     },
     "additional_properties": false
@@ -16744,7 +17518,7 @@
    },
    "stream": null,
    "constraints": [
-    "Requires terminal-image-paste-v1 and a current connection-owned attachment lease for the exact public terminal. Begin(mime,size), chunk(offset,data), commit, cancel. No caller-supplied paths. 20 MiB per image; 48 KiB chunks; generated temporary files expire after 600 seconds."
+    "Requires terminal-image-paste-v1 and a current connection-owned attachment lease for the exact public terminal. Begin(mime,size), chunk(offset,data), commit, cancel. With terminal-file-paste-v1, begin(filename,size) accepts a regular file, including an empty file, instead of an image MIME. Filename is a validated basename, never a path; the daemon chooses the private temporary directory. 48 KiB chunks; committed temporary files expire after 600 seconds."
    ]
   },
   "url-open": {
@@ -17581,6 +18355,17 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "split": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationTabSplit"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "frontend-browser-tab-split-v1",
+      "description": "With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after."
      }
     },
     "additional_properties": false
@@ -19010,6 +19795,17 @@
       "default": false,
       "since": 12,
       "capability": "tab-split-keep-focus-v1"
+     },
+     "pane_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "tab-column-client-pane-v1"
      },
      "transaction": {
       "type": {
@@ -22418,6 +23214,52 @@
     "reason, when present, is digest_mismatch, gap, generation_mismatch or attach; request_id is at most 128 bytes; otherwise invalid."
    ]
   },
+  "set-attach-visibility": {
+   "authority": "frontend",
+   "since": 12,
+   "capability": "attach-visibility-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "visible": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "viewers": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint32"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Applies to the caller's snapshot attaches (attach-surface with snapshot ghostsnp) of the surface on this connection; viewers is 0 when there is none.",
+    "A hidden viewer gets its output once per wall-clock second (every hidden viewer of the daemon on the same second), at once when its batch passes 256 KiB, before any snapshot, and at once when it is shown again; no byte is dropped."
+   ]
+  },
   "terminal-history": {
    "authority": "control",
    "since": 12,
@@ -23095,6 +23937,14 @@
       "presence": "optional",
       "nullable": false,
       "default": false
+     },
+     "cursor": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
      }
     },
     "additional_properties": false
@@ -23105,7 +23955,7 @@
    },
    "stream": null,
    "constraints": [
-    "Trusted local connections only. limit is 1-200. Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    "Trusted local connections only. limit is 1-200. One page from cursor (the next_cursor of the page before), with the owner's next_cursor (null on the last page). Calls the cloud; errors carry error_code, reason and retryable. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
    ]
   },
   "cloud-requests-list": {
@@ -23709,6 +24559,124 @@
    "constraints": [
     "Only the verified local app connection (client-hello role main plus a proof) gets a result; every other caller gets error_code origin.forbidden.",
     "The secret is never journaled, logged or put in an event."
+   ]
+  },
+  "remote-host-status": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "remote-host-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+    "Never starts the host. The device list under host.screen.devices is the verified app's only."
+   ]
+  },
+  "remote-host-call": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "remote-host-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "method": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "params": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+    "Any local Unix connection may read, refresh, request a grant, restart a worker and lower access; turning sharing on or raising a device's access is the verified app's only (origin.forbidden otherwise)."
+   ]
+  },
+  "remote-host-config": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "remote-host-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "computer_use": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "screen_sharing": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "headless": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+    "The verified app connection only; the daemon saves the switches and starts or stops the host."
+   ]
+  },
+  "remote-host-app": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "remote-host-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "RemoteHostAppResult"
+   },
+   "stream": null,
+   "constraints": [
+    "cmux Remote (docs/cmux-remote.md): the daemon's signed host for Computer Use and Screen Sharing, macOS only; elsewhere the commands answer that it runs on macOS only.",
+    "The verified app connection only; the secret admits only that app process and is never logged or journaled."
    ]
   },
   "subscribe-activity": {
@@ -25625,6 +26593,129 @@
    "constraints": [
     "Writes mobile.terminalSizing and mobile.terminalSizingOrder in the host's settings file, then applies them."
    ]
+  },
+  "cloud-environment": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-environments-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "action": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "params": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "platform_origin": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "access_token": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "The verified native app only; platform_origin comes from its existing platform resolver and access_token is its cmux install JWT. Neither is a page parameter or the Home lease. action list/get/update/derive maps to GET /v1/cloud-environments, GET or PATCH /v1/cloud-environments/{id}, or POST /v1/environments/derive. Params are the documented per-action object; no arbitrary path or headers. Secrets are write-only and never returned; diagnostics must redact access_token and params. See spec/commands.md."
+   ]
+  },
+  "chief-work": {
+   "authority": "frontend",
+   "since": 12,
+   "capability": "chief-work-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "chief": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "agents": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "ChiefWorkAgent"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "tasks": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "ChiefWorkTask"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "truncated": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "taskSources": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Read-only inventory on the configured Chief machine. Only the local owner and the same authenticated owner Channels page admitted by chief-profile-ws-v1 may read it; paired devices, other pages, remote, peer and bound-agent connections are refused with origin.forbidden.",
+    "chief names an existing Chief record; the server resolves its configured brain home and acpmux ownership tags. Peer sessions and other Chiefs are excluded. Tasks cover the harness process registry only (taskSources: [harness]); daemon-owned bg tasks keep their separate person-proof gate.",
+    "One on-demand snapshot, no subscription or polling. Reads share a 15-second deadline, at most 200 owned sessions and 500 commands; truncated reports bounds. Failed or malformed reads reject with chief.work_unavailable instead of returning empty or partial success. A machine without this Chief home returns chief.work_not_configured; an unknown Chief returns chief.work_not_found. See spec/commands.md."
+   ]
   }
  },
  "events": {
@@ -26259,6 +27350,19 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "restart": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "daemon-shutdown-restart-v1",
+      "constraints": [
+       "The restart the shutdown-daemon requester sent: true when a replacement daemon follows, false when the session stops. Sent only to a client that negotiated daemon-shutdown-restart-v1 in set-client-info, and absent when the requester did not say (session.shutdown, an older CLI)."
+      ]
      }
     },
     "additional_properties": false
@@ -27624,6 +28728,101 @@
     "additional_properties": false
    }
   },
+  "selection-changed": {
+   "since": 12,
+   "capability": "tree-selection-deltas-v1",
+   "streams": [
+    "subscribe-deltas"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "selection-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "workspace": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "active": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "active_workspace": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": true
+     },
+     "screens": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "SelectionScreen"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "workspace-presentation-changed": {
+   "since": 12,
+   "capability": "tree-selection-deltas-v1",
+   "streams": [
+    "subscribe-deltas"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "workspace-presentation-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "workspace": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "entity": {
+      "type": {
+       "kind": "ref",
+       "name": "Workspace"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
   "scroll-changed": {
    "since": 6,
    "capability": null,
@@ -28376,6 +29575,15 @@
       "presence": "optional",
       "nullable": false,
       "since": 6
+     },
+     "history_rows_omitted": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "capability": "attach-replay-history-rows-v1"
      }
     },
     "additional_properties": false
@@ -29295,6 +30503,36 @@
         "kind": "scalar",
         "name": "string"
        }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "stash-changed": {
+   "since": 12,
+   "capability": "stash-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "stash-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
       },
       "presence": "required",
       "nullable": false

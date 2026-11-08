@@ -139,36 +139,6 @@ Default: `always` for stable, nightly, and RC builds. DEV builds always behave a
 
 The older boolean `app.warnBeforeQuit` still works as a fallback when `app.confirmQuit` is not set. `true` maps to `always`; `false` maps to `never`.
 
-## `tabs.cmdWClosesPinnedTabs`
-
-What Cmd-W does on a pinned tab.
-
-```json
-{
-  "tabs": { "cmdWClosesPinnedTabs": false }
-}
-```
-
-- `true` (default): Cmd-W closes a pinned tab like any other tab, as in Chrome.
-- `false`: Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. When the pinned tab is the only tab in its pane, Cmd-W keeps it and shows a short notice. Close a pinned tab from its right-click menu.
-
-A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs false`.
-
-## `tabs.terminalFirst`
-
-What a new tab, split, workspace or window opens. Settings shows it as **cmux Classic Mode**.
-
-```json
-{
-  "tabs": { "terminalFirst": true }
-}
-```
-
-- `false` (default): Cmd-T and Cmd-N open the New Tab page, and a split from a browser tab, the New Tab page or an agent chat opens the New Tab page in the new pane.
-- `true`: new tabs (Cmd-T, the tab bar's +), splits (Cmd-D, Cmd-Shift-D), new workspaces (Cmd-N, the sidebar's +) and new windows open a terminal, as in cmux classic.
-
-With it on, Cmd-T always opens a tab in the focused pane, even with `newTerminal.opensWorkspace` or `layout.newPanePlacement: split`, and a new or emptied workspace starts on a terminal instead of the New Tab page. To open the New Tab page anyway, right-click or press and hold the tab bar's +, or run New Tab Page from the command palette (Cmd-Shift-P); Cmd-I still opens an agent chat and Cmd-Shift-L a browser tab. Scripts (`cmux tab new`, `cmux pane split-right`, MCP) are not affected. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.terminalFirst true`.
-
 ## `tabs.swapCmdTAndCmdN`
 
 Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
@@ -199,9 +169,30 @@ What Cmd-1 to Cmd-9 select.
 
 A key you bind yourself in `shortcuts.bindings` for `selectWorkspaceByNumber` or `selectSurfaceByNumber` wins, and then neither moves. Change it in **Settings > Keyboard > Sidebar Navigation** or with `cmux settings set tabs.commandDigits tabs`.
 
+## `tabs.verticalTabs` and `tabs.verticalTabsExpandOnHover`
+
+Whether workspaces show their tabs as a vertical list beside their panes, as in Edge and Chrome, instead of the horizontal tab bar.
+
+```json
+{
+  "tabs": { "verticalTabs": true, "verticalTabsExpandOnHover": false }
+}
+```
+
+- `tabs.verticalTabs`: `false` (default) keeps the horizontal tab bar. `true` shows vertical tabs in every workspace. This is **Use Vertical Tabs for All Workspaces**.
+- `tabs.verticalTabsExpandOnHover`: `true` (default) widens a list collapsed to icons to show the titles while the pointer is over it.
+
+One workspace can turn vertical tabs on or off for itself: right-click the empty part of its tab bar or tab list and choose **Turn On Vertical Tabs** or **Turn Off Vertical Tabs**. That workspace's own choice wins over `tabs.verticalTabs`. Changing **Use Vertical Tabs for All Workspaces** clears every workspace's own choice.
+
+The same menu has **New Tab**, **Reopen Closed Tab**, **Bookmark All Tabs**, **Move All Tabs to a New Workspace**, **Collapse Tabs** (icons only, for every workspace), **Auto-Expand Tabs on Hover** and **Task Manager**.
+
+The list has pinned tabs at the top, tab groups with their color bar, the speaker to mute a tab, drag to reorder and the same tab right-click menu as the tab bar. A workspace showing vertical tabs lists no tab rows under its row in the sidebar, even with `sidebar.showWorkspaceTabs` on: its own list shows them.
+
+Change both in **Settings > General > Tabs** or with `cmux settings set tabs.verticalTabs true`.
+
 ## Tab bar (removed: `tabs.tabBar`)
 
-Every pane shows its horizontal tab bar: terminals, browsers, agent chats and the chat dock. A workspace is a vertical tab in the sidebar, and a pane's tab bar holds tabs inside it.
+Every pane shows its horizontal tab bar: terminals, browsers, agent chats and the chat dock. The exception is a workspace showing vertical tabs (`tabs.verticalTabs`), whose panes list their tabs on their leading edge. A workspace is a vertical tab in the sidebar, and a pane's tab bar holds tabs inside it.
 
 The only way to hide one pane's tab bar is **Hide Tab Bar** in the command palette (Cmd-Shift-P) or the pane's right-click menu. While the bar is hidden, the same entry reads **Show Tab Bar**. The CLI keeps `cmux pane toggle-tab-bar`. Cmd-T always opens a tab in the current workspace, also in a pane that hides its tab bar (the tab bar then shows); Cmd-N opens a new workspace. **New Horizontal Tab** (no default key) turns the focused pane's tab bar on and opens a tab there.
 
@@ -209,7 +200,7 @@ The `tabs.tabBar.terminal`, `tabs.tabBar.browser` and `tabs.tabBar.agent` settin
 
 ## `tabs.newTabPosition`
 
-Where Cmd-T and the + button put a new tab.
+Where Cmd-T puts a new tab.
 
 ```json
 {
@@ -221,7 +212,7 @@ Where Cmd-T and the + button put a new tab.
 - `"end"`: after the pane's last tab, as in Chrome and Edge.
 - `"start"`: first, right after the pinned tabs.
 
-The setting applies to what you open with Cmd-T and the + button. A script's `cmux tab new` still adds the tab at the end.
+The setting applies to what you open with Cmd-T. The + button has its own setting, `tabs.newTabButtonPosition` (below). A script's `cmux tab new` still adds the tab at the end.
 
 To put one new tab in a specific place, whatever the setting, use these commands (Cmd-Shift-P, the CLI, or MCP). They have no default key; you can assign one in **Settings > Keyboard Shortcuts**.
 
@@ -232,6 +223,22 @@ To put one new tab in a specific place, whatever the setting, use these commands
 | **New Tab at End** | `cmux tab new-at-end` |
 
 **New Tab to the Right** in a tab's right-click menu always puts the new tab right after that tab. Change the setting in **Settings > General > Tabs** or with `cmux settings set tabs.newTabPosition end`.
+
+## `tabs.newTabButtonPosition`
+
+Where the + button after the last tab puts a new tab. The **New Tab** row of vertical tabs follows it too. It takes the same values as `tabs.newTabPosition`; the default is `"end"`.
+
+```json
+{
+  "tabs": { "newTabButtonPosition": "end" }
+}
+```
+
+- `"end"` (default): after the pane's last tab, next to the button.
+- `"afterCurrent"`: right after the selected tab, like Cmd-T's default.
+- `"start"`: first, right after the pinned tabs.
+
+Option-click on the + (a tab of the selected tab's kind) goes to the same place. Change the setting in **Settings > General > Tabs**, in the command palette, or with `cmux settings set tabs.newTabButtonPosition afterCurrent`.
 
 ## `tabs.newTabTemplate`
 
@@ -432,12 +439,12 @@ Where a new workspace goes in the sidebar when you do not pick a place: Cmd-N, N
 
 ```json
 {
-  "workspaces": { "newPlacement": "top" }
+  "workspaces": { "newPlacement": "afterCurrent" }
 }
 ```
 
-- `"top"` (default): right below the workspace the window shows, inside its group, when that workspace is in a group. When it is not in a group, first in the workspace list, above every group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
-- `"afterCurrent"` (cmux classic's default): right after the workspace the window shows, inside that workspace's group when it has one. When that workspace is pinned, is Home, or is on another machine, the new one goes to the top.
+- `"afterCurrent"` (default, as in cmux classic): right after the workspace the window shows, inside that workspace's group when it has one. If that workspace closes before the new one appears, the new one takes its place. Made from a group's + while none of that group's workspaces is shown, it goes last in that group. When the shown workspace is pinned, is Home, or is on another machine, the new one goes to the top. It never goes to the end of the sidebar.
+- `"top"`: first in the group of the workspace the window shows, when that workspace is in a group. When it is not in a group, first in the workspace list, above every group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
 - `"bottom"`: last in the group of the workspace the window shows. When that workspace is not in a group, after the last workspace that is not in a group.
 
 So under every value, a new workspace opened while you are in a group stays in that group.
@@ -626,7 +633,8 @@ A binding you set yourself for either action stays when you pick a choice. Rebin
 
 | Keys | Action | Id |
 | --- | --- | --- |
-| Ctrl+Option+Cmd+Left / Right | Previous / Next Space | `space.previous` / `space.next` |
+| Ctrl+Option+Cmd+H / L | Previous / Next Space | `space.previous` / `space.next` |
+| Ctrl+Option+Cmd+Left / Right | Previous / Next Space (also; not in the code editor) | `space.previous` / `space.next` |
 | Option+Cmd+[ / ] | Previous / Next Space (also; not in the code editor) | `space.previous` / `space.next` |
 | Ctrl+Option+Cmd+1…9 | Select Space 1…9 (9 is the last) | `space.selectByNumber` |
 | Ctrl+Option+1…9 | Select Space 1…9 (the Number Keys default) | `space.selectByNumber` |
@@ -1072,7 +1080,9 @@ shows the same keys.
       "glassTintStrength": 0.35,
       "cornerRadius": "theme",
       "shadow": false,
-      "backgroundOpacity": 0
+      "backgroundOpacity": 0,
+      "height": "density",
+      "fontSize": "density"
     }
   }
 }
@@ -1119,9 +1129,20 @@ shows the same keys.
   only as far as the bar's text needs to stay readable (4.5:1 over a black or a white desktop).
   `1` makes the bar solid. An opaque window with the theme's toolbar color looks the same at any
   value.
+- `omnibar.height`: the address bar's height, `density` (default) or points from `20` to `56`.
+  `density` follows `appearance.density`: 28 pt at Compact (the default), Chrome's roomier 34 pt
+  at Comfortable, tighter at Ultra-compact and taller at Spacious; the toolbar buttons, their
+  icons and the suggestion rows follow the same density. The bar always grows to fit its text, so
+  a small height with a large `fontSize` never cuts the address off. A number outside the range
+  applies at the nearest end, with a warning.
+- `omnibar.fontSize`: the size of the address, the page-info chip's text and the suggestion rows,
+  `density` (default) or points from `10` to `24`. `density` is 14 pt at Compact and 15 pt at
+  Comfortable, and follows a custom density's `fontSize`. Out-of-range numbers are clamped like
+  `height`. Both keys apply live, like the density.
 
 Agents (MCP `settings_set`) may change `inlineAutocomplete`, `maxRows`, `calculator`, `showFullURLs` and the look
-keys (`glass`, `glassTint`, `glassTintStrength`, `cornerRadius`, `shadow`, `backgroundOpacity`); the search
+keys (`glass`, `glassTint`, `glassTintStrength`, `cornerRadius`, `shadow`, `backgroundOpacity`, `height`,
+`fontSize`); the search
 engine and remote suggestions decide what leaves the Mac, so only you change them.
 
 ## `agentPane.editedFiles.*`

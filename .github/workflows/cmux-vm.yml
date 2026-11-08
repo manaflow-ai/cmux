@@ -31,17 +31,26 @@
 # With the optional secret CMUX_VM_SMOKE_SERVICE_KEY and variable
 # CMUX_VM_SMOKE_SERVICE_TEAM it also smokes the service principal (cx-b4h.13);
 # the staging Worker then needs that key's hash in the environment secret
-# CMUX_VM_SERVICE_KEYS, which deploy-staging installs when it is set.
+# CMUX_VM_SERVICE_KEYS, which deploy-staging installs when it is set, with the
+# entries of the optional secrets CMUX_VM_SERVICE_KEYS_EXTRA and
+# CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM appended.
 #
-# Production: workflow_dispatch action deploy-production from feat-cmux-next runs
-# check, deploy-staging and smoke-staging, then deploy-production and
-# smoke-production in the same run, for the same SHA (cx-b4h.5). Environment
+# Production: every push to feat-cmux-next that touches the Worker runs check, then
+# migrate-production (apply the landed cmux_vm migrations, no rehearsal; nothing new
+# is a no-op), then deploy-production and smoke-production in the same run, for the
+# same SHA. No manual step between a landing and production (M2 of cmuxterm-hq
+# plans/cloud/ARCHITECTURE-2026-11.md). Action deploy-production does the same for
+# the dispatched feat-cmux-next commit. Environment
 # cmux-vm-production (feat-cmux-next only) holds the same secret names as
 # staging plus CMUX_VM_SERVICE_KEYS and CMUX_VM_SMOKE_SERVICE_KEY, and the
 # variables CMUX_VM_DEPLOY_ENABLED, CMUX_VM_PRODUCTION_URL and
 # CMUX_VM_SMOKE_SERVICE_TEAM. first_production_deploy=true only for the first.
 # Action smoke-production runs only the production route and service smoke
-# against the live version (no deploy, no rollback).
+# against the live version (no deploy, no rollback). Its product leg
+# (scripts/smoke-product.ts) creates the way cmux-platform does, with no key: the
+# job's GitHub OIDC token maps to the Worker's CMUX_VM_CI_TRUST row ci-product-smoke
+# (a product team, not in DEV_TEST_TENANT_IDS, so the never-pause -1 idle default),
+# the approved boot image and no idle timeout.
 #
 # Repository secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID.
 # Environment secrets (each environment): CMUX_VM_UPSTREAM_API_KEY,
@@ -55,6 +64,25 @@
 #   hyperdrive-ensure     create or update the Hyperdrive config named after
 #                         the chosen environment from its CMUX_VM_DATABASE_URL
 #   deploy-staging        deploy the dispatched ref to staging, then smoke it
+#   tail-production       stream the production Worker's live events (wrangler tail) for
+#                         tail_minutes; repository Cloudflare secrets, feat-cmux-next only
+#   migrate-production    apply the landed cmux_vm migrations to cmux-prod main (job
+#                         migrate-production, feat-cmux-next only, environment
+#                         cmux-vm-production; every feat-cmux-next push runs it as an apply
+#                         before the production deploy). Fails closed until the environment holds
+#                         PLANETSCALE_SERVICE_TOKEN_ID and PLANETSCALE_SERVICE_TOKEN.
+#                         dry_run (default true) only inspects (roles, cmux_vm owners,
+#                         tracking table) and runs db-release.ts plan and rehearse on a
+#                         throwaway branch copy; dry_run=false makes sure the PlanetScale
+#                         role cmux-vm-owner owns cmux_vm, adopts 0001-0009 when untracked,
+#                         and runs db-release.ts apply (it rehearses again; the cmux-old
+#                         compat gate is skipped, the change being confined to cmux_vm,
+#                         prod-owner.ts). Only schema cmux_vm changes;
+#                         scripts/cmux-next/release/prod-owner.ts, release-rails.md
+#                         "Production migrations from CI".
+#   sweep-orphans-production  list provider VMs of production that no cmux_vm ownership row records, older than
+#                         15 minutes, with our exact slug and metadata (cmux#35013); dry_run=false then deletes them
+#                         and logs each id. The Worker's 5-minute cron runs the same sweep (src/upstream/orphan-sweep.ts).
 
 name: cmux VM
 
@@ -85,7 +113,7 @@ on:
       action:
         description: Manual action
         type: choice
-        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production]
+        options: [cloudflare-preflight, hyperdrive-ensure, deploy-staging, deploy-production, smoke-production, migrate-production, tail-production, sweep-orphans-production]
         default: cloudflare-preflight
       environment:
         description: Environment for hyperdrive-ensure
@@ -96,18 +124,51 @@ on:
         description: deploy-production only, the Worker's first production deploy (no version to roll back to)
         type: boolean
         default: false
+      dry_run:
+        description: migrate-production and sweep-orphans-production only, inspect and list; change nothing on production (false applies or deletes)
+        type: boolean
+        default: true
+      skip_rehearsal:
+        description: migrate-production with dry_run=false only, apply without the point-in-time rehearsal copy (push and deploy-production always skip it); every other check still runs
+        type: boolean
+        default: false
+      tail_minutes:
+        description: tail-production only, minutes to stream the production Worker's events (at most 25)
+        type: string
+        default: "10"
+      # image-roll-settle dispatches these: a rollback whose production deploy was not verified is deployed
+      # again (auto-roll.ts ROLLBACK_DEPLOYS bounds it), and this run's settle checks it the same way.
+      image_rollback:
+        description: deploy-production only, set by image-roll-settle; the auto-rolled image a rollback took out
+        type: string
+        default: ""
+      image_roll_run:
+        description: deploy-production with image_rollback only, the roll's run id (its record)
+        type: string
+        default: ""
+      image_rollback_attempt:
+        description: deploy-production with image_rollback only, which production deploy of the rollback this is
+        type: string
+        default: ""
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # A label event for any other label gets a group of its own, so it never
+  # cancels the running check; `check` skips on it.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok' && format('-label-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   check:
-    if: github.event_name != 'workflow_dispatch' || inputs.action == 'deploy-staging' || inputs.action == 'deploy-production'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    # A label event re-runs it only for cmux-vm-breaking-change-ok.
+    if: (github.event_name != 'workflow_dispatch' || inputs.action == 'deploy-staging' || inputs.action == 'deploy-production') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 15
     defaults:
       run:
@@ -183,6 +244,9 @@ jobs:
       - name: Pending history discovers slots from the previous writer
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun scripts/test-pending-history-compat.ts
+      - name: Service key scope grants merge only declared, known scopes
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: bun scripts/test-key-grants.ts
       - name: Store tests on PGlite against the migration
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run test:pg
@@ -209,7 +273,7 @@ jobs:
     environment: cloudflare-ops
     name: cloudflare preflight
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'cloudflare-preflight'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     steps:
       - name: Read-only Cloudflare API checks
@@ -250,7 +314,7 @@ jobs:
   hyperdrive-ensure:
     name: hyperdrive ensure
     if: github.event_name == 'workflow_dispatch' && inputs.action == 'hyperdrive-ensure' && contains(fromJSON('["cmux-vm-staging","cmux-vm-preview"]'), inputs.environment)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     environment: ${{ inputs.environment }}
     concurrency:
@@ -277,7 +341,7 @@ jobs:
   deploy-preview:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feat-cmux-vm-')
     needs: check
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     environment: cmux-vm-preview
     concurrency:
@@ -331,8 +395,8 @@ jobs:
       (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')) ||
       (github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy-staging' || inputs.action == 'deploy-production'))
     needs: check
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 25
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 45
     environment: cmux-vm-staging
     concurrency:
       group: cmux-vm-deploy-staging
@@ -381,6 +445,23 @@ jobs:
         env:
           CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
         run: bun db-release.ts gate --tree cmux-vm --target staging --url-env CMUX_VM_DATABASE_URL
+      # The headless Cloud journey (scripts/cmux-next/cloud-journey.ts: create machine, start agent, chat,
+      # reply, delete) on the version serving now, so the run after the deploy can tell the deploy's own
+      # reds from ones that were already there (plans/cloud/ARCHITECTURE-2026-11.md, M1).
+      - name: Cloud journey baseline (before the deploy)
+        if: steps.gate.outputs.enabled == 'true'
+        continue-on-error: true
+        working-directory: .
+        env:
+          JOURNEY_PHASE: baseline
+          # The shared model stub, not a real Claude login: a used-up test-account quota must never fail
+          # (or roll back) a deploy. The real model has its own six-hourly canary (cloud-journey-prod.yml).
+          JOURNEY_MODEL: stub
+          TARGET: staging
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+        run: bash scripts/cmux-next/cloud-journey-ci.sh
       - name: Record the serving version (the rollback target)
         if: steps.gate.outputs.enabled == 'true'
         env:
@@ -400,6 +481,10 @@ jobs:
           CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
           # Optional (cx-b4h.13): service key hashes; absent leaves the Worker's current value.
           CMUX_VM_SERVICE_KEYS: ${{ secrets.CMUX_VM_SERVICE_KEYS }}
+          # Optional: more entries appended to CMUX_VM_SERVICE_KEYS (deploy.sh), so a key is added without rewriting it.
+          CMUX_VM_SERVICE_KEYS_EXTRA: ${{ secrets.CMUX_VM_SERVICE_KEYS_EXTRA }}
+          # Optional: cmux-platform's Cloud driver key entry, appended the same way (deploy.sh).
+          CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM: ${{ secrets.CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM }}
         run: bash scripts/deploy.sh
       # Runs whenever the deploy step started, also when it failed half way (deploy.sh deploys, then
       # sets secrets: a failed `secret bulk` leaves a version that answers 503 "not configured"), and
@@ -431,6 +516,33 @@ jobs:
           --url "${URL:-https://vm-staging.cmux.dev}" --routes release-smoke.json
           --previous-file "$RUNNER_TEMP/cmux-vm-previous-version" --changed-since "$BEFORE" --source-dir .
           --wrangler node_modules/.bin/wrangler
+      # A step green before the deploy and red after it (exit 3) rolls the Worker back to the recorded
+      # version; a red that was already red before is reported in the summary and does not.
+      - name: Cloud journey after the deploy; roll back on a new red
+        if: ${{ steps.gate.outputs.enabled == 'true' && steps.deploy.outcome == 'success' }}
+        env:
+          JOURNEY_PHASE: after
+          JOURNEY_MODEL: stub
+          TARGET: staging
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set +e
+          bash ../../scripts/cmux-next/cloud-journey-ci.sh
+          rc=$?
+          set -e
+          if [ "$rc" != 3 ]; then exit 0; fi
+          previous="$(cat "$RUNNER_TEMP/cmux-vm-previous-version" 2>/dev/null || true)"
+          if [ -z "$previous" ]; then
+            echo "::error title=Cloud journey::the deploy turned journey steps red and no previous version is recorded; fix forward now"
+            exit 1
+          fi
+          node_modules/.bin/wrangler rollback "$previous" --name cmux-vm-staging -y --message "auto-rollback: Cloud journey red"
+          echo "::error title=Cloud journey::the deploy turned journey steps red; rolled cmux-vm-staging back to $previous"
+          exit 1
 
   smoke-staging:
     # The staging smoke chain is diagnostic only. Deployment ownership and
@@ -441,7 +553,7 @@ jobs:
       (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next')) ||
       (github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy-staging' || inputs.action == 'deploy-production'))
     needs: deploy-staging
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     environment: cmux-vm-staging
     concurrency:
@@ -497,17 +609,32 @@ jobs:
         run: bun scripts/smoke.ts
 
   deploy-production:
-    # Production (cx-b4h.5): dispatch only, from feat-cmux-next, in the same run as and after the green
-    # staging deploy of this exact SHA. The cmux-vm-production environment admits only
+    # Production (cx-b4h.5): from feat-cmux-next only. The cmux-vm-production environment admits only
     # feat-cmux-next. cmux-old never calls vm.cmux.dev; the schema is applied by the release rails first.
-    if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production' && github.ref == 'refs/heads/feat-cmux-next'
-    needs: smoke-staging
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 25
+    # Every push to feat-cmux-next that touches the Worker, and action deploy-production, once the migrations
+    # are applied: no manual step between a landing and production (M2).
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/feat-cmux-next' &&
+      needs.check.result == 'success' &&
+      (needs.migrate-production.result == 'success' || (needs.migrate-production.result == 'skipped' &&
+      github.event_name == 'push' && startsWith(github.event.head_commit.message, 'cmux-vm: image roll'))) &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production'))
+    # Only the code check, not the staging deploy and smoke: NEXT production has no outside users, so a
+    # production deploy no longer waits on staging (Leo, 2026-11-04: "why did we have to take so long doing
+    # a song and dance ON AN EMPTY DATABASE"). The deploy ordering gate below still refuses a commit whose
+    # migrations production lacks.
+    needs: [check, migrate-production]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 45
     environment: cmux-vm-production
     concurrency:
       group: cmux-vm-deploy-production
       cancel-in-progress: false
+    # 'success' when the Worker deploy step ran and succeeded (it is skipped when CMUX_VM_DEPLOY_ENABLED is off) and
+    # the smoke did not fail (a red smoke may have rolled the Worker back), for journey-production. A rollback by the
+    # journey step fails the job, which journey-production also requires to succeed.
+    outputs:
+      deployed: ${{ steps.deploy.outcome == 'success' && steps.smoke.outcome != 'failure' && 'success' || 'no' }}
     defaults:
       run:
         working-directory: workers/cmux-vm
@@ -552,6 +679,23 @@ jobs:
         env:
           CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
         run: bun db-release.ts gate --tree cmux-vm --target production --url-env CMUX_VM_DATABASE_URL
+      # The headless Cloud journey (scripts/cmux-next/cloud-journey.ts: create machine, start agent, chat,
+      # reply, delete) on the version serving now, so the run after the deploy can tell the deploy's own
+      # reds from ones that were already there (plans/cloud/ARCHITECTURE-2026-11.md, M1).
+      - name: Cloud journey baseline (before the deploy)
+        if: steps.gate.outputs.enabled == 'true'
+        continue-on-error: true
+        working-directory: .
+        env:
+          JOURNEY_PHASE: baseline
+          # The shared model stub, not a real Claude login: a used-up test-account quota must never fail
+          # (or roll back) a deploy. The real model has its own six-hourly canary (cloud-journey-prod.yml).
+          JOURNEY_MODEL: stub
+          TARGET: prod
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_JOURNEY_PROD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_JOURNEY_PROD_STACK_PASSWORD }}
+          PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+        run: bash scripts/cmux-next/cloud-journey-ci.sh
       - name: Record the serving version (the rollback target)
         if: steps.gate.outputs.enabled == 'true'
         env:
@@ -571,6 +715,10 @@ jobs:
           CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
           # Optional (cx-b4h.13): service key hashes; absent leaves the Worker's current value.
           CMUX_VM_SERVICE_KEYS: ${{ secrets.CMUX_VM_SERVICE_KEYS }}
+          # Optional: more entries appended to CMUX_VM_SERVICE_KEYS (deploy.sh), so a key is added without rewriting it.
+          CMUX_VM_SERVICE_KEYS_EXTRA: ${{ secrets.CMUX_VM_SERVICE_KEYS_EXTRA }}
+          # Optional: cmux-platform's Cloud driver key entry, appended the same way (deploy.sh).
+          CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM: ${{ secrets.CMUX_VM_SERVICE_KEYS_CLOUD_PLATFORM }}
         run: bash scripts/deploy.sh
       # Runs whenever the deploy step started, also when it failed half way (deploy.sh deploys, then
       # sets secrets: a failed `secret bulk` leaves a version that answers 503 "not configured"), and
@@ -588,6 +736,7 @@ jobs:
           line="$(bun scripts/cmux-next/release/pin-host.ts --host "$host" --wait-seconds 300)"
           echo "$line" | sudo tee -a /etc/hosts
       - name: Smoke health and changed routes; roll back on red
+        id: smoke
         if: ${{ always() && steps.gate.outputs.enabled == 'true' && steps.deploy.outcome != 'skipped' }}
         # Runtime smoke is diagnostic only; a flaky endpoint must not gate a
         # feature branch or a nightly publication.
@@ -602,21 +751,96 @@ jobs:
           --url "${URL:-https://vm.cmux.dev}" --routes release-smoke.json
           --previous-file "$RUNNER_TEMP/cmux-vm-previous-version" --changed-since "$BEFORE" --source-dir .
           --wrangler node_modules/.bin/wrangler
+      # A step green before the deploy and red after it (exit 3) rolls the Worker back to the recorded
+      # version; a red that was already red before is reported in the summary and does not.
+      - name: Cloud journey after the deploy; roll back on a new red
+        if: ${{ steps.gate.outputs.enabled == 'true' && steps.deploy.outcome == 'success' }}
+        env:
+          JOURNEY_PHASE: after
+          JOURNEY_MODEL: stub
+          TARGET: prod
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_JOURNEY_PROD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_JOURNEY_PROD_STACK_PASSWORD }}
+          PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set +e
+          bash ../../scripts/cmux-next/cloud-journey-ci.sh
+          rc=$?
+          set -e
+          if [ "$rc" != 3 ]; then exit 0; fi
+          previous="$(cat "$RUNNER_TEMP/cmux-vm-previous-version" 2>/dev/null || true)"
+          if [ -z "$previous" ]; then
+            echo "::error title=Cloud journey::the deploy turned journey steps red and no previous version is recorded; fix forward now"
+            exit 1
+          fi
+          node_modules/.bin/wrangler rollback "$previous" --name cmux-vm-production -y --message "auto-rollback: Cloud journey red"
+          echo "::error title=Cloud journey::the deploy turned journey steps red; rolled cmux-vm-production back to $previous"
+          exit 1
+
+  # The Cloud journey on production right after a deploy, as the production agent test account. That pair is in
+  # cmux-next-cloud-journey (as in backend.yml's journey-production), not in cmux-vm-production, whose journey steps
+  # above say "not run" until it holds CMUX_JOURNEY_PROD_STACK_*. This job proves the deploy (its verdict
+  # annotation is what cmuxterm-hq's cloud_deploy_gate reads, within 5 min of the deploy); it does not roll back.
+  # It takes no deploy lock: a queued job in that concurrency group would cancel a queued deploy. Instead the gate
+  # proves no deploy with a journey that finished after a later production deploy.
+  journey-production:
+    needs: deploy-production
+    # Never after a rollback: a journey on the previous version would prove the deploy it replaced.
+    if: >-
+      (!cancelled() && needs.deploy-production.result == 'success' && needs.deploy-production.outputs.deployed == 'success') &&
+      !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # The full lifecycle journey's waits; cloud-journey-prod.yml allows the same.
+    timeout-minutes: 30
+    environment: cmux-next-cloud-journey
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cmux-next
+            Packages/macOS/CmuxNext/Sources/CmuxNextCloudCredentials
+            tests/fixtures/model-stub
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Cloud journey (prod, after the deploy)
+        env:
+          JOURNEY_MODEL: stub
+          TARGET: prod
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+        run: bash scripts/cmux-next/cloud-journey-ci.sh
 
   smoke-production:
     # After deploy-production, or alone (action smoke-production: the live version, no deploy, no rollback).
     # This is diagnostic only and never blocks the feature branch or nightly.
     continue-on-error: true
     if: >-
-      !cancelled() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' &&
-      (inputs.action == 'smoke-production' || (inputs.action == 'deploy-production' && needs.deploy-production.result == 'success'))
+      !cancelled() && github.ref == 'refs/heads/feat-cmux-next' &&
+      ((github.event_name == 'workflow_dispatch' && inputs.action == 'smoke-production') ||
+      ((github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production')) && needs.deploy-production.result == 'success'))
     needs: deploy-production
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     environment: cmux-vm-production
+    # id-token: the product smoke authenticates with this job's GitHub OIDC token (workers/cmux-vm/src/auth/ci-trust.ts).
+    permissions:
+      contents: read
+      id-token: write
     concurrency:
       group: cmux-vm-smoke-production
       cancel-in-progress: false
+    # The product create's own outcome (before the job-level continue-on-error), which image-roll-settle reads.
+    outputs:
+      product: ${{ steps.product.outcome }}
+      boot_image: ${{ steps.product.outputs.boot_image }}
+      done_at: ${{ steps.product.outputs.done_at }}
     defaults:
       run:
         working-directory: workers/cmux-vm
@@ -628,11 +852,14 @@ jobs:
           URL: ${{ vars.CMUX_VM_PRODUCTION_URL }}
           HAS_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY != '' }}
         run: |
-          if [ "$ENABLED" = 1 ] && [ -n "$URL" ] && [ "$HAS_KEY" = true ]; then
+          # The product smoke needs no key (OIDC); only the dev/test service leg needs CMUX_VM_SMOKE_SERVICE_KEY.
+          echo "service_key=$HAS_KEY" >> "$GITHUB_OUTPUT"
+          [ "$HAS_KEY" = true ] || echo "::notice::No CMUX_VM_SMOKE_SERVICE_KEY in cmux-vm-production: the dev/test service leg is skipped."
+          if [ "$ENABLED" = 1 ] && [ -n "$URL" ]; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            echo "::error::Production smoke cannot run: needs CMUX_VM_DEPLOY_ENABLED=1, CMUX_VM_PRODUCTION_URL and CMUX_VM_SMOKE_SERVICE_KEY in cmux-vm-production."
+            echo "::error::Production smoke cannot run: needs CMUX_VM_DEPLOY_ENABLED=1 and CMUX_VM_PRODUCTION_URL in cmux-vm-production."
             exit 1
           fi
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -668,7 +895,7 @@ jobs:
       # Production has no tenant smoke key: the service leg alone, on a synthetic dev/test team
       # (DEV_TEST_TENANT_IDS), create, exec, pause and delete by exact id.
       - name: Smoke the production Worker (service key, dev/test team)
-        if: steps.gate.outputs.enabled == 'true'
+        if: steps.gate.outputs.enabled == 'true' && steps.gate.outputs.service_key == 'true'
         continue-on-error: true
         env:
           CMUX_VM_SMOKE_URL: ${{ vars.CMUX_VM_PRODUCTION_URL }}
@@ -676,3 +903,385 @@ jobs:
           CMUX_VM_SMOKE_SERVICE_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY }}
           CMUX_VM_SMOKE_SERVICE_TEAM: ${{ vars.CMUX_VM_SMOKE_SERVICE_TEAM }}
         run: bun scripts/smoke.ts
+      # The product create path (scripts/smoke-product.ts): a product team (never-pause -1 idle default) and the approved boot image, as cmux-platform creates. The dev/test leg
+      # above passed while every product create answered 503 (cmux#35012). No step-level continue-on-error, so
+      # a red shows on the job; the job itself stays non-blocking.
+      # No key: the job's GitHub OIDC token (audience: the Worker's origin) maps to the Worker's CMUX_VM_CI_TRUST row
+      # ci-product-smoke, its own team and VMs only, at most 2, each paused after 15 minutes and deleted once stopped.
+      # On an image roll or rollback commit (cloud-vm-image-roll.yml, image-roll-settle) and a rollback's retried
+      # deploy it boots the first image, whatever CMUX_VM_SMOKE_IMAGE names: that boot is the production check.
+      - name: Smoke the product create path (CI OIDC principal, product team, approved boot image)
+        id: product
+        if: steps.gate.outputs.enabled == 'true'
+        env:
+          CMUX_VM_SMOKE_URL: ${{ vars.CMUX_VM_PRODUCTION_URL }}
+          CMUX_VM_SMOKE_IMAGE: "${{ !startsWith(github.event.head_commit.message, 'cmux-vm: image roll') && inputs.image_rollback == '' && vars.CMUX_VM_SMOKE_IMAGE || '' }}"
+          CMUX_VM_SMOKE_IMAGE_REVISION: "${{ !startsWith(github.event.head_commit.message, 'cmux-vm: image roll') && inputs.image_rollback == '' && vars.CMUX_VM_SMOKE_IMAGE_REVISION || '' }}"
+        run: bun scripts/smoke-product.ts
+
+  # After an image roll commit's production deploy and smoke (cloud-vm-image-roll.yml, subject "cmux-vm: image
+  # roll "), and after each production deploy of a rollback (subject "cmux-vm: image rollback ", or the
+  # deploy-production dispatch with image_rollback this job sends). `auto-roll.ts settle` decides:
+  #   roll      green (the product create booted the image) records it. Anything else (failed, cancelled, timed
+  #             out, skipped) lands a rollback commit that takes the image out of both lists
+  #             (image-roll-push.sh rollback), first or not, so a newer roll's own rollback can never bring it
+  #             back; only an image already gone from both lists needs nothing. A cancel proves nothing: the
+  #             deploy queue never cancels a running deploy, so a cancel is a person or a timeout.
+  #   rollback  verified when the deployed list no longer has the image and the create booted its first entry.
+  #             Otherwise it dispatches deploy-production again, at most ROLLBACK_DEPLOYS deploys in all, then
+  #             records rollback_failed and comments on the cloud-image-roll issue. It never lands another
+  #             rollback commit, so a rollback cannot loop.
+  image-roll-settle:
+    needs: [deploy-production, smoke-production]
+    if: >-
+      always() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' &&
+      ((github.event_name == 'push' && startsWith(github.event.head_commit.message, 'cmux-vm: image roll')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-production' && inputs.image_rollback != '')) &&
+      !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'cmux-vm-breaking-change-ok')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 15
+    # The push App key is a repository secret; the environment (feat-cmux-next only) bounds who can reach it.
+    environment: cmux-vm-production
+    # actions: write dispatches a rollback's retried deploy (gh workflow run cmux-vm.yml).
+    permissions:
+      actions: write
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: feat-cmux-next
+          fetch-depth: 50
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Read the roll
+        id: roll
+        env:
+          EVENT: ${{ github.event_name }}
+          MESSAGE: ${{ github.event.head_commit.message }}
+          IN_IMAGE: ${{ inputs.image_rollback }}
+          IN_RUN: ${{ inputs.image_roll_run }}
+          IN_ATTEMPT: ${{ inputs.image_rollback_attempt }}
+          DEPLOY: ${{ needs.deploy-production.result }}
+          PRODUCT: ${{ needs.smoke-production.outputs.product }}
+          BOOT: ${{ needs.smoke-production.outputs.boot_image }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = push ]; then
+            run="$(sed -n 's/^Image-Roll-Run: \([0-9]\{1,20\}\)$/\1/p' <<< "$MESSAGE" | tail -1)"
+            image="$(sed -n 's/^Image-Roll-Image: \(cloud-native-auto-[a-z0-9-]\{1,44\}\)$/\1/p' <<< "$MESSAGE" | tail -1)"
+            kind=roll attempt=1
+            if [[ "$MESSAGE" == "cmux-vm: image rollback "* ]]; then kind=rollback; fi
+          else
+            run="$IN_RUN" image="$IN_IMAGE" kind=rollback attempt="$IN_ATTEMPT"
+            [[ "$run" =~ ^[0-9]{1,20}$ && "$image" =~ ^cloud-native-auto-[a-z0-9-]{1,44}$ && "$attempt" =~ ^[1-9][0-9]?$ ]] \
+              || { echo "::error title=Image roll::bad image_rollback, image_roll_run or image_rollback_attempt"; exit 1; }
+          fi
+          [ -n "$run" ] && [ -n "$image" ] || { echo "::error title=Image roll::the commit has no Image-Roll-Run or Image-Roll-Image trailer"; exit 1; }
+          # Written first: if the decision below fails, the record step still runs and is loud (no outcome is never green).
+          { echo "run=$run"; echo "image=$image"; echo "kind=$kind"; echo "attempt=$attempt"; } >> "$GITHUB_OUTPUT"
+          # What this run deployed (github.sha) and what the tip says now (the checkout).
+          git fetch -q --depth 1 origin "$GITHUB_SHA" || true
+          git show "${GITHUB_SHA}:workers/cmux-vm/wrangler.jsonc" > "$RUNNER_TEMP/deployed-wrangler.jsonc"
+          bun images/cmux-vm/auto-roll.ts settle --kind "$kind" --image "$image" --deploy "$DEPLOY" --product "$PRODUCT" \
+            --boot-image "$BOOT" --attempt "$attempt" --deployed-wrangler "$RUNNER_TEMP/deployed-wrangler.jsonc" > "$RUNNER_TEMP/settle.json"
+          cat "$RUNNER_TEMP/settle.json"
+          outcome="$(jq -r .outcome "$RUNNER_TEMP/settle.json")"
+          { echo "outcome=$outcome"; echo "next=$(jq -r .nextAttempt "$RUNNER_TEMP/settle.json")"; } >> "$GITHUB_OUTPUT"
+          echo "Image ${kind} ${run} (${image}): ${outcome}. $(jq -r .reason "$RUNNER_TEMP/settle.json")." | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Mint the push token
+        id: push-token
+        if: steps.roll.outputs.outcome == 'rollback'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.CMUX_PR_AUTOFIX_APP_ID }}
+          private-key: ${{ secrets.CMUX_PR_AUTOFIX_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+      - name: Roll the image back
+        id: rollback
+        if: steps.roll.outputs.outcome == 'rollback'
+        env:
+          TOKEN: ${{ steps.push-token.outputs.token }}
+          IMAGE: ${{ steps.roll.outputs.image }}
+          ROLL: ${{ steps.roll.outputs.run }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          {
+            echo "cmux-vm: image rollback ${IMAGE} (production deploy or smoke red on ${GITHUB_SHA:0:12})"
+            echo
+            echo "The production deploy or the product create on ${IMAGE} was not green in ${RUN_URL}; the image leaves"
+            echo "VM_BOOT_IMAGES and the entry before it boots again."
+            echo
+            echo "Image-Roll-Run: ${ROLL}"
+            echo "Image-Roll-Image: ${IMAGE}"
+            echo "Image-Roll-Rollback-Of: ${GITHUB_SHA}"
+          } > "$RUNNER_TEMP/message.txt"
+          images/cmux-vm/image-roll-push.sh rollback --image "$IMAGE" --message-file "$RUNNER_TEMP/message.txt" | tee "$RUNNER_TEMP/rollback.out"
+          tail -1 "$RUNNER_TEMP/rollback.out" | sed 's/^/Rollback: /' >> "$GITHUB_STEP_SUMMARY"
+      # A rollback not yet verified: deploy production again (the tip, which no longer has the image first) and
+      # settle that deploy the same way, with the next attempt number.
+      - name: Deploy the rollback again
+        id: retry
+        if: steps.roll.outputs.outcome == 'retry'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ${{ steps.roll.outputs.image }}
+          ROLL: ${{ steps.roll.outputs.run }}
+          NEXT: ${{ steps.roll.outputs.next }}
+        run: |
+          set -euo pipefail
+          gh workflow run cmux-vm.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f action=deploy-production \
+            -f image_rollback="$IMAGE" -f image_roll_run="$ROLL" -f image_rollback_attempt="$NEXT"
+          echo "::warning title=Image rollback::${IMAGE}'s rollback is not verified yet; production deploy ${NEXT} dispatched"
+      - name: Record the production smoke and any rollback
+        if: always() && steps.roll.outputs.run != ''
+        env:
+          TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+          ROLL: ${{ steps.roll.outputs.run }}
+          IMAGE: ${{ steps.roll.outputs.image }}
+          KIND: ${{ steps.roll.outputs.kind }}
+          ATTEMPT: ${{ steps.roll.outputs.attempt }}
+          OUTCOME: ${{ steps.roll.outputs.outcome }}
+          DEPLOY: ${{ needs.deploy-production.result }}
+          PRODUCT: ${{ needs.smoke-production.outputs.product }}
+          BOOT: ${{ needs.smoke-production.outputs.boot_image }}
+          SMOKE_DONE_AT: ${{ needs.smoke-production.outputs.done_at }}
+          ROLLBACK: ${{ steps.rollback.outputs.result }}
+          ROLLBACK_SHA: ${{ steps.rollback.outputs.sha }}
+          RETRY: ${{ steps.retry.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          # A retry whose dispatch failed leaves nothing to verify the rollback: as loud as rollback_failed.
+          if [ "$OUTCOME" = retry ] && [ "$RETRY" != success ]; then OUTCOME=rollback_failed; fi
+          seen="deploy ${DEPLOY:-none}, product smoke ${PRODUCT:-not run}, booted ${BOOT:-nothing}"
+          if [ "$KIND" = roll ]; then
+            jq -n --arg now "$now" --arg run "$RUN_URL" --arg commit "$GITHUB_SHA" --arg deploy "$DEPLOY" --arg product "${PRODUCT:-}" \
+              --arg boot "${BOOT:-}" --arg outcome "$OUTCOME" --arg rollback "${ROLLBACK:-}" --arg rollback_sha "${ROLLBACK_SHA:-}" \
+              --arg smoke_done "${SMOKE_DONE_AT:-$now}" \
+              '{production: {commit: $commit, run: $run, deploy: $deploy, product_smoke: (if $product == "" then "not-run" else $product end), boot_image: $boot,
+                  smoke_done_at: $smoke_done, green: ($outcome == "green"), superseded: ($outcome == "superseded")},
+                rolled_back: ($rollback == "pushed"),
+                rollback: (if $outcome != "rollback" then null else {result: (if $rollback == "" then "failed" else $rollback end), commit: $rollback_sha, at: $now} end)}' \
+              | bash images/cmux-vm/image-roll-record.sh "$ROLL" || echo "::warning title=Image roll record::the record was not written"
+            case "$OUTCOME" in green|superseded) exit 0 ;; esac
+            what="${IMAGE} was not green in production (${seen}); rollback: ${ROLLBACK:-failed}"
+          else
+            jq -n --arg now "$now" --arg run "$RUN_URL" --arg commit "$GITHUB_SHA" --arg deploy "$DEPLOY" --arg product "${PRODUCT:-}" \
+              --arg boot "${BOOT:-}" --arg outcome "$OUTCOME" --arg attempt "$ATTEMPT" \
+              '{rollback: {result: (if $outcome == "retry" then "retrying" else $outcome end),
+                  deploys: {($attempt): {commit: $commit, run: $run, deploy: $deploy, product_smoke: (if $product == "" then "not-run" else $product end), boot_image: $boot, at: $now}}},
+                rollback_failed: ($outcome == "rollback_failed")}' \
+              | bash images/cmux-vm/image-roll-record.sh "$ROLL" || echo "::warning title=Image roll record::the record was not written"
+            case "$OUTCOME" in verified|retry) exit 0 ;; esac
+            what="the rollback of ${IMAGE} is not verified after production deploy ${ATTEMPT} (${seen}); production may still boot it: rollback_failed"
+          fi
+          echo "::error title=Cloud VM image roll::${what}"
+          body="Cloud VM image roll ${ROLL}: ${what}. ${RUN_URL}"
+          issue="$(gh issue list --repo "$GITHUB_REPOSITORY" --label cloud-image-roll --state open --limit 1 --json number --jq '.[0].number // empty' || true)"
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh label create cloud-image-roll --repo "$GITHUB_REPOSITORY" --color B60205 --description "Cloud VM image roll gate, promotion or rollback" --force > /dev/null || true
+            gh issue create --repo "$GITHUB_REPOSITORY" --label cloud-image-roll --title "Cloud VM image roll is red" --body "$body" \
+              || gh issue create --repo "$GITHUB_REPOSITORY" --title "Cloud VM image roll is red" --body "$body"
+          fi
+          exit 1
+
+  tail-production:
+    # Action tail-production: streams the production Worker's live events (`wrangler tail`) for tail_minutes,
+    # so a 503 "temporarily unavailable" shows the dependency behind it while someone reproduces it. Only the
+    # Cloudflare secrets are read, in cmux-vm-production like the deploy (a dispatchable job that reads a secret
+    # names its environment, tests/test_supplychain_security.py). Printed per event:
+    # time, method, path, status, outcome, Durable Object RPC, log lines and exceptions (scripts/tail-filter.mjs);
+    # no headers, bodies or query strings, emails redacted.
+    name: tail production
+    # feat-cmux-next only: the job runs checked-out code (bun install, the filter) with the Cloudflare token.
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'tail-production' && github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 30
+    environment: cmux-vm-production
+    defaults:
+      run:
+        working-directory: workers/cmux-vm
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+      - name: Tail cmux-vm-production
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MINUTES: ${{ inputs.tail_minutes }}
+        run: |
+          set -euo pipefail
+          minutes="${MINUTES:-10}"
+          case "$minutes" in ''|*[!0-9]*) minutes=10 ;; esac
+          [ "$minutes" -ge 1 ] || minutes=1
+          [ "$minutes" -le 25 ] || minutes=25
+          echo "tailing cmux-vm-production for ${minutes}m"
+          # wrangler prints pretty JSON events on stdout and its banner on stderr; the filter keeps only the
+          # summary of each event (no headers or bodies: this log is public).
+          # timeout's exit 124 is the normal end of the window; any other failure (auth, wrangler, the filter) fails the job.
+          status=0
+          timeout "${minutes}m" node_modules/.bin/wrangler tail cmux-vm-production --format json 2> "$RUNNER_TEMP/wrangler-tail.err" \
+            | node scripts/tail-filter.mjs || status=$?
+          tail -n 5 "$RUNNER_TEMP/wrangler-tail.err" | sed -E 's/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/<email>/g'
+          echo "tail ended"
+          [ "$status" = 0 ] || [ "$status" = 124 ] || exit "$status"
+
+  sweep-orphans-production:
+    # cmux#35013: provider VMs whose create failed after the provider made them (no ownership row) run and bill
+    # unpaused. This lists them and, with dry_run=false, deletes them in the same run (scripts/sweep-orphans.ts lists
+    # first, then lists again and deletes). The Worker's cron runs the same sweep every 5 minutes; this is the
+    # on-demand run. feat-cmux-next only: the job runs checked-out code with the production provider key and database.
+    name: sweep orphan VMs (production)
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'sweep-orphans-production' && github.ref == 'refs/heads/feat-cmux-next'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 20
+    environment: cmux-vm-production
+    defaults:
+      run:
+        working-directory: workers/cmux-vm
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - run: bun install --frozen-lockfile
+      - name: Sweep cmux-vm-production orphans
+        env:
+          CMUX_VM_ENVIRONMENT: production
+          UPSTREAM_API_URL: https://api.freestyle.sh
+          CMUX_VM_UPSTREAM_API_KEY: ${{ secrets.CMUX_VM_UPSTREAM_API_KEY }}
+          CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [ "$DRY_RUN" = false ]; then bun scripts/sweep-orphans.ts --delete; else bun scripts/sweep-orphans.ts; fi
+
+  migrate-production:
+    # Production cmux_vm migrations (release-rails.md, "Production migrations from CI"): every push to
+    # feat-cmux-next and action deploy-production apply them before the deploy (no rehearsal: NEXT production
+    # has only our team, Leo 2026-11-03/04); action migrate-production runs them alone, in cmux-vm-production.
+    # Shares deploy-production's concurrency group, so a migration and a deploy never overlap. Changes only schema cmux_vm of cmux-prod main and the PlanetScale role cmux-vm-owner.
+    name: migrate production (cmux_vm)
+    # Not on an image roll or rollback commit (cloud-vm-image-roll.yml): it changes only wrangler.jsonc and the
+    # image lock, never a migration, and its deploy waited 1.4 min here for nothing (run 42369188953; goal
+    # cloud-fix-to-machine). deploy-production's ordering gate still refuses a commit production lacks a migration for.
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/feat-cmux-next' && (needs.check.result == 'success' || needs.check.result == 'skipped') &&
+      !(github.event_name == 'push' && startsWith(github.event.head_commit.message, 'cmux-vm: image roll')) &&
+      (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (inputs.action == 'migrate-production' || inputs.action == 'deploy-production')))
+    needs: check
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    # A rehearsal restores a branch copy (up to 20 min) and an apply rehearses again, plus the PITR wait.
+    timeout-minutes: 90
+    environment: cmux-vm-production
+    concurrency:
+      group: cmux-vm-deploy-production
+      cancel-in-progress: false
+    steps:
+      # Fail closed: without the PlanetScale service token nothing runs (no checkout, no install, no read).
+      - name: Required secrets
+        env:
+          DRY_RUN: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'migrate-production' && inputs.dry_run) }}
+          HAS_PSCALE_ID: ${{ secrets.PLANETSCALE_SERVICE_TOKEN_ID != '' }}
+          HAS_PSCALE_TOKEN: ${{ secrets.PLANETSCALE_SERVICE_TOKEN != '' }}
+          HAS_DB: ${{ secrets.CMUX_VM_DATABASE_URL != '' }}
+        run: |
+          set -euo pipefail
+          missing=()
+          [ "$HAS_PSCALE_ID" = true ] || missing+=(PLANETSCALE_SERVICE_TOKEN_ID)
+          [ "$HAS_PSCALE_TOKEN" = true ] || missing+=(PLANETSCALE_SERVICE_TOKEN)
+          [ "$HAS_DB" = true ] || missing+=(CMUX_VM_DATABASE_URL)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error title=migrate-production::cmux-vm-production lacks ${missing[*]}; nothing ran (PLANETSCALE_SERVICE_TOKEN_ID and PLANETSCALE_SERVICE_TOKEN are a PlanetScale service token of org cmux with access to cmux-prod)"
+            exit 1
+          fi
+          echo "mode: $([ "$DRY_RUN" = true ] && echo 'dry run (inspect, plan, rehearse)' || echo 'APPLY to cmux-prod main, schema cmux_vm')"
+      # Full history without blobs: the apply checks HEAD is on origin/feat-cmux-next and the compat gate
+      # compares release tags and web revisions by ancestry.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - name: Install the release rails
+        working-directory: scripts/cmux-next/release
+        run: bun install --frozen-lockfile
+      - name: Install pscale 0.349.0 (checksum pinned)
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64) arch=amd64; sum=139dc952ccdd21e68b3e70c20f48f9adb3559ee62f6fdcd6d42ddf9b086825f7 ;;
+            aarch64|arm64) arch=arm64; sum=c319e1f1c6699e0fc1ec455329be241c0c555ef244b0edb0f90751eb5cc13f09 ;;
+            *) echo "::error::no pinned pscale for $(uname -m)"; exit 1 ;;
+          esac
+          dir="$RUNNER_TEMP/pscale"
+          mkdir -p "$dir"
+          tarball="$dir/pscale.tar.gz"
+          curl -fsSL --retry 3 -o "$tarball" "https://github.com/planetscale/cli/releases/download/v0.349.0/pscale_0.349.0_linux_${arch}.tar.gz"
+          echo "$sum  $tarball" | sha256sum -c -
+          tar -xzf "$tarball" -C "$dir" pscale
+          "$dir/pscale" version
+          echo "PSCALE_BIN=$dir/pscale" >> "$GITHUB_ENV"
+      # Production steps run with only the variables they need (release-rails.md, "Hardening 1"): every other
+      # exported variable is unset in the subshell first, so nothing else reaches the rails or a child.
+      - name: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'migrate-production' && inputs.dry_run) && 'Inspect, plan and rehearse (dry run; production unchanged)' || 'Inspect, owner, adopt and apply (production)' }}
+        working-directory: scripts/cmux-next/release
+        env:
+          MODE: ${{ (github.event_name == 'workflow_dispatch' && inputs.action == 'migrate-production' && inputs.dry_run) && 'dry-run' || 'migrate' }}
+          CMUX_VM_SKIP_REHEARSAL: ${{ (github.event_name == 'push' || inputs.action == 'deploy-production' || inputs.skip_rehearsal) && 'true' || 'false' }}
+          PLANETSCALE_SERVICE_TOKEN_ID: ${{ secrets.PLANETSCALE_SERVICE_TOKEN_ID }}
+          PLANETSCALE_SERVICE_TOKEN: ${{ secrets.PLANETSCALE_SERVICE_TOKEN }}
+          CMUX_VM_DATABASE_URL: ${{ secrets.CMUX_VM_DATABASE_URL }}
+          CMUX_RELEASE_RECEIPTS_DIR: ${{ runner.temp }}/receipts
+        run: |
+          set -euo pipefail
+          mkdir -p "$CMUX_RELEASE_RECEIPTS_DIR"
+          # Shell (unexported) copies: the cleanup below unsets every exported variable not in `keep`.
+          mode="$MODE"
+          tools="$(dirname "$PSCALE_BIN"):$(dirname "$(command -v bun)"):$(dirname "$(command -v node)")${VERCEL_BIN_DIR:+:$VERCEL_BIN_DIR}"
+          keep=" PLANETSCALE_SERVICE_TOKEN_ID PLANETSCALE_SERVICE_TOKEN CMUX_VM_DATABASE_URL CMUX_RELEASE_RECEIPTS_DIR CMUX_VM_SKIP_REHEARSAL PSCALE_BIN HOME GITHUB_ACTIONS GITHUB_RUN_ID GITHUB_RUN_ATTEMPT GITHUB_SHA "
+          (
+            for v in $(compgen -e); do
+              case "$keep" in *" $v "*) ;; *) unset "$v" 2>/dev/null || true ;; esac
+            done
+            export PATH="$tools:/usr/local/bin:/usr/bin:/bin"
+            exec bun prod-owner.ts "$mode"
+          )
+      - name: Upload the release receipts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-vm-migrate-production-receipts
+          path: ${{ runner.temp }}/receipts
+          if-no-files-found: ignore
+          retention-days: 90

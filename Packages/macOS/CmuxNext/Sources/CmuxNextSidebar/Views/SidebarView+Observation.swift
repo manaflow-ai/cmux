@@ -42,20 +42,35 @@ extension SidebarViewComponents {
         var workspacesAsTabs: Bool
         /// Group by Status (`SidebarTunables.groupByStatus`, Debug, off by default).
         var groupsByStatus: Bool
-        /// The "Done (N)" fold (`SidebarTunables.doneFold`): turning it on or off lays the list out again.
-        var foldsDone: Bool
         /// The row limit (`SidebarTunables.groupRowLimit`): changing it lays the list out again.
         var rowLimit: Int
         /// Where group lines sit (`sidebar.groupLineLayout`): headers reach and lines move, so the list lays out again.
         var groupLineLayout: SidebarGroupLineLayout
+        var groupChromeShape: Bool
         /// Whether a joined line runs out of its header's bar (`SidebarGroupLine.joinsBar`, the band header style)
         /// or starts after the cut: its frame moves, so the list lays out again.
         var groupLineJoinsBar: Bool
+        /// Whether a group with no color draws its block (`sidebar.noColorGroup` not plain) or nothing: the
+        /// group's line view changes kind, so the list lays out again.
+        var noColorBlocks: Bool
+        /// Where leading glyphs sit in the icon column (`sidebar.leadingColumn`): every row lays out again.
+        var leadingColumn: SidebarLeadingColumnLook
+        /// Every token the titlebar row's width reads past the view's own inputs (the reserve, the accessory, the
+        /// Priority bell, which refresh it themselves): the button, the +'s trailing inset (the trailing column at
+        /// the app and sidebar density), the toolbar band's button (the reserve's source), the traffic lights'
+        /// inset and the gaps. A change refreshes
+        /// `SidebarModel.titlebarControlsWidth`, so the minimum width never keeps an old density's.
+        var titlebarRow: [CGFloat]
+        /// What places the window top's line with no view moving or resizing: its variant (Debug Settings
+        /// `chrome.topRowLine`), the titlebar style, the tab bars' edge and what the card's reach reads (#38054). Every window has a sidebar, so it lays
+        /// its window out again on a change, with or without a top-row tab strip; moves reach the strips through
+        /// `TabStripView.updateWindowControlsAvoidance`.
+        var topRow: [String]
         init(_ model: SidebarModel, _ design: DesignSettings) {
             sectionsRevision = model.observedStructureRevision
             selection = model.selection
             selected = model.selectedItem
-            onScreen = SidebarTunables.multiView.value ? model.onScreen : []
+            onScreen = SidebarTunables.multiViewOn ? model.onScreen : []
             profiles = model.profiles
             activeProfile = model.activeProfileID
             filter = model.filterText
@@ -68,18 +83,26 @@ extension SidebarViewComponents {
             preferences = design.sidebarSections
             suppressedApps = model.suppressedApps
             metrics = .standard
-            fontSize = Typography.body.pointSize
+            fontSize = SidebarStyle.titleFont.pointSize
             titlebarHeight = Metrics.titlebarHeight
             cards = SidebarBottomCards(update: model.updateCard, nowPlaying: model.nowPlaying, updated: model.updatedCard, notice: model.noticeCard)
             tree = SidebarSessionTree.shared.drawn
             pullRequests = SidebarSessionTree.shared.pullRequests
             history = SidebarChatHistory.shared.state
-            workspacesAsTabs = SidebarTunables.workspacesAsTabs.value
+            workspacesAsTabs = SidebarTunables.workspacesAsTabsOn
             groupsByStatus = SidebarTunables.groupByStatus.value
-            foldsDone = SidebarTunables.doneFold.value
             rowLimit = SidebarTunables.rowLimit
             groupLineLayout = SidebarGroupLineLayout.tunable.value
+            groupChromeShape = SidebarStyle.groupChromeShape
             groupLineJoinsBar = SidebarGroupLine.joinsBar
+            noColorBlocks = SidebarNoColorGroupLook.tunable.value != .plain
+            leadingColumn = SidebarLeadingColumnLook.tunable.value
+            titlebarRow = [SidebarStyle.toolbarButtonSize, SidebarStyle.titlebarPlusTrailingInset, TitlebarBandButton.side,
+                           Metrics.trafficLightInset, Metrics.space1, Metrics.space2, Metrics.space3]
+            // The line also follows the card's reach (#38054): the gutter, the pane padding, floating panes and the strip's tokens.
+            topRow = [TopRowLineLook.tunable.value.rawValue, "\(DesignSettings.shared.titlebar)", "\(DesignSettings.shared.tabBarPosition)",
+                      "\(Metrics.mainPaneGutter)", "\(Metrics.panePadding)", "\(Metrics.floatingPanes)", "\(Metrics.tabStripHeight)",
+                      "\(Metrics.tabHeight)"]
         }
     }
     func observe() {
@@ -92,6 +115,18 @@ extension SidebarViewComponents {
     /// Draws the model now, in the caller's turn (SidebarSameTurn); the observation's next, equal state is skipped.
     public func renderNow() { render(RenderState(model, design)) }
 
+    /// Draws the model in this turn's frame: the main run loop's block phase, before AppKit's display cycle and the
+    /// commit, once however many times the turn asks. An input's turn changes the model and leaves the view work to
+    /// the frame that shows it (Cmd-N's row, SWITCH STALL 6); a later `renderNow` in the turn draws it first.
+    public func renderInFrame() {
+        guard !renderQueued else { return }
+        renderQueued = true
+        MainRunLoopBlock.perform { [weak self] in
+            self?.renderQueued = false
+            self?.renderNow()
+        }
+    }
+
     /// Draws the model now and scrolls the selection into view, with the header
     /// and list top around it, even when it did not change: Cmd-`n`, Cmd-Ctrl-[ / ]
     /// and the palette pressed again on the item they already selected.
@@ -102,7 +137,13 @@ extension SidebarViewComponents {
     func render(_ state: RenderState) {
         guard state != lastState else { return }
         let chromeChanged = lastState?.metrics != state.metrics || lastState?.fontSize != state.fontSize
-            || lastState?.titlebarHeight != state.titlebarHeight
+            || lastState?.titlebarHeight != state.titlebarHeight || lastState?.leadingColumn != state.leadingColumn
+        if lastState?.titlebarRow != state.titlebarRow {
+            // The window root sets the reserve from the toolbar band, whose width follows the same tokens.
+            window?.contentView?.needsLayout = true
+            titlebarReserveChanged()
+        }
+        if let last = lastState, last.topRow != state.topRow, let window { WindowTitlebar.layOutTopRowAgain(in: window) }
         let profileChanged = lastState?.activeProfile != state.activeProfile
         let profilesChanged = lastState?.profiles != state.profiles || profileChanged
             || lastState?.layout != state.layout || lastState?.itemInfo != state.itemInfo
@@ -113,10 +154,11 @@ extension SidebarViewComponents {
         let rowsChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.filter != state.filter || chromeChanged || profileChanged
             || state.preferences.changesList(from: lastState?.preferences) || lastState?.tree != state.tree
             || lastState?.history != state.history
-            || lastState?.workspacesAsTabs != state.workspacesAsTabs || lastState?.foldsDone != state.foldsDone
+            || lastState?.workspacesAsTabs != state.workspacesAsTabs
             || lastState?.groupsByStatus != state.groupsByStatus
             || lastState?.rowLimit != state.rowLimit || lastState?.groupLineLayout != state.groupLineLayout
-            || lastState?.groupLineJoinsBar != state.groupLineJoinsBar
+            || lastState?.groupChromeShape != state.groupChromeShape
+            || lastState?.groupLineJoinsBar != state.groupLineJoinsBar || lastState?.noColorBlocks != state.noColorBlocks
         let listChanged = rowsChanged || selectionChanged
         // A selected session never hides in a fold (a notification, the palette or Cmd-number chose it).
         if selectionChanged { state.selection.forEach(SidebarSessionTree.shared.reveal) }
@@ -131,7 +173,7 @@ extension SidebarViewComponents {
         }
         // A selected top item (a workspace's tile, a band item) repaints only itself and the one before it;
         // before any reload below, so a block it configures draws the new selection.
-        if lastState?.selected != state.selected { showActiveTopItem() }
+        if lastState?.selected != state.selected || lastState?.selection != state.selection { showActiveTopItem() }
         // A document change (a drop) moves the list's rows and its blocks together: the blocks update now, not at
         // the next layout pass, so the list reloads once with both (ptr8: a settle on the rows alone showed the
         // stale blocks for a frame: the dragged tile back in Pinned, the rows bumped, the card aimed 24 pt off).

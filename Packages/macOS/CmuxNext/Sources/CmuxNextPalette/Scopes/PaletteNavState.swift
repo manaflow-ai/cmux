@@ -66,6 +66,8 @@ nonisolated public struct PaletteNavLevel: Equatable, Sendable, Identifiable {
     /// A batch of `generation` is still expected.
     public internal(set) var isLoading: Bool
     public internal(set) var selection: String?
+    /// Preserve intentional no-selection across refresh/provider batches.
+    public internal(set) var selectionSuppressed = false
     /// The query changed: the next accepted batch selects the default row
     /// instead of keeping the old selection.
     public internal(set) var pendingReset: Bool

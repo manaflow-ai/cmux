@@ -10,7 +10,11 @@ DMG_PATH="$1"
 TAG="$2"
 OUT_PATH="${3:-appcast.xml}"
 
-if [[ -z "${SPARKLE_PRIVATE_KEY:-}" ]]; then
+# SPARKLE_PREBUILD_ONLY_DIR: build only the delta files (BinaryDelta, no key), into that directory, under
+# the names generate_appcast reuses, and stop before any key or appcast. A later keyed run gets them
+# through SPARKLE_PREBUILT_DELTAS_DIR and signs (nightly.yml build-nightly-deltas, generate-nightly-deltas).
+PREBUILD_ONLY_DIR="${SPARKLE_PREBUILD_ONLY_DIR:-}"
+if [[ -z "$PREBUILD_ONLY_DIR" && -z "${SPARKLE_PRIVATE_KEY:-}" ]]; then
   echo "SPARKLE_PRIVATE_KEY is required (exported from Sparkle generate_keys)." >&2
   exit 1
 fi
@@ -19,7 +23,7 @@ fi
 #   SPARKLE_MINIMUM_SYSTEM_VERSION="$(scripts/ci/appcast_minimum_system_version.py floor "$APP")"
 # The new item must carry it as sparkle:minimumSystemVersion, or Sparkle would
 # offer a macOS 26 build (cmux-next) to macOS 14/15. Required: fail closed.
-if [[ -z "${SPARKLE_MINIMUM_SYSTEM_VERSION:-}" ]]; then
+if [[ -z "$PREBUILD_ONLY_DIR" && -z "${SPARKLE_MINIMUM_SYSTEM_VERSION:-}" ]]; then
   echo "SPARKLE_MINIMUM_SYSTEM_VERSION is required (scripts/ci/appcast_minimum_system_version.py floor <app>)." >&2
   exit 1
 fi
@@ -29,7 +33,11 @@ DOWNLOAD_URL_PREFIX="${DOWNLOAD_URL_PREFIX:-https://github.com/manaflow-ai/cmux/
 RELEASE_NOTES_URL="${RELEASE_NOTES_URL:-https://github.com/manaflow-ai/cmux/releases/tag/$TAG}"
 
 work_dir="$(mktemp -d)"
+app_mount=""
 cleanup() {
+  if [[ -n "$app_mount" ]]; then
+    hdiutil detach "$app_mount" -quiet >/dev/null 2>&1 || hdiutil detach "$app_mount" -force -quiet >/dev/null 2>&1 || true
+  fi
   rm -rf "$work_dir"
 }
 trap cleanup EXIT
@@ -39,14 +47,27 @@ trap cleanup EXIT
 # in every nightly variant job. SPARKLE_TOOLS_DIR points at an existing tools
 # directory (tests); other versions still build from source.
 SPARKLE_281_TARBALL_SHA256="5cddb7695674ef7704268f38eccaee80e3accbf19e61c1689efff5b6116d85be"
+# The release asset id of Sparkle-2.8.1.tar.xz, for the API fallback.
+SPARKLE_281_ASSET_ID="316680272"
 if [[ -n "${SPARKLE_TOOLS_DIR:-}" ]]; then
   tools_dir="$SPARKLE_TOOLS_DIR"
 elif [[ "$SPARKLE_VERSION" == "2.8.1" ]]; then
   echo "Downloading Sparkle ${SPARKLE_VERSION} tools..."
   tarball="$work_dir/Sparkle-${SPARKLE_VERSION}.tar.xz"
-  curl --fail --silent --show-error --location --retry 3 --retry-delay 2 \
-    --connect-timeout 15 --max-time 300 -o "$tarball" \
-    "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz"
+  # github.com's release download path answered 504 for over an hour on
+  # 2026-11-08 (nightly runs 42462657834, 42464844265) while the API's asset
+  # endpoint served the same file. Over HTTP/2 that 504 is curl exit 56, which
+  # plain --retry never retries, so retry every error, then fall back to the
+  # asset endpoint. The checksum below checks whichever answered.
+  sparkle_download() {
+    curl --fail --silent --show-error --location --retry 4 --retry-delay 10 --retry-max-time 90 --retry-all-errors \
+      --connect-timeout 15 --max-time 300 -o "$tarball" "$@"
+  }
+  if ! sparkle_download "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz"; then
+    echo "Sparkle release download failed; trying the GitHub API asset endpoint" >&2
+    sparkle_download -H "Accept: application/octet-stream" \
+      "https://api.github.com/repos/sparkle-project/Sparkle/releases/assets/${SPARKLE_281_ASSET_ID}"
+  fi
   actual_sha="$(shasum -a 256 "$tarball" | awk '{print $1}')"
   if [[ "$actual_sha" != "$SPARKLE_281_TARBALL_SHA256" ]]; then
     echo "Sparkle ${SPARKLE_VERSION} tarball checksum mismatch: $actual_sha" >&2
@@ -88,6 +109,78 @@ archives_dir="$work_dir/archives"
 mkdir -p "$archives_dir"
 cp "$DMG_PATH" "$archives_dir/$(basename "$DMG_PATH")"
 
+if [[ -n "$PREBUILD_ONLY_DIR" ]]; then
+  if [[ ! -x "$binary_delta" ]]; then
+    echo "BinaryDelta binary not found at $binary_delta" >&2
+    exit 1
+  fi
+  mkdir -p "$PREBUILD_ONLY_DIR"
+  previous_count=0
+  for previous in "${SPARKLE_PREVIOUS_ARCHIVES_DIR:-/nonexistent}"/*.dmg; do
+    [[ -f "$previous" ]] || continue
+    cp -p "$previous" "$archives_dir/$(basename "$previous")"
+    previous_count=$((previous_count + 1))
+  done
+  if [[ "$previous_count" -gt 0 ]]; then
+    "$(dirname "$0")/prebuild_sparkle_deltas.sh" \
+      "$binary_delta" "$archives_dir" "$archives_dir/$(basename "$DMG_PATH")" "${SPARKLE_MAXIMUM_DELTAS:-2}"
+  fi
+  shopt -s nullglob
+  built=("$archives_dir"/*.delta)
+  shopt -u nullglob
+  if [[ "${#built[@]}" -gt 0 ]]; then
+    mv "${built[@]}" "$PREBUILD_ONLY_DIR/"
+  fi
+  echo "prebuild-only: ${#built[@]} delta(s) from $previous_count earlier build(s) in $PREBUILD_ONLY_DIR"
+  exit 0
+fi
+
+# The feed must be signed by the key the shipped app trusts. generate_appcast
+# silently skips signing when the private key's public key is not the
+# SUPublicEDKey of the app in the archive, and a feed signed with another key
+# looks fine here but every installed app rejects the update. Compare the two
+# keys up front and fail closed.
+derive_public_key() {
+  # openssl (OpenSSL 1.1.1+) first; LibreSSL (macOS /usr/bin/openssl) has no
+  # Ed25519, so fall back to CryptoKit through swift.
+  python3 "$(dirname "$0")/ci/dev_app_linux.py" sparkle-public-key SPARKLE_PRIVATE_KEY 2>/dev/null && return 0
+  command -v swift >/dev/null 2>&1 || return 1
+  printf '%s' "$SPARKLE_PRIVATE_KEY" | env -u SPARKLE_PRIVATE_KEY swift "$(dirname "$0")/derive_sparkle_public_key.swift" --stdin
+}
+if ! private_public_key="$(derive_public_key)" || [[ -z "$private_public_key" ]]; then
+  echo "ERROR: could not derive the public key of SPARKLE_PRIVATE_KEY (expected a base64 Ed25519 Sparkle key)." >&2
+  exit 1
+fi
+app_mount="$work_dir/app-mount"
+mkdir -p "$app_mount"
+if ! hdiutil attach "$archives_dir/$(basename "$DMG_PATH")" -nobrowse -readonly -noautoopen -mountpoint "$app_mount" -quiet >/dev/null; then
+  app_mount=""
+  echo "ERROR: could not mount $DMG_PATH to read the app's SUPublicEDKey." >&2
+  exit 1
+fi
+if ! app_public_key="$(python3 - "$app_mount" <<'PY'
+import glob, os, plistlib, sys
+apps = sorted(glob.glob(os.path.join(sys.argv[1], "*.app")))
+if len(apps) != 1:
+    sys.exit(f"ERROR: expected one .app at the root of the DMG, found {len(apps)}")
+with open(os.path.join(apps[0], "Contents", "Info.plist"), "rb") as f:
+    key = plistlib.load(f).get("SUPublicEDKey")
+if not isinstance(key, str) or not key.strip():
+    sys.exit(f"ERROR: {os.path.basename(apps[0])} has no SUPublicEDKey to check SPARKLE_PRIVATE_KEY against")
+print(key.strip())
+PY
+)"; then
+  exit 1
+fi
+hdiutil detach "$app_mount" -quiet >/dev/null 2>&1 || hdiutil detach "$app_mount" -force -quiet >/dev/null 2>&1 || true
+app_mount=""
+if [[ "$private_public_key" != "$app_public_key" ]]; then
+  echo "ERROR: SPARKLE_PRIVATE_KEY's public key ($private_public_key) does not match the app's SUPublicEDKey ($app_public_key) in $(basename "$DMG_PATH"); every installed app would reject this feed." >&2
+  exit 1
+fi
+echo "Verified: SPARKLE_PRIVATE_KEY matches the app's SUPublicEDKey"
+dmg_length="$(wc -c < "$DMG_PATH" | tr -d ' ')"
+
 # Delta updates: older archives of the same track placed next to the new one
 # make generate_appcast emit <sparkle:deltas> items plus .delta files, so a
 # machine on a recent build downloads only what changed.
@@ -103,9 +196,23 @@ if [[ -n "${SPARKLE_PREVIOUS_ARCHIVES_DIR:-}" ]]; then
   if [[ "$previous_count" -gt 0 ]]; then
     delta_args=(--maximum-deltas "${SPARKLE_MAXIMUM_DELTAS:-2}")
     # generate_appcast builds deltas one after another and reuses delta files
-    # that already exist, so build them concurrently first.
-    "$(dirname "$0")/prebuild_sparkle_deltas.sh" \
-      "$binary_delta" "$archives_dir" "$archives_dir/$(basename "$DMG_PATH")" "${SPARKLE_MAXIMUM_DELTAS:-2}"
+    # that already exist, so build them concurrently first. Deltas a keyless run
+    # already built (SPARKLE_PREBUILT_DELTAS_DIR) are put in place instead, and
+    # generate_appcast builds any that are missing itself. A delta is only bytes
+    # to sign: Sparkle applies it on the Mac, checks the result against the new
+    # tree's hash and requires the patched app to pass the same code signing.
+    prebuilt=0
+    for delta in "${SPARKLE_PREBUILT_DELTAS_DIR:-/nonexistent}"/*.delta; do
+      [[ -f "$delta" ]] || continue
+      cp -p "$delta" "$archives_dir/$(basename "$delta")"
+      prebuilt=$((prebuilt + 1))
+    done
+    if [[ "$prebuilt" -gt 0 ]]; then
+      echo "Reusing $prebuilt prebuilt delta(s) from $SPARKLE_PREBUILT_DELTAS_DIR"
+    else
+      "$(dirname "$0")/prebuild_sparkle_deltas.sh" \
+        "$binary_delta" "$archives_dir" "$archives_dir/$(basename "$DMG_PATH")" "${SPARKLE_MAXIMUM_DELTAS:-2}"
+    fi
   fi
 fi
 
@@ -145,13 +252,16 @@ if [[ ! -f "$generated_appcast_path" ]]; then
 fi
 
 # Check if generate_appcast added the edSignature. If not, use sign_update
-# to sign the DMG and inject the signature. generate_appcast silently skips
-# signing when the public key derived from the private key doesn't match the
-# SUPublicEDKey in the app's Info.plist.
+# to sign the DMG and inject the signature. The key was checked against the
+# app's SUPublicEDKey above, and the signature is verified before it is used.
 if ! grep -q 'sparkle:edSignature' "$generated_appcast_path"; then
   echo "Warning: generate_appcast did not add edSignature. Using sign_update fallback..."
   SIGNATURE=$("$sign_update" -p --ed-key-file "$key_file" "$DMG_PATH")
-  DMG_LENGTH=$(stat -f%z "$DMG_PATH")
+  if [[ -z "$SIGNATURE" ]] || ! "$sign_update" --verify --ed-key-file "$key_file" "$DMG_PATH" "$SIGNATURE"; then
+    echo "ERROR: sign_update's signature for $(basename "$DMG_PATH") does not verify." >&2
+    exit 1
+  fi
+  DMG_LENGTH="$dmg_length"
   echo "  EdDSA signature: ${SIGNATURE:0:20}..."
   echo "  DMG length: $DMG_LENGTH"
 
@@ -173,7 +283,10 @@ if not match:
     sys.exit(1)
 attrs = match.group("attrs")
 if "sparkle:edSignature" not in attrs:
-    attrs = attrs.replace('type="application/octet-stream"', 'sparkle:edSignature="' + sig + '" length="' + length + '" type="application/octet-stream"')
+    # Replace generate_appcast's length rather than add a second one: a
+    # duplicate attribute makes the whole feed unparsable.
+    attrs = re.sub(r'\s+length="[^"]*"', "", attrs).rstrip()
+    attrs += ' sparkle:edSignature="' + sig + '" length="' + length + '"'
     xml = xml[:match.start()] + "<enclosure" + attrs + "/>" + xml[match.end():]
 open(path, "w", encoding="utf-8").write(xml)
 print("  Injected edSignature into the full-archive enclosure")
@@ -233,10 +346,25 @@ fi
 cp "$generated_appcast_path" "$OUT_PATH"
 echo "Generated appcast at $OUT_PATH"
 
-# Verify the appcast has a signature
-if grep -q 'sparkle:edSignature' "$OUT_PATH"; then
-  echo "Verified: appcast contains sparkle:edSignature"
+# Verify the full-archive enclosure is signed and announces the DMG's exact size.
+if python3 - "$OUT_PATH" "$(basename "$DMG_PATH")" "$dmg_length" <<'PY'
+import sys, urllib.parse
+import xml.etree.ElementTree as ET
+path, dmg_name, length = sys.argv[1:4]
+signature_attr = "{http://www.andymatuschak.org/xml-namespaces/sparkle}edSignature"
+names = {dmg_name, urllib.parse.quote(dmg_name)}
+enclosures = [e for e in ET.parse(path).iter("enclosure") if e.get("url", "").rsplit("/", 1)[-1] in names]
+if len(enclosures) != 1:
+    sys.exit(f"ERROR: expected one enclosure for {dmg_name}, found {len(enclosures)}")
+enclosure = enclosures[0]
+if not enclosure.get(signature_attr):
+    sys.exit(f"ERROR: the enclosure for {dmg_name} is missing sparkle:edSignature!")
+if enclosure.get("length") != length:
+    sys.exit(f"ERROR: the enclosure for {dmg_name} has length {enclosure.get('length')!r}, but the DMG is {length} bytes")
+PY
+then
+  echo "Verified: appcast signs $(basename "$DMG_PATH") with its exact length ($dmg_length bytes)"
 else
-  echo "ERROR: appcast is missing sparkle:edSignature!" >&2
+  rm -f "$OUT_PATH"
   exit 1
 fi

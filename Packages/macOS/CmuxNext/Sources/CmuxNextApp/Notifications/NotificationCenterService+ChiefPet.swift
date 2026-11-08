@@ -1,6 +1,8 @@
+import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextChiefPetWiring
 import CmuxNextDaemon
+import CmuxNextDesignTokens
 import CmuxNextFloating
 import CmuxNextSettings
 
@@ -12,9 +14,9 @@ extension NotificationCenterService {
         guard desktopPostingEnabled, let services, chiefPet == nil else { return }
         let pet = ChiefPetRoutes(services: services).makePet()
         chiefPet = pet
-        pet.start(enabled: { [weak settings] in settings?.snapshot.homeChiefPetEnabled ?? false },
-                  mascot: { [weak settings] in settings?.snapshot.homeChiefPetMascot ?? "" },
-                  upload: { [weak services] in services?.wornUpload(of: nil)?.file })
+        // The mini stands for the Chief, or the chat Show in Mini picked (`ChiefPetMini`).
+        services.chiefPetMini.follow(pet, settings: { [weak settings] in settings }, chiefUpload: { [weak services] in services?.wornUpload(of: nil)?.file },
+                                     chiefActivity: { ChiefSidebar.shared.status.activity })
     }
 
     /// An arrival that stays unread goes to the Chief pet when it would alert here, by a banner's

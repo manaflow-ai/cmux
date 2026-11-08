@@ -22,6 +22,10 @@ public struct CloudMachineRequest: Equatable, Sendable {
     public var machineConfigPath: String?
     /// `--repo OWNER/NAME[@REF]`, cloned before the script (or alone).
     public var repo: CloudMachineRepo?
+    /// The chat's pick (``CloudWorkPick/autosize``): the server sizes the machine for the task
+    /// unless ``memoryMb`` names a size. Not a request option of its own (``isDefault``): a bare
+    /// create from a chat still takes the plain path, sized for that chat.
+    public var autosize: CloudAutosizeRequest?
     /// One key per request: the creation's Retry sends it again, so a create that reached the
     /// server but whose answer was lost does not make a second machine.
     public var idempotencyKey = UUID().uuidString
@@ -30,6 +34,13 @@ public struct CloudMachineRequest: Equatable, Sendable {
     /// The team the first send went to (`X-Cmux-Team-Id`): the key is scoped per team, so every
     /// retry, and the bootstrap and idle-pause calls on the machine, go to this team.
     public var team: String?
+    /// The approval request this create's key was answered with: a Retry while the approved create
+    /// still runs waits for it instead of answering a request that is already closed.
+    public var approvedRequest: String?
+    /// The approval request an attempt with this key began answering (set before the answer goes out):
+    /// a Retry after that attempt was cancelled mid-answer may find the request running, its feed item
+    /// closed, and waits for it like an answered one.
+    public var answeringRequest: String?
     /// The loaded bootstrap (``loadScript(work:)``), started by the create itself once the machine
     /// exists, so the creation's Retry starts it too.
     public var script: CloudMachineBootstrap?
@@ -60,6 +71,44 @@ public struct CloudMachineRequest: Equatable, Sendable {
     }
 
     public var isDefault: Bool { name == nil && size == nil && !persistent && bootstrapPath == nil && machineConfigPath == nil && repo == nil }
+
+    /// The create takes the plain path (the New Cloud Workspace dialog, or the bare create). One with an
+    /// ``environment`` never does: that path would make the machine without it.
+    public var takesPlainPath: Bool { isDefault && environment == nil }
+
+    /// Where a named create in a Cloud environment (`cloud new-machine --name N --environment E`, which
+    /// `cloud start-chat --environment` runs) stands against the machines this app knows.
+    public enum NamedCreate: Equatable, Sendable {
+        /// No machine and no create on its way has the name: make it.
+        case free
+        /// The machine list is not one the server answered just now for this account: it says nothing.
+        case unread
+        /// A machine has the name, or a create of it is on its way (or failed, waiting for Retry).
+        case taken
+    }
+
+    /// ``NamedCreate`` for `name`: `listCurrent` is whether the list is current, `machines` its titles and
+    /// `creating` the names of the creates on their way.
+    public static func namedCreate(_ name: String, listCurrent: Bool, machines: [String], creating: [String]) -> NamedCreate {
+        guard listCurrent else { return .unread }
+        return machines.contains(name) || creating.contains(name) ? .taken : .free
+    }
+
+    /// ``NamedCreate`` of this request when it is named and boots in an ``environment`` (else ``free``): the
+    /// list is read again (`refresh`) when it is not current, then judged with no wait between the judging and
+    /// the caller's create, so a second ask for the name sees this one's create. `creating(name)` is the
+    /// names of the creates on their way, with `name` when a `cloud start-session --name` is making it.
+    public func namedCreate(listCurrent: () -> Bool, refresh: () async -> Void, machines: () -> [String],
+                            creating: (String) -> [String]) async -> NamedCreate {
+        guard environment != nil, let name else { return .free }
+        if !listCurrent() { await refresh() }
+        return Self.namedCreate(name, listCurrent: listCurrent(), machines: machines(), creating: creating(name))
+    }
+
+    /// A quoted `~/boot.sh` reaches the app unexpanded (`--bootstrap-script`, `--machine-config`).
+    public static func expandingHome(_ path: String) -> String {
+        path == "~" || path.hasPrefix("~/") ? NSHomeDirectory() + String(path.dropFirst()) : path
+    }
 
     /// A file this request names (``bootstrapPath``, ``machineConfigPath``) could not be read, is
     /// empty or is over its size limit.

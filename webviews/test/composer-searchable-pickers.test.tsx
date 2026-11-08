@@ -357,7 +357,7 @@ test("the project list announces the committed project and private-folder select
     await click(host.querySelector<HTMLButtonElement>("button")!);
     const selected = document.querySelector('[aria-current="true"]');
     expect(selected).toBeTruthy();
-    expect(selected!.textContent).toContain(privateFolder ? "Do not work in a project" : "current");
+    expect(selected!.textContent).toContain(privateFolder ? "No folder" : "current");
     await key(document.querySelector<HTMLInputElement>('[role="combobox"]')!, "Escape");
   }
 });
@@ -434,7 +434,10 @@ for (const query of ["atlas", "/demo/atlas"]) {
           icon={null}
           onPick={(cwd) => calls.push(cwd)}
           onNoProject={() => calls.push("none")}
-          onBrowse={() => calls.push("browse")}
+          onBrowse={() => {
+            calls.push("browse");
+            return undefined;
+          }}
         />,
       ),
     );
@@ -459,7 +462,10 @@ test("folder search Enter chooses its matching project instead of a pinned actio
         projectChoices={[{ cwd: "/demo/atlas", label: "atlas" }]}
         onProject={(cwd) => calls.push(cwd)}
         onNoProject={() => calls.push("none")}
-        onBrowseProject={() => calls.push("browse")}
+        onBrowseProject={() => {
+          calls.push("browse");
+          return undefined;
+        }}
       />,
     ),
   );

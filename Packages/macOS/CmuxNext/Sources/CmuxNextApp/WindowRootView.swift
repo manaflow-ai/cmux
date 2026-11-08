@@ -23,8 +23,8 @@ import Observation
 /// (`backdropView`, the bottom subview) and everything above it is clear.
 final class WindowRootView: NSView, WindowSurfacePainting {
     let titlebar = TitlebarView()
-    /// The window's one material and tint (`WindowBackdrop`).
-    let backdropView = WindowMaterialView(frame: .zero)
+    /// The window's one material and tint (`WindowBackdrop`); its glass keeps the key look through `activeLook`.
+    let backdropView: WindowMaterialView
     /// Whether Reduce Transparency is on (tests pin it; the host setting
     /// differs between machines). Internal, not private: the painting itself
     /// is in `WindowRootView+Surface`.
@@ -50,6 +50,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     var sidePins: [SidebarSide: [NSLayoutConstraint]] = [:]
     private var placementObservation: Task<Void, Never>?
     private var titleHeight: NSLayoutConstraint?
+    private var titleLeadingReserve: NSLayoutConstraint?
     private var tokenObservation: Task<Void, Never>?
     private var displayOptionsObserver: MainActorObservation?
     private(set) weak var content: NSView?
@@ -125,11 +126,11 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// - Parameter applyWindowBlur: Sets the window's behind-window blur
     ///   radius (the backdrop's ``WindowBackdrop/windowBlurRadius``).
     /// - Parameter revealClock: Times the collapsed band's close delay.
-    init(sidebar: SidebarContainerView,
-         reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
+    init(sidebar: SidebarContainerView, activeLook: ActiveLookScope? = nil,
+         reduceTransparency: @escaping @MainActor () -> Bool = { ReduceTransparency.shared.isEnabled },
          applyWindowBlur: @escaping @MainActor (NSWindow, Int) -> Void = { $0.setBackgroundBlurRadius($1) },
          revealClock: any Clock<Duration> = ContinuousClock()) {
-        self.sidebar = sidebar
+        (self.sidebar, backdropView) = (sidebar, WindowMaterialView(frame: .zero, images: .shared, activeLook: activeLook))
         collapsedBand = CollapsedBandReveal(clock: revealClock)
         self.reduceTransparency = reduceTransparency
         self.applyWindowBlur = applyWindowBlur
@@ -151,6 +152,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         addSubview(toolbarBand)
         addSubview(titlebarRevealRegion)
         let titleHeight = titlebar.heightAnchor.constraint(equalToConstant: 0)
+        let titleLeadingReserve = titlebar.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: Metrics.trafficLightInset)
         mainPaneEdges = [contentHost.topAnchor.constraint(equalTo: titlebar.bottomAnchor),
                          contentHost.bottomAnchor.constraint(equalTo: bottomAnchor)]
         NSLayoutConstraint.activate([
@@ -160,7 +162,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             titleHeight,
             // When the sidebar hides, the title stops clear of the traffic
             // lights while the content below reaches the window edge.
-            titlebar.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: Metrics.trafficLightInset),
+            titleLeadingReserve,
         ] + mainPaneEdges)
         // The first window opens on the configured side (no move after).
         sidebarSide = DesignSettings.shared.sidebarSide
@@ -170,11 +172,14 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         sidePins = SidebarSide.pins(sidebar: sidebar, content: contentHost, title: titlebar, in: self)
         NSLayoutConstraint.activate(sidePins[sidebarSide] ?? [])
         self.titleHeight = titleHeight
+        self.titleLeadingReserve = titleLeadingReserve
         applyTokens()
         setUpTitlebarReveal()
         setUpCollapsedBandReveal()
         tokenObservation = Task { [weak self] in
-            for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0,
+            for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, Metrics.trafficLightInset,
+                                           TitlebarBandButton.side, TitlebarToolbarBand.width, Metrics.space2, Metrics.space3,
+                                           DesignSettings.shared.titlebar == .minimal ? 1 : 0,
                                            DesignSettings.shared.titlebarButtons == .hover ? 1 : 0,
                                            DesignSettings.shared.sidebarSections.controlsOnHover ? 1 : 0,
                                            DesignSettings.shared.tabBarPosition == .bottom ? 1 : 0] }) {
@@ -218,6 +223,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     func applyTokens() {
         let minimal = titlebarStyle == .minimal
         titleHeight?.constant = minimal ? 0 : Metrics.titlebarHeight
+        titleLeadingReserve?.constant = Metrics.trafficLightInset
         titlebar.isHidden = minimal || presentsPage
         sidebar.sidebarView.titlebarHeightOverride = minimal ? Metrics.tabStripHeight : Metrics.titlebarHeight
         needsLayout = true
@@ -243,6 +249,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     }
     /// The host pressure indicator after the band and the badge (`layoutTitlebarAccessories`).
     var hostPressureIndicator: NSView? { didSet { oldValue?.removeFromSuperview(); hostPressureIndicator.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
+    /// Swift live mode's "Live mode" mark, last in the top row (`layoutTitlebarAccessories`).
+    var liveModeBadge: NSView? { didSet { oldValue?.removeFromSuperview(); liveModeBadge.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
 
     var onHintGeometryChange: (() -> Void)?
     /// Called from layout when the band's presence changed, so strips under
@@ -262,8 +270,11 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         (window as? ShellWindow)?.overlayLayer.setSidebarResizeBand(sidebar.resizeBandInWindow)
         guard let window, let host = WindowOverlayHost.existingHost(for: window) else { return }
         host.repairAgentCursorOrder()
-        let shows = sidebar.frame.width > 0.5 && !sidebar.isHidden
-        host.setOccluder(id: "sidebar", rect: shows ? sidebar.convert(sidebar.bounds, to: nil) : nil)
+        host.setOccluder(id: "sidebar", rect: sidebar.occluderRectInWindow)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        sidebar.routePaneReach(super.hitTest(point), at: convert(point, from: superview), in: self)
     }
 
     override func layout() {
@@ -281,6 +292,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         // Every frame is final here: the shade follows the card even when the
         // shade's own autoresizing landed after the card's frame change.
         updateMainPaneShade()
+        sidebar.updateResizeLine(cardMaxY: contentHost.frame.maxY)
         // The band starts after the traffic lights (which never move) and is
         // as wide as the sidebar's on-screen share: 0 wide, with no gap
         // after the lights, while the sidebar is hidden (cx-uxdr).
@@ -291,25 +303,36 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             (window as? ShellWindow)?.noteTrafficLights(lights)
             let local = convert(lights, from: nil)
             lightsMaxX = local.maxX
-            midY = local.midY
+            midY = WindowTitlebar.topRowLine(in: window).map { bounds.maxY - $0.centerY } ?? local.midY
         }
         let presence = toolbarBandPresence
         let bandHeight = TitlebarBandButton.side
-        let bandWidth = (TitlebarToolbarBand.width * presence * 2).rounded() / 2
+        let fullBand = CGRect(x: lightsMaxX + Metrics.space3, y: midY - bandHeight / 2,
+                              width: TitlebarToolbarBand.width, height: bandHeight)
         let presenceChanged = toolbarBand.presence != presence
         toolbarBand.presence = presence
-        toolbarBand.frame = CGRect(x: lightsMaxX + Metrics.space3 * presence, y: (midY - bandHeight / 2).rounded(),
-                                   width: bandWidth, height: bandHeight)
+        toolbarBand.frame = WindowTitlebar.alignedFrame(CGRect(x: lightsMaxX + Metrics.space3 * presence, y: fullBand.minY,
+                                                              width: fullBand.width * presence, height: bandHeight),
+                                                       scale: window?.backingScaleFactor ?? 1)
         // A right sidebar's header is clear of the traffic lights and the band.
         // The reserve is the full band, so the header does not reflow while
         // the sidebar slides out.
-        let fullBandMaxX = lightsMaxX + Metrics.space3 + TitlebarToolbarBand.width
+        let fullBandMaxX = WindowTitlebar.alignedFrame(fullBand, scale: window?.backingScaleFactor ?? 1).maxX
         sidebar.sidebarView.headerHasWindowControls = sidebarSide == .left
         sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? fullBandMaxX + Metrics.space2 : Metrics.space3
         if presenceChanged { onToolbarBandPresenceChange?() }
         layoutTitlebarReveal(rowHeight: rowHeight, fullBandMaxX: fullBandMaxX)
         layoutRightPanel(rowHeight: rowHeight)
         layoutTitlebarAccessories(midY: midY)
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        // Pixel-aligned titlebar frames depend on the window's current scale. A
+        // display move can change it without changing the view bounds, so mark
+        // the whole chrome for a fresh layout instead of leaving half-point
+        // edges until the next unrelated token update.
+        needsLayout = true
     }
 
     /// Called after `show(_:)` swaps the content (a top page or a workspace).
@@ -341,8 +364,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
                 for case let old? in [previous, outgoing] where old !== view { withdraw(old) }
             }
         }
-        // Mid-slide the content keeps the slide's one width (`MainPaneCardView.contentHold`).
-        let frame = contentHost.heldContentFrame ?? contentHost.bounds
+        let frame = contentHost.bounds
         if view.superview !== contentHost {
             view.frame = frame
             contentHost.addSubview(view)
@@ -376,8 +398,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// leaves the window). Other content leaves the window.
     private func withdraw(_ view: NSView) {
         guard view is WorkspaceContentView, view.superview === contentHost else { return view.removeFromSuperview() }
-        if let window, let responder = window.firstResponder as? NSView, responder.isDescendant(of: view),
-           !window.makeFirstResponder(nil) {
+        if !view.handKeyboardToWindow(), let window {
             // A field editor that refuses to resign while it validates: end the edit, then resign.
             window.endEditing(for: nil)
             window.makeFirstResponder(nil)
@@ -398,6 +419,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         paintBackground()
+        applyMainPane() // the window's lit rim (`Metrics.windowEdgeInset`) depends on the window
     }
 
     /// A later subview must not cover the window's agent cursor while it

@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSidebar
+import CmuxNextWindowRules
 
 /// Rooms (plans/cmux-next/data-model.md 8; the daemon calls them profiles):
 /// create, edit, delete, reorder, switch, and the workspace and group moves.
@@ -40,6 +41,12 @@ enum RoomHandlers {
             } else {
                 windows.openWindow(id: windowID, workspaces: adoptable)
             }
+        }
+        // Move Space to This Window, the inverse: the acting window takes the space's workspaces from
+        // every other normal window and shows the space; a window left with none closes.
+        bind("space.bringHere") { invocation in
+            let room = try context.room(invocation)
+            try context.services.windows.bringSpace(room.id, into: context.window(invocation).state)
         }
         bind("space.newWorkspace") { invocation in
             let room = try context.room(invocation)
@@ -111,16 +118,15 @@ enum RoomHandlers {
                 return
             }
             let patch = try RoomDefaultsArguments.patch(invocation)
-            RoomDefaultsUpdates.apply(patch, to: room.id, context)
+            context.services.roomDefaults.apply(patch, to: room.id, context)
         }
         // Destructive: the palette asks first (RoomConfirmation.clearDefaultsPrompt); automation passes `confirm`.
         bind("space.clearDefaults") { invocation in
             let room = try context.room(invocation)
-            RoomDefaultsUpdates.apply(.clear, to: room.id, context)
+            context.services.roomDefaults.apply(.clear, to: room.id, context)
         }
         bind("space.delete") { invocation in
             let room = try context.room(invocation)
-            guard !room.isDefault else { throw ActionFailure.invalidTarget(RoomStrings.defaultCannotBeDeleted) }
             let moveTo = try context.optionalRoom(invocation["moveTo"])?.id
             let id = room.id, name = room.name, services = context.services
             // Delete Space closes the workspaces only this space shows, in
@@ -133,10 +139,13 @@ enum RoomHandlers {
             let toast = moveTo == nil && invocation.origin == .user
             services.machines.local.send("delete-profile") { connection in
                 let response = try await connection.deleteProfile(id, moveTo: moveTo)
+                if let moveTo { await MainActor.run { services.sidebarDoc.store?.moveSpace(id.rawValue, into: moveTo.rawValue) } }
                 guard toast, let closedID = response.closedID else { return }
                 await RoomConfirmation.showDeleted(name, closedID: closedID, services: services)
             }
         }
+        // The only space (the Default space, which the daemon keeps) is refused with its reason before any question.
+        context.setTargetReason("space.delete") { (try? context.room($0)).flatMap { RefusalStrings.spaceDelete($0.id, in: context.services.machines.local.store) } }
         bind("space.moveLeft") { try move($0, context) { from, _ in from - 1 } }
         bind("space.moveRight") { try move($0, context) { from, _ in from + 1 } }
         bind("space.moveToStart") { try move($0, context) { _, _ in 0 } }
@@ -150,8 +159,9 @@ enum RoomHandlers {
         bind("space.selectByNumber") { invocation in
             guard let number = invocation["index"]?.intValue, let state = context.activeWindow?.state else { return }
             let order = context.services.machines.local.store.profileIDs
-            let pick = number >= 9 ? order[order.count - 1] : order[min(number - 1, order.count - 1)]
-            context.services.windows.switchProfile(pick, in: state)
+            // 9 and past the end are the last space (`targets::ordinal`).
+            guard let index = WindowRules().ordinal(number, count: order.count, pastEnd: .clamp), order.indices.contains(index) else { return }
+            context.services.windows.switchProfile(order[index], in: state)
         }
         bind("space.switch") { invocation in
             let room = try context.room(invocation)
@@ -185,6 +195,8 @@ enum RoomHandlers {
         let browser = incognito ? nil : active.flatMap { store.profile($0.profileID)?.browserProfileID }
         let id = ProfileID.generate()
         let services = context.services
+        // Marked before the daemon mirrors it, so no normal window's space bar lists it for a frame.
+        if incognito { services.windows.incognitoSpaceMarks.mark(id) }
         services.registry.track(Task {
             guard let connection = services.machines.local.connection else { return ActionWorkFailure(action.rawValue, DaemonError.notConnected) }
             do {
@@ -271,12 +283,13 @@ enum RoomHandlers {
 /// Set and Clear Space Terminal Defaults… for one space, one at a time, each merging its named fields
 /// into the defaults the daemon holds when it runs (`list-personal`), never into the app's mirror,
 /// which lags a reply: two quick partial runs (`--cwd /a`, then `--env '{"X":"1"}'`) would both read
-/// the old mirror, and the second's whole-object write would drop the first's field.
+/// the old mirror, and the second's whole-object write would drop the first's field. One per app
+/// (``AppServices/roomDefaults``).
 @MainActor
-enum RoomDefaultsUpdates {
+final class RoomDefaultsUpdates {
     /// The newest run per space; the next run waits for it. Each entry ends with its run and is then
     /// removed, unless a newer run replaced it.
-    private static var tails: [ProfileID: (token: UUID, done: Task<Void, Never>)] = [:]
+    private var tails: [ProfileID: (token: UUID, done: Task<Void, Never>)] = [:]
 
     /// Ends its stream when the command's body has run, or when the body is dropped unrun (no daemon
     /// connection): the body holds the only reference, so the next run never waits forever.
@@ -287,17 +300,17 @@ enum RoomDefaultsUpdates {
     }
 
     /// Whether a run for `id` has not finished yet (its write may not have reached the mirror).
-    static func inFlight(_ id: ProfileID) -> Bool { tails[id] != nil }
+    func inFlight(_ id: ProfileID) -> Bool { tails[id] != nil }
 
-    static func apply(_ patch: RoomDefaultsArguments.Patch, to id: ProfileID, _ context: AppActionContext) {
+    func apply(_ patch: RoomDefaultsArguments.Patch, to id: ProfileID, _ context: AppActionContext) {
         let previous = tails[id]?.done
         // Nothing is ever yielded; the stream only ends, so one slot is plenty.
         let (finished, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
         let finish = Finish(signal)
         let token = UUID()
-        tails[id] = (token, Task { @MainActor in
+        tails[id] = (token, Task { @MainActor [weak self] in
             for await _ in finished {}
-            if tails[id]?.token == token { tails[id] = nil }
+            if self?.tails[id]?.token == token { self?.tails[id] = nil }
         })
         context.services.machines.local.send("update-profile") { connection in
             defer { finish.signal.finish() }

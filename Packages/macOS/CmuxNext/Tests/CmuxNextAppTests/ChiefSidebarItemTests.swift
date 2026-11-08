@@ -2,6 +2,7 @@ import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 import CmuxNextDesign
 @testable import CmuxNextApp
+import CmuxNextChiefPetWiring
 @testable import CmuxNextSidebar
 import Testing
 
@@ -76,21 +77,12 @@ struct ChiefSidebarItemTests {
         #expect(ChiefSidebar.menuRemovals(isApp: true, isChief: false) == [ChiefSidebar.toggleIdleAction])
     }
 
-    /// The Chief item wears the chosen pet character (`home.chiefPetMascot`) as its picture in every
-    /// look, not a generic glyph; another pick draws another picture, and an unknown id draws the orb.
-    @Test func theChiefItemWearsTheChosenPetCharacter() {
+    /// The Chief item wears no pet character by default (Lawrence 2026-10-31: "no more default profile
+    /// pic thing"): with no upload it keeps its plain glyph whatever character is picked.
+    @Test func theChiefItemWearsNoDefaultPicture() {
         let layout = SidebarLayoutDocument(sections: [LayoutSection(id: LayoutSectionID("sec_top"), region: .top, items: [Self.chiefItem])])
-        func picture(_ mascot: String?) -> SidebarFavicon? {
-            SidebarBridge.itemInfo(for: layout, registered: { _ in true }, chiefMascot: mascot)[Self.chiefItem.id]?.favicon
-        }
-        let fox = picture("fox"), orb = picture("orb")
-        #expect(fox != nil)
-        #expect(orb != nil)
-        #expect(fox != orb)
-        // The same pick is the same picture, so an unrelated sidebar change does not redraw the item.
-        #expect(picture("fox") == fox)
-        #expect(picture(nil) == orb)
-        #expect(picture("not-a-mascot") == orb)
+        #expect(SidebarBridge.itemInfo(for: layout, registered: { _ in true })[Self.chiefItem.id]?.favicon == nil)
+        #expect(ChiefSidebarPictures().favicon(still: nil, image: nil) == nil, "no upload: no picture")
     }
 
     @Test func foldedHidesOnlyIdleSubagentsInNumberOrder() {
@@ -98,11 +90,11 @@ struct ChiefSidebarItemTests {
                      Self.lane("optchat-sub-6b68ac4a-a2", .idle),
                      Self.lane("optchat-sub-6b68ac4a-a3", .failed)]
         let folded = Self.rows(lanes)
-        #expect(folded.map(\.info.title) == [ChiefToolStrings.subagent, "Inspector"], "the a3 id never shows")
+        #expect(folded.map(\.info.title) == ["", "Inspector"], "the a3 id never shows")
         #expect(folded.allSatisfy { $0.info.indent == 1 && $0.anchoredOnly })
         #expect(folded[0].info.activity == .error)
         let open = Self.rows(lanes, showsIdle: true)
-        #expect(open.map(\.info.title) == [ChiefToolStrings.subagent, ChiefToolStrings.subagent, "Inspector"])
+        #expect(open.map(\.info.title) == ["", "", "Inspector"])
         #expect(SidebarTransientItem.chiefSubagentSession(open[0].item.id) == "id-optchat-sub-6b68ac4a-a2")
         #expect(SidebarTransientItem.chiefSubagentSession(LayoutItemID("itm_chief")) == nil)
     }
@@ -114,5 +106,24 @@ struct ChiefSidebarItemTests {
         #expect(Self.placed([Self.chiefItem, home], transient: rows) == ["itm_chief"] + ids + ["itm_home"])
         #expect(Self.placed([home, Self.chiefItem], transient: rows) == ["itm_home", "itm_chief"] + ids)
         #expect(Self.placed([home], transient: rows) == ["itm_home"])
+    }
+    /// Home learns which of the Chief's agents started from these lanes (a1019, 2026-11-06: a queued agent that
+    /// started with no word in the chat still said Queued). The list names each subagent by its Chief id, and
+    /// changes when a subagent's session comes or goes, never on a step of its output.
+    @Test func theChiefsLanesNameItsStartedAgentsAndChangeOnlyWhenOneComesOrGoes() {
+        let store = AgentLaneStore()
+        #expect(store.chiefSubagentPeers.isEmpty)
+        store.lanes = ["s1": Self.lane("optchat-sub-6b68ac4a-a1017", .working),
+                       "s2": Self.lane("optchat-6b68ac4a-190", .working),
+                       "s3": Self.lane("optchat-sub-6b68ac4a-a3-2", .idle),
+                       "s4": Self.lane("optchat-compact-6b68ac4a-1", .working)]
+        #expect(store.chiefSubagentPeers == ["a1017", "a3"])
+        let names = store.names
+        store.set("s1", Self.lane("optchat-sub-6b68ac4a-a1017", .input))
+        #expect(store.names == names)
+        store.set("s5", Self.lane("optchat-sub-6b68ac4a-a1020", .working))
+        #expect(store.chiefSubagentPeers == ["a1017", "a3", "a1020"])
+        store.set("s1", nil)
+        #expect(store.chiefSubagentPeers == ["a3", "a1020"])
     }
 }

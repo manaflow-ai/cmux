@@ -19,11 +19,13 @@ extension ScreenContentView {
         let style = context.style
         let ringAllowed = (multiple || style.focusRing.showsForSinglePane)
             && style.focusIndicator.marksBorder
-            // Pointer and scroll focus should not leave a keyboard-only focus ring behind.
-            && context.model.lastFocusSource != .pointer
-            && context.model.lastFocusSource != .scroll
+            // Only the person's keys earn the ring: a click, a scroll, Escape or a move nobody keyed
+            // (an agent, the CLI, a new pane) leaves none (`LayoutModel.focusRingEarned`).
+            && context.model.focusRingEarned
         let dim = style.inactiveDim(dimsInactive: dimsInactive)
-        let flashes = Self.requestsFocusFlash(enabled: FocusIndicatorTunables.flashOnMove.value, multiple: multiple,
+        // The flash is the ring's: Focus Ring off (`focusRing.enabled`) turns it off too.
+        let flashes = Self.requestsFocusFlash(enabled: FocusIndicatorTunables.flashOnMove.value && style.focusRing.enabled,
+                                              multiple: multiple,
                                               source: context.model.lastFocusSource, animated: flashAnimated ?? animated)
         for pane in only.map({ $0.filter { paneFrames[$0] != nil } }) ?? Array(paneFrames.keys) {
             guard let host = context.hosts[pane] else { continue }
@@ -58,7 +60,8 @@ extension ScreenContentView {
 
     /// Panes whose displayed frame intersects the viewport.
     func visiblePanes() -> Set<PaneID> {
-        var result: Set<PaneID> = []
+        // A held snap's departed panes still show until it does (`ScreenContentView+SnapFrame`).
+        var result = Set(frameInput.snapDeparted)
         let uncovered = uncoveredRect
         for (pane, frame) in paneFrames {
             // A strip pane wholly under a docked column is hidden.
@@ -96,7 +99,7 @@ extension ScreenContentView {
 
     /// Displayed frame of `pane` in local coordinates: its host's frame (on the pixel grid, `applyPresentation`).
     func displayedFrame(of pane: PaneID) -> CGRect? {
-        paneFrames[pane].map { displayedRect($0.rect.pixelEdges(scale), pane: pane) }
+        paneFrames[pane].map { displayedRect($0.rect, pane: pane).pixelEdges(scale) }
     }
 
     // MARK: Motion trace

@@ -1,6 +1,9 @@
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextHistoryDaemon
+import CmuxNextHistoryPages
 import CmuxNextSettings
 import Foundation
 
@@ -15,6 +18,7 @@ final class HistoryService {
     /// history in memory only (tests).
     var supportDirectory: URL?
     private var sinks: [BrowserProfileID: BrowserVisitSink] = [:]
+    let pages = NSHashTable<HistoryCookieBackupsPageProvider>.weakObjects() // The open History pages (their shown rows).
     /// The omnibox persistence per profile: the daemon when it serves `history-v1`, else `sinks`.
     private var routes: [BrowserProfileID: RoutingVisitSink] = [:]
     let hidden: HiddenHistoryStore
@@ -109,7 +113,10 @@ final class HistoryService {
     // MARK: Entries
 
     /// Every entry matching `query`, newest first.
-    func entries(_ query: HistoryQuery) async -> [HistoryEntry] {
+    func entries(_ query: HistoryQuery) async -> [HistoryEntry] { await read(query).entries }
+
+    /// Same, with whether an owner did not answer (an empty list is then not "nothing there").
+    func read(_ query: HistoryQuery) async -> HistoryRead {
         if let daemon = daemonHistory { return await daemonEntries(query, daemon) }
         let wants = { (kind: HistoryEntry.Kind) in query.kinds.isEmpty || query.kinds.contains(kind) }
         var all: [HistoryEntry] = []
@@ -134,11 +141,12 @@ final class HistoryService {
                 }
             }
         }
-        return query.apply(to: all)
+        return HistoryRead(entries: query.apply(to: all))
     }
 
-    /// The entry with `id` among every owner's current entries, or nil when it is gone.
+    /// The entry with `id`: one the History page shows, else among every owner's current entries, or nil when it is gone.
     func entry(id: String) async -> HistoryEntry? {
+        if let shown = pages.allObjects.lazy.compactMap({ $0.shown[id] }).first { return shown }
         if let daemon = daemonHistory { return await daemonEntry(id: id, daemon) }
         return await entries(HistoryQuery(limit: 5_000)).first { $0.id == id }
     }
@@ -157,26 +165,44 @@ final class HistoryService {
     /// Closed tabs, screens and workspaces, as the daemons record them
     /// (`closed-history-v2`): the only closed history (reopen-closed.md 9). Newest first, a page
     /// closed again once (``DaemonClosedHistory/newestOnce(_:_:)``).
-    func closedEntries() -> [HistoryEntry] {
+    /// `limit`: only the newest that many are named (the titlebar list).
+    func closedEntries(limit: Int? = nil) -> [HistoryEntry] {
         let shown = DaemonClosedHistory.entries(DaemonClosedHistory.allKinds, in: services).filter { Self.isWorthReopening($0.item) }
-        return DaemonClosedHistory.newestOnce(shown) { ($0.item, $0.daemon.machineID) }.map { entry in
+        let once = DaemonClosedHistory.newestOnce(shown) { ($0.item, $0.daemon.machineID) }
+        return once.prefix(limit ?? once.count).map { entry in
             let item = entry.item, tab = Self.shownTab(item)
-            let kind: CmuxNextHistory.ClosedItem.Kind = switch item.kind {
-            case .tab: tab?.kind == "browser" ? .browserTab : .terminalTab
-            case .screen: .screen
-            // A closed window lists as its workspace (it reopens with the workspaces it kept).
-            case .workspace, .window: .workspace
-            }
+            let kind = Self.closedKind(item)
             let (title, detail) = Self.daemonClosedText(item, pages: services.pages)
             let closed = CmuxNextHistory.ClosedItem(id: DaemonClosedHistory.historyID(item.id), kind: kind, title: title,
                                                     machine: entry.daemon.machineID, cwd: tab?.cwd,
-                                                    url: tab?.page == nil ? Self.realText(tab?.url) : nil)
+                                                    url: tab?.page == nil ? Self.realText(tab?.url) : nil,
+                                                    agentSession: Self.closedAgentSession(item))
             let local = entry.daemon.machineID == MachineRegistry.localID
             return HistoryEntry(id: "closed:daemon:\(item.id)", kind: .closed,
                                 time: Date(timeIntervalSince1970: Double(item.closedAtMs) / 1000), title: title,
                                 detail: detail, machineName: local ? nil : entry.daemon.machineID,
                                 payload: .closed(closed))
         }
+    }
+
+    static func closedKind(_ item: CmuxNextDaemon.ClosedItem) -> CmuxNextHistory.ClosedItem.Kind {
+        switch item.kind {
+        case .tab:
+            switch shownTab(item)?.kind {
+            case "conversation": .conversationTab
+            case "browser": .browserTab
+            default: .terminalTab
+            }
+        case .screen: .screen
+        case .workspace, .window: .workspace
+        }
+    }
+
+    /// A closed tab can be an agent chat. A screen or workspace remains its container kind,
+    /// even when the first tab it would reopen is an agent chat.
+    static func closedAgentSession(_ item: CmuxNextDaemon.ClosedItem) -> CmuxNextHistory.ClosedItem.AgentSession? {
+        guard item.kind == .tab, let agent = shownTab(item)?.agentSession else { return nil }
+        return .init(sessionID: agent.session, harness: agent.harness)
     }
 
     /// Whether reopening `item` gives something back (Leo 2026-10-11: Recently Closed was full of
@@ -208,8 +234,11 @@ final class HistoryService {
         let tab = shownTab(item)
         let page = tab?.page.map { pages.provider(InternalPageID(rawValue: $0))?.title ?? $0 }
         let url = realText(tab?.url)
+        // The closed record deliberately omits the agent's host. Without trustworthy source
+        // identity, a local daemon tree is not proof that its chat belongs to this app's acpmux.
+        let agentTitle = closedAgentSession(item) == nil ? nil : AgentPaneModel.tabTitle
         let title = item.group.map { WorkspaceGroupUndo.historyTitle($0.name) }
-            ?? realText(item.name) ?? realText(tab?.name) ?? page ?? url ?? tab?.cwd ?? Strings.untitledTerminal
+            ?? realText(item.name) ?? realText(tab?.name) ?? page ?? agentTitle ?? url ?? tab?.cwd ?? Strings.untitledTerminal
         return (title, page == nil ? url ?? tab?.cwd : nil)
     }
 
@@ -328,3 +357,4 @@ final class HistoryService {
         sinks[profile] = nil
     }
 }
+

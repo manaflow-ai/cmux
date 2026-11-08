@@ -4,7 +4,7 @@
 //! the owner of windows, palette state and dialogs. This module only composes
 //! their existing snapshots and actions into one JSON-first surface for agents.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use cmux_tui_core::resource::{OperationClass, ResourceOperation};
@@ -32,7 +32,7 @@ pub(super) use wait::{
     DEFAULT_TIMEOUT_SECONDS as DEFAULT_WAIT_SECONDS, MAX_TIMEOUT_SECONDS as MAX_WAIT_SECONDS,
 };
 
-const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog|chat|wait|events|doctor>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n  cmux agents chat new [--workspace <ws>|--pane <pane>] [--harness <h>] [--model <m>] [--effort <e>] [--mode <m>] [--policy <p>] [--cwd <dir>] [--name <n>] [--] [<prompt>]\n  cmux agents chat send <chat> [--] <text>\n  cmux agents chat read <chat> [--after <item-id>] [--limit <n>]\n  cmux agents chat state <chat>\n  cmux agents chat interrupt <chat>\n  cmux agents chat continue <chat> [[--] <text>]\n  cmux agents wait --until idle|dialog|text [--target <id>] [--text <text> [--regex]] [--timeout <seconds>]\n  cmux agents events [--after <cursor>] [--kind dialog|notification|tab|workspace|agent ...] [--timeout <seconds>] [--limit <n>] [--json]\n  cmux agents doctor [--json]\n";
+const HELP: &str = "Usage: cmux agents <snapshot|workspace|tab|terminal|palette|dialog|chat|wait|events|doctor>\n\nAgent-facing JSON topology. Mutations return the changed result and a fresh topology snapshot. Palette and dialogs are owned by the cmux app.\n\n  cmux agents snapshot\n  cmux agents workspace select <workspace-id>\n  cmux agents workspace create [--name <name>] [--empty] [--top]\n  cmux agents tab select <tab-id>\n  cmux agents terminal focus <tab-id>\n  cmux agents terminal split <left|right|up|down> [--surface <pane-id>]\n  cmux agents palette open\n  cmux agents dialog list [--all]\n  cmux agents dialog answer <request-id> --mode <mode>\n  cmux agents dialog answer <request-id> --selection <value> [--selection <value> ...]\n  cmux agents chat new [--workspace <ws>|--pane <pane>|--top] [--harness <h>] [--model <m>] [--effort <e>] [--mode <m>] [--policy <p>] [--cwd <dir>] [--name <n>] [--attach <file>]... [--] [<prompt>]\n  cmux agents chat send <chat> [--] <text>\n  cmux agents chat read <chat> [--after <item-id>] [--limit <n>]\n  cmux agents chat state <chat>\n  cmux agents chat interrupt <chat>\n  cmux agents chat continue <chat> [[--] <text>]\n  cmux agents wait --until idle|dialog|text [--target <id>] [--text <text> [--regex]] [--timeout <seconds>]\n  cmux agents events [--after <cursor>] [--kind dialog|notification|tab|workspace|agent ...] [--timeout <seconds>] [--limit <n>] [--json]\n  cmux agents events --until <kind>.<change>|<prefix>* [--match <path>=<value> ...] [--timeout <duration>] [--json]   (the first matching event; exit 124 on timeout)\n  cmux agents doctor [--json]\n";
 
 /// Handles the `agents` namespace before the normal daemon grammar.
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
@@ -143,19 +143,33 @@ fn run(global: GlobalArgs, args: &[String], lines: bool) -> i32 {
         Ok(value) if lines => {
             print!("{}", events::human_lines(&value));
             eprintln!("next_after={}", value["next_after"].as_str().unwrap_or_default());
-            0
+            if events_ran_out(&command, &value) { 124 } else { 0 }
         }
         Ok(value) => {
             let code = wire::print_local_success(&value, global.output);
             // A chat message stored but not handed to its chat: the receipt
-            // is printed, and the exit status says it failed.
-            if code == 0 && chat::delivery_failed(&value) { 1 } else { code }
+            // is printed, and the exit status says it failed. An `events
+            // --until` wait that ran out of time exits 124, as timeout(1).
+            if code != 0 {
+                code
+            } else if chat::delivery_failed(&value) {
+                1
+            } else if events_ran_out(&command, &value) {
+                124
+            } else {
+                0
+            }
         }
         Err(AgentFailure::Usage(message)) => print_usage(&global, &message),
         Err(AgentFailure::Owner(failure)) => {
             wire::print_local_error(&mcp::agent_failure_value(failure), global.output, 3)
         }
     }
+}
+
+/// An `agents events --until` / `--match` wait that ran out of time.
+fn events_ran_out(command: &AgentCommand, value: &Value) -> bool {
+    matches!(command, AgentCommand::Events(request) if request.ran_out(value))
 }
 
 /// `--help` or `-h` before any `--` (chat text after `--` may hold either).
@@ -284,6 +298,7 @@ pub(super) fn snapshot_plan() -> RequestPlan {
         stream: false,
         resolve: Vec::new(),
         view: ResponseView::Full,
+        filter: Default::default(),
     }
 }
 
@@ -426,7 +441,11 @@ fn run_app<B: Backend>(
             let pending_only = !args.iter().any(|arg| arg == "--all");
             ("feed.list", json!({"pending_only": pending_only}), app::READ_TIMEOUT)
         }
-        "dialog.answer" => dialog_answer(args).map_err(|error| AgentFailure::Usage(error.0))?,
+        "dialog.answer" => {
+            let (method, params, timeout) =
+                dialog_answer(args).map_err(|error| AgentFailure::Usage(error.0))?;
+            (method, with_answerer(params, origin, |key| std::env::var(key).ok()), timeout)
+        }
         _ => return Err(AgentFailure::Usage("unknown app action".into())),
     };
     // Feed replies change the app but take no key; only `action.run` does.
@@ -436,6 +455,24 @@ fn run_app<B: Backend>(
         .app(method, params, timeout, key.as_deref(), mutation)
         .map_err(AgentFailure::Owner)?;
     Ok((result, key))
+}
+
+/// A dialog answer with who sends it: the app takes an app ask's Start (an
+/// agent's Cloud start card) only from the person, a CLI with no agent
+/// session, or from an agent the person delegated it to
+/// (cmux-cloud-start-core `ask`). `origin` is `mcp` for the MCP tool, else
+/// `cli`; the caller goes along when it is an agent session or a Chief turn
+/// (a terminal alone is the person's).
+fn with_answerer(mut params: Value, origin: &str, env: impl Fn(&str) -> Option<String>) -> Value {
+    if let Some(object) = params.as_object_mut() {
+        object.insert("origin".into(), json!(if origin == "mcp" { "mcp" } else { "cli" }));
+        if let Some(caller) =
+            app::caller_from(env).filter(|caller| caller.get("terminal_id").is_none())
+        {
+            object.insert("caller".into(), caller);
+        }
+    }
+    params
 }
 
 fn dialog_answer(args: &[String]) -> Result<(&'static str, Value, Duration), UsageError> {
@@ -499,7 +536,8 @@ fn receipt<B: Backend>(
     result: Value,
     idempotency_key: Option<String>,
 ) -> Value {
-    let state = fresh_state(backend, session);
+    // A read (the dialog list) wrote nothing to wait for: its snapshot is the app's last one.
+    let state = state_after(backend, session, action != "dialog.list");
     let mut receipt =
         json!({"schema_version": 1, "action": action, "result": result, "state": state});
     if let Some(key) = idempotency_key {
@@ -510,10 +548,19 @@ fn receipt<B: Backend>(
 
 /// A fresh composed snapshot, the `state` of every receipt.
 fn fresh_state<B: Backend>(backend: &B, session: Option<&str>) -> Value {
+    state_after(backend, session, true)
+}
+
+/// A composed snapshot. With `writes`, the app's part waits for the app to
+/// catch up with the daemon (the read barrier, `after: "sync"`); without, it
+/// is the app's last published snapshot (`after: 0`), which no daemon round
+/// trip can hold up.
+fn state_after<B: Backend>(backend: &B, session: Option<&str>, writes: bool) -> Value {
+    let params = if writes { json!({}) } else { json!({"after": 0}) };
     compose_snapshot(
         backend.resource(session, snapshot_plan(), &[]).map_err(mcp::agent_failure_value),
         backend
-            .app("snapshot.get", json!({}), app::READ_TIMEOUT, None, false)
+            .app("snapshot.get", params, app::READ_TIMEOUT, None, false)
             .map_err(mcp::agent_failure_value),
     )
 }
@@ -546,6 +593,14 @@ pub(super) fn compose_snapshot(daemon: Result<Value, Value>, app: Result<Value, 
         .cloned()
         .unwrap_or_else(|| json!([]));
     merge_app_tabs(&mut tabs, topology, workspace_ids.as_ref());
+    let mut browsers = daemon_value
+        .as_ref()
+        .and_then(|value| value.get("browsers"))
+        .cloned()
+        .unwrap_or_else(|| json!([]));
+    if let Some(topology) = topology {
+        mark_agent_chat_tabs(&mut tabs, &mut browsers, &app_chat_sessions(topology));
+    }
     let focus = topology
         .and_then(|value| value.get("focus"))
         .filter(|value| focus_in_scope(value, workspace_ids.as_ref()))
@@ -560,7 +615,7 @@ pub(super) fn compose_snapshot(daemon: Result<Value, Value>, app: Result<Value, 
         "panes": daemon_value.as_ref().and_then(|value| value.get("panes")).cloned().unwrap_or_else(|| json!([])),
         "tabs": tabs,
         "terminals": daemon_value.as_ref().and_then(|value| value.get("terminals")).cloned().unwrap_or_else(|| json!([])),
-        "browsers": daemon_value.as_ref().and_then(|value| value.get("browsers")).cloned().unwrap_or_else(|| json!([])),
+        "browsers": browsers,
         "focus": focus,
         "selection": selection(topology, daemon_value.as_ref(), workspace_ids.as_ref()),
         "sources": {
@@ -730,6 +785,62 @@ fn collect_app_tabs(topology: &Value, workspace_ids: Option<&HashSet<String>>) -
     let mut tabs = Vec::new();
     visit(topology, &mut tabs, &mut HashSet::new(), workspace_ids, None);
     Value::Array(tabs)
+}
+
+/// The app's agent chat tabs by tab id: each `kind: conversation` tab with its acpmux
+/// `agent_session` anywhere in the app topology.
+fn app_chat_sessions(topology: &Value) -> HashMap<String, String> {
+    fn visit(value: &Value, out: &mut HashMap<String, String>) {
+        match value {
+            Value::Object(object) => {
+                if object.get("kind").and_then(Value::as_str) == Some("conversation")
+                    && let (Some(id), Some(session)) = (
+                        object.get("id").and_then(Value::as_str),
+                        object.get("agent_session").and_then(Value::as_str),
+                    )
+                {
+                    out.insert(id.to_owned(), session.to_owned());
+                }
+                object.values().for_each(|child| visit(child, out));
+            }
+            Value::Array(values) => values.iter().for_each(|value| visit(value, out)),
+            _ => {}
+        }
+    }
+    let mut out = HashMap::new();
+    visit(topology, &mut out);
+    out
+}
+
+/// The daemon reads an agent chat tab to this CLI as a `browser` at about:blank (the
+/// connection does not negotiate `agent-session-tabs-v1`), so an agent that opened a chat
+/// saw no chat and started another. Each tab the app shows as a chat becomes
+/// `content_kind: conversation` with its `agent_session`, and its stand-in browser leaves
+/// `browsers`.
+fn mark_agent_chat_tabs(tabs: &mut Value, browsers: &mut Value, chats: &HashMap<String, String>) {
+    if chats.is_empty() {
+        return;
+    }
+    let mut stand_ins = HashSet::new();
+    for tab in tabs.as_array_mut().into_iter().flatten() {
+        let Some(session) = tab.get("id").and_then(Value::as_str).and_then(|id| chats.get(id))
+        else {
+            continue;
+        };
+        let session = Value::String(session.clone());
+        if let Some(browser) = tab.get("content_id").and_then(Value::as_str) {
+            stand_ins.insert(browser.to_owned());
+        }
+        tab.set("content_kind", Value::String("conversation".into()));
+        tab.set("agent_session", session);
+    }
+    if let Some(browsers) = browsers.as_array_mut() {
+        browsers.retain(|browser| {
+            let field = |key: &str| browser.get(key).and_then(Value::as_str);
+            !field("id").is_some_and(|id| stand_ins.contains(id))
+                && !field("tab_id").is_some_and(|id| chats.contains_key(id))
+        });
+    }
 }
 
 fn is_app_page_tab(tab: &Value) -> bool {

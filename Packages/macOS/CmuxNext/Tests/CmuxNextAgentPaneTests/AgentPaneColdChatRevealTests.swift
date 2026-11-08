@@ -1,13 +1,17 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+#if DEBUG
+@testable import CmuxNextWakeups
+#endif
 
 /// Leo 2026-10-14, as the Claude app switches chats: a chat the pane has not drawn yet holds its
 /// page background for a beat with no busy mark popping up, then its page fades in (quick but
 /// seen); a New Tab page and a chat already drawn show at once.
-@Suite(.serialized)
+@Suite(.serialized, .closesItsWindows)
 @MainActor
 struct AgentPaneColdChatRevealTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -72,6 +76,16 @@ struct AgentPaneColdChatRevealTests {
             deadline?.cancel()
             continuation.resume(returning: value)
         }
+    }
+
+    @Test func aColdChatLoadingCoverHasNoTranscriptSkeleton() throws {
+        let (view, window) = try Self.pane()
+        defer { window.close() }
+
+        // The loading cover is deliberately just the pane background and its delayed busy mark.
+        // Transcript-shaped bars are a skeleton and must never return to the chat-open path.
+        #expect(view.loadingView.subviews.allSatisfy { $0 === view.loadingView.indicator },
+                "a cold chat loading cover drew a transcript skeleton")
     }
 
     @Test func aColdChatHoldsItsBackgroundWithoutAMarkThenFadesIn() async throws {
@@ -167,6 +181,26 @@ struct AgentPaneColdChatRevealTests {
         #expect(view.loadingView.superview == nil, "a New Tab page faded in")
         #expect(view.pageContent.alphaValue == 1)
     }
+
+    #if DEBUG
+    /// A chat opened on the warm New Tab spare (a subagent's pane, #36226) shows its cover from the
+    /// adoption's first sampled frame to the page: never the spare's hidden cover first. The spare
+    /// drew without its loading state (AgentTabStore.makeView); adopting it bound the open's trace
+    /// with that cover still hidden, so the first frame read `image` and then `cover`, a flash in
+    /// every adopted open of the chat-open bench (5 of 5), where the before had none.
+    @Test func anAdoptedSpareShowsItsCoverFromItsFirstFrame() throws {
+        let (view, window) = try Self.pane(newTab: AgentPaneNewTab(kind: .agent))
+        defer { window.close() }
+        view.showsLoadingState = false
+        view.model.hasHandshake = true
+        let trace = ChatOpenTrace.shared
+        #expect(trace.begin())
+        #expect(view.adoptSession("chat-a"))
+        let surfaces = trace.finish(timedOut: false)?.frames.map(\.1) ?? []
+        #expect(surfaces.first == .cover, "the adopted pane's first frame was \(surfaces), not its cover")
+        #expect(!surfaces.contains(.image), "the adopted pane showed the spare's hidden cover before its own")
+    }
+    #endif
 
     /// A chat the page drew from a kept tail is on screen in the frame the open landed on
     /// (tailCache.ts), so it shows as a New Tab page does: in one frame, with no fade over rows

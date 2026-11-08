@@ -197,6 +197,7 @@ impl SettingTool {
             stream: false,
             resolve: Vec::new(),
             view: Default::default(),
+            filter: Default::default(),
         };
         let result = match backend.resource(session, plan, &[]) {
             Ok(result) => result,
@@ -328,6 +329,17 @@ fn project_value(row: &Row, value: &Value) -> Value {
                         value,
                         &["id", "name", "level", "spacing", "fontSize", "tokens"]
                     ))
+                    .collect::<Vec<_>>()
+            ),
+            None => value.clone(),
+        };
+    }
+    if row.validation == Validation::Domain(DomainKind::CommandLabels) {
+        return match value.as_array() {
+            Some(values) => json!(
+                values
+                    .iter()
+                    .map(|value| fields(value, &["program", "match", "label", "link", "icon"]))
                     .collect::<Vec<_>>()
             ),
             None => value.clone(),

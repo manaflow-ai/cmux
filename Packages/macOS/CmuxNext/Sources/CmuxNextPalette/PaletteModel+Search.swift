@@ -3,7 +3,8 @@ import CmuxNextActions
 extension PaletteModel {
     /// Asks every provider of a list page for items: immediate items land
     /// now (the first frame is never empty), async ones merge as they arrive.
-    func load(_ state: PageState) {
+    /// The hidden providers in `reading` read now, not after the frame.
+    func load(_ state: PageState, reading: Set<String> = []) {
         state.needsLoad = false
         guard case .list(let page) = state.kind else { return }
         state.cancel()
@@ -15,15 +16,18 @@ extension PaletteModel {
         let defersHidden = page.filtersByQuery && state.query.allSatisfy(\.isWhitespace)
         var deferred: [any PaletteProvider] = []
         for provider in page.providers {
-            if defersHidden, !provider.showsItemsForEmptyQuery {
+            if defersHidden, !provider.showsItemsForEmptyQuery, !reading.contains(provider.id) {
                 state.providerItems[provider.id] = shownDeferredItems[page.id]?[provider.id] ?? []
                 deferred.append(provider)
                 continue
             }
-            if let items = provider.immediateItems {
-                state.providerItems[provider.id] = items
+            // Read once: most providers build their rows in `immediateItems` (the command page's
+            // registry builds a row per catalog action, Go to Workspace one per workspace).
+            let immediate = provider.immediateItems
+            if let immediate {
+                state.providerItems[provider.id] = immediate
             }
-            if provider.immediateItems == nil || provider.refreshesOnOpen {
+            if immediate == nil || provider.refreshesOnOpen {
                 pending.insert(provider.id)
             }
         }
@@ -31,24 +35,45 @@ extension PaletteModel {
         state.rebuild()
         if state === current { isLoading = !pending.isEmpty }
         for provider in page.providers where pending.contains(provider.id) {
-            let providerID = provider.id
-            state.tasks.append(Task { [weak self, weak state] in
-                let items = await provider.items()
-                guard !Task.isCancelled, let self, let state else { return }
-                state.providerItems[providerID] = items
-                state.pendingProviders.remove(providerID)
-                state.rebuild()
-                if state === self.current {
-                    self.isLoading = !state.pendingProviders.isEmpty
-                    // Same generation: the rows update, the selection stays.
-                    self.search(state)
-                }
-            })
+            state.tasks.append(loadTask(provider, into: state))
         }
         if !deferred.isEmpty {
             let scheduled = !deferredLoads.isEmpty
             deferredLoads.append(PaletteDeferredLoad(state: state, providers: deferred))
             if !scheduled { afterFrame { [weak self] in self?.flushDeferredLoads() } }
+        }
+    }
+
+    /// Reads `provider` into `state`: its items once, or each list of its updates as it comes
+    /// (``PaletteProvider/itemUpdates()``). Same generation: the rows update, the selection stays.
+    private func loadTask(_ provider: any PaletteProvider, into state: PageState) -> Task<Void, Never> {
+        let providerID = provider.id
+        return Task { [weak self, weak state] in
+            if let updates = provider.itemUpdates() {
+                var any = false
+                for await items in updates {
+                    guard !Task.isCancelled, let self, let state else { return }
+                    any = true
+                    self.apply(items, of: providerID, to: state)
+                }
+                // A stream that ended with no list leaves the provider's rows as they were, not loading.
+                guard !any, !Task.isCancelled, let self, let state else { return }
+                self.apply(state.providerItems[providerID] ?? [], of: providerID, to: state)
+                return
+            }
+            let items = await provider.items()
+            guard !Task.isCancelled, let self, let state else { return }
+            self.apply(items, of: providerID, to: state)
+        }
+    }
+
+    private func apply(_ items: [PaletteItem], of providerID: String, to state: PageState) {
+        state.providerItems[providerID] = items
+        state.pendingProviders.remove(providerID)
+        state.rebuild()
+        if state === current {
+            isLoading = !state.pendingProviders.isEmpty
+            search(state)
         }
     }
 
@@ -65,19 +90,8 @@ extension PaletteModel {
                     state.providerItems[provider.id] = items
                     if !provider.refreshesOnOpen { continue }
                 }
-                let providerID = provider.id
-                state.pendingProviders.insert(providerID)
-                state.tasks.append(Task { [weak self, weak state] in
-                    let items = await provider.items()
-                    guard !Task.isCancelled, let self, let state else { return }
-                    state.providerItems[providerID] = items
-                    state.pendingProviders.remove(providerID)
-                    state.rebuild()
-                    if state === self.current {
-                        self.isLoading = !state.pendingProviders.isEmpty
-                        self.search(state)
-                    }
-                })
+                state.pendingProviders.insert(provider.id)
+                state.tasks.append(loadTask(provider, into: state))
             }
             state.rebuild()
             if state === current {
@@ -132,10 +146,12 @@ extension PaletteModel {
             deliver([PaletteResultSection(section: .results, rows: [PaletteRow(item: item, highlights: [], score: 0)])],
                     to: state, generation: generation)
         case .list(let page):
+            followSources(state, page: page)
             if let queryResults = page.queryResults {
                 searchQueryResults(state, results: queryResults, generation: generation)
                 return
             }
+            askContributions(state, page: page)
             // A typed query searches every row: the open's deferred providers load first.
             if !state.query.allSatisfy(\.isWhitespace), deferredLoads.contains(where: { $0.state === state }) {
                 flushDeferredLoads()
@@ -155,6 +171,8 @@ extension PaletteModel {
             // Not `page`: a search the next keystroke supersedes keeps running on the searcher,
             // and holding the page would keep its providers alive after the palette moved on.
             let queryItems = page.queryItems
+            let noMatchItems = page.noMatchItems
+            let trails = page.noMatchItemsTrailResults
             // The superseded search ranks nothing if it has not started (its result is stale anyway).
             searchTask?.cancel()
             searchTask = Task { [weak self, weak state] in
@@ -166,12 +184,9 @@ extension PaletteModel {
                 )
                 guard let self, let state, result.generation == self.searchGeneration else { return }
                 self.searchTask = nil
-                self.deliver(Self.leading(queryItems?(request.query), state.resolve(result.sections)), to: state,
-                             generation: generation)
-                if self.pendingClose {
-                    self.pendingClose = false
-                    self.handle(.closeItem)
-                }
+                let found = Self.leading(queryItems?(request.query), state.resolve(result.sections))
+                self.deliver(Self.orNoMatch(found, noMatchItems, trails: trails, query: request.query, state: state), to: state, generation: generation)
+                self.closeIfPending()
             }
         }
     }
@@ -206,10 +221,7 @@ extension PaletteModel {
             state.answeringSearch = nil
             if state === self.current { self.isLoading = false }
             self.deliver(last ?? [], to: state, generation: generation)
-            if self.pendingClose {
-                self.pendingClose = false
-                self.handle(.closeItem)
-            }
+            self.closeIfPending()
         }
     }
 
@@ -256,6 +268,18 @@ extension PaletteModel {
         return [PaletteResultSection(section: items[0].section, rows: rows)] + sections
     }
 
+    /// `sections`, or the page's no-match rows first when the typed query found no row and no provider
+    /// is still loading (a loading provider may yet match); with `trails`, after the rows it found.
+    static func orNoMatch(_ sections: [PaletteResultSection], _ noMatch: (@MainActor (String) -> [PaletteItem])?, trails: Bool,
+                          query: String, state: PageState) -> [PaletteResultSection] {
+        guard let noMatch, state.pendingProviders.isEmpty else { return sections }
+        guard sections.contains(where: { !$0.rows.isEmpty }) else { return leading(noMatch(query), sections) }
+        guard trails else { return sections }
+        let items = noMatch(query)
+        guard let first = items.first else { return sections }
+        return sections + [PaletteResultSection(section: first.section, rows: items.map { PaletteRow(item: $0, highlights: [], score: 0) })]
+    }
+
     /// A page's rows for `generation`: cached on the page, shown when the
     /// page is on screen, and handed to the reducer, which takes them only
     /// for the level's current generation and keeps or moves the selection.
@@ -265,13 +289,26 @@ extension PaletteModel {
     func deliver(_ sections: [PaletteResultSection], to state: PageState, generation: Int, provisional: Bool = false,
                  complete: Bool = true) {
         guard pages[state.levelID] === state, state.generation == generation else { return }
+        // The contributed answers join the ranked rows (`PaletteContributedAnswers`): an older query's answer
+        // shows only as a stand-in that navigation never selects, and a held query's rows are not final.
+        state.rankedSections = sections
+        state.rankedGeneration = generation
+        state.rankedProvisional = provisional
+        state.rankedComplete = complete
+        let joined = Self.joined(sections, state: state)
+        state.deliveredAnswerFingerprint = Self.answerFingerprint(state)
+        let held = joined.held
+        let sections = joined.shown
         state.lastSections = sections
         state.awaitsRank = provisional
         if !provisional { recordShownDeferredItems(sections, on: state) }
-        if shownLevelID == state.levelID { display(sections) }
-        send(.results(levelID: state.levelID, generation: generation, rows: navRows(sections), replace: true,
-                      isFinal: complete && !provisional && state.pendingProviders.isEmpty, emptyQuerySelection: state.emptyQuerySelection,
-                      provisional: provisional))
+        if shownLevelID == state.levelID {
+            queryFrames.delivered(final: complete && !provisional, answerRows: state.currentAnswers.reduce(0) { $0 + $1.rows.count })
+            display(sections)
+        }
+        send(.results(levelID: state.levelID, generation: generation, rows: navRows(joined.selectable), replace: true,
+                      isFinal: complete && !provisional && !held && state.pendingProviders.isEmpty,
+                      emptyQuerySelection: state.emptyQuerySelection, provisional: provisional || held))
     }
 
     /// What navigation needs from the rows.

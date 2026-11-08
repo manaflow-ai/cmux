@@ -303,14 +303,28 @@ pub(super) fn run_all_sessions(global: &GlobalArgs, plan: RequestPlan) -> i32 {
     }
     let code = if let ResponseView::AgentRoster(_) = plan.view {
         let mut terminals = Vec::new();
+        let mut notifications = Vec::new();
         for (session, socket) in session_sockets() {
             if let Ok(Some(Value::Array(list))) =
                 list_on(&socket, &session, ResourceOperation::TerminalList, &json!({}))
             {
                 terminals.extend(list);
             }
+            // Unread markers make an idle agent `done` (agent_roster.rs).
+            let limit = json!({"limit": super::wire::NOTIFICATION_LIMIT});
+            if let Ok(Some(Value::Array(list))) =
+                list_on(&socket, &session, ResourceOperation::NotificationList, &limit)
+            {
+                notifications.extend(list);
+            }
         }
-        let roster = super::wire::agent_roster_across(plan.view, join(results), &terminals);
+        let roster = super::wire::agent_roster_across(
+            plan.view,
+            join(results),
+            &terminals,
+            &notifications,
+            &plan.params,
+        );
         super::wire::print_result(global, &plan, roster)
     } else {
         super::wire::print_local_success(&join(results), global.output)
@@ -341,12 +355,17 @@ fn list_on(
     let mut reader = BufReader::new(stream);
     let mut params: Map<String, Value> = params.as_object().cloned().unwrap_or_default();
     params.insert("session".into(), json!(session));
-    match super::resolve::read(&mut reader, operation, params) {
+    // Each session's fresh connection declares conversation tabs too, so a federated list shows
+    // agent chats as the single-session list does, not the daemon's browser compatibility view.
+    let listed = super::tab_capabilities::negotiate(&mut reader)
+        .and_then(|()| super::resolve::read(&mut reader, operation, params));
+    match listed {
         Ok(value) => Ok(Some(value)),
         Err(
             super::resolve::Failure::Resource(error) | super::resolve::Failure::Local { error, .. },
         ) => Err(error.get("message").and_then(Value::as_str).unwrap_or("failed").to_owned()),
         Err(super::resolve::Failure::Transport(message)) => Err(message),
+        Err(super::resolve::Failure::Refused) => Err("session is busy".into()),
         Err(super::resolve::Failure::AppAction { .. }) => Err("unexpected app action".into()),
     }
 }

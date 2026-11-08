@@ -11,6 +11,15 @@ import CmuxHomeRender
 public final class MessagesLabHomeView: NSView {
     let controller: ChatController
     let projection: HomeProjection
+    /// The app supplies its existing person-input classifier; an unconfigured view grants nothing.
+    public var isPersonApprovalEvent: (NSEvent) -> Bool {
+        get { projection.isPersonApprovalEvent }
+        set { projection.isPersonApprovalEvent = newValue }
+    }
+    public var approvals: (any HomeApprovalDeciding)? {
+        get { projection.approvals }
+        set { projection.approvals = newValue }
+    }
     private var warmed = false
     private var appliedComposerSpellChecking: Bool?
     /// The palette generation this view's rows were last refreshed for (applyTheme).
@@ -31,6 +40,8 @@ public final class MessagesLabHomeView: NSView {
         if let diagrams { HomeDiagramRowProvider.install(diagrams) }
         // An agent's pipe tables as full-width table and plan cards (Leo 2026-10-20).
         HomeTableRowProvider.install()
+        // Agent-message folds as muted caption lines, not bubbles (user 2026-10-31).
+        HomeAgentFoldRowProvider.install()
         controller = ChatController(wake: wake)
         // Link cards fetch their preview (title, image) for links the user or an agent sent (README).
         projection = HomeProjection(store: store, conversation: conversation, me: me, controller: controller,
@@ -38,6 +49,7 @@ public final class MessagesLabHomeView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         addSubview(controller.host)
+        HomeApprovalRowProvider.install()
         projection.start()
         // Reduce Motion changes (the system setting or the host's pin) still or restart the loops
         // already running (MessagesLabHomeView+Motion.swift).
@@ -83,11 +95,12 @@ public final class MessagesLabHomeView: NSView {
     /// transcript keeps MessagesLab's metrics: it is laid out at this view's size over the zoom and this view's
     /// bounds draw it magnified, as NSScrollView magnification does, so its text, bubbles and field grow together
     /// and the rows wrap to the narrower width. Its bitmaps render at the window's scale times the zoom, so the
-    /// magnified text stays sharp. Clamped to 0.5-2.
+    /// magnified text stays sharp. Clamped to 0.5-3: Home draws the chat at its default size (1.5) times Agent Chat
+    /// Zoom (0.5-2).
     public var zoom: CGFloat {
         get { controller.host.contentZoom }
         set {
-            let next = newValue.isFinite ? min(max(newValue, 0.5), 2) : 1
+            let next = newValue.isFinite ? min(max(newValue, 0.5), 3) : 1
             guard next != controller.host.contentZoom else { return }
             controller.host.contentZoom = next
             applyZoomBounds()
@@ -135,14 +148,6 @@ public final class MessagesLabHomeView: NSView {
         set { projection.notice = newValue }
     }
 
-    /// An agent's pipe tables draw as cards at the chat's full width, assignment tables as the
-    /// Chief's plan card (default on; Debug Settings > Home > Rich tables). Off, they stay Markdown
-    /// text in the bubble. Messages mapped after the change follow it.
-    public static var richTables: Bool {
-        get { HomeTableRowProvider.isOn }
-        set { HomeTableRowProvider.isOn = newValue }
-    }
-
     /// The Chief's live plan for the plan cards' state pills and owner links (the host copies its
     /// ``ChiefPlanBoard`` here whenever it changes).
     public static func publish(plan: ChiefPlan) {
@@ -171,6 +176,16 @@ public final class MessagesLabHomeView: NSView {
         set { projection.liveLine.style = newValue }
     }
 
+    /// The folders a Chief chat's `/` menu lists skills from (``SlashSkillCatalog``); nil: no menu
+    /// (a channel, a DM, a Chief whose host runs elsewhere).
+    public var slashSkillCatalog: SlashSkillCatalog? {
+        get { controller.slashSkills?.catalog }
+        set {
+            guard newValue != controller.slashSkills?.catalog else { return }
+            controller.slashSkills = newValue.map(SlashSkillSource.init(catalog:))
+        }
+    }
+
     /// The Chief works: the compose bar offers Stop (the button, Esc, Cmd-.).
     public var isWorking: Bool {
         get { controller.isWorking }
@@ -183,10 +198,31 @@ public final class MessagesLabHomeView: NSView {
         set { controller.onStop = newValue }
     }
 
+    /// Runs after the daemon accepts a Chief stop, when the stop button
+    /// becomes Continue.
+    public var onContinue: (() -> Void)? {
+        get { controller.onContinue }
+        set { controller.onContinue = newValue }
+    }
+
+    /// Whether the stopped Chief can be continued from the stop button.
+    public var continueAvailable: Bool {
+        get { controller.continueAvailable }
+        set { controller.continueAvailable = newValue }
+    }
+
     /// The host's Stop all agents: Option-click on the stop button.
     public var onStopAll: (() -> Void)? {
         get { controller.onStopAll }
         set { controller.onStopAll = newValue }
+    }
+
+    /// A committed person message in a Chief conversation asks the Chief to
+    /// answer that message again. The app supplies the `chief.retry` bridge;
+    /// ordinary Home conversations leave it unset.
+    public var onChiefRetry: ((MessageID) -> Void)? {
+        get { projection.onChiefRetry }
+        set { projection.onChiefRetry = newValue }
     }
 
     /// The stop button's tooltip while the Chief works; nil: "Stop".
@@ -232,6 +268,7 @@ public final class MessagesLabHomeView: NSView {
             demo.chrome.setNeedsDisplay(); demo.refreshVisibleCells()
             demo.compose.rescale()  // the placeholder, waveform and chips are drawn once with the palette
         }
+        controller.intents?.rowsPlaced()  // layers over rows (table skeleton shimmers) take the new colours
     }
 
     /// cmux: a click on a cmux app link in agent text (`URL.isCmuxAppLink`); the host
@@ -239,6 +276,26 @@ public final class MessagesLabHomeView: NSView {
     public var onAppLink: ((URL) -> Void)? {
         get { controller.onAppLink }
         set { controller.onAppLink = newValue }
+    }
+
+    /// cmux: a click on an agent's pill in an agents row: the host opens that agent (the agent's id, `a12`,
+    /// and the pill's frame in window coordinates, for a card over it). Nil: a click on the row opens and
+    /// closes its messages.
+    public var onAgentPill: ((String, CGRect) -> Void)? {
+        get { controller.onAgentPill }
+        set { controller.onAgentPill = newValue }
+    }
+
+    #if DEBUG
+    /// cmux: agent `peer`'s drawn pill in window coordinates, nil when none shows (`debug.home.drive`).
+    public func debugAgentPillFrame(_ peer: String) -> CGRect? { controller.debugAgentPillFrame(peer) }
+    #endif
+
+    /// cmux: the context menu of an agent's pill (its id): the host's items for that agent, such as Start now
+    /// on a queued one. None or nil: the message's own menu.
+    public var agentPillMenu: ((String) -> [NSMenuItem])? {
+        get { controller.agentPillMenu }
+        set { controller.agentPillMenu = newValue }
     }
 
     /// cmux: the pointer moved over the transcript, in screen coordinates (nil: it left). The
@@ -300,6 +357,32 @@ public final class MessagesLabHomeView: NSView {
     /// The header views a click on which runs ``onNamePill``: the pill and the avatar.
     public var namePillToggles: [NSView] { [controller.host.paneHeader.pill, controller.host.paneHeader.avatar] }
 
+    /// cmux: room kept clear above the oldest message, in this view's points (Home's pinned Needs you
+    /// section under the header): scrolled to its top, the transcript rests its first row below it.
+    /// 0: none.
+    public var rowsTopClearance: CGFloat {
+        get { controller.host.extraRowsTop }
+        set {
+            let next = newValue.isFinite ? max(0, newValue) : 0
+            guard next != controller.host.extraRowsTop else { return }
+            controller.host.extraRowsTop = next
+            controller.host.needsLayout = true
+        }
+    }
+
+    /// cmux: room kept clear under the newest message, in this view's points (Home's toasts over the
+    /// chat, CmuxToastReserving): pinned to its newest message, the transcript rests its last row above
+    /// it; scrolled up, the rows stay where they are and only the scroll range grows. 0: none.
+    public var rowsBottomClearance: CGFloat { controller.host.extraRowsBottom }
+
+    /// Sets ``rowsBottomClearance``; the rows slide there over `duration` seconds (the toasts' own
+    /// move), or move at once when it is 0 (Reduce Motion, animations off).
+    public func setRowsBottomClearance(_ value: CGFloat, duration: TimeInterval) {
+        let next = value.isFinite ? max(0, value) : 0
+        guard next != controller.host.extraRowsBottom else { return }
+        controller.host.setExtraRowsBottom(next, duration: duration.isFinite ? max(0, duration) : 0)
+    }
+
     /// cmux: controls at the header's top right (Home's panel toggles), on the avatar's line.
     /// They get their own clicks; the header's empty space still drags the window. Sized by its
     /// `intrinsicContentSize`; hidden in a pane too narrow to keep it clear of the avatar. Nil: none.
@@ -312,12 +395,37 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
+    /// cmux: a small control right after the header's name pill, on its line (Home's Chief location
+    /// chip); it takes its own clicks. Sized by its `intrinsicContentSize`. Nil: none.
+    public var headerPillAccessory: NSView? {
+        get { controller.host.paneHeader.pillAccessory }
+        set { controller.host.paneHeader.pillAccessory = newValue }
+    }
+
+    /// cmux: who else has the conversation open, as faces beside the header's name pill (chat
+    /// multiplayer); empty shows none. `label` is what VoiceOver reads for them.
+    public func setHeaderFaces(_ faces: [PaneHeaderFace], label: String) {
+        controller.host.paneHeader.faces = faces
+        controller.host.paneHeader.facesLabel = label
+    }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The header's faces as drawn now, and their VoiceOver label (tests and `debug.home.drive`).
+    public var debugHeaderFaces: (faces: [PaneHeaderFace], shown: Bool, label: String) {
+        let header = controller.host.paneHeader
+        return (header.faces, !header.facesView.isHidden && header.facesView.frame.width > 0, header.facesLabel)
+    }
+    #endif
+
     /// The header avatar's text (one or two characters, an emoji); nil
     /// shows the conversation's initials.
     public var avatarText: String? {
         get { projection.initialsOverride }
         set { projection.initialsOverride = newValue }
     }
+
+    /// The letters the header's monogram shows: ``avatarText``, else the monogram of the header's name.
+    public var shownInitials: String { controller.host.paneHeader.initials }
 
     /// The header's name; nil shows the conversation's title.
     public var headerTitle: String? {
@@ -585,10 +693,16 @@ public final class MessagesLabHomeView: NSView {
 
     /// Automation (DEBUG socket): the field's height and, for the newest
     /// receipt row with a row under it, its top to that row's body (macOS 27
-    /// Messages: the field is 30 pt after a send and 31 pt from the first key; 20 pt).
+    /// Messages: the field is 30 pt after a send and 31 pt from the first key; 20 pt), and
+    /// where the transcript rests (`scrollOffset`, `scrollBottom`, `scrollTop`, `pinned`).
     public func debugGeometry() -> [String: Double] {
         guard let demo = controller.demo else { return [:] }
         var out: [String: Double] = ["fieldHeight": Double(demo.compose.fieldRect.height)]
+        // Where the transcript rests: its offset, the bottom (newest message) and top ends, and the pin.
+        out["scrollOffset"] = Double(demo.collection.contentOffset.y)
+        out["scrollBottom"] = Double(demo.pinnedOffset)
+        out["scrollTop"] = Double(demo.minOffset)
+        out["pinned"] = demo.store.state.ui.scroll.pinnedToBottom && demo.store.state.atNewest ? 1 : 0
         let rows = demo.model.rows
         // crash program: no index math.
         for (i, row) in rows.enumerated().reversed().dropFirst() where !row.ghost {
@@ -671,6 +785,40 @@ public final class MessagesLabHomeView: NSView {
         }
     }
 
+    /// Automation (DEBUG socket): opens picture `index` of the newest table card in the large picture viewer
+    /// through the click's path (``ChatController/openTablePicture(_:at:width:)``); `compare` shows its row's
+    /// Before and After; `mark` draws a box, an arrow and a word on it; `style` and `show` (``HomePictureViewer/Key/before``
+    /// or `after`) set the comparison. False when no table has a loaded picture.
+    func debugOpenTablePicture(index: Int, compare: Bool, mark: Bool, style: HomePictureCompare.Style? = nil, show: HomePictureViewer.Key? = nil) -> Bool {
+        guard let store = controller.store else { return false }
+        for m in store.state.conversation.messages.reversed() {
+            for part in m.parts {
+                guard case let .custom(custom) = part, custom.kind == HomeTableRowProvider.kind,
+                      let payload = HomeTableRowProvider.payload(custom) else { continue }
+                let width: CGFloat = 700
+                let loaded = HomeTableGrid(payload.table, available: width).pictureRects(at: .zero).filter { !$0.loading }
+                guard let target = loaded[checked: min(max(0, index), loaded.count - 1)],
+                      controller.openTablePicture(custom, at: CGPoint(x: target.rect.midX, y: target.rect.midY), width: width),
+                      let viewer = controller.pictureViewer else { continue }
+                // task-owner: the viewer; marks go on once its picture loaded.
+                Task { @MainActor [weak viewer] in
+                    guard let viewer else { return }
+                    await viewer.loaded()
+                    if compare { viewer.handle(.compare) }
+                    if let style { viewer.showCompareStyle(style) }
+                    if let show { viewer.handle(show) }
+                    if mark, let size = viewer.markedImage().map({ CGSize(width: $0.width, height: $0.height) }) {
+                        viewer.addMark(.box(CGRect(x: size.width * 0.18, y: size.height * 0.2, width: size.width * 0.42, height: size.height * 0.36)))
+                        viewer.addMark(.arrow(from: CGPoint(x: size.width * 0.86, y: size.height * 0.84), to: CGPoint(x: size.width * 0.62, y: size.height * 0.58)))
+                        viewer.addMark(.text(at: CGPoint(x: size.width * 0.18, y: size.height * 0.6), "this moved"))
+                    }
+                }
+                return true
+            }
+        }
+        return false
+    }
+
     /// Automation (DEBUG socket): plays or pauses the newest video bubble
     /// through the click's path (`ChatIntents.toggleVideo`).
     public func debugToggleNewestVideo() -> Bool {
@@ -679,6 +827,21 @@ public final class MessagesLabHomeView: NSView {
             for (i, part) in m.parts.enumerated() {
                 if case let .attachment(a) = part, a.kind == "video" {
                     projection.toggleVideo(PartRef(messageId: m.id, partIndex: i), a.id)
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    /// Automation: opens the newest video bubble in the large viewer through the double-click's
+    /// path (`ChatIntents.openVideo`).
+    public func debugOpenNewestVideo() -> Bool {
+        guard let store = controller.store else { return false }
+        for m in store.state.conversation.messages.reversed() {
+            for (i, part) in m.parts.enumerated() {
+                if case let .attachment(a) = part, a.kind == "video" {
+                    projection.openVideo(PartRef(messageId: m.id, partIndex: i), a.id)
                     return true
                 }
             }
@@ -768,6 +931,11 @@ public final class MessagesLabHomeView: NSView {
     /// The top of the area under the header (the first-run panel's top); with no header
     /// (``setBareTop()``), the rows' top. In this view's frame (zoomed) points.
     public var headerHeight: CGFloat { (controller.host.bareTop ? controller.host.bareRowsTop : Fixture.headerHeight) * zoom }
+    /// cmux: where the newest row ends with no ``rowsBottomClearance``, in this view's frame (zoomed) points: the
+    /// rows' anchor, which can sit under the field's top (a receipt row's lines run past it).
+    public var restingRowsBottom: CGFloat {
+        controller.demo.map { ($0.anchorY + $0.rowsBottomInset) * zoom } ?? frame.height
+    }
     /// The field's top in this view's frame (zoomed) points (the first-run panel's bottom).
     public var fieldTop: CGFloat { controller.demo.map { $0.fieldTop * zoom } ?? frame.height }
 

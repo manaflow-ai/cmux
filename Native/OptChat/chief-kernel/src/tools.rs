@@ -8,17 +8,27 @@ use crate::prompt::{
     CLOUD_WORKSPACE_DESCRIPTION, CONTROL_DESCRIPTION, DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION,
     PEER_TELL_DESCRIPTION, PEERS_DESCRIPTION, REACT_DESCRIPTION, REMEMBER_DESCRIPTION,
     REPLY_DESCRIPTION, SEND_DESCRIPTION, SLEEP_DESCRIPTION, SPAWN_CWD_DESCRIPTION,
-    SPAWN_DESCRIPTION, STOP_DESCRIPTION, TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION,
-    VERSION_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
+    SPAWN_DESCRIPTION, SPAWN_HARNESS_DESCRIPTION, SPAWN_MODEL_DESCRIPTION,
+    SPAWN_SIDEBAR_DESCRIPTION, STOP_DESCRIPTION, TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION,
+    VERSION_DESCRIPTION, WATCH_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
 };
-
-/// Most attachments one `send` takes.
-pub const MAX_SEND_ATTACHMENTS: usize = 10;
 
 /// Shortest `sleep` (a turn costs more than a shorter wait saves).
 pub const SLEEP_MIN_SECONDS: u64 = 30;
 /// Longest `sleep`: a day.
 pub const SLEEP_MAX_SECONDS: u64 = 86_400;
+
+/// A `watch` with no `timeout_seconds` fires as timed out after 30 min.
+pub const WATCH_DEFAULT_SECONDS: u64 = 1_800;
+/// Shortest `watch` timeout.
+pub const WATCH_MIN_SECONDS: u64 = 10;
+/// Longest `watch` timeout: a day.
+pub const WATCH_MAX_SECONDS: u64 = 86_400;
+/// How long a `watch` waits before it runs a command that exited without
+/// matching `until` again.
+pub const WATCH_POLL_SECONDS: u64 = 15;
+/// Most watches pending at once.
+pub const WATCHES_KEPT: usize = 8;
 
 /// The kinds of sign-in `escalate_auth` takes.
 pub const AUTH_KINDS: [&str; 4] = ["password", "passkey", "2fa", "oauth"];
@@ -26,18 +36,20 @@ pub const AUTH_KINDS: [&str; 4] = ["password", "passkey", "2fa", "oauth"];
 /// The efforts `spawn` takes (acpmux maps them onto the harness's own).
 pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
-/// Where `spawn` runs its subagents (`place`).
+/// Built-in `spawn` place aliases; paired machine names are also accepted.
 /// `cloud:SIZE` also picks the VM size with one VM per subagent.
-pub const PLACES: [&str; 5] = [
+pub const PLACES: [&str; 7] = [
     "cloud",
+    "here",
     "local",
+    "mac",
     "cloud:small",
     "cloud:medium",
     "cloud:large",
 ];
 
 /// The `control` tool's actions.
-pub const CONTROL_ACTIONS: [&str; 10] = [
+pub const CONTROL_ACTIONS: [&str; 12] = [
     "status",
     "interrupt",
     "answer",
@@ -46,6 +58,8 @@ pub const CONTROL_ACTIONS: [&str; 10] = [
     "cancel",
     "restart",
     "priority",
+    "show",
+    "hide",
     "cap",
     "cloud",
 ];
@@ -81,13 +95,13 @@ pub fn chiefs_tool() -> Value {
         .unwrap_or_else(|| json!({"name": "chiefs"}))
 }
 
-pub const MOVE_DESCRIPTION: &str = "Move yourself (your memory, conversations, settings, subagent transcripts and grants) to another machine, or back. action move (default): to = ssh:HOST[:DIR] (a Mac mini or a Linux VM you reach over SSH), local:DIR, or cloud / cloud:staging (the hosted Cloud Chief; needs the person's cloud session token file). Run dry_run true first and tell the person what it found; a real move starts when this turn ends, stops you here and keeps this copy for rollback, so say goodbye in this turn. status: the last move's report. reach: after a move, which SSH hosts, tailnet, fleet and model route answer from this machine. rollback: the old copy answers again. Keys and tokens are never copied: missing ones come back as blockers to give the person.";
+pub const MOVE_DESCRIPTION: &str = "Teleport: move yourself (memory, conversations, settings, subagent transcripts, grants) to another machine. When the person says teleport, move or come back, call this yourself; never ask them for a token or a step. action move (default): to = cloud (the hosted Cloud Chief; the app's sign-in is used), ssh:HOST[:DIR] (a Mac mini or Linux VM over SSH, the host name as the person says it), local:DIR, or home (the Mac you came from). Run dry_run true first; fix any blocker you can (a missing optchat-chief is installed by the move itself) and tell the person only a sign-in or a key you cannot reach. Then the real move: it starts when this turn ends and keeps this copy for rollback, so say goodbye in this turn; your next answer comes from the new place with nothing lost. status: the last move's report. reach: after a move, which SSH hosts, tailnet, fleet and model route answer from here. rollback: the old copy answers again. fork (to = cloud): copy yourself (memory, conversations, the person's profile) into a new Cloud Chief while you keep answering here; nothing here stops or moves. Use it first when the person wants to try the cloud without losing you; then talk to the fork with tell(id: \"chief:fork\") (its reply comes back as a note) and move for real only after it checks out. fork_status: the fork's record.";
 
 /// The move tool's schema.
 pub fn move_tool() -> Value {
     json!({"name": "move", "description": MOVE_DESCRIPTION,
      "inputSchema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["move", "status", "reach", "rollback"]},
+        "action": {"type": "string", "enum": ["move", "status", "reach", "rollback", "fork", "fork_status"]},
         "to": {"type": "string", "minLength": 1},
         "dry_run": {"type": "boolean"},
         "without_transcripts": {"type": "boolean", "description": "Leave subagent transcripts behind (smaller move)."},
@@ -128,7 +142,7 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
     }
     if !subagent && allows("spawn") {
         list.push(json!({"name": "spawn", "description": SPAWN_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": EFFORTS, "description": "How hard they think; by default, as hard as you."}, "place": {"type": "string", "enum": PLACES, "description": "cloud: in the cloud (with `control cloud freestyle` its own Freestyle VM; cloud:small for design/docs/edits, cloud:medium for bun/node/go tests, cloud:large only when asked; Swift/Rust/app builds go to the Mac-mini fleet); local: on this Mac (its app, UI, screenshots, computer use, sign-ins). By default: the `control cloud` setting, and a task that needs the Mac stays here."}}, "required": ["tasks"], "additionalProperties": false}}));
+         "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": EFFORTS, "description": "How hard they think; by default, as hard as you."}, "place": {"type": "string", "minLength": 1, "description": "Override automatic placement with here/local/mac (this Mac), cloud (also cloud:small|medium|large), or a paired machine name."}, "harness": {"type": "string", "minLength": 1, "description": SPAWN_HARNESS_DESCRIPTION}, "model": {"type": "string", "minLength": 1, "description": SPAWN_MODEL_DESCRIPTION}, "sidebar": {"type": "string", "enum": ["auto", "shown", "hidden"], "description": SPAWN_SIDEBAR_DESCRIPTION}}, "required": ["tasks"], "additionalProperties": false}}));
     }
     if !subagent && allows("tell") {
         list.push(json!({"name": "tell", "description": TELL_DESCRIPTION,
@@ -176,8 +190,9 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
         list.push(json!({"name": "send", "description": SEND_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {
             "text": {"type": "string", "description": "The message, in Markdown."},
-            "attachments": {"type": "array", "items": text, "maxItems": MAX_SEND_ATTACHMENTS, "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file, up to 50 MB each) or http(s) URLs (a link card)."},
-            "reply_to": {"type": "integer", "minimum": 0, "description": "A user message's line id: the message goes into its thread. Without it: the top level."}},
+            "attachments": {"type": "array", "items": text, "description": "Files to attach: local paths (/abs, ~/rel, file://; images and videos show inline, any other file as a file) or http(s) URLs (a link card)."},
+            "reply_to": {"type": "integer", "minimum": 0, "description": "A user message's line id: the message goes into its thread. Without it: the top level."},
+            "long": {"type": "boolean", "description": "true when the person asked for a long answer (a full list, a report): it posts on the first send instead of coming back to be cut."}},
           "additionalProperties": false}}));
         list.push(json!({"name": "transcript", "description": TRANSCRIPT_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {
@@ -192,6 +207,14 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
             "note": {"type": "string", "description": "What to do when you wake: shown to you in the wake message."},
             "until": {"type": "string", "enum": ["time", "event"], "description": "time (default): wake at the time whatever happens. event: a user message or subagent report that comes first replaces the wake."}},
           "required": ["seconds"], "additionalProperties": false}}));
+        list.push(json!({"name": "watch", "description": WATCH_DESCRIPTION,
+         "inputSchema": {"type": "object", "properties": {
+            "command": {"type": "string", "minLength": 1, "description": "A shell command (sh -c) the host runs on this machine, off your turn: a streaming one (tail -f, gh run watch) or a short check, run again every 15 s while `until` does not match."},
+            "until": {"type": "string", "minLength": 1, "description": "A regex on its output lines (stdout and stderr): the watch fires at the first match. Without it, the watch fires when the command exits."},
+            "timeout_seconds": {"type": "integer", "minimum": WATCH_MIN_SECONDS, "maximum": WATCH_MAX_SECONDS, "description": "The watch fires as timed out after this (default 1800, at most 86400)."},
+            "note": {"type": "string", "description": "What to do when it fires: shown to you in the watch message."},
+            "cancel": {"type": "string", "minLength": 1, "description": "A watch id (w<N>) or all: cancels instead of starting one. With no command and no cancel, lists the pending watches."}},
+          "additionalProperties": false}}));
         list.push(json!({"name": "remember", "description": REMEMBER_DESCRIPTION,
          "inputSchema": {"type": "object", "properties": {
             "text": {"type": "string", "minLength": 1, "maxLength": REMEMBER_MAX, "description": "The preference as one short rule in the person's own terms, e.g. \"Reply in one short bullet list.\""}},
@@ -208,6 +231,7 @@ const ONCE: &[&str] = &[
     "tell",
     "control",
     "sleep",
+    "watch",
     "profile",
     "chiefs",
     "move",
@@ -215,8 +239,9 @@ const ONCE: &[&str] = &[
 ];
 
 /// Tools only a host on the person's machine can do: the Mac's app
-/// (`version`) and moving the Chief's home (`move`).
-const HOST_ONLY: &[&str] = &["version", "move"];
+/// (`version`), moving the Chief's home (`move`) and running a command off
+/// the turn (`watch`).
+const HOST_ONLY: &[&str] = &["version", "move", "watch"];
 
 /// The engines that take specs; a cloud engine drops the host-only tools.
 const SPEC_ENGINES: &[(&str, bool)] = &[

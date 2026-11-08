@@ -453,9 +453,10 @@ class Verdicts(unittest.TestCase):
         self.assertEqual(train.last_good(feed, fetch, "https://x/verdicts")["build"], "100")
         self.assertIsNone(train.last_good(feed, lambda url: None, "https://x/verdicts"))
 
-    def test_the_verdicts_sit_next_to_the_next_feed(self) -> None:
-        self.assertEqual(train.FEED, "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
-        self.assertEqual(train.VERDICTS, train.FEED.rsplit("/", 1)[0] + "/verdicts")
+    def test_the_train_reads_the_one_feed_and_the_verdicts_where_the_app_does(self) -> None:
+        # The track's one feed is cmux NIGHTLY's (hq#7156); the verdicts stay in next/ (UpdaterService.channelFolder).
+        self.assertEqual(train.FEED, "https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
+        self.assertEqual(train.VERDICTS, "https://files-next.cmux.com/nightly-next/next/verdicts")
 
 
 class OwnedRefusal(unittest.TestCase):
@@ -555,7 +556,7 @@ class OwnedRefusal(unittest.TestCase):
         self.assertEqual(jobs["build"]["needs"], "pick-train-runner")
         self.assertIn("needs.pick-train-runner.outputs.attempt == format('{0}', github.run_attempt) && "
                       "needs.pick-train-runner.outputs.owned || needs.pick-train-runner.outputs.blacksmith || "
-                      "vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}", runs_on)
+                      "vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}", runs_on)
 
 
 class Wiring(unittest.TestCase):
@@ -584,7 +585,8 @@ class Wiring(unittest.TestCase):
 
     def test_the_canary_writes_each_verdict_through_release_next(self) -> None:
         canary = self.read("nightly-next-canary.yml")
-        self.assertIn("gh workflow run nightly-next-verdict.yml -R \"$GITHUB_REPOSITORY\" --ref nightly-next", canary)
+        self.assertIn("request=(workflow run nightly-next-verdict.yml -R \"$GITHUB_REPOSITORY\" --ref nightly-next", canary)
+        self.assertIn('gh "${request[@]}"', canary)
         self.assertIn("name: verdict ${{ needs.canary.outputs.verdict }} ${{ needs.pick.outputs.build }}", canary)
         verdict = self.read("nightly-next-verdict.yml")
         self.assertIn("environment: release-next", verdict)

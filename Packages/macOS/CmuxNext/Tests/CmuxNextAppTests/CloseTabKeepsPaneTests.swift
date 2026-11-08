@@ -15,7 +15,7 @@ import Testing
 /// the focus back to the chat (#22990), so the next Cmd-W closed the chat.
 ///
 /// The rule: a closed tab's pane keeps the focus while it has tabs, on the neighbour the close
-/// selects (the next tab, else the previous). Only the close of a pane's last tab moves the focus
+/// selects (the tab before it, else the one after it). Only the close of a pane's last tab moves the focus
 /// to another pane; a press aimed at the emptied pane (made before the frame showing the new
 /// focus, or a repeat of the held key) closes nothing there (``PaneCloseAim``). Runs the app's
 /// Close Tab against a same-tree cmux-tui daemon.
@@ -57,13 +57,13 @@ struct CloseTabKeepsPaneTests {
                                             report: { "the browser pane holds \(browserPane.orderedIDs.map(\.rawValue)), wanted \(ids)" })
             for surface in surfaces { services.linkOpener.returnFocus(of: surface, to: agentPane.layoutPaneID, in: content) }
 
-            // Start on the middle tab: the first close has a tab on its right, the second only on its left.
+            // Start on the middle tab: the first close selects the tab before it, the second (the first tab) the one after it.
             browserPane.select(TabID(ids[1]))
             PaneHandlers.focus(browserPane.layoutPaneID, in: content)
             try await PinnedPageTests.until({ content.focusedPane === browserPane && browserPane.stripModel.selectedID?.rawValue == ids[1] })
 
             // Each close: the tab goes, the pane keeps the focus, its neighbour is selected.
-            for (closed, next) in [(ids[1], ids[2]), (ids[2], ids[0])] {
+            for (closed, next) in [(ids[1], ids[0]), (ids[0], ids[2])] {
                 #expect(services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
                 try await PinnedPageTests.until({ store.tab(id: closed) == nil && browserPane.stripModel.selectedID?.rawValue == next },
                                                 report: { "closing \(closed): " + Self.describe(content, next) })
@@ -73,7 +73,7 @@ struct CloseTabKeepsPaneTests {
 
             // The last tab: the pane closes with it, the focus goes back to the chat it was opened from.
             #expect(services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user)))
-            try await PinnedPageTests.until({ store.tab(id: ids[0]) == nil && content.focusedPane === agentPane },
+            try await PinnedPageTests.until({ store.tab(id: ids[2]) == nil && content.focusedPane === agentPane },
                                             report: { "closing the last tab: " + Self.describe(content, chatID) })
         }
     }
@@ -121,7 +121,12 @@ struct CloseTabKeepsPaneTests {
     /// empties the right pane, then Cmd-D makes a new pane and focuses it, and a quick Cmd-W closes
     /// what the person made and is looking at. Before, every Cmd-W within the quick-press window of
     /// the one before closed nothing, so a Cmd-D, Cmd-W, Cmd-W run lost its closes.
-    @Test func aCmdWAfterACmdDClosesTheNewSplitEvenRightAfterAnEmptyingClose() async throws {
+    ///
+    /// `dispatchDelay` is how long after the split's frame AppKit hands the Cmd-W to the app: at
+    /// once, or late on a loaded main thread (0.78 s in the serial run of the whole target, job
+    /// 54e4c583d660), where the person's quick presses wait in the queue.
+    @Test(arguments: [Duration.milliseconds(50), .milliseconds(700)])
+    func aCmdWAfterACmdDClosesTheNewSplitEvenRightAfterAnEmptyingClose(dispatchDelay: Duration) async throws {
         try await PinnedPageTests.withApp { services, connection in
             let setup = try await Self.emptiablePanes(services, connection)
             let emptiedAt = try await Self.emptyTheRightPane(services, setup)
@@ -131,9 +136,12 @@ struct CloseTabKeepsPaneTests {
             #expect(services.registry.perform("splitRight", invocation: ActionInvocation(origin: .user)))
             let made = try #require(content.panes.keys.first { !before.contains($0) }, "the split showed no pane")
             try await Self.nextCommit()
-            try await Task.sleep(for: .milliseconds(50))
-            // Well inside the old quick-press window of the emptying press.
-            let pressedAt = ProcessInfo.processInfo.systemUptime
+            try await Task.sleep(for: dispatchDelay)
+            // The person pressed it 0.3 s after the emptying press, well inside the old quick-press window
+            // (0.5 s), whenever AppKit dispatches it: the key event's own time, the clock Close Tab reads
+            // (`TabCloseGuard.press`). The test's waits above, on the wall clock, are not that time.
+            let dispatchedAt = ProcessInfo.processInfo.systemUptime
+            let pressedAt = min(dispatchedAt, emptiedAt + 0.3)
             #expect(pressedAt - emptiedAt < 0.5)
             #expect(Self.press(services, .key(repeat: false, at: pressedAt)))
             try await PinnedPageTests.until({ content.panes[made] == nil },
@@ -229,15 +237,15 @@ struct CloseTabKeepsPaneTests {
         return pressedAt
     }
 
-    /// Pure: the neighbour a close selects (``FocusAfterClose/tab(selected:old:surviving:shown:opener:)``):
-    /// the next tab, else the previous; nil once no tab is left.
-    @Test func aClosedTabsNeighbourIsTheNextElseThePrevious() {
+    /// Pure: the neighbour a close selects (``FocusAfterClose/tab(selected:old:surviving:shown:)``):
+    /// the tab before, else the one after; nil once no tab is left.
+    @Test func aClosedTabsNeighbourIsTheTabBeforeElseTheTabAfter() {
         func next(_ selected: String, _ old: [String]) -> String? {
             let surviving = old.filter { $0 != selected }
             return FocusAfterClose.tab(selected: selected, old: old, surviving: surviving, shown: Set(surviving))
         }
-        #expect(next("b", ["a", "b", "c"]) == "c")
-        #expect(next("c", ["a", "c"]) == "a")
+        #expect(next("b", ["a", "b", "c"]) == "a")
+        #expect(next("a", ["a", "c"]) == "c")
         #expect(next("a", ["a"]) == nil)
     }
 

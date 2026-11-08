@@ -46,9 +46,9 @@ and render-server field animation, blurred header and native scrolling.
   - Host hooks B (a293970, asks 1-4, 6, 7): `Vendor/catalyst/ThreadHost.swift`
     is vendored. Home runs the `.tree` thread mode (cx-och3h): `parent` is
     mapped, `replyCount` stays nil, and `demo.hostControl(at:)` is the first
-    stop of the thread click path. The thread header hooks show the daemon's thread
-    object (HomeProjection+ThreadHeader.swift: resolve, rename, assign through
-    `thread.update`). Home sets no run-card row or sheet hook, so `sheetFrame` is always nil; the landing that presents a sheet
+    stop of the thread click path. Home sets no thread header hook: as in Messages,
+    the thread view starts at its root bubble (cmux#26686); the daemon's thread
+    object stays in Channels. Home sets no run-card row or sheet hook, so `sheetFrame` is always nil; the landing that presents a sheet
     must check it in the Esc and click paths (host-hooks-b-api.md).
   - Not ported from Host.swift: the live-resize bitmap keep (780934c,
     `MessagesWindowView.setLiveResizing`, `RowCell.liveResizing`). Home never
@@ -142,7 +142,7 @@ remove the loops. `MessagesLabHomeTests/TypingDotsTests` exercises the actual na
 | Model, Layout | live dates in the user's zone and locale (fixtures keep -07:00 and en_US) |
 | Fixture, Transcript, Morph | optional cmux theme; nil keeps MessagesLab's measured palette |
 | Fixture | a theme without an accent keeps MessagesLab's measured blue, gradient and white text (`FixtureTheme.measuredAccent`) |
-| Fixture, Transcript, Compose | typing dots, placeholder, waveform, caret and chip fill from the theme on a light theme; a dark theme keeps MessagesLab's measured values (b5742f3: the placeholder and waveform are MessagesLab's see-through inks, `Fixture.placeholderInk`/`waveformInk`, also in `FixtureTheme`'s dark values) (da4161d: the typing indicator's fill is the theme's incoming grey, one level darker in red and green in the key window on a dark theme; its dots keep the measured dim and lit levels) (the field glass and its buttons follow with the view appearance, `FieldChrome.applyTheme`) |
+| Fixture, Transcript, Compose | typing dots, placeholder, waveform, caret and chip fill from the theme on a light theme; a dark theme keeps MessagesLab's measured values (b5742f3: the waveform is MessagesLab's see-through ink, `Fixture.waveformInk`, also in `FixtureTheme`'s dark values; the placeholder is the palette's on every theme, 4.5:1 on the field, not Messages' 2.6:1 `placeholderInk`) (the typed text and the attachment strip's file names are the palette's `composeText`, not a chat's received-bubble text, and a palette change recolours the draft: `ComposeView.typing`, `FieldTextView.recolorText`, `Cmux/ComposeTextColor.swift`) (da4161d: the typing indicator's fill is the theme's incoming grey, one level darker in red and green in the key window on a dark theme; its dots keep the measured dim and lit levels) (the field glass and its buttons follow with the view appearance, `FieldChrome.applyTheme`) |
 | HeaderBackdrop | the tint uses the theme background (MessagesLab's grey read as a band on a cmux pane) |
 | Layout, Localizable.xcstrings | the placeholder says Message, not iMessage; every string carries all 21 app languages (upstream has en and ja; the rest machine translated, `needs_review`) |
 | AppKitNative.xcstrings | every string in all 21 app languages (machine translated, `needs_review`); `check-l10n.sh` scans this package's tables |

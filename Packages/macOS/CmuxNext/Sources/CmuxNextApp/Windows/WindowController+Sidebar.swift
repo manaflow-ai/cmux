@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextLiveCode
 import CmuxNextPages
 
 extension WindowController {
@@ -11,16 +12,23 @@ extension WindowController {
         // toolbar band; strips under it follow in the same layout pass.
         root.onToolbarBandPresenceChange = { [weak self] in
             for pane in self?.content?.panes.values.map({ $0 }) ?? [] { pane.view.stripView.updateWindowControlsAvoidance() }
+            WindowControlsAvoiders.refresh(in: self?.window)
         }
         // The Home page rides the sidebar's slide inside the main pane card with no layout of its
         // own (a hide sizes it once at the start): every move of the card, its last frame
         // included, has its header re-read the traffic lights (no change, no work).
-        root.onMainPaneMove = { [weak self] in self?.homePageWindowControlsChanged() }
+        root.onMainPaneMove = { [weak self] in WindowControlsAvoiders.refresh(in: self?.window) }
         // The host pressure indicator joins the top row after the band and badge (cmuxterm-hq#2995).
         root.hostPressureIndicator = HostPressureIndicatorView(services: services) { [weak self] in
             // Shown or hidden: the top row places it (layoutTitlebarAccessories), then strips avoid it.
             self?.root.needsLayout = true
             self?.root.layoutSubtreeIfNeeded()
+            self?.relayoutTopRowStrips()
+        }
+        // Swift live mode's mark: in the sidebar's footer, and in the top row while the sidebar is hidden.
+        services.liveCode.whenLive { [weak self] in
+            self?.sidebar.container.sidebarView.liveModeBadge = LiveModeBadgeView()
+            self?.root.liveModeBadge = LiveModeBadgeView()
             self?.relayoutTopRowStrips()
         }
         let model = sidebar.model
@@ -45,23 +53,15 @@ extension WindowController {
             pane.view.stripView.updateWindowControlsAvoidance()
             pane.view.stripView.layoutSubtreeIfNeeded()
         }
-        homePageWindowControlsChanged()
-    }
-
-    /// The Home page slides under or out from under the traffic lights with the sidebar without
-    /// a resize of its list: the list's header re-reads them (Messages' header under the lights).
-    func homePageWindowControlsChanged() {
-        // Classic Home's top page, and the docked Home (a pane's Home tab) when it is in this window.
-        let pages = [topPages.views[.home] as? TopHomePageView, HomeDockTab.view(services)?.messages]
-        for case let page? in pages where page.window === window { page.split.windowControlsMoved() }
+        WindowControlsAvoiders.refresh(in: window)
     }
 
     /// Marks this window incognito: the badge shows in the sidebar header,
     /// and in the top row after the traffic lights while the sidebar is
     /// hidden (strips under it start after it).
     func showIncognitoBadge() {
-        sidebar.container.sidebarView.titlebarAccessory = IncognitoBadgeView()
-        root.titlebarBadge = IncognitoBadgeView()
+        sidebar.container.sidebarView.titlebarAccessory = IncognitoBadgeView(title: WindowStrings.incognitoBadge, help: WindowStrings.incognitoHelp)
+        root.titlebarBadge = IncognitoBadgeView(title: WindowStrings.incognitoBadge, help: WindowStrings.incognitoHelp)
         root.showsTitlebarBadge = sidebar.model.isHidden
         root.needsLayout = true
     }

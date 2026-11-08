@@ -13,16 +13,26 @@ use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 mod permission;
 pub(crate) use permission::{answer_permission, answer_question};
+pub(crate) use send_async::{list_lines as sent_list_lines, status_line as sent_status_line};
 
 mod extra;
-mod launch;
+pub(crate) mod fanout;
+pub(crate) mod launch;
+pub(crate) mod ls;
+mod ls_leads;
+mod ls_pages;
+mod ls_tools;
+pub use ls::LsArgs;
 mod parent;
 mod send_async;
+mod session_move;
 mod standard;
-mod transfer;
+pub(crate) mod transfer;
 
 pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: bool) -> Result<()> {
-    if standard::handles(&cmd) {
+    if let Command::DetachParent { session } = &cmd {
+        crate::cli::detach::run(session, json_out).await
+    } else if standard::handles(&cmd) {
         standard::run(cmd, json_out, suppress_reads).await
     } else {
         extra::run(cmd, json_out, suppress_reads).await
@@ -35,7 +45,7 @@ pub(crate) async fn resolve_id(client: &Client, key: &str) -> Result<String> {
         if e.downcast_ref::<crate::client::DaemonError>()
             .is_some_and(|e| e.0.code == crate::rpc::RpcError::not_found("").code)
         {
-            anyhow::Error::from(errors::AppError::no_session(&key))
+            anyhow::Error::from(errors::AppError::no_session_from(&key, &e))
         } else {
             e
         }
@@ -52,7 +62,7 @@ mod tests {
     #[tokio::test]
     async fn missing_peer_session_allows_relay_but_other_rpc_errors_do_not() {
         for (error, should_relay) in [
-            (RpcError::not_found("no local session with the id \"peer/name\""), true),
+            (RpcError::not_found("no session matches \"peer/name\""), true),
             (RpcError::invalid_params("ambiguous session"), false),
             (RpcError::internal("credentials not found"), false),
         ] {

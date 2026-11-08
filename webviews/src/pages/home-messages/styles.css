@@ -1,0 +1,72 @@
+/* The Messages page's shell (App.tsx): the list column, the 1 pt divider with its grab area, the
+   detail slot and the chat's compose button over its top-left. One fill under all of it (the page's
+   own), so the list and the chat read as one colour over the window. */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+.hm-page {
+  position: relative;
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+  color: var(--page-text);
+  /* The compose button: the list header's circle (list/layout.ts HEADER.side). */
+  --hm-circle: 30px;
+}
+
+.hm-column {
+  position: relative;
+  flex: none;
+  height: 100%;
+}
+
+.hm-divider {
+  position: relative;
+  flex: none;
+  width: 1px;
+  background: var(--page-separator);
+  cursor: col-resize;
+  touch-action: none;
+}
+.hm-divider::after {
+  content: "";
+  position: absolute;
+  inset: 0 calc(-1 * var(--ds-space-1));
+}
+
+.hm-detail {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+
+.hm-compose {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: var(--layer-sticky);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--hm-circle);
+  height: var(--hm-circle);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--page-text) 7%, transparent);
+  color: var(--page-text-2);
+  cursor: default;
+}
+.hm-compose:hover {
+  background: color-mix(in srgb, var(--page-text) 11%, transparent);
+  color: var(--page-text);
+}
+.hm-compose:focus-visible {
+  outline: 2px solid var(--page-text-3);
+  outline-offset: 1px;
+}

@@ -6,7 +6,7 @@ import CmuxNextDesign
 import CmuxNextCompat
 import CmuxNextSidebar
 
-/// Workspace names, colors, notifications, identifiers, and Finder reveal.
+/// Workspace names, colors, notifications, and Finder reveal (identifier copies: `TabHandlers.bindIdentifiers`).
 /// Colors go through the sidebar bridge (optimistic row update, then
 /// `set-workspace-metadata`), the same path as the row's context menu.
 /// Pin goes through the one pin path (`PinCommands`).
@@ -31,9 +31,9 @@ enum WorkspaceMetadataHandlers {
         registry.bind("palette.toggleWorkspacePin", requires: DaemonCapability.workspacePin.rawValue, daemon: {
             PinCommands(context: context).pinsAreTiles ? nil : context.services.activeDaemon
         }(), run: { invocation in
-            // Every selected row takes the right-clicked row's new state, as Finder's tags do.
+            // Every selected row takes the right-clicked row's new state (Finder's tags), else `pinned` (CLI, MCP) sets it.
             let commands = PinCommands(context: context)
-            let pinned = try !commands.isWorkspacePinned(context.workspace(invocation).model)
+            let pinned = try invocation["pinned"]?.boolValue ?? !commands.isWorkspacePinned(context.workspace(invocation).model)
             try commands.setWorkspacesPinned(WindowMembershipHandlers.rowTargets(invocation, context).map(\.id), pinned: pinned, origin: invocation.origin)
         })
         // The workspace menu reads Pin Workspace or Unpin Workspace for the right-clicked row.
@@ -42,7 +42,7 @@ enum WorkspaceMetadataHandlers {
             return PinCommands(context: context).isWorkspacePinned(workspace) ? PinStrings.unpinWorkspace : PinStrings.pinWorkspace
         }
         // Add to Top / Remove from Top on the workspace row (P1): the same layout path as `sidebar.item.add`.
-        registry.bind("workspace.toggleTop", unavailable: { SidebarDocWiring.layoutUnavailableReason(context.services.sidebarLayout) }, run: { invocation in
+        registry.bind("workspace.toggleTop", unavailable: { context.services.sidebarDoc.layoutUnavailableReason(context.services.sidebarLayout) }, run: { invocation in
             try PinCommands(context: context).toggleWorkspaceOnTop(try context.workspace(invocation).model.id, origin: invocation.origin)
         })
         ActionTargetTitles.set("workspace.toggleTop", in: registry) { invocation in
@@ -62,11 +62,6 @@ enum WorkspaceMetadataHandlers {
             let workspace = try context.workspace(invocation).model
             guard let cwd = directory(of: workspace, context) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceHasNoDirectory) }
             NSWorkspace.shared.revealInBackground([URL(fileURLWithPath: cwd)])
-        })
-        registry.bind("palette.copyWorkspaceID", run: { invocation in context.copy(try context.workspace(invocation).key.rawValue) })
-        registry.bind("palette.copyWorkspaceIDAndRef", run: { invocation in
-            let key = try context.workspace(invocation).key.rawValue
-            context.copy("\(key)\n\(ActionTargetRef(kind: .workspace, id: key))")
         })
 
         registry.bind("palette.markWorkspaceUnread", requires: DaemonCapability.notificationMarkUnread.rawValue, daemon: context.services.activeDaemon, run: { invocation in
@@ -126,15 +121,9 @@ enum WorkspaceMetadataHandlers {
         }
     }
 
-    /// Working directory of the focused tab when the workspace is shown,
-    /// else of its first tab that reports one.
+    /// Working directory of the focused tab when the workspace is shown, else of its first tab that
+    /// reports one (any tab kind: `workspaces::directory`).
     private static func directory(of workspace: WorkspaceModel, _ context: AppActionContext) -> String? {
-        let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-        if context.activeWindow?.state.workspaceID == workspace.id,
-           let pane = context.activeWindow?.focusedPane, let id = pane.stripModel.selectedID,
-           let cwd = tabs.first(where: { $0.id == id.rawValue })?.cwd {
-            return cwd
-        }
-        return tabs.lazy.compactMap(\.cwd).first
+        WorkspaceVerbHandlers.directory(of: workspace, context, terminalsOnly: false)
     }
 }

@@ -1,7 +1,9 @@
 #if os(iOS)
+import CmuxSpinner
 import CmuxTabsKit
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxMobileScreenSharing
 import SwiftUI
 import UIKit
 
@@ -26,7 +28,7 @@ extension TabsKitTheme {
 
 /// A workspace: its tabs in the Safari-style TabsKit chrome, opened on the
 /// last tab used on this device. Pushed full screen from the Workspaces
-/// list with the root tab bar and navigation bar hidden (SPEC 3.1: full
+/// list with the navigation bar hidden and, by the shell, the root tab bar (SPEC 3.1: full
 /// screen surfaces own the bottom edge). Ways back to the list: the
 /// toolbar's back chevron (a tab without page history), the system edge
 /// swipe, the grid's leading back circle, and "All Workspaces" in the page menu.
@@ -50,11 +52,20 @@ public struct WorkspaceScreen: View {
 
     public init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
                 creator: WorkspaceCreator? = nil, startsInGrid: Bool = false,
-                openWorkspace: (@MainActor (Workspace) -> Void)? = nil) {
-        makeSource = { WorkspaceTabsSource(store: store, workspaceID: workspaceID, terminal: terminal, creator: creator) }
+                openWorkspace: (@MainActor (Workspace) -> Void)? = nil, screenSharing: ScreenSharingService? = nil) {
+        makeSource = {
+            let source = WorkspaceTabsSource(store: store, workspaceID: workspaceID, terminal: terminal, creator: creator)
+            source.offersScreenSharing = screenSharing != nil
+            source.screenSharing = screenSharing
+            return source
+        }
         _showsGrid = State(initialValue: startsInGrid)
         self.openWorkspace = openWorkspace
+        self.screenSharing = screenSharing
     }
+
+    /// The account's Screen Sharing (nil signed out): + › Screen Sharing shows this Mac's screen.
+    private let screenSharing: ScreenSharingService?
 
     private var source: WorkspaceTabsSource { holder.source(makeSource) }
 
@@ -62,8 +73,9 @@ public struct WorkspaceScreen: View {
         TabsView(source: source, isShowingOverview: $showsGrid)
             .tabsKitTheme(.mobile)
             .overlay(alignment: .top) {
-                if showsGrid {
-                    gridHeader.transition(.opacity.animation(.easeOut(duration: 0.2)))
+                // Select Tabs puts its Close | More where Back is.
+                if showsGrid, !source.isSelectingTabs {
+                    WorkspaceGridHeader(source: source).transition(.opacity.animation(.easeOut(duration: 0.2).unlessReduceMotion))
                 }
             }
             // The workspace's own toast (TabsKit's is never fed: it covers the title and
@@ -79,7 +91,6 @@ public struct WorkspaceScreen: View {
             }
             .background(theme.colors.bg.color.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
-            .toolbar(.hidden, for: .tabBar)
             .background(InteractivePopEnabler())
             // Search Agent Chats, Screens, Panes and a tab group's pages, and Fork Conversation…'s destinations.
             .modifier(WorkspacePages(source: source))
@@ -100,6 +111,26 @@ public struct WorkspaceScreen: View {
                 AgentChooser(load: { [source] in try await source.agentCatalog() },
                              start: { [source] start in source.startAgentChat(start) })
                     .presentationDetents([.medium, .large])
+            }
+            // + › Screen Sharing: the account's Macs; this workspace's Mac connects at once.
+            .sheet(isPresented: Binding(get: { source.showingScreenSharing }, set: { source.showingScreenSharing = $0 })) {
+                if let screenSharing {
+                    NavigationStack {
+                        ScreenSharingPage(service: screenSharing, connectTo: source.macName)
+                            .toolbar {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button("Done") { source.showingScreenSharing = false }
+                                        .accessibilityIdentifier("screenSharing.done")
+                                }
+                                // Screen Sharing as a tab of this workspace (user 2026-11-05).
+                                ToolbarItem(placement: .primaryAction) {
+                                    Button("Open as Tab", systemImage: "plus.rectangle.on.rectangle") { source.openScreenSharingTab() }
+                                        .labelStyle(.titleOnly)
+                                        .accessibilityIdentifier("screenSharing.openAsTab")
+                                }
+                            }
+                    }
+                }
             }
             // Rename Tab… (page and card menus), as the Mac's.
             .onChange(of: source.renamingTab?.id) { _, id in
@@ -122,6 +153,7 @@ public struct WorkspaceScreen: View {
                 Button("Rename") {
                     if let id = renameID { Task { await source.rename(id, to: renameText) } }
                 }
+                    .keyboardShortcut(.defaultAction)
             }
             .modifier(TabMoveAndGroupSheets(source: source))
             // Closing a tab with a running program asks first (Codex QA F9).
@@ -144,7 +176,7 @@ public struct WorkspaceScreen: View {
             if let title = source.pendingTabTitle {
                 // A tab on its way: the grid keeps its cards until the Mac lists it.
                 HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
+                    CmuxSpinner().controlSize(.small)
                     Text(Self.openingText(title))
                 }
                 .font(theme.type.meta.weight(.semibold))
@@ -172,7 +204,7 @@ public struct WorkspaceScreen: View {
                 .dynamicTypeSize(...DynamicTypeSize.accessibility3)
                 .accessibilityElement(children: .combine)
                 .cmuxMobileDismissibleToast(entry: placement.entry, announcement: text) {
-                    withAnimation(theme.motion.snappy.animation) { source.clearNotice() }
+                    withAnimation(theme.motion.snappy.animation.unlessReduceMotion) { source.clearNotice() }
                 }
                 .padding(.horizontal, 20)
                 .padding(showsGrid ? .bottom : .top, placement.inset)
@@ -181,9 +213,9 @@ public struct WorkspaceScreen: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: showsGrid ? .bottom : .top)
-        .animation(theme.motion.snappy.animation, value: source.toastText)
-        .animation(theme.motion.snappy.animation, value: source.pendingTabTitle)
-        .animation(theme.motion.snappy.animation, value: showsGrid)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: source.toastText)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: source.pendingTabTitle)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: showsGrid)
     }
 
     /// "Opening a Claude chat…" for "New Claude Chat".
@@ -194,43 +226,6 @@ public struct WorkspaceScreen: View {
         if name.hasPrefix("Agent Chat") { return "Opening an agent chat…" }
         if name == "Duplicate Tab" { return "Opening a copy…" }
         return name.hasSuffix(" Chat") ? "Opening a \(name.dropLast(5)) chat…" : "Opening a \(name.lowercased())…"
-    }
-
-    /// The grid's top row: back to the workspace list, and which workspace
-    /// this is (TabsKit draws More on the trailing side at the same height).
-    private var gridHeader: some View {
-        ZStack {
-            VStack(spacing: 1) {
-                Text(source.workspace?.title ?? "").font(.headline)
-                Text(macLine).font(.footnote).foregroundStyle(theme.colors.label2.color)
-            }
-            .lineLimit(1)
-            .frame(maxWidth: 220)
-            HStack {
-                Button {
-                    source.exit()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(theme.colors.label.color)
-                        .frame(width: 36, height: 36)
-                        .contentShape(.circle)
-                }
-                .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: .circle)
-                .accessibilityLabel("Workspaces")
-                Spacer()
-            }
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 4)
-    }
-
-    private var macLine: String {
-        guard let workspace = source.workspace else { return "" }
-        let mac = source.store.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? ""
-        let count = workspace.tabs.count
-        return "\(mac) · \(count == 1 ? "1 tab" : "\(count) tabs")"
     }
 
     #if DEBUG
@@ -337,4 +332,50 @@ private struct InteractivePopEnabler: UIViewControllerRepresentable {
         }
     }
 }
+
+/// The grid's top row: back to the workspace list, and which workspace this
+/// is (TabsKit draws More on the trailing side at the same height). Its own
+/// view, so the workspace's title and tab count it reads re-run only this row
+/// on a Mac publish, not the workspace screen and the tabs under it.
+struct WorkspaceGridHeader: View {
+    let source: WorkspaceTabsSource
+    /// TabsKit's top-control metrics, so Back matches More and the bottom bar.
+    private let metrics = TabsKitTheme.mobile.metrics
+
+    var body: some View {
+        ZStack {
+            VStack(spacing: 1) {
+                Text(source.workspace?.title ?? "").font(.headline)
+                Text(macLine).font(.footnote).foregroundStyle(theme.colors.label2.color)
+            }
+            .lineLimit(1)
+            .frame(maxWidth: 220)
+            HStack {
+                Button {
+                    source.exit()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: metrics.toolbarGlyph, weight: .medium))
+                        .foregroundStyle(theme.colors.label.color)
+                        .frame(width: metrics.overviewTopControl, height: metrics.overviewTopControl)
+                        .contentShape(.circle)
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .accessibilityLabel("Workspaces")
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 4)
+    }
+
+    private var macLine: String {
+        guard let workspace = source.workspace else { return "" }
+        let mac = source.store.teams.flatMap(\.macs).first { $0.id == workspace.macID }?.name ?? ""
+        let count = workspace.tabs.count
+        return "\(mac) · \(count == 1 ? "1 tab" : "\(count) tabs")"
+    }
+}
+
 #endif

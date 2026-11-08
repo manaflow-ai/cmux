@@ -1,15 +1,19 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDaemonService
 @testable import CmuxNextApp
 import CmuxNextRemote
 @testable import CmuxNextServer
 import Foundation
+import Observation
 import Testing
+import CmuxNextTestSupport
+import CmuxNextWakeups
 
-/// The Machines section's joined machines (Labs `labs.machineJoin`): rows from `cmux machine list`
-/// (none while the switch is off), Revoke and Rotate through the CLI and a fresh read after, Check
+/// The Machines section's machines joined through the hub: rows from `cmux machine list` (none
+/// while the store has no service), online by a heartbeat within 30 s, revoked ones dropped, Revoke and Rotate through the CLI and a fresh read after, Check
 /// as the Check Machine checklist on `machine doctor ID`, and the "…" menu's items.
-@MainActor @Suite(.serialized) struct JoinedMachineRowsTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct JoinedMachineRowsTests {
     // The service's closures are @Sendable and run off the main actor: the fakes are not isolated to it.
     // The suite is serialized and each test drives one store, so no two calls race.
     nonisolated final class Fake: @unchecked Sendable {
@@ -17,21 +21,31 @@ import Testing
         var lists = 0
         var revoked: [String] = []
         var rotated: [String] = []
+        var removed: [String] = []
         var answer = true
         var on = true
+        /// Whether the test's section is on screen, and whether a list read covers it (the window is
+        /// covered while the read is in flight).
+        var visible = true
+        var coverOnList = false
 
         @MainActor func store() -> JoinedMachineStore {
             JoinedMachineStore(service: { [self] in
                 guard on else { return nil }
                 return MachineJoinService(
                     mint: { _ in .failure(.failed) },
-                    list: { [self] in lists += 1; return rows },
+                    list: { [self] in lists += 1; if coverOnList { visible = false }; return rows },
                     revoke: { [self] id in
                         revoked.append(id)
                         if answer { rows = rows.map { $0.id == id ? Fake.machine(id, $0.name, state: .revoked) : $0 } }
                         return answer
                     },
-                    rotate: { [self] id in rotated.append(id); return answer })
+                    rotate: { [self] id in rotated.append(id); return answer },
+                    remove: { [self] id in
+                        removed.append(id)
+                        if answer { rows.removeAll { $0.id == id } }
+                        return answer
+                    })
             })
         }
 
@@ -40,15 +54,246 @@ import Testing
         }
     }
 
-    @Test func theStoreListsNothingWhileTheLabsSwitchIsOff() async {
+    /// Remove runs `device remove` (the service's `remove`) and reads the list again: a removed
+    /// machine is gone from it; a refused one stays and its row says the Remove failed.
+    @Test func removeTakesTheMachineOffTheListOrSaysItFailed() async {
+        let fake = Fake()
+        fake.rows.append(Fake.machine("m_2", "build-box"))
+        let store = fake.store()
+        await store.refresh()
+        #expect(await store.perform(.remove, "m_1"))
+        #expect(fake.removed == ["m_1"])
+        #expect(store.machines.map(\.id) == ["m_2"])
+        fake.answer = false
+        #expect(!(await store.perform(.remove, "m_2")))
+        #expect(store.machines.map(\.id) == ["m_2"])
+        #expect(store.failed["m_2"] == .remove)
+    }
+
+    @Test func theStoreListsNothingWhileItHasNoService() async {
         let fake = Fake()
         let store = fake.store()
         await store.refresh()
         #expect(store.machines.map(\.id) == ["m_1"])
         fake.on = false
         await store.refresh()
-        #expect(store.machines.isEmpty, "turning the switch off empties the section's joined rows")
+        #expect(store.machines.isEmpty, "signing out (no service) empties the section's joined rows")
         #expect(fake.lists == 1)
+    }
+
+    /// An online row turns offline once its heartbeat passes the 30 s window, offline and revoked rows
+    /// stay as they are, and the next deadline is the first online row's expiry.
+    @Test func anOnlineRowAgesOfflinePastTheHeartbeatWindow() {
+        let t0 = Date(timeIntervalSince1970: 1_000_000)
+        let fresh = JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: t0)
+        let older = JoinedMachine(id: "m_2", name: "b", state: .online, heartbeatAt: t0.addingTimeInterval(-10))
+        let off = JoinedMachine(id: "m_3", name: "c", state: .offline, heartbeatAt: t0)
+        #expect(fresh.aged(now: t0.addingTimeInterval(30)).state == .online)
+        #expect(fresh.aged(now: t0.addingTimeInterval(31)).state == .offline)
+        #expect(off.aged(now: t0.addingTimeInterval(1)).state == .offline, "aging never brings a row online")
+        #expect(JoinedMachine(id: "m_4", name: "d", state: .online).aged(now: .distantFuture).state == .online,
+                "no readable heartbeat: the CLI's word stands")
+        #expect(JoinedMachine.nextExpiry([fresh, older, off]) == t0.addingTimeInterval(20))
+        #expect(JoinedMachine.nextExpiry([off]) == nil)
+    }
+
+    /// The re-check deadline runs only while a section shows the rows: it starts with a visible
+    /// section, stops when the last one hides, and a fire that finds none on screen reads nothing.
+    @Test func theRecheckRunsOnlyWhileASectionIsVisible() async {
+        let now = Date()
+        let fake = Fake()
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: now.addingTimeInterval(-10))]
+        let store = fake.store()
+        await store.refresh()
+        #expect(!store.isAging, "no section shows the rows: no deadline")
+        let section = NSObject()
+        var visible = true
+        store.startAging(section) { visible }
+        #expect(store.isAging)
+        store.stopAging(section)
+        #expect(!store.isAging, "the last section hid: the deadline stops")
+        store.startAging(section) { visible }
+        visible = false
+        store.pauseAging()
+        #expect(!store.isAging, "the window was covered: the deadline stops at once, no wakeup at the expiry")
+        store.startAging(section) { visible }
+        let reads = fake.lists
+        await store.ageFired()
+        #expect(fake.lists == reads, "a fire with no section on screen reads nothing")
+        #expect(!store.isAging, "a covered window costs no wakeups: the deadline stops until it shows")
+        store.resumeAging()
+        #expect(!store.isAging, "still covered: resuming starts nothing")
+        visible = true
+        store.resumeAging()
+        #expect(store.isAging, "the window shows again: aging restarts at once")
+        store.stopAging(section)
+        #expect(!store.isAging)
+        visible = false
+        await store.ageFired()
+        #expect(!store.isAging, "no section registered: a fire never reschedules")
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .offline, heartbeatAt: now.addingTimeInterval(-10))]
+        await store.refresh()
+        visible = true
+        store.startAging(section) { visible }
+        #expect(!store.isAging, "no online row: nothing can age, no deadline")
+        store.stopAging(section)
+    }
+
+    /// A section that registers while its window is covered sets no deadline: a covered window costs
+    /// no wakeups from the start, and showing it starts aging (``JoinedMachineStore/resumeAging()``).
+    @Test func aSectionRegisteringWhileCoveredSetsNoDeadline() async {
+        let fake = Fake()
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: Date().addingTimeInterval(-10))]
+        let store = fake.store()
+        await store.refresh()
+        let section = NSObject()
+        fake.visible = false
+        store.startAging(section) { fake.visible }
+        #expect(!store.isAging, "registered while covered: no deadline")
+        fake.visible = true
+        store.resumeAging()
+        #expect(store.isAging, "the window shows: aging starts")
+        store.stopAging(section)
+    }
+
+    /// A list read that lands after every window was covered sets no deadline, whether the read was
+    /// a fire's or any other (a refresh, Add Device's card).
+    @Test func aReadLandingAfterTheWindowWasCoveredSetsNoDeadline() async {
+        let fake = Fake()
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: Date().addingTimeInterval(-10))]
+        let store = fake.store()
+        await store.refresh()
+        let section = NSObject()
+        store.startAging(section) { fake.visible }
+        #expect(store.isAging)
+        fake.coverOnList = true
+        await store.ageFired()
+        #expect(!fake.visible, "the window was covered while the fire's read was in flight")
+        #expect(!store.isAging, "the fire's read landed covered: no next deadline")
+        fake.coverOnList = false
+        await store.refresh()
+        #expect(!store.isAging, "a plain read landing covered: no deadline either")
+        fake.visible = true
+        store.resumeAging()
+        #expect(store.isAging)
+        store.stopAging(section)
+    }
+
+    /// Removing the last visible section while a covered one stays registered stops the deadline: the
+    /// covered window never wakes for the section that went.
+    @Test func removingTheLastVisibleSectionLeavesACoveredOneNoDeadline() async {
+        let fake = Fake()
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: Date().addingTimeInterval(-10))]
+        let store = fake.store()
+        await store.refresh()
+        let shown = NSObject(), covered = NSObject()
+        store.startAging(covered) { false }
+        store.startAging(shown) { true }
+        #expect(store.isAging)
+        store.stopAging(shown)
+        #expect(!store.isAging, "only a covered section is left: the deadline is cancelled and never fires")
+        store.startAging(shown) { true }
+        let other = NSObject()
+        store.startAging(other) { true }
+        store.stopAging(shown)
+        #expect(store.isAging, "another section is still on screen: the deadline stays")
+        store.stopAging(other)
+        store.stopAging(covered)
+    }
+
+    /// While visible, a fire reads the list once; a row the read did not renew ages offline.
+    @Test func aFireReadsOnceAndAgesWhatTheReadDidNotRenew() async {
+        let past = Date().addingTimeInterval(-200)
+        let fake = Fake()
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: past)]
+        let store = fake.store()
+        await store.refresh()
+        let section = NSObject()
+        store.startAging(section) { true }
+        let reads = fake.lists
+        await store.ageFired()
+        #expect(fake.lists == reads + 1)
+        #expect(store.machines.first?.state == .offline)
+        #expect(!store.isAging, "no online row left: no next deadline")
+        store.stopAging(section)
+    }
+
+    /// A covered window coming back into view after its rows' heartbeat passed reads at once: the
+    /// deadline is due now, not a window later.
+    @Test func aWindowShownAgainPastTheExpiryReadsAtOnce() async {
+        let fake = Fake()
+        fake.rows = [JoinedMachine(id: "m_1", name: "a", state: .online, heartbeatAt: Date().addingTimeInterval(-200))]
+        let store = fake.store()
+        await store.refresh()
+        let section = NSObject()
+        var visible = false
+        store.startAging(section) { visible }
+        await store.ageFired()
+        let reads = fake.lists
+        visible = true
+        store.resumeAging()
+        for _ in 0..<400 where fake.lists == reads { await Task.yield(); try? await Task.sleep(for: .milliseconds(5)) }
+        #expect(fake.lists == reads + 1, "shown again past the expiry: one read now")
+        #expect(store.machines.first?.state == .offline)
+        store.stopAging(section)
+    }
+
+    /// Switching account or team empties the rows at once (the old team's machines never show under
+    /// the new one) and reads the new account's list; a read still in flight for the old one is dropped.
+    @Test func switchingAccountEmptiesThenReadsTheNewList() async {
+        let fake = Fake()
+        let store = fake.store()
+        await store.refresh()
+        #expect(store.machines.map(\.id) == ["m_1"])
+        let stale = store.beginRead()
+        fake.rows = [Fake.machine("m_9", "other-team-box")]
+        await store.switchedAccount()
+        #expect(store.machines.map(\.id) == ["m_9"])
+        store.finishRead([Fake.machine("m_1", "lane-vm-3")], ticket: stale)
+        #expect(store.machines.map(\.id) == ["m_9"], "the old account's read lands late and is dropped")
+    }
+
+    /// The follow runs on an account change, not only on signing in or out.
+    @Test func theStoreFollowsAnAccountChange() async {
+        let fake = Fake()
+        let account = AccountBox()
+        let store = fake.store().following(account: { account.key })
+        await store.refresh()
+        let reads = fake.lists
+        fake.rows = [Fake.machine("m_9", "other-team-box")]
+        account.key = "u_1|team_b"
+        for _ in 0..<400 where fake.lists == reads { await Task.yield(); try? await Task.sleep(for: .milliseconds(5)) }
+        #expect(fake.lists == reads + 1)
+        #expect(store.machines.map(\.id) == ["m_9"])
+    }
+
+    /// A section hears its window's occlusion reports through the app's one occlusion observer until it
+    /// stops following or goes away (no observer of its own).
+    @Test func aSightFollowerHearsItsWindowUntilItStops() async throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 80), styleMask: [], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false // the test holds it; close must not release it a second time
+        defer { window.close() }
+        var heard = 0
+        var owner: NSObject? = NSObject()
+        FrameScheduler.followSight(of: window, owner: owner!) { heard += 1 }
+        func report() async throws {
+            NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window) // global-notice-allow: the app's one occlusion observer (FrameScheduler.watchSight) listens on .default and takes no center
+            try await Task.sleep(for: .milliseconds(10)) // yields the main actor so the report is delivered on the main queue
+        }
+        try await report()
+        #expect(heard == 1)
+        owner = nil
+        try await report()
+        #expect(heard == 1, "the owner went away: it is not told")
+        let other = NSObject()
+        FrameScheduler.followSight(of: window, owner: other) { heard += 1 }
+        FrameScheduler.unfollowSight(of: window, owner: other)
+        try await report()
+        #expect(heard == 1, "unfollowed: not told")
+    }
+
+    @MainActor @Observable final class AccountBox {
+        var key: String? = "u_1|team_a"
     }
 
     @Test func aRefreshIsOneReadAndAFailedReadKeepsTheRows() async {
@@ -87,8 +332,7 @@ import Testing
         #expect(!(await store.perform(.rotate, "m_1")))
         #expect(fake.rotated == ["m_1"])
         #expect(store.failed["m_1"] == .rotate)
-        let caption = JoinedMachineStrings.caption(store.machines[0], failed: store.failed["m_1"])
-        #expect(caption.contains("rotate"), "the row's caption says the rotate failed: \(caption)")
+        // The row's caption says so: the page reads `failed` (webviews/src/pages/machines, joinedCaption).
     }
 
     @Test func joinedRowsFollowTheConnectedOnesAndCarryWhoMadeTheirLine() {
@@ -99,9 +343,7 @@ import Testing
         #expect(row.id == "joined:m_1")
         #expect(row.isConnected)
         #expect(row.joined?.mintedBy == "you@example.com")
-        #expect(JoinedMachineStrings.caption(online, failed: nil) == "Online · added by you@example.com")
         #expect(!MachineSectionRow.joined(revoked, health: nil).isConnected)
-        #expect(JoinedMachineStrings.caption(revoked, failed: nil).hasPrefix("Revoked"))
     }
 
     /// The joined machines' menu rows bound as the app binds them, on `store`.
@@ -291,12 +533,15 @@ import Testing
         #expect(store.machines.isEmpty, "a read that started before the switch turned off is older than its emptying")
     }
 
-    @Test func aJoinedMachineTheAppConnectsToStaysOneLinkedRow() {
-        let machine = Fake.machine("m_1", "lane-vm-3", mesh: "ssh-7")
-        let linked = MachineSectionRow(id: "ssh-7", name: "lane-vm-3", isConnected: true, isLocal: false, joined: machine)
-        #expect(linked.isLinked, "the daemon's row keeps New Workspace")
-        #expect(!MachineSectionRow.joined(machine, health: nil).isLinked, "a mesh-only row has no workspace link")
-        #expect(MachineSectionRow(id: "ssh-8", name: "x", isConnected: true, isLocal: false).isLinked)
+    /// Each row shows its name, platform and online state; a revoked machine drops out of the section.
+    @Test func theSectionListsHubMachinesWithTheirPlatformAndDropsRevokedOnes() {
+        let store = JoinedMachineStore(service: { nil })
+        store.apply([Fake.machine("m_1", "lane-vm-3"), Fake.machine("m_2", "gpu-west", state: .offline),
+                     Fake.machine("m_3", "old-box", state: .revoked)])
+        let rows = MachineSectionRow.rows(MachineRegistry(local: DaemonService()), health: MachineHealthStore(), joined: store)
+            .filter { $0.kind == .joined }
+        #expect(rows.map(\.name) == ["lane-vm-3", "gpu-west"], "the revoked machine has no row")
+        #expect(rows.map(\.isConnected) == [true, false])
     }
 
     @Test func theSecretReachesTheCLIOnStdinOnly() async throws {
@@ -353,95 +598,5 @@ import Testing
         gate.release()
         await read.value
         #expect(store.machines.isEmpty, "the slower read does not bring back rows")
-    }
-
-    /// A mouse event for the row's handlers (they read nothing from it).
-    static var click: NSEvent {
-        NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0,
-                           context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
-    }
-
-    /// A joined row's AppKit view on `machine`, laid out at the sidebar's width.
-    static func rowView(_ machine: JoinedMachine, busy: Bool = false, failed: JoinedMachineChange? = nil, menuOpen: Bool = false,
-                        actions: JoinedMachineRowView.Actions = .init()) -> JoinedMachineRowView {
-        let row = MachineSectionRow.joined(machine, health: nil)
-        let view = JoinedMachineRowView()
-        view.frame = NSRect(x: 0, y: 0, width: 300, height: JoinedMachineMetrics.rowHeight)
-        view.update(.init(row: row, machine: machine, busy: busy, failed: failed, menuOpen: menuOpen), actions)
-        view.layoutSubtreeIfNeeded()
-        return view
-    }
-
-    @Test func theRowShowsItsMoreButtonOnlyOnHoverOrWhileItsMenuIsOpen() {
-        let machine = Fake.machine("m_1", "lane-vm-3")
-        let idle = Self.rowView(machine)
-        #expect(idle.more.alphaValue == 0, "the more button waits for the pointer")
-        #expect(idle.spinner.isHidden)
-        idle.setHovered(true)
-        #expect(idle.more.alphaValue == 1)
-        idle.setHovered(false)
-        #expect(idle.more.alphaValue == 0)
-        let open = Self.rowView(machine, menuOpen: true)
-        #expect(open.more.alphaValue == 1 && open.more.hover.state.pressed, "an open menu keeps it shown and lit")
-        let busy = Self.rowView(machine, busy: true)
-        #expect(!busy.spinner.isHidden && busy.more.isHidden, "a running change shows the spinner in its place")
-    }
-
-    /// A capture showed "lane-v…" with room to spare and a spinner on idle rows once they were in a
-    /// window (the spinner shows itself while it spins).
-    @Test func theRowShowsItsWholeNameAndNoSpinnerWhenIdleInAWindow() throws {
-        _ = NSApplication.shared
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 60), styleMask: [.borderless], backing: .buffered, defer: true)
-        let view = Self.rowView(Fake.machine("m_1", "lane-vm-3"))
-        window.contentView?.addSubview(view)
-        view.layoutSubtreeIfNeeded()
-        let needed = ceil(try #require(view.name.cell).cellSize.width)
-        #expect(view.name.frame.width >= needed, "the name has room: it is not cut short")
-        #expect(view.spinner.isHiddenOrHasHiddenAncestor, "an idle row shows no spinner in a window")
-        let busy = Self.rowView(Fake.machine("m_2", "gpu-west"), busy: true)
-        window.contentView?.addSubview(busy)
-        #expect(!busy.spinner.isHidden)
-    }
-
-    @Test func theMoreButtonOpensTheActionsMenu() {
-        var made = 0
-        let menu = NSMenu()
-        let view = Self.rowView(Fake.machine("m_1", "lane-vm-3"), actions: .init(menu: { made += 1; return menu }))
-        var shown: [NSMenu] = []
-        view.more.presentMenu = { menu, _ in shown.append(menu) }
-        menu.addItem(withTitle: "Check", action: nil, keyEquivalent: "")
-        view.more.mouseDown(with: Self.click)
-        #expect(made == 1)
-        #expect(shown.map(ObjectIdentifier.init) == [ObjectIdentifier(menu)], "the registry's menu, made on the press")
-    }
-
-    @Test func newWorkspaceNeedsALinkToTheMachine() {
-        var opened = 0
-        let meshOnly = Self.rowView(Fake.machine("m_1", "lane-vm-3"), actions: .init(newWorkspace: { opened += 1 }))
-        #expect(!meshOnly.add.isEnabled, "a machine reached through the mesh alone has no link for a workspace")
-        #expect(meshOnly.add.themedToolTip == JoinedMachineStrings.noWorkspace)
-        let failed = Self.rowView(Fake.machine("m_1", "lane-vm-3"), failed: .rotate)
-        #expect(failed.snapshot?.caption == JoinedMachineStrings.caption(Fake.machine("m_1", "lane-vm-3"), failed: .rotate))
-        #expect(failed.snapshot?.failed == true)
-        #expect(opened == 0)
-    }
-
-    /// The rows as a picture: `Packages/macOS/CmuxNext/.build/machines-joined-rows.png`.
-    @Test func theJoinedRowsRender() throws {
-        _ = NSApplication.shared
-        let rows = [Self.rowView(Fake.machine("m_1", "lane-vm-3"), menuOpen: true),
-                    Self.rowView(Fake.machine("m_2", "gpu-west", state: .offline)),
-                    Self.rowView(Fake.machine("m_3", "old-box", state: .revoked)),
-                    Self.rowView(Fake.machine("m_4", "build-box"), busy: true)]
-        let stack = NSStackView(views: rows)
-        stack.orientation = .vertical
-        stack.spacing = 2
-        stack.frame = NSRect(x: 0, y: 0, width: 300, height: CGFloat(rows.count) * (JoinedMachineMetrics.rowHeight + 2))
-        stack.layoutSubtreeIfNeeded()
-        let image = try AddMachineShotsTests.render(stack)
-        #expect(image.size.height >= 4 * JoinedMachineMetrics.rowHeight)
-        let out = AddServerShotsTests.packageRoot.appending(path: ".build/machines-joined-rows.png")
-        try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try AddServerShotsTests.png(AddServerShotsTests.contactSheet([("joined rows", image)])).write(to: out)
     }
 }

@@ -14,6 +14,8 @@ mod creation_history;
 mod error;
 mod output;
 mod prompt;
+mod run;
+pub mod token;
 
 pub use prompt::{NoPrompt, Prompt, StdinPrompt};
 
@@ -35,6 +37,8 @@ Configuration:
   CMUX_VM_BASE_URL   API base URL (or --base-url, or \"baseUrl\"); default https://vm.cmux.dev
   CMUX_VM_TEAM_ID    team for session tokens (or --team, or \"teamId\")
   CMUX_VM_CONFIG     config file; default $XDG_CONFIG_HOME/cmux/vm.json or ~/.config/cmux/vm.json
+  Without CMUX_VM_API_KEY or --config, the token `token create` stored is used
+  (login Keychain on macOS, else ~/.config/cmux/vm-token.json)
 
 Exit codes:
   0  success
@@ -85,6 +89,11 @@ enum Command {
     /// Inspect or reconcile an original VM creation without allocating another VM
     #[command(subcommand)]
     Creation(CreationCommand),
+    /// Run one command on a fresh VM, deleted when it ends (paused with --keep)
+    Run(run::RunArgs),
+    /// Mint, show or revoke the stored VM-only agent token
+    #[command(subcommand)]
+    Token(token::TokenCommand),
     /// Create a VM
     Create(CreateArgs),
     /// Grow an existing VM to at least the requested resources
@@ -505,6 +514,7 @@ where
     T: Into<OsString> + Clone,
 {
     let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
+    error::set_program(args.first().map(OsString::as_os_str));
     let cli = match Cli::try_parse_from(&args) {
         Ok(cli) => cli,
         Err(e) if !e.use_stderr() => {
@@ -523,12 +533,47 @@ where
         }
     };
     let json = cli.json;
+    let missing = not_found(&cli.command);
     match execute(cli, env, prompt, stdout, stderr).await {
-        Ok(()) => exit::OK,
+        Ok(code) => code,
         Err(error) => {
+            let error = match &missing {
+                Some((what, list)) => error.with_not_found(what, list),
+                None => error,
+            };
             error.report(json, stderr);
             error.exit_code()
         }
+    }
+}
+
+/// What a 404 from `command` did not find, and the verb that lists them.
+fn not_found(command: &Command) -> Option<(String, &'static str)> {
+    let vm = |id: &str| Some((format!("VM {id}"), "list"));
+    match command {
+        Command::Get(a)
+        | Command::Start(a)
+        | Command::Stop(a)
+        | Command::Pause(a)
+        | Command::Resume(a) => vm(&a.vm_id),
+        Command::Delete(a) | Command::Retire(a) => vm(&a.vm_id),
+        Command::Exec(a) => vm(&a.vm_id),
+        Command::Fork(a) => vm(&a.vm_id),
+        Command::Resize(a) => vm(&a.vm_id),
+        Command::Identity(a) => vm(&a.vm_id),
+        Command::Snapshot(SnapshotCommand::Get(a)) => {
+            Some((format!("snapshot {}", a.snapshot_id), "snapshot list"))
+        }
+        Command::Snapshot(SnapshotCommand::Delete(a)) => {
+            Some((format!("snapshot {}", a.snapshot_id), "snapshot list"))
+        }
+        Command::Creation(
+            CreationCommand::Get(_) | CreationCommand::Reconcile(_) | CreationCommand::Cancel(_),
+        ) => Some((
+            "a creation under this idempotency key".to_owned(),
+            "creation list",
+        )),
+        _ => None,
     }
 }
 
@@ -562,7 +607,7 @@ async fn execute(
     prompt: &mut dyn Prompt,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
-) -> Result<(), CliError> {
+) -> Result<i32, CliError> {
     if matches!(
         &cli.command,
         Command::Device(DeviceCommand::RedeemServerCode(_))
@@ -587,13 +632,63 @@ async fn execute(
             prompt,
             output::Printer::new(cli.json, stdout),
         )
-        .await;
+        .await
+        .map(|()| exit::OK);
     }
-    let settings = Settings::resolve(
+    // The stored token: read for every verb but `token create` (an agent key
+    // cannot mint another) and `token status|revoke` (which act on it).
+    let stored = match &cli.command {
+        // token::create checks the store itself, under its create lock.
+        Command::Token(token::TokenCommand::Create(_)) => None,
+        Command::Token(command) => {
+            let token = match token::read_stored(env).map_err(CliError::unexpected)? {
+                Some(token::Stored::Token(token)) => token,
+                // Nothing can revoke a key it cannot read: revoke removes
+                // the local copy, which the error for it recommends.
+                Some(token::Stored::Unreadable)
+                    if matches!(command, token::TokenCommand::Revoke) =>
+                {
+                    return token::remove_unreadable(env, cli.json, stdout).map(|()| exit::OK);
+                }
+                Some(token::Stored::Unreadable) => {
+                    return Err(CliError::unexpected(token::unreadable_message()));
+                }
+                None => {
+                    return Err(CliError::unauthenticated(
+                        "no stored VM token: run `cmux vm token create`",
+                    ));
+                }
+            };
+            return token_command(command, token, &cli, env, stdout).await;
+        }
+        // A stored token that cannot be read is refused, never skipped: the
+        // default config file's key may carry far more than the token's VM
+        // scopes and budget. An explicit key or config file is the override.
+        _ => match token::load(env) {
+            Ok(token) => token,
+            Err(problem)
+                if cli.config.is_some()
+                    || ["CMUX_VM_API_KEY", "CMUX_VM_CONFIG"]
+                        .iter()
+                        .any(|name| env(name).is_some_and(|value| !value.is_empty())) =>
+            {
+                error::report_warning(&problem, cli.json, stderr);
+                None
+            }
+            Err(problem) => {
+                return Err(CliError::unauthenticated(format!(
+                    "the stored VM token cannot be used: {problem}; fix it, run `cmux vm token create` again, or set CMUX_VM_API_KEY"
+                )));
+            }
+        },
+    };
+    let settings = Settings::resolve_with_token(
         cli.base_url.as_deref(),
         cli.team.as_deref(),
         cli.config.as_deref(),
         env,
+        stored.as_ref(),
+        token::now_unix(),
     )?;
     for warning in &settings.warnings {
         error::report_warning(warning, cli.json, stderr);
@@ -605,8 +700,67 @@ async fn execute(
         concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
     )
     .map_err(|e| CliError::usage(e.to_string()))?;
-    let out = output::Printer::new(cli.json, stdout);
-    dispatch(&client, cli.command, prompt, out).await
+    match cli.command {
+        Command::Run(args) => run::run(&client, args, stdout, stderr).await,
+        Command::Token(token::TokenCommand::Create(args)) => {
+            let base = (settings.base_url != cmux_vm_client::DEFAULT_BASE_URL)
+                .then(|| settings.base_url.clone());
+            token::create(
+                &client,
+                &args,
+                settings.team_id.clone(),
+                base,
+                env,
+                cli.json,
+                stdout,
+            )
+            .await
+            .map(|()| exit::OK)
+        }
+        command => {
+            let out = output::Printer::new(cli.json, stdout);
+            dispatch(&client, command, prompt, out)
+                .await
+                .map(|()| exit::OK)
+        }
+    }
+}
+
+/// `token status` and `token revoke`, on the stored token.
+async fn token_command(
+    command: &token::TokenCommand,
+    stored: token::StoredToken,
+    cli: &Cli,
+    env: &dyn Fn(&str) -> Option<String>,
+    stdout: &mut dyn Write,
+) -> Result<i32, CliError> {
+    match command {
+        token::TokenCommand::Status => {
+            let (verb, code) = stored.status(token::now_unix());
+            token::report(&stored, verb, cli.json, stdout)?;
+            Ok(code)
+        }
+        token::TokenCommand::Revoke => {
+            let requested = cli
+                .base_url
+                .clone()
+                .or_else(|| env("CMUX_VM_BASE_URL").filter(|url| !url.is_empty()));
+            let base_url = stored.issuer_for(requested.as_deref())?;
+            let client = cmux_vm_client::authenticated_raw_client(
+                &base_url,
+                &stored.key,
+                stored.team_id.as_deref(),
+                concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
+            )
+            .map_err(|e| CliError::usage(e.to_string()))?;
+            token::revoke(&client, &stored, env, cli.json, stdout)
+                .await
+                .map(|()| exit::OK)
+        }
+        token::TokenCommand::Create(_) => {
+            unreachable!("token create mints with the resolved credential")
+        }
+    }
 }
 
 async fn dispatch(
@@ -676,7 +830,7 @@ async fn dispatch(
             let response =
                 fetch_body(client.vms_resize_vm(vm_id.as_str(), Some(&key), None, &body))
                     .await
-                    .map_err(|e| e.with_retry_key(&key_text))?;
+                    .map_err(|e| e.with_retry_key(&key_text).for_vm(vm_id.as_str(), "resize"))?;
             let confirmed = serde_json::from_slice::<types::Vm>(&response)
                 .ok()
                 .is_some_and(|actual| {
@@ -754,7 +908,9 @@ async fn dispatch(
             out.image_list(&images)
         }
         Command::Get(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_get_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_get_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "get"))?;
             out.vm(&vm)
         }
         Command::List(args) => {
@@ -777,7 +933,9 @@ async fn dispatch(
             out.vm_list(&page)
         }
         Command::Start(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_start_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_start_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "start"))?;
             out.vm(&vm)
         }
         Command::Identity(IdentityArgs {
@@ -807,11 +965,15 @@ async fn dispatch(
             out.identity(&body)
         }
         Command::Stop(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_stop_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_stop_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "stop"))?;
             out.vm(&vm)
         }
         Command::Pause(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_pause_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_pause_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "pause"))?;
             out.vm(&vm)
         }
         Command::Retire(DeleteArgs { vm_id, yes }) => {
@@ -821,7 +983,9 @@ async fn dispatch(
             if !yes {
                 confirm(prompt, Destroy::RetireVm, id.as_str())?;
             }
-            let response = fetch_body(client.vms_retire_vm(id.as_str(), None)).await?;
+            let response = fetch_body(client.vms_retire_vm(id.as_str(), None))
+                .await
+                .map_err(|e| e.for_vm(id.as_str(), "retire"))?;
             let receipt: serde_json::Value = serde_json::from_slice(&response).map_err(|_| {
                 CliError::unexpected("retirement is unconfirmed; retry retire for the same VM")
             })?;
@@ -840,11 +1004,15 @@ async fn dispatch(
                 "command": args.command.join(" "),
                 "timeoutMs": args.timeout_ms,
             }))?;
-            let result = fetch_body(client.exec_exec_vm(&args.vm_id, None, &body)).await?;
+            let result = fetch_body(client.exec_exec_vm(&args.vm_id, None, &body))
+                .await
+                .map_err(|e| e.for_vm(&args.vm_id, "exec"))?;
             out.exec(&result)
         }
         Command::Resume(VmArg { vm_id }) => {
-            let vm = fetch_body(client.vms_resume_vm(&vm_id, None)).await?;
+            let vm = fetch_body(client.vms_resume_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "resume"))?;
             out.vm(&vm)
         }
         Command::Fork(args) => {
@@ -856,14 +1024,19 @@ async fn dispatch(
             let key = parse_key::<types::VmsForkVmIdempotencyKey>(&key_text)?;
             let vm = fetch_body(client.vms_fork_vm(&args.vm_id, Some(&key), None, &body))
                 .await
-                .map_err(|e| e.with_idempotency_hint(&key_text))?;
+                .map_err(|e| {
+                    e.with_idempotency_hint(&key_text)
+                        .for_vm(&args.vm_id, "fork")
+                })?;
             out.vm(&vm)
         }
         Command::Delete(DeleteArgs { vm_id, yes }) => {
             if !yes {
                 confirm(prompt, Destroy::DeleteVm, &vm_id)?;
             }
-            call(client.vms_delete_vm(&vm_id, None)).await?;
+            call(client.vms_delete_vm(&vm_id, None))
+                .await
+                .map_err(|e| e.for_vm(&vm_id, "delete"))?;
             out.deleted(&vm_id)
         }
         Command::ClientSession(command) => client_session(client, command, prompt, out).await,
@@ -960,6 +1133,9 @@ async fn dispatch(
             out.revoked(id.as_str())
         }
         Command::ApiKey(command) => api_key(client, command, prompt, out).await,
+        Command::Run(_) | Command::Token(_) => {
+            Err(CliError::usage("this verb needs the API credential"))
+        }
         Command::File(FileCommand::Stat(args)) => {
             let id = args
                 .vm_id
@@ -978,7 +1154,9 @@ async fn dispatch(
                 .path
                 .parse::<types::GuestPath>()
                 .map_err(|_| CliError::usage("invalid guest path"))?;
-            let body = fetch_body(client.files_stat_file(id.as_str(), &path, None)).await?;
+            let body = fetch_body(client.files_stat_file(id.as_str(), &path, None))
+                .await
+                .map_err(|e| e.for_vm(id.as_str(), "file stat"))?;
             out.file_stat(&body)
         }
     }
@@ -1076,7 +1254,10 @@ async fn snapshot(
             let snapshot =
                 fetch_body(client.snapshots_create_snapshot(&args.vm_id, Some(&key), None, &body))
                     .await
-                    .map_err(|e| e.with_idempotency_hint(&key_text))?;
+                    .map_err(|e| {
+                        e.with_idempotency_hint(&key_text)
+                            .for_vm(&args.vm_id, "snapshot")
+                    })?;
             out.snapshot(&snapshot)
         }
         SnapshotCommand::Get(SnapshotArg { snapshot_id }) => {

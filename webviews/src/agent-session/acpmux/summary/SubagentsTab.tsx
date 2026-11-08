@@ -3,17 +3,19 @@
 // "Done · N", newest first. Each is the transcript's own subagent row (SubagentListRow), so it has
 // the same avatar and state as in the chat; a row shows that subagent (`onOpen`): in a pane of its
 // own beside the chat, or in this pane when none opens. The chats the agent started (`sessions`,
-// inspector/ChildSessionRows.tsx) follow the subagents in each list, a waiting or running one under
+// session-info/ChildSessionRows.tsx) follow the subagents in each list, a waiting or running one under
 // Active and the rest under Done; a row opens that chat (`onOpenSession`).
 import React from "react";
 import { useT } from "../i18n";
-import { ChildSessionRows, sessionStatus } from "../inspector/ChildSessionRows";
+import { ChildSessionRows } from "../session-info/ChildSessionRows";
+import { sessionStatus } from "../session-info/childSessionRowsModel";
 import type { AcpmuxRow } from "../model";
 import type { StartedSession } from "../started/startedSessions";
-import { SubagentListRow, SubagentPaneContext } from "../subagents/SubagentGroup";
+import { SubagentListRow } from "../subagents/SubagentGroup";
+import { SubagentPaneContext } from "../subagents/subagentGroupModel";
 import type { Subagent } from "../subagents/subagentFold";
 import { SUBAGENT_ROW } from "../subagents/subagentRows";
-import { subagentStatus } from "./SubagentStatusList";
+import { subagentStatus } from "./subagentStatusListModel";
 
 /// Subagent rows as SubagentListRow draws them; each carries its place in its list (`status`).
 function listRows(agents: readonly Subagent[]): AcpmuxRow[] {

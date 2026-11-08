@@ -51,7 +51,7 @@ import Testing
         center.bind(into: registry, host: ImportCardsHost(runImport: { _, _, _ in throw CancellationError() },
                                                            importedProfiles: { [] },
                                                            openSettings: { routes.append($0) },
-                                                           importClassic: { _ in nil }))
+                                                           importClassic: { _ in nil }, importConductor: { _ in nil }))
         #expect(registry.isBound("import.open"))
         #expect(registry.perform("import.open", invocation: ActionInvocation(origin: .user)))
         #expect(routes == ["#/settings/import"])

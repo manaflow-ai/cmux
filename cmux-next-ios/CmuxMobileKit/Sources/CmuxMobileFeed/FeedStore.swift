@@ -10,8 +10,8 @@ private let feedChurnLog = Logger(subsystem: "dev.cmux.mobile", category: "feed-
 #endif
 
 /// One Feed event: something an agent did or needs, from any workspace and tab.
-public struct FeedItem: Identifiable, Hashable, Sendable {
-    public enum Kind: Hashable, Sendable {
+public struct FeedItem: Identifiable, Hashable, Sendable, Codable {
+    public enum Kind: Hashable, Sendable, Codable {
         /// A normal agent reply; Reply sends a new prompt into that tab.
         case response
         case question(AgentQuestion)
@@ -25,8 +25,8 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     }
 
     /// The message this event answers, shown as an iMessage-style quote bubble.
-    public struct Quote: Hashable, Sendable {
-        public enum Author: Hashable, Sendable { case you, agent }
+    public struct Quote: Hashable, Sendable, Codable {
+        public enum Author: Hashable, Sendable, Codable { case you, agent }
         public var text: String
         public var author: Author
 
@@ -43,6 +43,8 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     public var agentName: String
     public var harness: String
     public var workspaceTitle: String
+    /// The tab the agent runs in, as the Mac names it ("Fix login redirect"); empty when unknown.
+    public var tabTitle = ""
     public var markdown: String
     public var quote: Quote?
     public var createdAt: Date
@@ -56,7 +58,7 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     public var error: String?
     /// Bumps with each inline answer, so a late refusal never reverts a newer answer.
     public var attempt = 0
-    /// An answer on its way that is not decided yet ("Waiting for Face ID…"):
+    /// An answer on its way that is not decided yet ("Sending…"):
     /// the card shows it instead of its buttons, and never claims "Allowed"
     /// before the signed answer went out (review m10).
     public var pending: String?
@@ -66,6 +68,9 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     /// The Mac whose agent sent the event: answers, replies and opens go to
     /// that Mac's link, never the chosen one's (nil: mock content, old archives).
     public var macID: String?
+    /// The page the event opens instead of a chat: a request of the Mac app's own Feed (a PR
+    /// held for trial, `MacNeedsYouFeed`), answered there, not in a chat or a terminal.
+    public var link: URL?
 
     public init(
         id: String, kind: Kind, workspaceID: String, tabID: String, agentName: String, harness: String,
@@ -89,6 +94,15 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     /// may still be working).
     public var takesReply: Bool {
         !opensTerminal || kind == .response || kind == .finished
+    }
+
+    /// Where it happened: "api-server › Fix login redirect", or the workspace alone when the tab
+    /// is unnamed or only repeats the agent's name.
+    public var place: String {
+        let tab = tabTitle.trimmingCharacters(in: .whitespaces)
+        let repeats = [agentName, harness, workspaceTitle].contains { $0.caseInsensitiveCompare(tab) == .orderedSame }
+        guard !tab.isEmpty, !repeats else { return workspaceTitle }
+        return workspaceTitle.isEmpty ? tab : "\(workspaceTitle) › \(tab)"
     }
 
     public var needsYou: Bool {
@@ -169,14 +183,24 @@ public final class FeedStore {
             guard items != oldValue else { return }
             // Events read before (this launch or an earlier one) stay read when the Mac
             // reports them again.
-            if items.contains(where: { !$0.isRead && readIDs.contains($0.id) }) {
+            if items.contains(where: { !$0.isRead && readSet.contains($0.id) }) {
                 items = items.map { item in
                     var item = item
-                    if readIDs.contains(item.id) { item.isRead = true }
+                    if readSet.contains(item.id) { item.isRead = true }
                     return item
                 }
                 return
             }
+            // A done event that left the window stays done when the Mac reports it again.
+            if !evictedDoneSet.isEmpty, items.contains(where: { !$0.isDone && evictedDoneSet.contains($0.id) }) {
+                items = items.map { item in
+                    var item = item
+                    if evictedDoneSet.contains(item.id) { item.isDone = true }
+                    return item
+                }
+                return
+            }
+            reindex()
             recordReadMarks()
             refreshDerived()
             #if DEBUG
@@ -186,25 +210,232 @@ public final class FeedStore {
         }
     }
 
+    /// How many events the Feed holds in memory: the newest, plus any open ask
+    /// older than them (an ask is never dropped while it waits for an answer).
+    /// The Mac's own ledger keeps 256 terminal events and the archive saves 200,
+    /// so the window only bounds what a long-running app collects live.
+    public static let memoryLimit = 500
+    /// Done flags of events dropped from the window, newest last: the Mac
+    /// re-reports its ledger, and a done event it brings back stays hidden.
+    static let evictedDoneLimit = 1000
+    @ObservationIgnored private var evictedDoneIDs: [String] = [] {
+        didSet { evictedDoneSet = Set(evictedDoneIDs) }
+    }
+    @ObservationIgnored private var evictedDoneSet: Set<String> = []
+
+    /// The window now: `memoryLimit`, raised while the person reads rows brought back from the
+    /// spill (`loadOlder`), back to `memoryLimit` when they return to the top (`restoreWindow`).
+    @ObservationIgnored private var windowLimit = FeedStore.memoryLimit
+    /// How many events a filtered Feed holds at most while it reads older ones from disk.
+    public static let filteredReachLimit = 2000
+    /// What a memory warning trims the Feed to (`relieveMemoryPressure`).
+    public static let pressureLimit = 100
+    /// Where events that leave the window go, while the app runs: scrolling to the end brings
+    /// them back a page at a time (`loadOlder`). Nil keeps the old behavior: they are dropped.
+    @ObservationIgnored private var spill: RowSpill<FeedItem>?
+    /// Events in the spill (an estimate once the spill's own cap dropped pages): a Feed with
+    /// some has more below its last row.
+    public private(set) var olderOnDisk = 0
+    /// Ids in the spill: the Mac re-reports its ledger on every tree change, and an event the
+    /// window already spilled is not written again.
+    @ObservationIgnored private var spilledIDs: Set<String> = []
+    /// Spilled events the source withdrew (`remove`): they do not come back.
+    @ObservationIgnored private var removedWhileSpilled: Set<String> = []
+    /// Mark All as Read covered every event up to then, the spilled ones too.
+    @ObservationIgnored private var allReadThrough: Date?
+    public private(set) var isLoadingOlder = false
+
+    /// An older event the window keeps: an open ask, one with an answer on its way or a refusal
+    /// to show, and the one Undo can still bring back.
+    private func keepsOutsideWindow(_ item: FeedItem) -> Bool {
+        (item.needsYou && !item.isDone) || item.pending != nil || item.error != nil || item.id == lastDoneID
+    }
+
+    /// The newest `memoryLimit` events in Feed order, and every older event `keepsOutsideWindow`.
+    /// Applied only where events arrive (`insert`, `mergeHistory`, `replaceAll`), never in the
+    /// write of something the person did to one (an answer, a read, Done).
+    private func windowed(_ all: [FeedItem], limit: Int? = nil) -> [FeedItem] {
+        let limit = limit ?? windowLimit
+        var kept: [FeedItem] = []
+        kept.reserveCapacity(min(all.count, limit))
+        var evictedDone: [String] = []
+        var spilled: [FeedItem] = []
+        for (offset, item) in all.enumerated() {
+            if offset < limit || keepsOutsideWindow(item) {
+                kept.append(item)
+            } else if item.isDone {
+                evictedDone.append(item.id)
+            } else if spill != nil, !spilledIDs.contains(item.id) {
+                spilled.append(item)
+            }
+        }
+        if let spill, !spilled.isEmpty {
+            spilledIDs.formUnion(spilled.map(\.id))
+            spill.push(spilled)
+            olderOnDisk += spilled.count
+        }
+        if !evictedDone.isEmpty {
+            let known = evictedDoneSet
+            evictedDoneIDs = Array((evictedDoneIDs + evictedDone.filter { !known.contains($0) }).suffix(Self.evictedDoneLimit))
+        }
+        if !unseenNewIDs.isEmpty {
+            let present = Set(kept.map(\.id))
+            let unseen = unseenNewIDs.filter(present.contains)
+            if unseen != unseenNewIDs { unseenNewIDs = unseen }
+        }
+        return kept
+    }
+
     /// Writes `next` only when it differs. The Mac re-reports the same
     /// history on every tree change (several a second while an agent works),
     /// and an in-place write (`items[i] = x`, `mutate`) notifies observers even
     /// when nothing changed: the Feed re-rendered and re-saved for nothing.
+    /// The window and the evicted done flags apply before the comparison, so a
+    /// re-reported history the window already dropped is no change at all.
     private func setItems(_ next: [FeedItem]) {
+        var next = next
+        if !evictedDoneSet.isEmpty {
+            for index in next.indices where !next[index].isDone && evictedDoneSet.contains(next[index].id) {
+                next[index].isDone = true
+            }
+        }
+        if next.count > windowLimit { next = windowed(next) }
+        if next != items { items = next }
+    }
+
+    // MARK: Spill
+
+    /// Spills events that leave the window to `spill` (the account's, in Caches), starting
+    /// empty: the spill only lives as long as this run of the Feed. Nil stops spilling.
+    public func useSpill(_ spill: RowSpill<FeedItem>?) {
+        self.spill?.reset()
+        spill?.reset()
+        self.spill = spill
+        olderOnDisk = 0
+        spilledIDs = []
+        removedWhileSpilled = []
+        allReadThrough = nil
+    }
+
+    /// The person reached the end of the Feed: the newest page of spilled events comes back
+    /// from disk, read off the main thread, and the window grows to hold it.
+    public func loadOlder() {
+        guard spill != nil, olderOnDisk > 0, !isLoadingOlder else { return }
+        Task { @MainActor in await loadOlderPage() }
+    }
+
+    /// `loadOlder`, returning once the page is in the Feed (tests).
+    func loadOlderPage() async {
+        guard let spill, olderOnDisk > 0, !isLoadingOlder else { return }
+        // A filter with few matches reaches its end at once: it reads at most this far back.
+        guard filter == .all || items.count < Self.filteredReachLimit else { return }
+        isLoadingOlder = true
+        defer { isLoadingOlder = false }
+        while olderOnDisk > 0 {
+            let page = await spill.pop()
+            // Another account's spill (sign-out, then sign-in) never takes this page.
+            guard self.spill?.directory == spill.directory else { return }
+            guard !page.isEmpty else {
+                olderOnDisk = 0
+                spilledIDs = []
+                return
+            }
+            olderOnDisk = max(0, olderOnDisk - page.count)
+            spilledIDs.subtract(page.map(\.id))
+            // A newer copy already in memory (the Mac re-reported it) wins; one the source
+            // withdrew stays gone; what the person read while it was on disk comes back read.
+            let back = page.filter { itemIndex[$0.id] == nil && !removedWhileSpilled.contains($0.id) }.map { item in
+                var item = item
+                if readSet.contains(item.id) || allReadThrough.map({ item.createdAt <= $0 }) == true { item.isRead = true }
+                return item
+            }
+            guard !back.isEmpty else { continue }
+            windowLimit = max(windowLimit, items.count + back.count)
+            // Below the rows shown, in the order they left: the rows on screen do not move.
+            var next = items
+            next.append(contentsOf: back)
+            setItems(next)
+            return
+        }
+    }
+
+    /// The person is back at the top: the rows brought back for scrolling go back to disk.
+    public func restoreWindow() {
+        // A filtered Feed is short: its top and its end are the same rows, and the window grows
+        // while a filter looks for older matches. It goes back once the whole Feed shows.
+        guard windowLimit != Self.memoryLimit, filter == .all else { return }
+        windowLimit = Self.memoryLimit
+        setItems(items)
+    }
+
+    /// A memory warning: the Feed keeps its newest `pressureLimit` events (and every open ask);
+    /// the rest go to the spill when there is one, or are dropped as the window drops them.
+    public func relieveMemoryPressure() {
+        windowLimit = Self.memoryLimit
+        guard items.count > Self.pressureLimit else { return }
+        let next = windowed(items, limit: Self.pressureLimit)
         if next != items { items = next }
     }
 
     /// The filtered list and the count, kept with the items instead of
     /// recomputed by every body that reads them.
     private func refreshDerived() {
-        let visible = items.filter { !$0.isDone && filter.matches($0) && !mutedWorkspaces.contains($0.workspaceID) }
+        let visible = Self.pinningNeedsYou(items.filter { !$0.isDone && filter.matches($0) && !mutedWorkspaces.contains($0.workspaceID) })
         if visible != visibleItems { visibleItems = visible }
-        let count = items.count(where: { $0.needsYou && !$0.isDone })
-        if count != needsYouCount { needsYouCount = count }
+        let open = Set(items.lazy.filter { $0.needsYou && !$0.isDone }.map(\.id))
+        if open != needsYouIDs { needsYouIDs = open }
+        if open.count != needsYouCount { needsYouCount = open.count }
     }
+
+    /// Needs you first: the asks still waiting on the person lead the list, newest first among
+    /// them, then every other event newest first. The Mac's Feed pins its open requests the same
+    /// way (CmuxNextFeed `FeedLedger`, section 0), so an ask never sinks under later turns.
+    nonisolated static func pinningNeedsYou(_ items: [FeedItem]) -> [FeedItem] {
+        // Stable: each group keeps the order it came in (newest first).
+        guard items.contains(where: \.needsYou) else { return items }
+        return items.filter(\.needsYou) + items.filter { !$0.needsYou }
+    }
+
+    /// Whether the Feed knows the ask with acpmux permission `permissionID` from `mac` closed:
+    /// answered here, on the Mac or on another device, or marked done. Nil `mac` (a push from an
+    /// older Worker) matches the ask on any Mac. False for an ask the Feed has not read yet (a
+    /// reconnect that has not reloaded it); an Allow still on its way has no resolution
+    /// yet, so it stays open.
+    public func isClosedAsk(permissionID: String, mac: String?) -> Bool {
+        guard let item = item(id: "ask-\(permissionID)") else { return false }
+        if let mac, let owner = item.macID, mac != owner { return false }
+        return item.isDone || !item.needsYou
+    }
+
+    /// The Macs whose own Feed requests (`MacNeedsYouFeed`) were read on their live link.
+    @ObservationIgnored public var macRequestsRead: Set<String> = []
+
+    /// Whether the Feed knows the Mac app's Feed request of push `eventID` (`feed-<id>`, from
+    /// cmux-mobile-host `needs_you.rs`) on `mac` closed: that Mac's live list no longer has it,
+    /// or it was marked done. False until that Mac's list was read on its live link.
+    public func isClosedMacRequest(eventID: String, mac: String?) -> Bool {
+        guard eventID.hasPrefix("feed-"), let mac, macRequestsRead.contains(mac) else { return false }
+        guard let item = item(id: "macreq-\(mac)-\(eventID.dropFirst(5))") else { return true }
+        return item.isDone || !item.needsYou
+    }
+
     /// Persisted read flags (`FeedReadMarks`); nil keeps them in memory only (tests).
     @ObservationIgnored private var readMarks: FeedReadMarks?
-    @ObservationIgnored private var readIDs: [String] = []
+    @ObservationIgnored private var readIDs: [String] = [] {
+        didSet { readSet = Set(readIDs) }
+    }
+    /// `readIDs` as a set: every items write checks each item against it.
+    @ObservationIgnored private var readSet: Set<String> = []
+    /// Where each item is in `items`, by id: lookups from the live ledger (one per entry,
+    /// per tree update) were linear scans.
+    @ObservationIgnored private var itemIndex: [String: Int] = [:]
+
+    private func reindex() {
+        var index: [String: Int] = [:]
+        index.reserveCapacity(items.count)
+        for (offset, item) in items.enumerated() where index[item.id] == nil { index[item.id] = offset }
+        itemIndex = index
+    }
 
     private func recordReadMarks() {
         let read = items.filter(\.isRead).map(\.id)
@@ -233,18 +464,22 @@ public final class FeedStore {
     public private(set) var unseenNewIDs: [String] = []
     private var liveIndex = 0
 
-    public init(items: [FeedItem], answersLocally: Bool = false, readMarks: FeedReadMarks? = nil) {
+    public init(items: [FeedItem], answersLocally: Bool = false, readMarks: FeedReadMarks? = nil,
+                memoryPressure: MemoryPressure = .shared) {
         self.readMarks = readMarks
         let readIDs = readMarks?.load() ?? []
         self.readIDs = readIDs
-        let read = Set(readIDs)
+        readSet = Set(readIDs)
+        let read = readSet
         self.items = items.sorted { $0.createdAt > $1.createdAt }.map { item in
             var item = item
             if read.contains(item.id) { item.isRead = true }
             return item
         }
         self.answersLocally = answersLocally
+        reindex()
         refreshDerived()
+        memoryPressure.register(self) { [weak self] in self?.relieveMemoryPressure() }
     }
 
     /// Pull to refresh: re-reads the Mac's sessions and open asks through
@@ -263,6 +498,19 @@ public final class FeedStore {
         }
     }
 
+    /// Recovery finishes opening the Macs' feeds before reading them again.
+    public func retry(reconnect: @MainActor () async -> Void = {}) async {
+        await reconnect()
+        guard !Task.isCancelled else { return }
+        await refresh()
+    }
+
+    #if DEBUG
+    public func setRefreshErrorForDemo() {
+        refreshError = Self.notConnectedMessage
+    }
+    #endif
+
     public func clearRefreshError() { refreshError = nil }
 
     /// No Mac to send to: the item keeps its question and says why.
@@ -274,12 +522,18 @@ public final class FeedStore {
     public private(set) var visibleItems: [FeedItem] = []
 
     public private(set) var needsYouCount = 0
+    /// The ids of the asks still waiting on the person (`needsYou`, not done). It changes only
+    /// when an ask opens or closes: the notification sync keys on it, so a re-render or a re-read
+    /// of the same asks does nothing.
+    public private(set) var needsYouIDs: Set<String> = []
 
     public func count(_ filter: FeedFilter) -> Int { items.count(where: filter.matches) }
 
     public func insert(_ item: FeedItem, atTop: Bool) {
-        items.insert(item, at: 0)
         if !atTop { unseenNewIDs.append(item.id) }
+        var next = items
+        next.insert(item, at: 0)
+        setItems(next)
     }
 
     public func clearUnseen() {
@@ -287,8 +541,27 @@ public final class FeedStore {
     }
 
     public func markRead(_ id: String) { mutate(id) { $0.isRead = true } }
+
+    /// Marks several events read in one write (the Mac's reads arrive together).
+    public func markRead(_ ids: some Sequence<String>) {
+        var next = items
+        var changed = false
+        for id in ids {
+            if itemIndex[id] == nil, spilledIDs.contains(id), !readSet.contains(id) {
+                // On disk: it comes back read (`loadOlderPage`), and stays read on a relaunch.
+                readIDs.append(id)
+                readMarks?.save(readIDs)
+            }
+            guard let index = itemIndex[id], !next[index].isRead else { continue }
+            next[index].isRead = true
+            changed = true
+        }
+        if changed { items = next }
+    }
+
     /// Mark All Notifications as Read: every event in the Feed, in one write.
     public func markAllRead() {
+        if olderOnDisk > 0 { allReadThrough = Date() }
         guard items.contains(where: { !$0.isRead }) else { return }
         items = items.map { item in
             var item = item
@@ -296,6 +569,7 @@ public final class FeedStore {
             return item
         }
     }
+
     public func markUnread(_ id: String) {
         readIDs.removeAll { $0 == id }
         readMarks?.save(readIDs)
@@ -317,6 +591,7 @@ public final class FeedStore {
 
     public func undoDone() {
         guard let id = lastDoneID else { return }
+        if evictedDoneSet.contains(id) { evictedDoneIDs.removeAll { $0 == id } }
         mutate(id) { $0.isDone = false }
         lastDoneID = nil
     }
@@ -336,6 +611,8 @@ public final class FeedStore {
         onItemsChange = nil
         actions = nil
         replaceAll([])
+        useSpill(nil)
+        evictedDoneIDs = []
         useReadMarks(nil)
     }
 
@@ -346,7 +623,7 @@ public final class FeedStore {
 
     /// Inserts or replaces an item by id (live events are idempotent).
     public func upsert(_ item: FeedItem, atTop: Bool) {
-        if let index = items.firstIndex(where: { $0.id == item.id }) {
+        if let index = itemIndex[item.id] {
             var next = item
             next.isRead = items[index].isRead
             next.isDone = items[index].isDone
@@ -363,8 +640,9 @@ public final class FeedStore {
     /// answered); nothing counts as newly arrived.
     public func mergeHistory(_ history: [FeedItem]) {
         var next = items
+        var positions = itemIndex
         for item in history {
-            if let index = next.firstIndex(where: { $0.id == item.id }) {
+            if let index = positions[item.id] {
                 var merged = item
                 merged.isRead = next[index].isRead
                 merged.isDone = next[index].isDone
@@ -376,16 +654,18 @@ public final class FeedStore {
                 merged.createdAt = next[index].createdAt
                 next[index] = merged
             } else {
+                positions[item.id] = next.count
                 next.append(item)
             }
         }
         setItems(next.sorted { $0.createdAt > $1.createdAt })
     }
 
-    public func item(id: String) -> FeedItem? { items.first { $0.id == id } }
+    public func item(id: String) -> FeedItem? { itemIndex[id].map { items[$0] } }
 
     /// Drops an item the source withdrew (a duplicate of another event).
     public func remove(_ id: String) {
+        if spilledIDs.contains(id) { removedWhileSpilled.insert(id) }
         if items.contains(where: { $0.id == id }) { items.removeAll { $0.id == id } }
         if unseenNewIDs.contains(id) { unseenNewIDs.removeAll { $0 == id } }
     }
@@ -484,18 +764,18 @@ public final class FeedStore {
         }
     }
 
-    /// Shown on a permission card while its Allow waits for Face ID and the Mac.
-    public static let waitingForFaceID = "Waiting for Face ID…"
+    /// Shown on a permission card while its Allow is signed and sent to the Mac.
+    public static let sendingAllow = "Sending…"
 
     public func respond(_ id: String, option: ACPPermissionOption) {
         if let actions, let item = item(id: id), case .permission(let request) = item.kind {
             guard item.pending == nil else { return }
             let attempt = item.attempt + 1
             mutate(id) { $0.error = nil; $0.attempt = attempt }
-            // An Allow is signed after Face ID: it says "Allowed" only once it went
-            // out. A Deny needs no Face ID and shows at once.
+            // An Allow is signed and says "Allowed" only once it went
+            // out. A Deny is not signed and shows at once.
             if option.isAllow {
-                mutate(id) { $0.pending = Self.waitingForFaceID }
+                mutate(id) { $0.pending = Self.sendingAllow }
             } else {
                 applyRespond(id, option: option)
             }
@@ -522,10 +802,10 @@ public final class FeedStore {
             return
         }
         guard answersLocally else { return failUnsent(id) }
-        let delay = DeveloperOptions.mockFaceIDDelay
+        let delay = DeveloperOptions.mockApprovalDelay
         if option.isAllow, delay > .zero {
             guard item(id: id)?.pending == nil else { return }
-            mutate(id) { $0.pending = Self.waitingForFaceID }
+            mutate(id) { $0.pending = Self.sendingAllow }
             Task {
                 try? await Task.sleep(for: delay)
                 mutate(id) { $0.pending = nil }
@@ -588,7 +868,7 @@ public final class FeedStore {
     }
 
     private func mutate(_ id: String, _ body: (inout FeedItem) -> Void) {
-        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = itemIndex[id] else { return }
         var item = items[index]
         body(&item)
         // An unchanged item is not written (no re-render, no save).

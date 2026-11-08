@@ -1,3 +1,4 @@
+import { artifactRuntimePlugin } from "./artifactRuntimePlugin.mjs";
 // Bundles the React agent pane (src/agent-session/acpmux) for the app with the React
 // Compiler on, the same compiler the Vite dev server runs (vite.config.ts).
 //
@@ -39,6 +40,15 @@ const split = rest.includes("--split");
 const cssInputsIndex = rest.indexOf("--css-inputs");
 const cssInputsFile = cssInputsIndex >= 0 ? rest[cssInputsIndex + 1] : undefined;
 const cssInputsOnly = rest.includes("--css-inputs-only");
+// --metafile <file> writes esbuild's metafile (every output's bytes, its imports and the inputs in it),
+// for an analyzer: what the page's first script holds and why.
+const metafileIndex = rest.indexOf("--metafile");
+const metafileOut = metafileIndex >= 0 ? rest[metafileIndex + 1] : undefined;
+// --preload-list <file> (with --split) writes the chunks the entry imports statically, directly or
+// through another chunk, one per line relative to <outfile>'s folder: the page names each in a
+// <link rel="modulepreload">, so they load and parse beside the entry instead of after it.
+const preloadIndex = rest.indexOf("--preload-list");
+const preloadFile = preloadIndex >= 0 ? rest[preloadIndex + 1] : undefined;
 const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src");
 
 const mode = reactCompilerMode();
@@ -61,9 +71,11 @@ const result = await build({
   minify: !cssInputsOnly,
   write: !cssInputsOnly,
   legalComments: "none",
-  // An imported PNG becomes a data URL: a page ships as one index.html and its CSP allows
-  // `img-src data:` only (the Settings page's Chief Pet mascots).
-  loader: { ".png": "dataurl" },
+  // An imported PNG or WOFF2 becomes a data URL: a page ships as one index.html and its CSP allows
+  // `img-src data:` and fonts from data: only (the Settings page's Chief Pet mascots, the chat's
+  // interface font choices, chatFonts/faces.ts, and the Updated card doodle's handwriting, both
+  // behind a dynamic import).
+  loader: { ".png": "dataurl", ".woff2": "dataurl" },
   alias: shikiAlias === "-" ? {} : { shiki: path.resolve(shikiAlias) },
   logLevel: "warning",
   ...(split
@@ -75,10 +87,43 @@ const result = await build({
       }
     : { outfile }),
   plugins: cssInputsOnly
-    ? [tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })]
-    : [reactCompiler, tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })],
-  metafile: Boolean(cssInputsFile),
+    ? [artifactRuntimePlugin(), tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })]
+    : [reactCompiler, artifactRuntimePlugin(), tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })],
+  metafile: Boolean(cssInputsFile || metafileOut || preloadFile),
 });
+if (metafileOut) await writeFile(metafileOut, JSON.stringify(result.metafile));
+if (preloadFile) {
+  const outdir = path.resolve(path.dirname(outfile));
+  const entryOut = Object.keys(result.metafile.outputs).find(
+    (output) => path.resolve(output) === path.resolve(outfile),
+  );
+  await writeFile(
+    preloadFile,
+    staticChunks(result.metafile.outputs, entryOut)
+      .map((output) => path.relative(outdir, path.resolve(output)) + "\n")
+      .join(""),
+  );
+}
+
+/**
+ * The outputs `entryOut` imports statically, directly or through each other, breadth first: what
+ * the browser fetches before the entry runs. Dynamic imports are left out (they load when used).
+ */
+function staticChunks(outputs, entryOut) {
+  if (!entryOut) throw new Error(`--preload-list: no output for ${outfile}`);
+  const order = [];
+  const seen = new Set([entryOut]);
+  const queue = [entryOut];
+  while (queue.length) {
+    for (const item of outputs[queue.shift()].imports ?? []) {
+      if (item.kind !== "import-statement" || item.external || seen.has(item.path)) continue;
+      seen.add(item.path);
+      order.push(item.path);
+      queue.push(item.path);
+    }
+  }
+  return order;
+}
 if (cssInputsFile) {
   const webviewsRoot = path.dirname(srcRoot);
   const sheets = cssInImportOrder(result.metafile.inputs, entry)

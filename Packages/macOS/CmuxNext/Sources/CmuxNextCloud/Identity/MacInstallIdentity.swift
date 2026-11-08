@@ -1,4 +1,5 @@
 public import CmuxInstallAuthCore
+import CryptoKit
 public import Foundation
 import os
 
@@ -54,16 +55,10 @@ public actor MacInstallIdentity {
 
     /// The `team` claim of an install token (the owner's own token over
     /// TLS; read for consistency, never trusted as a credential). Nil when
-    /// the token is not a JWT with a team.
+    /// the token is not a JWT with a team (Rust's `identity::claims`).
     public nonisolated static func team(ofToken token: String) -> String? {
-        let parts = token.split(separator: ".")
-        guard parts.count == 3 else { return nil }
-        var payload = parts[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
-        payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
-        guard let data = Data(base64Encoded: payload),
-              let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let team = claims["team"] as? String, !team.isEmpty else { return nil }
-        return team
+        struct Claims: Decodable { var team: String? }
+        return CloudStartCore().call("cloud_identity_token", ["token": token], as: Claims.self)?.team
     }
 
     /// A valid install token for the signed-in user.
@@ -84,7 +79,8 @@ public actor MacInstallIdentity {
             transport: transport, signer: store.signer(for: stackUser), sessionToken: nil, stackUser: stackUser,
             deviceName: deviceName, clientVersion: clientVersion, record: record,
             profile: .mac, team: team, expectedEnvironment: environment)
-        let token = try await scoped.installToken()
+        // In this task, so a caller that is cancelled (a superseded lend) stops the mint too.
+        let token = try await scoped.installTokenInCallerTask()
         guard bound == generation, user == stackUser, await client.currentRecord == record else { throw Failure.signedOut }
         return token
     }

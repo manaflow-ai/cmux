@@ -2,7 +2,9 @@
 // (tableFormats.ts), so it pastes into Sheets or Notes as cells; its columns fit their text.
 import { afterEach, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { parseMarkdown, Markdown } from "../src/agent-session/acpmux/conversation/Markdown";
+import { ArtifactContext } from "../src/agent-session/acpmux/conversation/artifactPreview";
+import { Markdown } from "../src/agent-session/acpmux/conversation/Markdown";
+import { parseMarkdown } from "../src/agent-session/acpmux/conversation/markdownModel";
 import {
   copyTable,
   tableClipboard,
@@ -118,10 +120,16 @@ test("where the page cannot write a clipboard entry, Copy copies the Markdown", 
 });
 
 test("the table draws with Copy, columns that fit their text and labeled rows", () => {
-  const html = renderToStaticMarkup(<Markdown>{source}</Markdown>);
+  const html = renderToStaticMarkup(
+    <ArtifactContext.Provider value={() => {}}>
+      <Markdown>{source}</Markdown>
+    </ArtifactContext.Provider>,
+  );
+  // Bare buttons on the corner, no glass pill (code-toolbar-buttons.test.ts).
   expect(html).toContain('class="cv-table-tools"');
   expect(html).toContain('aria-label="Copy table"');
   expect(html).toContain('class="cv-table cv-table--labeled"');
+  expect(html.match(/width="14" height="14"/g)).toHaveLength(2);
   // No fixed 128px column: a short column is as wide as its text.
   expect(html).not.toContain("width:128");
 });

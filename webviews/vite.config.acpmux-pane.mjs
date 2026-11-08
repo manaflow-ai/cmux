@@ -1,9 +1,10 @@
+import { artifactRuntimeVite } from "./scripts/agent-pane/artifactRuntimePlugin.mjs";
 import { reactWithCompiler } from "./reactCompiler.mjs";
 import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { viteCacheDir } from "./dev-server/viteCacheDir.mjs";
-import { agentPaneHost } from "./dev-server/plugins";
+import { agentPaneHost, perfBudgetsDevEntry } from "./dev-server/plugins";
 
 // Dev server for the real agent pane (src/agent-session/acpmux) with hot
 // reload. A Debug or tagged cmux-next launched with
@@ -27,10 +28,13 @@ export default defineConfig({
     fs: { allow: [webviewsRoot] },
   },
   plugins: [
+    artifactRuntimeVite(),
     // Keep the standalone pane dev server's host contract identical to `bun run dev`: real,
     // confined checkout reads are served by /__dev-host/read instead of silently becoming stubs.
     // Install only this host plugin so `/` remains the pane, rather than the generic dev index.
     agentPaneHost(),
+    // The runtime perf budgets' console warnings, as on `bun run dev` (src/devkit/perfBudgets.ts).
+    perfBudgetsDevEntry(),
     {
       // The bundle drops the shared stylesheet's Tailwind @import (only its
       // variables and rules ship); do the same so dev matches the app.

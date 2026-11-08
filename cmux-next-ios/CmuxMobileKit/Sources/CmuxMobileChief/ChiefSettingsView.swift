@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxConversationCore
 import CmuxMobileDesign
+import CmuxSpinner
 import OSLog
 import SwiftUI
 import UIKit
@@ -26,6 +27,7 @@ public struct ChiefSettingsView: View {
     let session: ChiefSession
     /// Message: back to the conversation with the keyboard up.
     let onMessage: (() -> Void)?
+    private let computer = ChiefComputer.shared
     @State private var report: ChiefEngineReport?
     /// A change or stop the Mac did not take (a failed read is the session's ``ChiefSession/engineProblem``).
     @State private var engineError: String?
@@ -67,6 +69,8 @@ public struct ChiefSettingsView: View {
         Form {
             engineSection
             if hasControl, !(report?.recent.isEmpty ?? true) { recentSection }
+            // Messages' Find My slot: the account's Cloud machine (hidden unless it pays and one ran).
+            ChiefComputerSection(computer: computer)
             notificationsSection
             #if DEBUG
             diagnosticsSection
@@ -96,7 +100,6 @@ public struct ChiefSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(removing: .title)
         .toolbar(.visible, for: .navigationBar)
-        .toolbar(.hidden, for: .tabBar)
         .toolbar {
             // Messages' Edit: Chief's name and avatar, on a Mac that sets them.
             if hasControl {
@@ -114,10 +117,12 @@ public struct ChiefSettingsView: View {
         // Mac or its model server is down, until the page closes; again
         // once Chief connects with the page open.
         .task(id: hasControl) { await session.watchEngine() }
+        // The Computer card reads the Mac's Cloud directory now and each time a Mac (re)connects.
+        .task(id: computer.reload(preferring: session.macID)) { await computer.load(preferring: session.macID) }
         .onChange(of: session.engineReport) { _, newer in if !saving { report = newer } }
         // Hide Alerts changed elsewhere (Home's pin menu): the switch follows, animated.
-        .onChange(of: session.isMuted) { _, on in if muted != on { withAnimation { muted = on } } }
-        .onChange(of: session.sendsReadReceipts) { _, on in if receipts != on { withAnimation { receipts = on } } }
+        .onChange(of: session.isMuted) { _, on in if muted != on { withAnimation(.default.unlessReduceMotion) { muted = on } } }
+        .onChange(of: session.sendsReadReceipts) { _, on in if receipts != on { withAnimation(.default.unlessReduceMotion) { receipts = on } } }
         .accessibilityIdentifier("chief.settings")
     }
 
@@ -186,7 +191,8 @@ public struct ChiefSettingsView: View {
                     .accessibilityIdentifier("chief.settings.message")
             }
             ChiefQuickAction(symbol: "phone.fill", title: String(localized: "Call"), enabled: true) {
-                ChiefCallLauncher.shared.call()
+                // This Chief's page: the call is to this Chief only.
+                ChiefCallLauncher.shared.call(session)
             }
             .accessibilityIdentifier("chief.settings.call")
             if !session.runsInCloud {
@@ -254,7 +260,7 @@ public struct ChiefSettingsView: View {
                 }
             } else if session.engineProblem == nil {
                 // The spinner trails, as on Try Again: the text keeps the rows' x (no icons here).
-                HStack { Text("Asking Chief on the Mac…").foregroundStyle(.secondary); Spacer(); ProgressView() }
+                HStack { Text("Asking Chief on the Mac…").foregroundStyle(.secondary); Spacer(); CmuxSpinner() }
             }
             // A failed read never replaces the model: it is said under it,
             // with Try Again (the page also retries on its own).
@@ -268,7 +274,7 @@ public struct ChiefSettingsView: View {
                 } label: {
                     HStack {
                         Text("Try Again")
-                        if retrying { Spacer(); ProgressView() }
+                        if retrying { Spacer(); CmuxSpinner() }
                     }
                 }
                 .disabled(retrying)
@@ -326,17 +332,17 @@ public struct ChiefSettingsView: View {
                 .accessibilityIdentifier("chief.settings.hideAlerts")
                 .onChange(of: muted) { _, on in
                     guard on != session.isMuted else { return }
-                    session.setMuted(on) { withAnimation { muted = !on } }
+                    session.setMuted(on) { withAnimation(.default.unlessReduceMotion) { muted = !on } }
                 }
             Toggle("Send Read Receipts", isOn: $receipts)
                 .tint(Color(uiColor: .systemGreen))
                 .accessibilityIdentifier("chief.settings.readReceipts")
                 .onChange(of: receipts) { _, on in
                     guard on != session.sendsReadReceipts else { return }
-                    session.setSendsReadReceipts(on) { withAnimation { receipts = !on } }
+                    session.setSendsReadReceipts(on) { withAnimation(.default.unlessReduceMotion) { receipts = !on } }
                 }
         } footer: {
-            Text("Hide Alerts silences Chief's notifications on this iPhone. With Send Read Receipts off, reading Chief here does not mark it read on your Mac.")
+            Text(String(localized: "mobile.chief.notificationsFooter", defaultValue: "These settings apply to this iPhone.", bundle: .module))
         }
         .disabled(session.conversationID == nil)
         .listRowBackground(ChiefInfoGeometry.card)
@@ -396,11 +402,13 @@ public struct ChiefSettingsView: View {
     #if DEBUG
     /// The raw errors behind the plain sentences (DEBUG builds only).
     private var diagnosticsSection: some View {
-        Section("Diagnostics") {
-            LabeledContent("Engine read", value: session.engineError.map { String(describing: $0) } ?? "OK")
-            LabeledContent("Report", value: session.engineReportIsCurrent ? "Current" : (report == nil ? "None" : "Kept from earlier"))
-            if let failure = session.lastTurnFailure {
-                LabeledContent("Last failed turn", value: failure.detail)
+        Section {
+            DisclosureGroup(String(localized: "mobile.chief.diagnostics", defaultValue: "Diagnostics", bundle: .module)) {
+                LabeledContent("Engine read", value: session.engineError.map { String(describing: $0) } ?? "OK")
+                LabeledContent("Report", value: session.engineReportIsCurrent ? "Current" : (report == nil ? "None" : "Kept from earlier"))
+                if let failure = session.lastTurnFailure {
+                    LabeledContent("Last failed turn", value: failure.detail)
+                }
             }
         }
         .font(.caption)
@@ -451,12 +459,12 @@ public struct ChiefSettingsView: View {
         // No answer from the Mac is not Chief refusing (the old copy blamed Chief for a dropped link).
         switch ChiefEngineProblem(error) {
         case .macUnreachable: return String(localized: "Your Mac didn't answer. Check that it's on and connected, then try again.")
-        case .chiefBusy: return String(localized: "Chief on your Mac is busy and didn't answer in time. Try again.")
+        case .chiefBusy: return String(localized: "mobile.chief.busy", defaultValue: "Chief is busy. Try again.", bundle: .module)
         default: break
         }
         return switch action {
-        case .change: String(localized: "Chief on your Mac didn't take the change. Try again.")
-        case .stop: String(localized: "Chief on your Mac didn't stop. Try again.")
+        case .change: String(localized: "mobile.chief.saveFailed", defaultValue: "Couldn't save the change. Try again.", bundle: .module)
+        case .stop: String(localized: "mobile.chief.stopFailed", defaultValue: "Couldn't stop Chief. Try again.", bundle: .module)
         }
     }
 
@@ -573,7 +581,7 @@ struct ChiefQuickAction: View {
             ZStack {
                 Circle().fill(Color(uiColor: .tertiarySystemFill))
                 if busy {
-                    ProgressView()
+                    CmuxSpinner()
                 } else {
                     Image(systemName: symbol)
                         .font(.body)
@@ -756,7 +764,7 @@ struct ChiefFieldEditor: View {
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 if saving {
-                    ProgressView()
+                    CmuxSpinner()
                 } else {
                     Button("Save") { Task { await commit() } }
                         .disabled(!canSave)

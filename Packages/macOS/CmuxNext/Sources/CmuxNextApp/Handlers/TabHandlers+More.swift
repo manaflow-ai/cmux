@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextWindowRules
 import enum CmuxNextLayout.ChatColumnPlacement
 
 // Tab moves out of the pane (split, column, workspace, window), unread
@@ -11,24 +12,24 @@ extension TabHandlers {
     static func bindMoreActions(into registry: ActionRegistry, context ctx: AppActionContext) {
         bindLayoutMoves(registry, ctx)
         bindTabState(registry, ctx)
-        bindIdentifiers(registry, ctx)
+        bindIdentifiers(into: registry, context: ctx)
     }
 
     private static func bindLayoutMoves(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         registry.bind("tab.moveToNewSplit", invoke: { invocation in
             guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
-            let edge: PaneEdge = switch invocation["direction"]?.stringValue {
-            case "left": .left
-            case "up": .top
-            case "down": .bottom
-            default: .right
-            }
-            let keepFocus = invocation["keep_focus"]?.boolValue == true
+            let keepFocus = invocation["keepFocus"]?.boolValue == true
             // The chat dock never splits (ChatDockRules): a chat moved out of it to its right, when the
             // dock keeps another tab, gets a new column right after the dock, so a docked chat's
-            // subagents open beside it. A lone docked chat is still refused (the dock would close).
-            if edge == .right, pane.tabs.count > 1, ChatDockRules.isChatDock(pane, services: ctx.services),
-               ChatColumnPlacement.isChat(tab, services: ctx.services), let dock = ctx.services.columnHandle(containing: pane) {
+            // subagents open beside it. Every other split of the dock is refused, a lone docked chat's
+            // too (the dock would close). The decision is Rust's (cmux-window-rules `tabs::move_to_split`).
+            let dock = ctx.services.columnHandle(containing: pane)
+            let facts = WindowRules.MoveToSplitFacts(direction: invocation["direction"]?.stringValue, group: false, tabsInPane: pane.tabs.count,
+                                                     chatDock: ChatDockRules.isChatDock(pane, services: ctx.services),
+                                                     chat: ChatColumnPlacement.isChat(tab, services: ctx.services), dockColumn: dock != nil)
+            guard let move = WindowRules().moveToSplit(facts), move.decision != "refuse" else { return ctx.refuse(RefusalStrings.chatDockCannotSplit) }
+            let edge = move.edge.flatMap(PaneEdge.init(rawValue:)) ?? .right
+            if move.decision == "columnAfterDock", let dock {
                 let reveal = revealer(ctx, tab: tab, outcome: .newColumn(screenID: "", afterColumnID: ""), workspaceID: nil)
                 return TabMoves.toNewColumn(tab, anchor: pane, afterColumn: dock, services: ctx.services, keepFocus: keepFocus) { ok in
                     if !ok { ctx.services.restoreDetachedTab(tab.id) }
@@ -44,41 +45,64 @@ extension TabHandlers {
         registry.bind("tab.moveToNewColumn", invoke: { invocation in
             guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
             let reveal = revealer(ctx, tab: tab, outcome: .newColumn(screenID: "", afterColumnID: ""), workspaceID: nil)
-            TabMoves.toNewColumn(tab, anchor: pane, services: ctx.services, keepFocus: invocation["keep_focus"]?.boolValue == true, completion: reveal)
+            TabMoves.toNewColumn(tab, anchor: pane, services: ctx.services, keepFocus: invocation["keepFocus"]?.boolValue == true, completion: reveal)
         })
         registry.bind("tab.moveToWorkspace", invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation), let workspace = ctx.workspaceArgument(invocation) else { return }
             let reveal = revealer(ctx, tab: tab, outcome: .workspace(id: workspace.id), workspaceID: workspace.id)
             TabMoves.toWorkspace(tab, workspace: workspace, services: ctx.services, completion: reveal)
         })
+        registry.bindEffect("tab.moveToSpace", requires: DaemonCapability.profiles.rawValue,
+                            daemon: ctx.services.machines.local, effect: { invocation in
+            guard let (tab, _) = ctx.daemonTab(invocation) else { return .done }
+            guard let room = try ctx.optionalRoom(invocation["space"]) else { return .refused(RoomStrings.roomArgumentRequired) }
+            return moveToSpace(ctx, tab: tab, room: room.id)
+        })
         registry.bind("palette.moveTabToNewWorkspace", invoke: { moveToNewWorkspace(ctx, $0, newWindow: false) })
         registry.bind("tab.moveToNewWindow", invoke: { moveToNewWorkspace(ctx, $0, newWindow: true) })
+    }
+
+    /// Move Tab to Space moves only the tab: a tab alone in its workspace takes that workspace (a pin in the home
+    /// session, as Move Workspace to Space), one with siblings moves to a new workspace pinned to the space.
+    private static func moveToSpace(_ ctx: AppActionContext, tab: TabModel, room: ProfileID) -> ActionEffect {
+        let services = ctx.services, home = services.machines.local
+        guard let id = services.workspaceID(ofTab: tab), let workspace = services.workspace(id: id),
+              let qualified = WindowProfiles.qualified(id, machines: services.machines) else { return .refused(RefusalStrings.noWorkspaceToActOn) }
+        if WindowProfiles.membership(services.machines)?.pinned(qualified) == room { return .refused(RoomStrings.alreadyInRoom) }
+        if let reason = TabPromotion.refusal(tab: tab, services: services) { return .refused(reason) }
+        let alone = workspace.screens.flatMap(\.panes).flatMap(\.tabs).count == 1, session = qualified.session
+        // action-wait-allow: a space pin has no store intent (Move Workspace to Space sends it the same way), so nothing local stands in.
+        return .waiting(.daemonEcho) {
+            var key: WorkspaceKey? = WorkspaceKey(rawValue: qualified.key)
+            if !alone { key = await TabMoves.toNewWorkspace(tab, services: services) }
+            guard let key else { return "move-tab-to-new-workspace failed (see the app log)" }
+            return await home.failure("pin-workspace") { try await $0.pinWorkspace(session: session, key: key, to: room) }
+        }
     }
 
     /// Move Tab to New Workspace, or to a New Window that shows the new workspace. On one of several
     /// selected tabs every selected tab goes, in strip order (`movingTabs`).
     private static func moveToNewWorkspace(_ ctx: AppActionContext, _ invocation: ActionInvocation, newWindow: Bool) {
         guard let (tab, _) = ctx.daemonTab(invocation), ctx.connection() != nil else { return }
-        if let reason = TabPromotion.refusal(tab: tab.id, services: ctx.services) {
-            return ctx.registry.refuse(reason)
-        }
-        let windows = ctx.services.windows, tabs = ctx.movingTabs(invocation, tab)
-        let origin = windows.moveOrigin(of: ctx.services.workspaceID(ofTab: tab.id))
-        // Read before the await: whether this run may change the view (a run this client's user did
-        // not start opens the window behind, never key), and the window it acts in.
+        if let reason = TabPromotion.refusal(tab: tab, services: ctx.services) { return ctx.registry.refuse(reason) }
+        let work: ActionWork = Task { [move = newWorkspaceMove(of: tab, with: ctx.movingTabs(invocation, tab), newWindow: newWindow, services: ctx.services)] in await move() }
+        if !newWindow { ctx.registry.track(work) }
+    }
+
+    /// Move Tab to New Workspace / Window of `tabs` (`tab` first): read now; the move answers once its window is placed (nil) or why not.
+    static func newWorkspaceMove(of tab: TabModel, with tabs: [TabModel], newWindow: Bool, services: AppServices) -> @MainActor () async -> ActionWorkFailure? {
+        let windows = services.windows, origin = windows.moveOrigin(of: services.workspaceID(ofTab: tab))
+        // Read before the await: whether this run may change the view (another's run opens the window behind), and its window.
         let allowed = ActionRunScope.viewChangeAllowed()
-        let source = newWindow ? nil : ctx.services.landingWindow(tab: tab.id, workspaceID: nil)
+        let source = newWindow ? nil : services.landingWindow(tabWorkspace: services.workspaceID(ofTab: tab), workspaceID: nil)
         let preferred = newWindow ? nil : (source ?? windows.active)?.state
-        if allowed, let source, let pane = ctx.services.locateTab(tab.id)?.1 { source.focus.followMovedTab(tab.id, from: pane.id) }
-        let work: ActionWork = Task {
-            guard let key = await TabMoves.toNewWorkspace(tabs.first ?? tab, services: ctx.services) else {
-                return "move-tab-to-new-workspace failed (see the app log)"
-            }
-            await TabMoves.join(tabs.dropFirst(), workspace: key, services: ctx.services)
+        if allowed, let source, let pane = services.locateTab(model: tab)?.1 { source.focus.followMovedTab(tab.id, from: pane.id) }
+        return {
+            guard let key = await TabMoves.toNewWorkspace(tabs.first ?? tab, services: services) else { return "move-tab-to-new-workspace failed (see the app log)" }
+            await TabMoves.join(tabs.dropFirst(), workspace: key, services: services)
             windows.placeMoved(key.rawValue, from: origin, preferred: preferred, newWindow: newWindow, select: allowed)
             return nil
         }
-        if !newWindow { ctx.registry.track(work) }
     }
 
     private static func bindTabState(_ registry: ActionRegistry, _ ctx: AppActionContext) {
@@ -103,13 +127,14 @@ extension TabHandlers {
             guard case .browser(let entry) = content else {
                 return ctx.refuse(RefusalStrings.terminalCannotReload)
             }
-            entry.chrome.perform(.reload)
+            if let chrome = entry.chrome { chrome.perform(.reload) } else { entry.tab.reload() }
         })
         // Full Width Tab: the pane's strip shows only the selected tab, across the strip (PaneFullWidthTabs).
         registry.bind("palette.toggleFullWidthTab", invoke: { invocation in
             guard let (pane, id) = ctx.tab(invocation) else { return }
             pane.toggleFullWidthTab(showing: id)
         })
+        ActionTargetTitles.setPaletteState("palette.toggleFullWidthTab", in: registry) { ctx.services.windows.active?.focusedPane.map { ctx.services.paneFullWidthTabs.contains($0.paneKey) } ?? false }
         bindAudio(registry, ctx)
     }
 
@@ -126,31 +151,6 @@ extension TabHandlers {
             try BrowserTabAudio.toggleWorkspaces(WindowMembershipHandlers.rowTargets(invocation, ctx), cache: ctx.services.cache)
         })
     }
-
-    private static func bindIdentifiers(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        registry.bind("palette.copyIdentifiers", invoke: { invocation in
-            guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
-            let workspace = ctx.services.activeDaemon.store.workspaces.first { $0.screens.contains { $0.panes.contains { $0 === pane } } }
-            var lines: [String] = []
-            if let workspace { lines.append("workspace_id=\(workspace.id)") }
-            lines.append("pane_id=\(pane.id)")
-            lines.append("surface_id=\(tab.id)")
-            copy(lines.joined(separator: "\n"))
-        })
-        registry.bind("palette.copyPaneID", invoke: { invocation in
-            guard let pane = ctx.daemonPane(invocation) else { return }
-            copy("pane_id=\(pane.id)")
-        })
-        registry.bind("palette.copySurfaceID", invoke: { invocation in
-            guard let (tab, _) = ctx.daemonTab(invocation) else { return }
-            copy("surface_id=\(tab.id)")
-        })
-    }
-
-    private static func copy(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-    }
 }
 
 extension TabHandlers {
@@ -166,14 +166,59 @@ extension TabHandlers {
                          workspaceID: String?) -> @MainActor (Bool) -> Void {
         let services = ctx.services
         let allowed = ActionRunScope.viewChangeAllowed()
-        let source = services.landingWindow(tab: tab.id, workspaceID: nil)
-        let landing = services.landingWindow(tab: tab.id, workspaceID: workspaceID) ?? source
-        if allowed, let landing, let pane = services.locateTab(tab.id)?.1 { landing.focus.followMovedTab(tab.id, from: pane.id) }
+        let source = services.landingWindow(tabWorkspace: services.workspaceID(ofTab: tab), workspaceID: nil)
+        let landing = services.landingWindow(tabWorkspace: services.workspaceID(ofTab: tab), workspaceID: workspaceID) ?? source
+        if allowed, let landing, let pane = services.locateTab(model: tab)?.1 { landing.focus.followMovedTab(tab.id, from: pane.id) }
         let daemon = services.machines.daemon(forTab: tab)
         return { landed in
             guard let reveal = services.actionReveal(outcome, allowed: allowed, landed: landed, window: landing, source: source) else { return }
             // After the store holds the result, like a drop.
             daemon.whenApplied(.generate()) { services.applyReveal(reveal, workspaceID: workspaceID, fallback: landing) }
         }
+    }
+}
+
+/// Copy Workspace ID, Copy Pane ID, Copy Tab ID and Copy IDs (#27709, classic parity): the
+/// workspace row menu, the pane and tab menus, the terminal's right-click menu and the palette.
+/// The text is classic's (`WorkspaceSurfaceIdentifierClipboardText`: `key=value` lines, one
+/// block per workspace) with the public ids the CLI resolves (`PublicIDTargetResolver`):
+/// `ws_…`, `pane_…`, `tab_…`, never a workspace's durable key.
+extension TabHandlers {
+    /// `copy` writes the text (default the general pasteboard, `context.copy`).
+    static func bindIdentifiers(into registry: ActionRegistry, context: AppActionContext, copy: (@MainActor (String) -> Void)? = nil) {
+        let copy = copy ?? { context.copy($0) }
+        // Every selected row, as classic's Copy Workspace IDs.
+        registry.bindEffect("palette.copyWorkspaceID", requires: nil, effect: { invocation in
+            copy(workspaceIDText(try WindowMembershipHandlers.rowTargets(invocation, context), refs: false))
+            return .done
+        })
+        registry.bindEffect("palette.copyWorkspaceIDAndRef", requires: nil, effect: { invocation in
+            copy(workspaceIDText(try WindowMembershipHandlers.rowTargets(invocation, context), refs: true))
+            return .done
+        })
+        // The context helpers report a missing pane or tab themselves.
+        registry.bindEffect("palette.copyPaneID", requires: nil, effect: { invocation in
+            if let pane = context.daemonPane(invocation) { copy("pane_id=\(pane.id)") }
+            return .done
+        })
+        registry.bindEffect("palette.copySurfaceID", requires: nil, effect: { invocation in
+            if let (tab, _) = context.daemonTab(invocation) { copy("surface_id=\(tab.id)") }
+            return .done
+        })
+        registry.bindEffect("palette.copyIdentifiers", requires: nil, effect: { invocation in
+            guard let (tab, pane) = context.daemonTab(invocation) else { return .done }
+            let workspace = context.services.daemon(for: pane).store.workspace(containing: pane.handle)
+            if let text = WindowRules().identifiersText(workspace: workspace.map(publicID), pane: pane.id, surface: tab.id) { copy(text) }
+            return .done
+        })
+    }
+
+    /// The id `cmux … --workspace` and `--target workspace:` accept: the resource id on registry daemons.
+    private static func publicID(_ workspace: WorkspaceModel) -> String { workspace.resourceID?.rawValue ?? workspace.id }
+
+    /// One block per workspace, a blank line between them; with `refs`, each block leads with its
+    /// `--target` form (Rust's `tabs::workspace_id_text`).
+    private static func workspaceIDText(_ workspaces: [WorkspaceModel], refs: Bool) -> String {
+        WindowRules().workspaceIDText(workspaces.map(publicID), refs: refs) ?? ""
     }
 }

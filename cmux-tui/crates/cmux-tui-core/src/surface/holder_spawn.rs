@@ -119,7 +119,9 @@ impl Surface {
         {
             Ok(reservation) => reservation,
             Err(error) => {
-                let _ = service.close(terminal.chan, 0);
+                // The shell stays on the holder for the next start (QUIT P0: a
+                // start never ends a shell a person still has).
+                service.detach(terminal.chan);
                 service.untrack(terminal.chan);
                 return Err(error);
             }
@@ -154,9 +156,10 @@ impl Surface {
             (command, cwd),
         );
         if adopted.is_err() {
-            // No surface shows it, and the startup pass no longer lists it:
-            // end it rather than leave it on the holder for ever.
-            let _ = service.close(terminal.chan, 0);
+            // No surface shows it: leave the shell on the holder, which lists
+            // it to the next start again (QUIT P0: a start never ends a shell
+            // a person still has; the row keeps it, `adopt_from_holder_or_end`).
+            service.detach(terminal.chan);
             service.untrack(terminal.chan);
         }
         adopted.map(Some)
@@ -257,15 +260,8 @@ struct HolderCommand {
 /// the daemon's environment spelled out because the holder passes exactly
 /// these.
 fn holder_command(opts: &SurfaceOptions) -> HolderCommand {
-    let launch = match opts.command.clone().filter(|argv| !argv.is_empty()) {
-        Some(argv) => {
-            crate::shell_integration::ShellLaunch { command: argv, env: opts.extra_env.clone() }
-        }
-        None => crate::shell_integration::integrate_default_shell(
-            vec![platform::default_shell()],
-            opts.extra_env.clone(),
-        ),
-    };
+    let launch =
+        crate::shell_integration::shell_launch(opts.command.clone(), opts.extra_env.clone());
     let env = holder_environment(&launch, opts, std::env::vars_os().collect());
     let env = env
         .into_iter()
@@ -305,7 +301,7 @@ fn holder_environment(
             env.insert(key.into(), value.into());
         }
     }
-    for key in cmux_pty::UNSET_IN_TERMINAL_CHILDREN {
+    for key in crate::shell_integration::keys_to_unset_in_child(&launch.env) {
         env.remove(OsStr::new(key));
     }
     env

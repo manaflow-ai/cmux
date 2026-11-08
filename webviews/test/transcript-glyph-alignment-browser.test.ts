@@ -27,31 +27,45 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
     await vite?.close();
   });
   for (const theme of ["dark", "light"] as const) {
-    test(`${theme}: narrow authentication footer keeps both recovery actions inside the row`, async () => {
+    // Sign in again leads the failure card; the footer row keeps a Cloud chat's credential transfer.
+    // At a narrow width every recovery action, on the card or the row, stays inside the row and wraps.
+    test(`${theme}: narrow authentication failure keeps every recovery action inside the row`, async () => {
       const page = await browser.newPage({ viewport: { width: 320, height: 480 } });
       try {
         const port = (vite.httpServer!.address() as { port: number }).port;
         await page.goto(`http://127.0.0.1:${port}/test/browser/transcript-glyph-alignment.html?theme=${theme}&narrow`);
+        await page.locator(".cv-turn-error__actions .cv-turn-auth-action").first().waitFor();
         await page.locator(".cv-turn-actions .cv-turn-auth-action").first().waitFor();
         await page.evaluate(() => document.fonts.ready);
         const recovery = await page.evaluate(() => {
           const row = document.querySelector("[data-auth-footer]")!.getBoundingClientRect();
-          return [...document.querySelectorAll(".cv-turn-actions .cv-turn-auth-action")].map((button) => {
-            const box = button.getBoundingClientRect();
-            return {
-              left: box.left - row.left,
-              right: box.right - row.right,
-              whiteSpace: getComputedStyle(button).whiteSpace,
-            };
-          });
+          const measure = (selector: string) =>
+            [...document.querySelectorAll(selector)].map((button) => {
+              const box = button.getBoundingClientRect();
+              return {
+                left: box.left - row.left,
+                right: box.right - row.right,
+                width: box.width,
+                whiteSpace: getComputedStyle(button).whiteSpace,
+                primary: button.classList.contains("cv-turn-error__primary"),
+              };
+            });
+          return {
+            card: measure(".cv-turn-error__actions > .cv-turn-auth-action"),
+            footer: measure(".cv-turn-actions .cv-turn-auth-action"),
+          };
         });
-        console.log(`AUTH_FOOTER_METRICS ${JSON.stringify({ theme, recovery })}`);
-        expect(recovery).toHaveLength(2);
-        for (const button of recovery) {
+        console.log(`AUTH_FAILURE_METRICS ${JSON.stringify({ theme, recovery })}`);
+        // The card leads with its one filled button, Sign in again; the row keeps only the transfer.
+        expect(recovery.card.length).toBeGreaterThanOrEqual(1);
+        expect(recovery.card.filter((button) => button.primary)).toHaveLength(1);
+        expect(recovery.footer).toHaveLength(1);
+        for (const button of [...recovery.card, ...recovery.footer]) {
+          expect(button.width).toBeGreaterThan(0);
           expect(button.left).toBeGreaterThanOrEqual(0);
           expect(button.right).toBeLessThanOrEqual(0.5);
-          expect(button.whiteSpace).toBe("normal");
         }
+        for (const button of recovery.footer) expect(button.whiteSpace).toBe("normal");
       } finally {
         await page.close();
       }
@@ -96,11 +110,12 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
                 tool: [".cv-command__time", ".cv-command__ok, svg.cv-tool__chevron"],
                 command: [".cv-command__time", ".cv-command__ok, svg.cv-tool__chevron"],
                 worked: [".cv-worked__label", ".cv-worked__chevron"],
-                thought: [".cv-thought__label", ".cv-tool__chevron"],
+                // A closed thought reads its words after the brain glyph (Codex parity).
+                thought: [".cv-thought__preview", ".cv-tool__icon svg, .cv-tool__chevron"],
                 plan: [".cv-plan__text", ".cv-plan__mark"],
                 "session-info": [
-                  ".acpmux-chat-inspector-section__title",
-                  ".acpmux-chat-inspector-section__icon, .acpmux-chat-inspector-section__fold",
+                  ".acpmux-session-info-section__title",
+                  ".acpmux-session-info-section__icon, .acpmux-session-info-section__fold",
                 ],
                 read: ["[data-read-label]", ".cv-user__read svg"],
               };
@@ -112,14 +127,14 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
               ".cv-user__time",
               ".cv-iconbtn svg",
             );
-            const retry = (kind: string) =>
-              getComputedStyle(document.querySelector(`[data-received-row="${kind}"] .cv-message-retry`)!).display;
+            // The last turn's Retry is its reply footer's (TurnFooter): no message row draws one.
+            const retry = (kind: string) => document.querySelector(`[data-received-row="${kind}"] .cv-message-retry`);
             const sessionInfo = document.querySelector('[data-glyph-row="session-info"]')!;
             const sectionTitle = sessionInfo
-              .querySelector(".acpmux-chat-inspector-section__title")!
+              .querySelector(".acpmux-session-info-section__title")!
               .getBoundingClientRect();
             const environmentName = sessionInfo
-              .querySelector(".acpmux-chat-inspector-row__name")!
+              .querySelector(".acpmux-session-info-row__name")!
               .getBoundingClientRect();
             return {
               rows,
@@ -127,7 +142,7 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
               versionFooter,
               retryHidden: retry("nonretryable"),
               retryShown: retry("retryable"),
-              inspectorColumnDelta: Math.abs(sectionTitle.left - environmentName.left),
+              sessionInfoColumnDelta: Math.abs(sectionTitle.left - environmentName.left),
             };
           });
           console.log(`GLYPH_METRICS ${JSON.stringify({ theme, height, ...measurements })}`);
@@ -139,20 +154,21 @@ await requireBrowserLane("transcript-glyph-alignment-browser.test.ts", async () 
           }
           expect(errors).toEqual([]);
           expect(measurements.rows).toHaveLength(7);
-          expect(measurements.inspectorColumnDelta).toBeLessThanOrEqual(0.5);
+          expect(measurements.sessionInfoColumnDelta).toBeLessThanOrEqual(0.5);
           for (const row of measurements.rows) {
             expect(row.glyphs.length, row.kind).toBeGreaterThan(0);
             for (const glyph of row.glyphs) expect(glyph.delta, row.kind).toBeLessThanOrEqual(0.5);
           }
-          expect(measurements.footer).toHaveLength(3);
-          expect(measurements.versionFooter).toHaveLength(5);
+          // Two fewer than before: Retry and its model switch moved to the reply footer (TurnFooter).
+          expect(measurements.footer).toHaveLength(1);
+          expect(measurements.versionFooter).toHaveLength(3);
           for (const glyph of [...measurements.footer, ...measurements.versionFooter]) {
             expect(glyph.delta, "sent footer").toBeLessThanOrEqual(0.5);
             expect(glyph.width, "footer glyph width").toBe(16);
             expect(glyph.height, "footer glyph height").toBe(16);
           }
-          expect(measurements.retryHidden).toBe("none");
-          expect(measurements.retryShown).toBe("flex");
+          expect(measurements.retryHidden).toBeNull();
+          expect(measurements.retryShown).toBeNull();
         } finally {
           await page.close();
         }

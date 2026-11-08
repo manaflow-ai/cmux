@@ -1,0 +1,621 @@
+/* Tasks page; the shared base (colors, menu) is shared/pageBase.css. Status and label colors are the
+   terminal palette (`--tasks-ansi-N`, palette.ts); attention uses the app's status tokens. No blue:
+   selection and hover are the shared foreground tints. */
+.tasks-page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-width: 0;
+  --tasks-attention: var(--cmux-app-warning, #c99a06);
+  --tasks-danger: var(--cmux-app-danger, #d0453b);
+  --tasks-success: var(--cmux-app-success, #3fa34d);
+}
+
+.tasks-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: var(--text-caption);
+  color: var(--page-text-2);
+  background: color-mix(in srgb, var(--tasks-attention) 8%, transparent);
+}
+
+.tasks-banner .tasks-dot {
+  color: var(--tasks-attention);
+}
+
+.tasks-scope-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 16px;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
+  color: var(--page-text-2);
+  border-bottom: 1px solid var(--page-separator);
+}
+
+.tasks-scope-bar span {
+  flex: 1;
+}
+
+.tasks-link-button,
+.tasks-plain-button,
+.tasks-icon-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  border: 0;
+  background: transparent;
+  color: var(--page-text-2);
+  padding: 0 4px;
+  border-radius: 4px;
+  cursor: default;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-regular);
+}
+
+.tasks-link-button:hover,
+.tasks-plain-button:hover,
+.tasks-icon-button:hover {
+  background: var(--page-hover);
+}
+
+.tasks-new {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  color: var(--page-text-3);
+  border-bottom: 1px solid var(--page-separator);
+}
+
+.tasks-new:focus-within {
+  background: var(--page-hover);
+}
+
+/* A change whose outcome is unknown: "Not sent", Retry, Discard. Never resent on its own. */
+.tasks-unsent {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-caption);
+}
+
+.tasks-unsent-label {
+  color: var(--page-text-3);
+}
+
+.tasks-new.unsent .tasks-new-input {
+  color: var(--page-text-2);
+}
+
+/* Unsent changes, above every layout: each with its task key, the action, Retry and Discard. */
+.tasks-unsent-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--page-separator);
+  font-size: var(--text-caption);
+}
+
+.tasks-unsent-strip-title {
+  color: var(--page-text-3);
+}
+
+.tasks-unsent-strip ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tasks-unsent-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.tasks-unsent-action {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A list row and its unsent actions side by side; the row keeps the width it had. */
+.tasks-row-slot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tasks-row-slot > .ui-context-menu-host {
+  flex: 1;
+  min-width: 0;
+}
+
+.tasks-card-slot > .tasks-unsent {
+  padding: 4px 4px 0;
+}
+
+.tasks-new-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--page-text);
+  font-size: var(--text-body);
+  padding: 0;
+}
+
+.tasks-new-input::placeholder {
+  color: var(--page-text-3);
+}
+
+.tasks-reject {
+  padding: 4px 16px;
+  border-bottom: 1px solid var(--page-separator);
+}
+
+.tasks-reject-text {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: var(--text-caption);
+  color: var(--tasks-danger);
+  text-align: start;
+  cursor: default;
+}
+
+.tasks-empty,
+.tasks-inbox-zero {
+  margin: 56px 0 0;
+  padding: 0 12px;
+  text-align: center;
+  font-size: var(--text-detail);
+  color: var(--page-text-3);
+}
+
+.tasks-inbox-zero {
+  margin: 0;
+  padding: 4px 12px;
+  text-align: start;
+  font-size: var(--text-caption);
+}
+
+.tasks-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 8px 12px;
+}
+
+.tasks-group-header {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px 4px;
+  font-size: var(--text-caption);
+}
+
+.tasks-group-title {
+  font-weight: var(--weight-emphasis);
+  color: var(--page-text-2);
+}
+
+.tasks-count {
+  font-size: var(--text-caption);
+  color: var(--page-text-3);
+}
+
+.tasks-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+
+.tasks-row:hover {
+  background: var(--page-hover);
+}
+
+.tasks-row.selected {
+  background: var(--page-selection);
+}
+
+.tasks-row.pending,
+.tasks-card.pending {
+  opacity: 0.6;
+}
+
+.tasks-key {
+  min-width: 46px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-caption);
+  color: var(--page-text-3);
+}
+
+.tasks-title {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--text-body);
+  color: var(--page-text);
+}
+
+.tasks-spacer {
+  flex: 1 1 8px;
+}
+
+.tasks-status-mark {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.tasks-status-mark.canceled {
+  opacity: 0.7;
+}
+
+.tasks-priority {
+  display: block;
+  flex-shrink: 0;
+}
+
+.tasks-priority.urgent rect {
+  fill: var(--tasks-attention);
+}
+
+.tasks-priority.urgent rect.mark {
+  fill: var(--cmux-surface-background, Canvas);
+}
+
+.tasks-priority.bars rect {
+  fill: color-mix(in srgb, var(--page-text-3) 35%, transparent);
+}
+
+.tasks-priority.bars rect.on {
+  fill: var(--page-text-2);
+}
+
+.tasks-dot {
+  display: block;
+  flex-shrink: 0;
+}
+
+.tasks-attention {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--tasks-attention);
+}
+
+.tasks-attention.failed {
+  color: var(--tasks-danger);
+}
+
+.tasks-attention.review {
+  color: var(--tasks-success);
+}
+
+.tasks-assignee {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  font-weight: var(--weight-emphasis);
+  color: var(--page-text-2);
+  background: var(--page-hover);
+}
+
+.tasks-assignee.agent {
+  border-radius: 4px;
+  color: var(--tasks-ansi-5, var(--page-text-2));
+  background: color-mix(in srgb, var(--tasks-ansi-5, var(--page-text-2)) 22%, transparent);
+}
+
+.tasks-assignee.nobody {
+  background: transparent;
+  border: 1px dashed color-mix(in srgb, var(--page-text-3) 50%, transparent);
+}
+
+.tasks-label-dots {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.tasks-label-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tasks-label-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  border: 1px solid var(--page-separator);
+  border-radius: 999px;
+  font-size: var(--text-caption);
+  color: var(--page-text-2);
+}
+
+/* Inbox: the list and the detail side by side. */
+.tasks-inbox {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.tasks-inbox-list {
+  flex: 0 1 460px;
+  min-width: 320px;
+  padding-top: 4px;
+}
+
+.tasks-detail-pane {
+  flex: 1 1 320px;
+  min-width: 0;
+  overflow: auto;
+  border-inline-start: 1px solid var(--page-separator);
+}
+
+.tasks-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+}
+
+.tasks-detail-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-caption);
+}
+
+.tasks-detail-title {
+  margin: 0;
+  font-size: var(--text-title);
+  font-weight: var(--weight-emphasis);
+}
+
+.tasks-session {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--page-hover) 50%, transparent);
+}
+
+.tasks-session-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-caption);
+}
+
+.tasks-session-mark {
+  display: inline-flex;
+}
+
+.tasks-session-agent {
+  font-size: var(--text-detail);
+  font-weight: var(--weight-emphasis);
+}
+
+.tasks-session-status {
+  color: var(--page-text-3);
+}
+
+.tasks-session-status.awaiting_input {
+  color: var(--tasks-attention);
+}
+
+.tasks-session-status.failed {
+  color: var(--tasks-danger);
+}
+
+.tasks-session-status.done {
+  color: var(--tasks-success);
+}
+
+.tasks-session h3 {
+  margin: 0;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
+  color: var(--page-text-3);
+}
+
+.tasks-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-detail);
+}
+
+.tasks-plan li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--page-text);
+}
+
+.tasks-plan li > :first-child {
+  color: var(--page-text-3);
+}
+
+.tasks-plan li.done {
+  color: var(--page-text-2);
+}
+
+.tasks-plan li.done > :first-child {
+  color: var(--tasks-success);
+}
+
+/* Board: a column per status. */
+.tasks-board {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 12px;
+  padding: 12px;
+  overflow-x: auto;
+}
+
+.tasks-column {
+  display: flex;
+  flex: 0 0 280px;
+  flex-direction: column;
+  min-height: 0;
+  padding: 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--page-hover) 35%, transparent);
+  transition: background-color var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+
+.tasks-column.targeted {
+  background: var(--page-hover);
+}
+
+.tasks-column .tasks-group-header {
+  height: 24px;
+  padding: 0 4px 4px;
+}
+
+.tasks-column-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.tasks-card-slot {
+  padding-bottom: 8px;
+}
+
+.tasks-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+  background: color-mix(in srgb, var(--page-elevated) 60%, transparent);
+  box-shadow: var(--elevation-1);
+}
+
+.tasks-card:hover {
+  box-shadow: var(--elevation-2);
+}
+
+.tasks-card.selected {
+  background: var(--page-selection);
+}
+
+.tasks-card-head,
+.tasks-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tasks-card-head .tasks-key {
+  min-width: 0;
+}
+
+.tasks-card-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  font-size: var(--text-body);
+}
+
+.tasks-plan-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-caption);
+  color: var(--page-text-3);
+}
+
+.tasks-progress {
+  flex: 1;
+  min-width: 0;
+  border-radius: 999px;
+}
+
+.tasks-progress .track {
+  fill: var(--page-hover);
+}
+
+.tasks-progress .fill {
+  fill: var(--tasks-ansi-5, var(--page-text-2));
+}
+
+/* No owner answers: say so and show the command that starts it. */
+.tasks-owner-missing {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  color: var(--page-text-3);
+}
+
+.tasks-owner-missing h1 {
+  margin: 0;
+  font-size: var(--text-title);
+  font-weight: var(--weight-emphasis);
+  color: var(--page-text);
+}
+
+.tasks-owner-missing p {
+  margin: 0;
+  font-size: var(--text-detail);
+  color: var(--page-text-2);
+}
+
+.tasks-command {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--page-hover);
+  color: var(--page-text);
+  user-select: text;
+}
+
+.tasks-command code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-detail);
+}

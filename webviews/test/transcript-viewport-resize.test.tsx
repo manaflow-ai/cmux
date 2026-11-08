@@ -112,3 +112,36 @@ test("a resized chat at its latest message stays there in the same frame, withou
     await act(async () => root.unmount());
   }
 });
+
+// A downward wheel is input but not an intent to leave the latest reply. The browser clamps a
+// followed offset when content shrinks; that clamp must not be mistaken for upward reader input.
+test("content shrinking after downward input keeps following the next reply growth", async () => {
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const scroller = () => dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+  const latest = () => scrollerEnd(scroller());
+  const render = async (rows: AcpmuxRow[]) =>
+    await act(async () =>
+      root.render(
+        <VirtualTranscript rows={turnView(rows, new Set())} onToggleActivity={() => {}} expanded={new Set()} />,
+      ),
+    );
+  const shorter = turns.slice(0, -3);
+  try {
+    await render(turns);
+    // Learn the shortened boundary without input, then restore the longer followed viewport.
+    await render(shorter);
+    const clamped = latest();
+    await render(turns);
+    expect(scroller().scrollTop).toBe(latest());
+    await act(async () => {
+      scroller().dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY: 100, bubbles: true }));
+      scroller().scrollTop = clamped;
+    });
+    await render(shorter);
+    expect(scroller().scrollTop).toBe(latest());
+    await render(turns);
+    expect(scroller().scrollTop).toBe(latest());
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

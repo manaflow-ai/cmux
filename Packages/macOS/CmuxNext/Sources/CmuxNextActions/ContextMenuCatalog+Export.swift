@@ -48,9 +48,6 @@ nonisolated extension ContextMenuCatalog {
         ["name": "debugSidebarToggleIcon", "source": "CmuxNextApp/Windows/SidebarToggleIconMenu.swift"],
         ["name": "debugStatusIconSet", "source": "CmuxNextApp/Windows/StatusIconSetMenu.swift"],
         ["name": "homeBackground", "source": "CmuxNextHomeEngine/HomePageMenus.swift"],
-        ["name": "historyToolbar", "source": "CmuxNextHistory/HistoryPageView.swift"],
-        ["name": "historyRow", "source": "CmuxNextHistory/HistoryPageRow.swift"],
-        ["name": "taskAssignee", "source": "CmuxNextTasks/Views/AssigneeMenu.swift"],
     ]
 
     /// Every context menu's export, keyed by `ActionMenuContext.exportName`.
@@ -117,6 +114,11 @@ nonisolated extension ContextMenuCatalog {
                 row["title"] = titles.entry(key: key, table: "Localizable")?.english ?? folder.title
                 row["title_key"] = key
                 row["title_table"] = "Localizable"
+                row["children"] = exportEntries(children, byID: byID, titles: titles, labels: labels)
+            case .group(let group, let children):
+                // Only a person's arrangement has these; the generated export never does.
+                row["kind"] = "group"
+                row["title"] = group.title
                 row["children"] = exportEntries(children, byID: byID, titles: titles, labels: labels)
             }
             return row

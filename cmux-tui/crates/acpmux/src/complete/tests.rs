@@ -604,6 +604,17 @@ async fn run_feeds_stdin_and_reads_stdout() {
     assert_eq!(out.stdout, b"NAME THIS");
 }
 
+/// A completion's harness ranks as an agent for the OOM killer, never with
+/// the daemon's lowered value (`oom_rank.rs`).
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_completion_harness_ranks_as_an_agent_for_the_oom_killer() {
+    let out =
+        run::run(sh("cat /proc/self/oom_score_adj"), None, Duration::from_secs(10)).await.unwrap();
+    let adj: i32 = String::from_utf8_lossy(&out.stdout).trim().parse().unwrap();
+    assert!(adj >= crate::oom_rank::AGENT, "a completion harness ran at {adj}");
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn run_kills_the_whole_group_on_timeout() {
@@ -721,4 +732,28 @@ fn stale_run_folders_are_swept() {
     assert!(!left.exists(), "the stale run folder stayed");
     assert!(other.exists(), "only run folders are swept");
     assert!(places.cwd().exists());
+}
+
+#[test]
+fn finish_cleans_stderr_without_changing_raw_output() {
+    for raw in [
+        "\x1b[2m2026-10-25T01:44:57Z\x1b[0m \x1b[31mERROR\x1b[0m \x1b[2mcodex_models_manager::manager: failed to refresh available models: request timed out\x1b[0m\n\x1b[0m",
+        "\x1b]8;;https://example.com\x1b\\codex_models_manager::manager: failed to refresh available models: request timed out\x1b]8;;\x1b\\",
+        "codex_models_manager::manager: failed to refresh available models: request timed out\x1b",
+    ] {
+        let out = ran("", raw, false);
+        assert_eq!(
+            finish("codex", &out, b"", 16),
+            Err(CompleteError::Failed {
+                harness: "codex".into(),
+                detail: "exit status 1: codex_models_manager::manager: failed to refresh available models: request timed out".into(),
+            })
+        );
+        assert_eq!(out.stderr, raw.as_bytes());
+    }
+    let out = ran("", "\x1b[0m\n\x1b]title\x07\n\x1b", false);
+    assert_eq!(
+        finish("codex", &out, b"", 16),
+        Err(CompleteError::Failed { harness: "codex".into(), detail: "exit status 1".into() })
+    );
 }

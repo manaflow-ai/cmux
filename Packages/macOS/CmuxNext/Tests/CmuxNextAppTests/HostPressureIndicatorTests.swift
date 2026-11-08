@@ -2,12 +2,13 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 import CmuxNextHostPressure
+import CmuxNextTestSupport
 import Testing
 
 /// The top-row host pressure indicator (cmuxterm-hq#2995): Debug Settings forces a level with
 /// sample numbers for captures, and the popover shows the load against its limit, then acpmux's
 /// other reasons in its words.
-@MainActor @Suite struct HostPressureIndicatorTests {
+@MainActor @Suite(.closesItsWindows) struct HostPressureIndicatorTests {
     private static func store(forcing force: HostPressureForce?, enabled: Bool? = nil) -> TunableStore {
         let store = TunableStore()
         store.register(HostPressureTunables.all)
@@ -33,16 +34,20 @@ import Testing
                                   }) {}
     }
 
+    /// Lawrence 2026-11-02: "get rid of host-pressure warning by default, can be enabled in cmd shift p tho".
+    /// With nothing set, a seen window's indicator makes no service, so no monitor, no 15 s timer and no banner.
     @Test func theToggleShipsOffAndOffNeverMakesTheService() {
         #expect(HostPressureTunables.enabled.defaultValue == false)
-        let store = Self.store(forcing: .critical)
-        var made = 0
-        let indicator = Self.indicator(store: store, visibility: Visibility()) { _ in made += 1 }
-        indicator.reconcile()
-        #expect(!indicator.sampling.samples)
-        #expect(!indicator.isSampling)
-        #expect(made == 0)
-        #expect(indicator.isHidden)
+        for enabled in [nil, false] as [Bool?] {
+            let store = Self.store(forcing: .critical, enabled: enabled)
+            var made = 0
+            let indicator = Self.indicator(store: store, visibility: Visibility()) { _ in made += 1 }
+            indicator.reconcile()
+            #expect(!indicator.sampling.samples)
+            #expect(!indicator.isSampling)
+            #expect(made == 0)
+            #expect(indicator.isHidden)
+        }
     }
 
     @Test func itSamplesOnlyWhileOnAndVisible() async {
@@ -85,6 +90,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.borderless],
                               backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentView?.addSubview(indicator)
         #expect(indicator.isSampling)
         // Let the notification tasks start listening before anything is posted.
@@ -189,7 +195,7 @@ import Testing
 
 /// A closed banner stays closed for its critical spell: a new spell starts each time the shown level
 /// enters critical again, and a force that leaves the shown level as it was starts none.
-@MainActor @Suite struct HostPressureBannerTests {
+@MainActor @Suite(.closesItsWindows) struct HostPressureBannerTests {
     @Test func eachEntryIntoCriticalStartsANewSpell() async {
         let store = TunableStore()
         store.register(HostPressureTunables.all)
@@ -222,6 +228,7 @@ import Testing
         let store = TunableStore()
         store.register(HostPressureTunables.all)
         store.activate(file: nil)
+        _ = store.set(HostPressureTunables.enabled.key, false.tunableValue)
         _ = store.set(HostPressureTunables.force.key, HostPressureForce.critical.tunableValue)
         var made: HostPressureService?
         let indicator = HostPressureIndicatorView(services: AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"])),
@@ -233,6 +240,7 @@ import Testing
                                                   }) {}
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentView?.addSubview(indicator)
         #expect(!indicator.sampling.samples) // the toggle is off
         _ = store.set(HostPressureTunables.enabled.key, true.tunableValue)
@@ -251,18 +259,18 @@ import Testing
 
 /// The critical banner itself, driven through its toast (Codex on #24518: no test drove it). Debug
 /// `hostPressure.enabled` and `hostPressure.banner` on, the level forced to critical (the sample
-/// numbers, no timer read), windows that count as seen, and a toast center whose host records the
-/// toast views so the test presses their close and Show Details buttons as a click does.
-@MainActor @Suite(.serialized) struct HostPressureBannerToastTests {
-    /// Records each window's toast views (the center's overlay host, without an overlay).
+/// numbers, no timer read), windows that count as seen, and a toast center whose host records what
+/// each window shows so the test presses its close and Show Details buttons as the web host reports
+/// a click (`personClosed(serial:)`, `personRanAction(serial:)`).
+@MainActor @Suite(.serialized, .closesItsWindows) struct HostPressureBannerToastTests {
+    /// Records each window's shown toasts (the center's host, drawing nothing).
     @MainActor private final class RecordingHost: CmuxToastHosting {
-        private(set) var shown: [(view: CmuxToastView, window: NSWindow)] = []
-        func show(_ toast: CmuxToastView, in window: NSWindow, slot: Int, appearing: Bool, windowGone: @escaping () -> Void) {
-            shown.append((toast, window))
+        private var shown: [ObjectIdentifier: [CmuxToastShown]] = [:]
+        func show(_ toasts: [CmuxToastShown], in window: NSWindow, center: CmuxToastCenter) {
+            shown[ObjectIdentifier(window)] = toasts
         }
-        func move(_ toast: CmuxToastView, to slot: Int) {}
-        func hide(_ toast: CmuxToastView, animated: Bool) { shown.removeAll { $0.view === toast } }
-        func view(in window: NSWindow) -> CmuxToastView? { shown.last { $0.window === window }?.view }
+        /// The newest toast `window` shows.
+        func newest(in window: NSWindow) -> CmuxToastShown? { shown[ObjectIdentifier(window)]?.last }
     }
 
     /// The app's one service shared by every window's indicator, as `HostPressureService.shared` is.
@@ -345,7 +353,7 @@ import Testing
         defer { fixture.tearDown() }
         let (window, indicator) = fixture.window()
         await fixture.settle { indicator.isBannerShown }
-        try #require(fixture.host.view(in: window)).closeButton.performClick(nil)
+        try fixture.toasts.personClosed(serial: #require(fixture.host.newest(in: window)).serial)
         #expect(!indicator.isBannerShown)
         #expect(fixture.banner(in: window) == nil)
 
@@ -400,13 +408,14 @@ import Testing
         #expect(fixture.service.subscriberCount == 2)
         #expect(fixture.banner(in: first) != nil && fixture.banner(in: second) != nil)
 
-        try #require(fixture.host.view(in: first)).closeButton.performClick(nil)
+        try fixture.toasts.personClosed(serial: #require(fixture.host.newest(in: first)).serial)
         #expect(!firstIndicator.isBannerShown && fixture.banner(in: first) == nil)
         #expect(secondIndicator.isBannerShown && fixture.banner(in: second) != nil)
 
         // Show Details in the second window ends its banner too, and keeps it closed for the spell.
-        let details = try #require(fixture.host.view(in: second)?.actionButton)
-        details.performClick(nil)
+        let details = try #require(fixture.host.newest(in: second))
+        #expect(details.toast.action?.title == HostPressureStrings.showDetails)
+        fixture.toasts.personRanAction(serial: details.serial)
         #expect(!secondIndicator.isBannerShown && fixture.banner(in: second) == nil)
         fixture.set(HostPressureTunables.style, .load)
         await fixture.settle { !firstIndicator.loadLabel.isHidden && !secondIndicator.loadLabel.isHidden }
@@ -431,7 +440,7 @@ import Testing
         try #require(window.screen != nil)
         await fixture.settle { indicator.isBannerShown }
         #expect(!indicator.isPopoverShown)
-        try #require(fixture.host.view(in: window)?.actionButton).performClick(nil)
+        try fixture.toasts.personRanAction(serial: #require(fixture.host.newest(in: window)).serial)
         #expect(indicator.isPopoverShown)
         #expect(!indicator.isBannerShown && fixture.banner(in: window) == nil)
         indicator.closePopover()

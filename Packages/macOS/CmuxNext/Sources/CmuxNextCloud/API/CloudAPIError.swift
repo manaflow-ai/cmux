@@ -3,7 +3,7 @@ public import Foundation
 /// A typed `/api/vm` failure. `message` is the server's display-safe text
 /// (`ui.message` / `message`) when it sent one, `action` its next step
 /// ("Run `…`") and `traceId` the support reference a person pastes.
-public enum CloudAPIError: Error, Sendable, Equatable, CustomStringConvertible {
+public enum CloudAPIError: Error, Sendable, Equatable, Codable, CustomStringConvertible {
     case notSignedIn
     /// The build points at a loopback origin with no server (local backend mode).
     case noBackend(URL)
@@ -22,32 +22,21 @@ public enum CloudAPIError: Error, Sendable, Equatable, CustomStringConvertible {
 
     /// The text a person reads. An HTTP failure reads as the server's
     /// message, then its next step, then the trace id as `trace` writes it
-    /// (the app passes its localized "(trace %@)").
+    /// (the app passes its localized "(trace %@)"). Worded by cmux-cloud-machine `error.rs`.
     public func text(trace: (String) -> String = { "(trace \($0))" }) -> String {
-        switch self {
-        case .notSignedIn: "not signed in"
-        case .noBackend(let url): "no Cloud backend at \(url.absoluteString)"
-        case .timedOut(let path): "\(path) timed out"
-        case .transport(let text): text
-        case .http(let status, let code, let message, let action, let traceId):
-            [message ?? code ?? "HTTP \(status)", action, traceId.map(trace)].compactMap { $0 }.joined(separator: " ")
-        case .planRequired(let message, _, let plan): message ?? (plan == "pro" ? "Cloud machines need cmux Pro." : "This needs cmux \(plan.capitalized).")
-        case .decoding(let text): "unexpected response: \(text)"
-        }
+        words(trace: trace("%@"))?.text ?? "unexpected response"
     }
 
     /// A stable code for a caller that maps failures to its own text: the server's error code
     /// (`run_sandbox_unavailable`, …) when it sent one. Server text: a caller that hands it on
     /// past the app keeps only the codes it knows.
-    public var code: String {
-        switch self {
-        case .notSignedIn: "not_signed_in"
-        case .noBackend, .transport: "unavailable"
-        case .timedOut: "timeout"
-        case .http(let status, let code, _, _, _): code ?? "http_\(status)"
-        case .planRequired: "plan_required"
-        case .decoding: "bad_response"
-        }
+    public var code: String { words(trace: "(trace %@)")?.code ?? "bad_response" }
+
+    private struct Words: Decodable { var text: String, code: String }
+
+    private func words(trace: String) -> Words? {
+        struct Request: Encodable { var error: CloudAPIError, traceFormat: String }
+        return CloudMachineRules().call("cloud_model_api_error_text", Request(error: self, traceFormat: trace), as: Words.self)
     }
 
     /// Parses the standard VM error body (`web/services/vms/routeHelpers.ts`
@@ -60,8 +49,10 @@ public enum CloudAPIError: Error, Sendable, Equatable, CustomStringConvertible {
             guard let value = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
             return value
         }
-        let code = headerCode ?? text(object?["error"])
-        let message = text(ui?["message"]) ?? text(object?["message"])
+        // The cmux API Worker nests its refusal: `{ok: false, error: {code, message}}`.
+        let nested = object?["error"] as? [String: Any]
+        let code = headerCode ?? text(object?["error"]) ?? text(nested?["code"])
+        let message = text(ui?["message"]) ?? text(object?["message"]) ?? text(nested?["message"])
         if let object, let plan = liftingPlan(object, code: code) {
             return .planRequired(message: message, upgradeURL: upgradeURL(object), plan: plan)
         }

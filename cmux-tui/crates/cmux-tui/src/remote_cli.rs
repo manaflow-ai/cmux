@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use crate::distribution::{DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
 use anyhow::{Context, anyhow};
 use base64::Engine;
 use cmux_build_identity::BUILD_IDENTITY;
@@ -33,9 +34,8 @@ use cmux_remote::provider::{
     WireGuardDialer, sanitized_route,
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
-use cmux_remote::ssh_bootstrap::{DISTRIBUTION_VERSION, NPM_BOOTSTRAP_VERSION};
 use cmux_remote_protocol::{
-    LanePolicy, REMOTE_PROTOCOL_VERSION, RoutePolicy, SessionId, WorkspaceRequest,
+    LanePolicy, REMOTE_PROTOCOL_VERSION, RouteId, RoutePolicy, SessionId, WorkspaceRequest,
     WorkspaceResponse,
 };
 use serde_json::Value;
@@ -100,6 +100,7 @@ fn run_inner(
         Some("connect") => run_connect(&args[1..], None, load_config),
         Some("ssh") => run_ssh(&args[1..], load_config),
         Some("forward") => run_forward(&args[1..]),
+        Some("dial-tcp") => run_dial_tcp(args.get(1..).unwrap_or_default()),
         Some("browser-proxy") => run_browser_proxy(&args[1..]),
         Some("rpc") => run_rpc(&args[1..]),
         Some("enroll") => run_enroll(&args[1..], load_config),
@@ -195,6 +196,7 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("connect") => client.connect_help,
         Some("ssh") => client.ssh_help,
         Some("forward") => client.forward_help,
+        Some("dial-tcp") => client.dial_tcp_help,
         Some("browser-proxy") => client.browser_proxy_help,
         Some("rpc") => client.rpc_help,
         Some("enroll") => client.enroll_help,
@@ -315,24 +317,16 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                 flags.lanes_explicit = true;
             }
             "--reconnect-attempts" => {
+                // Accepted for old apps (they pass 5) and validated, but no longer a cap: the
+                // link redials in budgeted bursts and never exits while its owner holds it.
                 let attempts = value("--reconnect-attempts")?;
-                flags.reconnect.maximum_attempts = if attempts == "unlimited" {
-                    None
-                } else {
-                    let attempts = attempts.parse::<u32>().map_err(|_| {
-                        anyhow!(
-                            catalog()
-                                .remote_client
-                                .invalid_option_value("--reconnect-attempts", "N|unlimited")
-                        )
-                    })?;
-                    if attempts == 0 {
-                        return Err(anyhow!(
-                            catalog().remote_client.option_must_be_positive("--reconnect-attempts")
-                        ));
-                    }
-                    Some(attempts)
-                };
+                if attempts != "unlimited" && !attempts.parse::<u32>().is_ok_and(|n| n > 0) {
+                    return Err(anyhow!(
+                        catalog()
+                            .remote_client
+                            .invalid_option_value("--reconnect-attempts", "N|unlimited")
+                    ));
+                }
             }
             "--reconnect-initial-ms" => {
                 flags.reconnect.initial_delay = Duration::from_millis(
@@ -632,6 +626,19 @@ fn connect_with_flags(
                         _ = finished.changed() => {},
                         _ = tokio::time::sleep(Duration::from_millis(100)) => {},
                     }
+                }
+                // The session is gone for good (it outlived the daemon's
+                // resume lease): say so, typed, so the owner stops
+                // redialing it and offers a new session.
+                if connected.runtime.session_unavailable() {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "event": "session-unavailable",
+                            "local_socket": connected.runtime.info().local_socket.display().to_string(),
+                        })
+                    );
+                    io::stdout().flush()?;
                 }
                 Ok::<_, io::Error>(())
             })?;
@@ -1061,23 +1068,7 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
     let runtime = tokio_runtime()?;
     let result = runtime.block_on(async {
         let client = WorkspaceClient::connect(connected.runtime.multiplexer().clone()).await?;
-        let workspace =
-            match client.request(WorkspaceRequest::OpenWorkspace { root: workspace_root }).await? {
-                WorkspaceResponse::Workspace { id, .. } => id,
-                _ => return Err(anyhow!("unexpected open-workspace response")),
-            };
-        let route = match client
-            .request(WorkspaceRequest::CreateRoute {
-                workspace,
-                host,
-                port,
-                policy: RoutePolicy::LoopbackOnly,
-            })
-            .await?
-        {
-            WorkspaceResponse::RouteCreated { route, .. } => route,
-            _ => return Err(anyhow!("unexpected create-route response")),
-        };
+        let route = create_loopback_route(&client, workspace_root, host, port).await?;
         let forward =
             LocalPortForward::bind(connected.runtime.multiplexer().clone(), route, listen).await?;
         println!("{}", forward.webview_url(&scheme)?);
@@ -1118,11 +1109,43 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
     result.and(shutdown)
 }
 
+/// Opens `workspace_root` and a [`RoutePolicy::LoopbackOnly`] route to
+/// `host:port` in it. The daemon scopes every route to a workspace this
+/// client holds open, so a stream that needs no files still opens one; the
+/// daemon refuses an address that is not loopback.
+async fn create_loopback_route(
+    client: &WorkspaceClient,
+    workspace_root: String,
+    host: String,
+    port: u16,
+) -> anyhow::Result<RouteId> {
+    let workspace =
+        match client.request(WorkspaceRequest::OpenWorkspace { root: workspace_root }).await? {
+            WorkspaceResponse::Workspace { id, .. } => id,
+            _ => return Err(anyhow!("unexpected open-workspace response")),
+        };
+    match client
+        .request(WorkspaceRequest::CreateRoute {
+            workspace,
+            host,
+            port,
+            policy: RoutePolicy::LoopbackOnly,
+        })
+        .await?
+    {
+        WorkspaceResponse::RouteCreated { route, .. } => Ok(route),
+        _ => Err(anyhow!("unexpected create-route response")),
+    }
+}
+
 #[path = "remote_browser_proxy.rs"]
 mod remote_browser_proxy;
+#[path = "remote_dial_tcp.rs"]
+mod remote_dial_tcp;
 #[path = "remote_wg_hub.rs"]
 mod remote_wg_hub;
 use remote_browser_proxy::{parse_browser_proxy_args, serve_browser_proxy};
+use remote_dial_tcp::run_dial_tcp;
 use remote_wg_hub::run_wg;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1228,7 +1251,41 @@ async fn next_rpc_input(
     }
 }
 
+/// `cmux rpc action.list '{}'`: the old cmux's app socket call, which agents still write
+/// (tests/tool-evals r4a: GPT 6 Astra ran it 54 times). Here `rpc` is a remote session's
+/// workspace RPC and would wait for a daemon, so such a call names the app commands instead.
+/// A route host (`box.local`) is not one: the method's last word is a verb, or JSON follows.
+fn app_method_call(args: &[String]) -> bool {
+    let Some(method) = args.first() else { return false };
+    let words: Vec<&str> = method.split('.').collect();
+    let shaped = words.len() >= 2
+        && words.iter().all(|word| {
+            !word.is_empty() && word.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+        });
+    let verb = matches!(
+        words.last().copied(),
+        Some(
+            "list"
+                | "get"
+                | "run"
+                | "describe"
+                | "search"
+                | "request"
+                | "call"
+                | "ping"
+                | "identify"
+        )
+    );
+    shaped && (verb || args.get(1).is_some_and(|next| next.trim_start().starts_with('{')))
+}
+
 fn run_rpc(args: &[String]) -> anyhow::Result<()> {
+    if let Some(method) = args.first().filter(|_| app_method_call(args)) {
+        return Err(anyhow!(catalog().local_server.unknown_scope(
+            &format!("rpc {method}"),
+            Some("cmux action list` / `cmux action run <id>` (app actions), `cmux app identify"),
+        )));
+    }
     let mut flags = parse_connect_flags(args)?;
     let single = flags.rpc_request.take();
     let connected = start_connected(flags)?;
@@ -1786,9 +1843,9 @@ fn parent_process_is(_: u32) -> bool {
 }
 
 /// Returns when the process `expected` (our parent at launch) exits. It
-/// waits on a kernel process-exit event (kqueue `NOTE_EXIT`, Linux pidfd);
-/// it used to re-check `getppid` every 100 ms. Kernels without pidfd keep
-/// the old check as a fallback.
+/// waits on a kernel process-exit event (kqueue `NOTE_EXIT`, Linux pidfd,
+/// `acpmux::parent_watch`); it used to re-check `getppid` every 100 ms.
+/// Kernels without pidfd keep the old check as a fallback.
 ///
 /// The kernel wait runs on a detached thread, not tokio's blocking pool: a
 /// blocking task cannot be cancelled, so a runtime shut down by a signal
@@ -1799,7 +1856,7 @@ async fn wait_for_parent_exit(expected: u32) {
     }
     let (sender, receiver) = tokio::sync::oneshot::channel();
     let waiter = thread::Builder::new().name("cmux-parent-exit".into()).spawn(move || {
-        let _ = sender.send(wait_for_process_exit(expected));
+        let _ = sender.send(acpmux::parent_watch::wait_for_parent(expected));
     });
     if waiter.is_ok() && matches!(receiver.await, Ok(Ok(()))) {
         return;
@@ -1807,74 +1864,6 @@ async fn wait_for_parent_exit(expected: u32) {
     while parent_process_is(expected) {
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-}
-
-/// Blocks until process `pid` exits (at once when it is already gone).
-#[cfg(target_os = "macos")]
-fn wait_for_process_exit(pid: u32) -> io::Result<()> {
-    let pid = libc::pid_t::try_from(pid).map_err(|_| io::ErrorKind::InvalidInput)?;
-    // SAFETY: kqueue has no preconditions; the descriptor is closed below.
-    let queue = unsafe { libc::kqueue() };
-    if queue < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    // SAFETY: the kevent structs are fully initialized and outlive the call.
-    let mut change: libc::kevent = unsafe { std::mem::zeroed() };
-    change.ident = pid as libc::uintptr_t;
-    change.filter = libc::EVFILT_PROC;
-    change.flags = libc::EV_ADD | libc::EV_ONESHOT;
-    change.fflags = libc::NOTE_EXIT;
-    let mut event: libc::kevent = unsafe { std::mem::zeroed() };
-    let mut changes = 1;
-    let result = loop {
-        let count =
-            unsafe { libc::kevent(queue, &change, changes, &mut event, 1, std::ptr::null()) };
-        if count > 0 {
-            break Ok(());
-        }
-        let error = io::Error::last_os_error();
-        match error.raw_os_error() {
-            Some(libc::EINTR) => {
-                // The registration was applied before the interruption.
-                changes = 0;
-            }
-            Some(libc::ESRCH) => break Ok(()),
-            _ => break Err(error),
-        }
-    };
-    // SAFETY: `queue` is owned here.
-    unsafe { libc::close(queue) };
-    result
-}
-
-#[cfg(target_os = "linux")]
-fn wait_for_process_exit(pid: u32) -> io::Result<()> {
-    // SAFETY: pidfd_open takes a pid and flags and returns a descriptor.
-    let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0) };
-    if fd < 0 {
-        let error = io::Error::last_os_error();
-        return if error.raw_os_error() == Some(libc::ESRCH) { Ok(()) } else { Err(error) };
-    }
-    let fd = fd as libc::c_int;
-    let mut pollfd = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
-    let result = loop {
-        // SAFETY: `pollfd` names the pidfd owned here.
-        if unsafe { libc::poll(&mut pollfd, 1, -1) } > 0 {
-            break Ok(());
-        }
-        let error = io::Error::last_os_error();
-        if error.kind() != io::ErrorKind::Interrupted {
-            break Err(error);
-        }
-    };
-    // SAFETY: `fd` is owned here.
-    unsafe { libc::close(fd) };
-    result
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn wait_for_process_exit(_pid: u32) -> io::Result<()> {
-    Err(io::ErrorKind::Unsupported.into())
 }
 
 /// A wg-quick file is small; anything larger is not one.
@@ -2346,18 +2335,49 @@ fn run_remote_link(args: &[String]) -> anyhow::Result<()> {
     if let Some(root) = state_dir.as_deref() {
         crate::client_log::use_path(root.join("client.log"));
     }
-    let (session_state, default_link, _) = daemon_paths(&session, state_dir.as_deref())?;
-    let link = link_socket.unwrap_or(default_link);
     if let Some(providers) = agent_hooks {
         install_agent_hooks(agent_hook_providers(&providers));
     }
-    let stream = ensure_daemon(
-        &session,
-        state_dir.as_deref(),
-        &session_state,
-        &link,
-        mux_socket.as_deref(),
-    )?;
+    let link_at = |state_dir: Option<&Path>| -> anyhow::Result<UnixStream> {
+        let (session_state, default_link, _) = daemon_paths(&session, state_dir)?;
+        let link = link_socket.clone().unwrap_or(default_link);
+        ensure_daemon(&session, state_dir, &session_state, &link, mux_socket.as_deref())
+    };
+    // A link that names nothing of its own (no state directory, socket or
+    // mux socket) may keep its session in a private root when another
+    // daemon of this machine owns the session on the default root.
+    let private = (state_dir.is_none()
+        && mux_socket.is_none()
+        && link_socket.is_none()
+        && std::env::var_os("CMUX_MUX_SOCKET").is_none())
+    .then(private_link_root)
+    .flatten();
+    let stream = match (state_dir.as_deref(), private.as_deref()) {
+        (None, Some(private)) if remote_link_mux::mux_state_root(private).exists() => {
+            link_at(Some(private))?
+        }
+        (None, Some(private)) => match link_at(None) {
+            Err(error) if error.downcast_ref::<SessionInUse>().is_some() => {
+                eprintln!(
+                    "cmux-tui: another daemon on this machine owns session {session}; this link keeps it in {}",
+                    private.display()
+                );
+                if let Some(default_root) = cmux_tui_core::platform::workspace_state_dir()
+                    && let Err(error) =
+                        cmux_tui_core::session_state_import::decline_default_root_import(
+                            &default_root,
+                            &remote_link_mux::mux_state_root(private),
+                            &session,
+                        )
+                {
+                    eprintln!("cmux-tui: could not keep the private session empty: {error:#}");
+                }
+                link_at(Some(private))?
+            }
+            other => other?,
+        },
+        (state_dir, _) => link_at(state_dir)?,
+    };
     let runtime = tokio_runtime()?;
     let result = runtime.block_on(proxy_stdio(stream));
     // Tokio reads stdin on a blocking thread that cannot be cancelled: when
@@ -2609,10 +2629,12 @@ fn run_remote_sidecar(args: &[String]) -> anyhow::Result<()> {
             trusted_carrier_websocket: false,
             workspace_http: None,
             relays: Vec::new(),
+            carrier_grant_config: None,
             iroh: false,
             advertised_routes: Vec::new(),
             resume_lease: cmux_remote::daemon::DEFAULT_RESUME_LEASE,
             replaceable_sidecar: true,
+            local_sockets: Vec::new(),
         },
     )?;
     let mut mux_disappeared = false;
@@ -2784,11 +2806,16 @@ fn wait_for_detached_socket(
         }
         match child.try_wait() {
             Ok(Some(status)) => {
-                return Err(anyhow!(
+                let cause = exit_cause(log_path);
+                let message = format!(
                     "{process_name} exited {status}{}; inspect {}",
-                    exit_cause(log_path).map(|cause| format!(": {cause}")).unwrap_or_default(),
+                    cause.as_deref().map(|cause| format!(": {cause}")).unwrap_or_default(),
                     log_path.display()
-                ));
+                );
+                if cause.is_some_and(|cause| cause.contains(SESSION_IN_USE)) {
+                    return Err(SessionInUse(message).into());
+                }
+                return Err(anyhow!(message));
             }
             Ok(None) => {}
             Err(error) => {
@@ -2815,6 +2842,30 @@ fn wait_for_detached_socket(
     }
 }
 
+/// What `exit_cause` says of a session another daemon owns.
+const SESSION_IN_USE: &str = "in use by another cmux daemon";
+
+/// A mux owner exited because another daemon of the machine owns its
+/// session: `remote-link` may keep the session in a private root instead.
+#[derive(Debug)]
+struct SessionInUse(String);
+
+impl std::fmt::Display for SessionInUse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for SessionInUse {}
+
+/// The state root a link keeps its session in when another daemon (a Chief
+/// brain on the default root, `cmux-tui --headless --socket <its own>`)
+/// owns the session there: `<remote state>/private`. Once it holds a
+/// registry, later links use it first, so the workspaces stay put.
+fn private_link_root() -> Option<PathBuf> {
+    default_state_dir().map(|root| root.join("private"))
+}
+
 /// The bytes of a detached process's log read for its exit cause: enough for
 /// its last lines, never the whole log a long-lived session has grown.
 const EXIT_CAUSE_TAIL_BYTES: u64 = 4096;
@@ -2835,7 +2886,7 @@ fn exit_cause(log_path: &Path) -> Option<String> {
     let line = line.strip_prefix("cmux-tui: ").unwrap_or(line);
     if line.contains("workspace session is already owned by another daemon") {
         return Some(format!(
-            "this session on the machine is in use by another cmux daemon ({line}); connect with another session name (--session NAME)"
+            "this session on the machine is {SESSION_IN_USE} ({line}); connect with another session name (--session NAME)"
         ));
     }
     Some(line.to_owned())
@@ -3793,7 +3844,8 @@ mod tests {
         ]
         .map(str::to_string);
         let parsed = parse_connect_flags(&args).unwrap();
-        assert_eq!(parsed.reconnect.maximum_attempts, Some(7));
+        // Accepted for old apps, but no cap: the link keeps redialing while it is held.
+        assert_eq!(parsed.reconnect.maximum_attempts, None);
         assert_eq!(parsed.reconnect.initial_delay, Duration::from_millis(25));
         assert_eq!(parsed.reconnect.maximum_delay, Duration::from_millis(400));
         assert_eq!(parsed.reconnect.attempt_timeout, Duration::from_secs(2));
@@ -3804,7 +3856,7 @@ mod tests {
 
     #[test]
     fn every_remote_subcommand_help_exits_without_running_the_command() {
-        for command in ["connect", "ssh", "forward", "rpc", "enroll", "remote-probe"] {
+        for command in ["connect", "ssh", "forward", "dial-tcp", "rpc", "enroll", "remote-probe"] {
             let args = [command.to_string(), "--help".to_string()];
             assert!(
                 run_inner(&args, "unused", || panic!("help must not load TUI config")).is_ok(),
@@ -4388,6 +4440,7 @@ mod tests {
             "connect",
             "ssh",
             "forward",
+            "dial-tcp",
             "rpc",
             "enroll",
             "known-daemons",
@@ -5035,10 +5088,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         )
         .expect("acknowledged legacy state remained blocked");

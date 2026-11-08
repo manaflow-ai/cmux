@@ -84,6 +84,92 @@ int main() {
   // A child frame being navigated: its parent decides.
   Allowed(false, "about:blank", "cmux-page://cmux.agent/", "cmux.agent", true);
   Allowed(false, "about:blank", "https://evil.test/", "cmux.agent", false);
+  // Artifact documents must never inherit the page host's file authority.
+  Allowed(false, "cmux-page://cmux.agent/__artifact", "cmux-page://cmux.agent/", "cmux.agent", false);
+  Allowed(false, "about:blank", "cmux-page://cmux.agent/__artifact", "cmux.agent", false);
+  Allowed(false, "about:srcdoc", "cmux-page://cmux.agent/", "cmux.agent", false);
+  {
+    const std::string page = "cmux-page://cmux.agent/";
+    const std::string artifact = cmux_shim::kArtifactFrameURL;
+    auto navigation = [&](bool main, const std::string& current, const std::string& parent,
+                          const std::string& target, bool refused) {
+      Expect(cmux_shim::ArtifactNavigationRefused(main, current, parent, target) == refused,
+             "artifact navigation " + current + " -> " + target + " parent " + parent);
+    };
+    navigation(false, "about:blank", page, artifact, false);
+    navigation(false, "", page, artifact, false);
+    navigation(true, "about:blank", "", artifact, true);
+    const std::string artifacts_page = "cmux-page://cmux.artifacts/";
+    navigation(false, "about:blank", artifacts_page, artifact, false);
+    navigation(false, "", artifacts_page, artifact, false);
+    for (const auto& parent : {"cmux-page://cmux.artifacts.evil/", "cmux-page://cmux.artifactsx/",
+                               "cmux-page://evil@cmux.artifacts/", "cmux-page://cmux.artifacts:42/",
+                               "https://cmux.artifacts/", "cmux-page://cmux.settings/",
+                               "cmux-page://cmux.artifacts@evil/", "cmux-page://cmux.artifacts./"}) {
+      navigation(false, "about:blank", parent, artifact, true);
+    }
+    for (const auto& target : {artifact, artifact + "?copy=1", artifact + "#copy", artifacts_page,
+                               std::string("cmux-page://cmux.agent/bridge.js"),
+                               std::string("cmux-page://cmux.artifacts/__artifact"),
+                               std::string("about:srcdoc"), std::string("about:blank"),
+                               std::string("https://example.test/"), std::string("file:///tmp/a.html"),
+                               std::string("data:text/html,replace"), std::string("javascript:alert(1)")}) {
+      navigation(false, artifact, artifacts_page, target, true);
+      navigation(false, "about:srcdoc", artifacts_page, target, true);
+      navigation(false, "about:blank", artifact, target, true);
+    }
+    navigation(false, "about:blank", artifacts_page, artifact + "?copy=1", true);
+    navigation(false, "about:blank", artifacts_page, artifact + "#copy", true);
+    navigation(false, artifacts_page, artifacts_page, artifact, true);
+    Allowed(false, artifact, artifacts_page, "cmux.artifacts", false);
+    Allowed(false, "about:blank", artifact, "cmux.artifacts", false);
+    Allowed(false, "about:srcdoc", artifacts_page, "cmux.artifacts", false);
+    Allowed(false, artifacts_page, "", "cmux.agent", false);
+
+    for (const auto& parent : {"https://evil.test/", "cmux-page://cmux.agent.evil/",
+                               "cmux-page://cmux.history/", "cmux-page://evil@cmux.agent/"}) {
+      navigation(false, "about:blank", parent, artifact, true);
+    }
+    for (const auto& target : {artifact, artifact + "?copy=1", page, std::string("about:srcdoc"),
+                               std::string("https://example.test/"), std::string("file:///tmp/a.html"),
+                               std::string("data:text/html,replace"), std::string("javascript:alert(1)")}) {
+      navigation(false, artifact, page, target, true);
+      navigation(false, "about:srcdoc", page, target, true);
+      navigation(false, "about:blank", artifact, target, true);
+    }
+    // The Artifacts page's passive previews: the same lockdown. Its one bootstrap (an empty direct
+    // child loading the canonical endpoint, as the agent page does) is covered above.
+    const std::string artifacts = "cmux-page://cmux.artifacts/";
+    for (const auto& target : {std::string("https://example.test/"), std::string("about:srcdoc"),
+                               std::string("about:blank"), artifacts, std::string("data:text/html,replace")}) {
+      navigation(false, "about:srcdoc", artifacts, target, true);
+    }
+    navigation(false, "about:blank", artifacts, artifact, false);
+    navigation(false, "about:srcdoc", artifacts, artifact, true);
+    navigation(false, artifacts, "", "https://example.test/", false);
+    Expect(!cmux_shim::ArtifactContextRestricted("about:srcdoc", "cmux-page://cmux.artifacts.evil/"),
+           "a look-alike origin is not the Artifacts page");
+    Expect(cmux_shim::ArtifactContextRestricted("about:srcdoc", "cmux-page://cmux.artifacts/index.html"),
+           "the Artifacts page's srcdoc frames are restricted");
+    navigation(false, "about:blank", page, artifact + "?copy=1", true);
+    navigation(false, page, "", "https://example.test/", false);
+    navigation(false, "about:blank", page, "http://localhost:3000/", false);
+    for (const auto& url : {"https://example.test/a.png", "http://127.0.0.1:4000/api", "file:///tmp/a.png",
+                            "cmux-page://cmux.agent/index.html", "cmux-agent://pane/index.html"}) {
+      Expect(!cmux_shim::ArtifactResourceAllowed(url, true), "offline artifact refuses " + std::string(url));
+    }
+    Expect(cmux_shim::ArtifactResourceAllowed("data:image/png;base64,AA", true), "inline image allowed");
+    Expect(cmux_shim::ArtifactResourceAllowed("blob:null/test", true), "inline media allowed");
+    Expect(!cmux_shim::ArtifactResourceAllowed("data:text/html,nested", false), "inline document refused");
+    Expect(!cmux_shim::ArtifactResourceAllowed("blob:null/script", false), "blob script refused");
+    const std::string policy = cmux_shim::kArtifactCSP;
+    Expect(policy.find("sandbox allow-scripts;") == 0 && policy.find("allow-same-origin") == std::string::npos,
+           "artifact response enforces opaque origin");
+    Expect(policy.find("connect-src 'none'") != std::string::npos &&
+               policy.find("frame-src 'none'") != std::string::npos &&
+               policy.find("form-action 'none'") != std::string::npos,
+           "artifact response refuses connections, children and forms");
+  }
   {
     auto headers = cmux_shim::PageResponseHeaders("default-src 'self'");
     bool xfo = false, corp = false, nosniff = false, csp = false;
@@ -237,6 +323,47 @@ int main() {
   Expect(!cmux_shim::GrantsCmuxPageLocalNetwork("cmux-page://com.example.app", 1u << 27), "no grant to an app page");
   Expect(!cmux_shim::GrantsCmuxPageLocalNetwork("cmux-page://cmux.settings", (1u << 27) | (1u << 8)), "no grant with geolocation");
   Expect(!cmux_shim::GrantsCmuxPageLocalNetwork("cmux-page://cmux.settings", 0), "no grant for nothing");
+
+  // A ranged dynamic answer (a video's byte range) keeps only Content-Range and
+  // Accept-Ranges, never a page header, and never a value that splits a header.
+  {
+    auto kept = cmux_shim::PageRangeHeaders(
+        "Content-Range: bytes 0-9/100\naccept-ranges: bytes\nContent-Security-Policy: default-src *\n"
+        "X-Frame-Options: ALLOW\nContent-Range: bytes 1-2/3\rInjected: yes");
+    Expect(kept.size() == 2, "range headers keep two, got " + std::to_string(kept.size()));
+    Expect(kept.size() > 0 && kept[0].first == "Content-Range" && kept[0].second == "bytes 0-9/100", "range headers Content-Range");
+    Expect(kept.size() > 1 && kept[1].first == "Accept-Ranges" && kept[1].second == "bytes", "range headers Accept-Ranges");
+    Expect(cmux_shim::PageRangeHeaders("").empty(), "range headers empty");
+    Expect(std::string(cmux_shim::PageStatusText(206)) == "Partial Content", "status text 206");
+    Expect(std::string(cmux_shim::PageStatusText(416)) == "Range Not Satisfiable", "status text 416");
+    Expect(std::string(cmux_shim::PageStatusText(200)) == "OK", "status text 200");
+  }
+
+  // The live web loop's CSP for one answer (cmux_shim_page_resource_respond_page): kept as given,
+  // dropped when it would split a header.
+  {
+    const std::string dev = "default-src 'none'; connect-src ws://127.0.0.1:4200 http://127.0.0.1:4200";
+    Expect(cmux_shim::PageHeaderValue(dev) == dev, "live csp kept");
+    Expect(cmux_shim::PageHeaderValue("default-src *\r\nX-Frame-Options: ALLOW").empty(), "live csp with CRLF dropped");
+    Expect(cmux_shim::PageHeaderValue("default-src *\nInjected: yes").empty(), "live csp with LF dropped");
+    Expect(cmux_shim::PageHeaderValue("").empty(), "live csp empty");
+  }
+
+  // A page host's Content-Type goes to CEF as a bare type and a charset: a dev server's
+  // `text/html; charset=utf-8` as the type drew the page's source as plain text.
+  {
+    std::string mime, charset;
+    cmux_shim::SplitPageMimeType("text/html; charset=utf-8", &mime, &charset);
+    Expect(mime == "text/html" && charset == "utf-8", "content type split: " + mime + " / " + charset);
+    cmux_shim::SplitPageMimeType("Text/JavaScript;Charset=\"UTF-8\"", &mime, &charset);
+    Expect(mime == "text/javascript" && charset == "utf-8", "content type case and quotes: " + mime + " / " + charset);
+    cmux_shim::SplitPageMimeType("image/png", &mime, &charset);
+    Expect(mime == "image/png" && charset.empty(), "content type without parameters");
+    cmux_shim::SplitPageMimeType("text/plain; format=flowed; charset=iso-8859-1", &mime, &charset);
+    Expect(mime == "text/plain" && charset == "iso-8859-1", "content type other parameters dropped");
+    cmux_shim::SplitPageMimeType("", &mime, &charset);
+    Expect(mime.empty() && charset.empty(), "content type empty");
+  }
 
   std::string cleanup = "rm -rf '" + made + "' '" + base + "'";
   if (system(cleanup.c_str()) != 0) std::cerr << "warning: could not remove " << base << "\n";

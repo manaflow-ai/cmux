@@ -5,6 +5,7 @@ import CmuxNextDesign
 @testable import CmuxNextFloating
 @testable import CmuxNextHomeEngine
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -14,7 +15,7 @@ import Testing
 /// capture leaves out, so the PR's pictures come from here: one sheet written to the package's
 /// `.build/chief-upload-gallery.png` (ignored by git), which a fleet step returns with
 /// `cmux-ci run --artifact Packages/macOS/CmuxNext/.build/chief-upload-gallery.png`.
-@MainActor @Suite(.serialized) struct ChiefAvatarUploadGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ChiefAvatarUploadGalleryTests {
     enum Variant: String, CaseIterable {
         case before, tile, button, drop, worn
     }
@@ -57,7 +58,7 @@ import Testing
         let uploads = variant == .before ? nil : ChiefAvatarUploads(folder: folder.appending(path: "uploads-\(variant)-\(appearance.rawValue)"))
         if variant == .worn, let uploads {
             try await uploads.store(from: Self.face(in: folder), for: ChiefAvatarUploads.key(chief: HomeChiefAvatars.defaultChief),
-                                over: HomeChiefPetSetting.defaultMascot)
+                                over: HomeChiefPetSetting.mascotDefault)
         }
         let home = folder.appending(path: "brain")
         let popover = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))

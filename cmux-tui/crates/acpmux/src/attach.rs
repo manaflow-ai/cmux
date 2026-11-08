@@ -28,7 +28,7 @@
 //! answered from the ledger with the first run's outcome, and its own copy is deleted ([`Saved`]).
 //!
 //! No cap: an inline message is one JSON-RPC message on every hop (CLI, outbox record, peer link,
-//! agent), at most `rpc::MAX_MESSAGE_BYTES` (15 MiB), so the senders go by reference before that.
+//! agent), at most `rpc::MAX_MESSAGE_BYTES` (31 MiB), so the senders go by reference before that.
 //! [`check_wire`] answers a raw protocol sender whose inline request would not fit one message on
 //! the next hop, rather than let a hop drop it.
 
@@ -144,15 +144,50 @@ pub async fn blocks_for(
     paths: &[PathBuf],
     say: Say<'_>,
 ) -> anyhow::Result<Vec<Value>> {
+    prepare_blocks(daemon, session, text, paths, say, None).await
+}
+
+/// Stream a validated open message file to the receiving chat, outside both the RPC
+/// envelope and the model's inline context. Never reopen its path after ownership checks.
+pub async fn reference_for(
+    daemon: &Client,
+    session: &str,
+    path: &Path,
+    file: std::fs::File,
+    size: u64,
+    say: Say<'_>,
+) -> anyhow::Result<Vec<Value>> {
+    let paths = [path.to_owned()];
+    prepare_blocks(daemon, session, "", &paths, say, Some((tokio::fs::File::from_std(file), size)))
+        .await
+}
+
+async fn prepare_blocks(
+    daemon: &Client,
+    session: &str,
+    text: &str,
+    paths: &[PathBuf],
+    say: Say<'_>,
+    mut opened: Option<(tokio::fs::File, u64)>,
+) -> anyhow::Result<Vec<Value>> {
+    let by_reference = opened.is_some();
     let mut sizes = Vec::with_capacity(paths.len());
     for path in paths {
         let label = path.display();
-        let meta =
-            tokio::fs::metadata(path).await.with_context(|| format!("cannot attach {label}"))?;
+        let meta = match opened.as_ref() {
+            Some((file, size)) => {
+                let meta = file.metadata().await?;
+                anyhow::ensure!(meta.len() == *size, "{label} changed before it was sent");
+                meta
+            }
+            None => {
+                tokio::fs::metadata(path).await.with_context(|| format!("cannot attach {label}"))?
+            }
+        };
         anyhow::ensure!(meta.is_file(), "cannot attach {label}: not a file");
         sizes.push(meta.len());
     }
-    if fits_inline(&sizes, text) {
+    if !by_reference && fits_inline(&sizes, text) {
         let paths = paths.to_vec();
         return tokio::task::spawn_blocking(move || inline_blocks(&paths)).await?;
     }
@@ -180,7 +215,13 @@ pub async fn blocks_for(
     let mut failure = None;
     let mut progress = upload::Progress::start(say, &chat, &sizes);
     for (path, size) in paths.iter().zip(sizes) {
-        match upload::upload(daemon, &chat, path, size, &mut progress).await {
+        let result = match opened.take() {
+            Some((file, _)) => {
+                upload::upload_opened(daemon, &chat, path, size, file, &mut progress).await
+            }
+            None => upload::upload(daemon, &chat, path, size, &mut progress).await,
+        };
+        match result {
             Ok(one) => sent.push(one),
             Err((e, begun)) => {
                 sent.extend(begun);
@@ -655,7 +696,7 @@ fn remove_uploads(dirs: &[PathBuf]) {
 pub fn peer_unsupported(peer: &crate::peer::Peer) -> RpcError {
     let build = peer.remote_build().unwrap_or_else(|| "unknown".into());
     let message = format!(
-        "peer {} runs acpmux build {build}, which does not take attachments; run `acpmux host update {}`",
+        "peer {} runs acpmux build {build}, which does not take attachments; run `acpmux machine update {}`",
         peer.name, peer.name
     );
     refused("attach.unsupported", message)
@@ -712,7 +753,7 @@ mod tests {
         assert!(!fits_inline(&[INLINE_FILE_BYTES + 1], "big"));
         assert!(!fits_inline(&[1; INLINE_FILES + 1], "many"));
         assert!(!fits_inline(&[3 << 20, 3 << 20, 3 << 20, 3 << 20], "together"));
-        assert!(!fits_inline(&[3 << 20], &"x".repeat(12 << 20)), "with its text");
+        assert!(!fits_inline(&[3 << 20], &"x".repeat(28 << 20)), "with its text");
         // Every message the senders put inline fits one JSON-RPC message.
         let most = [INLINE_TOTAL_BYTES / 4; 4];
         assert!(fits_inline(&most, "t"));
@@ -722,12 +763,14 @@ mod tests {
 
     #[test]
     fn a_message_too_big_for_one_frame_is_refused() {
-        let half = vec![0u8; (10 << 20) / 2];
+        // Two 11 MiB files fit below 31 MiB once encoded; the extra 2 MiB metadata pushes the
+        // complete request over the transport limit.
+        let half = vec![0u8; 11 << 20];
         let mut request = json!({"prompt": [block("a.bin", &half), block("b.bin", &half)]});
         assert!(check_wire(&request).is_ok());
         request["_meta"] = json!({"acpmux": {"promptId": "x".repeat(2 << 20)}});
         let refused = check_wire(&request).unwrap_err();
-        assert!(refused.message.contains("15 MiB"), "{refused}");
+        assert!(refused.message.contains("31 MiB"), "{refused}");
     }
 
     #[tokio::test]

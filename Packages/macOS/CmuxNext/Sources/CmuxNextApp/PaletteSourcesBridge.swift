@@ -15,12 +15,15 @@ enum PaletteSourcesBridge {
         // kind and the agent chats join the palette's own sources. Cmd-P lists only the open items. Agent chats
         // and agent sessions also make up the Chats & agents scope.
         sources.searchContributions = HistoryPalettePages.searchContributions(services) + [
-            PaletteSearchContribution(id: "agentChats", title: AgentChatsPaletteStrings.title, order: 30, searchesChats: true) { [weak services] in
+            PaletteSearchContribution(id: "agentChats", title: AgentChatsPalettePage.title, order: 30, searchesChats: true) { [weak services] in
                 services.map { AgentChatsPalettePage(services: $0).page() }
             },
         ]
         // A typed path or web address: Open it, or Ask Agent about it (Cmd-P, Cmd-Shift-P and Search).
         sources.goTo = AppPaletteGoToSource(services: services)
+        // A browser profile argument typed with a name no profile has: Create Browser Profile “name”,
+        // then the action runs on it (New Tab with Browser Profile…).
+        sources.targetCreators[.browserProfile] = BrowserProfileTargetSource.creator(services: services)
         // cmux.json `palette.scopes.<id>.prefix`, read on every open.
         sources.scopePrefixes = { [weak services] in
             let assigned = services?.settings?.snapshot.paletteScopePrefixes.assigned ?? [:]
@@ -35,7 +38,8 @@ enum PaletteSourcesBridge {
             var aliases: [String: [String]] = [:]
             for (id, words) in setting.aliases { aliases[canonical(id), default: []] += words }
             var seen = Set<String>()
-            return PaletteRankSettings(aliases: aliases, pins: setting.pins.map(canonical).filter { seen.insert($0).inserted })
+            return PaletteRankSettings(aliases: aliases, pins: setting.pins.map(canonical).filter { seen.insert($0).inserted },
+                                       remembersSearches: setting.remembersSearches)
         }
         // Theme rows draw the theme's swatch strip (R98), from the catalog's
         // cache (read off the main thread at launch).
@@ -76,8 +80,10 @@ enum PaletteSourcesBridge {
         func option(_ row: AgentChatDestinations.Destination) -> PaletteTargetOption {
             PaletteTargetOption(id: row.id, title: row.title, subtitle: row.state, symbol: row.symbol, isEnabled: row.isReady)
         }
+        // A slow acpmux never holds the picker: past the bound it shows "Other Macs not loaded yet",
+        // then the peers when acpmux lists them (AgentChatDestinations.updates).
         return RefreshingPaletteTargetSource(kind: .machine, actions: ["palette.newAgentChat", "palette.newAgentChatOn"],
-            initial: [option(destinations.local)], next: next, load: { await destinations.load().map(option) })
+            initial: [option(destinations.local)], next: next, updates: { destinations.updates() }, option: option)
     }
 
     /// The active window's focused objects when the palette opens: the
@@ -114,28 +120,34 @@ enum PaletteSourcesBridge {
             for group in AppPaletteNavigationSource.groups(services) {
                 for id in group.workspaceIDs where groupNames[id] == nil { groupNames[id] = group.name }
             }
+            let ranks = services.windows.active?.sidebar.model.workspaceRanks() ?? [:]
             let subagents = ChiefSubagentIDs.live
+            let closing = TabSearchFactsBuilder.closing(services), resolver = TabTitleResolver(services: services)
+            let lastActive = TabSearchFactsBuilder.lastActive(services)
             return services.machines.allWorkspaces.map { workspace, daemon in // another machine's rows name it
                 let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+                // A lone tab is its workspace (Go to Workspace lists no row of its own): its words find this row.
+                let live = tabs.filter { !closing.contains($0.id) }, lone = live.count == 1 && !HomeRules.isHome(workspace) ? live.first : nil
+                let title = services.shownWorkspaceName(workspace)
+                // A tab that alone repeats the name is this row too (NavigationPaletteProvider.distinctTitles); an untitled chat reads as it.
+                let repeating = lone == nil ? PaletteWorkspace.loneRepeat(live, of: title) { var named = resolver; named.workspaceName = title; return named.title($0) } : nil
                 let cwd = tabs.first { $0.cwd != nil }?.cwd
                 // A Chief subagent's workspace is found by the id the Chief gave it (`a612`).
                 let agentID = subagents.id(name: workspace.displayName, chats: tabs.compactMap(\.agentSession))
-                // The local Chief runs on this Mac, as the sidebar's machine marks say.
-                let onThisMac = daemon.isLocal || MachineID(daemon.machineID).isLocalChief
                 // Named as its sidebar row is: a default-named workspace reads as its front tab.
-                return PaletteWorkspace(id: workspace.id, title: services.shownWorkspaceName(workspace), directory: cwd,
+                return PaletteWorkspace(id: workspace.id, title: title, directory: cwd,
                                         isSelected: workspace.id == shown, unreadCount: workspace.unreadCount,
-                                        groupName: groupNames[workspace.id], machineName: onThisMac ? nil : services.machines.machineName(daemon.machineID),
-                                        agentID: agentID)
+                                        groupName: groupNames[workspace.id], machineName: services.otherMachineName(daemon),
+                                        agentID: agentID,
+                                        keywords: (lone ?? repeating).map { PaletteWorkspace.loneTabWords(title: resolver.title($0), url: $0.url, session: $0.agentSession?.session) } ?? [],
+                                        sidebarRank: ranks[workspace.id], lastUsed: tabs.compactMap { lastActive[$0.id] }.max()) // latest tab focus
             }
         }
 
+        func hasWorkspace(id: String) -> Bool { services.machines.workspace(id: id) != nil } // perf-hot: 0.01ms workspace-switch (O(1) per daemon, no row built)
         func selectWorkspace(id: String) {
             // No active window (all closed, CLI run): show it in its own window, else a new one.
-            guard let window = services.windows.active else {
-                services.windows.reveal(workspaceID: id)
-                return
-            }
+            guard let window = services.windows.active else { _ = services.windows.reveal(workspaceID: id); return }
             // Keep a workspace already listed in this window on the same selection path as a sidebar
             // click and the numbered navigation shortcuts, so its row highlight moves in the same turn.
             // A workspace owned by another window keeps the palette's global show behavior.
@@ -155,7 +167,7 @@ enum PaletteSourcesBridge {
             guard let (workspace, daemon) = services.machines.workspace(id: id), let key = workspace.key else { return }
             guard !HomeRules.isHome(workspace) else { return services.registry.refuse(RefusalStrings.homeNotClosable) }
             let terminals = WorkspaceClose.closing(workspace, on: daemon)
-            daemon.send("close-workspace") { connection in try await WorkspaceClose.close(key, terminals: terminals, on: connection) }
+            daemon.send("close-workspace") { connection in try await WorkspaceClose.close(key, terminals: terminals, on: connection, awaitingReplyOn: daemon) }
         }
     }
 
@@ -186,13 +198,13 @@ enum PaletteSourcesBridge {
         }
 
         func renameTab(id: String, to title: String) {
-            guard let (tab, pane) = services.locateTab(id) else { return }
+            guard let (tab, pane) = services.locateTabOnAnyMachine(id) else { return }
             let surface = tab.surface
             services.daemon(for: pane).send("rename-surface") { connection in try await connection.renameTab(surface, to: title) }
         }
 
         func closeTab(id: String) {
-            guard let (_, pane) = services.locateTab(id), let controller = services.paneController(for: pane) else { return }
+            guard let (_, pane) = services.locateTabOnAnyMachine(id), let controller = services.paneController(for: pane) else { return }
             controller.close([StripTabID(id)])
         }
     }
@@ -201,9 +213,9 @@ enum PaletteSourcesBridge {
 
 extension AgentChatDestinations {
     init(services: AppServices) {
-        let host = services.agentTabs.host
+        let (host, machines) = (services.agentTabs.host, services.agentTabs.cloudMachines)
         self.init(localTitle: WorkspaceVerbStrings.thisMac, peers: { try await host.chatPeers() }, cloud: {
-            await AgentPaneCloudMachines.shared.list?() ?? .init(signedIn: false, loaded: false, machines: [])
+            await machines.list?() ?? .init(signedIn: false, loaded: false, machines: [])
         })
     }
 }

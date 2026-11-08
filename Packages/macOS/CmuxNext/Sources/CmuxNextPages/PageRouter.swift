@@ -32,10 +32,10 @@ public final class PageRouter {
     /// Page calls still running, by page call id: cancelled by the page's `cancel` envelope, by
     /// navigation (`reset`) and by tab close (`close`) (app-op-routing.md "Op cancel").
     private var inFlight: [UInt64: PageCallInFlight] = [:]
-    private var closed = false
+    private(set) var closed = false
     /// Built-in streams every page gets (``PageNativeOp/pageCommand``, ``PageNativeOp/pageConnection``):
     /// subscription id to stream name.
-    private var builtIn: [UInt64: String] = [:]
+    private(set) var builtIn: [UInt64: String] = [:]
     /// The owner link state the connection stream reports.
     public private(set) var connected = true
 
@@ -62,11 +62,28 @@ public final class PageRouter {
 
     // MARK: Page to host
 
+    /// A page's call or subscription id: an integer in 1 ... 2^53 - 1 (the JSON-safe range the protocol
+    /// allows), nil for anything else. The page posts any JSON number (`Infinity` and `1e30` are valid
+    /// script values) and `UInt64(_:)` traps outside 0 ..< 2^64.
+    nonisolated static func wireID(_ value: Double) -> UInt64? {
+        guard value >= 1, value <= 9_007_199_254_740_991, value == value.rounded(.towardZero) else { return nil }
+        return UInt64(value)
+    }
+
     /// Handles one envelope the page posted and returns the reply envelope (or `null` for
     /// messages that need none: `unsub`, and replies to host calls).
     public func handle(_ message: JSONValue) async -> JSONValue {
         guard let type = message["t"]?.stringValue else { return Self.error(id: 0, .invalidParams("missing t")) }
-        let id = message["id"]?.doubleValue.map { UInt64(max(0, $0)) } ?? 0
+        var id: UInt64 = 0
+        if let raw = message["id"]?.doubleValue {
+            guard let valid = Self.wireID(raw) else {
+                // An invalid id names no operation: a call or subscription is refused (never run under
+                // id 0, where invalid ids would collide); anything else needs no reply.
+                guard type == "call" || type == "sub" else { return .null }
+                return Self.error(id: 0, PageError(code: "cmux.protocol.bad_message", message: "id must be an integer from 1 to 2^53 - 1"))
+            }
+            id = valid
+        }
         switch type {
         case "call":
             guard let op = message["op"]?.stringValue else { return Self.error(id: id, .invalidParams("missing op")) }
@@ -101,7 +118,7 @@ public final class PageRouter {
             inFlight[id]?.cancel()
             return .null
         case "unsub":
-            if let sub = message["sub"]?.doubleValue { unsubscribe(UInt64(max(0, sub))) }
+            if let sub = message["sub"]?.doubleValue.flatMap(Self.wireID) { unsubscribe(sub) }
             return .null
         case "ok", "err":
             resolve(id: id, message)
@@ -117,6 +134,11 @@ public final class PageRouter {
 
     /// The window's title bar action (DESKTOP-FEEL): a double-click on a title bar the page draws.
     public var titleBarDoubleClick: (@MainActor () -> Void)?
+    /// Go Back (true) or Go Forward (false) for the page's swipe gesture `g` (`cmux.app.history.navigate`);
+    /// true when it ran.
+    public var historyNavigate: (@MainActor (_ back: Bool, _ gesture: Int) -> Bool)?
+    /// The page is done with forwarded swipe gesture `g` (`cmux.app.swipe.release`): stop sending it.
+    public var swipeRelease: (@MainActor (Int) -> Void)?
 
     /// A popup op (`cmux.app.popup.*`, cx-6k6cg) with its params: the page view's WebPopupHost.
     public var popup: (@MainActor (String, [String: Any]) -> JSONValue)?
@@ -126,11 +148,7 @@ public final class PageRouter {
     public var contextMenu: (@MainActor ([String: Any]) async -> JSONValue)?
 
     private func call(_ op: String, params: JSONValue, opid: String?) async throws -> JSONValue {
-        if op == PageNativeOp.titleBarDoubleClick {
-            guard !closed else { throw PageError.closed }
-            titleBarDoubleClick?()
-            return .object([:])
-        }
+        if let reply = try hostCall(op, params: params) { return reply }
         if op == PageNativeOp.popupShow || op == PageNativeOp.popupUpdate || op == PageNativeOp.popupHide {
             guard !closed else { throw PageError.closed }
             guard case .object = params, let fields = params.foundationObject as? [String: Any] else {
@@ -163,7 +181,7 @@ public final class PageRouter {
     }
 
     private func subscribe(_ stream: String, filter: JSONValue) async throws -> UInt64 {
-        if stream == PageNativeOp.pageCommand || stream == PageNativeOp.pageConnection || stream == PageNativeOp.pagePopup {
+        if PageNativeOp.builtInStreams.contains(stream) {
             guard !closed else { throw PageError.closed }
             let sub = nextSubscription
             nextSubscription += 1
@@ -184,6 +202,11 @@ public final class PageRouter {
         // A provider may send its current state from inside `subscribe` (the icon picker's open
         // session). Those events wait until the reply that names `sub` reaches the page.
         let early = PageEarlyEvents()
+        // One owner frees it on every exit: the posted flush below takes it over; every other exit (a
+        // throw, the page closed meanwhile, nothing held) releases it here, so a provider that keeps
+        // `onEvent` after its subscription ended adds nothing to a list nobody reads.
+        var flushesAfterReply = false
+        defer { if !flushesAfterReply { _ = early.release() } }
         let subscription: PageSubscription
         do {
             subscription = try await provider.subscribe(stream, filter: filter, context: PageCallContext(page: descriptor.id)) { [weak self] data in
@@ -203,13 +226,13 @@ public final class PageRouter {
         }
         activeStreams.remove(sub)
         subscriptions[sub] = subscription
-        // Nothing held: later events go straight to the page. Otherwise they queue behind the held
-        // ones until the flush, which runs after the reply.
-        guard !early.isHolding || provider.eventsAfterSubscribeReply else {
-            if provider.eventsAfterSubscribeReply { return sub }
+        // Nothing held (or a provider that sends only after the reply): later events go straight to
+        // the page. Otherwise they queue behind the held ones until the flush, which runs after the reply.
+        guard early.isHolding, !provider.eventsAfterSubscribeReply else {
             _ = early.release()
             return sub
         }
+        flushesAfterReply = true
         // task-owner: one flush after the reply; ends with the router
         Task { @MainActor [weak self] in
             for data in early.release() { self?.deliver(sub: sub, data, publicationID: provider.eventDeliveryID) }
@@ -229,7 +252,7 @@ public final class PageRouter {
         return (route.provider, params)
     }
 
-    private func deliver(sub: UInt64, _ data: JSONValue, publicationID: UInt64? = nil) {
+    func deliver(sub: UInt64, _ data: JSONValue, publicationID: UInt64? = nil) {
         guard subscriptions[sub] != nil || builtIn[sub] != nil || activeStreams.contains(sub) else { return }
         let seq = (sequences[sub] ?? 0) + 1
         sequences[sub] = seq
@@ -305,6 +328,12 @@ public final class PageRouter {
     public func close() {
         closed = true
         didClose?()
+        var notified = Set<ObjectIdentifier>()
+        for route in routes {
+            let provider = route.provider
+            let identity = ObjectIdentifier(provider)
+            if notified.insert(identity).inserted { provider.pageDidClose() }
+        }
         for subscription in subscriptions.values { subscription.cancel() }
         subscriptions.removeAll()
         activeStreams.removeAll()

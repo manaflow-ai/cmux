@@ -25,6 +25,7 @@ bindgen = ["uniffi/cli"]
 cmux-mobile-link.workspace = true
 cmux-rd-ffi.workspace = true
 cmux-rd-proto.workspace = true
+cmux-terminal-prediction.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
@@ -38,5 +39,6 @@ cmux-mobile-link = { workspace = true, features = ["testing"] }
 cmux-mobile-host = { path = "../cmux-mobile-host" }
 cmux-rd-core.workspace = true
 cmux-rd-engine.workspace = true
+sha2 = "0.10"
 tempfile = "3"
 tokio = { workspace = true, features = ["test-util"] }

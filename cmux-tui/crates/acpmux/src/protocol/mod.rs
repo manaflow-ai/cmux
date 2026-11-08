@@ -13,6 +13,7 @@ pub mod auth;
 pub mod events;
 pub mod inventory;
 pub mod mailbox;
+pub mod params;
 pub mod peer_state;
 pub mod permission;
 pub mod presence;
@@ -63,6 +64,26 @@ impl Kind {
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct ProtocolParams {}
+
+/// The sender and receiver projection of a persisted session-to-session message.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageEvent {
+    pub at: u64,
+    pub message_id: String,
+    pub sender: MessageSender,
+    pub session_id: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageSender {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    pub name: String,
+    pub session_id: String,
+}
 
 /// What `_acpmux/protocol` answers: `ir()`, built once per daemon run.
 pub fn served() -> &'static Value {
@@ -117,6 +138,17 @@ fn notification<P: JsonSchema>(name: &'static str) -> MethodDecl {
     }
 }
 
+/// A method whose params are the closed key set `P` (`params.rs`) and whose result is not
+/// declared yet.
+fn keyed<P: JsonSchema>(name: &'static str, kind: Kind) -> MethodDecl {
+    MethodDecl { name, kind, acp: false, params: Some(schema_of::<P>), result: None }
+}
+
+/// [`keyed`] for a standard ACP method.
+fn acp_keyed<P: JsonSchema>(name: &'static str, kind: Kind) -> MethodDecl {
+    MethodDecl { name, kind, acp: true, params: Some(schema_of::<P>), result: None }
+}
+
 /// Every method and notification acpmux serves or sends, in wire-name order
 /// within each group.
 pub fn registry() -> Vec<MethodDecl> {
@@ -127,27 +159,30 @@ pub fn registry() -> Vec<MethodDecl> {
     use session::*;
     vec![
         // Standard ACP.
-        acp(method::INITIALIZE, Request),
+        acp_keyed::<params::InitializeParams>(method::INITIALIZE, Request),
         acp(method::AUTHENTICATE, Request),
-        acp(method::SESSION_NEW, Request),
+        acp_keyed::<params::SessionNewParams>(method::SESSION_NEW, Request),
         acp(method::SESSION_LOAD, Request),
         acp(method::SESSION_RESUME, Request),
         acp(method::SESSION_LIST, Request),
         acp(method::SESSION_FORK, Request),
         acp(method::SESSION_CLOSE, Request),
         acp(method::SESSION_DELETE, Request),
-        acp(method::SESSION_PROMPT, Request),
-        acp(method::SESSION_CANCEL, ClientNotification),
-        acp(method::SESSION_SET_MODE, Request),
-        acp(method::SESSION_SET_MODEL, Request),
-        acp(method::SESSION_SET_CONFIG_OPTION, Request),
+        acp_keyed::<params::SessionPromptParams>(method::SESSION_PROMPT, Request),
+        acp_keyed::<params::SessionCancelParams>(method::SESSION_CANCEL, ClientNotification),
+        acp_keyed::<params::SessionSetModeParams>(method::SESSION_SET_MODE, Request),
+        acp_keyed::<params::SessionSetModelParams>(method::SESSION_SET_MODEL, Request),
+        acp_keyed::<params::SessionSetConfigOptionParams>(
+            method::SESSION_SET_CONFIG_OPTION,
+            Request,
+        ),
         acp(method::SESSION_UPDATE, Notification),
         acp(method::SESSION_REQUEST_PERMISSION, ServerRequest),
         acp(method::CANCEL_REQUEST, ClientNotification),
         // ACP extensions acpmux names in the acp.* space.
-        untyped(method::ACP_SESSION_FORK, Request),
-        untyped(method::ACP_TRUST_GET, Request),
-        untyped(method::ACP_TRUST_SET, Request),
+        request::<ForkParams, Value>(method::ACP_SESSION_FORK),
+        keyed::<params::TrustGetParams>(method::ACP_TRUST_GET, Request),
+        keyed::<params::TrustSetParams>(method::ACP_TRUST_SET, Request),
         untyped("catalog.get", Request),
         untyped("catalog.refresh", Request),
         untyped("catalog.changed", Notification),
@@ -157,7 +192,21 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TAILNET_START, Request),
         untyped(method::MUX_TAILNET_STATE, Request),
         // Sessions.
-        untyped(method::MUX_STATUS, Request),
+        keyed::<params::StatusParams>(method::MUX_STATUS, Request),
+        untyped(method::MUX_CONTEXT, Request),
+        untyped(method::MUX_CONTEXT_OVERRIDE, Request),
+        // Cloud whole-machine turn fencing. These methods are served by the
+        // daemon's request dispatcher and intentionally use untyped envelopes
+        // while the owner capability payload remains private to Cloud clients.
+        untyped(method::AGENT_SESSION_TURN_PREPARE, Request),
+        untyped(method::AGENT_SESSION_TURN_ABANDON, Request),
+        // Scoped Cloud trigger chat operations.
+        untyped(method::TRIGGER_CHAT_ENSURE, Request),
+        untyped(method::TRIGGER_CHAT_SEND, Request),
+        untyped(method::TRIGGER_CHAT_STATUS, Request),
+        // Start a local issue fix from a GitHub URL in a new worktree.
+        untyped(method::CHAT_FIX_FROM_LINK_PREPARE, Request),
+        untyped(method::CHAT_FIX_FROM_LINK, Request),
         request::<SessionsParams, SessionsResult>(method::MUX_SESSIONS),
         request::<events::AttachParams, events::AttachResult>(method::MUX_ATTACH),
         request::<events::SessionRef, events::Done>(method::MUX_DETACH),
@@ -167,64 +216,86 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<events::WatchParams, session::SessionsResult>(method::MUX_WATCH),
         untyped(method::MUX_RENAME, Request),
         untyped(method::MUX_OFFER_SESSION, Request),
-        untyped(method::MUX_OFFER_RESPOND, Request),
+        keyed::<params::OfferRespondParams>(method::MUX_OFFER_RESPOND, Request),
         // Sub-sessions (`server/subsessions.rs`).
         untyped(method::MUX_SUBSESSION_ANSWER, Request),
         untyped(method::MUX_SUBSESSION_GET, Request),
-        untyped(method::MUX_SUBSESSION_LIMITS, Request),
+        keyed::<params::SubsessionLimitsParams>(method::MUX_SUBSESSION_LIMITS, Request),
         untyped(method::MUX_SUBSESSION_LIST, Request),
         untyped(method::MUX_SUBSESSION_RETRY, Request),
         untyped(method::MUX_SUBSESSION_SEND, Request),
         untyped(method::MUX_SUBSESSION_START, Request),
         untyped(method::MUX_SUBSESSION_STOP, Request),
+        // Model races (`server/races.rs`).
+        untyped(method::MUX_RACE_CANCEL, Request),
+        untyped(method::MUX_RACE_GET, Request),
+        untyped(method::MUX_RACE_LIST, Request),
+        untyped(method::MUX_RACE_START, Request),
+        untyped(method::MUX_RACE_STATS, Request),
         // Forum announcements (`server/forum.rs`).
         untyped(method::MUX_FORUM_ACK, Request),
         untyped(method::MUX_FORUM_ANNOUNCE, Request),
-        untyped(method::MUX_FORUM_RULES, Request),
-        untyped(method::MUX_SET_TOOLS, Request),
-        untyped(method::MUX_MCP_RECONNECT, Request),
-        untyped(method::MUX_SUBAGENT_STOP, Request),
-        untyped(method::MUX_SUBAGENT_TRANSCRIPT, Request),
+        keyed::<params::ForumRulesParams>(method::MUX_FORUM_RULES, Request),
+        keyed::<params::SetToolsParams>(method::MUX_SET_TOOLS, Request),
+        untyped(method::MUX_SET_DIRECTORIES, Request),
+        keyed::<params::McpReconnectParams>(method::MUX_MCP_RECONNECT, Request),
+        keyed::<params::SubagentStopParams>(method::MUX_SUBAGENT_STOP, Request),
+        keyed::<params::SubagentTranscriptParams>(method::MUX_SUBAGENT_TRANSCRIPT, Request),
+        keyed::<params::NativeHistoryParams>(method::MUX_NATIVE_HISTORY, Request),
         untyped(method::MUX_WORKFLOWS, Request),
-        untyped(method::MUX_APP_REPLY, Request),
+        keyed::<params::AppReplyParams>(method::MUX_APP_REPLY, Request),
         untyped(method::MUX_STATS, Request),
+        untyped(method::MUX_LEDGER, Request),
+        untyped(method::MUX_WORKSPACE_PURGE, Request),
+        untyped(method::MUX_REVIEW_QUEUE, Request),
+        untyped(method::MUX_REVIEW_VERDICT, Request),
+        untyped(method::MUX_AUDIT, Request),
         untyped(method::MUX_GITHUB_ACTION, Request),
         untyped(method::MUX_GITHUB_APP_LEASE, Request),
-        untyped(method::MUX_BOOKMARK_GET, Request),
-        untyped(method::MUX_BOOKMARK_SET, Request),
+        keyed::<params::BookmarkGetParams>(method::MUX_BOOKMARK_GET, Request),
+        keyed::<params::BookmarkSetParams>(method::MUX_BOOKMARK_SET, Request),
+        keyed::<params::MemoryResolveParams>(method::MUX_MEMORY_RESOLVE, Request),
         untyped(method::MUX_PROMPT_WITHDRAW, Request),
+        untyped(method::MUX_INBOX_DIGEST, Request),
         untyped(method::MUX_SEND_QUEUE, Request),
         untyped(method::MUX_SEND_STATUS, Request),
         untyped(method::MUX_MESH_CONTROL, Request),
         // The hub asks a session's agent adapter (claude_stdio, the Codex bridge).
         untyped(method::MUX_STEP_NOW, Request),
         untyped(method::MUX_STEER_WITHDRAW, Request),
-        untyped(method::MUX_AGENT_PAIR_RESUME, Request),
+        keyed::<params::AgentPairResumeParams>(method::MUX_AGENT_PAIR_RESUME, Request),
+        keyed::<params::AgentHoldParams>(method::MUX_AGENT_HOLD, Request),
         request::<RetryParams, RetryResult>(method::MUX_RETRY),
         request::<auth::SessionAuthParams, auth::SessionAuthResult>(method::MUX_SESSION_AUTH),
-        untyped(method::MUX_PROCESS_LIST, Request),
-        untyped(method::MUX_PROCESS_TAIL, Request),
-        untyped(method::MUX_PROCESS_KILL, Request),
+        keyed::<params::ProcessListParams>(method::MUX_PROCESS_LIST, Request),
+        keyed::<params::ProcessTailParams>(method::MUX_PROCESS_TAIL, Request),
+        keyed::<params::ProcessKillParams>(method::MUX_PROCESS_KILL, Request),
         untyped(method::MUX_BG_START, Request),
         untyped(method::MUX_BG_LIST, Request),
         untyped(method::MUX_BG_OUTPUT, Request),
         untyped(method::MUX_BG_STOP, Request),
+        untyped(method::MUX_GOAL_SET, Request),
+        untyped(method::MUX_GOAL_UPDATE, Request),
+        untyped(method::MUX_GOAL_GET, Request),
         request::<ProcessBackgroundParams, ProcessBackgroundResult>(method::MUX_PROCESS_BACKGROUND),
         untyped(method::MUX_WORKTREE_REPORT, Request),
         untyped(method::MUX_WORKTREE_CLEAN, Request),
         untyped(method::MUX_WORKTREE_RESTORE, Request),
         untyped(method::MUX_RETENTION, Request),
         untyped(method::MUX_PROCESS_UPDATE, Notification),
-        untyped(method::MUX_KILL, Request),
-        untyped(method::MUX_WATCH_TAKE_OVER, Request),
-        untyped(method::MUX_ARCHIVE, Request),
-        untyped(method::MUX_SIDE, Request),
-        untyped(method::MUX_BTW, Request),
+        keyed::<params::KillParams>(method::MUX_KILL, Request),
+        untyped(method::MUX_KEEP, Request),
+        keyed::<params::WatchTakeOverParams>(method::MUX_WATCH_TAKE_OVER, Request),
+        keyed::<params::ArchiveParams>(method::MUX_ARCHIVE, Request),
+        keyed::<params::SideParams>(method::MUX_SIDE, Request),
+        keyed::<params::BtwParams>(method::MUX_BTW, Request),
         untyped(method::MUX_TAG, Request),
+        untyped(method::MUX_DETACH_PARENT, Request),
         untyped(method::MUX_INFO, Request),
+        untyped(method::MUX_MACHINE_INFO, Request),
         untyped(method::MUX_SESSION_FILES, Request),
         request::<events::EventsParams, events::EventsResult>(method::MUX_EVENTS),
-        untyped(method::MUX_ATTACHMENT, Request),
+        keyed::<params::AttachmentParams>(method::MUX_ATTACHMENT, Request),
         request::<MailSendParams, MailSendResult>(method::MUX_MAIL_SEND),
         request::<MailReadParams, MailPageResult>(method::MUX_MAIL_READ),
         request::<MailWaitParams, MailPageResult>(method::MUX_MAIL_WAIT),
@@ -234,19 +305,24 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TEAM_READ, Request),
         untyped(method::MUX_TEAM_ACK, Request),
         untyped(method::MUX_HISTORY, Request),
+        untyped(method::MUX_SESSION_SEARCH, Request),
         untyped(method::MUX_COMPLETE, Request),
         untyped(method::MUX_WAIT, Request),
         untyped(method::MUX_WATCH_ADD, Request),
         untyped(method::MUX_WATCH_LS, Request),
         untyped(method::MUX_WATCH_RM, Request),
         untyped(method::MUX_ASK, Request),
-        untyped(method::MUX_WARM, Request),
-        untyped(method::MUX_PREWARM, Request),
-        untyped(method::MUX_START_MODE, Request),
-        untyped(method::MUX_QUEUE_REMOVE, Request),
-        untyped(method::MUX_QUEUE_EDIT, Request),
-        untyped(method::MUX_DRAFT_GET, Request),
-        untyped(method::MUX_DRAFT_SET, Request),
+        keyed::<params::WarmParams>(method::MUX_WARM, Request),
+        keyed::<params::PrewarmParams>(method::MUX_PREWARM, Request),
+        keyed::<params::StartModeParams>(method::MUX_START_MODE, Request),
+        keyed::<params::QueueRemoveParams>(method::MUX_QUEUE_REMOVE, Request),
+        keyed::<params::QueueEditParams>(method::MUX_QUEUE_EDIT, Request),
+        keyed::<params::QueueApproveParams>(method::MUX_QUEUE_APPROVE, Request),
+        keyed::<params::QueueDeclineParams>(method::MUX_QUEUE_DECLINE, Request),
+        untyped(method::MUX_QUEUE_TEXT, Request),
+        keyed::<params::QueueGetParams>(method::MUX_QUEUE_GET, Request),
+        keyed::<params::DraftGetParams>(method::MUX_DRAFT_GET, Request),
+        keyed::<params::DraftSetParams>(method::MUX_DRAFT_SET, Request),
         untyped(method::MUX_COMPOSER_SET, Request),
         untyped(method::MUX_COMPOSERS, Request),
         untyped(method::MUX_EXPORT, Request),
@@ -258,13 +334,15 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_FILE_PUT_CANCEL, Request),
         untyped(method::MUX_FILE_PUT_STATUS, Request),
         untyped(method::MUX_FILE_PUT_DATA, Request),
+        untyped(method::MUX_UPLOADS_KEEP, Request),
         untyped(method::MUX_DISPATCH, Request),
         untyped(method::MUX_STEER, Request),
         untyped(method::MUX_BRIEFS, Request),
         untyped(method::MUX_REPORT, Request),
         untyped(method::MUX_TASK_NEW, Request),
         untyped(method::MUX_TASKS, Request),
-        untyped(method::MUX_RESOLVE, Request),
+        keyed::<params::ResolveParams>(method::MUX_RESOLVE, Request),
+        untyped(method::MUX_WHO_ELSE, Request),
         untyped(method::MUX_MEDIA_OPEN, Request),
         untyped(method::MUX_MEDIA_RANGE, Request),
         // Permissions.
@@ -279,6 +357,10 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SET_POLICY, Request),
         untyped("_acpmux/set_default_policy", Request),
         untyped(method::MUX_SET_RULES, Request),
+        untyped(method::MUX_SET_TURN_CAP, Request),
+        untyped(method::MUX_INBOX_THREADS, Request),
+        keyed::<params::InboxThreadParams>(method::MUX_INBOX_THREAD, Request),
+        untyped(method::MUX_INBOX_REPLY, Request),
         untyped(method::MUX_PERSON_ENROLL, Request),
         untyped(method::MUX_COMPUTER_USE_ENROLL, Request),
         untyped(method::MUX_PERSON_PROVE, Request),
@@ -292,20 +374,30 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_NEW_CHAT_PICKS_SET, Request),
         untyped(method::MUX_WORKSPACE_ROOTS_SET, Request),
         untyped(method::MUX_SECRET_REQUEST, Request),
-        untyped(method::MUX_SECRET_SUBMIT, Request),
+        keyed::<params::SecretSubmitParams>(method::MUX_SECRET_SUBMIT, Request),
         untyped(method::MUX_SECRET_RUN, Request),
+        untyped(method::MUX_ELEVATION_REQUEST, Request),
+        untyped(method::MUX_MCP_CONNECT_REQUEST, Request),
+        untyped(method::MUX_MCP_CONNECT_ANSWER, Request),
         // Chats (`server/chats.rs`).
         untyped("_acpmux/chats", Request),
         untyped("_acpmux/chats_watch", Request),
         untyped("_acpmux/chat_open", Request),
+        untyped("_acpmux/chat_resolve", Request),
         untyped("_acpmux/chat_roots", Request),
         untyped("_acpmux/chat_roots_record", Request),
         untyped("_acpmux/chat_settings", Request),
         untyped("_acpmux/chat_settled", Request),
         untyped("_acpmux/chat_transcript", Request),
+        untyped("_acpmux/chats_search", Request),
         untyped("_acpmux/chat_fork", Request),
+        untyped("_acpmux/chat_projects", Request),
         untyped("_acpmux/chat_changed", Notification),
         untyped("_acpmux/chats_lagged", Notification),
+        // A client's window over the chat index (`server/chat_windows.rs`).
+        untyped("_acpmux/chats_window", Request),
+        untyped("_acpmux/chats_window_close", Request),
+        untyped("_acpmux/chats_window_changed", Notification),
         // Moving a chat to another daemon (`transfer_out.rs`).
         untyped("_acpmux/transfer_abort", Request),
         untyped("_acpmux/transfer_begin", Request),
@@ -316,21 +408,25 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/transfer_receive", Request),
         untyped("_acpmux/transfer_write", Request),
         // Handoff.
-        untyped(method::MUX_HANDOFF_PREPARE, Request),
-        untyped(method::MUX_HANDOFF_GET, Request),
-        untyped(method::MUX_HANDOFF_DRAFT, Request),
-        untyped(method::MUX_HANDOFF_START, Request),
-        untyped(method::MUX_HANDOFF_DISCARD, Request),
+        keyed::<params::HandoffPrepareParams>(method::MUX_HANDOFF_PREPARE, Request),
+        keyed::<params::HandoffGetParams>(method::MUX_HANDOFF_GET, Request),
+        keyed::<params::HandoffDraftParams>(method::MUX_HANDOFF_DRAFT, Request),
+        keyed::<params::HandoffStartParams>(method::MUX_HANDOFF_START, Request),
+        keyed::<params::HandoffDiscardParams>(method::MUX_HANDOFF_DISCARD, Request),
         // Harnesses, models, routes.
-        untyped(method::MUX_HARNESSES, Request),
-        untyped(method::MUX_HARNESS_ENABLE, Request),
+        keyed::<params::HarnessesParams>(method::MUX_HARNESSES, Request),
+        keyed::<params::HarnessEnableParams>(method::MUX_HARNESS_ENABLE, Request),
         untyped(method::MUX_HARNESS_ADD, Request),
         untyped(method::MUX_HARNESS_REMOVE, Request),
         untyped(method::MUX_HARNESS_RESTORE, Request),
         untyped(method::MUX_HARNESS_DOCTOR, Request),
         untyped(method::MUX_HARNESS_SECRET_SET, Request),
         untyped(method::MUX_HARNESS_ICON, Request),
-        untyped(method::MUX_HARNESS_HEALTH, Request),
+        keyed::<params::HarnessHealthParams>(method::MUX_HARNESS_HEALTH, Request),
+        keyed::<params::AgentLoginStartParams>(method::MUX_AGENT_LOGIN_START, Request),
+        keyed::<params::AgentLoginFinishParams>(method::MUX_AGENT_LOGIN_FINISH, Request),
+        keyed::<params::AgentLoginCancelParams>(method::MUX_AGENT_LOGIN_CANCEL, Request),
+        keyed::<params::AgentLoginApiKeyParams>(method::MUX_AGENT_LOGIN_API_KEY, Request),
         request::<inventory::InventoryWatchParams, Value>(method::MUX_HARNESS_INVENTORY_WATCH),
         request::<inventory::InventoryRefreshParams, Value>(method::MUX_HARNESS_INVENTORY_REFRESH),
         request::<inventory::HarnessUpdatePlanParams, Value>(method::MUX_HARNESS_UPDATE_PLAN),
@@ -340,9 +436,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_REGISTRY, Request),
         untyped(method::MUX_DEFAULTS, Request),
         untyped(method::MUX_PRESETS, Request),
-        untyped("_acpmux/models", Request),
+        keyed::<params::ModelsParams>("_acpmux/models", Request),
         untyped("_acpmux/directories", Request),
-        untyped(method::MUX_ROUTE_LIST, Request),
+        keyed::<params::RouteListParams>(method::MUX_ROUTE_LIST, Request),
         untyped(method::MUX_ROUTE_SHOW, Request),
         untyped(method::MUX_ROUTE_ADD, Request),
         untyped(method::MUX_ROUTE_EDIT, Request),
@@ -350,7 +446,10 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_ROUTE_RESTORE, Request),
         untyped(method::MUX_ROUTE_TEST, Request),
         untyped(method::MUX_ROUTE_DEFAULT_SET, Request),
-        untyped(method::MUX_CHAT_ROUTE_SET, Request),
+        keyed::<params::ChatRouteSetParams>(method::MUX_CHAT_ROUTE_SET, Request),
+        untyped(method::MUX_ACCOUNTS, Request),
+        untyped(method::MUX_ACCOUNT_SET, Request),
+        untyped(method::MUX_ACCOUNT_USAGE, Request),
         // Daemon.
         untyped(method::MUX_WEB_MODES, Request),
         untyped(method::MUX_WEB_TOKEN_ROTATE, Request),
@@ -360,16 +459,18 @@ pub fn registry() -> Vec<MethodDecl> {
         // schema would describe itself.
         request::<ProtocolParams, Value>(method::MUX_PROTOCOL),
         untyped(method::MUX_SHUTDOWN, Request),
-        untyped("_acpmux/peers", Request),
+        keyed::<params::PeersParams>("_acpmux/peers", Request),
         untyped("_acpmux/peer_status", Request),
         untyped("_acpmux/host_health", Request),
         untyped("_acpmux/vm_host", Request),
+        untyped("_acpmux/host_notice", Request),
         untyped("_acpmux/place", Request),
         untyped("_acpmux/peer_add", Request),
         untyped("_acpmux/peer_lease", Request),
-        untyped("_acpmux/peer_reconnect", Request),
+        keyed::<params::PeerReconnectParams>("_acpmux/peer_reconnect", Request),
         untyped("_acpmux/peer_remove", Request),
-        untyped("_acpmux/peer_snapshot", Request),
+        keyed::<params::PeerSnapshotParams>("_acpmux/peer_snapshot", Request),
+        untyped("_acpmux/peer_snapshots_clear", Request),
         untyped(method::MUX_PAIR_TICKET_NEW, Request),
         untyped(method::MUX_PAIR_LIST, Request),
         untyped(method::MUX_PAIR_REVOKE, Request),
@@ -379,8 +480,13 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_CONSENT_GET, Request),
         untyped(method::MUX_MACHINE_CONSENT_REFUSED, Request),
         untyped(method::MUX_PAIR_REDEEM, Request),
+        untyped(method::MUX_VAULT_PULL, Request),
+        untyped(method::MUX_VAULT_FORGET, Request),
+        untyped(method::MUX_VAULT_STATUS, Request),
+        untyped(method::MUX_TURN_ATTESTATION, Request),
         // Notifications.
         notification::<events::SessionEvent>(method::MUX_EVENT),
+        notification::<MessageEvent>(method::MUX_MESSAGE),
         notification::<SessionChanged>(method::MUX_SESSION_CHANGED),
         notification::<PermissionPending>(method::MUX_PERMISSION_PENDING),
         notification::<presence::PresenceNote>(method::MUX_PRESENCE),
@@ -389,6 +495,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_HARNESS_INVENTORY, Notification),
         untyped(method::MUX_START_MODE_CHANGED, Notification),
         untyped(method::MUX_PROMPT_ACCEPTED, Notification),
+        untyped(method::MUX_CANCEL_REFUSED, Notification),
         untyped("_acpmux/lagged", Notification),
         untyped(method::MUX_DISCONNECTED, ClientLocal),
     ]

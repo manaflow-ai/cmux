@@ -74,6 +74,12 @@ enum DebugKey {
         } else if params["target"]?.stringValue == "palette" {
             guard let panel = services.palette.visiblePanel else { return .object(["error": .string("the palette is not open")]) }
             window = panel
+        } else if params["target"]?.stringValue == "dialog" {
+            // The window holding the keyboard over the shell: an attached sheet, or the child
+            // window (a dialog overlay) whose first responder edits text. Home's sheets.
+            let editing = shell.childWindows?.first { $0.isVisible && $0.firstResponder is NSText }
+            guard let dialog = shell.attachedSheet ?? editing else { return .object(["error": .string("no dialog over the window")]) }
+            window = dialog
         } else if params["target"]?.stringValue == "debugSettings" {
             guard let debugWindow = services.debugSettings.window, debugWindow.isVisible else {
                 return .object(["error": .string("Debug Settings is not open")])
@@ -267,17 +273,16 @@ enum DebugKey {
         }
     }
 
-    /// `debug.window.focus {window}`: orders that cmux window front and makes
-    /// it the app's key window, without activating the app, so window actions
-    /// (Zoom, Select Next Window) can be proven on a chosen window. Returns
-    /// the key and frontmost cmux window ids afterwards.
+    /// `debug.window.focus {window}`: orders that cmux window front and makes it the app's key window, without
+    /// activating the app, so window actions (Zoom, Select Next Window) can be proven on a chosen window. An app that
+    /// is not active has no key window: the window still becomes the active one (`WindowManager.active`), as a real
+    /// focus makes it, so a no-activate check acts in it (#38063). Returns the key and frontmost cmux window ids afterwards.
     static func focusWindow(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
-        guard let id = params["window"]?.stringValue,
-              let window = services.windows.controllers.first(where: { $0.state.id == id })?.window else {
-            return .object(["error": .string("no window with that id")])
-        }
+        guard let id = params["window"]?.stringValue, let controller = services.windows.controllers.first(where: { $0.state.id == id }),
+              let window = controller.window else { return .object(["error": .string("no window with that id")]) }
         window.orderFrontRegardless()
         window.makeKey()
+        if !window.isKeyWindow { services.windows.didActivate(controller) }
         let windowID = { (window: NSWindow?) -> JSONValue in
             services.windows.controllers.first { $0.window === window }.map { .string($0.state.id) } ?? .null
         }

@@ -119,6 +119,19 @@ key for private repositories; SSH user names, SCP-like sources, and local paths
 remain supported. Git metadata stdout is capped at 16 KiB before parsing;
 overflow is treated as unavailable.
 
+### Automatic updates
+
+Each daemon start schedules a background check at most once every 24 hours.
+For each installed plugin, cmux compares the local `HEAD` with the remote
+`HEAD` and uses the same staged clone, manifest validation, build, executable
+check, and atomic replacement as the `update` command. Only HTTPS, SSH, and
+`git://` origins are eligible. Local paths and `file://` origins are manual
+only; symlinked or dirty working trees are never replaced, so development
+checkouts keep their files. A failed check is best effort and does not delay
+the daemon or prevent the next check. The updated files are used when the
+plugin process next starts; reload the daemon configuration to restart one
+that is already running.
+
 ## Agent Plugins
 
 An agent plugin is a server-side background executable. It does not run in a
@@ -164,7 +177,8 @@ the previous child instead of leaving stale detection active.
 Without an `agents.plugin` entry, the daemon supervises the screen detector
 that ships beside it: an executable file named `cmux-agent-screen-detection`
 in the directory of the daemon's own executable (symlinks resolved; the
-cmux-next app bundles it in `Contents/Resources/bin`). On Unix the file must be
+cmux-next app bundles it in `Contents/Resources/bin`, and the macOS and Linux npm
+packages and PyPI wheels ship it in `bin/` beside `cmux-tui`). On Unix the file must be
 executable. It runs with producer ID `cmux_screen_detection`, `command` set to
 that absolute path, no `cwd`, and a `revision` derived from the file's identity
 (device, inode, size, modification time), so an app update that replaces the

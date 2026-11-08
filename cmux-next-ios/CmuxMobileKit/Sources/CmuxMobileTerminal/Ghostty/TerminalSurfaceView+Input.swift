@@ -14,7 +14,10 @@ extension TerminalSurfaceView {
         // or preedit). Ghostty's own replies to terminal queries also reach
         // `onInput`, but never pass through here.
         if actions.contains(where: \.isUserInput) { onUserInput?() }
+        let wasEncodingUserInput = isEncodingUserInput
+        defer { isEncodingUserInput = wasEncodingUserInput }
         for action in actions {
+            isEncodingUserInput = action.isUserInput
             switch action {
             case .key(let event):
                 Self.withCString(event.text) { text in
@@ -50,6 +53,12 @@ extension TerminalSurfaceView {
         let scale = window?.screen.scale ?? contentScaleFactor
         ghostty_surface_mouse_pos(surface, Double(point.x), Double(point.y), GHOSTTY_MODS_NONE)
         ghostty_surface_mouse_scroll(surface, 0, Double(deltaY * scale), ghostty_input_scroll_mods_t(TerminalTUIScroll.mods(momentum)))
+    }
+
+    /// An app on the screen asked for the mouse (a tap is its click, not a link's).
+    var capturesMouse: Bool {
+        guard let surface else { return false }
+        return ghostty_surface_mouse_captured(surface)
     }
 
     /// A tap at `point` (this view's points) as a left click, press then

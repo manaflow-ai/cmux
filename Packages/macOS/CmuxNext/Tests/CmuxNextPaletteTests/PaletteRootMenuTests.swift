@@ -30,8 +30,11 @@ struct PaletteRootMenuTests {
         let palette = catalogPalette()
         let visible = try items(in: palette.commandsPage()).filter { !$0.hidesWhenQueryEmpty }
         let direct = Set(visible.compactMap(\.actionID))
-        #expect(direct.count == 130)
-        for id: ActionID in ["newTab", "newTab.default", "newSurface", "closeTab", "renameTab", "splitRight", "openSettings"] {
+        // 131 since New Column Left joined New Column on the root (698b3ef64cf); 132 since Run Last Command Again
+        // joined the terminal intents (9f430ff0949b).
+        #expect(direct.count == 132)
+        for id: ActionID in ["newTab", "newTab.default", "newSurface", "closeTab", "renameTab", "splitRight", "openSettings",
+                             "terminal.runLastCommandAgain"] {
             #expect(direct.contains(id), "\(id) remains a direct root intent")
         }
         let families = Set(visible.filter { $0.actionID == nil }.map(\.id))

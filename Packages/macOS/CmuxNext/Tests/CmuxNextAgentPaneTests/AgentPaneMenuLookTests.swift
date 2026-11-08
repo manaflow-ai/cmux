@@ -39,6 +39,28 @@ struct AgentPaneMenuLookTests {
     static let links = AgentPaneMessageTarget(text: "Two links.", markdown: "Two [links](https://cmux.com/docs).",
                                               links: [docs, docs.appending(path: "blog")])
 
+    @Test func aReplyMenuStartsWithItsQuietTimestamp() throws {
+        let target = try #require(AgentPaneMessageTarget(report: [
+            "text": "Done.", "markdown": "Done.", "replyTime": "Today, 5:29 PM",
+        ]))
+        let menu = Self.menu(target: target)
+        let header = try #require(menu.items.first)
+        #expect(header.title == "Today, 5:29 PM")
+        #expect(header.action == nil)
+        #expect(!header.isEnabled)
+        #expect(header.image == nil)
+        #expect(header.view == nil)
+        #expect(menu.items[1].isSeparatorItem)
+        #expect(menu.items.contains { $0.title == AgentPaneMenuStrings.copyMessage })
+    }
+
+    @Test func aPromptOrSelectionHasNoReplyTimestampHeader() {
+        let prompt = AgentPaneMessageTarget(text: "Fix the build.", replyTime: "Today, 5:29 PM")
+        #expect(Self.menu(target: prompt).items.first?.title != "Today, 5:29 PM")
+        let reply = AgentPaneMessageTarget(text: "Done.", markdown: "Done.", replyTime: "Today, 5:29 PM")
+        #expect(Self.menu(target: reply, selection: "Done").items.first?.title != "Today, 5:29 PM")
+    }
+
     @Test(arguments: ["prompt", "reply", "links", "selection"])
     func everyRowIsNativeWithAnIcon(_ kind: String) throws {
         let menu = switch kind {
@@ -58,14 +80,76 @@ struct AgentPaneMenuLookTests {
         #expect(!menu.items.contains { $0.identifier?.rawValue == "WKMenuItemIdentifierReload" })
     }
 
-    /// Choosing Copy Message on a reply copies its Markdown.
+    /// Message copies preserve both the rendered text and the source Markdown.
     @Test func aChosenPaneRowStillRuns() throws {
         var copied: [String] = []
         let menu = Self.menu(target: Self.reply, copied: { copied.append($0) })
-        let item = try #require(menu.items.first { $0.title == AgentPaneMenuStrings.copyMessage })
-        try Self.click(item)
+        let plain = try #require(menu.items.first { $0.title == AgentPaneMenuStrings.copyMessage })
+        let markdown = try #require(menu.items.first { $0.title == AgentPaneMenuStrings.copyMessageAsMarkdown })
+        try Self.click(plain)
+        try Self.click(markdown)
         Self.drainRunLoop { !copied.isEmpty }
-        #expect(copied == [Self.reply.markdown])
+        #expect(copied == [Self.reply.text, Self.reply.markdown])
+    }
+
+    @Test func selectedMessageKeepsCopyRowsThenQuoteContextPinForkAndSearch() throws {
+        var page: [(String, [String: String])] = []
+        var quoted: [String] = []
+        var attached: [String] = []
+        let target = AgentPaneMessageTarget(text: "Rendered body", rowId: "summary-4", sessionId: "chat-1", markdown: "**Body**", forkSeq: 4)
+        // Rebuild with the seam callbacks because the helper's defaults intentionally do nothing.
+        let webKit = Self.webKitMenu(MenuLookWebKitTarget())
+        AgentPaneContextMenu.rebuild(
+            webKit,
+            target: target,
+            selection: "selected words",
+            devTools: false,
+            scope: ThemeScope.app.fullStrength,
+            actions: .init(
+                copy: { _ in },
+                fork: { _ in },
+                quoteReply: { quoted.append($0) },
+                attachSelection: { attached.append($0) },
+                search: { page.append(("search", ["text": $0])) },
+                pinChapter: { rowId, sessionId in page.append(("pin", ["rowId": rowId, "sessionId": sessionId])) },
+            ),
+        )
+        let titles = webKit.items.map { $0.isSeparatorItem ? "-" : $0.title }
+        #expect(titles == [
+            "Copy",
+            AgentPaneMenuStrings.copyMessage,
+            AgentPaneMenuStrings.copyMessageAsMarkdown,
+            "-",
+            AgentPaneMenuStrings.quoteInReply,
+            AgentPaneMenuStrings.attachSelectionAsContext,
+            "-",
+            AgentPaneMenuStrings.pinAsChapter,
+            AgentPaneMenuStrings.forkFromHere,
+            AgentForkMenu.title,
+            "-",
+            AgentPaneMenuStrings.searchTheWeb,
+            AgentPaneMenuStrings.askAboutThis,
+        ])
+        let quote = try #require(webKit.items.first { $0.title == AgentPaneMenuStrings.quoteInReply })
+        let attach = try #require(webKit.items.first { $0.title == AgentPaneMenuStrings.attachSelectionAsContext })
+        let pin = try #require(webKit.items.first { $0.title == AgentPaneMenuStrings.pinAsChapter })
+        let search = try #require(webKit.items.first { $0.title == AgentPaneMenuStrings.searchTheWeb })
+        try Self.click(quote)
+        try Self.click(attach)
+        try Self.click(pin)
+        try Self.click(search)
+        #expect(quoted == ["> selected words\n\n"])
+        #expect(attached == ["selected words"])
+        #expect(page.map { $0.0 } == ["pin", "search"])
+        #expect(page.map { $0.1 } == [["rowId": "summary-4", "sessionId": "chat-1"], ["text": "selected words"]])
+    }
+
+    @Test func reportCarriesTheOwningSessionForStaleMenuGuards() throws {
+        let target = try #require(
+            AgentPaneMessageTarget(report: ["text": "Reply", "rowId": "summary-4", "sessionId": "chat-1"]),
+        )
+        #expect(target.rowId == "summary-4")
+        #expect(target.sessionId == "chat-1")
     }
 
     /// Fork from Here's neighbour Open in Side Chat on a prompt runs the page's side chat action.
@@ -76,6 +160,22 @@ struct AgentPaneMenuLookTests {
         try Self.click(item)
         Self.drainRunLoop { !ran.isEmpty }
         #expect(ran == ["chat.side"])
+    }
+
+    /// Quote in Reply on selected text sends the quote to the composer's append path (the page's
+    /// `chat.quoteReply`), never Edit and Resend's `chat.editPrompt`, which would replace the draft.
+    @Test func quoteInReplyAppendsInsteadOfEditing() throws {
+        var quoted: [String] = []
+        var edited: [String] = []
+        let menu = Self.webKitMenu(MenuLookWebKitTarget())
+        AgentPaneContextMenu.rebuild(menu, target: nil, selection: "the build\nis green", devTools: false, scope: ThemeScope.app.fullStrength,
+                                     actions: .init(copy: { _ in }, fork: { _ in }, edit: { edited.append($0) },
+                                                    quoteReply: { quoted.append($0) }))
+        let item = try #require(menu.items.first { $0.title == AgentPaneMenuStrings.quoteInReply })
+        try Self.click(item)
+        Self.drainRunLoop { !quoted.isEmpty || !edited.isEmpty }
+        #expect(quoted == ["> the build\n> is green\n\n"])
+        #expect(edited.isEmpty)
     }
 
     /// WebKit's Copy runs as the menu closes, not after: WebKit's target drops the menu once its
@@ -89,6 +189,62 @@ struct AgentPaneMenuLookTests {
         #expect(webKit.sender === copy, "WebKit reads its payload off its own item")
         Self.drainRunLoop { false }
         #expect(webKit.count == 1)
+    }
+
+    /// A right-click on a chat the transcript opens: Open on Right runs the click's open, and Go to
+    /// Chat is there only when a tab already shows the chat (ask-e9c4803262).
+    @Test func aChatPartOffersOpenOnRightAndGoToChat() throws {
+        var opened: [String] = []
+        var jumped = 0
+        func menu(tabShown: Bool) -> NSMenu {
+            let menu = Self.webKitMenu(MenuLookWebKitTarget())
+            let jump: @MainActor () -> Void = { jumped += 1 }
+            let goTo: (String, Bool) -> (@MainActor () -> Void)? = { _, _ in tabShown ? jump : nil }
+            let open: (String, Bool) -> Void = { session, _ in opened.append(session) }
+            var actions = AgentPaneContextMenu.Actions(copy: { _ in }, fork: { _ in })
+            actions.openSession = open
+            actions.goToSession = goTo
+            let target = AgentPaneMessageTarget(text: "", part: AgentPaneMenuPart(session: "child"))
+            AgentPaneContextMenu.rebuild(menu, target: target, devTools: false, scope: ThemeScope.app.fullStrength, actions: actions)
+            return menu
+        }
+        #expect(!menu(tabShown: false).items.contains { $0.title == AgentPaneMenuStrings.goToChat })
+        let shown = menu(tabShown: true)
+        let goTo = try #require(shown.items.first { $0.title == AgentPaneMenuStrings.goToChat })
+        try Self.click(goTo)
+        Self.drainRunLoop { jumped > 0 }
+        #expect(jumped == 1)
+        // Kept: a row knows its menu only weakly, and choosing it goes through the menu.
+        let again = menu(tabShown: true)
+        let right = try #require(again.items.first { $0.title == AgentPaneMenuStrings.openOnRight })
+        try Self.click(right)
+        Self.drainRunLoop { !opened.isEmpty }
+        #expect(opened == ["child"])
+    }
+
+    /// A right-click on another chat the transcript names (a link, a name, a sender) also has that
+    /// chat's sidebar row rows, asked for that chat, in their own group after Open on Right; an
+    /// agent link keeps its link rows after them (Leo, 2026-11-05: "right clicking on a
+    /// deeplink/link to another session/name of another session/rendering of it shuold give thes options").
+    @Test func aChatPartAddsItsSidebarRowRows() throws {
+        var asked: [String] = []
+        let menu = Self.webKitMenu(MenuLookWebKitTarget())
+        var actions = AgentPaneContextMenu.Actions(copy: { _ in }, fork: { _ in })
+        actions.openSession = { _, _ in }
+        actions.sessionItems = { session in
+            asked.append(session)
+            return [NSMenuItem(title: "Mark as Read", action: nil, keyEquivalent: ""), NSMenuItem(title: "Archive Chat", action: nil, keyEquivalent: "")]
+        }
+        let link = try #require(URL(string: "https://cmux.com/deeplink/agent?session=child"))
+        let target = AgentPaneMessageTarget(text: "", part: AgentPaneMenuPart(link: link, session: "child"))
+        AgentPaneContextMenu.rebuild(menu, target: target, devTools: false, scope: ThemeScope.app.fullStrength, actions: actions)
+        #expect(asked == ["child"])
+        let titles = menu.items.map { $0.isSeparatorItem ? "-" : $0.title }
+        let open = try #require(titles.firstIndex(of: AgentPaneMenuStrings.openOnRight))
+        let read = try #require(titles.firstIndex(of: "Mark as Read"))
+        let copyLink = try #require(titles.firstIndex(of: AgentPaneMenuStrings.copyLink))
+        #expect(open < read && read < copyLink, "Open on Right, then the row's rows, then the link's: \(titles)")
+        #expect(titles[read - 1] == "-", "the row's rows are their own group: \(titles)")
     }
 
     // MARK: Helpers

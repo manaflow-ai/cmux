@@ -89,8 +89,10 @@ export type Answer = {
 /// Why an ask ended unanswered, when its record says: `skipped`, the person declined it (Skip sent
 /// the ask's reject option); `stopped`, acpmux cancelled it without an answer (the turn was stopped,
 /// or the chat closed or restarted) on an ask whose Skip would have sent the reject option instead.
-/// Absent when the record can't tell the two apart.
-export type CancelReason = "skipped" | "stopped";
+/// Absent when the record can't tell the two apart. `answeredInChat`: the person replied in their own
+/// words instead of picking (a typed prompt while it waited, or right after it was declined for one;
+/// direct.ts `answeredInChat`), so it was answered, only not on the card.
+export type CancelReason = "skipped" | "stopped" | "answeredInChat";
 
 /// Where the ask stands. Only the owner moves it out of `pending`; clients render it.
 export type State =
@@ -196,13 +198,20 @@ export const isPending = (question: AgentQuestion): boolean => question.state.ki
 /// The first item's prompt, for notifications, previews and search.
 export const questionSummary = (question: AgentQuestion): string => question.items[0]?.prompt ?? "";
 
-/// The catalog key of the line an unanswered ask leaves (its `{prompt}` is `questionSummary`): how it
-/// ended when the record says (`CancelReason`), else "Not answered". The card and Copy read the same.
+/// The catalog key of the line Copy gives an unanswered ask (its `{prompt}` is `questionSummary`): how
+/// it ended when the record says (`CancelReason`), else "Not answered". The card says the same
+/// outcome (`question.outcome.*`) under the question.
 export const cancelledKey = (
   question: AgentQuestion,
-): "question.skipped" | "question.stopped" | "question.cancelled" => {
+): "question.skipped" | "question.stopped" | "question.answeredInChat" | "question.cancelled" => {
   const reason = question.state.kind === "cancelled" ? question.state.reason : undefined;
-  return reason === "skipped" ? "question.skipped" : reason === "stopped" ? "question.stopped" : "question.cancelled";
+  return reason === "skipped"
+    ? "question.skipped"
+    : reason === "stopped"
+      ? "question.stopped"
+      : reason === "answeredInChat"
+        ? "question.answeredInChat"
+        : "question.cancelled";
 };
 
 // MARK: Mapping a permission request (AgentQuestion+Permission.swift)

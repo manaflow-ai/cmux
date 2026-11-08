@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import os
 
@@ -80,13 +81,13 @@ final class CEFMediaBridge {
 
     /// A `Runtime.bindingCalled` of the media binding: applies the page's
     /// report. False for every other message (the agent relay's).
-    func handle(_ json: String) -> Bool {
-        if let refused = BrowserProtectedMedia.refused(bindingCall: json) {
+    func handle(_ head: DevToolsMessageHead) -> Bool {
+        if let refused = BrowserProtectedMedia.refused(bindingCall: head) {
             tab?.emit(.protectedMediaUnavailable(refused))
             return true
         }
-        guard json.contains("\"Runtime.bindingCalled\""), json.contains("\"\(BrowserMediaState.channel)\""),
-              let data = json.data(using: .utf8),
+        guard head.method == "Runtime.bindingCalled", head.contains("\"\(BrowserMediaState.channel)\""),
+              let data = head.json.data(using: .utf8),
               let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               message["method"] as? String == "Runtime.bindingCalled",
               let params = message["params"] as? [String: Any], params["name"] as? String == BrowserMediaState.channel
@@ -113,6 +114,15 @@ final class CEFMediaBridge {
 extension CEFTab: BrowserAudioMuting {
     public func setAudioMuted(_ muted: Bool) {
         machine.apply(.audioMutedChanged(muted))
+        applyAudioMute()
         Task { await media(.muteTab(state.isAudioMuted)) }
+    }
+
+    /// Chromium's own mute of the browser (`WebContents::SetAudioMuted`, Chrome's Mute site): every
+    /// sound of the page, Web Audio and out-of-process frames too, which the media script cannot
+    /// reach. A browser made later (`attach`) hears it there.
+    func applyAudioMute() {
+        guard let browserID else { return }
+        runtime.shim?.setAudioMuted?(browserID, state.isAudioMuted ? 1 : 0)
     }
 }

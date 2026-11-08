@@ -14,6 +14,9 @@ extension SessionSettings {
     /// `sessions.promptSuggestions`: Agents get the cmux-sessions MCP tools (ACPMUX_OFFER_TOOLS=1, read at each acpmux daemon start) and the pages show their suggested tasks (AgentPaneSuggestedTasks). On by default, as the Debug toggle agent.suggestedTasks was (Leo 2026-10-19); off here turns them off. That toggle is now off by default and only forces them on.
     public nonisolated static let promptSuggestionsPath = ["sessions", "promptSuggestions"]
     public nonisolated static let promptSuggestionsDefault = true
+    /// `agents.promptSuggestions`: Claude Code's own prompt suggestion, and the same switch for Codex chats: after a turn the next prompt shows as ghost text in an empty composer (Tab or Right Arrow takes it). Not sessions.promptSuggestions, which is suggested child tasks. The acpmux daemon reads this key (nested or flat) at each Claude or Codex process start (cmux-tui/crates/acpmux/src/claude_stdio/prompt_suggestions.rs, codex_app_server.rs); off: no suggestions and no per-chat switch. Each suggestion is one extra model call that counts toward usage.
+    public nonisolated static let claudePromptSuggestionsPath = ["agents", "promptSuggestions"]
+    public nonisolated static let claudePromptSuggestionsDefault = true
 }
 
 extension SessionSettings {
@@ -29,6 +32,9 @@ extension SessionSettings {
     /// `phone.cloudReplica`: On: the daemon publishes a narrow copy of this Mac's workspace list to the Cloud service (cloud-host-replica-v1, plans/cmux-next/object-sync/DESIGN.md phase 3), so a phone reads it while the Mac is offline and renames through it while the Mac is online. Off: the copy is deleted (replica.purge) and nothing is published. Opt-in until the default is decided (#13742).
     public nonisolated static let cloudReplicaPath = ["phone", "cloudReplica"]
     public nonisolated static let cloudReplicaDefault = false
+    /// `phone.cloudDesktop`: On: a paired phone's Chief info page shows the screen of this account's own running Cloud machine, view only (cloud-desktop-v1, cmux-next-ios/PROTOCOL.md `surface`): this Mac reads the machine's desktop over its Cloud tunnel and streams it to the phone. Off: the Mac lists no Cloud desktop to phones and hostd refuses one. Opt-in until the default is decided (#13742).
+    public nonisolated static let cloudDesktopPath = ["phone", "cloudDesktop"]
+    public nonisolated static let cloudDesktopDefault = false
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -81,6 +87,16 @@ nonisolated enum SessionSettingsSchema {
                 default: .bool(SessionSettings.promptSuggestionsDefault),
                 keywords: ["suggestions", "prompt", "follow-up", "tasks", "child chats", "subagents"]
             ),
+            SettingDescriptor(
+                SessionSettings.claudePromptSuggestionsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.promptSuggestions", "Suggest Next Prompt"),
+                help: SettingsText.keyed("settings.agents.promptSuggestions.help", "After a turn, Claude or Codex suggests your next prompt as grey text in an empty composer; Tab or Right Arrow takes it. Each suggestion is one extra model call that counts toward usage. Applies to chats started or restarted after the change."),
+                kind: .toggle,
+                default: .bool(SessionSettings.claudePromptSuggestionsDefault),
+                keywords: ["suggestions", "prompt", "next prompt", "ghost text", "autocomplete", "claude", "codex", "usage"]
+            ),
         ]
     }
 
@@ -131,6 +147,16 @@ nonisolated enum SessionSettingsSchema {
                 kind: .toggle,
                 default: .bool(SessionSettings.cloudReplicaDefault),
                 keywords: ["iphone", "mobile", "phone", "cloud", "offline", "workspaces", "sync", "privacy"]
+            ),
+            SettingDescriptor(
+                SessionSettings.cloudDesktopPath,
+                section: .machines,
+                group: group,
+                title: SettingsText.keyed("settings.phone.cloudDesktop", "Show Your Cloud Machine's Screen on Your Phone"),
+                help: SettingsText.keyed("settings.phone.cloudDesktop.help", "Your phone's Chief page shows your running Cloud machine's screen, view only. This Mac streams it while the page is open."),
+                kind: .toggle,
+                default: .bool(SessionSettings.cloudDesktopDefault),
+                keywords: ["iphone", "mobile", "phone", "cloud", "screen", "desktop", "computer", "chief"]
             ),
         ]
     }

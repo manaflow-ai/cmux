@@ -64,6 +64,11 @@ DEPENDENCY_STEPS = {
     "Install workflow guard Python dependencies",
 }
 PYTHON_PACKAGES = ("PyYAML==6.0.3", "bashlex==0.18")
+# Steps that prepare an Actions runner's reused workspace, never a guard: the submodule reset deinits every
+# submodule, so run inside the parallel groups it would race release-notary's ghostty-next checkout.
+WORKSPACE_STEPS = {
+    "Drop stale submodule checkouts (self-hosted reused workspace)",
+}
 # Steps whose `if:` tests the event, which does not apply off Actions. Any
 # other condition beyond `matrix.group == '...'` fails the plan rather than
 # silently dropping a step.
@@ -276,7 +281,7 @@ def plan(workflow: dict, base_sha: str, head_sha: str) -> list[Unit]:
                     raise PlanError(f"step {name!r} has a condition run_ci_guards.py cannot evaluate: {condition}")
                 if named and group not in named:
                     continue
-                if "uses" in raw or name in DEPENDENCY_STEPS:
+                if "uses" in raw or name in DEPENDENCY_STEPS or name in WORKSPACE_STEPS:
                     continue
                 env = {k: resolve(v, context) for k, v in (raw.get("env") or {}).items()}
                 steps.append(
@@ -596,6 +601,11 @@ def main(argv: list[str]) -> int:
         help="run the fast set plus the groups the changed files in FILE (one per line) route to for a "
              "feat-cmux-next change (detect_linux_guard_changes.classify_feat); no stamp",
     )
+    parser.add_argument(
+        "--skip-group", action="append", default=[], metavar="GROUP",
+        help="leave out this group or job even when --feat-routes picks it (a feat-cmux-next push runs "
+             "release-notary in nightly-guards, judged at its tip)",
+    )
     args = parser.parse_args(argv)
     if args.root:
         ROOT = Path(args.root).resolve()
@@ -605,7 +615,7 @@ def main(argv: list[str]) -> int:
     step_names = {
         str(s.get("name")) for job in GUARD_JOBS for s in (workflow["jobs"].get(job) or {}).get("steps", [])
     }
-    stale = (DEPENDENCY_STEPS | LINUX_ONLY_STEPS | EVENT_CONDITION_STEPS | set(PORTABLE_SUBSTITUTES)) - step_names
+    stale = (DEPENDENCY_STEPS | WORKSPACE_STEPS | LINUX_ONLY_STEPS | EVENT_CONDITION_STEPS | set(PORTABLE_SUBSTITUTES)) - step_names
     # An older checkout (--root, a bisect) may predate a special-cased step; the names only have to be current here.
     if stale and not args.root:
         print(f"run_ci_guards.py: ci-guards.yml has no step named {sorted(stale)}; update this script", file=sys.stderr)
@@ -625,8 +635,11 @@ def main(argv: list[str]) -> int:
         wanted = (wanted or set(FAST_GROUPS)) | set(routed)
     if wanted is not None:
         units = [u for u in units if u.group in wanted or u.job in wanted]
+    if args.skip_group:
+        units = [u for u in units if u.group not in args.skip_group and u.job not in args.skip_group]
+    if wanted is not None or args.skip_group:
         if not units:
-            print(f"no guard group matches {sorted(wanted)}", file=sys.stderr)
+            print(f"no guard group matches {sorted(wanted or ())} without {sorted(args.skip_group)}", file=sys.stderr)
             if args.json_path:
                 # An empty plan is an answer for a caller comparing checkouts:
                 # this one has none of those groups.

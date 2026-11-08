@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// The sidebar's bottom band: the footer's accessory slots, the profile
@@ -70,6 +71,14 @@ final class SidebarFooterBand {
         return (frame, maxX)
     }
 
+    /// Whether an overfull pinned row needs the separate footer line reserved for Search.
+    var needsDedicatedSearchRow: Bool {
+        guard let host, host.design.sidebarSections.showSearchButton, !host.design.sidebarSections.noFade,
+              let row = bandFirstRow else { return false }
+        return Self.searchPlacement(sidebarWidth: host.bounds.width, side: Self.searchButtonSide,
+                                    itemsMaxX: row.itemsMaxX).needsDedicatedRow
+    }
+
     /// Puts the dots in their row at `top` (`height` > 0), after the footer
     /// band's items in its first row, or in the footer when the band is empty.
     func placeSpaces(top: CGFloat, height: CGFloat) {
@@ -77,7 +86,9 @@ final class SidebarFooterBand {
         let bar = host.profileBar, footer = host.footer, bounds = host.bounds
         // The Search button sits at the row's right end and the update button left of it: the strip ends before them.
         let searchMinX = placeSearch()
-        let trailing = placeUpdateAvailable(before: searchMinX, after: bandFirstRow?.itemsMaxX ?? 0) ?? searchMinX
+        // Swift live mode's mark follows the avatar; the dots and the update button start after it.
+        let leadMaxX = placeLiveBadge(before: searchMinX)
+        let trailing = placeUpdateAvailable(before: searchMinX, after: leadMaxX ?? bandFirstRow?.itemsMaxX ?? 0) ?? searchMinX
         if host.spacesPosition == .top {
             if bar.superview !== host { host.addSubview(bar) }
             bar.leadingInset = nil
@@ -88,7 +99,7 @@ final class SidebarFooterBand {
             // The bar runs from right after the control to the Search button (the
             // strip never covers either; the slots carry the gap) and centers on
             // the sidebar's middle.
-            let lead = row.itemsMaxX, end = trailing ?? bounds.width
+            let lead = leadMaxX ?? row.itemsMaxX, end = trailing ?? bounds.width
             bar.leadingInset = 0
             bar.frame = NSRect(x: lead, y: row.frame.minY, width: max(0, end - lead), height: row.frame.height)
             bar.centerX = bounds.midX - lead
@@ -96,7 +107,7 @@ final class SidebarFooterBand {
             if bar.superview !== footer { footer.addSubview(bar) }
             // The strip ends before the Search and update buttons at the row's right end.
             let end = trailing.map { footer.convert(NSPoint(x: $0, y: 0), from: host).x } ?? footer.bounds.width
-            bar.leadingInset = nil
+            bar.leadingInset = leadMaxX.map { footer.convert(NSPoint(x: $0, y: 0), from: host).x + Metrics.space2 }
             bar.frame = NSRect(x: 0, y: 0, width: max(0, end), height: footer.bounds.height)
             bar.centerX = footer.convert(NSPoint(x: bounds.midX, y: 0), from: host).x
         }
@@ -108,6 +119,14 @@ final class SidebarFooterBand {
     /// The Search button's side: the footer row's height (one slim row, no extra padding; it was a
     /// 28 pt HIG minimum that added 2 pt under the line). Lawrence 2026-10-27: footer too tall.
     static var searchButtonSide: CGFloat { Metrics.sidebarRowHeight }
+
+    /// Resolves Search's horizontal placement. An empty or fitting pinned row stays on the shared
+    /// trailing column; an overfull row keeps the column on a dedicated footer line.
+    static func searchPlacement(sidebarWidth: CGFloat, side: CGFloat,
+                                itemsMaxX: CGFloat?) -> (x: CGFloat, needsDedicatedRow: Bool) {
+        let frame = SidebarStyle.trailingColumnFrame(sidebarWidth: sidebarWidth, centerY: 0, side: side)
+        return (frame.minX, itemsMaxX.map { $0 + Metrics.space2 > frame.minX } ?? false)
+    }
 
     /// The pinned footer section's padding under its last row. The footer is one line, the
     /// account control and the Search button centered on it, whose taller control ends on
@@ -145,18 +164,62 @@ final class SidebarFooterBand {
         let side = Self.searchButtonSide
         let x: CGFloat, midY: CGFloat
         if let row = bandFirstRow {
-            // The avatar's left inset, mirrored at the right, the lens on its center line.
-            let rightEnd = host.bounds.maxX - row.frame.minX - side
-            (x, midY) = (max(row.itemsMaxX, rightEnd), row.frame.midY + searchLensDrop)
+            // The search button shares the list rows' trailing column. Preserve the footer's
+            // no-overlap guarantee for a customized row whose leading items are wider than the
+            // normal avatar slot; ordinary rows keep the shared column exactly.
+            let placement = Self.searchPlacement(sidebarWidth: host.bounds.width,
+                                                 side: side, itemsMaxX: row.itemsMaxX)
+            guard !placement.needsDedicatedRow else {
+                // There is no horizontal slot in an overfull customized row. Keep Search
+                // reachable on its own footer line rather than hiding it or placing it outside.
+                let footer = host.footer.frame
+                let fallbackY = footer.height > 0 ? footer.midY : host.bounds.maxY - SidebarStyle.bottomInset - side / 2
+                let scale = host.window?.backingScaleFactor ?? 2
+                button.frame = NSRect(x: (placement.x * scale).rounded() / scale,
+                                      y: ((fallbackY - side / 2) * scale).rounded() / scale,
+                                      width: side, height: side)
+                return button.frame.minX
+            }
+            (x, midY) = (placement.x, row.frame.midY + searchLensDrop)
         } else {
             let footer = host.footer.frame
             // An empty band: the footer row, or on the bottom inset when the footer has no height.
-            (x, midY) = (host.bounds.maxX - Metrics.space4 - side, footer.height > 0 ? footer.midY
+            (x, midY) = (Self.searchPlacement(sidebarWidth: host.bounds.width, side: side, itemsMaxX: nil).x, footer.height > 0 ? footer.midY
                 : host.bounds.maxY - SidebarStyle.bottomInset - side / 2)
         }
         let scale = host.window?.backingScaleFactor ?? 2
         button.frame = NSRect(x: (x * scale).rounded() / scale, y: ((midY - side / 2) * scale).rounded() / scale, width: side, height: side)
         return button.frame.minX
+    }
+
+    // MARK: Live mode badge
+
+    /// Places Swift live mode's mark (`host.liveModeBadge`) on the footer line right after the
+    /// profile avatar, `space2` from it, centered on the avatar's line (Leo 2026-11-06: "at the
+    /// bottom just to the right of the profile circle in the sidebar"); at the footer's leading
+    /// inset when the band shows no items. It never reaches `searchMinX`: with no room it steps out
+    /// of the line (zero frame), and the window's top row shows it while the sidebar is hidden.
+    /// Returns its maxX in the sidebar's coordinates, nil while it does not show.
+    @discardableResult
+    func placeLiveBadge(before searchMinX: CGFloat?) -> CGFloat? {
+        guard let host, let badge = host.liveModeBadge, !badge.isHidden else { return nil }
+        let size = badge.fittingSize
+        let x: CGFloat, midY: CGFloat
+        if let row = bandFirstRow {
+            (x, midY) = (row.itemsMaxX + Metrics.space2, row.frame.midY)
+        } else {
+            let footer = host.footer.frame
+            (x, midY) = (Metrics.space4, footer.height > 0 ? footer.midY
+                : host.bounds.maxY - SidebarStyle.bottomInset - Self.searchButtonSide / 2)
+        }
+        let end = (searchMinX ?? host.bounds.width - Metrics.space4) - Metrics.space1
+        guard x + size.width <= end else {
+            badge.frame = .zero
+            return nil
+        }
+        badge.frame = WindowTitlebar.alignedFrame(NSRect(x: x, y: midY - size.height / 2, width: size.width, height: size.height),
+                                                  scale: host.window?.backingScaleFactor ?? 2)
+        return badge.frame.maxX
     }
 
     // MARK: Update Available button
@@ -176,11 +239,11 @@ final class SidebarFooterBand {
         let midY: CGFloat, end: CGFloat
         if let row = bandFirstRow {
             midY = row.frame.midY
-            end = searchMinX.map { $0 - Metrics.space1 } ?? host.bounds.maxX - row.frame.minX
+            end = searchMinX.map { $0 - Metrics.space1 } ?? SidebarStyle.trailingColumnFrame(sidebarWidth: host.bounds.width, centerY: 0, side: side).maxX
         } else {
             let footer = host.footer.frame
             midY = footer.height > 0 ? footer.midY : host.bounds.maxY - SidebarStyle.bottomInset - side / 2
-            end = searchMinX.map { $0 - Metrics.space1 } ?? host.bounds.maxX - Metrics.space4
+            end = searchMinX.map { $0 - Metrics.space1 } ?? SidebarStyle.trailingColumnFrame(sidebarWidth: host.bounds.width, centerY: 0, side: side).maxX
         }
         let x = end - side
         guard x >= leadingMaxX + Metrics.space1 else {
@@ -231,12 +294,15 @@ final class SidebarFooterBand {
 
     /// Pops `menu` up so it opens upward from the control's top edge (the
     /// control sits at the window's bottom), its leading edge on the
-    /// control's. The open happens on the next main-actor turn, so a
+    /// control's. The open happens on a later pass of the main run loop, so a
     /// caller (a socket action, a palette run) returns before the menu's
-    /// modal tracking starts.
+    /// modal tracking starts. A run-loop callout, not a main-actor Task: a
+    /// menu that tracks inside a main-queue job holds the main queue until it
+    /// closes, so the click that closes it waited on everything queued
+    /// meanwhile (Leo, 2026-10-29: "clicking out of a fucking context menu is
+    /// sometimes slow").
     static func popUpProfileMenu(_ menu: NSMenu, from anchor: NSView?) {
-        // task-owner: none needed; one-shot hop to the next main-actor turn, holds no state
-        Task { @MainActor in
+        MainRunLoopBlock.perform {
             guard let anchor, anchor.window != nil else {
                 menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
                 return

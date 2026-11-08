@@ -53,6 +53,7 @@ describe("createVm", () => {
       idleTimeoutSeconds: 300,
       metadata: { cmux_tenant: TENANT_A, cmux_id: id, cmux_env: "local", cmux_actor: expect.stringMatching(/^key:/), cmux_create: expect.stringMatching(/^[A-Za-z0-9_-]+$/) },
       firewall: { rules: [] },
+      customer: { customerId: TENANT_A },
     });
     const upstreamId = [...t.upstream.vms.keys()][0] ?? "missing";
     expect(text).not.toContain(upstreamId);
@@ -100,9 +101,22 @@ describe("createVm", () => {
     expect((await createVm(t, devTest, { idleTimeoutSeconds: 3600 })).status).toBe(400);
 
     expect(t.upstream.callsTo("POST", /^\/v5\/vms$/).map((call) => call.json)).toEqual([
-      expect.objectContaining({ idleTimeoutSeconds: -1, metadata: expect.objectContaining({ cmux_tenant: TENANT_A, cmux_env: "production" }) }),
-      expect.objectContaining({ idleTimeoutSeconds: 300, metadata: expect.objectContaining({ cmux_tenant: TENANT_B }) }),
+      expect.objectContaining({ idleTimeoutSeconds: -1, metadata: expect.objectContaining({ cmux_tenant: TENANT_A, cmux_env: "production" }), customer: { customerId: TENANT_A } }),
+      expect.objectContaining({ idleTimeoutSeconds: 300, metadata: expect.objectContaining({ cmux_tenant: TENANT_B }), customer: { customerId: TENANT_B } }),
     ]);
+  });
+
+  it("tags a Stack team's VM with the vault's production tenant key, outside the create digest", async () => {
+    const team = "0b6f3a52-6c1e-4f43-9a1e-2d7c5e8f9a10";
+    const t = await harness({ environment: "production" });
+    t.setBilling(team, true);
+    const key = await t.addKey(team, ["vm:write"]);
+
+    expect((await createVm(t, key)).status).toBe(201);
+    const [sent] = t.upstream.callsTo("POST", /^\/v5\/vms$/).map((call) => call.json);
+    expect(sent).toMatchObject({ metadata: { cmux_tenant: team, cmux_vt: team } });
+    expect(sent).not.toHaveProperty("metadata.cmux_vt_stg");
+    expect(sent).not.toHaveProperty("metadata.cmux_vt_dev");
   });
 
   it("boots from the tenant's own snapshot by its upstream id", async () => {

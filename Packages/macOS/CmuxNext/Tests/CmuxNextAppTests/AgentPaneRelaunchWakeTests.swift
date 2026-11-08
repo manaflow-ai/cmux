@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextTabs
 import CmuxNextWakeups
@@ -87,6 +88,43 @@ struct AgentPaneRelaunchWakeTests {
         #expect(third.wakeStates.isEmpty)
     }
 
+    /// A subagent's unsent prompt (its pane's composer, webviews subagentDrafts.ts) has no acpmux
+    /// session to keep it: it rides in its chat's wake state, which alone is not empty, so a tab
+    /// holding only that keeps it through a relaunch (review of cmux#33280: "Drafts disappear after
+    /// quitting").
+    @Test func aSubagentsDraftComesBackAfterARelaunch() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentPaneRelaunchWake.fileName)
+        let records = [
+            "tab_chat": AgentSessionRef(host: Self.thisMac, hostName: "This Mac", session: "s-chat", harness: "claude"),
+        ]
+        // One draft past a tab's whole JSON budget (AgentPaneRelaunchWake.maximumTabBytes, 4 MiB): its
+        // text goes to a file of its own, so it comes back.
+        let long = String(repeating: "x", count: 4 * 1024 * 1024 + 1)
+        let held = AgentPaneWakeState(subagentDrafts: [
+            "s-chat\u{0}agent-1": .init(text: "check the flaky test first", at: 1_790_000_000_000),
+            "s-chat\u{0}agent-2": .init(text: long, at: 1_790_000_001_000),
+        ])
+        #expect(!held.isEmpty, "a wake state holding only a subagent's draft counted as empty")
+
+        let before = Self.run(file: file, records: records)
+        before.wakeStates["tab_chat"] = held
+        before.relaunchWake.read = { _, _ in nil }
+        await before.relaunchWake.save(before.relaunchWakeStates())
+
+        let after = Self.run(file: file, records: records)
+        after.wakeStates = await after.relaunchWake.take(on: Self.work)
+        let page = try #require(after.view(for: "tab_chat"))
+        let handshake = try await Self.ready(page)
+        let wake = try #require(handshake["wake"] as? [String: Any], "the chat came back without its subagent's draft")
+        let drafts = try #require(wake["subagentDrafts"] as? [String: [String: Any]], "the chat came back without its subagents' drafts")
+        #expect(drafts["s-chat\u{0}agent-1"]?["text"] as? String == "check the flaky test first")
+        #expect((drafts["s-chat\u{0}agent-1"]?["at"] as? NSNumber)?.doubleValue == 1_790_000_000_000)
+        #expect((drafts["s-chat\u{0}agent-2"]?["text"] as? String)?.count == long.count, "the draft past the tab's JSON budget was dropped")
+    }
+
     /// A restored New Tab page with chips from the last quit never adopts the prewarmed spare (its
     /// handshake is long past): it gets a page of its own whose handshake carries them, and the
     /// state is gone from the store, so no later page brings it back.
@@ -104,7 +142,7 @@ struct AgentPaneRelaunchWakeTests {
         tabs.firstPageNewTab = { _, _ in (AgentPaneNewTab(kind: .agent), handler) }
         tabs.blankChatHandler = { _ in handler }
         let spare = try #require(tabs.makeSpare(AgentPaneNewTab(kind: .agent)))
-        tabs.takeSpare = { spare }
+        tabs.takeSpare = { _ in spare }
         let key = try #require(store.tab(surface: 1)?.id)
         tabs.wakeStates[key] = AgentPaneWakeState(shell: true, shellText: "npm run dev")
 
@@ -326,5 +364,39 @@ struct AgentPaneRelaunchWakeTests {
         #expect(FileManager.default.fileExists(atPath: file.path), "a held shell command was not saved")
         await store.save(["tab_a": AgentPaneWakeState()])
         #expect(!FileManager.default.fileExists(atPath: file.path), "an empty composer left a file")
+    }
+
+    /// The page's own wait before it answers (schemas/agent-pane/wake-state.json `draftSettleMs`,
+    /// which webviews composerDraft.ts reads as DRAFT_SETTLE_MS).
+    static func pageDraftSettle() throws -> Duration {
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<6 { root.deleteLastPathComponent() }
+        let data = try Data(contentsOf: root.appendingPathComponent("schemas/agent-pane/wake-state.json"))
+        let object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        return .milliseconds(try #require(object["draftSettleMs"] as? Int))
+    }
+
+    /// Review of #22919 at ce9cd46, finding 1: the quit asked each chat page within 250 ms, but the
+    /// page first waits up to its draft settle time for the typed draft to reach acpmux, and a late
+    /// answer is dropped: the chat kept the state of its last handshake, losing every chip added
+    /// since, the shell command and the scroll place (a sent chip came back). The host's ask must
+    /// outlast the page's settle, with room for a large chip to cross the bridge.
+    @Test func theQuitAsksLongerThanThePageSettlesItsDraft() throws {
+        let settle = try Self.pageDraftSettle()
+        let largeChip: Duration = .milliseconds(500)
+        #expect(AgentPaneRelaunchWake.askLimit >= settle + largeChip,
+                "the host gives up at \(AgentPaneRelaunchWake.askLimit), the page may answer only after \(settle)")
+    }
+
+    /// The composer step starts after the person's other saves, each under its limit; its asks and
+    /// its write still end inside the keep quit's deadline (the quit waits for it past its own limit).
+    @Test func theComposerAskFitsTheKeepQuitDeadline() throws {
+        let steps = QuitSaveSteps(remoteSnapshots: {}, agentComposers: {}, agentImages: {}, terminalFrames: {}, browserRecords: {},
+                                  windows: {}, stopSavingWindows: {}, sidebar: {}, homeCache: {}, cloud: {})
+        let before = try #require(steps.steps.firstIndex { $0.name == "agent_composers" })
+        let startsBy = steps.steps[..<before].reduce(QuitDeadline.quitMarkLimit) { $0 + $1.limit }
+        let write: Duration = .milliseconds(300)
+        #expect(startsBy + AgentPaneRelaunchWake.askLimit + write + QuitDeadline.replyMargin <= QuitDeadline.keepQuitLimit,
+                "the composer step starts by \(startsBy) and asks for \(AgentPaneRelaunchWake.askLimit): past the deadline")
     }
 }

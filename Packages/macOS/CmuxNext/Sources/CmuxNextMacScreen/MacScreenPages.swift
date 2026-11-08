@@ -25,6 +25,9 @@ public struct MacScreenTabEvents {
     /// Titles that come from routes changed (device names were read or
     /// renamed): strips draw their unopened Mac Screen tabs again.
     public var routeTitlesChanged: () -> Void = {}
+    /// A person pressed Sign In where a tab or the home page says to sign in to cmux: the host
+    /// starts the cmux sign-in (the app's `palette.auth.signIn`).
+    public var signIn: () -> Void = {}
 
     public init() {}
 }
@@ -111,6 +114,16 @@ public final class MacScreenPages {
         approval.hub = { [weak self] in self?.hub }
     }
 
+    /// cmux Remote serves this Mac (docs/cmux-remote.md): its Screen Sharing worker shows the
+    /// approval banner and serves host sessions, also with this app quit; this app is a viewer.
+    public var remoteHosted = false {
+        didSet {
+            guard remoteHosted != oldValue else { return }
+            if remoteHosted { hubHost.closeAll() }
+            approval.follow(remoteHosted ? nil : hub)
+        }
+    }
+
     // MARK: Device hub
 
     private func hubChanged(from old: DeviceHub?) {
@@ -121,7 +134,7 @@ public final class MacScreenPages {
             for tab in tabs.values { tab.pane?.model.hub?.hubGone() }
         }
         hub?.onSessionPush = { [weak self] push in self?.handle(push) }
-        approval.follow(hub)
+        approval.follow(remoteHosted ? nil : hub)
         watchDeviceNames()
     }
 
@@ -132,7 +145,7 @@ public final class MacScreenPages {
             break // The approval prompt follows the hub's pending requests.
         case let .sessionTicket(ticket):
             switch ticket.role {
-            case .host: hubHost.serve(ticket)
+            case .host: if !remoteHosted { hubHost.serve(ticket) }
             case .viewer:
                 // The tab whose session (or, before the request's answer, whose host) it names.
                 let viewers = hubViewers
@@ -195,7 +208,7 @@ public final class MacScreenPages {
     }
 
     /// The title of a tab known only by its route (a restored tab not yet
-    /// shown): the device's name, else "Mac Screen"; nil for no route.
+    /// shown): the device's name, else "Screen Sharing"; nil for no route.
     public func title(forRoute route: String?) -> String? {
         guard let route, let record = Self.record(route: route) else { return route == nil ? nil : Self.homeTitle }
         return record.deviceID.map(deviceName) ?? Self.homeTitle
@@ -286,10 +299,10 @@ public final class MacScreenPages {
         }
     }
 
-    /// The home page's title, "Mac Screen".
-    public static var homeTitle: String { L.t("macScreen.tab.homeTitle", "Mac Screen") }
+    /// The home page's title, "Screen Sharing".
+    public static var homeTitle: String { L.t("macScreen.tab.homeTitle", "Screen Sharing") }
 
-    /// The title of tab `key`: the device's name, or "Mac Screen".
+    /// The title of tab `key`: the device's name, or "Screen Sharing".
     public func title(for key: String) -> String {
         if let tab = tabs[key] { return tab.title }
         return records[key]?.deviceID.map(deviceName) ?? Self.homeTitle
@@ -356,6 +369,7 @@ public final class MacScreenPages {
         var actions = MacScreenHomeActions()
         actions.openDevice = { [weak self] id, scope in self?.openDeviceFromHome(id, scope: scope, in: key) }
         actions.openDeviceInNewTab = { [weak self] id, scope in self?.openDeviceInNewTab(id, scope: scope, from: key) }
+        actions.signIn = { [weak self] in self?.events.signIn() }
         // In the tab's theme scope: Settings > Appearance changes show at once. The page fills the tab.
         return MacScreenHomeView(host: host, actions: actions, systemShortcuts: systemShortcuts, devices: MacScreenHomeDevices(pages: self))
     }
@@ -371,6 +385,7 @@ public final class MacScreenPages {
         #endif
         pane.handlers.closeTab = { [weak self] in self?.events.closeTab(key) }
         pane.handlers.openHome = { [weak self] in self?.replace(key, with: MacScreenRecord(macID: nil)) }
+        pane.handlers.signIn = { [weak self] in self?.events.signIn() }
         pane.handlers.isLocalShortcut = { [weak self] event in self?.isLocalShortcut(event) ?? false }
         pane.handlers.keyboardChanged = { [weak self] in self?.systemShortcuts.update() }
         pane.model.systemShortcuts = systemShortcuts

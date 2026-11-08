@@ -4,7 +4,9 @@
 // back in two seconds, past the 480px-tall padding step and the 520px container width, the
 // composer's card never jumps: per frame its top (on the Default template, which docks it at the
 // foot, its distance from the foot) moves at most 0.6px per px of height + 2px, its left edge at
-// most 0.6px per px of width + 2px and its width at most 1px per px + 2px. The layout is CSS only:
+// most 0.6px per px of width + 2px plus one 4px grid step (the column's inset is rounded down to the
+// 4 grid, design/grid.md 5.5, so it moves in 4px steps) and its width at most 1px per px + 2px
+// plus a step on each side. The layout is CSS only:
 // the field (where the text is typed) never has an inline height and a one-line draft keeps its
 // one-line row. ResizeObserver callbacks take at most 2ms a frame (p95 in Chromium; the mean in
 // WebKit, whose clock ticks in whole ms). In Chromium the frames hold 60fps: p95 interval at most
@@ -242,6 +244,8 @@ await requireBrowserLane("new-tab-live-resize.test.ts", async () => {
     return sorted[Math.min(sorted.length - 1, Math.ceil(p * sorted.length) - 1)] ?? 0;
   };
   const px = (value: number) => value.toFixed(1);
+  /// The column inset's step: it is rounded down to the 4 grid (design/grid.md 5.5).
+  const GRID_STEP = 4;
 
   // Cards is what an unset template shows; Default docks the composer at the foot (stage layout);
   // Threads has no padding of its own, so it carries the 480px-tall step of `.nt-screen`.
@@ -253,18 +257,30 @@ await requireBrowserLane("new-tab-live-resize.test.ts", async () => {
       // fixed-wait: the stand-in list arrives after LIST_DELAY and its rows settle before the sweep.
       await page.waitForTimeout(LIST_DELAY + 1_000);
       // Focus, not click: a click waits for two equal frames, which a starved WebKit host may not give.
-      await frame.locator(".nt-field").focus();
+      // The field is MarkdownField: its editable element inside `.nt-field` takes the keyboard.
+      await frame.locator(".nt-field .ProseMirror").focus();
       await page.keyboard.type("fix the build");
       // fixed-wait: the typed draft lays out before the sweep measures its one-line height.
       await page.waitForTimeout(300);
       const stage = (await frame.locator(".nt-screen").getAttribute("data-layout")) === "stage";
       // One line of the field's text plus its insets (the Default template's 52px row).
+      // MarkdownField's `.nt-field` wrapper holds the insets and its editable (`.acpmux-md`) the
+      // line height, both of which the textarea held.
       const oneLine = await frame.locator(".nt-field").evaluate((node) => {
-        const style = getComputedStyle(node);
-        const insets = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
-        if (style.lineHeight.endsWith("px")) return parseFloat(style.lineHeight) + insets;
+        const inset = getComputedStyle(node);
+        const text = getComputedStyle(node.querySelector(".acpmux-md")!);
+        const insets = parseFloat(inset.paddingTop) + parseFloat(inset.paddingBottom);
+        if (text.lineHeight.endsWith("px")) return parseFloat(text.lineHeight) + insets;
         return node.getBoundingClientRect().height;
       });
+      // The draft is in the field, so the sweep measures a field with text in it.
+      expect(
+        await frame
+          .locator(".nt-field")
+          .evaluate((node) =>
+            (node as Element & { acpmuxMarkdownField?: { value(): string } }).acpmuxMarkdownField?.value(),
+          ),
+      ).toBe("fix the build");
       // A page that measures and sets on every frame misses the timing budgets on every sweep.
       let best: { layout: string[]; timing: string[] } | undefined;
       for (let attempt = 1; attempt <= 3 && (best === undefined || best.timing.length > 0); attempt++) {
@@ -297,9 +313,9 @@ await requireBrowserLane("new-tab-live-resize.test.ts", async () => {
       const moved = stage ? Math.abs(b.foot - a.foot) : Math.abs(b.top - a.top);
       if (moved > 0.6 * dh + 2)
         failures.push(`${at}: the card's ${stage ? "distance from the foot" : "top"} jumped ${px(moved)}px`);
-      if (Math.abs(b.left - a.left) > 0.6 * dw + 2)
+      if (Math.abs(b.left - a.left) > 0.6 * dw + 2 + GRID_STEP)
         failures.push(`${at}: the card's left edge jumped ${px(b.left - a.left)}px`);
-      if (Math.abs(b.width - a.width) > dw + 2)
+      if (Math.abs(b.width - a.width) > dw + 2 + 2 * GRID_STEP)
         failures.push(`${at}: the card's width jumped ${px(b.width - a.width)}px`);
     }
     const inline = samples.filter((sample) => sample.inline);

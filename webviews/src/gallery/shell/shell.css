@@ -7,7 +7,7 @@
   --g-muted: light-dark(#6a6a66, #9a9a96);
   --g-line: light-dark(#dcdcd8, #333331);
   --g-current: light-dark(#e6e6e2, #2c2c2a);
-  font: 13px/1.45 var(--font-ui, "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif);
+  font: 13px/1.45 var(--font-ui, -apple-system, BlinkMacSystemFont, system-ui, sans-serif);
   background: var(--g-bg);
   color: var(--g-text);
 }
@@ -82,7 +82,7 @@ body {
   color: var(--g-text);
   font: inherit;
   font-size: var(--text-caption);
-  cursor: pointer;
+  cursor: default;
   letter-spacing: var(--text-caption--letter-spacing);
 }
 .gallery-focus-toggle:hover {
@@ -242,7 +242,7 @@ body {
   font: inherit;
   font-size: var(--text-detail);
   text-decoration: none;
-  cursor: pointer;
+  cursor: default;
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .gallery-header-links a:hover,

@@ -5,7 +5,7 @@ public import CmuxNextIcons
 /// like Chrome's menu button (Leo 2026-10-20). Every more button uses it, so the glyph, its size and
 /// the chrome's hover and pressed look are the same in the sidebar, pane toolbars and cards; the host
 /// gives it the frame of its row of buttons and says what a press does.
-public final class OverflowButton: NSButton {
+public final class OverflowButton: ClickableButton {
     /// The glyph every more button draws.
     public static let glyph: IconName = .actionMoreVertical
     /// The glyph's point size, read at layout time so density changes apply live.
@@ -34,6 +34,28 @@ public final class OverflowButton: NSButton {
             themedToolTip = label
             image?.accessibilityDescription = label
         }
+    }
+    /// The menu, popover or editor this button opened is open: the button stays shown pressed (lit)
+    /// after the pointer leaves it, until the host clears it as that closes (Leo 2026-10-26: "you keep it
+    /// on when you click the context menu ... the drop-down, the popover"). Only the button lights,
+    /// never the row it sits on (Leo 2026-10-27: "Just don't do that. Don't ever do that.").
+    public var showsMenu = false {
+        didSet { if showsMenu != oldValue { changeHover { $0.pressed = showsMenu } } }
+    }
+    /// The hover look (``ChromeHoverStyle``): a rounded plate by default; the pane tab bar's ⋮ takes the tab bar's
+    /// style so it matches the + and chevron beside it.
+    public var hoverStyle: ChromeHoverStyle = .plate {
+        didSet {
+            guard hoverStyle != oldValue else { return }
+            hover.paintsFill = hoverStyle.paintsFill
+            needsDisplay = true
+        }
+    }
+    /// The plate's corner radius where the host knows the corner the button rests in (the pane tab
+    /// bar's ⋮ in the card's top-trailing corner: concentric with it, the card's radius less the
+    /// button's inset); nil: the item radius (``Metrics/itemCornerRadius``). A circle ignores it.
+    public var plateCornerRadius: CGFloat? {
+        didSet { if plateCornerRadius != oldValue { needsDisplay = true } }
     }
     private var renderedSize: CGFloat = 0
 
@@ -99,9 +121,12 @@ public final class OverflowButton: NSButton {
     nonisolated override public var wantsUpdateLayer: Bool { true }
 
     override public func updateLayer() {
-        layer?.cornerRadius = Metrics.itemCornerRadius
+        let side = min(bounds.width, bounds.height)
+        layer?.cornerRadius = hoverStyle == .circle ? side / 2 : min(plateCornerRadius ?? Metrics.itemCornerRadius, side / 2)
         performWithTheme {
-            contentTintColor = tintOverride ?? (hover.state.hovering || hover.state.pressed ? Palette.textPrimary : Palette.textSecondary)
+            // Without a fill, a press or an open menu shows in the glyph's own ink, as the tab bar's + does.
+            let pressedInk = hoverStyle == .glyph ? Palette.litGlyph : Palette.textPrimary
+            contentTintColor = tintOverride ?? (hover.state.pressed ? pressedInk : hover.state.hovering ? Palette.textPrimary : Palette.textSecondary)
         }
         hover.refresh(animated: false)
     }
@@ -116,7 +141,7 @@ public final class OverflowButton: NSButton {
     override public func mouseDown(with event: NSEvent) {
         guard isEnabled else { return super.mouseDown(with: event) }
         changeHover { $0.pressed = true }
-        defer { changeHover { $0.pressed = false } }
+        defer { changeHover { [showsMenu] in $0.pressed = showsMenu } }
         if let pressMenu {
             guard let menu = pressMenu(), !menu.items.isEmpty else { return }
             presentMenu(menu, self)
@@ -129,7 +154,7 @@ public final class OverflowButton: NSButton {
     /// owner clears it, and it shows again with the hover the pointer gives it then.
     override public func viewDidHide() {
         super.viewDidHide()
-        changeHover { $0.pressed = false }
+        changeHover { [showsMenu] in $0.pressed = showsMenu }
         hover.pointer?.refresh()
     }
 

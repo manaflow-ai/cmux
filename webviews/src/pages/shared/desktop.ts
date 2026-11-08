@@ -15,6 +15,8 @@ import { installBackdropFallback } from "../../ui/glass/glassState";
 import { installSpinnerClock } from "../../ui/spinnerClock";
 import { installTooltips } from "../../ui/titleTooltips";
 import { installWave } from "../../ui/wave";
+import { installPageLoops } from "../../ui/pageLoops";
+import { installAdaptiveSelection } from "../../ui/adaptiveSelection";
 import { installImeKeyLayer } from "./imeKeys";
 import { installWebSwap } from "./webSwap";
 
@@ -65,6 +67,9 @@ export function installDesktopLayer(doc: Document = document): void {
   installSpinnerClock(doc);
   // RUNNING-WAVE: no wave runs while the page is hidden (ui/wave.ts).
   installWave(doc);
+  installPageLoops(doc);
+  // HIGHLIGHT-CONTRAST: the selection keeps its contrast on every surface (ui/adaptiveSelection.ts).
+  installAdaptiveSelection(doc);
   // CHROMIUM OVER THE WINDOW GLASS: the glass underlay's strength (chromiumUnderlay.experiment.ts).
   root.setAttribute(GLASS_UNDERLAY_ATTRIBUTE, experimentArm(chromiumGlassUnderlay));
   const view = doc.defaultView;

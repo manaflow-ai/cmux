@@ -1,3 +1,4 @@
+public import CmuxNextSettings
 public import Foundation
 
 /// The versioned host handshake: the one value Swift hands the React agent
@@ -23,9 +24,9 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
 
     /// The coded fields: everything but ``connection``, which never reaches the page.
     private enum CodingKeys: String, CodingKey {
-        case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptTicket, harness, model, peer, adopt, surface,
-             linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, githubRepository, harnesses, wake,
-             workspaceContext, sandboxState, cloudMachineID, cloudCredentialRecoveryAvailable
+        case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptAttachments, promptTicket, harness, model, peer, adopt, surface,
+             linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, localMachineName, githubRepository, harnesses, pickCloud, wake,
+             workspaceContext, sandboxState, tab, cloudMachineID, cloudAccount, cloudCredentialRecoveryAvailable, cloudTeamMachine, cloudHandoffs, cloudRepositoryAvailable
     }
 
     public var protocolVersion: Int
@@ -48,6 +49,8 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// A new chat's first prompt, sent by the page once it connects.
     /// Pages that predate it ignore it (the chat just stays empty).
     public var prompt: String?
+    /// The seeded prompt's attachments after the host copied any referenced files to this machine.
+    public var promptAttachments: [JSONValue]?
     /// The single-use gesture ticket of ``prompt`` when a person's own action (or onboarding's
     /// first task) seeded it (cx-k21v gap 4): the page sends the prompt with this promptId and
     /// ticket (`_meta.cmuxGesture`), as a prompt held for the trust answer. Nil for a prompt the
@@ -105,16 +108,33 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// True for a page opened by Integrate a Harness… (cx-uj5g8): it shows its Harnesses page.
     /// Handed out once. Pages that predate it ignore it.
     public var harnesses: Bool?
+    /// True for a page New Cloud Chat opened (`AgentPaneSeed.picksCloud`): it picks Cloud for its
+    /// new chat once Cloud is offered. Handed out once. Pages that predate it ignore it.
+    public var pickCloud: Bool?
     /// The past turns of the device-wide chat a new chat opened for (cx-khns1): the page shows
     /// them read-only until the chat has a session. Pages that predate it ignore it.
     public var pastTurns: [AgentPanePastTurn]?
     /// Provider VM ID resolved by the native tab host, never a daemon registry UUID.
     public var cloudMachineID: String?
+    /// Account and team that own this Cloud chat; absence never proves deletion.
+    public var cloudAccount: [String?]?
     /// True only when this Cloud backend supports credential delivery.
     public var cloudCredentialRecoveryAvailable: Bool?
+    /// True when this chat's Cloud start passed no personal login because the machine is a team
+    /// machine (``CloudHarnessLoginDecision`` `guest-not-owner`, guest `team`): its sign-in card says so
+    /// and offers no transfer. Pages that predate it show the provider's rejection card.
+    public var cloudTeamMachine: Bool?
+    /// True when this app opens the chat's hand-off turns (`cloud.handoffTurn`).
+    public var cloudHandoffs: Bool?
+    /// True when this pane has an authenticated cmux-tui route for Cloud repository actions.
+    public var cloudRepositoryAvailable: Bool?
     /// This Mac's name (System Settings > General > Sharing), for the composer's location row.
     /// Pages that predate it ignore it.
     public var machineName: String?
+    /// The name of the machine whose acpmux the page talks to, where the environment picker's local row
+    /// starts a chat: this Mac, even when ``machineName`` names the machine a seeded chat runs on (a peer
+    /// or a Cloud machine), or the machine a remote route attaches the page to. Pages that predate it ignore it.
+    public var localMachineName: String?
     /// The local workspace's GitHub `origin`, used to link bare issue references in prose.
     public var githubRepository: String?
     /// What a hidden chat's released page held that acpmux does not (``AgentPaneWakeState``): the
@@ -123,6 +143,10 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// This app answers `sandbox.state` (``AgentPaneSandboxRuns``, hq#3367): the page reads the tab's
     /// Sandboxed send only when it is set. Pages that predate it ignore it.
     public var sandboxState: Bool? = true
+    /// The tab the page is (``AgentPaneModel/tabKey``): the page keeps its Session Info by it, so two
+    /// tabs of one chat keep their own. A page a tab adopts later hears it then (`acpmux-pane-tab`).
+    /// Pages that predate it ignore it and keep it by chat.
+    public var tab: String?
 
     public init(transport: Transport, connection: AcpmuxConnection? = nil, sessionId: String? = nil, newSession: Bool? = nil) {
         protocolVersion = Self.currentVersion

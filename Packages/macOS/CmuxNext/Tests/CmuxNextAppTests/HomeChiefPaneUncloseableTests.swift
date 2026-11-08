@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
 import CmuxNextTabs
+import CmuxNextTestSupport
 import Testing
 
 /// The Home Chief pane (the pinned left chat dock, `pinned-dock-v1`) cannot close (Lawrence 2026-10-20:
@@ -10,6 +11,7 @@ import Testing
 /// 2026-10-21), whose strip then shows. plans/cmux-next/home-chief-pane.md. The daemon keeps the
 /// pinned tab (cmux-tui `pinned_columns_tests.rs`); these cover what the app shows and asks.
 @MainActor
+@Suite(.closesItsWindows)
 struct HomeChiefPaneUncloseableTests {
     static let home = DockColumn(edge: .left, mode: .docked, role: .agentChat, isPinned: true)
 
@@ -32,11 +34,10 @@ struct HomeChiefPaneUncloseableTests {
         home.isClosable = false
         let alone = TabStripModel(tabs: [home], selectedID: "home")
         #expect(alone.keyboardClose("home") == .ignore)
-        #expect(alone.keyboardClose("home", closesPinned: true) == .ignore)
-        // A pinned (not Home) tab alone keeps the old notice.
+        // A pinned (not Home) tab alone closes, as Chrome's Cmd-W closes it (cmux-ad i8).
         var pinned = TabItem(id: "p", title: "p")
         pinned.isPinned = true
-        #expect(TabStripModel(tabs: [pinned], selectedID: "p").keyboardClose("p") == .keep)
+        #expect(TabStripModel(tabs: [pinned], selectedID: "p").keyboardClose("p") == .close)
     }
 
     /// Close Other Tabs / to the Left / to the Right never list a tab that cannot close.
@@ -54,6 +55,7 @@ struct HomeChiefPaneUncloseableTests {
     /// pinned dock, and no highlight promises it. The strip next to it still takes the drop.
     @Test func tabDropsFindNoTargetOverAPinnedDock() throws {
         let screen = Screen(dock: Self.home)
+        defer { screen.window.closeAfterTest() }
         let dock = try #require(screen.view.geometry.panes["dock"])
         for point in [CGPoint(x: dock.midX, y: dock.midY), CGPoint(x: dock.maxX - 4, y: dock.midY),
                       CGPoint(x: dock.midX, y: dock.maxY - 6)] {
@@ -67,6 +69,7 @@ struct HomeChiefPaneUncloseableTests {
         var open = Self.home
         open.allowsTabs = true
         let allowed = Screen(dock: open)
+        defer { allowed.window.closeAfterTest() }
         guard case .pane("dock", _)? = allowed.view.dropTarget(at: CGPoint(x: dock.midX, y: dock.midY))?.target else {
             Issue.record("a pinned dock with allow_tabs refused a drop")
             return
@@ -79,6 +82,7 @@ struct HomeChiefPaneUncloseableTests {
         var open = Self.home
         open.allowsTabs = true
         let screen = Screen(dock: open)
+        defer { screen.window.closeAfterTest() }
         let dock = try #require(screen.view.geometry.panes["dock"])
         for point in [CGPoint(x: dock.midX, y: dock.midY), CGPoint(x: dock.maxX - 4, y: dock.midY),
                       CGPoint(x: dock.minX + 4, y: dock.midY), CGPoint(x: dock.midX, y: dock.maxY - 6)] {

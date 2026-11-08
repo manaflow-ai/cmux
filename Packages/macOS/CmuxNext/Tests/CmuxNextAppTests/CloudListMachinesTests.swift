@@ -53,10 +53,13 @@ struct CloudListMachinesTests {
     @Test func aLoadedListGivesEachMachineAndItsStatus() throws {
         let services = Self.services()
         let running = MachineIconTests.cloudMachine(services, id: "vm-list-run-\(UUID().uuidString.prefix(8))")
+        // The fixture's record has no status (`.unknown`) since its link moved to CloudTestLink (#36498).
+        running.machine.status = .running
         let paused = MachineIconTests.cloudMachine(services, id: "vm-list-pause-\(UUID().uuidString.prefix(8))")
         paused.machine.status = .paused
         paused.machine.displayName = "Paused VM"
         paused.machine.createdAt = Date(timeIntervalSince1970: 1_760_000_000)
+        paused.machine.createdBy = "user-teammate"
 
         let fields = CloudHandlers.machineListFields(AppActionContext(services: services), loaded: true)
         #expect(fields["loaded"] == .bool(true))
@@ -74,11 +77,13 @@ struct CloudListMachinesTests {
         #expect(pausedRow["target"] == .string("machine:\(paused.machineID)"))
         #expect(pausedRow["title"] == .string("Paused VM"))
         #expect(pausedRow["owner"] == .string("personal"))
+        #expect(pausedRow["created_by"] == .string("user-teammate"))
         #expect(pausedRow["created_at"] == .string("2025-10-09T08:53:20Z"))
 
         let runningRow = try #require(byID[running.machineID])
         #expect(runningRow["status"] == .string("running"))
         #expect(runningRow["created_at"] == .null)
+        #expect(runningRow["created_by"] == .null)
 
         let account = try #require(Self.members(fields["account"]))
         #expect(account["signed_in"] == .bool(false))

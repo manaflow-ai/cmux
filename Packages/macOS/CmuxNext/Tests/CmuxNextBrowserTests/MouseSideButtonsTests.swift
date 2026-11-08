@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// Mouse buttons 4 and 5 are Back and Forward (plans/cmux-next/history.md 4.2): a browser tab's
 /// history over the tab, Go Back and Go Forward elsewhere, nothing over a remote desktop that
 /// sends every button to its host.
-@MainActor @Suite struct MouseSideButtonsTests {
+@MainActor @Suite(.closesItsWindows) struct MouseSideButtonsTests {
     @Test func appKitButtonsThreeAndFourAreBackAndForward() {
         #expect(MouseSideButtons.Button(buttonNumber: 3) == .back)
         #expect(MouseSideButtons.Button(buttonNumber: 4) == .forward)
@@ -16,16 +17,16 @@ import Testing
 
     @Test func aBrowserTabWalksItsHistoryAndAnyOtherPaneWalksGoBack() {
         typealias Route = MouseSideButtons.Route
-        #expect(Route.of(.back, enabled: true, overForwardingView: false, overBrowser: true) == .page(.back))
-        #expect(Route.of(.forward, enabled: true, overForwardingView: false, overBrowser: false) == .history(.forward))
-        #expect(Route.of(.back, enabled: true, overForwardingView: true, overBrowser: false) == .pass)
-        #expect(Route.of(.back, enabled: false, overForwardingView: false, overBrowser: true) == .pass)
-        #expect(Route.of(nil, enabled: true, overForwardingView: false, overBrowser: true) == .pass)
+        #expect(Route.of(.back, overForwardingView: false, overBrowser: true) == .page(.back))
+        #expect(Route.of(.forward, overForwardingView: false, overBrowser: false) == .history(.forward))
+        #expect(Route.of(.back, overForwardingView: true, overBrowser: false) == .pass)
+        #expect(Route.of(nil, overForwardingView: false, overBrowser: true) == .pass)
     }
 
     @Test func aRemoteDesktopInControlModeKeepsTheButtons() {
         let window = NSWindow(contentRect: CGRect(x: 200, y: 200, width: 400, height: 300), styleMask: [.borderless],
                               backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
         let content = NSView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
         window.contentView = content
         let remote = ForwardingView(frame: CGRect(x: 0, y: 0, width: 200, height: 300))

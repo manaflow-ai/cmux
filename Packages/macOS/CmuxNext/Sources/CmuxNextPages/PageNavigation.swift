@@ -7,11 +7,18 @@ public nonisolated struct PageNavigation: Sendable, Equatable {
     public let userClicked: Bool
     /// The navigation is in the page's main frame (not in a frame inside it).
     public let mainFrame: Bool
+    /// The target frame's current document before this navigation (blank on its first load).
+    public let targetFrameURL: URL?
+    /// The document that requested the navigation, which may differ from the target frame.
+    public let sourceFrameURL: URL?
 
-    public init(url: URL, userClicked: Bool, mainFrame: Bool) {
+    public init(url: URL, userClicked: Bool, mainFrame: Bool,
+                targetFrameURL: URL? = nil, sourceFrameURL: URL? = nil) {
         self.url = url
         self.userClicked = userClicked
         self.mainFrame = mainFrame
+        self.targetFrameURL = targetFrameURL
+        self.sourceFrameURL = sourceFrameURL
     }
 
     /// What the host does with a navigation.
@@ -23,16 +30,49 @@ public nonisolated struct PageNavigation: Sendable, Equatable {
         case cancel
     }
 
-    /// The policy for `url`: the page's own origin never reaches `hook`; the main frame stays on
-    /// the page's own document (``PageDescriptor/isEntryDocument(_:)``), and a frame inside it may
-    /// load any document of the origin. `hook` decides every other navigation; without a hook, only
-    /// a link the user clicked in the main frame opens outside, and everything else (an automatic
-    /// redirect, a frame) is cancelled.
+    /// The policy for `url`: the main frame stays on the page's own document
+    /// (``PageDescriptor/isEntryDocument(_:)``). The artifact endpoint is a one-shot direct child
+    /// of an allowed parent page; its opaque document and a passive srcdoc cannot navigate elsewhere.
+    /// `hook` decides every other navigation; without a hook, only a link the user clicked in the
+    /// main frame opens outside, and everything else (an automatic redirect, a frame) is cancelled.
     public static func policy(for url: URL?, page: PageDescriptor, userClicked: Bool, mainFrame: Bool,
+                              targetFrameURL: URL? = nil, sourceFrameURL: URL? = nil,
                               hook: ((PageNavigation) -> Policy)?) -> Policy {
         guard let url else { return .cancel }
+        // A passive srcdoc frame's initial document is browser-created and has no scheme-handler
+        // request. Permit only that initial about:srcdoc load from the direct parent document. A
+        // later request from a srcdoc source is handled by the restricted-context check below.
+        let initialSrcdoc = url.absoluteString == "about:srcdoc" && !mainFrame &&
+            PageArtifactFrame.parentIDs.contains(page.id.lowercased()) &&
+            PageArtifactFrame.isParentPageURL(sourceFrameURL) && page.owns(sourceFrameURL) &&
+            (targetFrameURL == nil || targetFrameURL?.absoluteString == "about:blank" ||
+             targetFrameURL?.absoluteString == "about:srcdoc")
+        if initialSrcdoc { return .allow }
+        if PageArtifactFrame.parentIDs.contains(page.id.lowercased()),
+           sourceFrameURL?.absoluteString == "about:srcdoc" {
+            return .cancel
+        }
+        // A page's own passive frames (``PageDescriptor/passiveFrames``): the page's document may
+        // set a frame's srcdoc; a srcdoc document can neither navigate nor be navigated elsewhere.
+        if page.passiveFrames, !mainFrame {
+            let srcdoc = url.absoluteString == "about:srcdoc"
+            if sourceFrameURL?.absoluteString == "about:srcdoc" { return .cancel }
+            if targetFrameURL?.absoluteString == "about:srcdoc", !srcdoc { return .cancel }
+            if srcdoc { return page.owns(sourceFrameURL) ? .allow : .cancel }
+        }
+        if PageArtifactFrame.contextRestricted(frame: targetFrameURL, parent: sourceFrameURL) ||
+            PageArtifactFrame.navigationRefused(mainFrame: mainFrame, frame: targetFrameURL,
+                                                parent: sourceFrameURL, target: url) {
+            return .cancel
+        }
+        // The pane embeds the agent host's canonical endpoint, never another agent resource.
+        // Admit it before ordinary origin handling only after the one-shot checks above.
+        if PageArtifactFrame.isArtifactURL(url) {
+            return PageArtifactFrame.parentIDs.contains(page.id.lowercased()) && page.owns(sourceFrameURL) ? .allow : .cancel
+        }
         if page.owns(url) { return !mainFrame || page.isEntryDocument(url) ? .allow : .cancel }
-        let navigation = PageNavigation(url: url, userClicked: userClicked, mainFrame: mainFrame)
+        let navigation = PageNavigation(url: url, userClicked: userClicked, mainFrame: mainFrame,
+                                        targetFrameURL: targetFrameURL, sourceFrameURL: sourceFrameURL)
         if let hook { return hook(navigation) }
         return userClicked && mainFrame && url.scheme?.lowercased() != "about" ? .openExternal : .cancel
     }
@@ -56,13 +96,19 @@ public nonisolated struct PageEngineOptions: Sendable, Equatable {
     /// not opt in (``PageDescriptor/acceptsFirstMouse``): a page in the window's chrome, such as
     /// the sidebar's Updated card, while a Chromium page's own window holds the key. Off by default.
     public var acceptsFirstMouse: Bool
+    /// The page keeps the web update it loaded with until it closes: a newer one never reloads it in place
+    /// (``WebBundleServedViews/keepLoadedTree(_:)``). For a small page always in sight, such as the sidebar's
+    /// Updated card, which a reload blanked for a few frames at every merge (Leo 2026-11-07: "this updated to
+    /// nightly thing also sometimes flickers"). Off by default.
+    public var keepsLoadedWeb: Bool
 
     public init(fullFrameRate: Bool = false, requiresWebKit: PageWebKitReason? = nil, chromiumAgentChat: Bool = false,
-                acceptsFirstMouse: Bool = false) {
+                acceptsFirstMouse: Bool = false, keepsLoadedWeb: Bool = false) {
         self.fullFrameRate = fullFrameRate
         self.requiresWebKit = requiresWebKit
         self.chromiumAgentChat = chromiumAgentChat
         self.acceptsFirstMouse = acceptsFirstMouse
+        self.keepsLoadedWeb = keepsLoadedWeb
     }
 
     public static let standard = PageEngineOptions()

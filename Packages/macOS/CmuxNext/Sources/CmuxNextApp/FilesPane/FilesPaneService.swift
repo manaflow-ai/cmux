@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextFiles
 import CmuxNextFilesUI
 import CmuxNextIcons
+import CmuxNextPages
 import UniformTypeIdentifiers
 
 extension InternalPageID {
@@ -48,7 +49,7 @@ final class FilesPaneService: InternalPageProvider {
                        NSWorkspace.didRenameVolumeNotification].map { name in
             // task-owner: stored in volumeWatch; the service lives as long as the app
             Task { @MainActor in
-                for await _ in NSWorkspace.shared.notificationCenter.notifications(named: name) { sidebar.refreshLocations() }
+                for await _ in NSWorkspace.shared.notificationCenter.notifications(named: name) { await sidebar.refreshLocations() }
             }
         }
     }

@@ -37,7 +37,7 @@ use serde_json::{Map, Value, json};
 use super::GlobalArgs;
 use super::app::{ActionName, action_run_params, insert_run_key, request_with_retry};
 use super::command::{RequestPlan, WireOperation};
-use super::resolve::{Failure, read, read_response, send};
+use super::resolve::{Failure, read, read_response, response_failure, send_request};
 
 type Reader = BufReader<Box<dyn transport::Stream>>;
 
@@ -153,8 +153,7 @@ pub(super) fn open_in_app(
     // The caller's session: no session named, by the server's options or
     // by the call (a named session is in `global.session` or the plan).
     let named = plan.params.get("session").and_then(Value::as_str);
-    let caller_route = global.socket.is_none()
-        && global.session.is_none()
+    let caller_route = super::wire::routes_to_caller_session(global)
         && named.is_none_or(|session| session == "current");
     let _ = reader.get_mut().set_read_timeout(super::wire::response_read_timeout(plan, true));
     Some(open(reader, &mut app, plan, caller_route, key))
@@ -460,10 +459,13 @@ fn mutate(
     });
     let encoded = super::resolve::encode_request_bytes(&request)
         .map_err(|error| Failure::Transport(format!("cmux: {error}")))?;
-    send(reader, &encoded).map_err(Failure::Transport)?;
-    match read_response(reader, &id).map_err(Failure::Transport)? {
+    send_request(reader, &encoded)?;
+    match read_response(reader, &id).map_err(response_failure)? {
         Ok(result) => Ok(result),
-        Err(error) => Err(Failure::Resource(error)),
+        Err(error) => Err(Failure::Resource(
+            super::older_daemon::replace(reader, &error, operation.wire_name(), None)
+                .unwrap_or(error),
+        )),
     }
 }
 

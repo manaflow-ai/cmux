@@ -1,4 +1,4 @@
-name: fleet test-compile
+name: fleet test-compile (advisory)
 
 # Advisory: compile the Swift test targets a pull request can break, on a
 # fleet Mac, and fail this check when one does not compile.
@@ -12,7 +12,9 @@ name: fleet test-compile
 #
 # It gates nothing: fleet/compile-check, the landing gate and the Release
 # compile neither wait for it nor read it. A red here is a test
-# target that does not compile at the PR's merge commit.
+# target that does not compile at the PR's merge commit. The workflow's name
+# says "(advisory)" like its job's, so a reader that judges a whole check suite
+# (cmuxterm-hq now_pr_verdict.py, the head's verdict time) skips it as well.
 #
 # It runs on its own gateway label, vars.CI_TEST_COMPILE_GATEWAY, never the
 # required compile's CI_COMPILE_CHECK_GATEWAY: each gateway job holds a fleet
@@ -22,11 +24,19 @@ name: fleet test-compile
 # (one over an hour). Unset, a plan skips this job and nothing queues.
 #
 # The plan (scripts/ci/compile_test_plan.py, over the merge commit's diff from
-# its base) is the CmuxNext test targets that depend on a changed target in
-# the SwiftPM target graph, and the macOS package lane's packages whose
-# sources or path dependencies changed. An empty plan passes on a Linux runner
-# in seconds and queues no Mac; a plan runs `package-test-lane.sh
-# compile-tests BASE` as a light fleet step.
+# its base) is the macOS package lane's packages whose sources or path
+# dependencies changed. An empty plan passes on a Linux runner in seconds and
+# queues no Mac; a plan runs `package-test-lane.sh compile-tests BASE` as a
+# light fleet step.
+#
+# CmuxNext is compiled here again. From 2026-10-30 it was skipped, because
+# cmux-next.yml's swift test job ran `swift build --build-tests` on every
+# same-repository pull request (650 duplicate fleet compile-tests steps, about
+# 55 Mac worker hours, in 24 hours). Since 2026-11-05 that job runs on a pull
+# request only with full-ci: run on every PR push it was cancelled by a merge,
+# a newer push or a re-run before it finished (37 of 78 check runs cancelled,
+# none passed). So this check is again what compiles a PR's CmuxNext test
+# targets.
 
 on:
   pull_request:
@@ -40,6 +50,10 @@ on:
 
 permissions: {}
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 concurrency:
   group: fleet-test-compile-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -50,7 +64,7 @@ jobs:
     # The fleet takes same-repository pull requests only (as the Swift canary's fleet job).
     if: ${{ github.repository_owner == 'manaflow-ai' && github.event.pull_request.head.repo.full_name == github.repository }}
     # Blacksmith, behind the fork branch, so a GitHub billing block cannot stop it (tests/test_ci_self_hosted_guard.sh).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
     permissions:
       contents: read
     timeout-minutes: 5
@@ -93,7 +107,7 @@ jobs:
     name: fleet/test-compile (advisory)
     needs: plan
     # An empty plan reports on a Linux runner at once; only a plan takes the gateway and a fleet Mac.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.plan.outputs.needed == 'true' && vars.CI_TEST_COMPILE_GATEWAY || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.plan.outputs.needed == 'true' && vars.CI_TEST_COMPILE_GATEWAY || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     if: ${{ needs.plan.outputs.needed == 'false' || (needs.plan.outputs.needed == 'true' && vars.CI_TEST_COMPILE_GATEWAY != '') }}
     permissions: {}
     # Longer than the client's queue (1200 s) plus run (1500 s) timeouts and its

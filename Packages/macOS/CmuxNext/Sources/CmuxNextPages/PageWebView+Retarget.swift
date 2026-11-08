@@ -20,10 +20,12 @@ extension PageWebView {
         guard isPooled, PageServedHosts.pooledDescriptors.contains(descriptor), PageWebView.servedRoot(for: descriptor) != nil else {
             return false
         }
+        chromiumSession?.questionKeys?.invalidate()
         router.rebind(descriptor: descriptor, routes: routes)
         // The new claim gets no gesture the person made for the previous one.
         (webView as? PageWKWebView)?.forgetUserActivation()
         self.descriptor = descriptor
+        followsChatZoom = descriptor.followsChatZoom
         self.dynamicResources = dynamicResources
         // A drop handler belongs to the claim that set it (Settings takes image drops).
         fileDrop = nil
@@ -62,6 +64,7 @@ extension PageWebView {
 
     /// Clears the router before an untouched host is parked for another claim.
     func resetPooledPage() async {
+        chromiumSession?.questionKeys?.invalidate()
         router.rebind(descriptor: descriptor, routes: [])
         (webView as? PageWKWebView)?.forgetUserActivation()
         dynamicResources = nil

@@ -2,8 +2,9 @@
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
-import { FLOAT_MARGIN, InspectorPanel, type InspectorPlacement } from "../inspector/ChatInspector";
-import { useUnderInspector } from "../inspector/underInspector";
+import { SessionInfoPanel } from "../session-info/SessionInfo";
+import { FLOAT_MARGIN, type SessionInfoPlacement } from "../session-info/sessionInfoModel";
+import { useUnderSessionInfo } from "../session-info/underSessionInfo";
 import { ComputerUsePreviewCard } from "./ComputerUsePreviewCard";
 import { useComputerUsePreviewRoom, type ComputerUsePreview } from "./computerUsePreview";
 
@@ -42,54 +43,70 @@ const running: ComputerUsePreview = {
 };
 const done: ComputerUsePreview = { ...running, done: true, icon };
 
-type Props = { preview: ComputerUsePreview; chat?: boolean; inspector?: InspectorPlacement };
+/// The person's pointer over the display, as the host sends it (a telepointer, never in the frame).
+const personOver = { x: 0.3, y: 0.32, visible: true, ageMs: 120, idle: false };
+const withPerson: ComputerUsePreview = {
+  ...running,
+  telepointers: { agent: { x: 0.83, y: 0.9, visible: true, ageMs: 80, idle: false }, person: personOver },
+};
+const personOnly: ComputerUsePreview = {
+  session: running.session,
+  app: running.app,
+  done: false,
+  frame,
+  telepointers: { person: personOver },
+};
+
+type Props = { preview: ComputerUsePreview; chat?: boolean; sessionInfo?: SessionInfoPlacement };
 
 /// A prompt long enough to reach the card's side: with the column's room kept, it wraps before the card.
 const prompt =
   "Use cmux Computer Use to open the Calculator app and compute 128 x 46 by clicking its buttons. Do not use the shell. When done, say the result.";
 
-/// The Inspector's top: under the chat header, as the pane places it (ChatInspector.tsx inspectorTopOffset).
+/// Session Info's top: under the chat header, as the pane places it (SessionInfo.tsx sessionInfoTopOffset).
 const UNDER_HEADER = "var(--acpmux-header-height, 44px)";
 
-/// A short Inspector: the chat's folder and its changes (the Codex app's summary panel in Lucas's
+/// A short Session Info: the chat's folder and its changes (the Codex app's summary panel in Lucas's
 /// reference, 2026-10-27).
-function GalleryInspector({ placement }: { placement: InspectorPlacement }) {
+function GallerySessionInfo({ placement }: { placement: SessionInfoPlacement }) {
   return (
-    <InspectorPanel width={260} placement={placement} under={UNDER_HEADER}>
-      <div className="acpmux-chat-inspector__body" data-layout="glance">
-        <div className="acpmux-chat-inspector-group" data-group="about">
-          <section className="acpmux-chat-inspector-section">
-            <div className="acpmux-chat-inspector-row">cmux-diff-test</div>
+    <SessionInfoPanel width={260} placement={placement} under={UNDER_HEADER}>
+      <div className="acpmux-session-info__body" data-layout="glance">
+        <div className="acpmux-session-info-group" data-group="about">
+          <section className="acpmux-session-info-section">
+            <div className="acpmux-session-info-row">cmux-diff-test</div>
           </section>
         </div>
-        <div className="acpmux-chat-inspector-group" data-group="made">
-          <section className="acpmux-chat-inspector-section">
-            <div className="acpmux-chat-inspector-row">Changes</div>
+        <div className="acpmux-session-info-group" data-group="made">
+          <section className="acpmux-session-info-section">
+            <div className="acpmux-session-info-row">Changes</div>
           </section>
         </div>
       </div>
-    </InspectorPanel>
+    </SessionInfoPanel>
   );
 }
 
-function GalleryComputerUsePreview({ preview, chat, inspector }: Props) {
+function GalleryComputerUsePreview({ preview, chat, sessionInfo }: Props) {
   const [closed, setClosed] = useState(false);
   const [shell, setShell] = useState<HTMLElement | null>(null);
   // As the pane does (App.tsx): no card in a pane too narrow to keep its room.
   const room = useComputerUsePreviewRoom();
   const shown = room && !closed ? preview : null;
-  // As the Inspector does (ChatInspector.tsx InspectorPresence): it publishes where the card under it goes.
-  useUnderInspector(shell, inspector !== undefined, inspector === "push", FLOAT_MARGIN, UNDER_HEADER);
+  // As Session Info does (SessionInfo.tsx SessionInfoPresence): it publishes where the card under it goes.
+  useUnderSessionInfo(shell, sessionInfo !== undefined, sessionInfo === "push", FLOAT_MARGIN, UNDER_HEADER);
   return (
     <div
       ref={setShell}
       className="acpmux-shell"
       data-cu-preview-fixture
-      data-inspector-chat-placement={inspector}
-      style={{ position: "relative", height: "100%" }}
+      data-session-info-chat-placement={sessionInfo}
+      // The stage's viewport is the pane. A component stage's #root has no height of its own, so 100%
+      // here was 0 and the shell's overflow clip hid the card: a click on Hide Preview missed it.
+      style={{ position: "relative", height: "100vh" }}
     >
-      {/* With the Inspector open, the column keeps no room of its own for the card (App.tsx previewBeside). */}
-      <div className="acpmux-main" data-cu-preview={shown && !inspector ? "" : undefined}>
+      {/* With Session Info open, the column keeps no room of its own for the card (App.tsx previewBeside). */}
+      <div className="acpmux-main" data-cu-preview={shown && !sessionInfo ? "" : undefined}>
         <div className="acpmux-stage" style={{ height: "100%" }}>
           <ComputerUsePreviewCard preview={shown} onOpen={() => {}} onClose={() => setClosed(true)} />
           {chat && (
@@ -101,7 +118,7 @@ function GalleryComputerUsePreview({ preview, chat, inspector }: Props) {
           )}
         </div>
       </div>
-      {inspector && <GalleryInspector placement={inspector} />}
+      {sessionInfo && <GallerySessionInfo placement={sessionInfo} />}
     </div>
   );
 }
@@ -126,7 +143,7 @@ export default componentEntry<Props>({
   anchors: [{ selector: "[data-cu-preview-fixture]" }],
   covers: [
     "agent-session/acpmux/computerUse/ComputerUsePreviewCard.tsx#ComputerUsePreviewCard",
-    "agent-session/acpmux/inspector/underInspector.ts",
+    "agent-session/acpmux/session-info/underSessionInfo.ts",
   ],
   styles: () =>
     Promise.all([
@@ -134,7 +151,7 @@ export default componentEntry<Props>({
       import("../styles.css"),
       import("../composerStates.css"),
       import("../conversation/conversation.css"),
-      import("../inspector/inspector.css"),
+      import("../session-info/sessionInfo.css"),
     ]),
   load: async () => GalleryComputerUsePreview,
   variants: {
@@ -150,17 +167,47 @@ export default componentEntry<Props>({
       note: "Done, with no icon found: the check alone, a little larger.",
       props: { preview: { ...done, icon: undefined } },
     },
+    "agent-only": {
+      note: "Only the agent's cursor: the helper's dart at the window's scale, at its last click, as before. The person's pointer is not over the window.",
+      props: { preview: { ...running, telepointers: { agent: { x: 0.83, y: 0.9, visible: true, idle: false } } } },
+    },
+    "both-pointers": {
+      note: "Co-driving: the agent's cursor at the = key and the person's pointer over the display, a plain arrow in the page's text tone labelled You on a small-radius rect. Both are metadata over the frame, never in its pixels; the agent's cursor draws on top.",
+      props: { preview: withPerson },
+    },
+    "person-only": {
+      note: "Only the person's pointer: the agent's cursor has not shown in the window yet.",
+      props: { preview: personOnly },
+    },
+    "person-idle": {
+      note: "The person's pointer has stayed still for 2 s: it dims, so the agent's cursor reads first.",
+      props: {
+        preview: {
+          ...withPerson,
+          telepointers: { ...withPerson.telepointers, person: { ...personOver, ageMs: 2400, idle: true } },
+        },
+      },
+    },
+    "person-outside": {
+      note: "The person's pointer left the window: it fades out where it crossed the edge; the agent's cursor stays.",
+      props: {
+        preview: {
+          ...withPerson,
+          telepointers: { ...withPerson.telepointers, person: { x: 1, y: 0.32, visible: false, idle: false } },
+        },
+      },
+    },
     "beside-chat": {
       note: "The column keeps the card's room: the prompt wraps before the card, nothing runs under it. Narrow panes show no card.",
       props: { preview: running, chat: true },
     },
     "beside-inspector": {
-      note: "The Inspector open over the chat: the card sits directly under its card, 8px below, right-aligned with it. Closed, the card is back at the top right.",
-      props: { preview: running, chat: true, inspector: "overlay" },
+      note: "Session Info open over the chat: the card sits directly under its card, 8px below, right-aligned with it. Closed, the card is back at the top right.",
+      props: { preview: running, chat: true, sessionInfo: "overlay" },
     },
     "under-pushed-inspector": {
-      note: "The Inspector pushing the chat (Settings Push always): the card sits under it, outside the chat, which keeps no room for it.",
-      props: { preview: running, chat: true, inspector: "push" },
+      note: "Session Info pushing the chat (Settings Push always): the card sits under it, outside the chat, which keeps no room for it.",
+      props: { preview: running, chat: true, sessionInfo: "push" },
     },
     "close-hover": {
       note: "The close button hovered: its fill a little brighter, scaled up a little. The card itself does not move on hover.",

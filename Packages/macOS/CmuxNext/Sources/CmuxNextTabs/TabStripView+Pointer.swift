@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import QuartzCore
 // Hit testing, hover, clicks, context menu, and wheel scrolling.
 extension TabStripView {
@@ -42,6 +42,10 @@ extension TabStripView {
         !newTabButton.isHidden && newTabButton.frame.contains(convert(point, to: contentView))
     }
 
+    func isInNewTabMenuButton(_ point: CGPoint) -> Bool {
+        !newTabMenuButton.isHidden && newTabMenuButton.frame.contains(convert(point, to: contentView))
+    }
+
     // MARK: - Hover
 
     func setHovered(_ id: TabID?) {
@@ -50,7 +54,6 @@ extension TabStripView {
         hoveredID = id
         if let id { cells[id]?.isHovered = true }
         onHoverTab?(id)
-        TabSeparatorVisibility.apply(to: self)
     }
 
     /// `moved`: a pointer event (true) or content that moved under a still
@@ -103,9 +106,7 @@ extension TabStripView {
 
     public override func mouseEntered(with event: NSEvent) {
         if closingWatch.trackingEvent(event, entered: true) { return }
-        buttonReveal.pointerInStrip = true
-        closingWatch.pointerReturned()
-        updateHover(at: convert(event.locationInWindow, from: nil), moved: true)
+        pointerEntered(at: event.locationInWindow)
     }
 
     public override func mouseMoved(with event: NSEvent) {
@@ -115,8 +116,7 @@ extension TabStripView {
 
     public override func mouseExited(with event: NSEvent) {
         if closingWatch.trackingEvent(event, entered: false) { return }
-        pointerLeft()
-        hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
+        pointerExited(at: event.locationInWindow)
     }
 
     /// An exit, or the strip moved away under a still pointer (`geometryDidChange`).
@@ -135,6 +135,10 @@ extension TabStripView {
         let point = convert(event.locationInWindow, from: nil)
         // A press before the strip's model sync (right after a close) catches up first.
         if model.orderedTabs.map(\.id) != lastModelOrder { sync(fromModel: true) }
+        if isInNewTabMenuButton(point) {
+            showNewTabMenu(anchor: newTabMenuButton)
+            return
+        }
         if !isInNewTabButton(point), let id = arrivingCloseTab(at: point) {
             pressedCloseID = id
             cells[id]?.isClosePressed = true
@@ -192,7 +196,13 @@ extension TabStripView {
             return
         }
         if pressedNewTab {
-            newTabButton.isPressed = isInNewTabButton(point)
+            let inside = isInNewTabButton(point)
+            newTabButton.isPressed = inside
+            if !inside {
+                // Leaving + cancels the hold. A later release inside still
+                // performs the ordinary click, without restarting the timer.
+                _ = newTabHold.end()
+            }
             return
         }
         if let id = pressedAudioID {
@@ -273,6 +283,10 @@ extension TabStripView {
     private func contextMenu(for event: NSEvent) -> NSMenu? {
         hoverCards.dismiss(.action)
         let point = convert(event.locationInWindow, from: nil)
+        if isInNewTabMenuButton(point) {
+            showNewTabMenu(anchor: newTabMenuButton)
+            return nil
+        }
         if isInNewTabButton(point) {
             // Anchored under the button, like the press-and-hold menu.
             showNewTabMenu()
@@ -315,13 +329,17 @@ extension TabStripView {
         return true
     }
 
-    /// The pane type menu under +. Pane strips open it on press; other strips
-    /// retain their hold and right-click entry points.
-    func showNewTabMenu() {
+    /// One menu builder for the adjacent chooser, hold/right-click and press-menu strips.
+    func showNewTabMenu(anchor: NSView? = nil) {
         guard let menu = contextMenuProvider?(.newTabButton), !menu.items.isEmpty else { return }
         hoverCards.dismiss(.action)
-        let origin = CmuxPopoverAnchor.menuPoint(for: newTabButton, in: self, gap: 2)
-        menuTracking.begin(menu)
+        let anchor = anchor ?? newTabButton
+        let fromChooser = anchor === newTabMenuButton
+        if fromChooser { newTabMenuButton.isHighlighted = true }
+        defer { if fromChooser { newTabMenuButton.isHighlighted = false } }
+        let origin = CmuxPopoverAnchor.menuPoint(for: anchor, in: self, gap: 2)
+        // Only the control that opened the menu stays lit: the + for hold/right-click, the chooser for its own press.
+        menuTracking.begin(menu, fromNewTabButton: !fromChooser)
         presentNewTabMenu(menu, origin, self)
         menuTracking.end()
     }
@@ -332,9 +350,7 @@ extension TabStripView {
         guard model.tab(id) != nil else { return }
         if source.entersClosingMode {
             closingModeWidth = TabLayoutEngine.closingModeWidth(afterClosing: id, in: result, current: closingModeWidth)
-            if let point, let frame = TabClosingModeHit.laidOut(self).first(where: { $0.id == id })?.frame {
-                closingHit.closePressed(at: convert(point, to: tabsClip), on: frame)
-            }
+            if let point { closingHit.closePressed(at: convert(point, to: tabsClip)) }
         }
         model.send(.close(id, source: source))
     }

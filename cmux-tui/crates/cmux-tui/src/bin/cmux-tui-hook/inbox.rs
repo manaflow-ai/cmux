@@ -26,6 +26,9 @@ pub(super) enum Delivery {
     /// (`session_banner`), as `systemMessage`, which the person sees and the
     /// model does not. It carries no agent messages.
     SessionBanner,
+    /// The Codex shim's `SessionStart`: where the agent runs, as
+    /// `additionalContext` (session_context.rs). It carries no agent messages.
+    SessionContext,
 }
 
 impl Delivery {
@@ -48,6 +51,7 @@ impl Delivery {
             Self::PromptContext { via } => via,
             Self::ContinueTurn => "codex.stop",
             Self::SessionBanner => "claude.session-start",
+            Self::SessionContext => "codex.session-start",
         }
     }
 
@@ -62,6 +66,7 @@ impl Delivery {
             }),
             (Self::ContinueTurn, Some(text)) => json!({"decision": "block", "reason": text}),
             (Self::SessionBanner, Some(text)) => json!({"systemMessage": text}),
+            (Self::SessionContext, text) => session_context::output(text),
         }
     }
 }
@@ -160,7 +165,7 @@ fn acknowledge_delivered(socket: &Path, terminal: &str, deadline: Instant) -> an
 }
 
 /// One `cmux.protocol/2` request on its own connection.
-fn request(
+pub(super) fn request(
     socket: &Path,
     operation: &str,
     mut params: Value,
@@ -184,7 +189,7 @@ fn request(
     encoded.push(b'\n');
     let attempt = || -> Result<Vec<u8>, AppendAttemptError> {
         let mut stream = connect_before(socket, deadline)?;
-        // Bound the read before writing, as `append_once` does: read_before
+        // Bound the read before writing: read_before
         // only shrinks this bound, since macOS refuses the option once the
         // daemon has answered and closed.
         stream
@@ -197,6 +202,9 @@ fn request(
         AppendAttemptError::Retryable(error) | AppendAttemptError::Fatal(error) => error,
     })?;
     let response: Value = serde_json::from_slice(&response)?;
+    if let Some(busy) = journal_append::busy_line(&response) {
+        bail!("{operation} was refused: {busy}");
+    }
     if response["id"].as_str() != Some(request_id.as_str()) {
         bail!("{operation} returned a mismatched request id");
     }

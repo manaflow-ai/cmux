@@ -73,7 +73,7 @@ pub(crate) fn is_prompt_cache_key(key: &str) -> bool {
 /// (`session_env.rs`). Per-session acpmux values
 /// (`ACPMUX_*`, `CMUX_AGENT_SESSION`) are set again for each agent in
 /// `agent/command.rs`; these have no per-agent value, so they are removed.
-pub(crate) const TURN_SCOPED_ENV: [&str; 6] = [
+pub(crate) const TURN_SCOPED_ENV: [&str; 7] = [
     // `sr claude proxy` sends it as X-Subrouter-Session: one sticky account.
     "SUBROUTER_SESSION_KEY",
     // Its opt-in for acpmux to send that header itself (subrouter_session.rs).
@@ -84,6 +84,8 @@ pub(crate) const TURN_SCOPED_ENV: [&str; 6] = [
     "OPTCHAT_TURN_SEAL",
     // The subagent preset's role flag.
     "OPTCHAT_SUBAGENT",
+    // A stable Chief session's Chief (session_env.rs): its `cmux chief acp` alone.
+    "CMUX_CHIEF_PARTICIPANT",
     // A coding agent's mark for the commands its tools run.
     "AI_AGENT",
 ];

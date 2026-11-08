@@ -8,11 +8,13 @@ that merge commit, as actions/checkout leaves it in ci.yml's `changes` job.
 
 from __future__ import annotations
 
+import re
 import importlib.util
 import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -312,6 +314,19 @@ class DecideTests(Case):
         self.addCleanup(setattr, delta.Git, "run", original)
         self.assertIn("fatal: remote hung up", self.skip_reason({}))
 
+    def test_a_git_call_past_the_budget_skips_instead_of_hanging(self) -> None:
+        # A step timeout cancels the whole CI run (it skips every later step of
+        # `changes`), so a slow fetch must end in the usual diff, never a hang.
+        self.pr_head()
+        self.origin.commit("main", {"web/w.txt": "w1\n"})
+        self.origin.merge_main_into_pr()
+        merge, head = self.origin.tested_merge()
+        work = self.origin.checkout(merge)
+        spent = delta.Git(work, deadline=time.monotonic() - 1)
+        with self.assertRaises(delta.Skip) as caught:
+            delta.decide(spent, merge, head, lambda oids: {})
+        self.assertIn("budget", str(caught.exception))
+
     def test_head_that_is_not_the_tested_merge_parent_does_not_apply(self) -> None:
         self.pr_head()
         merge, _ = self.origin.tested_merge()
@@ -509,6 +524,8 @@ class WorkflowTests(unittest.TestCase):
             with self.subTest(event=event, head_repo=head_repo, switch=switch):
                 self.assertIs(evaluate_condition(step["if"], context), expected)
         self.assertIs(step["continue-on-error"], True)
+        # The selector gives up inside its own budget, well before the step's timeout cancels the run.
+        self.assertLess(delta.BUDGET_SECONDS + 30, step["timeout-minutes"] * 60)
         self.assertIn('--pull-request "$PR_NUMBER" --base-ref "$BASE_REF"', step["run"])
         self.assertEqual(step["env"]["PR_NUMBER"], "${{ github.event.pull_request.number }}")
         self.assertEqual(step["env"]["BASE_REF"], "${{ github.event.pull_request.base.ref }}")
@@ -534,6 +551,13 @@ class WorkflowTests(unittest.TestCase):
         condition = jobs["dogfood-build"]["if"]
         self.assertIn(label, condition)
         condition = condition.replace(label, "github.has_dev_build == 'true'")
+        # These runs are not cancelled; why the job calls !cancelled() is tested in
+        # tests/test_ci_portable_job_placement.py (SkippedPlacementKeepsRouting).
+        self.assertIn("(!cancelled() && ", condition)
+        condition = condition.replace("(!cancelled() && ", "(", 1)
+        # The label-event guard is tested in tests/test_ci_label_events_skip_full_ci.py.
+        condition = re.sub(r" && !\(github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.ref == "
+                           r"'feat-cmux-next' && \(github\.event\.action == 'labeled'.*\)\) }}$", " }}", condition)
         trusted = {
             "github.event_name": "pull_request",
             "github.event.pull_request.base.ref": "main",

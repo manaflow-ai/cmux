@@ -4,7 +4,7 @@ import AppKit
 @testable import CmuxNextChiefPetWiring
 import CmuxNextDesign
 import CmuxNextFloating
-@testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 @testable import CmuxNextHomeEngine
 @testable import CmuxNextSettings
 import Foundation
@@ -143,7 +143,7 @@ import Testing
         let relaunched = h.picks()
         #expect(relaunched.mascot(of: Self.scout, in: h.settings.snapshot) == "moon")
         #expect(relaunched.mascot(of: Self.main, in: h.settings.snapshot) == "machine")
-        #expect(relaunched.mascot(of: "agent_new02", in: h.settings.snapshot) == HomeChiefPetSetting.defaultMascot)
+        #expect(relaunched.mascot(of: "agent_new02", in: h.settings.snapshot) == HomeChiefPetSetting.mascotDefault)
         let reopened = await h.popover(chief: Self.scout, picks: relaunched)
         await h.until { reopened.checked() == [moon] }
         #expect(reopened.checked() == [moon])
@@ -165,5 +165,29 @@ import Testing
         let own = HomeService.chiefFaces(chiefs: [Self.main, Self.scout], own: [Self.scout: .text("SC")], picture: picture)
         #expect(own[Self.scout] == .text("SC"))
         #expect(own[Self.main] == faces[Self.main])
+    }
+
+    /// Leo 2026-11-01: "im not seeing chiefs with the selected avatar appearance". Home draws a
+    /// Chief's picked character; a Chief nobody picked for is left out (its CH monogram), never the
+    /// default Chief's pick; and a first pick of the default character (orb) still redraws the header.
+    @Test func homeDrawsEachChiefsPickAndNoOneElses() async throws {
+        let h = try await make(#"{"home":{"chiefPetMascot":"fox"}}"#)
+        defer { h.tearDown() }
+        let picks = h.picks()
+        picks.remember("moon", for: Self.scout)
+        let picture: (String) -> URL? = {
+            ChiefPetSettingsRows.chosenPicture(of: $0, picks: picks, uploads: nil, in: h.settings.snapshot, file: h.settings.fileRoot)
+        }
+        let faces = HomeService.chiefFaces(chiefs: [Self.main, Self.scout, "agent_new02"], own: [:], picture: picture)
+        #expect(faces[Self.main] == ChiefPetMascot.fox.avatarURL.map(HomeChiefAvatar.picture))
+        #expect(faces[Self.scout] == ChiefPetMascot.moon.avatarURL.map(HomeChiefAvatar.picture))
+        #expect(faces["agent_new02"] == nil, "no pick: its monogram, not the default Chief's fox")
+
+        let newcomer = await h.popover(chief: "agent_new03", picks: picks)
+        let redraws = newcomer.redraws.count
+        try newcomer.pick("orb")
+        await h.until { newcomer.redraws.count > redraws }
+        #expect(newcomer.redraws.count > redraws, "picking the default character is a pick: the header wears it")
+        #expect(picture("agent_new03") == ChiefPetMascot.orb.avatarURL)
     }
 }

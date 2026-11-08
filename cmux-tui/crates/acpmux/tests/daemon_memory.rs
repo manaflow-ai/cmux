@@ -8,7 +8,18 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny().keep(BENCH_VARS);
+/// The benchmarks' bounds, sizes and optional executable path, never credentials.
+/// The hermetic re-start keeps only these, so `env_or` refuses any other name.
+const BENCH_VARS: &[&str] = &[
+    "ACPMUX_MEMORY_BENCH_BINARY",
+    "ACPMUX_MEMORY_BENCH_LEFTOVERS",
+    "ACPMUX_MEMORY_BENCH_CHATS",
+    "ACPMUX_MEMORY_BUDGET_MB",
+    "ACPMUX_WAIT_BENCH_SECS",
+    "ACPMUX_PEER_SNAPSHOT_PEAK_MB",
+    "ACPMUX_PEER_SNAPSHOT_CPU_MS",
+];
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
@@ -60,18 +71,44 @@ impl Rpc {
 struct Daemon {
     child: Child,
     socket: PathBuf,
+    listen: Option<String>,
+    reaped: bool,
 }
 
 impl Daemon {
     fn start(scratch: &Path, home: &Path) -> Self {
-        Self::start_logged(scratch, home, None)
+        Self::start_inner(scratch, home, None, false)
     }
 
+    /// Only the Linux allocation benchmark logs its daemon.
+    #[cfg(target_os = "linux")]
     fn start_logged(scratch: &Path, home: &Path, log: Option<&Path>) -> Self {
+        Self::start_inner(scratch, home, log, false)
+    }
+
+    fn start_with_peer_listener(scratch: &Path, home: &Path) -> Self {
+        Self::start_inner(scratch, home, None, true)
+    }
+
+    fn start_inner(scratch: &Path, home: &Path, log: Option<&Path>, peer_listener: bool) -> Self {
         let socket = scratch.join("s.sock");
         let level = if log.is_some() { "warn,acpmux::list_cost=debug" } else { "warn" };
-        let mut child = daemon_env::acpmux(scratch)
+        let mut command = match std::env::var_os("ACPMUX_MEMORY_BENCH_BINARY") {
+            Some(binary) => {
+                let binary = PathBuf::from(binary);
+                assert!(binary.is_absolute(), "ACPMUX_MEMORY_BENCH_BINARY must be absolute");
+                daemon_env::command_at(&binary, scratch, daemon_env::Agents::Deny, &[])
+            }
+            None => daemon_env::acpmux(scratch),
+        };
+        let mut child = command
             .args(["daemon", "run", "--ready-fd", "1", "--log", level])
+            .args(
+                peer_listener
+                    .then_some("--listen")
+                    .into_iter()
+                    .chain(peer_listener.then_some("127.0.0.1:0")),
+            )
             .env("ACPMUX_HOME", home)
             .env("ACPMUX_SOCKET", &socket)
             .stdin(Stdio::null())
@@ -82,8 +119,11 @@ impl Daemon {
         let stdout = child.stdout.take().unwrap();
         for line in BufReader::new(stdout).lines() {
             let line = line.unwrap();
-            if serde_json::from_str::<Value>(&line).is_ok_and(|v| v["ready"] == true) {
-                return Self { child, socket };
+            if let Ok(v) = serde_json::from_str::<Value>(&line)
+                && v["ready"] == true
+            {
+                let listen = v["listen"].as_str().map(str::to_owned);
+                return Self { child, socket, listen, reaped: false };
             }
         }
         let _ = child.kill();
@@ -99,10 +139,31 @@ impl Daemon {
             .unwrap();
         String::from_utf8_lossy(&out.stdout).trim().parse::<u64>().unwrap() * 1024
     }
+
+    /// Peak resident bytes over the daemon's whole life, from `wait4`'s rusage. This
+    /// kills the daemon (SIGKILL, so no shutdown work moves the peak) and reaps it.
+    /// `ru_maxrss` is KiB on Linux and bytes on macOS.
+    fn stop_peak_rss_bytes(&mut self) -> u64 {
+        let pid = self.child.id() as i32;
+        let mut status = 0;
+        // SAFETY: rusage is plain integers, for which all zeroes is a valid value.
+        let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+        // SAFETY: the pid is this test's own child, not yet reaped.
+        unsafe { libc::kill(pid, libc::SIGKILL) };
+        // SAFETY: both pointers are to live locals that wait4 fills in.
+        let reaped = unsafe { libc::wait4(pid, &mut status, 0, &mut usage) };
+        assert_eq!(reaped, pid, "wait4 on the daemon");
+        self.reaped = true;
+        let unit = if cfg!(target_os = "macos") { 1 } else { 1024 };
+        usage.ru_maxrss as u64 * unit
+    }
 }
 
 impl Drop for Daemon {
     fn drop(&mut self) {
+        if self.reaped {
+            return;
+        }
         // SAFETY: the pid is this test's own child.
         unsafe { libc::kill(self.child.id() as i32, libc::SIGTERM) };
         let _ = self.child.wait();
@@ -165,6 +226,54 @@ fn write_session(home: &Path, id: &str, status: &str, with_log: bool) {
     }
 }
 
+/// An object-heavy transcript fixture used by the peer snapshot benchmark. It keeps
+/// the shape fixed across all saturation sizes so RSS/HWM and CPU deltas compare
+/// the snapshot accounting rather than a changing payload.
+fn peer_event(id: &str, seq: u64) -> Value {
+    let objects: Vec<Value> = (0..32)
+        .map(|i| json!({
+            "key": format!("peer-{seq}-{i}"),
+            "value": {"text": "object-heavy-peer-snapshot-payload", "flags": {"a": true, "b": false, "n": i},
+                       "nested": {"session": id, "seq": seq, "labels": ["peer", "retained", "cache"]}}
+        }))
+        .collect();
+    json!({
+        "seq": seq, "at": 1_791_000_000_000u64 + seq, "dir": "in",
+        "kind": "agent_message_chunk",
+        "msg": {"method": "session/update", "params": {"sessionId": id,
+                "update": {"sessionUpdate": "agent_message_chunk", "content": objects,
+                "metadata": {"attempt": seq, "labels": ["peer", "retained", "cache"]}}}}
+    })
+}
+
+/// Writes a retained peer session with a deterministic transcript. Closed sessions
+/// with a log are retained by the daemon; closed sessions without one model purged
+/// late-save leftovers and are intentionally excluded from this fixture.
+fn write_peer_session(home: &Path, id: &str, status: &str, records: u64) {
+    let dir = home.join("sessions").join(id);
+    private_dir(&dir);
+    let mut metadata = chief_meta(id, status, 1_791_000_000_000);
+    metadata["lastSeq"] = json!(records);
+    metadata["eventCount"] = json!(records);
+    metadata["turnCount"] = json!(records);
+    private_file(&dir.join("session.json"), &metadata.to_string());
+    private_dir(&dir.join("events"));
+    let mut text = String::new();
+    for seq in 1..=records {
+        text.push_str(&peer_event(id, seq).to_string());
+        text.push('\n');
+    }
+    private_file(&dir.join("events").join("000001.ndjson"), &text);
+}
+
+fn websocket_token(home: &Path) -> String {
+    let config = std::fs::read_to_string(home.join("config.json")).unwrap();
+    serde_json::from_str::<Value>(&config).unwrap()["websocket"]["token"]
+        .as_str()
+        .unwrap()
+        .to_owned()
+}
+
 fn listed(rpc: &mut Rpc) -> Vec<String> {
     let mut ids: Vec<String> = rpc.call("_acpmux/sessions", json!({}))["sessions"]
         .as_array()
@@ -204,6 +313,10 @@ fn a_start_skips_purged_sessions_a_late_save_wrote_back_and_keeps_every_chat() {
 }
 
 fn env_or(name: &str, default: u64) -> u64 {
+    assert!(
+        BENCH_VARS.contains(&name),
+        "{name} is not in BENCH_VARS, so the hermetic re-start drops it"
+    );
     std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
 }
 
@@ -239,6 +352,152 @@ fn a_chief_home_of_purged_leftovers_and_chats_stays_within_the_memory_budget() {
     assert!(rss_mb <= budget_mb, "the daemon holds {rss_mb} MB (budget {budget_mb} MB)");
     drop(daemon);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Real-daemon retained-state measurement, run unchanged on base and head on the same host:
+/// `cargo test -p acpmux --test daemon_memory idle_session_resident_memory_benchmark --
+/// --ignored --exact --nocapture --test-threads=1`.
+/// `ACPMUX_MEMORY_BENCH_BINARY=/absolute/path/to/acpmux` selects another build while the
+/// harness and its fixture stay identical. The environment remains hermetic and denies agents.
+///
+/// This restores 200 worked-chat metadata records, half with the durable hibernation mark.
+/// It uses the built-in Claude translator's actual option and mode catalogs, with four tools
+/// and varied model/effort/mode selections. Sharing
+/// a catalog must not merge their current values. No live harness, large transcript, or tool
+/// output is simulated: RSS is the daemon's own resident memory, including allocator retention
+/// after detail/list requests, not the total process tree or a claimed heap-allocation count.
+/// Three fresh-process pairs give a bounded median without waiting on an arbitrary timer.
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "same-host resident-memory benchmark; run explicitly on fleet Linux"]
+fn idle_session_resident_memory_benchmark() {
+    const CHATS: u64 = 200;
+    const REPEATS: usize = 3;
+    const AT: u64 = 1_791_000_000_000;
+
+    fn id(i: u64) -> String {
+        format!("01a15906-0000-7000-8000-{i:012}")
+    }
+
+    fn metadata(i: u64, catalogs: &[(Value, Value)]) -> Value {
+        let models = [
+            ("claude-opus-5-5", "Claude Opus 5.5"),
+            ("claude-sonnet-5-5", "Claude Sonnet 5.5"),
+            ("claude-haiku-5-5", "Claude Haiku 5.5"),
+        ];
+        let selected = models[i as usize % models.len()].0;
+        let mut meta = chief_meta(&id(i), "idle", AT);
+        let (options, modes) = &catalogs[i as usize % catalogs.len()];
+        meta["configOptions"] = options.clone();
+        meta["models"] = json!({
+            "availableModels": models.iter().map(|(id, name)| {
+                json!({"modelId": id, "name": name})
+            }).collect::<Vec<_>>(),
+            "currentModelId": selected,
+        });
+        meta["modes"] = modes.clone();
+        meta["hibernatedMs"] = json!(if i.is_multiple_of(2) { AT + 5_000 } else { 0 });
+        meta
+    }
+
+    fn sample(repeat: usize, chats: u64, catalogs: &[(Value, Value)]) -> (u64, u64) {
+        let dir = scratch(&format!("idle-resident-{repeat}-{chats}"));
+        let home = dir.join("home");
+        private_dir(&home);
+        private_dir(&home.join("sessions"));
+        for i in 0..chats {
+            write_session(&home, &id(i), "idle", true);
+            private_file(
+                &home.join("sessions").join(id(i)).join("session.json"),
+                &metadata(i, catalogs).to_string(),
+            );
+        }
+        let daemon = Daemon::start(&dir, &home);
+        let mut rpc = Rpc::connect(&daemon.socket);
+        // The initial list waits for the restored session index before resolving ids.
+        assert_eq!(listed(&mut rpc), (0..chats).map(id).collect::<Vec<_>>());
+        for i in 0..chats {
+            // Ready precedes deferred log loading. Info waits for this chat's log;
+            // it does not open the chat on screen or wake a hibernated harness.
+            let detail = rpc.call("_acpmux/info", json!({"sessionId": id(i)}));
+            let expected = metadata(i, catalogs);
+            assert_eq!(detail["sessionId"], id(i));
+            assert_eq!(detail["logsLoading"], false);
+            assert_eq!(detail["status"], "idle");
+            assert_eq!(detail["queued"], 0);
+            assert!(detail["turn"].is_null());
+            assert_eq!(detail["configOptions"], expected["configOptions"], "options of {}", id(i));
+            assert_eq!(detail["models"], expected["models"], "models of {}", id(i));
+            assert_eq!(detail["modes"], expected["modes"], "modes of {}", id(i));
+            assert_eq!(detail["tools"], expected["tools"]["rows"], "tools of {}", id(i));
+        }
+        // Health's first check waits on startup's readiness watch. That watch precedes
+        // the end of all startup work, so one final status check refuses an incomplete
+        // sample instead of estimating completion with a sleep or polling for it.
+        rpc.call("_acpmux/harness/health", json!({}));
+        let status = rpc.call("_acpmux/status", json!({}));
+        let loading = &status["loading"];
+        assert!(
+            loading["phase"] == "ready" && loading["startupDone"] == true,
+            "refusing RSS sample before startup and log loading finish ({chats} sessions): {loading}"
+        );
+        assert_eq!(loading["sessionsLoaded"], chats, "incomplete session index: {loading}");
+        assert_eq!(loading["sessionsTotal"], chats, "unexpected session count: {loading}");
+        let loaded_rss = daemon.rss_bytes();
+        assert_eq!(listed(&mut rpc), (0..chats).map(id).collect::<Vec<_>>());
+        let listed_rss = daemon.rss_bytes();
+        drop(rpc);
+        drop(daemon);
+        std::fs::remove_dir_all(dir).unwrap();
+        (loaded_rss, listed_rss)
+    }
+
+    // Use production catalogs rather than multiplying synthetic select choices. Building
+    // fixtures happens in this test process, never in the daemon whose RSS is measured.
+    let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+    let catalogs = runtime.block_on(async {
+        let mut catalogs = Vec::new();
+        for i in 0..21 {
+            let translator = acpmux::claude_stdio::Translator::new(
+                id(i),
+                if i.is_multiple_of(3) { "plan" } else { "default" },
+                ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"][i as usize % 3],
+                ["low", "medium", "high", "xhigh"][i as usize % 4],
+            );
+            catalogs
+                .push((translator.config_options_value().await, translator.modes_value().await));
+        }
+        catalogs
+    });
+    let mut empty_rss = [0u64; REPEATS];
+    let mut full_rss = [0u64; REPEATS];
+    let mut per_session = [0i64; REPEATS];
+    let mut samples = Vec::new();
+    for repeat in 0..REPEATS {
+        // Alternate pair order so startup/host drift does not always favor one size.
+        let sizes = if repeat % 2 == 0 { [0, CHATS] } else { [CHATS, 0] };
+        for chats in sizes {
+            let (loaded_rss, listed_rss) = sample(repeat, chats, &catalogs);
+            if chats == 0 {
+                empty_rss[repeat] = listed_rss;
+            } else {
+                full_rss[repeat] = listed_rss;
+            }
+            samples.push(json!({"repeat": repeat, "sessions": chats,
+                "loaded_rss_bytes": loaded_rss, "listed_rss_bytes": listed_rss}));
+        }
+        per_session[repeat] = (full_rss[repeat] as i64 - empty_rss[repeat] as i64) / CHATS as i64;
+    }
+    empty_rss.sort_unstable();
+    full_rss.sort_unstable();
+    per_session.sort_unstable();
+    println!(
+        "acpmux-idle-resident: {}",
+        json!({"sessions": CHATS, "hibernated_sessions": CHATS / 2, "repeats": REPEATS,
+            "binary_override": std::env::var("ACPMUX_MEMORY_BENCH_BINARY").ok(),
+            "rss_0_bytes": empty_rss[REPEATS / 2], "rss_200_bytes": full_rss[REPEATS / 2],
+            "resident_bytes_per_idle_session": per_session[REPEATS / 2], "samples": samples})
+    );
 }
 
 /// CPU time the process `pid` has used, in ms: `/proc/<pid>/stat` on Linux, `ps` elsewhere.
@@ -539,4 +798,125 @@ fn retained_session_list_allocation_benchmark() {
         }
         std::fs::remove_dir_all(&dir).unwrap();
     }
+}
+
+/// A fixed remote peer cache workload plus N retained sessions. The six runs
+/// exercise both idle and closed rows at the cache sizes used by the Chief
+/// home, while ten retained closed peer chats keep N=0 meaningful.
+fn peer_memory_case(closed: bool, fillers: u64) -> (u64, u64) {
+    let dir = scratch(if closed { "peer-closed" } else { "peer-idle" });
+    let remote = dir.join("remote");
+    let local = dir.join("local");
+    private_dir(&remote);
+    private_dir(&remote.join("sessions"));
+    private_dir(&local);
+    private_dir(&local.join("sessions"));
+
+    // Ten retained closed chats are the fixed peer workload. Their rows and
+    // 400 object-heavy transcript records are identical in every case and
+    // saturate the peer snapshot memory budget even when N is zero.
+    const FIXED_PEERS: u64 = 10;
+    for i in 0..FIXED_PEERS {
+        write_peer_session(&remote, &format!("01a15910-0000-7000-8000-{i:012}"), "closed", 400);
+    }
+    // N fillers are retained sessions on the measured daemon, matching the
+    // Chief home states while the remote peer workload remains constant.
+    let status = if closed { "closed" } else { "idle" };
+    for i in 0..fillers {
+        write_peer_session(&local, &format!("01a15911-0000-7000-8000-{i:012}"), status, 1);
+    }
+
+    private_dir(&dir.join("remote-run"));
+    private_dir(&dir.join("local-run"));
+    let remote_daemon = Daemon::start_with_peer_listener(&dir.join("remote-run"), &remote);
+    let listen = remote_daemon.listen.clone().expect("peer listener address");
+    let peer_token = std::fs::read_to_string(remote.join("run").join("peer.token")).unwrap();
+    let token = websocket_token(&remote);
+    let mut local_daemon = Daemon::start(&dir.join("local-run"), &local);
+    let mut rpc = Rpc::connect(&local_daemon.socket);
+    rpc.call(
+        "_acpmux/peer_add",
+        json!({"name": "bench", "url": format!("ws://{listen}"), "token": token,
+               "peerToken": peer_token, "wait": true}),
+    );
+
+    // `wait: true` above settles the initial listing; the rows include the
+    // local fillers and every fixed remote session before capture starts.
+    let rows = rpc.call("_acpmux/sessions", json!({}));
+    assert!(
+        rows["sessions"].as_array().is_some_and(|v| v.len() >= (FIXED_PEERS + fillers) as usize),
+        "peer list did not settle: {rows}"
+    );
+    let cpu0 = cpu_ms(local_daemon.child.id());
+    // Repeat each exact page to exercise replacement and removed-record accounting.
+    for _pass in 0..2 {
+        for i in 0..FIXED_PEERS {
+            let id = format!("01a15910-0000-7000-8000-{i:012}");
+            rpc.call(
+                "_acpmux/attach",
+                json!({"sessionId": format!("bench/{id}"), "visible": false,
+                       "kinds": ["transcript"], "limit": 400, "maxBytes": 4 * 1024 * 1024}),
+            );
+            let snapshot = rpc.call(
+                "_acpmux/peer_snapshot",
+                json!({"sessionId": format!("bench/{id}"), "limit": 400,
+                       "maxBytes": 4 * 1024 * 1024}),
+            );
+            let events = snapshot.get("events").and_then(Value::as_array).expect("snapshot events");
+            assert!(
+                !events.is_empty() && snapshot["lastSeq"] == 400,
+                "snapshot lost records: {snapshot}"
+            );
+        }
+    }
+    let cpu_ms = cpu_ms(local_daemon.child.id()) - cpu0;
+    let rss_kib = local_daemon.rss_bytes() / 1024;
+    let peak_kib = local_daemon.stop_peak_rss_bytes() / 1024;
+    println!(
+        "acpmux-peer-snapshot-memory: {}",
+        serde_json::to_string(&json!({
+            "closed": closed, "fillers": fillers, "rss_kib": rss_kib,
+            "peak_rss_kib": peak_kib, "cpu_ms": cpu_ms, "fixed_retained": FIXED_PEERS,
+            "records_per_fixed": 400, "payload": "object-heavy-nested"
+        }))
+        .unwrap()
+    );
+    drop(local_daemon);
+    drop(remote_daemon);
+    let _ = std::fs::remove_dir_all(&dir);
+    (peak_kib, cpu_ms)
+}
+
+/// Bounds for the peer snapshot benchmark below: the worst case of three paired
+/// base/head rounds in the dev profile on a 32-vCPU Linux runner (1,124 MiB peak,
+/// 9,540 ms CPU; run 41012834259), plus about 25% headroom.
+const PEAK_MB: u64 = 1_400;
+const CPU_MS: u64 = 12_000;
+
+/// Hermetic exact-daemon saturation cost of peer snapshots. The fixed retained
+/// workload exercises removed-record accounting and the N fillers drive the cache
+/// through 0, 288 and 1000 sessions in both statuses. Each case's lifetime peak RSS
+/// and snapshot CPU must stay within `ACPMUX_PEER_SNAPSHOT_PEAK_MB` and
+/// `ACPMUX_PEER_SNAPSHOT_CPU_MS`; the defaults are the worst case measured on the
+/// fleet's Linux runner plus headroom. Opt-in like the list benchmark:
+/// run with --ignored --test-threads=1 on base and head on one host.
+#[test]
+#[ignore = "same-host peer snapshot benchmark; run explicitly with --ignored"]
+fn peer_snapshot_cache_saturation_stays_within_its_recorded_cost() {
+    let peak_mb = env_or("ACPMUX_PEER_SNAPSHOT_PEAK_MB", PEAK_MB);
+    let cpu_budget_ms = env_or("ACPMUX_PEER_SNAPSHOT_CPU_MS", CPU_MS);
+    let mut over = Vec::new();
+    for &closed in &[false, true] {
+        for &fillers in &[0, 288, 1000] {
+            let (peak_kib, cpu_ms) = peer_memory_case(closed, fillers);
+            if peak_kib > peak_mb * 1024 || cpu_ms > cpu_budget_ms {
+                over.push(json!({"closed": closed, "fillers": fillers,
+                                 "peak_rss_kib": peak_kib, "cpu_ms": cpu_ms}));
+            }
+        }
+    }
+    assert!(
+        over.is_empty(),
+        "peer snapshots cost more than {peak_mb} MB peak or {cpu_budget_ms} ms CPU: {over:?}"
+    );
 }

@@ -11,15 +11,17 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// A connection that stays up this long resets the reconnect backoff.
     public var healthyAfter: Duration
     /// The connection asks the daemon this often whether it still answers;
-    /// `heartbeatMisses` unanswered asks in a row close it (`.disconnected`,
-    /// then reconnect). A bridged connection always asks (a lost server: the
-    /// link itself waits 10 min); a local one only with `localHeartbeat`.
+    /// `heartbeatMisses` unanswered asks in a row mark it not answering
+    /// (`DaemonConnection.daemonAnswering`) while its process is alive, and close a
+    /// bridged connection or one whose daemon exited (`.disconnected`, then
+    /// reconnect; ``ConnectionHeartbeat``). A bridged connection always asks (a
+    /// lost server: the link itself waits 10 min); a local one only with `localHeartbeat`.
     public var heartbeat: Duration = .seconds(15)
     public var heartbeatMisses = 2
     /// Heartbeat a local daemon too: an owner stopped (SIGSTOP) or wedged
     /// keeps its socket open, so no EOF ends the connection (cx-jniyz.4).
-    /// Only the app's main connection sets it (it drives the not-connected
-    /// state), so page relays and short reads add no idle wakeups.
+    /// Only the app's main connection sets it (it drives the not-answering
+    /// state and the Restart offer), so page relays and short reads add no idle wakeups.
     public var localHeartbeat = false
     /// Extra events that may let a reconnect succeed (network, sign-in).
     /// The connection also watches its daemon socket through it.
@@ -27,6 +29,12 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// Deadline for every control-plane request (architecture.md 5a).
     /// A miss throws `DaemonError.timedOut`; nil disables it (tests only).
     public var requestTimeout: Duration?
+    /// Deadline for the handshake's requests, when it is longer than `requestTimeout`: a Cloud carrier
+    /// connection's first `identify` waits out the carrier's dial of a cold machine (180 s). Nil uses
+    /// `requestTimeout`.
+    public var handshakeTimeout: Duration?
+    /// The handshake's deadline: `handshakeTimeout`, else `requestTimeout`.
+    var handshakeDeadline: Duration? { handshakeTimeout ?? requestTimeout }
     /// Deadline for `list-workspaces` snapshots, which can be large.
     public var snapshotTimeout: Duration?
     /// Deadline for commands that launch a terminal host
@@ -58,8 +66,16 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// This build orders sidebar rows from the sidebar document only, so the
     /// connection echoes `placement-shift-v1` with `sidebar-doc-v1` and the daemon
     /// sends no `workspace_placement` restatement. The App's composition root sets it
-    /// (`SidebarMirror.isLinked`) on the connections that feed the sidebar; off by default.
+    /// on the connections that feed the sidebar; off by default.
     public var echoesPlacementShift = false
+    /// Records each request's send-to-reply time (``DaemonRequestLatency``; Debug and bench builds read
+    /// it through `debug.daemon_requests`). Nil: not measured. The local ``DaemonService`` sets its own.
+    public var requestLatency: DaemonRequestLatency?
+    /// Hands an owner the handshake refuses (another protocol, or a required capability missing)
+    /// off to the bundled build before the refusal surfaces; true when it is exiting for that
+    /// handoff. Only the app's own connections to its local daemon set it
+    /// (`DaemonLauncher.handingOffIncompatibleOwners`).
+    var incompatibleOwner: (@Sendable (DaemonIdentity, LineTransport) async -> Bool)?
 
     public init(
         clientName: String = "cmux-next",
@@ -70,7 +86,7 @@ public struct DaemonConnectionConfiguration: Sendable {
         healthyAfter: Duration = .seconds(10),
         retryWake: RetryWake? = nil,
         requestTimeout: Duration? = DaemonConnection.defaultRequestTimeout,
-        snapshotTimeout: Duration? = .seconds(10),
+        snapshotTimeout: Duration? = DaemonConnection.defaultRequestTimeout,
         spawnTimeout: Duration? = DaemonConnection.defaultSpawnTimeout,
         terminalEnvironment: (@Sendable () async -> [String: String])? = TerminalEnvironment.instance.shared(),
         resolvesShellIntegration: Bool = false,

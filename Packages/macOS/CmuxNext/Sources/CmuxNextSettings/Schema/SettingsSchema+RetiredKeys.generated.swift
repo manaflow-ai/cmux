@@ -24,5 +24,15 @@ extension SettingsSchema {
         "tabs.tabBar.agent": "every pane shows its tab bar; hide one with Hide Tab Bar in the command palette",
         // New Tab picks the action itself and has no Search | Ask switch (Leo 2026-10-20, #22816).
         "tabs.newTabWidgets.modeSwitch": "New Tab picks open, ask or search from what you type; there is no switch",
+        // One app for everyone (Lawrence 2026-10-30: "wtf is cmux classic mode get rid of it").
+        "tabs.terminalFirst": "cmux Classic Mode was removed; New Tab opens the New Tab page, where a terminal is one pick",
+        // No tabs inside the sidebar (Lawrence 2026-10-30: "i dont want to see tabs expanded inside of sidebar").
+        "sidebar.showWorkspaceTabs": "the sidebar lists workspaces only; a workspace's tabs show in its tab bar",
+        // Kept for one release after the docked Home (hq-6d cx-ebm.59.5); retired with the stale Labs flags (Leo 2026-11-05: "i ok them i know most are super stale/superseded/obsolete").
+        "labs.classicHome": "Home is the workspace with the Chief docked on the left",
+        // The default-off switch that landed cmux Remote dormant (#28584); retired so cmux Remote is the default (Aziz 2026-11-05: "we want this to be the default way for screen sharing daemons and computer use daemons moving forward").
+        "remote.enabled": "cmux Remote is how cmux runs Computer Use and Screen Sharing",
+        // One close path for pinned and unpinned tabs (Lawrence 2026-11-08, cmux-ad i8: "make it consistent, match chrome's behavior"): no kept pinned tab.
+        "tabs.cmdWClosesPinnedTabs": "Cmd-W closes a pinned tab like any other tab, as in Chrome",
     ]
 }

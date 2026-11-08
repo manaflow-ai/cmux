@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// Workspaces marked Done (Mark as Done, `SidebarTaskStatus.done`) fold into one "Done (N)" row at the end of their
 /// group or list, in their manual order; the row opens them again below it (Leo's sidebar organization, slice S4).
-@MainActor @Suite(.serialized) struct SidebarDoneFoldTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarDoneFoldTests {
     static let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
 
     static func ws(_ id: String, done: Bool = false) -> SidebarWorkspace {
@@ -102,11 +103,7 @@ import Testing
         let model = SidebarModel(sections: Self.sections())
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
-        TunableStore.shared.set(SidebarTunables.doneFold.key, .bool(true))
-        defer { TunableStore.shared.set(SidebarTunables.doneFold.key, nil) }
         #expect(!model.patchWorkspaces([Self.ws("a", done: true)]))
-        TunableStore.shared.set(SidebarTunables.doneFold.key, .bool(false))
-        #expect(model.patchWorkspaces([Self.ws("c", done: true)]))
     }
 
     @Test func theRowSaysHowManyAreDone() {
@@ -118,13 +115,12 @@ import Testing
     @Test func aDoneWorkspaceSelectedElsewhereShows() throws {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
-        TunableStore.shared.set(SidebarTunables.doneFold.key, .bool(true))
-        defer { TunableStore.shared.set(SidebarTunables.doneFold.key, nil) }
         let model = SidebarModel(sections: Self.sections(), activeWorkspaceID: WorkspaceID("a"))
         let sidebar = SidebarView(model: model, design: DesignSettings())
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
         let window = NSWindow(contentRect: sidebar.frame, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        defer { window.close() }
         window.contentView?.addSubview(sidebar)
         sidebar.layoutSubtreeIfNeeded()
         let list = sidebar.list

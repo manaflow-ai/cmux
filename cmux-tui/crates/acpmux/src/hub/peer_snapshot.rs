@@ -2,8 +2,9 @@
 //! client paints a paused or offline peer's chat at once, marked possibly stale, then catches up
 //! from the peer with `afterSeq` (cmuxterm-hq#4381; Lawrence: "decouple persistence of acp
 //! trajectories from the VM itself, in case the VM is resuming"). The peer's journal stays the
-//! authority: this is what this daemon saw of it (its clients' pages, the peer's live records),
-//! never a write lease, an execution checkpoint or a backup. The files are `disk.rs`'s.
+//! authority: this is what this daemon saw of it (its clients' pages, the pages it read ahead of
+//! an open, `warm.rs`, the peer's live records), never a write lease, an execution checkpoint or a
+//! backup. The files are `disk.rs`'s.
 //!
 //! One thread owns every copy and every file (`Store`); the hub only sends it what it saw, in
 //! the order it saw it, so no capture, listing, purge or write ever runs beside another. Sending
@@ -52,6 +53,10 @@ use std::sync::{Arc, Mutex as StdMutex, mpsc};
 use std::time::{Duration, Instant};
 
 mod disk;
+/// The test allocator's count for one closure on this thread (`disk_tests.rs`); only the
+/// Linux-only chat activity scale tests read it.
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) use disk::tests::thread_allocations;
 use disk::{Head, Key, Writer, record_bytes, seq_of};
 
 /// Records and bytes one peer session keeps; more than an attach page (400).
@@ -157,6 +162,7 @@ enum Op {
         generation: Option<u64>,
     },
     ForgetPeer(String),
+    Clear(mpsc::SyncSender<bool>),
     Lagged {
         peer: String,
         link: Link,
@@ -178,6 +184,11 @@ enum Op {
         generation: Option<u64>,
         bounds: (usize, usize),
         reply: mpsc::SyncSender<Value>,
+    },
+    /// What each copy of a peer covers (`warm.rs`).
+    Covers {
+        peer: String,
+        reply: mpsc::SyncSender<HashMap<String, (Option<u64>, u64)>>,
     },
     Flush {
         peer: Option<String>,
@@ -233,6 +244,8 @@ struct Thread {
 /// The hub's handle on the store's thread, started at the first op.
 pub struct PeerSnapshots {
     dir: Option<PathBuf>,
+    /// A sign-out bars earlier peer instances, including their reconnects and late replies.
+    generation_floor: AtomicU64,
     /// Set once the thread runs: a spawn that failed, or a thread that ended, is started again at
     /// the next op.
     tx: StdMutex<Option<Thread>>,
@@ -242,6 +255,8 @@ pub struct PeerSnapshots {
     queued: Arc<AtomicU64>,
     dropped: Arc<StdMutex<Dropped>>,
     untaken: Untaken,
+    /// The reads ahead of an open (`warm.rs`).
+    warm: warm::Warm,
 }
 
 impl PeerSnapshots {
@@ -249,11 +264,13 @@ impl PeerSnapshots {
     pub fn open(home: Option<PathBuf>) -> Self {
         Self {
             dir: home.map(|h| disk::root(&h)),
+            generation_floor: AtomicU64::new(0),
             tx: StdMutex::new(None),
             ended: Arc::default(),
             queued: Arc::default(),
             dropped: Arc::default(),
             untaken: Arc::default(),
+            warm: warm::Warm::default(),
         }
     }
 
@@ -660,6 +677,10 @@ impl Store {
                 }
             }
             Op::ForgetPeer(peer) => self.forget_peer(&peer),
+            Op::Clear(done) => {
+                let cleared = self.clear();
+                let _ = done.send(cleared);
+            }
             Op::Lagged { peer, link } => {
                 // The lag tells of the link too: anything of an older one comes too late.
                 // Records of the link stop joining until a page again; the link still joined the
@@ -679,6 +700,9 @@ impl Store {
             }
             Op::Read { key, generation, bounds, reply } => {
                 let _ = reply.send(self.read(&key, generation, bounds));
+            }
+            Op::Covers { peer, reply } => {
+                let _ = reply.send(self.covers(&peer));
             }
             Op::Flush { peer, done } => {
                 if done.is_none() {
@@ -706,8 +730,12 @@ impl Store {
             }
             Op::Flush { .. } => return,
             // Its reader is answered at once that there is nothing (its reply went with it).
-            Op::Read { .. } => return,
+            Op::Read { .. } | Op::Covers { .. } => return,
             Op::LostPeer(_) => return self.take(op),
+            Op::Clear(_) => {
+                self.clear();
+                return;
+            }
             Op::ForgetPeer(peer) => (peer, true),
             Op::Listed { peer, .. } | Op::Lagged { peer, .. } => (peer, false),
             Op::Page { key, .. } | Op::Record { key, .. } | Op::Gone { key, .. } => (key.0, false),
@@ -995,8 +1023,9 @@ impl Store {
             let Some(seq) = seq_of(&r) else { continue };
             let bytes = record_bytes(&r);
             if let Some(old) = held.insert(seq, r) {
-                c.memory -= record_bytes(&old);
-                *memory -= record_bytes(&old);
+                let old_bytes = record_bytes(&old);
+                c.memory -= old_bytes;
+                *memory -= old_bytes;
             }
             c.memory += bytes;
             *memory += bytes;
@@ -1026,8 +1055,9 @@ impl Store {
         let mut cut = false;
         while held.len() > SESSION_EVENTS || c.memory > SESSION_BYTES {
             let Some((seq, old)) = held.pop_first() else { break };
-            c.memory -= record_bytes(&old);
-            *memory -= record_bytes(&old);
+            let old_bytes = record_bytes(&old);
+            c.memory -= old_bytes;
+            *memory -= old_bytes;
             c.head.first_seq = c.head.first_seq.max(seq.saturating_add(1));
             c.head.last_seq = c.head.last_seq.max(c.head.first_seq - 1);
             c.head.from_start = false;
@@ -1389,12 +1419,25 @@ impl Store {
 impl Hub {
     /// Whether `link` is still the link of peer `peer` while `generation` is the instance
     /// registered under the name (the store checks again, in order: `Store::fresh_link`).
-    /// Sends a capture's op when it is of instance `generation` and link `link` still, checked
-    /// and sent under the rows lock (lock order: `remote_sessions`, then `peers`): an instance that
-    /// replaces it registers under that lock (`spawn_peer`), so its listing comes after this op.
+    /// Sends a capture's op when it is of instance `generation` and link `link` still. The peer
+    /// Arc is looked up before the rows snapshot, so the current link check fences a stale call;
+    /// replacement itself remains serialized by the peer's generation and row checks.
     fn capture_on(&self, peer: &str, (generation, link): (u64, u64), send: impl FnOnce()) {
+        let Some(_current) = self.peer(peer).filter(|p| p.generation == generation) else {
+            return;
+        };
+        #[cfg(test)]
+        if let Some(hook) =
+            self.peer_notice_projection_hook.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        {
+            hook.pause();
+        }
+        let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(current) = peers.get(peer).filter(|p| p.generation == generation).cloned() else {
+            return;
+        };
         let _rows = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
-        if self.peer(peer).is_some_and(|p| p.generation == generation && p.link_epoch() == link) {
+        if self.peer_snapshots.allows(generation) && current.link_epoch() == link {
             send();
         }
     }
@@ -1426,9 +1469,11 @@ impl Hub {
 
     /// Keeps a page of peer `peer`'s session `mux` this daemon forwarded (`_acpmux/attach`,
     /// `_acpmux/events`; `server/peer_forward.rs`), asked on link `link` while the row named
-    /// generation `asked`; `events`: an `_acpmux/events` page, else an attach. Only a run of the chat as a client reads it is kept: not a page of older
-    /// history (`beforeSeq`), nor one of some kinds only that leaves the transcript out (the app's
-    /// attach asks for `transcript` and a few more, which its live records follow too).
+    /// generation `asked`; `events`: an `_acpmux/events` page, else an attach. Only a run of the
+    /// chat as a client reads it is kept: not a page of older history (a `beforeSeq` short of
+    /// [`warm::NEWEST`]), nor one of some kinds only that leaves the transcript out (the app's
+    /// attach asks for `transcript` and a few more, which its live records follow too). A read
+    /// ahead (`warm.rs`) is kept here too.
     pub fn capture_peer_page(
         &self,
         (peer, generation, link, asked): (&str, u64, u64, Option<u64>),
@@ -1437,14 +1482,22 @@ impl Hub {
         result: &Value,
     ) {
         // `kinds` is a name or a list of names (`EventKinds`): without `transcript`, the page
-        // leaves the chat out.
+        // leaves the chat out. So does a page of one subagent's records (`subagent`).
         let transcript = |k: &Value| k.as_str() == Some("transcript");
-        let leaves_out = match params.get("kinds") {
-            None | Some(Value::Null) => false,
-            Some(Value::Array(kinds)) => !kinds.iter().any(transcript),
-            Some(kind) => !transcript(kind),
-        };
-        if params.get("beforeSeq").is_some_and(|v| !v.is_null()) || leaves_out {
+        let leaves_out = params.get("subagent").is_some_and(|v| !v.is_null())
+            || match params.get("kinds") {
+                None | Some(Value::Null) => false,
+                Some(Value::Array(kinds)) => !kinds.iter().any(transcript),
+                Some(kind) => !transcript(kind),
+            };
+        // A page of the newest records (`beforeSeq` past every seq and no `afterSeq`: the pane's
+        // read-ahead, a read ahead here, `warm.rs`) is the chat's run as an attach's is. One with
+        // an `afterSeq` too is the newest `limit` records after it, which need not start there.
+        let before = params.get("beforeSeq").filter(|v| !v.is_null());
+        let after = params.get("afterSeq").filter(|v| !v.is_null());
+        let newest =
+            after.is_none() && before.and_then(Value::as_u64).is_some_and(|b| b >= warm::NEWEST);
+        if (before.is_some() && !newest) || leaves_out {
             return;
         }
         let Some(records) = result.get("events").and_then(Value::as_array) else { return };
@@ -1457,7 +1510,10 @@ impl Hub {
             // say which journal answered it.
             generation: result.get("session").and_then(created_at).or_else(|| created_at(result)),
             // `_acpmux/events` with no `afterSeq` pages forward from the first record.
-            after: params.get("afterSeq").and_then(Value::as_u64).or(events.then_some(0)),
+            after: params
+                .get("afterSeq")
+                .and_then(Value::as_u64)
+                .or((events && !newest).then_some(0)),
             has_more: result.get("hasMore") != Some(&Value::Bool(false)),
             host_last_seq: result.get("lastSeq").and_then(Value::as_u64),
             // Only a peer that says how far its page holds is taken past the page's last record.
@@ -1469,7 +1525,10 @@ impl Hub {
     }
 }
 
+mod clear;
+pub(crate) use clear::clear_offline;
 mod read;
+mod warm;
 
 #[cfg(test)]
 #[path = "peer_snapshot_tests.rs"]

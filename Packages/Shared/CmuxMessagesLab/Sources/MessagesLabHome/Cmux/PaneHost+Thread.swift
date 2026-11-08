@@ -12,6 +12,12 @@ final class PaneThread {
     private var monitors: [Any] = []
     /// The press the outside-click monitor took (a mouse down and its up share the number).
     private var swallowedPress: Int?
+    /// Where the "N Replies" or thread preview that opened the view lies (its row's height, the part of its
+    /// width that opens the thread), while the view is open. A click there again is a click on the thread,
+    /// not on the backdrop: the view moves its rows, so the opener's spot is blurred backdrop, and closing
+    /// there flipped the view shut on the person's second click (Lawrence's scrawl capture, 2026-10-29).
+    /// The rest of the opener's row is backdrop and closes the view (Lawrence 2026-11-07).
+    private var openerBand: CGRect?
 
     init(controller: ChatController) { self.controller = controller }
 
@@ -24,6 +30,7 @@ final class PaneThread {
     func note(_ a: Action) {
         switch a {
         case .reply, .closeThread, .openThreadPath:
+            openerBand = nil
             // The user moved: a permalink still waiting for its message no longer opens it later.
             controller?.intents?.threadMovedByUser()
         default: break
@@ -55,13 +62,18 @@ final class PaneThread {
         }
         guard controller.intents?.canReply == true else { return false }
         if openThread != nil {
-            guard !demo.threadContentContains(p), !demo.compose.fieldRect.insetBy(dx: -60, dy: -8).contains(p) else { return false }
+            guard !demo.threadContentHit(p), !demo.compose.fieldRect.insetBy(dx: -60, dy: -8).contains(p) else { return false }
+            // The opener again ("N Replies" or the preview, not the rest of its row): Messages keeps the thread
+            // open (and still).
+            if let band = openerBand, band.contains(p) { return true }
             controller.dispatch(.closeThread)
             return true
         }
         guard let root = demo.repliesHit(p) else { return false }
+        let opener = Self.openerBand(at: p, in: demo)
         focusTranscript()
         controller.dispatch(.reply(root))
+        if controller.store?.state.ui.openThread != nil { openerBand = opener }
         return true
     }
 
@@ -98,6 +110,15 @@ final class PaneThread {
     private func isLive(_ e: NSEvent) -> Bool {
         guard let host = controller?.host else { return false }
         return openThread != nil && e.window != nil && e.window === host.window && !host.isHiddenOrHasHiddenAncestor
+    }
+
+    /// The part of the transcript row under `p` that opens a thread (``MessagesWindowView/repliesHit(_:)``), at
+    /// the row's height; one scan of its width at `p`'s height, at the open only.
+    private static func openerBand(at p: CGPoint, in demo: MessagesWindowView) -> CGRect? {
+        guard let key = demo.rowKey(at: p), let row = demo.rowFrame(key: key) else { return nil }
+        let xs = stride(from: row.minX, through: row.maxX, by: 2).filter { demo.repliesHit(CGPoint(x: $0, y: p.y)) != nil }
+        guard let lo = xs.first, let hi = xs.last else { return nil }
+        return CGRect(x: lo - 2, y: row.minY, width: hi - lo + 4, height: row.height)
     }
 
     /// Real Messages: opening a thread from "N Replies" leaves no caret in the field.

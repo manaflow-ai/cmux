@@ -42,9 +42,9 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
                 .replace("<VirtualTranscript", '<VirtualTranscript jumpButton={location.search.includes("painted")}')
                 .replace(
                   "turnView(shown, expanded)",
-                  'turnView(shown, expanded, location.search.includes("painted") ? {working, liveRuns: true, lineBelow: true} : {})',
+                  'turnView(shown, expanded, location.search.includes("painted") ? {working} : {})',
                 );
-            if (!id.endsWith("/src/agent-session/acpmux/App.tsx")) return;
+            if (!id.endsWith("/src/agent-session/acpmux/VirtualTranscript.tsx")) return;
             let source = readFileSync(process.env.CMUX_PARKED_SOURCE ?? id, "utf8");
             const inserts = [
               [
@@ -52,8 +52,8 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
                 'globalThis.__geometry?.("anchor-base", {live, stored: scrolledTo.current.top, top, readerLeft});',
               ],
               [
-                "anchorTop: top,\n        });",
-                'globalThis.__geometry?.("anchor-correction", {top, nextTop, live: node.scrollTop});',
+                "anchorTop: logicalTop,\n        });",
+                'globalThis.__geometry?.("anchor-correction", {top, logicalTop, nextTop, live: node.scrollTop});',
               ],
               ["followingRef.current = next;", 'globalThis.__probe?.("follow", next);'],
               [
@@ -223,8 +223,10 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
       if (distance) {
         // Only the reader's own trip back to the end may resume follow.
         if (distance === 80) {
-          // A long scrollbar drag: start in the scroller, then move outside it after the press's
-          // input window expires. Chromium owns the scroll event from the changed native offset.
+          // A long scrollbar drag: start in the scroller, then drag down and out of it after the
+          // press's input window expires. Chromium owns the scroll event from the changed native
+          // offset. The drag moves down, as a thumb dragged to the end does: only a downward drag
+          // brings follow back (test/support/transcriptScrolledUpStays.ts).
           await page.mouse.down();
           await page.evaluate(async () => {
             const until = performance.now() + 1100;
@@ -232,15 +234,23 @@ await requireBrowserLane("transcript-parked-stream.test.ts", async () => {
               await window.cmuxPaintFrame();
             } while (performance.now() < until);
           });
-          await page.mouse.move(1, 1);
+          await page.mouse.move(1, 559);
           await page.locator(".acpmux-scroll").evaluate((node) => {
             node.scrollTop = node.scrollHeight;
           });
           await page.mouse.up();
         } else if (distance === 40) {
+          // A finger drawn up the page: the transcript scrolls down to its end.
           await page.locator(".acpmux-scroll").evaluate((node) => {
-            node.dispatchEvent(new TouchEvent("touchmove", { bubbles: true }));
+            const touch = (clientY: number) => new Touch({ identifier: 1, target: node, clientX: 400, clientY });
+            node.dispatchEvent(
+              new TouchEvent("touchstart", { bubbles: true, touches: [touch(400)], changedTouches: [touch(400)] }),
+            );
+            node.dispatchEvent(
+              new TouchEvent("touchmove", { bubbles: true, touches: [touch(200)], changedTouches: [touch(200)] }),
+            );
             node.scrollTop = node.scrollHeight;
+            node.dispatchEvent(new TouchEvent("touchend", { bubbles: true, changedTouches: [touch(200)] }));
           });
         } else await page.mouse.wheel(0, 10000);
         await page.waitForFunction(() => {

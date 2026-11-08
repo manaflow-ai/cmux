@@ -58,6 +58,9 @@ struct UpdatedCardDismissPathTests {
         #expect(host.closeButton.accessibilityLabel() == "Close")
         #expect(host.closeButton.frame.maxX == 200 - SidebarUpdatedCardHost.closeInset.width, "the x sits at the card's top right")
         #expect(host.subviews.last === host.closeButton, "the page never covers the x")
+        // Leo 2026-11-07: the card wears the composer's material, which its page paints (no native veil
+        // of its own under the page any more).
+        #expect(!host.subviews.contains { $0 is CardSurfaceView }, "a native veil under the page doubles the composer's glass")
         #expect(host.closeButton.acceptsFirstMouse(for: nil), "a first click in a window that is not key presses the x")
 
         host.closeButton.performClick(nil)

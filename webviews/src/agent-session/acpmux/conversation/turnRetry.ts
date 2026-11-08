@@ -1,0 +1,88 @@
+// A failed turn's Retry (the card's and the footer's): acpmux's own turn retry (`_acpmux/retry`,
+// `turn-retry-v1`) where it serves one, else the prompt sent again. acpmux's continues a turn the
+// model had started instead of rerunning it, takes over a retry it already has waiting instead of
+// racing it, and lets the prompts the failed turn held go on once its turn completes
+// (auto_resume/retry_turn.rs). The Retry under a prompt that did not fail still sends it again.
+import { RETRY_METHOD, TURN_RETRY, refusalNote, type RetryNote } from "../subagents/retryState";
+
+export type TurnRetryDeps = {
+  /// The chat the pane shows, whose last turn failed.
+  sessionId: string | undefined;
+  /// The capabilities acpmux named; undefined from one that names none (Retry tries the method).
+  capabilities: ReadonlySet<string> | undefined;
+  request: (method: string, params: Record<string, unknown>) => Promise<unknown>;
+  /// The prompt sent again through the composer's send, as a prompt's Retry does; undefined for a
+  /// turn with no prompt to send (an attempt acpmux sent, whose prompt row is hidden).
+  resend: (() => Promise<unknown>) | undefined;
+};
+
+/// Settles with the note a refusal leaves on the card, or undefined once the retry went. Only a
+/// daemon without the method falls back to sending the prompt again. Every refusal says why and
+/// sends nothing: busy or stopped (an attempt runs), unanswered (acpmux may have taken it), and
+/// nothing failed (another retry, automatic or from another pane, already ran it to the end).
+export async function retryFailedTurn(deps: TurnRetryDeps): Promise<RetryNote | undefined> {
+  const served = deps.capabilities === undefined || deps.capabilities.has(TURN_RETRY);
+  if (deps.sessionId && served) {
+    try {
+      await deps.request(RETRY_METHOD, { sessionId: deps.sessionId });
+      return undefined;
+    } catch (error) {
+      const note = refusalNote(error);
+      if (note !== "unknown-method" && note !== "ask") return note;
+    }
+  }
+  if (!deps.resend) return "retry.failed";
+  try {
+    await deps.resend();
+    return undefined;
+  } catch {
+    return "retry.failed";
+  }
+}
+
+export type OwnedResendDeps<Client, Draft> = {
+  /// The direct client the Retry started on.
+  client: Client;
+  currentClient: () => Client | null | undefined;
+  /// Whether the pane still shows the chat the failed row was drawn for (restartReaches).
+  owns: () => boolean;
+  /// The prompt as it was sent, its attachments restored (`resendPrompt`, which may ask acpmux).
+  restore: () => Promise<Draft>;
+  send: (draft: Draft) => Promise<unknown>;
+};
+
+/// A prompt sent again through the composer's send (`chat.send`), settled once acpmux took it (its
+/// in-page `taken`, which holds nothing: a refused send still fails or comes back as any send's
+/// does). That send resolves only when the turn it starts ends, and a Retry's card says Retrying…
+/// only until the attempt reaches the chat (cmux#34369). A send acpmux took whose turn then failed
+/// counts as sent (direct.ts marks its error `taken`): that failure is the transcript's, on the
+/// attempt's own card. Rejects when the send was refused before acpmux took it. A send a harness
+/// switch holds is taken by the switch, so it settles when that send does.
+export function sendUntilTaken(send: (taken: () => void) => Promise<unknown>): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    send(() => resolve()).then(
+      () => resolve(),
+      (error: unknown) => ((error as { taken?: unknown } | null)?.taken === true ? resolve() : reject(error)),
+    );
+  });
+}
+
+/// A Retry that sent nothing: the chat the failed row was drawn for is not the one the pane's client
+/// reaches any more. It rejects, so the card says Retry could not run instead of taking it as sent
+/// (cmux#34369: a Retry that settled as sent with nothing sent read as a dead button).
+export class RetryNotSent extends Error {
+  constructor() {
+    super("retry.not_sent");
+    this.name = "RetryNotSent";
+  }
+}
+
+/// The prompt sent again, only to the chat the failed row was drawn for: checked before the restore
+/// and again after it, on the same client, as Cloud credential recovery does. A chat switch while the
+/// attachments are restored sends nothing to the next chat, and rejects with ``RetryNotSent``.
+export async function resendToOwner<Client, Draft>(deps: OwnedResendDeps<Client, Draft>): Promise<unknown> {
+  if (!deps.owns() || deps.currentClient() !== deps.client) throw new RetryNotSent();
+  const draft = await deps.restore();
+  if (!deps.owns() || deps.currentClient() !== deps.client) throw new RetryNotSent();
+  return deps.send(draft);
+}

@@ -1,7 +1,9 @@
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CryptoKit
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextHistoryDaemon
 import Foundation
 
 /// The daemon history module as the owner (`history-v1`, react-pages.md H3). When the local daemon
@@ -16,17 +18,21 @@ extension HistoryService {
         return DaemonHistoryClient(connection: connection)
     }
 
-    /// Entries from the daemon (every kind but commands) merged with every machine's command rows.
-    func daemonEntries(_ query: HistoryQuery, _ daemon: DaemonHistoryClient) async -> [HistoryEntry] {
+    /// Entries from the daemon (every kind but commands, closed items included) merged with every machine's command rows.
+    /// A daemon read is retried a few times; one that never answers is reported, not empty.
+    func daemonEntries(_ query: HistoryQuery, _ daemon: DaemonHistoryClient) async -> HistoryRead {
         let wantsCommands = query.kinds.isEmpty || query.kinds.contains(.command)
         // Commands are every connected daemon's terminal command rows (terminal-command-history-v1),
         // read by `commands`; the local daemon lists only its own.
         let appRead: Set<HistoryEntry.Kind> = [.command]
         let kinds = query.kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appRead) : query.kinds.subtracting(appRead)
         var all: [HistoryEntry] = []
+        var unavailable = false
         if !kinds.isEmpty {
-            let rows = (try? await daemon.list(kinds: kinds, text: query.text, range: query.range, limit: query.limit)) ?? []
-            all = rows.compactMap { $0.historyEntry(untitled: Strings.untitledTerminal) }.map { reachable($0) }
+            // Closed rows carry their chat's session and harness, and the daemon searches them (#31871).
+            let rows = await DaemonHistoryClient.retrying { try await daemon.list(kinds: kinds, text: query.text, range: query.range, limit: query.limit) }
+            all += (rows ?? []).compactMap { daemonRow($0) }.map { reachable($0) }
+            unavailable = rows == nil
         }
         if wantsCommands {
             await commands.refresh()
@@ -34,19 +40,24 @@ extension HistoryService {
         }
         all.sort { ($0.time, $0.id) > ($1.time, $1.id) }
         if let limit = query.limit, all.count > limit { all.removeLast(all.count - limit) }
-        return all
+        return HistoryRead(entries: all, unavailable: unavailable)
     }
 
-    /// One entry by id: commands from every machine's rows, everything else from the daemon's newest
-    /// entries of the id's kind.
+    /// One entry by id: commands from every machine's rows, everything else from the daemon's newest entries of the id's kind
+    /// (through the same bounded retry as a list read, so a slow daemon does not make the entry look gone).
     func daemonEntry(id: String, _ daemon: DaemonHistoryClient) async -> HistoryEntry? {
         if id.hasPrefix("command:") {
             await commands.refresh()
             return commands.entries().first { $0.id == id }
         }
         guard let kind = id.split(separator: ":").first.flatMap({ HistoryEntry.Kind(rawValue: String($0)) }) else { return nil }
-        let rows = (try? await daemon.list(kinds: [kind], text: "", range: .all, limit: 5_000)) ?? []
-        return rows.first { $0.id == id }?.historyEntry(untitled: Strings.untitledTerminal).map { reachable($0) }
+        let rows = await DaemonHistoryClient.retrying { try await daemon.list(kinds: [kind], text: "", range: .all, limit: 5_000) } ?? []
+        return rows.first(where: { $0.id == id }).flatMap { daemonRow($0) }.map { reachable($0) }
+    }
+
+    /// The app's entry for a daemon row, with the app's localized titles of an untitled terminal and chat.
+    private func daemonRow(_ row: DaemonHistoryEntry) -> HistoryEntry? {
+        row.historyEntry(untitled: Strings.untitledTerminal, untitledChat: AgentPaneModel.tabTitle)
     }
 
     /// A location row greyed while its tab is not reachable (the daemon cannot know).

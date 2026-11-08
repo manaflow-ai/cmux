@@ -1,0 +1,222 @@
+/* A chat starting in Cloud (CloudStartView.tsx): the message, then the start as metadata. */
+.acpmux-cloud-start {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: var(--acpmux-column, 720px);
+  /* Keep the message, status line and disclosure in the same shell footprint while the
+     native handoff swaps this view for the live transcript. */
+  min-height: calc(4 * var(--grid-row));
+  margin: 24px auto 0;
+  padding: 0 16px;
+  box-sizing: border-box;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
+}
+.acpmux-cloud-start__card {
+  border: 1px solid color-mix(in srgb, var(--agent-border) 72%, transparent);
+  border-radius: 14px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--agent-surface) 54%, transparent);
+}
+.acpmux-cloud-start__summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 16px;
+  border: 0;
+  color: var(--agent-text);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+}
+.acpmux-cloud-start[data-initialized="true"] .acpmux-cloud-start__summary { color: var(--agent-muted); }
+.acpmux-cloud-start__details { padding: 4px 16px 12px; }
+.acpmux-cloud-start__checklist { padding: 0; }
+/* Each step is one icon column (a spinner, a check, a muted dot), then its name, at the summary's
+   16 px inset. The state words are for screen readers only: the agent pane does not load the
+   pages' global .visually-hidden, so the card hides them itself, or they draw in the 16 px icon
+   column and overlap the names ("In progress" over "Set up a Cloud machine", Leo 2026-11-02). */
+.acpmux-cloud-start__row { display: grid; grid-template-columns: 16px minmax(0, max-content) max-content 1fr; align-items: start; column-gap: 8px; min-height: 28px; line-height: 20px; color: var(--agent-text); }
+.acpmux-cloud-start__row-label { min-width: 0; overflow-wrap: anywhere; }
+/* The words sit in the mark (position: relative), clipped to nothing; no 1 px box, as in
+   modelPicker.css's .sr-only (the design-token check allows no 1 px height). */
+.acpmux-cloud-start .visually-hidden { position: absolute; width: 1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; pointer-events: none; }
+.acpmux-cloud-start__row[data-status="pending"], .acpmux-cloud-start__row[data-status="skipped"] { color: var(--agent-muted); }
+.acpmux-cloud-start__row[data-status="error"] { color: var(--agent-danger, #f87171); }
+.acpmux-cloud-start__mark { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 20px; color: var(--agent-accent, #4ade80); }
+.acpmux-cloud-start__row[data-status="pending"] .acpmux-cloud-start__mark, .acpmux-cloud-start__row[data-status="skipped"] .acpmux-cloud-start__mark { color: var(--agent-muted); }
+.acpmux-cloud-start__row[data-status="error"] .acpmux-cloud-start__mark { color: inherit; }
+.acpmux-cloud-start__skip-mark { display: block; width: 14px; aspect-ratio: 1; margin: 2px; border: 1.5px solid currentColor; border-radius: 50%; opacity: .55; position: relative; }
+.acpmux-cloud-start__skip-mark::after { content: ""; position: absolute; left: 1px; top: 6px; width: 11px; border-top: 1.5px solid currentColor; transform: rotate(45deg); }
+.acpmux-cloud-start__pending-mark { display: block; width: 6px; aspect-ratio: 1; margin: 6px; border-radius: 50%; background: currentColor; opacity: .25; }
+.acpmux-cloud-start__time { margin-left: 4px; color: var(--agent-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.acpmux-cloud-start__detail { grid-column: 2 / -1; margin: -3px 0 5px; color: var(--agent-muted); line-height: 1.35; }
+.acpmux-cloud-start__log-tail { white-space: pre-wrap; font-family: var(--font-mono, ui-monospace); font-size: .9em; }
+.acpmux-cloud-start__link { padding: 0; border: 0; color: var(--agent-link, #60a5fa); background: none; font: inherit; text-decoration: underline; }
+.acpmux-cloud-start__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  letter-spacing: normal;
+}
+.acpmux-cloud-start__failure {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.acpmux-cloud-start__sign-in {
+  padding: 4px 12px;
+  border: 1px solid color-mix(in srgb, var(--agent-link, #60a5fa) 60%, transparent);
+  border-radius: 6px;
+  color: var(--agent-link, #60a5fa);
+  background: color-mix(in srgb, var(--agent-link, #60a5fa) 10%, transparent);
+  font: inherit;
+}
+.acpmux-cloud-start__sign-in:disabled { opacity: .65; }
+.acpmux-cloud-start__status--ready { color: var(--agent-accent, #4ade80); }
+.acpmux-cloud-start[data-state="failed"] .acpmux-cloud-start__status {
+  color: var(--agent-danger, currentColor);
+}
+.acpmux-cloud-start__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.acpmux-cloud-start__chips li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-height: 20px;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-cloud-start__chips li > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--agent-text);
+}
+/* The steps arm: the facts as one quiet line, no chip fill. */
+.acpmux-cloud-start__chips[data-look="steps"] li {
+  padding: 0 8px 0 0;
+  background: none;
+}
+.acpmux-cloud-start__label {
+  color: var(--agent-muted);
+}
+.acpmux-cloud-start__rows {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 12px;
+  row-gap: 4px;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.acpmux-cloud-start__rows dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--agent-text);
+}
+.acpmux-cloud-start__steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.acpmux-cloud-start__steps li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.acpmux-cloud-start__steps li[data-step="current"] {
+  color: var(--agent-text);
+}
+.acpmux-cloud-start__steps li[data-step="next"] {
+  opacity: 0.6;
+}
+.acpmux-cloud-start__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+}
+/* Over the New Tab page's box: no bubble (the message is in the box), no column margin. */
+.nt-composer .acpmux-cloud-start {
+  margin: 0 0 8px;
+  padding: 0;
+}
+/* A start's question (CloudStartAsk.tsx) in its row: the row opens from no height to the question's
+   and closes back, so the card and the composer under it move with it (no pop-in, no jump). Its
+   negative margin cancels the column's gap while it is closed; the question's own margin opens it.
+   The motion gate (data-cmux-motion off) ends the transition: the row then opens in one frame;
+   reduced motion opens it at once and keeps only the crossfade. */
+.acpmux-cloud-ask-row {
+  display: grid;
+  grid-template-rows: 0fr;
+  margin-top: -8px;
+  opacity: 0;
+  transition:
+    grid-template-rows var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
+    opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
+}
+:root[data-cmux-motion="reduced"] .acpmux-cloud-ask-row { transition: opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out); }
+.acpmux-cloud-ask-row[data-open="true"] { grid-template-rows: 1fr; opacity: 1; }
+@starting-style {
+  .acpmux-cloud-ask-row[data-open="true"] { grid-template-rows: 0fr; opacity: 0; }
+}
+.acpmux-cloud-ask-row__clip { min-height: 0; overflow: hidden; }
+.acpmux-cloud-ask {
+  min-inline-size: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  color: var(--agent-text);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.acpmux-cloud-ask__title { font-weight: 600; }
+.acpmux-cloud-ask__line { color: var(--agent-muted); font-size: var(--text-caption); line-height: var(--text-caption--line-height); }
+.acpmux-cloud-ask__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+.acpmux-cloud-ask__button {
+  min-height: var(--ds-control-row);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: 1px solid color-mix(in srgb, var(--agent-border) 72%, transparent);
+  border-radius: var(--ds-radius-control);
+  color: var(--agent-text);
+  background: transparent;
+  font: inherit;
+}
+.acpmux-cloud-ask__button:hover:not(:disabled) { background: color-mix(in srgb, var(--agent-accent) 10%, transparent); }
+.acpmux-cloud-ask__button[data-role="default"] { border-color: transparent; background: color-mix(in srgb, var(--agent-accent) 16%, transparent); }
+.acpmux-cloud-ask__button[data-role="default"]:hover:not(:disabled) { background: color-mix(in srgb, var(--agent-accent) 24%, transparent); }
+.acpmux-cloud-ask__button:disabled { opacity: .55; }
+.acpmux-cloud-ask__code-row { display: flex; align-items: center; gap: 8px; }
+.acpmux-cloud-ask__code { font-family: var(--font-mono, ui-monospace); font-size: var(--text-body); letter-spacing: .08em; }
+/* `sheet`: a popover-level glass panel (glass.css `.ui-card.ui-glass`) inside the card. */
+.acpmux-cloud-ask[data-look="sheet"] { padding: 12px 16px; border-radius: var(--ds-radius-popup); }
+/* `banner`: the title and the buttons on one line, the body under it. */
+.acpmux-cloud-ask__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.acpmux-cloud-ask[data-look="banner"] .acpmux-cloud-ask__actions { margin-top: 0; }

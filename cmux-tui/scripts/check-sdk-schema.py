@@ -39,6 +39,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "RowMarkerPoint": "RowMarkerPoint",
     "RowHeight": "RowHeight",
     "ExpectAgent": "SendExpectAgent",
+    "LayoutSizeWire": "LayoutSizeValue",
 }
 
 # Request fields the server takes as raw JSON and then decodes element by
@@ -47,7 +48,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
 # in the comment is the authority for its fields.
 RUNTIME_DECODED_REQUEST_FIELDS = {
     # server/bookmarks.rs `import` decodes each node into
-    # workspace_registry/personal_bookmarks.rs `BookmarkImportNode`.
+    # cmux-bookmarks-core `BookmarkImportNode` (re-exported by workspace_registry/personal_bookmarks.rs).
     ("import-bookmarks", "nodes"): ("Vec<Value>", "array<ref<BookmarkImportNode>>"),
 }
 
@@ -166,6 +167,9 @@ def _parse_rust_fields(body: str, label: str) -> dict[str, RuntimeField]:
         attribute = re.fullmatch(r"#\[serde\((.*)\)\]", line)
         if attribute:
             attributes.append(attribute.group(1))
+            continue
+        # Lint attributes (`#[allow(...)]`, `#[expect(...)]`) do not change the wire shape.
+        if re.fullmatch(r"#\[(?:allow|expect)\(.*\)\]", line):
             continue
         # Field visibility (pub, pub(crate), pub(super), pub(in path)) does not change the wire shape.
         field = re.fullmatch(r"(?:pub(?:\((?:crate|super|self|in [a-z_:]+)\))? )?([a-z][A-Za-z0-9_]*): (.+),", line)

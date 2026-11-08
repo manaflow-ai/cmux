@@ -20,7 +20,7 @@ struct AcpmuxLaunchReadyWaitTests {
                                  daemonArguments: [], childEnvironment: [:])
     }
 
-    static let readyLine = #"{"ready":true,"pid":1,"webUrl":"http://127.0.0.1:4567/?token=t"}"#
+    static let readyLine = #"{"ready":true,"pid":1,"webUrl":"http://127.0.0.1:4567/#token=t"}"#
 
     @Test func aDaemonThatKeepsStartingPastTheStallTimeIsWaitedFor() async throws {
         // Logs a line every 0.2 s for 2.4 s, then says ready: longer than the 1 s stall time,
@@ -46,8 +46,12 @@ struct AcpmuxLaunchReadyWaitTests {
     /// on the ready line (cmux#25761): the launcher throws that text, not "exited".
     @Test func aDaemonThatRefusesSaysWhy() async throws {
         let why = "acpmux: this daemon's executable /tmp/a/acpmux is in a temporary folder"
+        // A heredoc, not `echo '...'`: the reason has an apostrophe, which would end a quoted
+        // echo and leave the ready pipe empty (the launcher then says "exited").
         let environment = try Self.environment("""
-        echo '{"ready":false,"refused":"\(why)"}' >&3
+        cat >&3 <<'LINE'
+        {"ready":false,"refused":"\(why)"}
+        LINE
         """)
         await #expect(throws: AcpmuxDaemonLauncher.Failure.refused(why)) {
             _ = try await AcpmuxDaemonLauncher.launch(environment, deadline: .seconds(20))

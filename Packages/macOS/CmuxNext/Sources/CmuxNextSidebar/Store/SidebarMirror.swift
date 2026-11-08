@@ -1,17 +1,11 @@
 public import Foundation
-#if CMUX_SIDEBAR_MIRROR_FFI
 import CCmuxLayoutReducerFFI
-#endif
 
 /// The client's copy of the sidebar document, run by the same Rust reducer
 /// the daemon runs (cmux-layout-reducer-ffi `cmux_sidebar_mirror_*`): the
 /// confirmed document plus the pending intents. Swift calls it only on
 /// load, an echoed batch, an intent, a structural view rebuild and a drag's
 /// begin; never per mouse-move and never per status tick (CONTRACT.md).
-///
-/// `make()` is nil while the linked app FFI has no mirror (the build flag
-/// `CMUX_SIDEBAR_MIRROR_FFI` comes with the FFI pin that has it); the
-/// sidebar then keeps its older path.
 @MainActor
 public final class SidebarMirror {
     /// FFI calls this process made, by entry (`load`, `batch`, `intent`,
@@ -24,23 +18,17 @@ public final class SidebarMirror {
         public var code: String
     }
 
-    #if CMUX_SIDEBAR_MIRROR_FFI
     /// The mirror handle. Used on the main actor only; the deinit frees it once nothing else can.
     // crash-allow: the handle is never shared; only the owning mirror (main actor) and its deinit touch it.
-    private nonisolated struct Handle: @unchecked Sendable { let pointer: OpaquePointer }
+    private nonisolated struct Handle: @unchecked Sendable { let pointer: OpaquePointer? }
     private let owned: Handle
-    private var handle: OpaquePointer { owned.pointer }
+    /// Never null (`cmux_sidebar_mirror_new` is `Box::into_raw`); every `cmux_sidebar_mirror_*` call answers null for
+    /// a null handle anyway, which each call here reads as no reply.
+    private var handle: OpaquePointer? { owned.pointer }
 
-    private init(handle: OpaquePointer) {
-        owned = Handle(pointer: handle)
-    }
-
-    /// This build links the mirror FFI (rows come from the sidebar document when the daemon serves it).
-    public static let isLinked = true
-
-    public static func make() -> SidebarMirror? {
-        guard let handle = cmux_sidebar_mirror_new() else { return nil }
-        return SidebarMirror(handle: handle)
+    /// A new, empty mirror.
+    public init() {
+        owned = Handle(pointer: cmux_sidebar_mirror_new())
     }
 
     nonisolated deinit {
@@ -56,7 +44,34 @@ public final class SidebarMirror {
         }
     }
 
-    private func load(raw: Data) -> Reply? { call("load", cmux_sidebar_mirror_load_typed, raw, Reply.init) }
+    /// The JSON load (`{ok, revision, dropped:[key]}`): the typed reply has no `dropped`. A load is rare.
+    private func load(raw: Data) -> [String]? {
+        guard let reply = json("load", cmux_sidebar_mirror_load, raw), reply.ok == true else { return nil }
+        return reply.dropped ?? []
+    }
+
+    /// The JSON batch (its reply's `dropped`), for a caller that follows some pending intents.
+    private func applyBatchDropping(raw: Data) -> JSONReply? { json("batch", cmux_sidebar_mirror_apply_batch, raw) }
+
+    /// One JSON call: JSON in, a reply string the caller frees, decoded at once.
+    private func json(_ name: String, _ entry: (OpaquePointer?, UnsafePointer<UInt8>?, Int) -> UnsafeMutablePointer<CChar>?,
+                      _ request: Data) -> JSONReply? {
+        json(name, entry, request, as: JSONReply.self)
+    }
+
+    private func json<Value: Decodable>(_ name: String, _ entry: (OpaquePointer?, UnsafePointer<UInt8>?, Int) -> UnsafeMutablePointer<CChar>?,
+                                        _ request: Data, as type: Value.Type) -> Value? {
+        reply(name, entry, request).flatMap { try? JSONDecoder().decode(Value.self, from: $0) }
+    }
+
+    /// One JSON call's reply bytes.
+    private func reply(_ name: String, _ entry: (OpaquePointer?, UnsafePointer<UInt8>?, Int) -> UnsafeMutablePointer<CChar>?,
+                     _ request: Data) -> Data? {
+        Self.calls[name, default: 0] += 1
+        guard let text = request.withUnsafeBytes({ entry(handle, $0.bindMemory(to: UInt8.self).baseAddress, request.count) }) else { return nil }
+        defer { cmux_sidebar_mirror_string_free(text) }
+        return Data(bytes: text, count: strlen(text))
+    }
     private func applyBatch(raw: Data) -> Reply? { call("batch", cmux_sidebar_mirror_apply_batch_typed, raw, Reply.init) }
     private func applyIntent(raw: Data) -> Reply? { call("intent", cmux_sidebar_mirror_apply_intent_typed, raw, Reply.init) }
     private func view(raw: Data) -> [SidebarDocRow]? { call("view", cmux_sidebar_mirror_view_typed, raw, Self.rows) }
@@ -107,23 +122,14 @@ public final class SidebarMirror {
         }
         return table
     }
-    #else
-    public static let isLinked = false
-    public static func make() -> SidebarMirror? { nil }
-
-    private func load(raw: Data) -> Reply? { nil }
-    private func applyBatch(raw: Data) -> Reply? { nil }
-    private func applyIntent(raw: Data) -> Reply? { nil }
-    private func view(raw: Data) -> [SidebarDocRow]? { nil }
-    private func dragBegin(raw: Data) -> [String: SidebarDocAcceptance]? { nil }
-    #endif
 
     // MARK: Calls
 
     /// Replaces the confirmed document with a `sidebar.get` reply; pending
-    /// intents the new document refuses are dropped.
+    /// intents the new document refuses are dropped. Their keys; nil when the
+    /// document was not loaded.
     @discardableResult
-    public func load(_ document: Data) -> Bool { load(raw: document)?.ok ?? false }
+    public func load(_ document: Data) -> [String]? { load(raw: document) }
 
     /// What a batch did to the mirror.
     public enum BatchOutcome: Hashable, Sendable {
@@ -141,10 +147,21 @@ public final class SidebarMirror {
         return reply.stale ? .stale : .applied(revision: reply.revision)
     }
 
-    /// Drops the pending intent `key` (the daemon refused it; no batch will echo it).
-    public func reject(_ key: String) {
-        guard let body = try? JSONEncoder().encode(Rejected(idempotencyKey: key)) else { return }
-        _ = applyBatch(raw: body)
+    /// `apply(batch:)`, with the keys of the pending intents it settled or dropped (they no longer apply). The JSON
+    /// call: only while a caller follows a pending intent of its own (a Chief change).
+    public func applyDropping(batch: Data) -> (outcome: BatchOutcome, dropped: [String]) {
+        guard let reply = applyBatchDropping(raw: batch) else { return (.refetch, []) }
+        let dropped = reply.dropped ?? []
+        guard reply.ok == true, reply.refetch != true else { return (.refetch, dropped) }
+        return (reply.stale == true ? .stale : .applied(revision: reply.revision.flatMap { UInt64($0) }), dropped)
+    }
+
+    /// Drops the pending intent `key` (the daemon refused it; no batch will echo it). Returns the keys of the later
+    /// pending intents its replay dropped with it (a Chief add over the Chief the refusal put back).
+    @discardableResult
+    public func reject(_ key: String) -> [String] {
+        guard let body = try? JSONEncoder().encode(Rejected(idempotencyKey: key)) else { return [] }
+        return applyBatchDropping(raw: body)?.dropped ?? []
     }
 
     /// Applies an intent optimistically (the daemon's reply or batch
@@ -168,6 +185,26 @@ public final class SidebarMirror {
         }
     }
 
+    /// The sections the rows of `request` draw, regrouped by the reducer (`sidebar_doc::project`) from the document as
+    /// shown, pending intents included. One JSON call, only on a structural rebuild; its rows are the next drag's.
+    func projection(_ request: SidebarViewRequest) -> SidebarDocWire.Projection? {
+        SidebarPerfCounters.timedMirror {
+            guard let body = try? JSONEncoder().encode(request) else { return nil }
+            return json("project", cmux_sidebar_mirror_project, body, as: SidebarDocWire.Projection.self)
+        }
+    }
+
+    /// The ops the reducer plans for `request` (`sidebar_doc::plan`: `{plan: "subgroup" | "host_group", ...}`) on the
+    /// document as shown: the ops, or the refusal's code.
+    func plan(_ request: [String: Any]) -> Result<[[String: Any]], Refusal> {
+        guard let body = try? JSONSerialization.data(withJSONObject: request), let answer = reply("plan", cmux_sidebar_mirror_plan, body),
+              let object = try? JSONSerialization.jsonObject(with: answer) as? [String: Any] else {
+            return .failure(Refusal(code: "unavailable"))
+        }
+        if let ops = object["ops"] as? [[String: Any]] { return .success(ops) }
+        return .failure(Refusal(code: object["refusal"] as? String ?? "unavailable"))
+    }
+
     /// What a drop of `items` may do next to each row, by row key (one call per drag).
     public func acceptance(dragging items: [String]) -> [String: SidebarDocAcceptance] {
         SidebarPerfCounters.timedMirror {
@@ -184,7 +221,6 @@ public final class SidebarMirror {
         /// `apply_intent`'s stamped ops (a JSON array), sent on as bytes.
         var ops: Data?
 
-        #if CMUX_SIDEBAR_MIRROR_FFI
         init(_ reply: CmuxSidebarReply) {
             ok = reply.ok != 0 && reply.refetch == 0
             stale = reply.stale != 0
@@ -194,7 +230,13 @@ public final class SidebarMirror {
             revision = reply.has_revision != 0 ? reply.revision : nil
             if reply.ops_len > 0, let bytes = reply.ops { ops = Data(bytes: bytes, count: reply.ops_len) }
         }
-        #endif
+    }
+
+    /// A JSON reply's fields the typed one lacks a use for: `dropped`, the keys of the pending intents that went.
+    private struct JSONReply: Decodable {
+        var ok: Bool?, stale: Bool?, refetch: Bool?
+        var revision: String?
+        var dropped: [String]?
     }
 
     private struct Rejected: Encodable {

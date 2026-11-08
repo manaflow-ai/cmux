@@ -25,11 +25,19 @@ final class SidebarCardSlotMotion: MotionAnimating {
     /// Whether the height is still moving toward its target.
     var isMoving: Bool { height.map { $0.value != $0.target } ?? false }
 
-    /// The height to lay out now in `view` for a slot whose real height is `target`.
-    func height(toward target: CGFloat, in view: NSView) -> CGFloat {
+    /// The height to lay out now in `view` for a slot whose real height is `target`; `snaps` lands
+    /// on it at once (a card that must not move the list on a spring: the Updated card on relaunch).
+    func height(toward target: CGFloat, in view: NSView, snaps: Bool = false) -> CGFloat {
         self.view = view
         guard var height else {
             self.height = SpringValue(target)
+            return target
+        }
+        if snaps {
+            height.target = target
+            height.snap()
+            self.height = height
+            MotionClock.forView(view).stop(self)
             return target
         }
         guard height.target != target else {
@@ -53,6 +61,49 @@ final class SidebarCardSlotMotion: MotionAnimating {
             MotionClock.forView(view).stop(self)
         }
         return height.value
+    }
+
+    /// Starts the value at `value` and springs it to `target` (a dropped card: from where it was let
+    /// go to its anchor). Lands at once where the slot's own height would (no window, motion off).
+    func start(at value: CGFloat, toward target: CGFloat, in view: NSView) {
+        self.view = view
+        var height = SpringValue(target)
+        height.value = value
+        let animates = value != target && policy().animatesMovement && view.window != nil && !view.inLiveResize
+            && !view.isHiddenOrHasHiddenAncestor && Motion.canAnimate(in: view)
+        if !animates { height.snap() }
+        self.height = height
+        if animates {
+            MotionClock.forView(view).run(self, trace: "sidebar.cardSettle")
+        } else {
+            MotionClock.forView(view).stop(self)
+        }
+        view.needsLayout = true
+    }
+
+    /// The value shown now, wherever the spring is (0 before it has run).
+    var value: CGFloat { height?.value ?? 0 }
+
+    /// Stops the spring and puts it at rest at 0 (its owner shows `value` some other way now: a drag that
+    /// took over the card mid-settle carries it on).
+    func reset() {
+        height = SpringValue(0)
+        if let view { MotionClock.forView(view).stop(self) }
+    }
+
+    /// Proofs: the spring caught at `value` on its way to `target`, as a frame between two steps sees it.
+    func catchMidFlight(at value: CGFloat, toward target: CGFloat) {
+        var height = SpringValue(target)
+        height.value = value
+        self.height = height
+    }
+
+    /// The window went out of sight: the slot takes its final height now.
+    func motionSettle() {
+        guard var height else { return }
+        height.snap()
+        self.height = height
+        view?.needsLayout = true
     }
 
     func motionStep(_ dt: Double) -> Bool {

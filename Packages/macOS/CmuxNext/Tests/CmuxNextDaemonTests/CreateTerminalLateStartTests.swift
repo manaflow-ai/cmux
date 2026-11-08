@@ -56,7 +56,7 @@ struct CreateTerminalLateStartTests {
     """#
 
     private func connection(_ mode: String) -> DaemonConnection {
-        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", Self.script, mode])
+        let bridge = DaemonBridge.fakePython(["-c", Self.script, mode])
         return DaemonConnection(
             endpoint: .init(socketPath: "/tmp/cmux-late-start-test-\(UUID().uuidString).sock", bridge: bridge),
             configuration: .init(requiredCapabilities: [], requestTimeout: .seconds(1), spawnTimeout: .seconds(1),

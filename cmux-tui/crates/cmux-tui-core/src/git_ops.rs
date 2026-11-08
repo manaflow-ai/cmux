@@ -8,7 +8,10 @@
 //! (`mutation`), and so do `git.worktree.create`, a chat's own worktree
 //! (`worktree`), and `git.worktree.apply`, which brings its work back to the
 //! main checkout (`worktree_apply`), and `git.worktree.remove`, its cleanup
-//! (`worktree_remove`). The pure git pieces (bounded runs, the repository
+//! (`worktree_remove`). `git.worktree.setup` reads a repository's worktree
+//! recipe and a worktree's setup run (`worktree_setup`). `diff.comments.*`
+//! keeps the diff page's review comments per worktree root until they are
+//! sent (`diff_comments`). The pure git pieces (bounded runs, the repository
 //! handle, parsers, diff scopes and branch refs) live in the `cmux-git`
 //! crate, which the diff sidecar links too.
 
@@ -18,6 +21,8 @@ mod checkpoint;
 mod commit;
 mod commit_args;
 mod diff;
+mod diff_comments;
+mod diff_pages;
 mod files;
 mod journal;
 mod list;
@@ -27,7 +32,10 @@ mod target;
 mod user_run;
 mod worktree;
 mod worktree_apply;
+mod worktree_include;
+mod worktree_recipe;
 mod worktree_remove;
+mod worktree_setup;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -55,6 +63,10 @@ pub(crate) const FILES_SEARCH_CAPABILITY: &str = "git-files-search-v1";
 /// Advertised in identify: the session host answers `git.files.list`.
 pub(crate) const FILES_LIST_CAPABILITY: &str = "git-files-list-v1";
 
+/// Advertised in identify: the session host owns `diff.comments.list`,
+/// `save` and `delete`.
+pub(crate) const DIFF_COMMENTS_CAPABILITY: &str = diff_comments::CAPABILITY;
+
 /// Advertised in identify: the session host answers `git.branches`.
 pub(crate) const BRANCHES_CAPABILITY: &str = "git-branches-v1";
 
@@ -73,6 +85,10 @@ pub(crate) const WORKTREE_APPLY_CAPABILITY: &str = "git-worktree-apply-v1";
 /// Advertised in identify: the session host owns `git.worktree.remove`.
 pub(crate) const WORKTREE_REMOVE_CAPABILITY: &str = "git-worktree-remove-v1";
 
+/// Advertised in identify: a new worktree is set up from the project's
+/// recipe, and the session host answers `git.worktree.setup`.
+pub(crate) const WORKTREE_SETUP_CAPABILITY: &str = "git-worktree-setup-v1";
+
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
@@ -86,7 +102,9 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::GitWorktreeCreate
             | ResourceOperation::GitWorktreeApply
             | ResourceOperation::GitWorktreeRemove
+            | ResourceOperation::GitWorktreeSetup
     ) || checkpoint::handles(operation)
+        || diff_comments::handles(operation)
 }
 
 pub(crate) fn dispatch(
@@ -97,12 +115,16 @@ pub(crate) fn dispatch(
     if checkpoint::handles(request.envelope.operation) {
         return checkpoint::dispatch(mux, request);
     }
+    if diff_comments::handles(request.envelope.operation) {
+        return diff_comments::dispatch(mux, &request);
+    }
     match request.envelope.operation {
         ResourceOperation::GitCommit => return commit::dispatch(mux, &request),
         ResourceOperation::GitPush => return push::dispatch(mux, &request),
         ResourceOperation::GitWorktreeCreate => return worktree::dispatch(mux, &request),
         ResourceOperation::GitWorktreeApply => return worktree_apply::dispatch(mux, &request),
         ResourceOperation::GitWorktreeRemove => return worktree_remove::dispatch(mux, &request),
+        ResourceOperation::GitWorktreeSetup => return worktree_setup::dispatch(mux, &request),
         _ => {}
     }
     let operation = match request.envelope.operation {

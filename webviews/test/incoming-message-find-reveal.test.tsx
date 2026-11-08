@@ -21,6 +21,7 @@ const replacements: Record<string, unknown> = {
   Element: dom.window.Element,
   Node: dom.window.Node,
   Range: dom.window.Range,
+  NodeFilter: dom.window.NodeFilter,
   customElements: dom.window.customElements,
   MutationObserver: dom.window.MutationObserver,
   ResizeObserver: class {
@@ -43,7 +44,8 @@ let root: Root | undefined;
 
 const { createRoot } = await import("react-dom/client");
 const { IncomingMessageLine } = await import("../src/agent-session/acpmux/conversation/IncomingMessageCard");
-const { FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
+const { FindReveal, findMatches, paintFindHighlights } =
+  await import("../src/agent-session/acpmux/conversation/chatFind");
 
 afterEach(() => {
   act(() => root?.unmount());
@@ -77,7 +79,7 @@ async function draw(id: string, needle?: string) {
   );
   return {
     repaints: () => repaints,
-    toggle: () => host.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle")!,
+    toggle: () => host.querySelector<HTMLButtonElement>("button.cv-agentmsg__toggle")!,
   };
 }
 
@@ -110,10 +112,65 @@ test("a Find match for another row leaves the message folded", async () => {
       </FindReveal.Provider>,
     ),
   );
-  expect(host.querySelector("button.cv-disclosure__toggle")?.getAttribute("aria-expanded")).toBe("false");
+  expect(host.querySelector("button.cv-agentmsg__toggle")?.getAttribute("aria-expanded")).toBe("false");
 });
 
-test("the panel's From header is skipped by Find, so a match in the sender's name lands in the message", async () => {
+test("the panel has no From header: the line names the sender once", async () => {
   await draw("find-4", "zebra-tail");
-  expect(host.querySelector(".cv-received__from-line")?.hasAttribute("data-find-skip")).toBe(true);
+  expect(host.querySelector(".cv-received__from-line")).toBeNull();
+});
+
+// Find counts a received message's text only (chatFind.ts rowText), so its line (the sender's chip,
+// its machine, the first line) adds no matches: the line DisclosureRow drew skipped Find whole, and
+// the one message row's line does too (cmux#37653 review). Else a sender named like the query took
+// the first match and the message's second occurrence never became the current one.
+test("Find matches a received message's text, never its sender's line", async () => {
+  const body = "grid first. grid second.";
+  const id = "find-5";
+  root ??= createRoot(host);
+  await act(async () =>
+    root!.render(
+      <FindReveal.Provider value={{ rowId: id, card: false, needle: "grid", repaint: () => {} }}>
+        <div data-row-id={id}>
+          <IncomingMessageLine
+            id={id}
+            message={{ name: "grid-lane", sessionId: "mux-grid", text: body, raw: body }}
+            onOpen={() => {}}
+          />
+        </div>
+      </FindReveal.Provider>,
+    ),
+  );
+  expect(host.querySelector(".cv-agentmsg__line")?.textContent).toContain("grid-lane");
+  // The index: two matches, both in the message's text.
+  const matches = findMatches([{ id, kind: "user", text: body } as never], "grid");
+  expect(matches.map(({ occurrence }) => occurrence)).toEqual([0, 1]);
+  // A stand-in for WebKit's CSS highlight registry.
+  const set = new Map<string, unknown>();
+  const css = (globalThis as Record<string, unknown>).CSS;
+  const highlight = (globalThis as Record<string, unknown>).Highlight;
+  Object.assign(globalThis, {
+    CSS: { highlights: { set: (name: string, value: unknown) => set.set(name, value), delete: () => {} } },
+    Highlight: class {
+      constructor(...ranges: Range[]) {
+        Object.assign(this, { ranges });
+      }
+    },
+  });
+  try {
+    const card = host.querySelector(".cv-received__text")!;
+    const second = paintFindHighlights(host, "grid", { rowId: id, card: false, occurrence: 1 });
+    // The second match is the message's second "grid".
+    expect(second).toBeDefined();
+    expect(card.contains(second!.startContainer)).toBe(true);
+    const before = second!.cloneRange();
+    before.setStart(card, 0);
+    expect(before.toString()).toContain("grid first. ");
+    // Every drawn match is in the message's text: none on the line.
+    const all = [...((set.get("acpmux-find") as { ranges: Range[] } | undefined)?.ranges ?? []), second!];
+    expect(all.every((range) => card.contains(range.startContainer))).toBe(true);
+    expect(all.length).toBe(2);
+  } finally {
+    Object.assign(globalThis, { CSS: css, Highlight: highlight });
+  }
 });

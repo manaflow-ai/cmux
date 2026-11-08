@@ -91,15 +91,16 @@ public final class GhosttyRuntime {
         // CONFIG_CHANGE), and re-entering a lazy static traps.
         context.runtime = self
 
-        var runtime = ghostty_runtime_config_s()
-        runtime.userdata = Unmanaged.passUnretained(context).toOpaque()
-        runtime.supports_selection_clipboard = true
-        runtime.wakeup_cb = ghosttyWakeup
-        runtime.action_cb = ghosttyAction
-        runtime.read_clipboard_cb = ghosttyReadClipboard
-        runtime.confirm_read_clipboard_cb = ghosttyConfirmReadClipboard
-        runtime.write_clipboard_cb = ghosttyWriteClipboard
-        runtime.close_surface_cb = ghosttyCloseSurface
+        var runtime = ghostty_runtime_config_s(
+            userdata: Unmanaged.passUnretained(context).toOpaque(),
+            supports_selection_clipboard: true,
+            wakeup_cb: ghosttyWakeup,
+            action_cb: ghosttyAction,
+            read_clipboard_cb: ghosttyReadClipboard,
+            confirm_read_clipboard_cb: ghosttyConfirmReadClipboard,
+            write_clipboard_cb: ghosttyWriteClipboard,
+            close_surface_cb: ghosttyCloseSurface
+        )
         app = ghostty_app_new(&runtime, config)
         guard let app else {
             Self.logger.error("ghostty_app_new failed; terminal surfaces are disabled")
@@ -129,10 +130,11 @@ public final class GhosttyRuntime {
         configDiagnostics = diagnostics
     }
 
-    /// Adopts a config Ghostty already applied (`GHOSTTY_ACTION_CONFIG_CHANGE`).
+    /// Adopts a config Ghostty already applied (`GHOSTTY_ACTION_CONFIG_CHANGE`). The caller hands over
+    /// its own clone of it (`GhosttyActionDecoder`), which this keeps and later frees.
     func adoptAppliedConfig(_ applied: ghostty_config_t) {
         adoptedDuringReload = true
-        replaceConfig(ghostty_config_clone(applied))
+        replaceConfig(applied)
     }
 
     private func replaceConfig(_ fresh: ghostty_config_t?) {
@@ -196,15 +198,20 @@ public final class GhosttyRuntime {
     }
 
     /// Loads the user's config. `theme` replaces `themeOverride` (a room,
-    /// workspace or terminal theme; see `themeConfig(named:)`).
-    static func loadConfig(diagnostics: inout [String], opacity: inout Double, theme: String? = nil) -> ghostty_config_t? {
+    /// workspace or terminal theme; see `themeConfig(named:)`). `configFile`
+    /// replaces `configOverrideKey`'s file for one load, so a test can load a
+    /// file of its own without writing the process environment: a setenv after
+    /// `ghostty_init` frees the environ copy libghostty reads, and the next
+    /// `ghostty_config_finalize` crashes (SIGSEGV; `ProcessEnvironmentGuard`).
+    static func loadConfig(diagnostics: inout [String], opacity: inout Double, theme: String? = nil,
+                           configFile: String? = nil) -> ghostty_config_t? {
         guard let config = ghostty_config_new() else { return nil }
         // cmux's defaults, before the user's files so theirs win.
         loadPaddingDefault(into: config)
         loadThemeDefault(into: config)
         loadKeybindDefaults(into: config)
         GhosttyUnfocusedSplit.loadDefault(into: config)
-        if let path = ProcessInfo.processInfo.environment[configOverrideKey], !path.isEmpty {
+        if let path = configFile ?? ProcessInfo.processInfo.environment[configOverrideKey], !path.isEmpty {
             ghostty_config_load_file(config, path)
         } else {
             loadDefaultFiles(into: config)
@@ -243,11 +250,9 @@ public final class GhosttyRuntime {
         let count = ghostty_config_diagnostics_count(config)
         for index in 0..<count {
             let diagnostic = ghostty_config_get_diagnostic(config, index)
-            if let message = diagnostic.message {
-                let text = String(cString: message)
-                diagnostics.append(text)
-                logger.warning("ghostty config: \(text, privacy: .public)")
-            }
+            let text = String(cString: diagnostic.message)
+            diagnostics.append(text)
+            logger.warning("ghostty config: \(text, privacy: .public)")
         }
         return config
     }
@@ -388,8 +393,8 @@ public final class GhosttyRuntime {
     /// exports to its shells as `TERM_PROGRAM_VERSION`.
     public nonisolated static var version: String? {
         let info = ghostty_info()
-        guard let pointer = info.version, info.version_len > 0 else { return nil }
-        let bytes = UnsafeRawBufferPointer(start: pointer, count: Int(info.version_len))
+        guard info.version_len > 0 else { return nil }
+        let bytes = UnsafeRawBufferPointer(start: info.version, count: Int(info.version_len))
         return String(decoding: bytes, as: UTF8.self)
     }
 }

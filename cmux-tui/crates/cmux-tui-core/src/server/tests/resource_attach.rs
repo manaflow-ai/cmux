@@ -175,7 +175,8 @@ fn connection_handler_owns_every_router_connection_operation() {
         );
         connection_operations += usize::from(requires_connection);
     }
-    assert_eq!(connection_operations, 56);
+    // 58, and the 40 cloud.* ops #37350 runs with the connection's own Cloud session.
+    assert_eq!(connection_operations, 98);
 }
 
 #[test]

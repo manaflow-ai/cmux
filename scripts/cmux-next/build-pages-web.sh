@@ -25,12 +25,51 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-PAGES="history apps coderouter cloud keybindings icon-picker settings passwords changelog files stats chief-usage chief-views mobile-pairing chief-inspector home-channels debug-settings"
+PAGES="
+apps
+artifacts
+bookmarks
+changelog
+chief-inspector
+chief-usage
+chief-views
+cloud
+cloud-progress
+coderouter
+debug-settings
+files
+github
+group-editor
+history
+home-channels
+home-chat-colors
+home-messages
+icon-picker
+import-history
+keybindings
+machines
+mobile-pairing
+onboarding
+overlay
+passwords
+server-cards
+settings
+stash
+stats
+tasks
+"
+# The browser chrome's pages (CmuxNextPages BrowserChromeWebHost).
+PAGES="$PAGES page-info site-settings site-data certificate"
+# The Import Cookies card (BrowserCookieImportCard, through BrowserChromeWebHost).
+PAGES="$PAGES cookie-import"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
 # app: only English and the active locale are parsed at open (R82 first-open speed).
 SPLIT_STRINGS="settings"
 # Pages that render the agent pane's Markdown, whose code blocks import shiki.
 SHIKI_PAGES="home-channels"
+# Pages with their own shiki (src/pages/<page>/shiki): the GitHub page's inline diffs on
+# @pierre/diffs, drawn as plain text, need Shiki's core but none of the pane's grammars.
+OWN_SHIKI_PAGES="github"
 
 command -v bun >/dev/null 2>&1 || { echo "error: bun is required to build the pages" >&2; exit 1; }
 "$ROOT/scripts/check-webviews-bun-version.sh"
@@ -57,6 +96,9 @@ for page in $PAGES; do
   shiki="$src"
   case " $SHIKI_PAGES " in
     *" $page "*) shiki="$ROOT/webviews/src/agent-session/acpmux/shiki" ;;
+  esac
+  case " $OWN_SHIKI_PAGES " in
+    *" $page "*) shiki="$src/shiki" ;;
   esac
   bun scripts/agent-pane/bundle.mjs "$src/main.tsx" "$shiki" "$WORK/$page/app.js"
   loader=""

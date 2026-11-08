@@ -3,6 +3,9 @@
 //! machine controllers, tree and buffer helpers) that the topic files reach
 //! through `use super::*`.
 
+mod attention;
+mod completed_selection;
+mod copy_mode;
 mod deferred_input;
 mod docked_workspaces;
 mod graphics_pointer;
@@ -19,7 +22,9 @@ mod remote_pointer;
 mod selection_clicks;
 mod session_notices;
 mod shortcuts_menus;
+mod sidebar_agent_status;
 mod surface_attach;
+mod tab_close_selection;
 mod viewport_history;
 
 use super::{
@@ -194,6 +199,8 @@ fn browser_completion_tree(created_surface: SurfaceId, active_surface: SurfaceId
         supports_clear_history_key_fallback: false,
         notification: None,
         program_status: None,
+        attention: None,
+        git_branch: None,
     };
     let mut tabs = vec![tab(created_surface)];
     if active_surface != created_surface {
@@ -581,6 +588,7 @@ fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         machine_deleted_rail_index: None,
         machine_provider_reconnect_attempts: 0,
         machine_provider_reconnect_retry_at: None,
+        daemon_reconnect: Default::default(),
         pending_machine_replacement: None,
         machine_update_pump: None,
         machine_update_generation: 0,
@@ -633,6 +641,7 @@ fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         pending_size_releases: HashSet::new(),
         geometry_authority_surface: None,
         prefix_armed: false,
+        copy_mode: None,
         session_label: "test".to_string(),
         surface_only: None,
         sidebar_visible: true,
@@ -656,6 +665,9 @@ fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         tabs_footer_scroll: 0,
         projection_rails: HashMap::new(),
         projection_order_cache: AgentOrderCache::default(),
+        sidebar_status: crate::sidebar_status::SidebarStatus::default(),
+        agent_section_scroll: 0,
+        done_tab_ack_sent: None,
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,
         tabs_rail_follow_selection: true,
@@ -690,6 +702,15 @@ fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         shortcut_help: None,
         omnibar: None,
         toast: None,
+        // Tests never read the developer's environment for the host.
+        host_notify: crate::host_notify::HostNotifyGate::new(
+            crate::host_notify::HostTerminalInfo {
+                terminal: crate::host_notify::HostTerminal::Ghostty,
+                multiplexed: false,
+                cmux_terminal: None,
+            },
+        ),
+        host_focused: true,
         shake_frames: 0,
         selection: None,
         selection_generation: 0,
@@ -723,6 +744,7 @@ fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         last_applied_refresh_sequence: 0,
         applied_destination_generation: 0,
         pending_session_completions: VecDeque::new(),
+        pending_completed_selection: None,
         mux_titles: Arc::new(MuxTitleIngress::default()),
         pty_failures,
         mux_recovery_generation: Arc::new(AtomicU64::new(0)),
@@ -783,9 +805,14 @@ fn notify_tree(surface: u64, unread: bool) -> TreeView {
                         browser_source: None,
                         browser_frames_stalled: false,
                         supports_clear_history_key_fallback: false,
-                        notification: unread
-                            .then_some(TabNotificationView { unread: true, level: "warning" }),
+                        notification: unread.then_some(TabNotificationView {
+                            unread: true,
+                            level: "warning",
+                            sequence: 1,
+                        }),
                         program_status: None,
+                        attention: None,
+                        git_branch: None,
                     }],
                 }],
             }],

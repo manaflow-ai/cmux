@@ -248,8 +248,13 @@ impl WorkspaceRegistry {
                 proxy
                     .as_ref()
                     .map(|value| {
+                        // The proxy validator bounds the stored form by its
+                        // structure (a host and at most 64 bypass rules of
+                        // at most 253 ASCII bytes each, about 17 KiB), so no
+                        // byte cap of its own: a fixed 4096 refused valid
+                        // proxies with many bypass rules.
                         let stored = validate_browser_profile_proxy(value)?;
-                        validate_personal_json("proxy", &stored, true)
+                        Ok::<_, anyhow::Error>(serde_json::to_string(&stored)?)
                     })
                     .transpose()
             })

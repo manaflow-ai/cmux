@@ -1,6 +1,6 @@
 import Foundation
 
-/// Text of the Add Machine card and the Machines section (Resources/AddMachine.xcstrings).
+/// Text of the Add Machine card and the Machines section's native menu (Resources/AddMachine.xcstrings).
 nonisolated enum AddMachineStrings {
     private static func s(_ key: StaticString, _ value: String.LocalizationValue) -> String {
         String(localized: key, defaultValue: value, table: "AddMachine", bundle: .module)
@@ -20,6 +20,15 @@ nonisolated enum AddMachineStrings {
     static func adding(_ name: String) -> String { String(format: s("addMachine.addingTitle", "Adding %@"), name) }
     static func checking(_ name: String) -> String { String(format: s("addMachine.checkingTitle", "Checking %@"), name) }
     static func ready(_ name: String) -> String { String(format: s("addMachine.ready", "%@ is ready"), name) }
+    static var showDetails: String { s("addMachine.showDetails", "Show Details") }
+    static var hideDetails: String { s("addMachine.hideDetails", "Hide Details") }
+    /// The one line of a run going well: the step running now, or that every step is done.
+    static func progress(_ summary: HostChecklist.Summary) -> String {
+        guard let current = summary.current else {
+            return summary.done == summary.total ? s("addMachine.progress.done", "Every step is done.") : ""
+        }
+        return String(format: s("addMachine.progress.step", "Step %1$lld of %2$lld: %3$@"), summary.done + 1, summary.total, step(current))
+    }
     static var readyDetail: String { s("addMachine.readyDetail", "Its agents and workspaces are a click away in the sidebar.") }
     static func addFailed(_ name: String) -> String { String(format: s("addMachine.addFailed", "%@ could not be added"), name) }
     static func checkFailed(_ name: String) -> String { String(format: s("addMachine.checkFailed", "%@ needs attention"), name) }
@@ -33,6 +42,7 @@ nonisolated enum AddMachineStrings {
     static var done: String { s("addMachine.done", "Done") }
     static var openWorkspace: String { s("addMachine.openWorkspace", "Open Workspace") }
     static var tryAgain: String { s("addMachine.tryAgain", "Try Again") }
+    static var changeHost: String { s("addMachine.changeHost", "Change Host") }
     static var copyDetails: String { s("addMachine.copyDetails", "Copy Details") }
     static var fix: String { s("addMachine.fix", "Fix") }
 
@@ -47,6 +57,7 @@ nonisolated enum AddMachineStrings {
         case .peer: s("addMachine.step.peer", "Add it as a peer here")
         case .peerBack: s("addMachine.step.peerBack", "Add this Mac as its peer")
         case .identity: s("addMachine.step.identity", "Name the machine")
+        case .approvals: s("addMachine.step.approvals", "Let this Mac allow its prompts")
         default: joinStep(step) ?? step.rawValue
         }
     }
@@ -87,6 +98,7 @@ nonisolated enum AddMachineStrings {
         switch action {
         case .add: phase == .running ? addingButton : add
         case .tryAgain: tryAgain
+        case .changeHost: changeHost
         case .fix: phase == .running ? checkingButton : fix
         case .openWorkspace: openWorkspace
         case .copyDetails: copyDetails
@@ -95,13 +107,7 @@ nonisolated enum AddMachineStrings {
         }
     }
 
-    // MARK: Machines section
+    // MARK: Machines section (the page reads the rest of the section's `machines.` keys)
 
-    static var connected: String { s("machines.connected", "Connected") }
-    static var offline: String { s("machines.offline", "Offline") }
     static var newWorkspace: String { s("machines.newWorkspace", "New Workspace on This Machine") }
-    static var addMachine: String { s("machines.addMachine", "Add Machine…") }
-    static var healthOK: String { s("machines.health.ok", "Last check passed") }
-    static func healthWarning(_ step: String) -> String { String(format: s("machines.health.warning", "Last check: %@ needs attention"), step) }
-    static func healthFailing(_ step: String) -> String { String(format: s("machines.health.failing", "Last check: %@ failed"), step) }
 }

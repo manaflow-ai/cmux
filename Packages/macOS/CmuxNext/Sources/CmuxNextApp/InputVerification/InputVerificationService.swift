@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextFocus
+import CmuxNextFocusUI
 import CmuxNextWakeups
 
 /// Input verification (plans/cmux-next/input-spec.md): the journal policy,
@@ -96,6 +97,7 @@ final class InputVerificationService {
             // Chips shown for a held modifier follow the new focus (pane navigation while held).
             controller.shortcutHints?.focusDidSettle()
             services?.windows.recordSaver.focusDidSettle(controller.state, pane: state.pane)
+            controller.state.selection.focus(state.pane, in: state.topology.workspace) // the sidebar row's icon follows it
             let key = state.settleKey
             if key != notified {
                 notified = key

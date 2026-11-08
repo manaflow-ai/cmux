@@ -1,5 +1,18 @@
 [
  {
+  "name": "fix from link always",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "chat.fix_from_link",
+   "params": {
+    "url": "https://github.com/acme/widget/issues/1"
+   }
+  },
+  "denies": [],
+  "needs": true
+ },
+ {
   "name": "prompt always",
   "frame": {
    "jsonrpc": "2.0",
@@ -330,6 +343,20 @@
     "threadId": "msg_1",
     "text": "Done.",
     "replyId": "m-1"
+   }
+  },
+  "denies": [],
+  "needs": true
+ },
+ {
+  "name": "agent_hold always",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/agent_hold",
+   "params": {
+    "sessionId": "s",
+    "held": true
    }
   },
   "denies": [],

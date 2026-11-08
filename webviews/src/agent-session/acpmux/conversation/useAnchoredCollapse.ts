@@ -22,6 +22,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { foldMs, useFold } from "./fold";
 import { ANCHORED_COLLAPSE_EVENT, FOLD_SETTLE_MS } from "./foldAnchor";
+import { foldPlays } from "./transcriptView";
 
 export { ANCHORED_COLLAPSE_EVENT };
 
@@ -68,6 +69,36 @@ export function holdHeader(header: HTMLElement): boolean {
   return !header.dispatchEvent(new Custom(ANCHORED_COLLAPSE_EVENT, { bubbles: true, cancelable: true }));
 }
 
+/// What a block's open held (`holdBlock`) and the offset it was clicked at, so its close holds the same.
+export type BlockHold = { current: { held: "block" | "control"; at: number } | undefined };
+
+/// Asks the transcript to hold a line for a toggle that sits under or inside the block it opens (Show
+/// more, a text file's card), so that an open then a close put the view back where it started however
+/// often the reader does it (Leo, 2026-11-08: "it's not an— what is it? idempotent action ... there's
+/// the drift"). Holding the block's top to open and the control to close, as Show more did since
+/// #24050 and the paste card since #36303, moved the view down by what opened on every round trip.
+/// - Opening holds the block's top, so it grows below it (Leo, 2026-10-21: "just expand the area at
+///   the bottom and you're in the same place").
+/// - Closing with the view where the open left it holds the same line, so the pair is exact.
+/// - Closing after the reader scrolled (to a Show less under a long block) holds the block's top if
+///   it is in the view, else the control where the reader clicked it.
+/// A close at the very bottom still pins the bottom (VirtualTranscript `beginBottomStackFold`).
+export function holdBlock(block: HTMLElement, control: HTMLElement | null, memo: BlockHold, opening: boolean): boolean {
+  const scroller = block.closest<HTMLElement>(".acpmux-scroll") ?? scrollerOf(block);
+  const at = scroller?.scrollTop ?? 0;
+  const opened = memo.current;
+  memo.current = undefined;
+  let held: "block" | "control";
+  if (opening || !control) held = "block";
+  else if (opened && Math.abs(opened.at - at) <= 1) held = opened.held;
+  else {
+    const top = scroller?.getBoundingClientRect().top ?? 0;
+    held = block.getBoundingClientRect().top >= top - 0.5 ? "block" : "control";
+  }
+  if (opening) memo.current = { held, at };
+  return holdHeader(held === "block" ? block : control!);
+}
+
 /// The nearest ancestor of `node` that scrolls.
 function scrollerOf(node: HTMLElement): HTMLElement | undefined {
   const view = node.ownerDocument.defaultView;
@@ -107,13 +138,12 @@ function keepHeader(header: HTMLElement): () => () => void {
   };
 }
 
-const always = () => true;
-
 export function useAnchoredCollapse(options: AnchoredCollapseOptions = {}): AnchoredCollapse {
   const [inner, setInner] = useState(options.defaultOpen ?? false);
   const controlled = options.open !== undefined;
   const open = controlled ? options.open! : inner;
-  const fold = useFold(open, options.animates ?? always, options.fadeIn ?? true);
+  // A transcript view switch (transcriptView.ts) opens and closes the rows on screen at once: they snap.
+  const fold = useFold(open, options.animates ?? foldPlays, options.fadeIn ?? true);
   const header = useRef<HTMLElement | null>(null);
   const headerRef = useCallback((node: HTMLElement | null) => {
     header.current = node;

@@ -5,6 +5,7 @@
 /// A local path a link points at: absolute (`/Users/…/README.md`), from home (`~/…`), a `file://`
 /// URL, or relative (`./notes.md`, `docs/a.md`), which the host resolves from the session's folder.
 export function linkPath(href: string): string | undefined {
+  if (isTemplatePath(safeDecode(href))) return undefined;
   if (/^file:\/\//i.test(href)) {
     try {
       const url = new URL(href);
@@ -94,6 +95,29 @@ export function textLinks(text: string): TextLink[] {
   return out;
 }
 
+/// A file id only its provider opens: ChatGPT's library files (`libfile_…`) and its own file
+/// addresses (`sediment://…`, `file-service://…`). An agent that hands one over hands over nothing
+/// anyone here can open, so the chat names it as that, never as a file or an image.
+const FOREIGN_FILE = /(?<![\w/])(?:libfile_[A-Za-z0-9]{8,}|(?:sediment|file-service):\/\/[\w.-]*[\w-])/g;
+
+/// Its ids in order, at most `max + 1` of them: a caller with a cap learns it is passed without
+/// collecting every id of a text made of ids.
+export function foreignFileIds(text: string, max = Infinity): { start: number; end: number; value: string }[] {
+  if (!text.includes("libfile_") && !text.includes("://")) return [];
+  const out: { start: number; end: number; value: string }[] = [];
+  for (const m of text.matchAll(FOREIGN_FILE)) {
+    out.push({ start: m.index!, end: m.index! + m[0].length, value: m[0] });
+    if (out.length > max) break;
+  }
+  return out;
+}
+
+/// `text` when it is one foreign file id and nothing else (a code span's text, an image's source).
+export function foreignFileId(text: string): string | undefined {
+  const [id, more] = foreignFileIds(text.trim(), 1);
+  return id && !more && id.value === text.trim() ? id.value : undefined;
+}
+
 /// The line of a `:12` or `:12:4` suffix.
 function lineOf(value: string): number | undefined {
   const match = /:(\d+)(?::\d+)?$/.exec(value);
@@ -104,7 +128,15 @@ function lineOf(value: string): number | undefined {
 const IMAGE_FILE = /\.(?:png|jpe?g|gif|webp)$/i;
 
 export function isImagePath(path: string): boolean {
-  return IMAGE_FILE.test(path);
+  return IMAGE_FILE.test(path) && !isTemplatePath(path);
+}
+
+/// A path that is a template or placeholder, not a file: it holds `${`, `{{`, `<` or `>`, or a glob
+/// `*` (`/src/${variant}-320.png`, `{{name}}.md`, `<file>.png`, `out/*.png`), as code or a command
+/// line spells one. It stays plain text: no chip, no thumbnail, no Open (Leo, 2026-10-31: "THE OPEN
+/// BUTTON DOESN'T WORK" on `${variant}-320.png`).
+export function isTemplatePath(path: string): boolean {
+  return /\$\{|\{\{|[<>*]/.test(path);
 }
 
 /// An https address of a raster image (its path ends in an image extension), such as a PR's media

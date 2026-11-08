@@ -4,8 +4,8 @@
 // then cmux's Edit; under the answer Claude's Copy, Fork, Pin, Read aloud and its age. Each age shows
 // its exact date and time above it on hover (the *-time-tooltip plays). Edit shows on a Claude
 // chat's prompts after its first turn, which acpmux can fork through (cx-ncc.60). The icon buttons
-// name themselves in a tooltip on hover (the *-tooltip plays). A long prompt opens on its first ten
-// lines, fading out, with Show more; a pasted block is a chip that opens in place (PromptText.tsx).
+// name themselves in a tooltip on hover (the *-tooltip plays). A long prompt opens on its first twenty
+// lines, fading out, with Show more; a pasted block is the bubble's own text (PromptText.tsx).
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
@@ -90,6 +90,26 @@ const pastedPrompt = () => {
     chat([
       user(text, 9, { seq: 1, pasted: [{ start: TYPED.length + 1, end: text.length }] }),
       assistant("The stack shows the retry calling itself without awaiting the backoff.", 8.5),
+      summary(8.5, { seq: 3, status: "completed" }),
+    ]),
+  );
+};
+
+/// One long paragraph pasted under a typed ask, as dictation or a chat message gives it: about
+/// 1,100 words on a single line (Leo, 2026-11-05: "it says pasted text one line, but there's a lot
+/// more than this").
+const PARAGRAPH = Array.from(
+  { length: 40 },
+  (_, index) =>
+    `Okay, but at the same time the retry helper in step ${index + 1} should back off a little longer each attempt, log why it gave up, and keep the`,
+).join(" ");
+const TIGHTEN = "Can you tighten this up?";
+const pastedParagraph = () => {
+  const text = `${TIGHTEN}\n${PARAGRAPH}`;
+  return claude(
+    chat([
+      user(text, 9, { seq: 1, pasted: [{ start: TIGHTEN.length + 1, end: text.length }] }),
+      assistant("Here it is in half the words.", 8.5),
       summary(8.5, { seq: 3, status: "completed" }),
     ]),
   );
@@ -183,9 +203,21 @@ export default agentPaneEntry({
       play: hoverTime("time.cv-user__time"),
     },
     "answer-time-tooltip": {
-      note: "Play: hover an answer's age at the end of its row; its exact time shows above it.",
+      note: "Play: point at an answer's footer; its age (15 hours ago) shows at the row's end, after the buttons (hidden at rest: #31609), as a prompt's does; its tooltip the exact date and time, the turn's time and tokens under it.",
       snapshot: yesterday(),
-      play: hoverTime("time.cv-turn-time"),
+      play: async (ctx) => {
+        const selector = "time.cv-turn-time";
+        await ctx.waitFor(() => ctx.document.querySelector(selector));
+        await ctx.hover({ selector });
+        await ctx.waitFor(() => {
+          const time = ctx.document.querySelector<HTMLElement>(selector);
+          return (
+            time !== null &&
+            (time.textContent ?? "").endsWith(" ago") &&
+            ctx.document.defaultView!.getComputedStyle(time).opacity === "1"
+          );
+        });
+      },
     },
     other: {
       note: "Another agent forks only at a chat's end: prompts offer Copy only.",
@@ -203,7 +235,7 @@ export default agentPaneEntry({
       play: hoverTooltip("Copy"),
     },
     "long-collapsed": {
-      note: "A 60-line prompt opens on its first ten lines, the last ones fading out, with Show more under them.",
+      note: "A 60-line prompt opens on its first twenty lines, the last ones fading out, with Show more under them.",
       snapshot: longPrompt(),
     },
     "long-expanded": {
@@ -267,15 +299,36 @@ export default agentPaneEntry({
       ),
     },
     "pasted-chip": {
-      note: "A pasted 2,300-line stack trace is a chip under the typed question: its first words and line count.",
+      note: "A pasted 2,300-line stack trace under the typed question: its own lines as the bubble's text, folded under the prompt's Show more (the card is gallery agent-pane.sent-bubble-size, arm card).",
       snapshot: pastedPrompt(),
     },
     "pasted-chip-open": {
-      note: "Play: the chip opens the whole paste in place, under it, with Show less to fold the prompt again.",
+      note: "Play: Show more opens the whole paste in place, with Show less to fold the prompt again.",
       snapshot: pastedPrompt(),
       play: async (ctx) => {
-        await ctx.click({ selector: ".cv-user__paste" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__paste[aria-expanded='true']"));
+        await ctx.click({ selector: ".cv-user__more" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__more[aria-expanded='true']"));
+      },
+    },
+    "pasted-paragraph": {
+      note: "One pasted paragraph of 1,100 words: its words wrapped at the bubble's width as its own text, folded under Show more.",
+      snapshot: pastedParagraph(),
+    },
+    "pasted-paragraph-open": {
+      note: "Play: Show more opens the whole paragraph in place.",
+      snapshot: pastedParagraph(),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".cv-user__more" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__more[aria-expanded='true']"));
+      },
+    },
+    editing: {
+      note: "Play: Edit opens the prompt in place on the bubble's own glass, 12 radius and 16 sides, at the bubble's widest, so its right edge stays put; Cancel and Send under the text.",
+      snapshot: turns(claude),
+      play: async (ctx) => {
+        await ctx.hover({ text: "Now cover it with a test that fakes two timeouts" });
+        await ctx.click({ selector: '.cv-user__actions button[aria-label="Edit"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__edit"));
       },
     },
     "edit-tooltip": {

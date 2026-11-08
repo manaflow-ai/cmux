@@ -39,6 +39,16 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.roomRoom.suppliedByTarget], targets: [.profile],
                 cliName: "space open-in-new-window"
             ),
+            // Move Space to This Window (Leo 2026-10-29), the inverse: the space's workspaces leave every
+            // other normal window for this one, which shows the space; a window left with none closes.
+            // The space's right-click menu, the palette, the CLI and MCP run it.
+            ActionDescriptor(
+                id: "space.bringHere",
+                title: String(localized: "action.space.bringHere", defaultValue: "Move Space to This Window", table: "ProfileActions", bundle: .module),
+                keywords: ["room", "profile", "space", "window", "move", "bring", "gather", "merge"], category: .workspace, symbol: "macwindow",
+                surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.roomRoom.suppliedByTarget], targets: [.profile],
+                cliName: "space bring-here"
+            ),
             ActionDescriptor(
                 id: "space.newWorkspace",
                 title: String(localized: "action.space.newWorkspace", defaultValue: "New Workspace in Space…", table: "ProfileActions", bundle: .module),
@@ -194,7 +204,7 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
                 id: "space.next",
                 title: String(localized: "action.space.next", defaultValue: "Next Space", table: "ProfileActions", bundle: .module),
                 keywords: ["room", "profile", "space", "switch"],
-                defaultShortcut: Shortcut(Shortcut.rightArrowKey, modifiers: [.control, .option, .command]),
+                defaultShortcut: Shortcut("l", modifiers: [.control, .option, .command]),
                 category: .workspace, symbol: "chevron.right.circle", surfaces: [.palette, .keyboard, .menu], cliName: "space next",
                 mainMenu: .window
             ),
@@ -202,7 +212,7 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
                 id: "space.previous",
                 title: String(localized: "action.space.previous", defaultValue: "Previous Space", table: "ProfileActions", bundle: .module),
                 keywords: ["room", "profile", "space", "switch"],
-                defaultShortcut: Shortcut(Shortcut.leftArrowKey, modifiers: [.control, .option, .command]),
+                defaultShortcut: Shortcut("h", modifiers: [.control, .option, .command]),
                 category: .workspace, symbol: "chevron.left.circle", surfaces: [.palette, .keyboard, .menu], cliName: "space previous",
                 mainMenu: .window
             ),

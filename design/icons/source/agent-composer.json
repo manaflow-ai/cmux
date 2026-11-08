@@ -75,9 +75,19 @@
   {
    "name": "agent.fork",
    "meaning": "Fork the agent conversation into a new chat (to the right/left/above/below).",
-   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 21v-5c0-3-5.5-3.5-5.5-7V4M12 16c0-3 5.5-3.5 5.5-7V4'/><path d='M3.5 7 6.5 4l3 3M14.5 7l3-3 3 3'/></svg>",
-   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 21v-5c0-3-5.5-3.5-5.5-7V4M12 16c0-3 5.5-3.5 5.5-7V4'/><path d='M3.5 7 6.5 4l3 3M14.5 7l3-3 3 3'/></svg>",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 15.5H20M8.5 15.5c2.8 0 4.2-1.4 5.8-3.5L19.5 5'/><path d='M17 12.5l3 3-3 3M15 5h4.5v4.5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3.5 15.5H20M8.5 15.5c2.8 0 4.2-1.4 5.8-3.5L19.5 5'/><path d='M17 12.5l3 3-3 3M15 5h4.5v4.5'/></svg>",
    "alts": [
+    {
+     "label": "Turned Y: the stem enters from the left and splits into two arrowheads right",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 12h5c3 0 3.5-5.5 7-5.5H20M8 12c3 0 3.5 5.5 7 5.5H20'/><path d='M17 3.5 20 6.5l-3 3M17 14.5l3 3-3 3'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M3 12h5c3 0 3.5-5.5 7-5.5H20M8 12c3 0 3.5 5.5 7 5.5H20'/><path d='M17 3.5 20 6.5l-3 3M17 14.5l3 3-3 3'/></svg>"
+    },
+    {
+     "label": "Before (Leo 2026-11-07: rejected): one stem, two arrowheads up",
+     "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 21v-5c0-3-5.5-3.5-5.5-7V4M12 16c0-3 5.5-3.5 5.5-7V4'/><path d='M3.5 7 6.5 4l3 3M14.5 7l3-3 3 3'/></svg>",
+     "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 21v-5c0-3-5.5-3.5-5.5-7V4M12 16c0-3 5.5-3.5 5.5-7V4'/><path d='M3.5 7 6.5 4l3 3M14.5 7l3-3 3 3'/></svg>"
+    },
     {
      "label": "Asymmetric: the chat continues up, the copy peels off right",
      "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M8 21V4M5 7l3-3 3 3M8 15.5c0-3 3-4.5 7.5-4.5h4M17 8.5l2.5 2.5-2.5 2.5'/></svg>",
@@ -89,7 +99,7 @@
      "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><defs><mask id='cmxs-agent-fork' maskUnits='userSpaceOnUse' x='0' y='0' width='24' height='24'><rect width='24' height='24' fill='#fff'/><g fill='none' stroke='#000' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M12 14v-2.5L9 8M12 11.5 15 8'/></g></mask></defs><g fill='currentColor' mask='url(#cmxs-agent-fork)'><path d='M8 16.5H6.5a3 3 0 0 1 -3 -3v-6a3 3 0 0 1 3 -3h11a3 3 0 0 1 3 3v6a3 3 0 0 1 -3 3h-5.5L8 19.5Z' stroke='currentColor' stroke-width='1.5' stroke-linejoin='round'/></g></svg>"
     }
    ],
-   "note": "Preferred: the SPEC Y (one stem, two arrowheads). No nodes anywhere, so it never reads as git.branch. The asymmetric alt is closest to SF arrow.triangle.branch, which is exactly the clash we are removing.",
+   "note": "The chat runs on as the straight arrow; the fork peels off up and right (Leo 2026-11-07: \"move it 90 deg\"). An arrow, never nodes, so it never reads as git.branch or the pull request mark.",
    "replaces": [
     "TurnFork (sprite strip)",
     "arrow.triangle.branch"
@@ -557,6 +567,60 @@
     "PullRequestIcon (HomeLists local)",
     "arrow.triangle.pull"
    ]
+  },
+  {
+   "name": "git.pullrequest.merged",
+   "meaning": "Merged pull request (Session Info Changes).",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6.5 8v8M6.5 8c0 2.75 2.5 4 8.75 4'/><circle cx='6.5' cy='5.5' r='2.25'/><circle cx='6.5' cy='18.5' r='2.25'/><circle cx='17.5' cy='12' r='2.25'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6.5 8v8M6.5 8c0 2.75 2.5 4 8.75 4' fill='none' stroke-width='2'/><circle cx='6.5' cy='5.5' r='2.5' stroke='none'/><circle cx='6.5' cy='18.5' r='2.5' stroke='none'/><circle cx='17.5' cy='12' r='2.5' stroke='none'/></svg>",
+   "alts": [],
+   "note": "git.pullrequest's base stem and nodes; the head joins it in a curve (GitHub's merge).",
+   "replaces": []
+  },
+  {
+   "name": "git.pullrequest.draft",
+   "meaning": "Draft pull request (Session Info Changes).",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6.5 8v8M17.5 13.5v.75M17.5 8.75v.75M17.5 4v.75'/><circle cx='6.5' cy='5.5' r='2.25'/><circle cx='6.5' cy='18.5' r='2.25'/><circle cx='17.5' cy='18.5' r='2.25'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6.5 8v8M17.5 13.5v.75M17.5 8.75v.75M17.5 4v.75' fill='none' stroke-width='2'/><circle cx='6.5' cy='5.5' r='2.5' stroke='none'/><circle cx='6.5' cy='18.5' r='2.5' stroke='none'/><circle cx='17.5' cy='18.5' r='2.5' stroke='none'/></svg>",
+   "alts": [],
+   "note": "git.pullrequest with its head stem dotted: not ready yet.",
+   "replaces": []
+  },
+  {
+   "name": "git.pullrequest.closed",
+   "meaning": "Closed pull request, or one GitHub can't merge for conflicts (Session Info Changes).",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6.5 8v8M15.5 4l4 4M19.5 4l-4 4M17.5 11v5'/><circle cx='6.5' cy='5.5' r='2.25'/><circle cx='6.5' cy='18.5' r='2.25'/><circle cx='17.5' cy='18.5' r='2.25'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M6.5 8v8M15.5 4l4 4M19.5 4l-4 4M17.5 11v5' fill='none' stroke-width='2'/><circle cx='6.5' cy='5.5' r='2.5' stroke='none'/><circle cx='6.5' cy='18.5' r='2.5' stroke='none'/><circle cx='17.5' cy='18.5' r='2.5' stroke='none'/></svg>",
+   "alts": [],
+   "note": "git.pullrequest with its head's arrow crossed out.",
+   "replaces": []
+  },
+  {
+   "name": "git.issue",
+   "meaning": "Open issue (a GitHub issue link's card and chip).",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><circle cx='12' cy='12' r='1.75' fill='currentColor' stroke='none'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5' fill='none' stroke-width='2'/><circle cx='12' cy='12' r='2.5' stroke='none'/></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": []
+  },
+  {
+   "name": "git.issue.closed",
+   "meaning": "Issue closed as completed.",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><path d='M8.5 12.25l2.5 2.5 4.5-5'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5' fill='none' stroke-width='2'/><path d='M8.5 12.25l2.5 2.5 4.5-5' fill='none' stroke-width='2'/></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": []
+  },
+  {
+   "name": "git.issue.notplanned",
+   "meaning": "Issue closed as not planned.",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5'/><path d='M6 18L18 6'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='8.5' fill='none' stroke-width='2'/><path d='M6 18L18 6' fill='none' stroke-width='2'/></svg>",
+   "alts": [],
+   "note": "",
+   "replaces": []
   },
   {
    "name": "git.worktree",

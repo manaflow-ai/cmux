@@ -36,7 +36,7 @@ Object.assign(scope, replacements);
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { ComposerContext } = await import("../src/agent-session/acpmux/ComposerContext");
-const { newWorktree } = await import("../src/agent-session/acpmux/startFolder");
+const { newWorktree } = await import("../src/agent-session/acpmux/startFolderModel");
 
 afterAll(() => {
   dom.window.close();

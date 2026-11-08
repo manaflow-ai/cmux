@@ -40,6 +40,31 @@
       "key": "tabs.newTabWidgets.modeSwitch",
       "reason": "New Tab picks open, ask or search from what you type; there is no switch",
       "why": "New Tab picks the action itself and has no Search | Ask switch (Leo 2026-10-20, #22816)."
+    },
+    {
+      "key": "tabs.terminalFirst",
+      "reason": "cmux Classic Mode was removed; New Tab opens the New Tab page, where a terminal is one pick",
+      "why": "One app for everyone (Lawrence 2026-10-30: \"wtf is cmux classic mode get rid of it\")."
+    },
+    {
+      "key": "sidebar.showWorkspaceTabs",
+      "reason": "the sidebar lists workspaces only; a workspace's tabs show in its tab bar",
+      "why": "No tabs inside the sidebar (Lawrence 2026-10-30: \"i dont want to see tabs expanded inside of sidebar\")."
+    },
+    {
+      "key": "labs.classicHome",
+      "reason": "Home is the workspace with the Chief docked on the left",
+      "why": "Kept for one release after the docked Home (hq-6d cx-ebm.59.5); retired with the stale Labs flags (Leo 2026-11-05: \"i ok them i know most are super stale/superseded/obsolete\")."
+    },
+    {
+      "key": "remote.enabled",
+      "reason": "cmux Remote is how cmux runs Computer Use and Screen Sharing",
+      "why": "The default-off switch that landed cmux Remote dormant (#28584); retired so cmux Remote is the default (Aziz 2026-11-05: \"we want this to be the default way for screen sharing daemons and computer use daemons moving forward\")."
+    },
+    {
+      "key": "tabs.cmdWClosesPinnedTabs",
+      "reason": "Cmd-W closes a pinned tab like any other tab, as in Chrome",
+      "why": "One close path for pinned and unpinned tabs (Lawrence 2026-11-08, cmux-ad i8: \"make it consistent, match chrome's behavior\"): no kept pinned tab."
     }
   ]
 }

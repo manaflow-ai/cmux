@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import datetime as dt
 import importlib.util
 import io
 import json
@@ -27,6 +28,30 @@ def pool(label: str, capacity: int, running: int = 0, queued: int = 0, *, reserv
 
 
 class PickRuleTests(unittest.TestCase):
+    def test_declared_priority_bands_and_queued_only_preemption(self):
+        self.assertEqual(picker.PRIORITY_BANDS,
+                         (picker.PRIORITY_NIGHTLY, picker.PRIORITY_PROMOTE, picker.PRIORITY_PR,
+                          picker.PRIORITY_DEV, picker.PRIORITY_SIDE_JOB))
+        self.assertEqual(picker.priority_quota(picker.PRIORITY_NIGHTLY, 14), 14)
+        self.assertEqual(picker.priority_quota(picker.PRIORITY_PR, 14), 14)
+        self.assertEqual(picker.priority_quota(picker.PRIORITY_DEV, 14), 4)
+        self.assertEqual(picker.preemptible_queued({picker.PRIORITY_SIDE_JOB: 2}, picker.PRIORITY_NIGHTLY),
+                         (picker.PRIORITY_SIDE_JOB,))
+        self.assertEqual(picker.preemptible_queued({picker.PRIORITY_SIDE_JOB: 2}, picker.PRIORITY_SIDE_JOB), ())
+
+    def test_pick_reports_lower_queued_bands_without_preempting_running_jobs(self):
+        state = picker.State(
+            jobs=1,
+            band=picker.PRIORITY_NIGHTLY,
+            blacksmith=(pool(picker.BLACKSMITH[1], 10, running=9, queued=1),),
+        )
+        # No running count is included in the preemption metadata. The caller
+        # may reconcile only queued work represented by queued_bands.
+        state = dataclasses.replace(state, blacksmith=(dataclasses.replace(
+            state.blacksmith[0], queued_bands={picker.PRIORITY_SIDE_JOB: 3}),))
+        choice = picker.pick(state)
+        self.assertEqual(choice.preempted, (picker.PRIORITY_SIDE_JOB,))
+
     def test_table_driven_rule(self):
         cases = [
             (
@@ -220,6 +245,26 @@ class BlacksmithStallTests(unittest.TestCase):
         self.assertEqual(picker.pick(young).label, picker.BLACKSMITH[0])
         aged = self.state({picker.BLACKSMITH[0]: {"queued": 2, "running": 0, "oldest_queued_minutes": limit - 1}}, age=2)
         self.assertNotEqual(picker.pick(aged).label, picker.BLACKSMITH[0])
+
+    def test_a_dead_macos_26_label_with_its_queue_cleared_has_no_free_slot(self):
+        """2026-10-30: blacksmith-12vcpu-macos-26 ran nothing and started no job for about a day; with its queue
+        cleared the stall rule alone read its five slots free (blacksmith_dead())."""
+        large, small = picker.BLACKSMITH[0], picker.BLACKSMITH[1]
+        generated = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=2)
+        stamp = (generated - dt.timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        pools = {large: {"queued": 0, "running": 0}, small: {"queued": 0, "running": 5}}
+        snap = {"generated_at": generated.strftime("%Y-%m-%dT%H:%M:%SZ"), "pools": pools,
+                "label_started": {small: stamp}}
+        state = picker.state_from(jobs=1, env={}, fork=False, runners=None, snapshot=snap,
+                                  fallback=small, owned_enabled=False)
+        by_label = {item.label: item for item in state.blacksmith}
+        self.assertTrue(by_label[large].stalled)
+        self.assertNotEqual(picker.pick(state).label, large)
+        # Without start evidence (an older janitor) the label reads as before.
+        del snap["label_started"]
+        state = picker.state_from(jobs=1, env={}, fork=False, runners=None, snapshot=snap,
+                                  fallback=small, owned_enabled=False)
+        self.assertFalse({item.label: item for item in state.blacksmith}[large].stalled)
 
     def test_with_every_label_full_a_moving_one_beats_a_stalled_one(self):
         state = picker.State(jobs=1, blacksmith=(

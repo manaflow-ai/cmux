@@ -73,23 +73,72 @@ extension LayoutRootView: ScrollGestureOwning {
 
     func handleMonitored(_ event: NSEvent) -> NSEvent? {
         if event.type == .scrollWheel { return handleMonitoredScroll(event, from: event.window, at: event.locationInWindow) }
+        if event.type == .keyDown {
+            handleMonitoredKey(event.keyCode, from: event.window)
+            return event
+        }
+        if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type), handleMonitoredChildPress(from: event.window) {
+            return event
+        }
         guard event.window === window, window != nil else { return event }
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
-            let point = convert(event.locationInWindow, from: nil)
-            guard bounds.contains(point), let active = model.activeScreenID, let view = screenViews[active] else { return event }
-            // The strip scrollbar takes its own clicks.
-            if let scrollbar = view.scrollbar, !scrollbar.isHidden,
-               scrollbar.hitTest(view.convert(event.locationInWindow, from: nil)) != nil { return event }
-            if let pane = view.pane(at: view.convert(event.locationInWindow, from: nil)) {
-                model.focus(pane, source: .pointer)
-            }
+            handleMonitoredPress(at: event.locationInWindow)
             return event
         case .magnify:
             return handleCanvasMagnify(event) ? nil : event
         default:
             return event
         }
+    }
+
+    /// A key down from `source`, as the monitor sees it before AppKit dispatches it: Escape takes
+    /// the focus ring away, and the key still reaches the pane (a terminal's vim, a page). A
+    /// Chromium page's keys come from its child window, which counts as this window.
+    func handleMonitoredKey(_ keyCode: UInt16, from source: NSWindow?) {
+        guard keyCode == 53, let window, let source, source === window || source.parent === window else { return }
+        model.dismissFocusRing()
+    }
+
+    /// A press in a page window of this one (a Chromium page) is a click in that pane: its ring
+    /// goes and the press goes on to the page. False for any other window, child panels included
+    /// (a divider's mouse catcher, an overlay): those are no click in a pane.
+    func handleMonitoredChildPress(from source: NSWindow?) -> Bool {
+        guard let window, let source, source.parent === window, WindowOverlayHost.isPageWindow(source) else { return false }
+        model.dismissFocusRing()
+        return true
+    }
+
+    /// A press at `locationInWindow` (the window's coordinates), as the monitor sees it before AppKit
+    /// dispatches it: the pane it reaches takes the focus. Apart from ``handleMonitored(_:)`` so tests can
+    /// send a press, which a synthesized event for a window off screen cannot carry.
+    func handleMonitoredPress(at locationInWindow: NSPoint) {
+        let point = convert(locationInWindow, from: nil)
+        guard bounds.contains(point), let active = model.activeScreenID, let view = screenViews[active] else { return }
+        // The strip scrollbar takes its own clicks.
+        if let scrollbar = view.scrollbar, !scrollbar.isHidden,
+           scrollbar.hitTest(view.convert(locationInWindow, from: nil)) != nil { return }
+        // Only the pane AppKit gives the press to takes the focus (cmux-ad P0 2026-10-31). A press the
+        // window frame keeps (a resize at an edge or corner, inside the frame too), a divider's hit area,
+        // the sidebar's resize band or the titlebar's buttons reaches no pane, although it lies over one:
+        // it focuses none, so the next keys go where the person was typing.
+        if let pane = paneReceivingPress(at: locationInWindow, in: view) {
+            model.focus(pane, source: .pointer)
+        }
+    }
+
+    /// The pane a press at `locationInWindow` reaches: the one whose host holds the view AppKit
+    /// dispatches the press to, by its hit test from the window's frame view. Nil when the press reaches
+    /// no pane of `screen` (the frame view, a divider, a view over the layout such as the sidebar's
+    /// resize band).
+    func paneReceivingPress(at locationInWindow: NSPoint, in screen: ScreenContentView) -> PaneID? {
+        guard let frameView = window?.contentView?.superview,
+              let hit = frameView.hitTest(frameView.convert(locationInWindow, from: nil)) else { return nil }
+        for view in sequence(first: hit, next: \.superview) {
+            if view === screen { return nil }
+            if let host = view as? PaneHostView, context.hosts[host.pane] === host, host.isDescendant(of: screen) { return host.pane }
+        }
+        return nil
     }
 
     /// The monitor's scroll routing: `event` as `eventWindow`, the window AppKit sent it to, has it

@@ -11,33 +11,63 @@ use std::time::Duration;
 /// Deadlines of one link. `ACPMUX_PEER_TIMEOUT_SECS` sets the connect
 /// deadline (the handshake gets three times it), `ACPMUX_PEER_PING_SECS`
 /// the keepalive interval, for a host that is slow even when well, and
-/// `ACPMUX_PEER_REQUEST_SECS` how long one request waits for its answer.
+/// `ACPMUX_PEER_REQUEST_SECS` how long one request waits for its answer, and
+/// `ACPMUX_PEER_START_SECS` how long a forwarded `session/new` waits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LinkTimings {
     /// ssh, the tunnel and the WebSocket upgrade; also the remote config read.
+    // timeout: a dead route must fail connection setup so the reconnect loop can choose a new
+    // route; once connected, peer traffic uses the link's liveness path.
     pub connect: Duration,
     /// `initialize` and `_acpmux/watch` once the WebSocket is open.
+    // timeout: a peer that never completes its handshake is not usable; the link retries while
+    // the socket remains open and this is the long hazard bound for a wedged handshake.
     pub handshake: Duration,
-    /// A ping goes out this often; any frame from the peer counts as an answer.
+    /// A ping goes out this often; any byte from the peer counts as an answer.
     pub ping_every: Duration,
-    /// The link is dropped after this many intervals without a frame, and a
-    /// send that cannot go out for as long.
+    /// The link is dropped after this many intervals without a byte from the peer, at first:
+    /// a link to a peer that answers late gets more (`SilenceBudget`).
     pub ping_misses: u32,
+    /// `ACPMUX_PEER_PING_SECS` was set: the silence budget stays `silence_budget()`.
+    pub fixed_silence: bool,
+    /// The link is dropped when one send cannot go out for this long (a peer that stops
+    /// reading). Longer than the silence budget: a large frame on a slow uplink takes a while.
+    // timeout: a peer that never reads would hold every queued write; a dead transport is
+    // detected sooner by the silence budget.
+    pub send: Duration,
     /// A link that stayed ready this long starts its next backoff over.
     pub stable_after: Duration,
     /// How long one request waits for the peer's answer.
+    // timeout: a connected peer that never answers and never closes needs a finite diagnostic
+    // bound; keepalive detects a dead transport earlier.
     pub request: Duration,
+    /// How long a forwarded `session/new` waits for the peer's answer: past the peer's own
+    /// start envelope. `Peer::send_request` takes the larger of this and `request`, so a slow
+    /// live start is not cut off by the old pooled-start budget.
+    // timeout: a remote handler that stays connected but never answers needs a finite forwarding
+    // hazard bound; a dead peer is detected by the transport keepalive.
+    pub start: Duration,
 }
+
+/// The peer's whole `session/new` budget (`hub::SESSION_NEW_BUDGET`), plus room for the link.
+pub const START_DEFAULT: Duration =
+    Duration::from_secs(crate::hub::SESSION_NEW_BUDGET.as_secs() + 15);
 
 impl Default for LinkTimings {
     fn default() -> Self {
         Self {
             connect: Duration::from_secs(30),
             handshake: Duration::from_secs(90),
-            ping_every: Duration::from_secs(20),
-            ping_misses: 4,
+            // A dead link (a dropped network, a computer that slept) is found within 6 to 8 s,
+            // not 80, so its redial starts while the person still waits. A ping is a few bytes
+            // over the tunnel each 2 s, answered by the peer's connection reader.
+            ping_every: Duration::from_secs(2),
+            ping_misses: 3,
+            fixed_silence: false,
+            send: Duration::from_secs(80),
             stable_after: Duration::from_secs(60),
             request: Duration::from_secs(600),
+            start: START_DEFAULT,
         }
     }
 }
@@ -54,32 +84,141 @@ impl LinkTimings {
         }
         if let Some(n) = secs("ACPMUX_PEER_PING_SECS") {
             t.ping_every = Duration::from_secs(n);
+            t.fixed_silence = true;
         }
         if let Some(n) = secs("ACPMUX_PEER_REQUEST_SECS") {
             t.request = Duration::from_secs(n);
         }
+        if let Some(n) = secs("ACPMUX_PEER_START_SECS") {
+            t.start = Duration::from_secs(n);
+        }
         t
     }
 
-    /// How long the peer may stay silent (or refuse a send) before the link
-    /// is dropped.
+    /// How long the peer may stay silent before the link is dropped, until it answers late
+    /// (`SilenceBudget`).
     pub fn silence_budget(&self) -> Duration {
         self.ping_every * self.ping_misses
+    }
+}
+
+/// How long one peer's links may stay silent before they are dropped. It starts at
+/// `LinkTimings::silence_budget` (6 s), so a dead link is found in seconds, and grows for a peer
+/// that answers late but answers (a loaded host): an answer that came after more than half the
+/// budget raises it to twice that gap, and a link dropped for silence that opens again within a
+/// connect deadline (the peer was slow, not gone) doubles it. Never past `CAP`, the 80 s of
+/// before #38015. After `stable_after` with no answer that late, it halves, not under twice the
+/// longest gap meanwhile, back down to the start. A fixed `ACPMUX_PEER_PING_SECS` keeps it at
+/// the start. Kept per peer across its links, so a redial does not forget what it learned.
+#[derive(Debug, Clone)]
+pub struct SilenceBudget {
+    floor: Duration,
+    cap: Duration,
+    fixed: bool,
+    current: Duration,
+    /// When the budget last grew or shrank, while it is over the floor.
+    moved_at: Option<tokio::time::Instant>,
+    /// The longest gap between answers since `moved_at`.
+    longest: Duration,
+    /// When a link was dropped for silence: one that opens within `reopen` of it doubles it.
+    dropped_at: Option<tokio::time::Instant>,
+    reopen: Duration,
+    stable_after: Duration,
+}
+
+impl SilenceBudget {
+    /// The old fixed budget: 4 pings 20 s apart.
+    pub const CAP: Duration = Duration::from_secs(80);
+
+    pub fn new(timings: &LinkTimings) -> Self {
+        let floor = timings.silence_budget();
+        Self {
+            floor,
+            cap: Self::CAP.max(floor),
+            fixed: timings.fixed_silence,
+            current: floor,
+            moved_at: None,
+            longest: Duration::ZERO,
+            dropped_at: None,
+            reopen: timings.connect,
+            stable_after: timings.stable_after,
+        }
+    }
+
+    pub fn current(&self) -> Duration {
+        self.current
+    }
+
+    fn raise(&mut self, to: Duration, now: tokio::time::Instant) {
+        if self.fixed || to <= self.current {
+            return;
+        }
+        self.current = to.min(self.cap);
+        self.moved_at = Some(now);
+        self.longest = Duration::ZERO;
+    }
+
+    /// The peer answered after `gap` without a byte.
+    pub fn answered_after(&mut self, gap: Duration, now: tokio::time::Instant) {
+        self.longest = self.longest.max(gap);
+        if gap * 2 > self.current {
+            self.raise(gap * 2, now);
+        }
+    }
+
+    /// The link is dropped for silence.
+    pub fn dropped(&mut self, now: tokio::time::Instant) {
+        self.dropped_at = Some(now);
+    }
+
+    /// A new link's WebSocket opened: the peer's daemon answers.
+    pub fn opened(&mut self, now: tokio::time::Instant) {
+        if let Some(at) = self.dropped_at.take()
+            && now.saturating_duration_since(at) <= self.reopen
+        {
+            self.raise(self.current * 2, now);
+        }
+    }
+
+    /// A ping interval passed on a link that is up: after `stable_after` with no late answer,
+    /// the budget comes down a step.
+    pub fn settle(&mut self, now: tokio::time::Instant) {
+        let Some(at) = self.moved_at else { return };
+        if now.saturating_duration_since(at) < self.stable_after {
+            return;
+        }
+        self.current = (self.current / 2).max(self.longest * 2).max(self.floor);
+        self.moved_at = (self.current > self.floor).then_some(now);
+        self.longest = Duration::ZERO;
     }
 }
 
 /// Reconnect delays: doubling from `BASE` to `CAP`, each drawn from the
 /// upper half of its step (equal jitter), so peers that lost the same host
 /// do not retry in step, and no attempt follows another at once. It never
-/// gives up.
+/// gives up. While a client waits on the peer, no step is longer than
+/// `WANTED_CAP` (`Backoff::wanted`, `Peer::want`).
 #[derive(Debug, Clone, Default)]
 pub struct Backoff {
     failures: u32,
 }
 
 impl Backoff {
-    pub const BASE: Duration = Duration::from_secs(2);
+    pub const BASE: Duration = Duration::from_millis(500);
     pub const CAP: Duration = Duration::from_secs(60);
+    /// The longest step while a client waits on the peer: a daemon that restarts or a
+    /// handshake that fails once costs an open chat a second, not the doubled minute.
+    pub const WANTED_CAP: Duration = Duration::from_secs(1);
+
+    /// `delay` for a peer a client waits on: unchanged when it is within `WANTED_CAP`, else
+    /// drawn again from that cap's upper half with `jitter` (in `0.0..1.0`).
+    pub fn wanted(delay: Duration, jitter: f64) -> Duration {
+        if delay <= Self::WANTED_CAP {
+            return delay;
+        }
+        let half = Self::WANTED_CAP.mul_f64(0.5);
+        half.saturating_add(Self::WANTED_CAP.mul_f64(jitter.clamp(0.0, 1.0) / 2.0))
+    }
 
     /// The delay before the next attempt; `jitter` is in `0.0..1.0`.
     pub fn next(&mut self, jitter: f64) -> Duration {
@@ -90,6 +229,11 @@ impl Backoff {
 
     pub fn reset(&mut self) {
         self.failures = 0;
+    }
+
+    /// Steps drawn since the last `reset`.
+    pub fn failures(&self) -> u32 {
+        self.failures
     }
 }
 
@@ -137,8 +281,11 @@ impl SleepWatch {
 }
 
 /// After a wake, how long an open link has to answer a ping before it is dropped and redialed
-/// (its ssh tunnel and TCP connection often died while the computer slept).
-pub const WAKE_PROBE: Duration = Duration::from_secs(10);
+/// (its ssh tunnel and TCP connection often died while the computer slept). This is only for a
+/// stale post-sleep transport; ordinary busy-peer traffic stays on the link.
+// timeout: a socket that survived sleep but cannot answer this probe is a dead transport, so
+// redialing is safer than holding every queued write indefinitely.
+pub const WAKE_PROBE: Duration = Duration::from_secs(30);
 
 /// When a write that starts at `now` gives up: after the send `budget`, or at a running wake
 /// probe's deadline when that comes first, so a write to a link that died while the computer
@@ -149,6 +296,96 @@ where
 {
     let end = now + budget;
     wake_probe.map_or(end, |probe| probe.min(end))
+}
+
+/// When the transport under a link last read a byte, and the longest gap between two reads
+/// since `take_gap` last asked. A link is alive while bytes arrive, also in
+/// the middle of a large frame that takes longer than the silence budget to come in, so the
+/// budget can be short without cutting a slow but working link (`Peer::serve`).
+#[derive(Debug, Clone)]
+pub struct Heard {
+    origin: tokio::time::Instant,
+    at_ms: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    gap_ms: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl Default for Heard {
+    fn default() -> Self {
+        Self {
+            origin: tokio::time::Instant::now(),
+            at_ms: Default::default(),
+            gap_ms: Default::default(),
+        }
+    }
+}
+
+impl Heard {
+    pub fn mark(&self) {
+        let ms = self.origin.elapsed().as_millis() as u64;
+        let before = self.at_ms.fetch_max(ms, std::sync::atomic::Ordering::Relaxed);
+        self.gap_ms.fetch_max(ms.saturating_sub(before), std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// The longest gap between two reads since the last call (the first counts from when
+    /// this was made).
+    pub fn take_gap(&self) -> Duration {
+        Duration::from_millis(self.gap_ms.swap(0, std::sync::atomic::Ordering::Relaxed))
+    }
+
+    /// How long since the last byte (since this was made, before any).
+    pub fn silent(&self) -> Duration {
+        let at = Duration::from_millis(self.at_ms.load(std::sync::atomic::Ordering::Relaxed));
+        self.origin.elapsed().saturating_sub(at)
+    }
+
+    pub fn wrap<S>(&self, inner: S) -> HeardStream<S> {
+        HeardStream { inner, heard: self.clone() }
+    }
+}
+
+/// A stream that marks its `Heard` on each read that returned bytes.
+pub struct HeardStream<S> {
+    inner: S,
+    heard: Heard,
+}
+
+impl<S: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for HeardStream<S> {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let before = buf.filled().len();
+        let polled = std::pin::Pin::new(&mut self.inner).poll_read(cx, buf);
+        if matches!(polled, std::task::Poll::Ready(Ok(()))) && buf.filled().len() > before {
+            self.heard.mark();
+        }
+        polled
+    }
+}
+
+impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for HeardStream<S> {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
 }
 
 /// A fresh jitter in `0.0..1.0` from the OS generator (0.5 if it fails).
@@ -179,17 +416,16 @@ pub enum PeerState {
 }
 
 impl PeerState {
-    /// Its `_acpmux/peer_state_changed` form (`protocol/peer_state.rs`).
-    pub fn wire(self) -> crate::protocol::peer_state::PeerLinkState {
-        use crate::protocol::peer_state::PeerLinkState as W;
+    /// Its `_acpmux/peer_state_changed` `link` (`protocol/peer_state.rs`), unfolded: a restart
+    /// is `restarting` there too. An older app reads `state`, `MachineLink::folded`.
+    pub fn wire(self) -> crate::protocol::peer_state::MachineLink {
+        use crate::protocol::peer_state::MachineLink as W;
         match self {
             Self::Connecting => W::Connecting,
             Self::Connected => W::Connected,
             Self::Degraded => W::Degraded,
             Self::Reconnecting => W::Reconnecting,
-            // Existing typed clients understand reconnecting. The richer restart status is
-            // exposed by `_acpmux/peers` summaries until the UI protocol adds it.
-            Self::Restarting => W::Reconnecting,
+            Self::Restarting => W::Restarting,
             Self::Offline => W::Offline,
         }
     }
@@ -217,6 +453,12 @@ pub struct Link {
     pub last_seen: Option<u64>,
     /// When the link last went down, while it is down.
     pub down_since: Option<u64>,
+    /// A parked peer's next automatic attempt, preserved across daemon updates.
+    pub next_retry_at: Option<u64>,
+    /// The next automatic attempt of a link that is down, parked or not (`nextRetryAt` on the
+    /// wire); None while a link is open. Past it, an attempt runs or ran. Only reported, never
+    /// waited on: the run loop keeps its own delay.
+    pub retry_at: Option<u64>,
     /// Failed attempts since the link was last ready.
     pub attempts: u32,
     /// When the link last became ready.
@@ -234,7 +476,7 @@ impl Link {
             (true, true) => PeerState::Connected,
             (true, false) => PeerState::Degraded,
             (false, _) if self.last_seen.is_some() => PeerState::Reconnecting,
-            (false, _) if self.attempts == 0 => PeerState::Connecting,
+            (false, _) if self.attempts == 0 && self.down_since.is_none() => PeerState::Connecting,
             (false, _) => PeerState::Offline,
         }
     }
@@ -261,8 +503,45 @@ impl Link {
         }
     }
 
+    /// Only an explicit saved outage seeds retry age: an old lastSeen in a quiet peer's
+    /// session cache does not prove the link has been down since then.
+    pub fn seed_outage(&mut self, down_since: Option<u64>) {
+        if !self.open && self.attempts == 0 && self.down_since.is_none() {
+            self.down_since = down_since;
+        }
+    }
+
+    /// A day without a successful handshake parks automatic retries. The first attempt
+    /// still runs immediately; an explicit reconnect replaces the instance and also runs
+    /// immediately. Existing rows and dead-link request refusal are independent of this delay.
+    pub fn retry_delay(&self, backoff: &mut Backoff, now: u64, jitter: f64) -> Duration {
+        const DAY_MS: u64 = 24 * 60 * 60 * 1_000;
+        if self.down_since.is_some_and(|at| now.saturating_sub(at) >= DAY_MS) {
+            // Small positive jitter keeps many retired hosts from retrying in lockstep.
+            Duration::from_secs(3_600) + Duration::from_secs(60).mul_f64(jitter.clamp(0.0, 1.0))
+        } else {
+            backoff.next(jitter)
+        }
+    }
+
+    /// Save only parked schedules: ordinary short reconnect backoff starts fresh on boot.
+    pub fn schedule_retry(&mut self, backoff: &mut Backoff, now: u64, jitter: f64) -> Duration {
+        let delay = self.retry_delay(backoff, now, jitter);
+        self.next_retry_at = (delay >= Duration::from_secs(3_600))
+            .then(|| now.saturating_add(delay.as_millis() as u64));
+        delay
+    }
+
+    pub fn parked_retry_wait(&self, now: u64) -> Option<Duration> {
+        self.next_retry_at.filter(|at| *at > now && self.down_since.is_some()).map(|at| {
+            // A wall-clock correction must not strand a peer beyond one retry interval.
+            Duration::from_millis(at - now).min(Duration::from_secs(3_660))
+        })
+    }
+
     /// The WebSocket opened; the handshake runs.
     pub fn opened(&mut self, now: u64) {
+        self.retry_at = None;
         self.opened_at = Some(now);
         self.open = true;
         self.ready = false;
@@ -277,6 +556,7 @@ impl Link {
         self.overdue = false;
         self.last_seen = Some(now);
         self.down_since = None;
+        self.next_retry_at = None;
         self.attempts = 0;
         self.ready_at = Some(now);
     }
@@ -301,6 +581,12 @@ impl Link {
         self.overdue = false;
         self.ready_at = None;
         self.down_since.get_or_insert(now);
+    }
+
+    /// How long the link has been ready, while it is.
+    pub fn ready_for(&self, now: u64) -> Option<Duration> {
+        let at = self.ready_at.filter(|_| self.is_ready())?;
+        Some(Duration::from_millis(now.saturating_sub(at)))
     }
 
     /// The attempt failed or the link dropped. Returns whether the link had
@@ -348,13 +634,13 @@ pub fn describe(name: &str, link: &Link, error: Option<&str>, now: u64) -> Strin
 /// request was not sent, so retrying it never runs it twice.
 pub fn unreachable_error(name: &str, link: &Link, error: Option<&str>, now: u64) -> RpcError {
     RpcError::internal(format!(
-        "peer_unreachable: {}; the request was not sent; run `acpmux host ls` and retry after the peer reconnects",
+        "peer_unreachable: {}; the request was not sent; run `acpmux machine ls` and retry after the peer reconnects",
         describe(name, link, error, now)
     )).with_data(
         json!({
             "reason": "peer_unreachable",
             "retryable": true,
-            "try": "acpmux host ls",
+            "try": "acpmux machine ls",
             "detail": "the request was not sent",
             "peer": name,
             "peerState": link.state().as_str(),
@@ -481,6 +767,46 @@ mod tests {
     }
 
     #[test]
+    fn retry_parking_survives_cache_seed_and_ends_at_a_successful_handshake() {
+        let mut link = Link::default();
+        let mut backoff = Backoff::default();
+        let day = 86_400_000;
+        link.seed(Some(1_000));
+        assert!(link.retry_delay(&mut backoff, 1_000 + day, 0.0) <= Backoff::CAP);
+        link.seed_outage(Some(1_000));
+        assert!(link.retry_delay(&mut backoff, 1_000 + day - 1, 0.0) <= Backoff::CAP);
+        assert_eq!(link.retry_delay(&mut backoff, 1_000 + day, 0.0), Duration::from_secs(3_600));
+        assert_eq!(link.retry_delay(&mut backoff, 1_000 + day, 1.0), Duration::from_secs(3_660));
+        link.opened(day + 2_000);
+        link.down(day + 2_001, STABLE);
+        assert!(link.retry_delay(&mut backoff, day + 2_001, 0.0) >= Duration::from_secs(3_600));
+        link.opened(day + 3_000);
+        link.ready(day + 3_001);
+        link.down(day + 3_002, STABLE);
+        assert!(link.retry_delay(&mut backoff, day + 3_002, 0.0) <= Backoff::CAP);
+    }
+
+    #[test]
+    fn parked_schedule_retains_only_the_remaining_wait_and_recovery_clears_it() {
+        let now = 86_400_001;
+        let mut link = Link::default();
+        link.seed_outage(Some(0));
+        let delay = link.schedule_retry(&mut Backoff::default(), now, 0.0);
+        assert_eq!(delay, Duration::from_secs(3_600));
+        assert_eq!(link.parked_retry_wait(now + 120_000), Some(Duration::from_secs(3_480)));
+        assert_eq!(link.parked_retry_wait(now + 3_600_000), None);
+        assert_eq!(
+            link.parked_retry_wait(0),
+            Some(Duration::from_secs(3_660)),
+            "clock correction is bounded"
+        );
+        link.opened(now + 2_000);
+        link.ready(now + 2_001);
+        assert_eq!(link.next_retry_at, None);
+        assert_eq!(link.parked_retry_wait(now + 2_001), None);
+    }
+
+    #[test]
     fn backoff_doubles_within_jittered_bounds_up_to_the_cap() {
         let mut low = Backoff::default();
         let mut high = Backoff::default();
@@ -500,6 +826,25 @@ mod tests {
     }
 
     #[test]
+    fn a_wanted_peer_retries_within_seconds_however_long_the_backoff_grew() {
+        // The schedule a failed handshake starts: 0.25-0.5 s, 0.5-1 s, 1-2 s, 2-4 s, ...
+        let mut backoff = Backoff::default();
+        let steps: Vec<_> = (0..4).map(|_| backoff.next(0.999_999)).collect();
+        for (step, cap) in steps.iter().zip([500, 1_000, 2_000, 4_000]) {
+            assert!(*step <= Duration::from_millis(cap), "{steps:?}");
+        }
+        assert_eq!(Backoff::wanted(Duration::from_millis(300), 0.0), Duration::from_millis(300));
+        for _ in 0..12 {
+            let delay = backoff.next(0.999_999);
+            let wanted = Backoff::wanted(delay, 0.999_999);
+            assert!(wanted <= Backoff::WANTED_CAP && wanted <= delay, "{wanted:?} for {delay:?}");
+        }
+        assert_eq!(Backoff::wanted(Backoff::CAP, 0.0), Backoff::WANTED_CAP / 2, "never zero");
+        let parked = Duration::from_secs(3_600);
+        assert!(Backoff::wanted(parked, 1.0) <= Backoff::WANTED_CAP, "a parked peer too");
+    }
+
+    #[test]
     fn the_unreachable_error_names_the_state_age_and_last_error() {
         let mut link = Link::default();
         link.opened(0);
@@ -509,11 +854,11 @@ mod tests {
         assert!(
             e.message.contains("huge-blue (reconnecting, last seen 40s ago: connect timed out)")
         );
-        assert!(e.message.contains("acpmux host ls"));
+        assert!(e.message.contains("acpmux machine ls"));
         let data = e.data.unwrap();
         assert_eq!(data["reason"], "peer_unreachable");
         assert_eq!(data["retryable"], true);
-        assert_eq!(data["try"], "acpmux host ls");
+        assert_eq!(data["try"], "acpmux machine ls");
         assert_eq!(data["peerState"], "reconnecting");
         assert_eq!(data["lastSeen"], 0);
         let never = describe("gone", &Link::default(), None, 5);
@@ -530,10 +875,72 @@ mod tests {
         assert_eq!(ago(3 * 3_600_000), "3h");
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn a_late_answering_peer_gets_more_silence_and_gives_it_back_once_calm() {
+        let t = LinkTimings::default();
+        let mut budget = SilenceBudget::new(&t);
+        let start = tokio::time::Instant::now();
+        let secs = Duration::from_secs;
+        assert_eq!(budget.current(), secs(6));
+        budget.answered_after(secs(2), start);
+        assert_eq!(budget.current(), secs(6), "an answer within half the budget changes nothing");
+        budget.answered_after(secs(5), start);
+        assert_eq!(budget.current(), secs(10), "twice the late gap");
+        budget.dropped(start);
+        budget.opened(start + t.connect + secs(1));
+        assert_eq!(budget.current(), secs(10), "a peer gone for longer than a connect was gone");
+        budget.dropped(start);
+        budget.opened(start + secs(1));
+        assert_eq!(budget.current(), secs(20), "one that opens straight back was slow: doubled");
+        budget.opened(start + secs(2));
+        assert_eq!(budget.current(), secs(20), "once per drop");
+        for _ in 0..4 {
+            budget.dropped(start);
+            budget.opened(start);
+        }
+        assert_eq!(budget.current(), SilenceBudget::CAP, "never past the old 80 s");
+        // Calm: answers 3 s apart, then a step down each `stable_after`, to the start.
+        budget.answered_after(secs(3), start);
+        budget.settle(start + t.stable_after - secs(1));
+        assert_eq!(budget.current(), SilenceBudget::CAP, "not calm for long enough yet");
+        let mut at = start + t.stable_after;
+        budget.settle(at);
+        assert_eq!(budget.current(), secs(40));
+        for want in [20, 10, 6, 6] {
+            at += t.stable_after;
+            budget.settle(at);
+            assert_eq!(budget.current(), secs(want));
+        }
+        // A step down never goes under twice the longest gap meanwhile.
+        budget.answered_after(secs(9), at);
+        assert_eq!(budget.current(), secs(18));
+        budget.answered_after(secs(8), at);
+        budget.settle(at + t.stable_after);
+        assert_eq!(budget.current(), secs(16));
+    }
+
+    #[test]
+    fn a_set_ping_interval_keeps_the_silence_budget_fixed() {
+        let t = LinkTimings {
+            ping_every: Duration::from_secs(5),
+            fixed_silence: true,
+            ..LinkTimings::default()
+        };
+        let mut budget = SilenceBudget::new(&t);
+        let now = tokio::time::Instant::now();
+        budget.answered_after(Duration::from_secs(14), now);
+        budget.dropped(now);
+        budget.opened(now);
+        assert_eq!(budget.current(), Duration::from_secs(15));
+        let slow = LinkTimings { ping_every: Duration::from_secs(40), ..LinkTimings::default() };
+        assert_eq!(SilenceBudget::new(&slow).current(), Duration::from_secs(120), "over the cap");
+    }
+
     #[test]
     fn env_sets_the_connect_handshake_and_ping_deadlines() {
         let t = LinkTimings::default();
-        assert_eq!(t.silence_budget(), Duration::from_secs(80));
+        assert_eq!(t.silence_budget(), Duration::from_secs(6));
+        assert_eq!(t.send, Duration::from_secs(80));
         assert!(t.connect >= Duration::from_secs(30) && t.handshake >= t.connect);
     }
 }

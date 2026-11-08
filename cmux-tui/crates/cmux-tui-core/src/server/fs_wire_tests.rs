@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use super::super::{LinkVerifier, serve_remote_entry};
 use super::*;
-use crate::fs_ops::{FS_CAPABILITY, FS_COMMANDS, FsService, Roots};
+use crate::fs_ops::{FS_CAPABILITY, FS_COMMANDS, FS_SYMLINK_COMMANDS, FsService, Roots};
 
 pub(super) fn test_mux() -> Arc<Mux> {
     let mux = Mux::new_for_test("fs-wire", crate::SurfaceOptions::default());
@@ -67,10 +67,20 @@ impl Drop for Home {
 #[test]
 fn the_gate_admits_exactly_the_seven_fs_ops() {
     let gate = FsGate;
-    for cmd in FS_COMMANDS {
+    for cmd in FS_COMMANDS.iter().chain(&FS_SYMLINK_COMMANDS) {
         assert!(gate.admit(&peer(), &json!({ "id": 1, "cmd": cmd, "path": "/x" }).to_string()));
     }
+    for cmd in crate::git_seed::GIT_SEED_COMMANDS {
+        assert!(gate.admit(&peer(), &json!({ "id": 1, "cmd": cmd, "job": "x" }).to_string()));
+    }
+    for cmd in crate::blob_fetch::BLOB_FETCH_COMMANDS {
+        assert!(gate.admit(&peer(), &json!({ "id": 1, "cmd": cmd, "job": "x" }).to_string()));
+    }
+    assert!(!gate.admit(&peer(), r#"{"id":1,"cmd":"blob.fetch.list"}"#));
     for frame in [
+        r#"{"id":1,"cmd":"git.seed.cancel"}"#,
+        r#"{"id":1,"cmd":"git.seed.start","protocol":"cmux.protocol/2"}"#,
+        r#"{"id":1,"cmd":"GIT.SEED.START"}"#,
         r#"{"id":1,"cmd":"identify"}"#,
         r#"{"id":1,"cmd":"fs.trash","paths":["/x"]}"#,
         r#"{"id":1,"cmd":"fs.statx","path":"/x"}"#,
@@ -96,7 +106,7 @@ fn a_host_without_the_fs_owner_does_not_advertise_and_refuses_every_op() {
     assert!(crate::fs_ops::installed().is_none(), "tests never install the process owner");
     assert!(!super::super::advertised_capabilities(false).contains(&FS_CAPABILITY));
     assert!(!super::super::advertised_capabilities(true).contains(&FS_CAPABILITY));
-    for cmd in FS_COMMANDS {
+    for cmd in FS_COMMANDS.iter().chain(&FS_SYMLINK_COMMANDS) {
         let answer = answer_line(None, true, "owner", &json!({ "id": 7, "cmd": cmd }).to_string());
         assert_eq!(answer["id"], 7);
         assert_eq!(answer["ok"], false);
@@ -247,18 +257,43 @@ fn the_contract_request_lines_get_the_answer_shapes_cmux_cloud_reads() {
     );
 }
 
+/// Sends `line` and `body` on one dial and returns what the daemon answered.
+/// The daemon may refuse a write stream before it has read all of `body`
+/// (a deflate stream past its `decoded_size`, a failed disk write): it
+/// answers and closes, and the rest of `body` then meets a closed socket.
+/// A client stops sending there and reads the answer, so this does too.
+/// Whether that happens depends on the socket buffer (a few KiB on macOS,
+/// a few hundred on Linux), not on the daemon.
 fn routed(home: &Home, line: &str, body: &[u8]) -> (Option<()>, Vec<u8>) {
     let (daemon_side, mut client) = UnixStream::pair().unwrap();
     client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let entry = home.entry();
+    let daemon = std::thread::spawn(move || {
+        route_first_line(&test_mux(), daemon_side, &FsGate, &peer(), entry).map(drop)
+    });
     let mut sent = home.map(line).into_bytes();
     sent.push(b'\n');
     sent.extend_from_slice(body);
-    client.write_all(&sent).unwrap();
-    client.shutdown(std::net::Shutdown::Write).unwrap();
-    let left = route_first_line(&test_mux(), daemon_side, &FsGate, &peer(), home.entry()).map(drop);
+    // A daemon that answers a short body at once can also be gone before
+    // the shutdown (macOS then says NotConnected).
+    let closed = |error: &std::io::Error| {
+        matches!(
+            error.kind(),
+            std::io::ErrorKind::BrokenPipe
+                | std::io::ErrorKind::ConnectionReset
+                | std::io::ErrorKind::NotConnected
+        )
+    };
+    let sent = client.write_all(&sent).and_then(|()| client.shutdown(std::net::Shutdown::Write));
+    if let Err(error) = sent {
+        assert!(
+            closed(&error),
+            "only a daemon that already answered and closed stops the body: {error}"
+        );
+    }
     let mut output = Vec::new();
     let _ = client.read_to_end(&mut output);
-    (left, output)
+    (daemon.join().unwrap(), output)
 }
 
 #[test]
@@ -278,6 +313,58 @@ fn a_dial_whose_first_line_is_a_stream_is_served_raw() {
     assert_eq!(lines[0]["data"]["ready"], true);
     assert_eq!(lines[1]["data"]["entry"]["size"], 5);
     assert_eq!(std::fs::read(home.path.join("up.bin")).unwrap(), b"hello");
+}
+
+#[test]
+fn file_stream_roundtrips_binary_mebibytes_and_cleans_an_interrupted_write() {
+    let home = Home::new("large-stream");
+    let bytes: Vec<u8> = (0..8 * 1024 * 1024).map(|i| (i % 251) as u8).collect();
+    let write = json!({ "id": 1, "cmd": "fs.write", "path": "/home/cmux/up.bin",
+        "mode": "create", "stream": true, "size": bytes.len() })
+    .to_string();
+    let (left, output) = routed(&home, &write, &bytes);
+    assert!(left.is_none());
+    let replies: Vec<Value> = output
+        .split(|b| *b == b'\n')
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_slice(l).unwrap())
+        .collect();
+    assert_eq!(replies[0]["data"]["ready"], true);
+    assert_eq!(replies[1]["data"]["entry"]["size"], bytes.len());
+    let (_, output) =
+        routed(&home, r#"{"id":2,"cmd":"fs.read","path":"/home/cmux/up.bin","stream":true}"#, &[]);
+    let mut output = BufReader::new(output.as_slice());
+    let mut line = String::new();
+    output.read_line(&mut line).unwrap();
+    let header: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(header["data"]["length"], bytes.len());
+    let mut received = vec![0u8; bytes.len()];
+    output.read_exact(&mut received).unwrap();
+    assert_eq!(received, bytes);
+    line.clear();
+    output.read_line(&mut line).unwrap();
+    let end: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(end["ok"], true);
+    assert_eq!(end["data"]["revision"], header["data"]["revision"]);
+
+    let interrupted = write.replace("up.bin", "partial.bin");
+    let (_, output) = routed(&home, &interrupted, &bytes[..4 * 1024 * 1024]);
+    assert!(String::from_utf8(output).unwrap().contains("\"ready\":true"));
+    assert!(!home.path.join("partial.bin").exists());
+    assert_eq!(std::fs::read_dir(&home.path).unwrap().count(), 1, "no temporary remains");
+}
+
+#[test]
+fn file_stream_above_64_gib_checks_the_write_mode_instead_of_refusing_its_size() {
+    let home = Home::new("uncapped-stream");
+    let line = json!({ "id": 1, "cmd": "fs.write", "path": "/home/cmux/up.bin",
+        "mode": "invalid", "stream": true, "size": 64u64 * 1024 * 1024 * 1024 + 1 });
+    let (left, output) = routed(&home, &line.to_string(), &[]);
+    assert!(left.is_none());
+    let answer: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(answer["error_code"], "params.invalid", "{answer}");
+    assert!(answer["error"].as_str().unwrap().contains("mode"));
+    assert!(std::fs::read_dir(&home.path).unwrap().next().is_none());
 }
 
 #[test]
@@ -382,4 +469,230 @@ fn the_fs_hook_refuses_on_a_poisoned_registry_lock() {
         panic!("poisons the registry lock for a fail-closed test");
     }));
     assert_eq!(fs_stat_code(&mux, client), "fs.permission_denied");
+}
+
+/// `fs-symlink-v1`: a relative symlink that stays inside the root is made
+/// (never over anything) and read back as written, never followed; a target
+/// that is absolute or climbs out of the root, counted from where the link's
+/// folder really is, is refused and nothing is made.
+#[test]
+fn a_symlink_is_made_inside_the_root_and_one_leaving_it_is_refused() {
+    let home = Home::new("symlink");
+    let service = home.service();
+    let root = home.path.display().to_string();
+    std::fs::create_dir_all(home.path.join("work/app/src")).unwrap();
+    std::fs::write(home.path.join("work/app/src/a.txt"), "a").unwrap();
+    std::fs::write(home.path.join("x"), "x").unwrap();
+    let call = |cmd: &str, params: Value| service.call("owner", cmd, params);
+
+    let made = call("fs.symlink", json!({"path": format!("{root}/work/app/lib"), "target": "src"}))
+        .unwrap();
+    assert_eq!(made["entry"]["kind"], "symlink", "{made}");
+    assert_eq!(
+        std::fs::read_link(home.path.join("work/app/lib")).unwrap(),
+        std::path::Path::new("src")
+    );
+    let read = call("fs.readlink", json!({"path": format!("{root}/work/app/lib")})).unwrap();
+    assert_eq!(read["target"], "src");
+    assert!(read["revision"].as_str().is_some());
+    // Never over what is there.
+    let again = call("fs.symlink", json!({"path": format!("{root}/work/app/lib"), "target": "x"}));
+    assert_eq!(again.unwrap_err().code(), "fs.exists");
+    // Up to the root is fine; past it is not, nor an absolute target.
+    call("fs.symlink", json!({"path": format!("{root}/work/app/up"), "target": "../../work"}))
+        .unwrap();
+    for target in ["../../../etc", "/etc", "", "a\nb"] {
+        let path = format!("{root}/work/app/bad");
+        let refused = call("fs.symlink", json!({"path": path, "target": target}));
+        assert!(refused.is_err(), "{target:?} was made");
+        assert!(std::fs::symlink_metadata(home.path.join("work/app/bad")).is_err());
+    }
+    // Counted from where the folder is after the links on the way: `up`
+    // is the home's `work`, one below the root.
+    let through = format!("{root}/work/app/up/bad");
+    assert_eq!(
+        call("fs.symlink", json!({"path": through, "target": "../../x"})).unwrap_err().code(),
+        "fs.permission_denied"
+    );
+    call("fs.symlink", json!({"path": format!("{root}/work/app/up/ok"), "target": "../x"}))
+        .unwrap();
+    // A target that climbs out through another link is taken away again,
+    // and so is one naming nothing.
+    call("fs.symlink", json!({"path": format!("{root}/alias"), "target": "."})).unwrap();
+    let leak = call("fs.symlink", json!({"path": format!("{root}/leak"), "target": "alias/../x"}));
+    assert_eq!(leak.unwrap_err().code(), "fs.permission_denied");
+    assert!(std::fs::symlink_metadata(home.path.join("leak")).is_err());
+    let gone = call("fs.symlink", json!({"path": format!("{root}/gone"), "target": "nothing"}));
+    assert!(gone.is_err());
+    assert!(std::fs::symlink_metadata(home.path.join("gone")).is_err());
+    // A file is not a symlink to read.
+    let file = call("fs.readlink", json!({"path": format!("{root}/work/app/src/a.txt")}));
+    assert!(file.is_err());
+}
+
+fn deflated(bytes: &[u8]) -> Vec<u8> {
+    let mut encoder = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::new(3));
+    encoder.write_all(bytes).unwrap();
+    encoder.finish().unwrap()
+}
+
+fn reply_lines(output: &[u8]) -> Vec<Value> {
+    output
+        .split(|b| *b == b'\n')
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_slice(l).unwrap())
+        .collect()
+}
+
+fn mode_of(path: &std::path::Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+}
+
+/// `fs-write-deflate-v1`: a 40 MiB file goes as one write stream of
+/// deflate bytes, decoded as they come, with the permissions it asked for.
+#[test]
+fn a_deflate_write_stream_decodes_one_large_file_with_its_permissions() {
+    let home = Home::new("deflate-stream");
+    let bytes: Vec<u8> =
+        (0..40 * 1024 * 1024).map(|i: u32| b"fn main() {}\n"[(i % 13) as usize]).collect();
+    let wire = deflated(&bytes);
+    let write = json!({ "id": 1, "cmd": "fs.write", "path": "/home/cmux/big.rs",
+        "mode": "create", "stream": true, "size": wire.len(), "permissions": 0o755,
+        "encoding": "deflate", "decoded_size": bytes.len() })
+    .to_string();
+    let (left, output) = routed(&home, &write, &wire);
+    assert!(left.is_none());
+    let replies = reply_lines(&output);
+    assert_eq!(replies[0]["data"]["ready"], true, "{replies:?}");
+    assert_eq!(replies[1]["data"]["entry"]["size"], bytes.len(), "{replies:?}");
+    let path = home.path.join("big.rs");
+    assert!(std::fs::read(&path).unwrap() == bytes);
+    assert_eq!(mode_of(&path), 0o755);
+}
+
+/// A stream that decodes past `decoded_size` is refused at the bound and
+/// leaves neither the file nor its temporary.
+#[test]
+fn a_deflate_write_stream_over_its_decoded_size_leaves_no_file() {
+    let home = Home::new("deflate-bomb");
+    let wire = deflated(&vec![0u8; 64 * 1024 * 1024]);
+    let write = json!({ "id": 1, "cmd": "fs.write", "path": "/home/cmux/bomb.bin",
+        "mode": "create", "stream": true, "size": wire.len(),
+        "encoding": "deflate", "decoded_size": 1024 * 1024 })
+    .to_string();
+    let (_, output) = routed(&home, &write, &wire);
+    let replies = reply_lines(&output);
+    assert_eq!(replies[0]["data"]["ready"], true, "{replies:?}");
+    assert_eq!(replies[1]["error_code"], "params.invalid", "{replies:?}");
+    assert!(std::fs::read_dir(&home.path).unwrap().next().is_none(), "nothing remains");
+}
+
+/// The line op takes deflate bytes too (the Cloud link carries lines), and
+/// refuses a payload that decodes to more than it declared.
+#[test]
+fn a_deflate_line_write_decodes_and_refuses_an_overrun() {
+    use base64::Engine as _;
+    let home = Home::new("deflate-line");
+    let service = home.service();
+    let text = "let x = 1;\n".repeat(50_000);
+    let encoded = base64::engine::general_purpose::STANDARD.encode(deflated(text.as_bytes()));
+    let line = |name: &str, decoded: usize| {
+        json!({ "id": 3, "cmd": "fs.write", "path": format!("{}/{name}", home.path.display()),
+            "mode": "overwrite", "permissions": 0o600, "bytes_base64": encoded,
+            "encoding": "deflate", "decoded_size": decoded })
+        .to_string()
+    };
+    let answer = answer_line(Some(&service), true, "owner", &line("a.rs", text.len()));
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert_eq!(std::fs::read_to_string(home.path.join("a.rs")).unwrap(), text);
+    assert_eq!(mode_of(&home.path.join("a.rs")), 0o600);
+    let answer = answer_line(Some(&service), true, "owner", &line("b.rs", text.len() - 1));
+    assert_eq!(answer["error_code"], "params.invalid", "{answer}");
+    assert!(!home.path.join("b.rs").exists());
+}
+
+/// `fs-write-nofollow-v1`: a write that says `no_follow` never goes through
+/// a symlink, as a folder on the way or as the file itself; one that does
+/// not say it follows links inside the root as before.
+#[test]
+fn a_no_follow_write_refuses_a_symlink_anywhere_on_its_path() {
+    use std::os::unix::fs::symlink;
+    let home = Home::new("nofollow");
+    let service = home.service();
+    let root = home.path.display().to_string();
+    std::fs::create_dir_all(home.path.join("real/deep")).unwrap();
+    std::fs::write(home.path.join("real/kept.txt"), "kept").unwrap();
+    symlink("real", home.path.join("app")).unwrap();
+    symlink("kept.txt", home.path.join("real/link.txt")).unwrap();
+    let write = |path: String, no_follow: bool| {
+        let line = json!({ "id": 1, "cmd": "fs.write", "path": path, "mode": "overwrite",
+            "text": "new", "no_follow": no_follow })
+        .to_string();
+        answer_line(Some(&service), true, "owner", &line)
+    };
+
+    for path in [
+        format!("{root}/app/a.txt"),
+        format!("{root}/app/deep/a.txt"),
+        format!("{root}/real/link.txt"),
+    ] {
+        let answer = write(path.clone(), true);
+        assert_eq!(answer["error_code"], "fs.symlink_in_path", "{path}: {answer}");
+    }
+    assert!(!home.path.join("real/a.txt").exists());
+    assert!(!home.path.join("real/deep/a.txt").exists());
+    assert_eq!(std::fs::read_to_string(home.path.join("real/kept.txt")).unwrap(), "kept");
+    assert!(std::fs::symlink_metadata(home.path.join("real/link.txt")).unwrap().is_symlink());
+    // Appending to a part file behind a linked folder is refused too.
+    std::fs::write(home.path.join("real/part"), "p").unwrap();
+    let stat = service.call("owner", "fs.stat", json!({"path": format!("{root}/real/part")}));
+    let revision = stat.unwrap()["revision"].as_str().unwrap().to_string();
+    let append = json!({ "id": 2, "cmd": "fs.write", "path": format!("{root}/app/part"),
+        "mode": "append", "expected": revision, "text": "q", "no_follow": true })
+    .to_string();
+    let answer = answer_line(Some(&service), true, "owner", &append);
+    assert_eq!(answer["error_code"], "fs.symlink_in_path", "{answer}");
+    assert_eq!(std::fs::read_to_string(home.path.join("real/part")).unwrap(), "p");
+
+    // A plain path is written, and without no_follow a link inside the
+    // root is followed as before.
+    assert_eq!(write(format!("{root}/real/deep/b.txt"), true)["ok"], true);
+    assert_eq!(write(format!("{root}/app/c.txt"), false)["ok"], true);
+    assert_eq!(std::fs::read_to_string(home.path.join("real/c.txt")).unwrap(), "new");
+}
+
+/// A no-follow write stream is refused before `ready`, and a symlink put at
+/// the target after the write began fails its commit and leaves no file.
+#[test]
+fn a_no_follow_write_stream_and_a_late_symlink_are_refused() {
+    use std::os::unix::fs::symlink;
+    let home = Home::new("nofollow-stream");
+    std::fs::create_dir_all(home.path.join("real")).unwrap();
+    symlink("real", home.path.join("app")).unwrap();
+    let write = json!({ "id": 1, "cmd": "fs.write", "path": "/home/cmux/app/up.bin",
+        "mode": "overwrite", "stream": true, "size": 5, "no_follow": true })
+    .to_string();
+    let (_, output) = routed(&home, &write, b"hello");
+    let replies = reply_lines(&output);
+    assert_eq!(replies[0]["error_code"], "fs.symlink_in_path", "{replies:?}");
+    assert!(!home.path.join("real/up.bin").exists());
+
+    let service = home.service();
+    let target = format!("{}/real/late.txt", home.path.display());
+    let mut pending = crate::fs_ops::PendingWrite::begin_no_follow(
+        service.roots(),
+        &target,
+        crate::fs_ops::WriteMode::Overwrite,
+        Some(3),
+    )
+    .unwrap();
+    pending.write(b"new").unwrap();
+    std::fs::write(home.path.join("real/elsewhere"), "theirs").unwrap();
+    symlink("elsewhere", home.path.join("real/late.txt")).unwrap();
+    assert_eq!(pending.commit().unwrap_err().code(), "fs.symlink_in_path");
+    assert!(std::fs::symlink_metadata(home.path.join("real/late.txt")).unwrap().is_symlink());
+    assert_eq!(std::fs::read_to_string(home.path.join("real/elsewhere")).unwrap(), "theirs");
+    let left: Vec<_> = std::fs::read_dir(home.path.join("real")).unwrap().collect();
+    assert_eq!(left.len(), 2, "only the link and its target remain: {left:?}");
 }

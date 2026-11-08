@@ -22,6 +22,8 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
     case dividerHitWidth
     case panelCornerRadius
     case chromeFontSize
+    /// Tab titles' text size, apart from `chromeFontSize` (which sizes all chrome); unset follows it.
+    case tabFontSize
     /// The unified titlebar height (cmux-browser's header height reads the same key).
     case titlebarHeight
 }
@@ -33,6 +35,8 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
 @Observable
 public final class DesignSettings {
     public static let shared = DesignSettings()
+    /// Every motion-setting change, for hosts outside Observation (``Motion/changes``).
+    public let motionChanges = MotionChanges()
 
     /// Intentional Command/Control hold hints (`shortcuts.showModifierHoldHints`).
     public var showModifierHoldHints = true
@@ -59,18 +63,24 @@ public final class DesignSettings {
     /// Whether `interfaceScale` applies: the Debug Settings toggle `chrome.interfaceSize`, off by
     /// default (and always off in Release, where the tunable store is inert).
     public var interfaceScaleEnabled: Bool { ChromeTunables.interfaceSize.override ?? false }
-    /// Sets the `--cmux-interface-scale` token web chrome reads: the multiplier, or 1 when it is off.
-    public var interfaceScaleScript: String {
-        "document.documentElement.style.setProperty('--cmux-interface-scale', '\(interfaceScaleEnabled ? interfaceScale : 1)')"
+    /// Sets the chrome multiplier and the effective page zoom used by web column sizing. The latter
+    /// is passed explicitly by page hosts so Agent Chat Zoom is included without making generic pages
+    /// depend on the agent setting; a change event lets chat row measurement follow CSS immediately.
+    public func interfaceScaleScript(pageZoom: Double? = nil) -> String {
+        let effectivePageZoom = max(pageZoom ?? Double(uiScale), 0.01)
+        return "document.documentElement.style.setProperty('--cmux-interface-scale', '\(Typography.userScale)');"
+            + "document.documentElement.style.setProperty('--cmux-ui-scale', '\(effectivePageZoom)');"
+            + "window.dispatchEvent(new Event('cmux-ui-scale-change'))"
     }
     /// `agentPane.zoom`, the focused agent chat's own display scale.
     public var agentPaneZoom: CGFloat = 1
     /// `ui.animationSpeed`: how fast chrome animates (see `Motion`). A change posts
-    /// `Motion.speedDidChange` for hosts outside Observation (a video wallpaper's player).
+    /// `Motion.speedDidChange` and tells `motionChanges`, for hosts outside Observation (a video
+    /// wallpaper's player).
     public var animationSpeed: MotionSpeed = .fast {
         didSet {
             guard animationSpeed != oldValue else { return }
-            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+            motionChanges.post(.speed)
         }
     }
     /// `ui.animations.enabled`, the master motion switch: false makes every
@@ -79,7 +89,7 @@ public final class DesignSettings {
     public var animationsEnabled = true {
         didSet {
             guard animationsEnabled != oldValue else { return }
-            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+            motionChanges.post(.speed)
         }
     }
     /// The categories whose `ui.animations.<category>` is false: their
@@ -87,7 +97,7 @@ public final class DesignSettings {
     public var disabledAnimationCategories: Set<MotionCategory> = [] {
         didSet {
             guard disabledAnimationCategories != oldValue else { return }
-            NotificationCenter.default.post(name: Motion.speedDidChange, object: nil)
+            motionChanges.post(.speed)
         }
     }
     /// `appearance.colorTransition.*`: how theme and color changes animate (``ColorTransition``;
@@ -120,9 +130,6 @@ public final class DesignSettings {
     /// `ui.paneAnimations`: pane layout changes spring when true (see
     /// `Motion.animatesPaneLayout`); on by default.
     public var paneAnimations = true
-    /// `labs.classicHome`: Home is the classic top page instead of the home workspace with its
-    /// left dock (cx-ebm.59.5); off by default, kept one release. Read when Home opens.
-    public var classicHome = false
     /// `home.channelsEnabled`: the sidebar shows the Channels entry after Home (cx-frn2y); off by default.
     public var homeChannelsEnabled = false
     /// `home.chiefBubbleStyle` is `theme`: the Chief chat's bubbles take the theme's colours; false (the
@@ -142,10 +149,25 @@ public final class DesignSettings {
     public var centerFocusedColumn: CenterFocusedColumn = .never
     /// `tabs.overflow`: crowded tab strips shrink their tabs (default) or scroll sooner.
     public var tabOverflow: TabOverflow = .shrink
+    /// `tabs.verticalTabs`: every workspace shows its tabs as a vertical list unless it turned them off.
+    public var verticalTabs = false
+    /// `tabs.verticalTabsExpandOnHover`: a collapsed vertical tab list widens while the pointer is over it.
+    public var verticalTabsExpandOnHover = true
+    /// `tabs.hideLoneChatTab`: a chat alone in its pane hides its one tab, so the page takes the tab row (off by default).
+    public var hideLoneChatTab = false
     /// `layout.stripScrollbar`: the column strip's scrollbar.
     public var stripScrollbar: StripScrollbarMode = .system
     /// `sidebar.*`: section look and pinned band caps.
-    public var sidebarSections = SidebarSectionsPreferences.defaults
+    public var sidebarSections = SidebarSectionsPreferences.defaults {
+        didSet {
+            // The Wallpaper and Pictorial group palettes need the desktop picture (`DesktopWallpaperWatch.samplesForGroups`).
+            let follows = sidebarSections.groupPalette.followsWallpaper
+            if follows != oldValue.groupPalette.followsWallpaper { BackdropImageStore.shared.desktop.samplesForGroups = follows }
+        }
+    }
+    /// The desktop picture's color (and its bands) while the Wallpaper or Pictorial group palette is chosen; nil under
+    /// any other palette or until the first sample lands. Observed, so the sidebar's groups repaint when the picture changes.
+    public var groupWallpaperTint: WallpaperTint?
     /// `sidebar.hoverCards.enabled`: off, no hover card opens on hover (sidebar rows, tabs, and a
     /// user's custom card). A change posts `hoverCardsDidChange` so a shown card goes at once.
     public var hoverCardsEnabled = true {
@@ -154,16 +176,18 @@ public final class DesignSettings {
             NotificationCenter.default.post(name: Self.hoverCardsDidChange, object: nil)
         }
     }
+    /// `developerTools.appPages`: cmux's own pages (an agent chat, Home, Markdown, Settings) offer
+    /// Inspect Element and open developer tools. On by default; browser tabs keep theirs either way.
+    public var pageDeveloperTools = true
     /// `ui.calm` (``CalmMode``): Reduce Motion behavior, no hover cards and no hover fills, and
     /// with `still` no animation at all. A change posts the motion, Reduce Motion and hover-card
     /// notifications, so cached motion values re-read and a shown card goes at once.
     public var calmMode: CalmMode = .off {
         didSet {
             guard calmMode != oldValue else { return }
-            let center = NotificationCenter.default
-            center.post(name: Motion.speedDidChange, object: nil)
-            center.post(name: Motion.reduceMotionDidChange, object: nil)
-            center.post(name: Self.hoverCardsDidChange, object: nil)
+            motionChanges.post(.speed)
+            motionChanges.post(.reduceMotion)
+            NotificationCenter.default.post(name: Self.hoverCardsDidChange, object: nil)
             ThemeScope.app.store.repaintAll()
         }
     }
@@ -315,6 +339,7 @@ public final class DesignSettings {
         case .dividerHitWidth: 1...24
         case .panelCornerRadius: 0...20
         case .chromeFontSize: 10...16
+        case .tabFontSize: 10...18
         case .titlebarHeight: 24...56
         }
     }

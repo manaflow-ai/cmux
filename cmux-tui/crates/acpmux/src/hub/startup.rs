@@ -7,12 +7,62 @@ use crate::config::Config;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+/// How long a new session waits for the daemon's startup ([`Hub::wait_startup_within`]). Long
+/// enough for a loaded machine's adoption (each host's first hello is bounded, eight at once) and
+/// its login shell; a startup still not done by then is stuck, and the caller hears where.
+// timeout: a create must answer; a wedged startup otherwise held every new session forever.
+pub(crate) const NEW_SESSION_STARTUP_WAIT: std::time::Duration =
+    std::time::Duration::from_secs(180);
+
+/// What the startup is doing in `phase` (`Hub::loading_status`), for the error a waiter gets.
+fn phase_doing(phase: &str) -> &'static str {
+    match phase {
+        "loading-store" => "reading the session index",
+        "adopting" => "reattaching the agent hosts that outlived the previous daemon",
+        "loading-logs" | "starting-agents" => {
+            "importing the login environment and checking harness launchers"
+        }
+        _ => "starting",
+    }
+}
+
+/// The error of a wait for startup that ran past `wait` while in `phase`.
+pub(crate) fn startup_wait_error(phase: &str, wait: std::time::Duration) -> crate::rpc::RpcError {
+    let mut error = crate::rpc::RpcError::deadline_exceeded(
+        &format!("daemon startup (phase {phase}: {})", phase_doing(phase)),
+        wait,
+    );
+    error.message.push_str(
+        "; no session was created. `acpmux --json daemon status` shows the phase \
+         (`loading.phase`); try again once it reads ready",
+    );
+    if let Some(data) = error.data.as_mut().and_then(serde_json::Value::as_object_mut) {
+        data.insert("phase".into(), serde_json::json!(phase));
+    }
+    error
+}
+
 impl Hub {
     /// Hold session creation and agent spawns until `finish_startup`.
     pub fn begin_startup(&self, login_env: bool) {
         self.login_env_requested.store(login_env, Ordering::SeqCst);
         self.startup_ready.send_replace(false);
         self.catalog_ready.send_replace(false);
+    }
+
+    /// The daemon's work once startup is done: chats start (after the login env import: it names
+    /// harness homes), startup is marked done, then the opt-in artifacts sync runs
+    /// (`artifacts_sync.rs`). It returns only when the sync is off; the daemon aborts it at shutdown.
+    pub async fn run_after_startup(self: &Arc<Self>) {
+        let sources = crate::chats::ChatSources::daemon(&*self.config.read().await);
+        if let Some(sources) = sources
+            && let Err(e) = self.start_chats(sources).await
+        {
+            tracing::warn!("{e}");
+        }
+        // Startup's work is done here (`loading.startupDone`); the sync after it is not startup.
+        self.end_startup_work();
+        crate::artifacts_sync::run_background(self.clone()).await;
     }
 
     /// Background startup: import the login environment (when requested),
@@ -60,11 +110,23 @@ impl Hub {
         }
         self.catalog_ready.send_replace(true);
         self.verify_launchers().await;
+        // The person's vault (`crate::vault`): a joined machine with no vault
+        // state pulls it before the first agent spawns (at most a few seconds),
+        // then every 15 minutes; its env goes to every local agent.
+        crate::vault::start_worker().await;
         self.startup_ready.send_replace(true);
         self.care_worker();
+        // A spare for each harness this machine used (`pool/spare.rs`).
+        {
+            let hub = self.clone();
+            tokio::spawn(async move { hub.restore_spares().await });
+        }
         tracing::info!("startup complete; agents may spawn");
         // Probes and one-shots of earlier runs left files behind: remove them.
-        let _ = tokio::task::spawn_blocking(crate::probe_cleanup::at_daemon_start).await;
+        let _ = tokio::task::spawn_blocking(|| {
+            crate::qos::background(crate::probe_cleanup::at_daemon_start)
+        })
+        .await;
         // A catalog reload already started fresh probes.
         if !reloaded {
             self.probe_models().await;
@@ -92,6 +154,21 @@ impl Hub {
     pub(crate) async fn wait_startup(&self) {
         let mut rx = self.startup_ready.subscribe();
         let _ = rx.wait_for(|ready| *ready).await;
+    }
+
+    /// [`Hub::wait_startup`] for a request that must answer: past `wait` it fails with a
+    /// retryable `deadline_exceeded` that names the startup phase it waited on
+    /// (`loading_status`). A startup that never ends (one agent host that never answers its
+    /// adoption hello) otherwise left every `session/new` with no reply at all.
+    pub(crate) async fn wait_startup_within(
+        &self,
+        wait: std::time::Duration,
+    ) -> Result<(), crate::rpc::RpcError> {
+        if tokio::time::timeout(wait, self.wait_startup()).await.is_ok() {
+            return Ok(());
+        }
+        let phase = self.loading_status()["phase"].as_str().unwrap_or("unknown").to_owned();
+        Err(startup_wait_error(&phase, wait))
     }
 
     /// Run `--version` on proxy launchers off the executor and mark the ones

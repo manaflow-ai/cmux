@@ -39,7 +39,7 @@ use cmux_remote::provider::{
     ConnectRequest, Dialer, DirectWebSocketProvider, IrohPathMode, LinkGroup, ProviderError,
     RelayClientConfig, RelayCredentialSource, RelayDaemonConfig, RelayDaemonRegistration,
     RelayProvider, SshProvider, SshProviderConfig, SupportedClientAuthModes, TransportProvider,
-    UnixProvider, register_relay_daemon_with_credentials, sanitized_route, sanitized_route_text,
+    UnixProvider, sanitized_route, sanitized_route_text, spawn_relay_daemon_registration,
 };
 #[cfg(feature = "iroh-transport")]
 use cmux_remote::provider::{
@@ -50,7 +50,6 @@ use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
 use cmux_remote::services::DaemonServices;
 use cmux_remote::session::SessionLimits;
 use cmux_remote::ssh_bootstrap::{BootstrapError, SshBootstrapConfig, SshBootstrapper};
-use cmux_remote::workspace::WorkspaceService;
 use cmux_remote_protocol::{LanePolicy, SessionId};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -58,6 +57,9 @@ use tokio::sync::watch;
 use url::Url;
 
 use crate::localization::catalog;
+
+mod link_sidecars;
+pub(crate) use link_sidecars::tunnel_route_record;
 
 pub const MAX_CARRIER_FRAME_BYTES: usize = 65_535;
 const MIN_REMOTE_RUNTIME_WORKERS: usize = 2;
@@ -70,6 +72,10 @@ const DAEMON_AUTH_LEASE_RETRY_TIMEOUT: Duration = Duration::from_secs(5);
 const DAEMON_AUTH_LEASE_RETRY_INTERVAL: Duration = Duration::from_millis(10);
 const STARTUP_THREAD_REAP_TIMEOUT: Duration = Duration::from_millis(250);
 const REMOTE_RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(250);
+/// How often a client's startup wait looks at the shutdown flag, so SIGTERM or
+/// SIGINT ends a dial that is still connecting instead of waiting out its
+/// startup timeout (an ssh `ProxyCommand` must exit when ssh does).
+const STARTUP_SIGNAL_POLL: Duration = Duration::from_millis(100);
 const MAX_DAEMON_SESSION_COMPONENT_BYTES: usize = 120;
 const DAEMON_SHUTDOWN_OUTCOME_VERSION: u32 = 1;
 const DAEMON_LIFECYCLE_FENCE_VERSION: u32 = 1;
@@ -260,10 +266,17 @@ pub struct DaemonRuntimeOptions {
     pub trusted_carrier_websocket: bool,
     pub workspace_http: Option<SocketAddr>,
     pub relays: Vec<RelayDaemonOptions>,
+    /// The carrier grant config (`--carrier-grant-config`,
+    /// `cmux_remote::grant::GrantConfig`); without it the daemon refuses
+    /// every grant.
+    pub carrier_grant_config: Option<PathBuf>,
     pub iroh: bool,
     pub advertised_routes: Vec<String>,
     pub resume_lease: Duration,
     pub replaceable_sidecar: bool,
+    /// The Unix sockets an owner's carrier session may reach
+    /// (`--remote-local-socket`, cmux-remote's `local-socket` service).
+    pub local_sockets: Vec<PathBuf>,
 }
 
 impl fmt::Debug for DaemonRuntimeOptions {
@@ -288,6 +301,7 @@ impl fmt::Debug for DaemonRuntimeOptions {
             .field("advertised_routes", &advertised_routes)
             .field("resume_lease", &self.resume_lease)
             .field("replaceable_sidecar", &self.replaceable_sidecar)
+            .field("local_sockets", &self.local_sockets)
             .finish()
     }
 }
@@ -608,6 +622,13 @@ impl ClientRuntimeHandle {
         self.connection.snapshot().await
     }
 
+    /// Whether the daemon no longer has this client's session (it outlived
+    /// the daemon's resume lease, or was closed there). Permanent: the
+    /// connection stops redialing, and only a new session can continue.
+    pub fn session_unavailable(&self) -> bool {
+        self.connection.session_unavailable() || self.multiplexer.session_unavailable()
+    }
+
     pub fn is_finished(&self) -> bool {
         self.thread.as_ref().is_some_and(thread::JoinHandle::is_finished)
     }
@@ -654,20 +675,30 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
             result
         })
         .context("could not start remote client thread")?;
-    let ready = match ready_rx.recv_timeout(startup_timeout) {
-        Ok(Ok(ready)) => ready,
-        Ok(Err(error)) => {
-            let _ = shutdown_tx.send(true);
-            reap_failed_startup(thread, "cmux-remote-client");
-            return Err(anyhow!(error));
-        }
-        Err(error) => {
-            let _ = shutdown_tx.send(true);
-            reap_failed_startup(thread, "cmux-remote-client");
-            return Err(anyhow!(
-                "remote connection did not become ready within {}s: {error}",
-                startup_timeout.as_secs()
-            ));
+    let deadline = std::time::Instant::now() + startup_timeout;
+    let ready = loop {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        match ready_rx.recv_timeout(left.min(STARTUP_SIGNAL_POLL)) {
+            Ok(Ok(ready)) => break ready,
+            Ok(Err(error)) => {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!(error));
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) if crate::shutdown_requested() => {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!("remote connection startup interrupted by a signal"));
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) if !left.is_zero() => {}
+            Err(error) => {
+                let _ = shutdown_tx.send(true);
+                reap_failed_startup(thread, "cmux-remote-client");
+                return Err(anyhow!(
+                    "remote connection did not become ready within {}s: {error}",
+                    startup_timeout.as_secs()
+                ));
+            }
         }
     };
     Ok(ClientRuntimeHandle {
@@ -795,6 +826,7 @@ async fn run_client(
     ready: mpsc::SyncSender<Result<ClientReady, String>>,
 ) -> anyhow::Result<()> {
     let setup = async {
+        let sidecars = link_sidecars::PendingSidecars::start();
         let (connection, route) = connect_first_available(&options, shutdown.clone()).await?;
         if *shutdown.borrow() {
             let _ = connection.close().await;
@@ -815,7 +847,8 @@ async fn run_client(
         let socket = socket_preparation.bind()?;
         // The SSH route behind this socket, so a CLI at a version-skew dead
         // end can name the exact upgrade command (cli/skew.rs, cx-ytw1).
-        let route_record = write_tunnel_route(&local_socket, &route);
+        let route_record = link_sidecars::write_tunnel_route(&local_socket, &route);
+        let _sidecars = sidecars.attach(&connection, &local_socket).await;
         let (bridge_shutdown_tx, bridge_shutdown_rx) = tokio::sync::oneshot::channel();
         let bridge_multiplexer = multiplexer.clone();
         let mut bridge = tokio::spawn(async move {
@@ -1100,7 +1133,14 @@ impl InitialRouteAttempt<(Arc<ClientConnection>, String)> for RuntimeInitialRout
                         session: self.options.session,
                         lane_policy: self.options.lane_policy,
                         limits: SessionLimits::default(),
-                        reconnect: self.options.reconnect,
+                        // `--reconnect-attempts` bounds the first connect
+                        // only. The established link redials in budgeted
+                        // bursts and parks between them instead of ending
+                        // the process, which made every layer above redial.
+                        reconnect: ReconnectPolicy {
+                            maximum_attempts: None,
+                            ..self.options.reconnect
+                        },
                     },
                     Some(reconnect_groups),
                 ),
@@ -1154,7 +1194,12 @@ async fn bootstrap_initial_ssh_route(
     shutdown: Option<watch::Receiver<bool>>,
 ) -> anyhow::Result<()> {
     let (destination, port) = ssh_bootstrap_destination(endpoint)?;
-    let mut config = SshBootstrapConfig::defaults(destination, cmux_build_identity::BUILD_IDENTITY);
+    let mut config = SshBootstrapConfig::defaults(
+        destination,
+        cmux_build_identity::BUILD_IDENTITY,
+        crate::distribution::DISTRIBUTION_VERSION,
+        crate::distribution::NPM_BOOTSTRAP_VERSION,
+    );
     config.ssh_binary = ssh.ssh_binary.clone();
     config.port = port;
     config.remote_binary = ssh.remote_binary.clone();
@@ -1469,6 +1514,7 @@ fn client_auth_kind(auth: &ClientAuthMode) -> AuthKind {
         ClientAuthMode::Enrolled => AuthKind::Enrolled,
         ClientAuthMode::Invitation { .. } => AuthKind::Invitation,
         ClientAuthMode::Carrier => AuthKind::Carrier,
+        ClientAuthMode::Grant { .. } => AuthKind::Grant,
     }
 }
 
@@ -1487,39 +1533,12 @@ fn route_failure_allows_fallback(error: &ConnectionError) -> bool {
         ) | ConnectionError::Protocol(_)
             | ConnectionError::GenerationExhausted
             | ConnectionError::Closed
+            | ConnectionError::SessionUnavailable
     )
 }
 
 async fn wait_for_shutdown(shutdown: &mut watch::Receiver<bool>) {
     while !*shutdown.borrow() && shutdown.changed().await.is_ok() {}
-}
-
-/// `<socket>.route`: the SSH route a client runtime's local socket tunnels
-/// to. Only SSH routes are recorded (no credential is in them); the CLI only
-/// prints it, never runs it.
-pub(crate) fn tunnel_route_record(socket: &Path) -> PathBuf {
-    let mut path = socket.as_os_str().to_owned();
-    path.push(".route");
-    PathBuf::from(path)
-}
-
-fn write_tunnel_route(socket: &Path, route: &str) -> Option<PathBuf> {
-    if !route.starts_with("ssh://") {
-        return None;
-    }
-    let record = tunnel_route_record(socket);
-    let _ = fs::remove_file(&record);
-    #[cfg(unix)]
-    {
-        use std::io::Write as _;
-        use std::os::unix::fs::OpenOptionsExt;
-        let mut file =
-            OpenOptions::new().write(true).create_new(true).mode(0o600).open(&record).ok()?;
-        file.write_all(route.as_bytes()).ok()?;
-    }
-    #[cfg(not(unix))]
-    fs::write(&record, route).ok()?;
-    Some(record)
 }
 
 async fn wait_for_fatal(fatal: &mut watch::Receiver<Option<String>>) -> String {
@@ -2147,12 +2166,22 @@ async fn run_daemon(
         if *startup_shutdown.borrow() {
             return Err(anyhow!("remote daemon startup was cancelled"));
         }
+        if let Some(path) = &options.carrier_grant_config {
+            install_grant_verifier(&auth, path);
+        }
         let (daemon, clients) = cmux_remote::daemon::RemoteDaemon::with_policy(
             auth.clone(),
             SessionLimits::default(),
             DaemonSessionPolicy { resume_lease: options.resume_lease },
         )?;
-        let workspace = WorkspaceService::new();
+        #[cfg(unix)]
+        let workspace = crate::machine_secrets::daemon_workspace_service(
+            &auth,
+            &state_dir,
+            options.carrier_grant_config.as_deref(),
+        );
+        #[cfg(not(unix))]
+        let workspace = cmux_remote::workspace::WorkspaceService::new();
         // The admin proof and service forwarding must use the same resolved
         // destination, including when the configured path is a symlink.
         let mux_binding = MuxBinding::new(&mux_socket, &link_socket)?;
@@ -2225,34 +2254,24 @@ async fn run_daemon(
                 None => None,
             };
 
-            let mut relay_tasks = tokio::task::JoinSet::new();
-            for relay in options.relays.iter().cloned() {
-                let daemon = daemon.clone();
-                relay_tasks.spawn(async move {
-                    register_relay_daemon_with_credentials(
-                        daemon,
-                        RelayDaemonConfig {
-                            endpoint: relay.endpoint,
-                            slot: relay.slot,
-                            ticket: String::new(),
-                            maximum_frame_bytes: MAX_CARRIER_FRAME_BYTES,
-                            control_timeout: Duration::from_secs(15),
-                        },
-                        relay.credentials,
-                    )
-                    .await
-                });
-            }
+            // The relay registers in the background: a ticket command that
+            // fails or hangs, or a relay that is down, is retried and logged
+            // while the local sockets serve. Only an invalid relay
+            // configuration fails startup.
             let mut relays = Vec::with_capacity(options.relays.len());
-            while !relay_tasks.is_empty() {
-                let result = tokio::select! {
-                    result = relay_tasks.join_next() => result,
-                    _ = wait_for_shutdown(&mut startup_shutdown) => {
-                        return Err(anyhow!("remote daemon startup was cancelled"));
-                    }
-                };
-                let result = result.expect("a non-empty relay task set has a result");
-                relays.push(result.context("relay registration task failed")??);
+            for relay in options.relays.iter().cloned() {
+                relays.push(spawn_relay_daemon_registration(
+                    daemon.clone(),
+                    RelayDaemonConfig {
+                        endpoint: relay.endpoint,
+                        slot: relay.slot,
+                        ticket: String::new(),
+                        maximum_frame_bytes: MAX_CARRIER_FRAME_BYTES,
+                        control_timeout: Duration::from_secs(15),
+                    },
+                    relay.credentials,
+                    &crate::cli::BIN.to_string(),
+                )?);
             }
 
             #[cfg(not(feature = "iroh-transport"))]
@@ -2368,7 +2387,23 @@ async fn run_daemon(
         pause_daemon_cleanup(&state_dir, DaemonCleanupPausePhase::BeforeReadySend);
         let mut shutdown_failures = Vec::new();
         if ready.send(Ok(info)).is_ok() {
-            let services = DaemonServices::new(workspace, Some(mux_socket));
+            // A Cloud machine's carrier (a grant config) also bridges the
+            // acpmux service to this user's acpmux carrier socket, in the
+            // home `cmux acp` resolves.
+            #[cfg(unix)]
+            let acpmux_socket = options
+                .carrier_grant_config
+                .as_ref()
+                .and_then(|_| crate::acp::daemon_acpmux_home())
+                .map(|home| cmux_remote::acpmux_bridge::socket_path(&home));
+            #[cfg(not(unix))]
+            let acpmux_socket = None;
+            let services = DaemonServices::with_carrier_sockets(
+                workspace,
+                Some(mux_socket),
+                options.local_sockets.clone(),
+                acpmux_socket,
+            );
             services.run_with_shutdown(clients, shutdown).await;
         } else {
             shutdown_failures.push(anyhow!("daemon owner stopped during startup"));
@@ -2495,6 +2530,58 @@ async fn recover_inactive_predecessor_state(
         .context("could not remove stale remote daemon lifecycle evidence")?;
     Ok(())
 }
+
+/// Installs the carrier grant verifier from `path`. A config that cannot be
+/// read leaves grants refused (the daemon's default) and says why; the
+/// daemon still serves every other route.
+fn install_grant_verifier(auth: &AuthDatabase, path: &Path) {
+    let installed = cmux_remote::grant::FileGrantVerifier::load(path).and_then(|verifier| {
+        let verifier = verifier.with_unknown_kid_hook(Box::new(report_unknown_kid));
+        let machine = verifier.config().machine.clone();
+        auth.set_grant_verifier(Arc::new(verifier))
+            .map(|()| machine)
+            .map_err(|error| error.to_string())
+    });
+    match installed {
+        Ok(machine) => {
+            crate::client_log::stderr_log!(
+                "remote",
+                "{BIN}: carrier grants admitted for {machine}"
+            );
+        }
+        Err(error) => {
+            crate::client_log::stderr_log!("remote", "{BIN}: carrier grants refused ({error})");
+        }
+    }
+}
+
+/// Tells the Cloud agent a carrier grant named a kid this daemon's keyset
+/// lacks, so it fetches the keyset and rewrites the grant config
+/// (cmux-host `cloud/carrier_keyset.rs`). One line on the agent socket, on
+/// its own thread so a handshake never waits; every step is bounded by
+/// [`UNKNOWN_KID_REPORT_TIMEOUT`], and the verifier reports at most once a
+/// minute.
+fn report_unknown_kid(kid: &str) {
+    let key = cmux_host::cloud::carrier_keyset::REQUEST_KEY;
+    let line = format!("{}\n", serde_json::json!({ key: { "kid": kid } }));
+    let spawned = thread::Builder::new().name("carrier-keyset-report".into()).spawn(move || {
+        use std::io::{Read as _, Write as _};
+        let socket = cmux_host::cloud::wire::AGENT_SOCKET;
+        let Ok(mut stream) = std::os::unix::net::UnixStream::connect(socket) else { return };
+        let _ = stream.set_write_timeout(Some(UNKNOWN_KID_REPORT_TIMEOUT));
+        let _ = stream.set_read_timeout(Some(UNKNOWN_KID_REPORT_TIMEOUT));
+        if stream.write_all(line.as_bytes()).is_ok() {
+            let mut reply = [0_u8; 256];
+            let _ = stream.read(&mut reply);
+        }
+    });
+    if let Err(error) = spawned {
+        crate::client_log::stderr_log!("remote", "{BIN}: carrier keyset report: {error}");
+    }
+}
+
+/// Each step of an unknown-kid report (connect is local and immediate).
+const UNKNOWN_KID_REPORT_TIMEOUT: Duration = Duration::from_secs(2);
 
 async fn load_daemon_auth_during_handoff(
     state_dir: &Path,
@@ -3212,6 +3299,46 @@ mod tests {
     #[cfg(unix)]
     mod initial_route_budget;
 
+    /// Binds a stream socket at `path` that never listens, as a crashed
+    /// client leaves it. A connect to it is refused even while the returned
+    /// descriptor, or a copy that a concurrent fork inherited, is open.
+    /// (A dropped listener is not stale until every copy is closed.)
+    #[cfg(unix)]
+    fn bind_stale_client_socket(path: &Path) -> std::os::fd::OwnedFd {
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+        use std::os::unix::ffi::OsStrExt;
+
+        // SAFETY: socket(2) has no memory arguments; a valid result is a new
+        // descriptor that the OwnedFd takes.
+        let raw = unsafe { libc::socket(libc::AF_UNIX, libc::SOCK_STREAM, 0) };
+        assert!(raw >= 0, "socket: {}", std::io::Error::last_os_error());
+        // SAFETY: `raw` is a new descriptor that nothing else owns.
+        let socket = unsafe { OwnedFd::from_raw_fd(raw) };
+        // SAFETY: F_SETFD with an int flag on a descriptor this test owns.
+        let cloexec = unsafe { libc::fcntl(socket.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) };
+        assert_eq!(cloexec, 0, "fcntl: {}", std::io::Error::last_os_error());
+
+        // SAFETY: sockaddr_un is plain data; all-zero bytes are a valid value.
+        let mut address: libc::sockaddr_un = unsafe { std::mem::zeroed() };
+        address.sun_family = libc::sa_family_t::try_from(libc::AF_UNIX).unwrap();
+        let bytes = path.as_os_str().as_bytes();
+        assert!(bytes.len() < address.sun_path.len(), "socket path too long");
+        for (slot, byte) in address.sun_path.iter_mut().zip(bytes) {
+            *slot = libc::c_char::from_ne_bytes([*byte]);
+        }
+        let length = libc::socklen_t::try_from(size_of::<libc::sockaddr_un>()).unwrap();
+        // SAFETY: `address` is an initialized sockaddr_un of `length` bytes.
+        let bound = unsafe {
+            libc::bind(
+                socket.as_raw_fd(),
+                std::ptr::from_ref(&address).cast::<libc::sockaddr>(),
+                length,
+            )
+        };
+        assert_eq!(bound, 0, "bind {}: {}", path.display(), std::io::Error::last_os_error());
+        socket
+    }
+
     fn instrumented_test_timeout(timeout: Duration) -> Duration {
         let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
             .ok()
@@ -3658,10 +3785,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         )
         .unwrap();
@@ -3685,6 +3814,96 @@ mod tests {
                 lifecycle_id,
                 status: DaemonShutdownStatus::Succeeded,
             }
+        );
+    }
+
+    /// A daemon whose relay ticket command fails in `script` way: it starts,
+    /// serves a local admin request while the relay retries, and stops.
+    #[cfg(unix)]
+    fn assert_daemon_serves_while_relay_ticket_fails(script: &str, timeout: Duration) {
+        let directory = tempfile::tempdir_in("/tmp").unwrap();
+        let attempts = directory.path().join("attempts");
+        let command = directory.path().join("ticket");
+        write_executable(
+            &command,
+            format!("#!/bin/sh\necho attempt >> '{}'\n{script}\n", attempts.display()),
+        );
+        let runtime = start_daemon_runtime(
+            directory.path().join("missing-mux.sock"),
+            DaemonRuntimeOptions {
+                session: "relay-ticket-fails".into(),
+                state_dir: Some(directory.path().join("state")),
+                link_socket: None,
+                admin_socket: None,
+                direct_websocket: None,
+                allow_insecure_non_loopback: false,
+                trusted_carrier_websocket: false,
+                workspace_http: None,
+                relays: vec![RelayDaemonOptions {
+                    endpoint: Url::parse("relay+ws://127.0.0.1:9").unwrap(),
+                    slot: "relay-ticket-fails".into(),
+                    credentials: RelayCredentialSource::command_with_timeout(
+                        &command,
+                        Vec::<String>::new(),
+                        timeout,
+                    ),
+                }],
+                carrier_grant_config: None,
+                iroh: false,
+                advertised_routes: Vec::new(),
+                resume_lease: Duration::from_secs(2),
+                replaceable_sidecar: true,
+                local_sockets: Vec::new(),
+            },
+        )
+        .expect("a failing relay ticket command stopped the daemon from starting");
+        let info = runtime.info().clone();
+        let requests = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        let status = requests.block_on(cmux_remote::admin::call_admin(
+            &info.admin_socket,
+            &cmux_remote::admin::AdminRequest::Status,
+        ));
+        assert!(status.is_ok(), "the daemon did not serve a local request: {status:?}");
+
+        // The credential backoff starts at 1 s and doubles: a second attempt
+        // comes within about 3 s.
+        let deadline =
+            std::time::Instant::now() + instrumented_test_timeout(Duration::from_secs(15));
+        let count = || fs::read_to_string(&attempts).map(|text| text.lines().count()).unwrap_or(0);
+        while count() < 2 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the relay registration did not retry the ticket command ({} attempts)",
+                count()
+            );
+            thread::sleep(Duration::from_millis(50));
+        }
+        assert!(!runtime.is_finished(), "the daemon stopped while the relay ticket failed");
+        let status = requests.block_on(cmux_remote::admin::call_admin(
+            &info.admin_socket,
+            &cmux_remote::admin::AdminRequest::Status,
+        ));
+        assert!(status.is_ok(), "the daemon stopped serving local requests: {status:?}");
+
+        runtime.shutdown().unwrap();
+        assert!(!info.admin_socket.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_serves_locally_and_retries_when_relay_ticket_command_exits_1() {
+        assert_daemon_serves_while_relay_ticket_fails(
+            "echo 'carrier ticket: agent answered 503' >&2\nexit 1",
+            Duration::from_secs(10),
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn daemon_serves_locally_and_retries_when_relay_ticket_command_hangs() {
+        assert_daemon_serves_while_relay_ticket_fails(
+            "echo 'waiting on the agent' >&2\nexec sleep 30",
+            Duration::from_millis(200),
         );
     }
 
@@ -3718,10 +3937,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         );
         let error = match result {
@@ -3756,10 +3977,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         );
         let error = match result {
@@ -3808,10 +4031,12 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
                     replaceable_sidecar: true,
+                    local_sockets: Vec::new(),
                 },
             );
             let error = match result {
@@ -3860,10 +4085,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         ) {
             Err(error) => error,
@@ -3903,10 +4130,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         ) {
             Err(error) => error,
@@ -3956,10 +4185,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         ) {
             Err(error) => error,
@@ -4004,10 +4235,12 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
                     replaceable_sidecar: true,
+                    local_sockets: Vec::new(),
                 },
             )
         });
@@ -4051,10 +4284,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         );
         fs::set_permissions(&state_dir, fs::Permissions::from_mode(0o700)).unwrap();
@@ -4097,10 +4332,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         );
 
@@ -4161,10 +4398,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         )
         .expect("verified modern state did not migrate");
@@ -4223,10 +4462,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         )
         .expect("lifecycle-fenced startup retry was rejected");
@@ -4267,10 +4508,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         )
         .expect("explicit marker-only recovery did not make startup safe");
@@ -4351,10 +4594,12 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
                     replaceable_sidecar: true,
+                    local_sockets: Vec::new(),
                 },
             )
             .unwrap_or_else(|error| {
@@ -4396,10 +4641,12 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
                     replaceable_sidecar: true,
+                    local_sockets: Vec::new(),
                 },
             )
         });
@@ -4434,10 +4681,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         )
         .unwrap();
@@ -4480,10 +4729,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         )
         .unwrap();
@@ -4506,10 +4757,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         )
         .unwrap();
@@ -4555,10 +4808,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         );
         if let Ok(runtime) = result {
@@ -4589,10 +4844,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         )
         .unwrap();
@@ -4701,10 +4958,12 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
                     replaceable_sidecar: true,
+                    local_sockets: Vec::new(),
                 },
                 Duration::from_millis(100),
             );
@@ -4757,10 +5016,12 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
                     replaceable_sidecar: true,
+                    local_sockets: Vec::new(),
                 },
                 Duration::from_millis(500),
             )
@@ -4841,10 +5102,12 @@ mod tests {
                     trusted_carrier_websocket: false,
                     workspace_http: None,
                     relays: Vec::new(),
+                    carrier_grant_config: None,
                     iroh: false,
                     advertised_routes: Vec::new(),
                     resume_lease: Duration::from_secs(2),
                     replaceable_sidecar: true,
+                    local_sockets: Vec::new(),
                 },
                 Duration::from_secs(3),
             );
@@ -5045,10 +5308,12 @@ mod tests {
             trusted_carrier_websocket: false,
             workspace_http: None,
             relays: vec![relay_options],
+            carrier_grant_config: None,
             iroh: false,
             advertised_routes: vec!["%%% malformed-route-marker %%%".into()],
             resume_lease: Duration::from_secs(1),
             replaceable_sidecar: false,
+            local_sockets: Vec::new(),
         };
         let daemon_info = DaemonRuntimeInfo {
             session: "debug-control".into(),
@@ -5331,10 +5596,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: false,
+                local_sockets: Vec::new(),
             },
         )
         .unwrap();
@@ -5405,6 +5672,12 @@ mod tests {
                 heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: None,
                 maximum_duration: None,
+                attempts_per_recovery: 3,
+                // Real-clock fixture: redial as fast as its delays allow.
+                redial_budget: cmux_remote::connection::RedialBudget {
+                    capacity: 1_000,
+                    refill_interval: Duration::from_millis(1),
+                },
             },
             startup_timeout: instrumented_test_timeout(Duration::from_secs(5)),
             state_dir: directory.path().join("client"),
@@ -5569,6 +5842,12 @@ mod tests {
                 heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: Some(2),
                 maximum_duration: None,
+                attempts_per_recovery: 3,
+                // Real-clock fixture: redial as fast as its delays allow.
+                redial_budget: cmux_remote::connection::RedialBudget {
+                    capacity: 1_000,
+                    refill_interval: Duration::from_millis(1),
+                },
             },
             startup_timeout: Duration::from_secs(2),
             state_dir: directory.path().join("client"),
@@ -5645,6 +5924,12 @@ mod tests {
                 heartbeat_timeout: Duration::from_secs(1),
                 maximum_attempts: Some(2),
                 maximum_duration: None,
+                attempts_per_recovery: 3,
+                // Real-clock fixture: redial as fast as its delays allow.
+                redial_budget: cmux_remote::connection::RedialBudget {
+                    capacity: 1_000,
+                    refill_interval: Duration::from_millis(1),
+                },
             },
             startup_timeout: Duration::from_secs(1),
             state_dir: directory.path().join("client"),
@@ -5835,10 +6120,9 @@ mod tests {
         let log = directory.path().join("ssh.log");
         let probe = cmux_remote::ssh_bootstrap::RemoteProbe {
             app: "cmux-tui".into(),
-            version: cmux_remote::ssh_bootstrap::DISTRIBUTION_VERSION.into(),
-            distribution_version: Some(cmux_remote::ssh_bootstrap::DISTRIBUTION_VERSION.into()),
-            npm_bootstrap_version: cmux_remote::ssh_bootstrap::NPM_BOOTSTRAP_VERSION
-                .map(str::to_owned),
+            version: crate::distribution::DISTRIBUTION_VERSION.into(),
+            distribution_version: Some(crate::distribution::DISTRIBUTION_VERSION.into()),
+            npm_bootstrap_version: crate::distribution::NPM_BOOTSTRAP_VERSION.map(str::to_owned),
             build_identity: Some(cmux_build_identity::BUILD_IDENTITY.into()),
             remote_protocol: cmux_remote_protocol::REMOTE_PROTOCOL_VERSION,
             os: "test".into(),
@@ -6272,10 +6556,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         ) {
             Err(error) => error,
@@ -6305,10 +6591,12 @@ mod tests {
                 trusted_carrier_websocket: false,
                 workspace_http: None,
                 relays: Vec::new(),
+                carrier_grant_config: None,
                 iroh: false,
                 advertised_routes: Vec::new(),
                 resume_lease: Duration::from_secs(2),
                 replaceable_sidecar: true,
+                local_sockets: Vec::new(),
             },
         )
         .expect("finalized preliminary lifecycle blocked the next startup");
@@ -6438,7 +6726,10 @@ mod tests {
 
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("mux.sock");
-        let stale = tokio::net::UnixListener::bind(&path).unwrap();
+        let stale = bind_stale_client_socket(&path);
+        // Another thread of the test process can fork while the stale socket
+        // is open; the child keeps a copy of its descriptor until exec.
+        let _forked_copy = stale.try_clone().unwrap();
         drop(stale);
 
         let lock_path = directory.path().join("mux.sock.lock");
@@ -6475,7 +6766,10 @@ mod tests {
     async fn concurrent_stale_client_socket_takeover_has_one_owner() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("mux.sock");
-        let stale = tokio::net::UnixListener::bind(&path).unwrap();
+        let stale = bind_stale_client_socket(&path);
+        // Another thread of the test process can fork while the stale socket
+        // is open; the child keeps a copy of its descriptor until exec.
+        let _forked_copy = stale.try_clone().unwrap();
         drop(stale);
 
         let start = Arc::new(tokio::sync::Barrier::new(2));

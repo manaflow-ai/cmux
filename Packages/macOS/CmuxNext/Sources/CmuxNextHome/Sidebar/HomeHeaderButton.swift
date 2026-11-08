@@ -8,7 +8,7 @@ import QuartzCore
 /// text; a toggle that is on draws its filled glyph in the theme's accent, never the system blue.
 /// A `glass` button sits on a glass circle its host lays under it (Messages' filter): its glyph
 /// is the theme's primary text, as Messages' white glyph on its glass.
-final class HomeHeaderButton: NSButton {
+final class HomeHeaderButton: ClickableButton {
     /// The pressed scale (the composer chip presses to 0.975; a 28 pt button needs a little more to show).
     static let pressScale: CGFloat = 0.94
 
@@ -22,10 +22,13 @@ final class HomeHeaderButton: NSButton {
     /// A right-click menu (compose: New Chief, Invite).
     var contextMenu: (() -> NSMenu?)?
 
-    /// A toggle's state: the filled glyph in the accent, and the accessibility value.
+    /// A toggle's state: the filled glyph in the accent, the hover fill kept under it (`lit`: on
+    /// glass the lit and rest glyphs are the same ink, so the fill is what shows it is on), and the
+    /// accessibility value.
     var isOn = false {
         didSet {
             guard isOn != oldValue else { return }
+            hover.state.lit = isOn
             applyTint()
             setAccessibilityValue(isOn ? 1 : 0)
         }

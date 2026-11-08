@@ -15,6 +15,16 @@ Screens: the Mac's Mobile Pairing page on a ref that shows no code (a code's ima
 token, so on a ref with codes the page is never saved), the phone's Settings > Devices before and after, and its scanner sheet with
 the camera off (needs `axe`). On a ref without the feature the Mac shows no code: the pairing is
 skipped, the run passes, and the Devices screen is the "before"; on a ref with it, no code fails.
+Then the upload leg (on a ref whose app has UploadProbe): a sparse file of about 150 MB, past the
+old 100 MiB cap, with marked pages at its start, middle and end, is streamed by the app's own
+`LinkUpload.upload(fileAt:)` over the paired link to the Mac's Chat Folder; it passes when the file
+lands in `<folder>/.cmux/attachments/phone-<session>/` with the same size and SHA-256 and the app's
+memory footprint grew by less than a fifth of the file (no whole-file Data).
+With CMUX_IOS_CLOUD_PROOF_FILE, also opens a probe-owned real Cloud session on
+the paired phone, copies its history, sends a fresh challenge, reads the
+assistant reply, and taps an injected notification. That injection proves
+routing only; APNs acceptance is a separate receipt. The 0600 input stays on
+the runner, is never copied to evidence, and never supplies credentials.
 The token is never printed: `t=` is redacted in every log line and file. Ends the Mac app it started (its own PID) and the
 tag's daemons (tag_teardown.py), and removes the app's state and its Keychain items.
 
@@ -40,10 +50,15 @@ import argparse, glob, hashlib, json, os, plistlib, pwd, re, secrets, shutil, so
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
 from tag_teardown import TagTeardown  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from cmux_next_cloud_pair_proof import allowlist_public_cloud_artifact, read_proof, run_cloud_leg  # noqa: E402
 
 PAGE = "cmux.mobile-pairing"
 RIG_MAC_NAME = "0 e2e rig Mac"
 PAIRED = re.compile(r"phone (\w+) paired from this Mac's pairing code")
+# The upload leg: past the old 100 MiB cap and not a multiple of LinkUpload's 192 KiB chunk.
+UPLOAD_BYTES = (150 << 20) + 12_345
+UPLOAD_NAME = "cmux-upload-probe.bin"
 
 
 def redact(text):
@@ -56,6 +71,30 @@ def shows_a_code():
     code is the expected "before"; on one with it, no code is a failure."""
     src = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPageProvider.swift")
     return os.path.exists(src) and 'reply["qr"]' in open(src).read()
+
+
+def has_upload_probe():
+    """Whether this ref's app has the DEBUG upload probe (UploadProbe.swift): the leg runs only there."""
+    return os.path.exists(os.path.join(ROOT, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/UploadProbe.swift"))
+
+
+def sparse_file(path, size):
+    """`size` bytes that take no disk, with marked 4 KiB pages at the start, middle and end so a
+    lost, shifted or zeroed chunk changes the hash."""
+    with open(path, "wb") as f:
+        f.truncate(size)
+        for mark, at in ((0x11, 0), (0x22, size // 2), (0x33, size - 4096)):
+            f.seek(at)
+            f.write(bytes([mark]) * 4096)
+
+
+def sha256(path):
+    digest, total = hashlib.sha256(), 0
+    with open(path, "rb") as f:
+        while chunk := f.read(1 << 20):
+            digest.update(chunk)
+            total += len(chunk)
+    return total, digest.hexdigest()
 
 
 def takes_pair_url_env():
@@ -86,7 +125,7 @@ class Stream:
     as they are written, so an interrupted run leaves none on disk) go to `path`; wait() is woken per line."""
 
     def __init__(self, argv, path, env=None):
-        self.lines, self.cond = [], threading.Condition()
+        self.lines, self.times, self.cond = [], [], threading.Condition()
         self.file = open(path, "w")
         self.proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                      text=True, errors="replace", env=env)
@@ -99,15 +138,21 @@ class Stream:
             self.file.flush()
             with self.cond:
                 self.lines.append(line)
+                self.times.append(time.monotonic())
                 self.cond.notify_all()
 
     def wait(self, pattern, timeout):
+        hit = self.wait_at(pattern, timeout)
+        return hit[1] if hit else None
+
+    def wait_at(self, pattern, timeout, since=0.0):
+        """(the monotonic time its line arrived, the match) of the first line at or after `since`."""
         deadline = time.monotonic() + timeout
         with self.cond:
             while True:
-                for line in self.lines:
-                    if m := pattern.search(line):
-                        return m
+                for at, line in zip(self.times, self.lines):
+                    if at >= since and (m := pattern.search(line)):
+                        return at, m
                 left = deadline - time.monotonic()
                 if left <= 0:
                     return None
@@ -137,6 +182,9 @@ def main():
     for flag in ("--mac-app", "--ios-app", "--sims", "--udid", "--bundle-id", "--work", "--out", "--summary"):
         ap.add_argument(flag, required=True)
     a = ap.parse_args()
+    proof_path = os.environ.get("CMUX_IOS_CLOUD_PROOF_FILE")
+    proof = read_proof(proof_path, artifact_root=a.out) if proof_path else None
+    cloud_ok = proof is None
     screens = os.path.join(a.out, "screens")
     os.makedirs(screens, exist_ok=True)
 
@@ -153,10 +201,15 @@ def main():
     mac_bundle, tag, ls_env = step_tag(a.mac_app)
     no_data_protection_keychain(a.mac_app)
     sock = ls_env.get("CMUX_SOCKET_PATH") or f"/tmp/cmux-debug-{tag}.sock"
-    support = os.path.expanduser(f"~/Library/Application Support/{mac_bundle}")
+    # The app's Application Support is the account's home (NSHomeDirectory), not a step's $HOME.
+    support = os.path.join(pwd.getpwuid(os.getuid()).pw_dir, "Library/Application Support", mac_bundle)
     rig = os.path.join(a.work, "pair-rig")  # written only once cleanup is armed (below)
     config = os.path.join(rig, "cmux-next.json")
     email, password = dev_credential()
+    probe = has_upload_probe()
+    # The upload leg's Mac folder: a Chat Folder (agents.chats.roots), which hostd shares
+    # (CMUX_MOBILE_FILE_ROOTS), so an upload with it as `cwd` lands in its .cmux/attachments.
+    upload_root = os.path.join(os.path.realpath(a.work), "pair-rig", "upload-root")
     creds = os.path.join(rig, "dev-auth.env")  # written once cleanup is armed (below)
     # Launched by its binary (its PID is this script's child), with the environment `open`
     # would give it (LSEnvironment) plus the rig's settings. An empty seed trusts no phone.
@@ -231,13 +284,22 @@ def main():
 
     teardown = TagTeardown(a.mac_app)
     teardown.install()
-    streams, app, paired, url = [], None, None, None
+    streams, app, paired, url, uploaded = [], None, None, None, not probe
+    # The discovery leg: the phone's Allow request reaches the running Mac in seconds, and a Mac
+    # restart with a second identity key beside its Keychain key heals with no action on the phone.
+    # CMUX_PAIR_E2E_DISCOVERY=0 leaves it out (a ref before it).
+    discovery = os.environ.get("CMUX_PAIR_E2E_DISCOVERY") != "0"
+    ask_ok = restart_ok = not discovery
     keychain = RigKeychain(a.mac_app)
     try:
         note(f"- Keychain: {keychain.start()}")
         os.makedirs(rig, mode=0o700, exist_ok=True)
+        settings = {"mobile": {"allowIPhoneConnections": True}}
+        if probe:
+            os.makedirs(upload_root, mode=0o700)
+            settings["agents"] = {"chats": {"roots": [upload_root]}}
         with open(config, "w") as f:
-            json.dump({"mobile": {"allowIPhoneConnections": True}}, f)
+            json.dump(settings, f)
         with os.fdopen(os.open(creds, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
             f.write(f"CMUX_UITEST_STACK_EMAIL={email}\nCMUX_UITEST_STACK_PASSWORD={password}\n")
         if os.path.exists(sock):
@@ -302,8 +364,11 @@ def main():
         streams.append(phone_log := Stream(
             simctl + ["spawn", a.udid, "log", "stream", "--level", "info", "--style", "compact",
                       "--predicate", 'subsystem == "dev.cmux.mobile"'], os.path.join(a.out, "phone-pairing.log")))
+        asked_from = time.monotonic()
         phone_launch()
         live = phone_log.wait(re.compile(r"live data on"), 90)
+        if discovery:
+            ask_ok = discovery_ask(mac_log, phone_log, asked_from, status, rpc, note)
         time.sleep(5)  # bounded: the Devices list loads from the service after live data starts
         note(f"- phone: {'signed in, live data' if live else 'NO live data in 90 s'}; Settings > Devices "
              f"{phone_shot('phone-devices')}")
@@ -353,7 +418,23 @@ def main():
             phone_log.wait(re.compile(r"live data on"), 60)
             time.sleep(5)  # bounded, as above
             note(f"- phone Settings > Devices after pairing: {phone_shot('phone-devices-paired')}")
+            if paired and probe:
+                # The phone lists this Mac by the rig's device name (CMUX_NEXT_MOBILE_DEVICE_NAME), not the
+                # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
+                uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, RIG_MAC_NAME)
+                note(f"- upload: {line}")
+            if discovery and paired:  # last: it quits and restarts the Mac
+                app, restart_ok = discovery_restart(app, exe, env, a.out, support, status, phone_log, streams,
+                                                    phone_shot, note)
         note(f"- scanner sheet: {scanner(a.udid, phone_shot)}")
+        if proof is not None:
+            if not paired:
+                raise SystemExit("Cloud UI proof requires the real QR pairing to succeed")
+            run_cloud_leg(proof, root=ROOT, mac_env=env, email=email, rpc=rpc, phone_log=phone_log,
+                          simctl=simctl, udid=a.udid, bundle=a.bundle_id, phone_env=phone_env,
+                          rig_name=last.get("macName") or RIG_MAC_NAME, work=a.work, out=a.out,
+                          shot=phone_shot, note=note)
+            cloud_ok = True
     finally:
         if app and app.poll() is None:
             # The app signs itself out first, so it deletes its own tokens wherever its store keeps them
@@ -376,9 +457,127 @@ def main():
             shutil.rmtree(rig, ignore_errors=True)  # the settings and credential files
         finally:  # the account's keychains are put back even when a step above fails
             forget_tag(a.mac_app)  # cmux-next-ios-sim.sh's EXIT runs it again for a rig cut short
-    if not url and not expects_code:
+        if proof is not None:
+            # The public archive is an allowlist in Cloud mode. Raw screenshots,
+            # pairing/app logs and failure captures remain unavailable to upload.
+            allowlist_public_cloud_artifact(a.out)
+    if not url and not expects_code and proof is None:
         return 0  # the "before": this ref shows no code, and the Devices screen is its evidence
-    return 0 if paired else 1
+    if discovery:
+        note(f"- discovery: Allow request {'PASS' if ask_ok else 'FAIL'}, restart with a split identity "
+             f"{'PASS' if restart_ok else 'FAIL'}")
+    return 0 if paired and uploaded and cloud_ok and ask_ok and restart_ok else 1
+
+
+ASKS = re.compile(r"phone (\w+) asks to pair: (\w+)")
+LINK_REFUSED = re.compile(r"mac_identity_changed|bad_mac_proof")
+
+
+def log_time(line):
+    """The time a compact `log stream` line was logged (both logs come from this host's clock)."""
+    m = re.match(r"(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d+)", line)
+    return time.mktime(time.strptime(m.group(1).split(".")[0], "%Y-%m-%d %H:%M:%S")) + float("0." + m.group(1).split(".")[1]) if m else None
+
+
+def discovery_ask(mac_log, phone_log, since, status, rpc, note):
+    """The phone, signed in and never paired, opened while the Mac runs: hostd sends its pair request
+    and the Mac shows it (the Allow prompt, the page's waiting row) within seconds. Only the person
+    answers it (debug.dialog refuses a press on it); the run pairs with the code after."""
+    hit = mac_log.wait_at(ASKS, 60, since=since)
+    live = phone_log.wait_at(re.compile(r"live data on"), 0, since=since)
+    m = hit[1] if hit else None
+    # From the logged times, not when `log stream` delivered the lines (it lags by tens of seconds).
+    asked_at = log_time(m.string) if m else None
+    live_at = log_time(live[1].string) if live else None
+    took = asked_at - live_at if asked_at is not None and live_at is not None else None
+    pending = (status().get("host") or {}).get("pending") or []
+    dialogs = [d for d in (rpc("debug.dialog").get("dialogs") or []) if d.get("identifier") == "cmux.dialog.iphonePair"]
+    press = rpc("debug.dialog", {"id": dialogs[0]["id"], "press": "allow"}) if dialogs else {}
+    # The prompt answers only to the person: a scripted press that is not refused is a failure.
+    refused = not dialogs or bool(press.get("error"))
+    ok = took is not None and took <= 15 and bool(pending) and refused
+    note(f"- discovery, Allow request: {'phone ' + m.group(1) + ' asked (' + m.group(2) + ')' if m else 'NO request'}"
+         f"{f' {took:.1f} s after the phone went live (logged times)' if took is not None else ' (no logged time)' if m else ' in 60 s'}; the page lists "
+         f"{len(pending)} waiting phone(s); {len(dialogs)} pairing prompt(s) open"
+         f"{(': ' + repr(dialogs[0].get('title'))) if dialogs else ' (none on screen: no frontmost window in a step)'}; "
+         f"a scripted Allow is refused: {press.get('error') or press or 'no prompt to press'}"
+         f" -> {'PASS' if ok else 'FAIL (needs a request within 15 s of the phone going live, a waiting row and a refused scripted Allow)'}")
+    return ok
+
+
+def discovery_restart(app, exe, env, out, support, status, phone_log, streams, phone_shot, note):
+    """The paired Mac quits; a second identity key is put in its fallback file (what a refused Keychain
+    read used to mint) while the phone stays open; the Mac starts again. The phone reconnects by
+    itself, the Mac keeps its Keychain key (no `mac_identity_changed`) and sets the file key aside."""
+    state = os.path.join(support, "cmux-mobile-host")  # MobileHostStateDirectory
+    if not os.path.isdir(state):
+        note(f"- discovery, restart: no state directory {state} -> FAIL")
+        return app, False
+    app.terminate()  # the exact PID this script started
+    try:
+        app.wait(30)
+    except subprocess.TimeoutExpired:
+        app.kill()
+        app.wait(15)
+    planted = os.path.join(state, "mac-identity")
+    with os.fdopen(os.open(planted, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "wb") as f:
+        f.write(secrets.token_bytes(32))  # a P-256 private key's raw form: a second identity
+    refused_before = len([l for l in phone_log.lines if LINK_REFUSED.search(l)])
+    t = time.monotonic()
+    restarted = Stream([exe], os.path.join(out, "mac-app-restart.log"), env=env)
+    streams.append(restarted)
+    connected = wait_for(lambda: status().get("connectedPhones", 0) >= 1, 120, every=1)
+    took = time.monotonic() - t
+    refused = len([l for l in phone_log.lines if LINK_REFUSED.search(l)]) - refused_before
+    aside = os.path.exists(planted + ".superseded") and not os.path.exists(planted)
+    ok = bool(connected) and refused == 0 and aside
+    note(f"- discovery, restart with a second identity key in the file: phone "
+         f"{'reconnected %.0f s after the Mac started' % took if connected else 'NOT reconnected in 120 s'} "
+         f"with no action on it; phone refusals mac_identity_changed/bad_mac_proof: {refused}; file key "
+         f"{'set aside as mac-identity.superseded' if aside else 'NOT set aside'}; phone {phone_shot('phone-after-restart')}"
+         f" -> {'PASS' if ok else 'FAIL'}")
+    return restarted.proc, ok
+
+
+def upload_leg(simctl, udid, bundle_id, phone_env, root, mac_name):
+    """The phone streams a sparse ~150 MB file to the Mac with its own LinkUpload (UploadProbe, a DEBUG
+    launch argument); (passed, summary line). The stored file must match byte for byte."""
+    data = subprocess.run(simctl + ["get_app_container", udid, bundle_id, "data"],
+                          check=True, capture_output=True, text=True).stdout.strip()
+    source = os.path.join(data, "tmp", UPLOAD_NAME)
+    result_path = os.path.join(data, "Documents", "upload-probe.json")
+    os.makedirs(os.path.dirname(source), exist_ok=True)
+    if os.path.exists(result_path):
+        os.unlink(result_path)
+    sparse_file(source, UPLOAD_BYTES)
+    try:
+        want = sha256(source)
+        args = ["-CmuxMobileUploadProbe", source, "-CmuxMobileUploadProbeCwd", root]
+        if mac_name:
+            args += ["-CmuxMobileUploadProbeMac", mac_name]
+        subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+        subprocess.run(simctl + ["launch", udid, bundle_id] + args, env=phone_env, check=True, capture_output=True)
+        # Bounded wait on the app's own result file (no event reaches this script for it).
+        if not wait_for(lambda: os.path.exists(result_path), 300, every=2):
+            return False, f"FAIL: no upload-probe.json in 300 s (the probe waits for a served link to {mac_name!r})"
+        result = json.load(open(result_path))
+    finally:
+        os.unlink(source)
+    took, grew = result.get("seconds", 0), result.get("footprintPeak", 0) - result.get("footprintBefore", 0)
+    if "path" not in result:
+        return False, f"FAIL: the Mac refused it: {result.get('error')}: {result.get('message')}"
+    stored = result["path"]
+    folder = os.path.dirname(stored)
+    checks = {
+        "in <cwd>/.cmux/attachments/phone-<session>/": os.path.dirname(folder) == os.path.join(root, ".cmux", "attachments")
+        and os.path.basename(folder).startswith("phone-"),
+        "same size and SHA-256": os.path.isfile(stored) and sha256(stored) == want,
+        "footprint grew < 1/5 of the file": grew < UPLOAD_BYTES // 5,
+    }
+    failed = [name for name, ok in checks.items() if not ok]
+    return not failed, (f"{'PASSED' if not failed else 'FAIL: ' + ', '.join(failed)}; {UPLOAD_BYTES:,} bytes, sha256 "
+                        f"{want[1][:16]}..., in {took:.1f} s; stored at .../{os.path.relpath(stored, root)}; app footprint "
+                        f"{result.get('footprintBefore', 0) >> 20} MiB before, +{grew >> 20} MiB at its peak")
 
 
 def step_tag(app):

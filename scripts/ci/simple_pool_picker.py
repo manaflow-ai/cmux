@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import math
 import os
 import re
 import sys
@@ -34,6 +35,59 @@ CAPACITY = dict(zip(BLACKSMITH, (5, 10, 10)))
 # Public alias retained for callers and table-driven tests.
 BLACKSMITH_CAPACITY = CAPACITY
 XCODE_VERSION_PATTERN = r"[0-9]+(?:\.[0-9]+)*"
+
+# One declaration consumed by the picker and by Glaeda's admission hook.  The
+# queue snapshot may include queued jobs by band; a started job is represented
+# by ``running`` and is never a preemption candidate.
+PRIORITY_NIGHTLY = "nightly"
+PRIORITY_PROMOTE = "promote"
+PRIORITY_PR = "pr"
+PRIORITY_DEV = "dev"
+PRIORITY_SIDE_JOB = "side-job"
+PRIORITY_BANDS = (PRIORITY_NIGHTLY, PRIORITY_PROMOTE, PRIORITY_PR, PRIORITY_DEV, PRIORITY_SIDE_JOB)
+PRIORITY_RANK = {band: rank for rank, band in enumerate(PRIORITY_BANDS)}
+PRIORITY_QUOTA = {
+    PRIORITY_NIGHTLY: 1.0,
+    PRIORITY_PROMOTE: 1.0,
+    PRIORITY_PR: 1.0,
+    PRIORITY_DEV: 0.25,
+    PRIORITY_SIDE_JOB: 0.25,
+}
+
+
+def priority_quota(band: str, capacity: int) -> int:
+    """The declared number of queued slots a band may claim on one pool."""
+    share = PRIORITY_QUOTA.get(band, PRIORITY_QUOTA[PRIORITY_SIDE_JOB])
+    return max(1, min(max(0, int(capacity)), int(math.ceil(max(0, capacity) * share))))
+
+
+def priority_band(*, explicit: str = "", workflow: str = "", job: str = "",
+                  event: str = "") -> str:
+    """Classify a picker request without requiring a GitHub read."""
+    if explicit in PRIORITY_RANK:
+        return explicit
+    if job == "release-compile" or "promote" in job.lower():
+        return PRIORITY_PROMOTE
+    if event == "pull_request" or event == "pull_request_target" or "pull_request" in workflow:
+        return PRIORITY_PR
+    if "nightly" in workflow.lower() or event == "schedule":
+        return PRIORITY_NIGHTLY
+    if "dev" in workflow.lower() or "daily" in workflow.lower():
+        return PRIORITY_DEV
+    return PRIORITY_SIDE_JOB
+
+
+def preemptible_queued(queued: Mapping[str, int], incoming: str) -> tuple[str, ...]:
+    """Return lower-priority queued bands an incoming band may preempt.
+
+    The picker only returns queue metadata; cancellation is performed by the
+    queue reconciler.  ``running`` is intentionally not accepted here, so a
+    started job can never be selected for preemption.
+    """
+    rank = PRIORITY_RANK.get(incoming)
+    if rank is None:
+        return ()
+    return tuple(band for band in PRIORITY_BANDS if PRIORITY_RANK[band] > rank and int(queued.get(band, 0)) > 0)
 # The optional namespace keeps pools from different fleets separate.  AWS
 # runners use glaeda-aws-<class>-xcode-<version>; the unnamespaced labels are
 # the owned Mac minis.
@@ -124,6 +178,9 @@ class Pool:
     xcode_app: str = ""
     # A Blacksmith label whose queue is not moving (blacksmith_stalled()): it has no free slot.
     stalled: bool = False
+    # Counts of queued jobs by declared priority band. Running jobs remain in
+    # ``running`` and are never candidates for preemption.
+    queued_bands: Mapping[str, int] = dataclasses.field(default_factory=dict)
 
     @property
     def available(self) -> int:
@@ -147,6 +204,7 @@ class State:
     overflow_enabled: bool = True
     fallback: str = BLACKSMITH[1]
     gui_required: bool = False
+    band: str = PRIORITY_SIDE_JOB
 
 
 @dataclasses.dataclass(frozen=True)
@@ -161,6 +219,9 @@ class Choice:
     # For a run that overflows to the 6vcpu macOS 26 pool: a free 12vcpu slot
     # for its compile admission, the job every other one waits on.
     admission_label: str = ""
+    # Lower-priority queued bands the queue reconciler may preempt. Started
+    # jobs are never returned here.
+    preempted: tuple[str, ...] = ()
 
 
 def pick(state: State | Mapping[str, Any]) -> Choice:
@@ -173,6 +234,9 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
             fork=bool(state.get("fork", False)), owned_enabled=bool(state.get("owned_enabled", False)),
             overflow_enabled=bool(state.get("overflow_enabled", True)), fallback=str(state.get("fallback", BLACKSMITH[1])),
             gui_required=bool(state.get("gui_required", False)),
+            band=priority_band(explicit=str(state.get("band", state.get("priority_band", ""))),
+                               workflow=str(state.get("workflow", "")), job=str(state.get("job", "")),
+                               event=str(state.get("event", ""))),
         )
     if state.jobs <= 0:
         return Choice(state.fallback, "no macOS jobs")
@@ -192,8 +256,13 @@ def pick(state: State | Mapping[str, Any]) -> Choice:
             if fits(pool):
                 retry = _retry_label(state, pool)
                 return Choice(pool.label, "owned label has enough free runners now, its queue counted",
-                              pool.xcode_app, True, retry_label=retry)
-    return _borrow_large_for_admission(state, blacksmith)
+                              pool.xcode_app, True, retry_label=retry,
+                              preempted=preemptible_queued(pool.queued_bands, state.band))
+    choice = _borrow_large_for_admission(state, blacksmith)
+    selected = next((pool for pool in state.blacksmith if pool.label == choice.label), None)
+    if selected is not None:
+        choice = dataclasses.replace(choice, preempted=preemptible_queued(selected.queued_bands, state.band))
+    return choice
 
 
 def _borrow_large_for_admission(state: State, choice: Choice) -> Choice:
@@ -260,9 +329,14 @@ def _pool(item: Pool | Mapping[str, Any]) -> Pool:
     """Normalize a serialized pool entry into the immutable pool model."""
     if isinstance(item, Pool):
         return item
+    queued_bands = item.get("queued_bands", {})
+    if not isinstance(queued_bands, Mapping):
+        queued_bands = {}
     return Pool(str(item["label"]), int(item.get("capacity", 0)), int(item.get("running", 0)),
                 int(item.get("queued", 0)), None if item.get("free") is None else int(item["free"]),
-                int(item.get("reserved", 0)), str(item.get("xcode_app", "")), bool(item.get("stalled", False)))
+                int(item.get("reserved", 0)), str(item.get("xcode_app", "")), bool(item.get("stalled", False)),
+                {str(key): max(0, int(value)) for key, value in queued_bands.items()
+                 if str(key) in PRIORITY_RANK})
 
 
 class LiveState:
@@ -402,19 +476,31 @@ def state_from(*, jobs: int, env: Mapping[str, str], fork: bool, runners: Sequen
             family = owned_family(label)
             queued = sum(count(name, "queued") for name in pools if owned_family(str(name)) == family)
             free = max(0, idle - queued)
+            owned_entry = pools.get(label) if isinstance(pools, Mapping) else {}
+            queued_bands = owned_entry.get("queued_bands", {}) if isinstance(owned_entry, Mapping) else {}
             owned.append(Pool(label, len(online), len(online) - idle, queued, free=free,
-                               xcode_app=owned_xcode_app(label, env.get("CMUX_CI_XCODE_APP_PR", ""))))
+                               xcode_app=owned_xcode_app(label, env.get("CMUX_CI_XCODE_APP_PR", "")),
+                               queued_bands=queued_bands if isinstance(queued_bands, Mapping) else {}))
     age = snapshot_age(snapshot)
+    gone = dead_macos_26(snapshot)
     counts = {label: {"running": count(label, "running"), "queued": count(label, "queued"),
                       "reserved": count(label, "reserved_queued"),
-                      "stalled": blacksmith_stalled(count(label, "queued"), count(label, "oldest_queued_minutes"), age)}
+                      "stalled": blacksmith_stalled(count(label, "queued"), count(label, "oldest_queued_minutes"), age)
+                      or label in gone}
               for label in BLACKSMITH}
     blacksmith = tuple(Pool(label, CAPACITY[label], **counts[label],
-                            xcode_app=env.get("CMUX_CI_XCODE_APP_MACOS_15", "") if label == BLACKSMITH[2] else "")
+                            xcode_app=env.get("CMUX_CI_XCODE_APP_MACOS_15", "") if label == BLACKSMITH[2] else "",
+                            queued_bands=((pools.get(label) or {}).get("queued_bands", {})
+                                          if isinstance(pools.get(label) or {}, Mapping) else {}))
                        for label in BLACKSMITH)
+    band = priority_band(explicit=env.get("CI_PRIORITY_BAND", ""),
+                         workflow=env.get("GITHUB_WORKFLOW", ""), job=env.get("GITHUB_JOB", ""),
+                         event=env.get("GITHUB_EVENT_NAME", ""))
     return State(jobs, tuple(owned), blacksmith, fork, owned_enabled,
                  (env.get("CI_PR_POOL_OVERFLOW") or "1") != "0", fallback,
-                 gui_required=(env.get("RUN_FULL_SUITE") == "true" or env.get("RUN_UNIT_SUITE") == "true"))
+                 gui_required=(env.get("CMUX_CI_GUI_REQUIRED") == "true"
+                               or env.get("RUN_FULL_SUITE") == "true" or env.get("RUN_UNIT_SUITE") == "true"),
+                 band=band)
 
 
 def snapshot_age(snapshot: Mapping[str, Any] | None) -> float:
@@ -428,6 +514,79 @@ def snapshot_age(snapshot: Mapping[str, Any] | None) -> float:
     if generated.tzinfo is None:
         return 0.0
     return max(0.0, (dt.datetime.now(dt.timezone.utc) - generated).total_seconds() / 60)
+
+
+# blacksmith_dead(): a Blacksmith label that ran nothing and started no job for this long before the
+# snapshot was made is dead, not just busy. blacksmith-12vcpu-macos-26 started no job from 2026-10-28
+# 20:32Z on and again from about 2026-10-29 19:40Z (2026-10-30 18:37Z snapshot: 180 queued, oldest
+# 1399 min, none running, absent from label_started), while blacksmith-6vcpu-macos-26, stalled by the
+# queue rule too (77 queued, oldest 552 min), ran 5 and started one at 18:39Z.
+BLACKSMITH_DEAD_MINUTES = 60
+# A snapshot too old for the stall rule still proves a label dead for this long: the label it saw dead
+# for an hour was not revived by the time a later pick reads it in most cases, and a wrong call only
+# keeps a job on the label that last showed life.
+BLACKSMITH_DEAD_EVIDENCE_MINUTES = 6 * 60
+
+
+def blacksmith_dead(snapshot: Mapping[str, Any] | None, label: str, now: Any = None) -> bool:
+    """Whether the queue janitor's snapshot shows `label` dead: nothing running on it, and no runner took a job
+    asking for it in the BLACKSMITH_DEAD_MINUTES before the snapshot was made (its `label_started` map; a label it
+    does not list started nothing among the in-flight runs). The snapshot is the `macos-pool-load` artifact of
+    ci-queue-janitor.yml, a scheduled workflow, so it is written by the default branch's queue_janitor.py, whose
+    label_started() fills that map (this branch's copy of the janitor is not the one that runs; the 2026-10-30
+    18:37Z artifact of run 41108466754 on main carries it).
+
+    The stall rule alone cannot tell a dead label from a busy one: both have a job waiting past
+    BLACKSMITH_STALL_MINUTES. A snapshot without `label_started` (an older janitor), a truncated one (its listing
+    missed in-flight runs, so it can miss a running job or a start: any `truncated` but false, as
+    pr_runner_pool.snapshot_truncated() reads it), an undated one or one older than BLACKSMITH_DEAD_EVIDENCE_MINUTES
+    by `now` (a datetime; the wall clock when None) proves nothing. A complete listing still carries `unread_runs`
+    (runs whose jobs could not be read, nearly every sweep), which may hide a start too; that is accepted, since a
+    wrong call only sends the job to a label that showed life. An idle healthy label looks dead too: callers
+    prefer a label that shows life and fall back to their own order when none does, so the only cost is not
+    choosing a label with no evidence for it."""
+    import datetime as dt
+
+    if not isinstance(snapshot, Mapping):
+        return False
+    pools, starts = snapshot.get("pools"), snapshot.get("label_started")
+    if not isinstance(pools, Mapping) or not isinstance(starts, Mapping):
+        return False
+    if "truncated" in snapshot and snapshot.get("truncated") is not False:
+        return False
+
+    def moment(value: Any) -> dt.datetime | None:
+        try:
+            parsed = dt.datetime.fromisoformat(str(value or "").replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo is not None else None
+
+    generated = moment(snapshot.get("generated_at"))
+    if generated is None:
+        return False
+    now = now if isinstance(now, dt.datetime) and now.tzinfo is not None else dt.datetime.now(dt.timezone.utc)
+    if (now - generated).total_seconds() / 60 > BLACKSMITH_DEAD_EVIDENCE_MINUTES:
+        return False
+    entry = pools.get(label)
+    try:
+        running = int(entry.get("running", 0)) if isinstance(entry, Mapping) else 0
+    except (TypeError, ValueError):
+        return False
+    if running > 0:
+        return False
+    started = moment(starts.get(label))
+    return started is None or (generated - started).total_seconds() / 60 >= BLACKSMITH_DEAD_MINUTES
+
+
+
+def dead_macos_26(snapshot: Mapping[str, Any] | None, now: Any = None) -> set[str]:
+    """The Blacksmith macOS 26 labels (BLACKSMITH's first two) the snapshot shows dead (blacksmith_dead()), or none
+    when it shows both dead: with no label showing life it says nothing to choose by. A dead label counts as
+    stalled (Pool.stalled): the stall rule alone reads a dead label whose queue was cleared as free slots."""
+    labels = set(BLACKSMITH[:2])
+    out = {label for label in labels if blacksmith_dead(snapshot, label, now)}
+    return set() if out >= labels else out
 
 
 def blacksmith_stalled(queued: int, oldest_queued_minutes: float, age: float = 0.0) -> bool:

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextDiff
 import CmuxNextPages
 
@@ -14,6 +15,8 @@ enum DiffHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let service = context.services.viewers.diffPages
         context.services.pages.register(service)
+        // An agent's turn ended: its repository's diff is precomputed for the next diff tab.
+        AgentTurnStateStore.shared.turnEndedObservers.append { [weak service] _, folder in service?.warm(folder: folder) }
         for (action, command) in DiffPageCommand.forAction {
             registry.bind(ActionID(rawValue: action), run: { invocation in
                 guard let tab = context.scope(invocation).tab, let page = service.pageView(tab.id.rawValue) else {

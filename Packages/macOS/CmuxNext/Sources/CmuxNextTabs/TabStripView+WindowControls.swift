@@ -10,12 +10,42 @@ import CmuxNextDesign
 // final place, and its tabs then move with the column, never pinned to the
 // traffic lights while the column slides under them or under the sidebar.
 extension TabStripView {
-    /// Re-checks the traffic lights after the strip moved in its window
-    /// without a resize (the App calls it when the pane's window frame
-    /// changes); relays out only when the inset changes.
+    /// Re-checks the traffic lights and the top row's line after the strip moved in its window
+    /// without a resize (the App calls it when the pane's window frame changes: a column or row
+    /// scroll, a split, the sidebar's slide, a pane coming to rest); relays out only when the inset
+    /// or the tabs' top changes, then lets the pane's toolbar re-check its own place.
     public func updateWindowControlsAvoidance() {
-        guard computeWindowControlsInset() != windowControlsInset else { return }
-        needsLayout = true
+        if computeWindowControlsInset() != windowControlsInset || (appliedTabTop != nil && computeTabTop() != appliedTabTop) {
+            needsLayout = true
+        }
+        onMovedInWindow?()
+    }
+
+    /// Tabs are vertically centered in whatever height the strip gets; in a minimal window's top row
+    /// they sit midway between the window's top edge and the strip's bottom, equal gaps above and
+    /// below (#38054), and the card's top moves them onto the row's shared line (`TopRowLine`: the
+    /// traffic lights', the toolbar band's and the sidebar's + line, Leo 2026-11-07). Measured where the
+    /// pane will rest (``restingDrop``), as the inset is: a strip sliding through the top row lays out
+    /// once for its final place and its tabs move with it, never pinned to the line on the way.
+    func computeTabTop() -> CGFloat {
+        let scale = window?.backingScaleFactor ?? 2
+        let tabHeight = min(metrics.tabHeight, bounds.height)
+        if TopRowLineLook.tunable.value != .off, let window, let content = window.contentView {
+            let strip = restingWindowRect().strip
+            if WindowTitlebar.isInTopRow(strip, in: window), WindowTitlebar.topRowEvensPillGaps(in: window) {
+                // Equal gaps from the window's top edge and to the strip's bottom; the card's top brings them to the line (#38054).
+                let row = PaneChromeMetrics(stripHeight: bounds.height, tabHeight: tabHeight, panePadding: 0)
+                return row.pillTop(stripTop: content.bounds.maxY - strip.maxY, scale: scale)
+            }
+        }
+        return metrics.tabTop(stripHeight: bounds.height, scale: scale)
+    }
+
+    /// How far below where it shows now the strip will rest, in window points (0 at rest): the pane's
+    /// toolbar, which moves with it, measures its place on the line from the same resting frame.
+    public var restingDrop: CGFloat {
+        guard window != nil else { return 0 }
+        return convert(bounds, to: nil).maxY - restingWindowRect().strip.maxY
     }
 
     /// Leading points to keep clear so the first tab starts a little after
@@ -61,11 +91,7 @@ extension TabStripView {
     /// the traffic lights and the window's titlebar accessory where they lie
     /// over its `shown` part (pure).
     static func windowControlsInset(strip: CGRect, shown: CGRect, lights: CGRect?, accessory: CGRect?, padding: CGFloat) -> CGFloat {
-        let visible = strip.intersection(shown)
-        let obstacles = [lights, accessory].compactMap { $0 }.filter { frame in
-            !visible.isNull && visible.minY < frame.maxY && visible.maxY > frame.minY && visible.minX < frame.maxX && visible.maxX > frame.minX
-        }
-        guard let right = obstacles.map(\.maxX).max() else { return 0 }
+        guard let right = WindowTitlebar.windowControlsMaxX(over: strip, shown: shown, lights: lights, accessory: accessory) else { return 0 }
         let clear = right + Metrics.space3 - strip.minX - padding
         return max(0, (clear * 2).rounded(.up) / 2)
     }

@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 WEBVIEWS = ROOT / 'webviews'
 SWIFT = 'Packages/macOS/CmuxNext/Sources'
-OUTSIDE = ('schemas', 'web', 'Packages/Shared')
+OUTSIDE = ('schemas', 'web', 'Packages/Shared', 'design/icons/neko-candidates')
 UI_RULES = 'test/ui-rules.test.ts'
 COVERAGE = 'test/gallery-coverage.test.ts'
 RAW_KEYS = 'export function RawKeys() {\n  return <div onKeyDown={() => undefined} />;\n}\n'
@@ -44,6 +44,10 @@ class Checkout:
                 shutil.copy2(source, target)
         (self.path / '.gitignore').write_text(''.join(f'/{name}\n' for name in OUTSIDE) + 'node_modules\n')
         self.git('init', '-q', '-b', 'base')
+        # This disposable repo is removed immediately after the test. Detached Git maintenance
+        # must not keep writing .git/objects while TemporaryDirectory cleans it up.
+        self.git('config', 'gc.auto', '0')
+        self.git('config', 'maintenance.auto', 'false')
         self.commit(base_files, 'base')
 
     def git(self, *args):

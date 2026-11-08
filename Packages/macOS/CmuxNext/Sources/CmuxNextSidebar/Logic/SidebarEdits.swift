@@ -1,8 +1,9 @@
 public import CmuxNextDesign
 import Foundation
 
-/// Pure tree edits behind every structural intent. `SidebarModel.apply(_:)`
-/// calls these; they are also what the tests exercise.
+/// The sidebar's tree edits: the structural ones are the shared Rust rules
+/// (`cmux-layout-reducer` `sidebar_edits`); the queries here read the rows the
+/// window holds, and a field write sets a row's own value.
 public nonisolated enum SidebarEdits {
     /// Where a workspace sits in the tree.
     public struct Location: Hashable, Sendable {
@@ -13,60 +14,57 @@ public nonisolated enum SidebarEdits {
     }
 
     /// Applies an intent. Returns false when the intent was refused or had
-    /// no structural effect (for example `select` or an invalid drop).
+    /// no structural effect (for example `select` or an invalid drop). The
+    /// structural edits are the shared Rust rules (`sidebar_edits`); a field
+    /// write (a title, a color, an icon) is set here.
     @discardableResult
     public static func apply(_ intent: SidebarIntent, to sections: inout [SidebarSection]) -> Bool {
         switch intent {
-        case .select, .selectTab, .moveTab, .closeTab, .newWorkspace, .openGroup, .switchProfile, .newProfile, .reorderProfile, .openProfileInNewWindow, .activateItem, .installUpdate, .downloadUpdate, .setAutomaticUpdates,
-             .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .dismissUpdated, .nowPlaying, .hideNowPlayingCard, .layout, .toggleLayoutSection,
-             .dropOnLayoutSection, .groupEditorEnded, .toggleWorkspaceAudio, .addItems:
-            return false
-        case let .setGroupPinned(id, pinned):
-            return mutateGroup(id, in: &sections) { $0.isPinned = pinned }
         case let .setGroupIcon(id, icon):
             return mutateGroup(id, in: &sections) { $0.icon = icon.flatMap { WorkspaceIcon.parse($0) } }
-        case let .closeGroup(id):
-            return closeGroup(id, in: &sections)
-        case let .reorder(ids, position):
-            return reorder(ids, to: position, in: &sections)
-        case let .move(ids, group):
-            return move(ids, toGroup: group, in: &sections)
-        case let .reorderGroup(group, index):
-            return reorderGroup(group, index: index, in: &sections)
-        case let .createGroup(id, name, color, ids, anchor, collapsed, index):
-            guard createGroup(id, name: name, color: color, workspaces: ids, anchor: anchor, index: index, in: &sections) else { return false }
-            if collapsed { _ = mutateGroup(id, in: &sections) { $0.isCollapsed = true } }
-            return true
         case let .renameGroup(id, name):
             return mutateGroup(id, in: &sections) { $0.name = name }
         case let .setGroupColor(id, color):
             return mutateGroup(id, in: &sections) { $0.tint = color }
-        case let .ungroup(id):
-            return ungroup(id, in: &sections)
-        case let .toggleCollapse(target):
-            return toggleCollapse(target, in: &sections)
-        case let .close(ids):
-            let held = groupsWithMembers(sections)
-            let removed = removeWorkspaces(Set(ids), from: &sections)
-            pruneEmptyGroups(in: &sections, keeping: nil, emptiedFrom: held)
-            return !removed.isEmpty
         case let .rename(id, title):
             return mutateWorkspaces([id], in: &sections) { $0.title = title }
         case let .setColor(ids, color):
             return mutateWorkspaces(ids, in: &sections) { ws in
+                ws.color = color // a rail or fill row shows it at once, a favicon or emoji row too
                 switch (ws.icon, color) {
                 case let (.symbol(name, _)?, color): ws.icon = .symbol(name, tint: color)
                 case (.emoji?, _): break // an emoji keeps its own colors
                 case let (_, color?): ws.icon = .swatch(color)
                 case (.swatch?, nil), (nil, nil): ws.icon = nil
-                case (.favicon?, nil): break // a page's favicon is not the user's to clear
+                case (.favicon?, nil), (.pagePlaceholder?, nil): break // a page's favicon (or its globe) is not the user's to clear
                 }
             }
         case let .setIcon(ids, icon):
             return mutateWorkspaces(ids, in: &sections) { $0.icon = icon }
-        case let .setPinned(ids, pinned):
-            return setPinned(ids, pinned, in: &sections)
+        case let .createGroup(id, name, color, _, _, _, _):
+            return edit(intent, in: &sections) { made in
+                guard made == id else { return nil }
+                var group = SidebarGroup(id: id, name: SidebarGroup.named(name), workspaces: [])
+                group.tint = color
+                return group
+            }
+        default:
+            return edit(intent, in: &sections)
         }
+    }
+
+    /// Runs a structural intent through the shared rules; false for one with no tree edit or a refused one.
+    /// `made`: a group the edit creates. `prunes` false keeps a group the move empties (a drag's shown result:
+    /// an emptied group is still a drop target).
+    static func edit(_ intent: SidebarIntent, in sections: inout [SidebarSection], prunes: Bool = true,
+                     made: (GroupID) -> SidebarGroup? = { _ in nil }) -> Bool {
+        guard let wire = RustEditIntent(intent) else { return false }
+        let skeleton = RustSidebarEdits(sections)
+        var request = RustEditRequest("edit", sections: skeleton.sections)
+        (request.intent, request.prunes) = (wire, prunes)
+        guard let reply = RustSidebarClient.call("sidebar_edits", request, as: RustEditReply.self) else { return false }
+        if let shown = reply.sections { sections = skeleton.rebuild(shown, from: sections, made: made) }
+        return reply.changed
     }
 
     // MARK: Queries
@@ -129,10 +127,11 @@ public nonisolated enum SidebarEdits {
 
     /// Whether every workspace `ids` names may join group `group`: the group exists and each one
     /// may live in its section (a group holds workspaces of one machine row). The one rule for a
-    /// drag, the palette and the CLI (`moveWorkspaceToGroup`).
+    /// drag, the palette and the CLI (`moveWorkspaceToGroup`), shared (`sidebar_edits` `can_move`).
     public static func canMove(_ ids: [WorkspaceID], toGroup group: GroupID, in sections: [SidebarSection]) -> Bool {
-        guard let (s, _) = locateGroup(group, in: sections), !ids.isEmpty else { return false }
-        return ids.allSatisfy { id in workspace(id, in: sections).map { canPlace($0, in: sections[s]) } ?? false }
+        var request = RustEditRequest("can_move", sections: RustSidebarEdits(sections).sections)
+        (request.ids, request.group) = (ids.map(\.rawValue), group.rawValue)
+        return RustSidebarClient.call("sidebar_edits", request, as: Bool.self) ?? false
     }
 
     /// Whether a workspace may live in a section.
@@ -145,7 +144,10 @@ public nonisolated enum SidebarEdits {
 
     // MARK: Edits
 
-    /// `prunes` false keeps a group the move empties (a drag's shown result: an emptied group is still a drop target).
+    /// A drag's in-place result (`SidebarListView.displayLayout`, each layout pass of a drag): `ids` moved to
+    /// `position`. It stays here, not a call to the shared rules, because it runs per layout pass; it follows
+    /// `sidebar_edits::reorder` (whose tests hold the cases). `prunes` false keeps a group the move empties (an
+    /// emptied group is still a drop target); the committed edit goes through ``apply(_:to:)``.
     static func reorder(_ ids: [WorkspaceID], to position: DropPosition, in sections: inout [SidebarSection], prunes: Bool = true) -> Bool {
         guard let s = sections.firstIndex(where: { $0.id == position.section }) else { return false }
         if position.group != nil, sections[s].machine == nil { return false }
@@ -162,117 +164,6 @@ public nonisolated enum SidebarEdits {
         insert(removed, at: position, in: &sections)
         if prunes { pruneEmptyGroups(in: &sections, keeping: position.group, emptiedFrom: groupsWithMembers(before)) }
         return sections != before
-    }
-
-    static func move(_ ids: [WorkspaceID], toGroup group: GroupID, in sections: inout [SidebarSection]) -> Bool {
-        guard let (s, n) = locateGroup(group, in: sections),
-              case let .group(g) = sections[s].nodes[n] else { return false }
-        let moving = Set(ids)
-        let remaining = g.members.count(where: { if case let .workspace(ws) = $0 { !moving.contains(ws.id) } else { true } })
-        return reorder(ids, to: DropPosition(section: sections[s].id, group: group, index: remaining), in: &sections)
-    }
-
-    static func reorderGroup(_ group: GroupID, index: Int, in sections: inout [SidebarSection]) -> Bool {
-        guard let (s, n) = locateGroup(group, in: sections) else { return false }
-        let node = sections[s].nodes.remove(at: n)
-        let clamped = max(0, min(index, sections[s].nodes.count))
-        sections[s].nodes.insert(node, at: clamped)
-        return clamped != n
-    }
-
-    static func createGroup(
-        _ id: GroupID,
-        name: String,
-        color: GroupColor,
-        workspaces ids: [WorkspaceID],
-        anchor target: WorkspaceID? = nil,
-        index: Int? = nil,
-        in sections: inout [SidebarSection]
-    ) -> Bool {
-        let ordered = treeOrder(ids, in: sections)
-        // The group forms at `target` (an onto-drop's target row), else at
-        // the first workspace in tree order.
-        guard let first = target.flatMap({ ordered.contains($0) ? $0 : nil }) ?? ordered.first,
-              let anchor = locate(first, in: sections),
-              sections[anchor.section].machine != nil,
-              locateGroup(id, in: sections) == nil else { return false }
-        let s = anchor.section
-        // Only workspaces from the anchor's section join. Loose members
-        // before the insertion point leave it, so it moves up by their count
-        // (emptied groups stay until the prune below).
-        let sameSection = ordered.filter { locate($0, in: sections)?.section == s }
-        let joining = Set(sameSection)
-        var insertion = anchor.child == nil ? anchor.node : anchor.node + 1
-        insertion -= sections[s].nodes.prefix(insertion).count(where: { node in
-            if case let .workspace(ws) = node { return joining.contains(ws.id) }
-            return false
-        })
-        let held = groupsWithMembers(sections)
-        let removed = removeWorkspaces(joining, from: &sections)
-        let group = SidebarGroup(id: id, name: SidebarGroup.named(name), color: color, workspaces: removed)
-        sections[s].nodes.insert(.group(group), at: min(max(index ?? insertion, 0), sections[s].nodes.count))
-        pruneEmptyGroups(in: &sections, keeping: id, emptiedFrom: held)
-        return true
-    }
-
-    static func ungroup(_ id: GroupID, in sections: inout [SidebarSection]) -> Bool {
-        guard let (s, n) = locateGroup(id, in: sections),
-              case let .group(group) = sections[s].nodes[n] else { return false }
-        sections[s].nodes.replaceSubrange(n...n, with: group.workspaces.map(SidebarNode.workspace))
-        return true
-    }
-
-    static func closeGroup(_ id: GroupID, in sections: inout [SidebarSection]) -> Bool {
-        guard let (s, n) = locateGroup(id, in: sections),
-              case var .group(group) = sections[s].nodes[n] else { return false }
-        if group.isPinned {
-            group.workspaces = []
-            group.isCollapsed = true
-            sections[s].nodes[n] = .group(group)
-        } else {
-            sections[s].nodes.remove(at: n)
-        }
-        return true
-    }
-
-    static func toggleCollapse(_ target: CollapseTarget, in sections: inout [SidebarSection]) -> Bool {
-        switch target {
-        case let .section(id):
-            guard let s = sections.firstIndex(where: { $0.id == id }) else { return false }
-            sections[s].isCollapsed.toggle()
-            return true
-        case let .group(id):
-            return mutateGroup(id, in: &sections) { $0.isCollapsed.toggle() }
-        }
-    }
-
-    static func setPinned(_ ids: [WorkspaceID], _ pinned: Bool, in sections: inout [SidebarSection]) -> Bool {
-        let ordered = treeOrder(ids, in: sections)
-        guard !ordered.isEmpty else { return false }
-        if pinned {
-            if !sections.contains(where: { $0.id == .pinned }) {
-                sections.insert(SidebarSection(kind: .pinned, nodes: []), at: 0)
-            }
-            // Inserted above when missing, so it is found.
-            guard let s = sections.firstIndex(where: { $0.id == .pinned }) else { return false }
-            let moving = Set(ordered)
-            let remaining = sections[s].nodes.count(where: { node in
-                if case let .workspace(ws) = node { return !moving.contains(ws.id) }
-                return true
-            })
-            return reorder(ordered, to: DropPosition(section: .pinned, index: remaining), in: &sections)
-        }
-        guard let pinnedIndex = sections.firstIndex(where: { $0.id == .pinned }) else { return false }
-        let pinnedIDs = Set(sections[pinnedIndex].workspaces.map(\.id))
-        let unpinning = ordered.filter { pinnedIDs.contains($0) }
-        var changed = false
-        // Every pinned id resolves to its workspace; one that does not stays where it is.
-        let located = unpinning.compactMap { id in workspace(id, in: sections).map { (id: id, machine: $0.machineID) } }
-        let byMachine = Dictionary(grouping: located, by: \.machine).mapValues { $0.map(\.id) }
-        for (machine, machineIDs) in byMachine.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
-            changed = reorder(machineIDs, to: DropPosition(section: .machine(machine), index: 0), in: &sections) || changed
-        }
-        return changed
     }
 
     // MARK: Primitives

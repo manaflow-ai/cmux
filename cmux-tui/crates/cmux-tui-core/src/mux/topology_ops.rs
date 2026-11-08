@@ -4,6 +4,18 @@
 
 use super::*;
 
+/// The `pane.split` `direction` field of a split along `dir`: `right` or
+/// `down`, or `left` or `up` when the new pane goes before the target
+/// (`split-before-v1`).
+pub(crate) fn split_direction_field(dir: SplitDir, before: bool) -> &'static str {
+    match (dir, before) {
+        (SplitDir::Right, false) => "right",
+        (SplitDir::Right, true) => "left",
+        (SplitDir::Down, false) => "down",
+        (SplitDir::Down, true) => "up",
+    }
+}
+
 impl Mux {
     pub(crate) fn create_terminal_result_in_workspace_as(
         self: &Arc<Self>,
@@ -14,7 +26,7 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<RunCommandResult> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let selectors = self
             .ordinary_workspace_selectors(workspace)
             .with_context(|| format!("unknown workspace {workspace}"))?;
@@ -52,7 +64,7 @@ impl Mux {
         name: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<(Arc<Surface>, RunPlacement)> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let selectors = self
             .ordinary_workspace_selectors(workspace)
             .with_context(|| format!("unknown workspace {workspace}"))?;
@@ -92,7 +104,7 @@ impl Mux {
         {
             return self.new_browser_column_beside_lone_dock(actor, url, dock, size, extra_fields);
         }
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let selectors = {
             let state = self.state.lock().unwrap();
             let target = match pane {
@@ -161,7 +173,7 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<PaneSurfaceCreation> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         if !width.is_finite()
             || !(MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width)
         {
@@ -204,7 +216,7 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<PaneSurfaceCreation> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let selectors = self
             .ordinary_pane_selectors(target)
             .with_context(|| format!("unknown pane {target}"))?;
@@ -238,7 +250,7 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<(Arc<Surface>, ScreenId)> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let selectors = match workspace {
             Some(workspace) => self
                 .ordinary_workspace_selectors(workspace)
@@ -290,7 +302,7 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let selectors = {
             let state = self.state.lock().unwrap();
             let target = match pane {
@@ -358,7 +370,7 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let mut fields =
             Map::from_iter([("initial_content".into(), Value::String("terminal".into()))]);
         Self::insert_optional_string(&mut fields, "name", name);
@@ -380,7 +392,7 @@ impl Mux {
         argv: Vec<String>,
         options: RunCommandOptions,
     ) -> anyhow::Result<RunCommandResult> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let RunCommandOptions { pane, new_workspace, workspace_key, cwd, name, size } = options;
         if workspace_key.is_some() && !new_workspace {
             anyhow::bail!("workspace key requires a new workspace");
@@ -453,14 +465,27 @@ impl Mux {
         spawn: TerminalSpawnOptions,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<PaneSurfaceCreation> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
+        self.split_placed_with_options_as(actor, target, dir, false, spawn, size)
+    }
+
+    /// [`Self::split_with_options_as`] with the new pane before the target
+    /// on the split axis when `before` (`split-before-v1`: Split Left, Split
+    /// Up), in the same one commit: the split's layout is final, with no
+    /// `swap-pane` after it.
+    pub fn split_placed_with_options_as(
+        self: &Arc<Self>,
+        actor: &Actor,
+        target: PaneId,
+        dir: SplitDir,
+        before: bool,
+        spawn: TerminalSpawnOptions,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<PaneSurfaceCreation> {
+        let _creation_handoff = self.resource_creation_handoff.read().unwrap();
         let selectors = self
             .ordinary_pane_selectors(target)
             .with_context(|| format!("unknown pane {target}"))?;
-        let direction = match dir {
-            SplitDir::Right => "right",
-            SplitDir::Down => "down",
-        };
+        let direction = split_direction_field(dir, before);
         let mut fields = Map::from_iter([("direction".into(), Value::String(direction.into()))]);
         Self::insert_cell_size(&mut fields, size);
         Self::insert_spawn_options(&mut fields, spawn);

@@ -1,4 +1,6 @@
 import { useSyncExternalStore } from "react";
+import { readHeaderControls, type HeaderControls } from "./headerTrio";
+import { headerMotionOf, type HeaderMotionStyle } from "./headerMotion";
 
 /// What the chat header shows from the chat's tab (CmuxNextAgentPane AgentPaneHeaderState): the pin the
 /// "..." menu's labels read, whether the panes beside the chat show ([+] New tab reads Hide tabs), and
@@ -39,6 +41,12 @@ export interface HeaderCheck {
   readonly onBase?: boolean;
 }
 
+export interface HeaderMoveTarget {
+  readonly id: string;
+  readonly label: string;
+  readonly status?: string;
+}
+
 export interface HeaderState {
   readonly pinned: boolean;
   readonly sideTabs: boolean;
@@ -46,19 +54,21 @@ export interface HeaderState {
   readonly lit: readonly string[];
   /// The "..." menu offers Move to Floating Chat (Start Agent's floating chat is on, cx-b9qi).
   readonly floatingChat: boolean;
-  /// Side sessions (/btw) are on by default; `agentPane.debug.sideSessions` remains an explicit kill
-  /// switch. The App may override it in the header state; an update that leaves it out keeps the value.
-  readonly sideSessions: boolean;
-  /// The header offers the Inspector (Debug Settings `agent.inspector`, inspector/ChatInspector.tsx).
-  readonly inspector: boolean;
-  /// Browser opens the chat's page and Preview is no button of its own (Debug Settings
-  /// `agentChat.browserOpensPreview`, on by default; off: separate Preview and Browser).
-  readonly browserOpensPreview: boolean;
+  /// The header offers Session Info (Debug Settings `agent.sessionInfo`, session-info/SessionInfo.tsx).
+  readonly sessionInfo: boolean;
+  /// The top-right controls (Debug Settings `agentChat.headerControls`, headerTrio.ts): `standard` (today's
+  /// row) or `trio` ("...", the panel toggle and New).
+  readonly headerControls: HeaderControls;
+  /// How the top-right icons move (Debug Settings `agentChat.headerMotion`, headerMotion.ts): `still`
+  /// unless the App picked another style.
+  readonly headerMotion: HeaderMotionStyle;
   /// The chip beside the tools; the App sends `null` when the chat's folder has none.
   readonly pullRequest?: HeaderPullRequest;
   /// The Cloud moves the chat's right-click menu offers now (`cloudMove`, `cloudBringBack`): the
   /// composer's picker offers the same. Only a `pane.tabState` reply carries it; a push keeps it.
   readonly moves: readonly string[];
+  /// Eligible Cloud machine targets for the title menu. The host validates ids again on dispatch.
+  readonly moveTargets: readonly HeaderMoveTarget[];
   /// Rises with each change the App sees: a `pane.tabState` reply that arrives after a newer push is dropped.
   readonly version: number;
 }
@@ -75,10 +85,11 @@ let current: HeaderState = {
   sideTabs: false,
   lit: [],
   floatingChat: false,
-  sideSessions: true,
-  inspector: false,
-  browserOpensPreview: true,
+  sessionInfo: false,
+  headerControls: "standard",
+  headerMotion: "still",
   moves: [],
+  moveTargets: [],
   version: 0,
 };
 const listeners = new Set<() => void>();
@@ -90,11 +101,12 @@ export function setHeaderState(value: unknown): void {
     sideTabs?: unknown;
     lit?: unknown;
     floatingChat?: unknown;
-    sideSessions?: unknown;
     inspector?: unknown;
-    browserOpensPreview?: unknown;
+    headerControls?: unknown;
+    headerMotion?: unknown;
     pullRequest?: unknown;
     moves?: unknown;
+    moveTargets?: unknown;
     version?: unknown;
   };
   const version = typeof raw.version === "number" ? raw.version : current.version;
@@ -104,12 +116,25 @@ export function setHeaderState(value: unknown): void {
     sideTabs: typeof raw.sideTabs === "boolean" ? raw.sideTabs : current.sideTabs,
     lit: Array.isArray(raw.lit) ? raw.lit.filter((id): id is string => typeof id === "string") : current.lit,
     floatingChat: typeof raw.floatingChat === "boolean" ? raw.floatingChat : current.floatingChat,
-    sideSessions: typeof raw.sideSessions === "boolean" ? raw.sideSessions : current.sideSessions,
-    inspector: typeof raw.inspector === "boolean" ? raw.inspector : current.inspector,
-    browserOpensPreview:
-      typeof raw.browserOpensPreview === "boolean" ? raw.browserOpensPreview : current.browserOpensPreview,
+    // `inspector` is the wire name the App sends (AgentPaneHeaderState.swift); kept so either side of the rename agrees.
+    sessionInfo: typeof raw.inspector === "boolean" ? raw.inspector : current.sessionInfo,
+    headerControls: readHeaderControls(raw.headerControls) ?? current.headerControls,
+    headerMotion: "headerMotion" in raw ? headerMotionOf(raw.headerMotion) : current.headerMotion,
     pullRequest: "pullRequest" in raw ? pullRequestOf(raw.pullRequest) : current.pullRequest,
     moves: Array.isArray(raw.moves) ? raw.moves.filter((id): id is string => typeof id === "string") : current.moves,
+    moveTargets: Array.isArray(raw.moveTargets)
+      ? raw.moveTargets.flatMap((target: unknown): HeaderMoveTarget[] => {
+          const row = (target ?? {}) as Record<string, unknown>;
+          if (typeof row.id !== "string" || !row.id || typeof row.label !== "string" || !row.label) return [];
+          return [
+            {
+              id: row.id,
+              label: row.label,
+              ...(typeof row.status === "string" && row.status ? { status: row.status } : {}),
+            },
+          ];
+        })
+      : current.moveTargets,
     version,
   };
   if (JSON.stringify(next) === JSON.stringify(current)) return;

@@ -1,9 +1,7 @@
-// A finished turn folds only its work: tool rows, thoughts, compactions, where a subagent ended and
-// short narration ("Let me check…"). A reply that reads as a takeaway stays in sight wherever it is
-// in the turn, and so does the turn's final reply; the work between two takeaways folds on its own
-// between them, so a turn reads [fold][takeaway][fold][takeaway]. Leo, 2026-10-21: "we dont want
-// end of turn takeaway responses to be folded in im pretty sure..."; "is there a true final
-// takeaway that we can keep?". Lawrence: "this stuff needs to be collapsed".
+// A completed turn folds its work into one disclosure and keeps every reply to the person in sight,
+// the final answer and each earlier one, with the work around each folded into its own line (Leo,
+// 2026-11-06: "your intermediate message got lost. that can never happen"; turn-fold-keeps-replies.test.ts).
+// Short narration between steps folds with them. While running, intermediate dialogue remains visible.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { isTakeaway, turnFoldFor, turnView } from "../src/agent-session/acpmux/conversation/turns";
@@ -48,23 +46,28 @@ const leosTurn = () => [
   summary(),
 ];
 
-test("both answers of Leo's turn stay in sight; each run of commands folds on its own", () => {
+test("the final answer and every earlier answer stay in sight; the work around each folds", () => {
   expect(drawn(leosTurn())).toEqual([
     "user:u",
     "worked:worked-u",
+    "activity:ran-1",
     "assistant:first",
-    "worked:worked-first",
+    "activity:ran-5",
     "assistant:second",
     "turnSummary:end",
   ]);
 });
 
-test("each fold opens to its own commands, in order", () => {
-  expect(drawn(leosTurn(), new Set(["worked-first"]))).toEqual([
+test("the one fold opens every intermediate answer and command in order", () => {
+  const rows = leosTurn();
+  expect(drawn(rows, new Set(["worked-u"]))).toEqual([
     "user:u",
     "worked:worked-u",
+    "activity:ran-1",
+    "activity:ran-2",
+    "activity:ran-3",
+    "activity:ran-4",
     "assistant:first",
-    "worked:worked-first",
     "activity:ran-5",
     "activity:ran-6",
     "assistant:second",
@@ -93,7 +96,7 @@ test("Find opens the fold that holds the row", () => {
       rows,
       rows.findIndex((entry) => entry.id === "ran-6"),
     ),
-  ).toBe("worked-first");
+  ).toBe("worked-u");
 });
 
 test("short narration between tools folds with them", () => {
@@ -108,22 +111,26 @@ test("short narration between tools folds with them", () => {
     summary(),
   ];
   expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:final", "turnSummary:end"]);
-  expect(drawn(rows, new Set(["worked-u"]))).toContain("assistant:check");
+  // Opened, each short note joins the runs around it, as in a running turn (turns.ts mergeShortNotes).
+  const open = turnView(rows, new Set(["worked-u"]));
+  expect(open.map((shaped) => shaped.id)).not.toContain("check");
+  expect(open.find((shaped) => shaped.id === "read")?.joined).toEqual(["read", "check", "grep", "running", "test"]);
 });
 
-test("long reply, then a tool, then 'Pushed.': both stay in sight and the tool folds between them", () => {
+test("long reply, then a tool, then 'Pushed.': both replies stay in sight, each tool on its own line", () => {
   const rows = [row("u", "user"), ran("read"), answer("reply"), ran("git push"), say("pushed", "Pushed."), summary()];
   expect(drawn(rows)).toEqual([
     "user:u",
     "worked:worked-u",
+    "activity:read",
     "assistant:reply",
-    "worked:worked-reply",
+    "activity:git push",
     "assistant:pushed",
     "turnSummary:end",
   ]);
 });
 
-test("compactions and finished subagents fold with the work; an error stays in sight", () => {
+test("completed compactions and subagent reports fold, while a refusal stays available", () => {
   const rows = [
     row("u", "user"),
     ran("read"),
@@ -173,16 +180,13 @@ test("Find opens the right fold past a prompt that failed to send mid-turn", () 
     answer("longB"),
     summary(),
   ];
-  expect(drawn(rows).filter((entry) => entry.startsWith("worked:"))).toEqual([
-    "worked:worked-u",
-    "worked:worked-longA",
-  ]);
+  expect(drawn(rows).filter((entry) => entry.startsWith("worked:"))).toEqual(["worked:worked-u"]);
   expect(
     turnFoldFor(
       rows,
       rows.findIndex((entry) => entry.id === "tool2"),
     ),
-  ).toBe("worked-longA");
+  ).toBe("worked-u");
   expect(
     turnFoldFor(
       rows,
@@ -191,17 +195,16 @@ test("Find opens the right fold past a prompt that failed to send mid-turn", () 
   ).toBe("worked-u");
 });
 
-test("a stopped turn says so on its last Worked for, also when its last stretch has no work", () => {
+test("a stopped turn says so on its one Worked for line", () => {
   const stopped = (rows: AcpmuxRow[]) =>
     turnView([...rows, row("end", "turnSummary", { status: "cancelled", durationMs: 9_000 })], new Set())
       .filter((shaped) => shaped.kind === "worked")
       .map((shaped) => `${shaped.id}:${shaped.status ?? ""}`);
-  // The last stretch folds the work between the first answer and the closing line.
+  // Intermediate answers fold with every other completed step.
   expect(stopped([row("u", "user"), ran("a"), answer("first"), ran("b"), say("tail", "Stopping here.")])).toEqual([
-    "worked-u:",
-    "worked-first:cancelled",
+    "worked-u:cancelled",
   ]);
-  // The last stretch is only the answer: the fold before it carries the stop.
+  // A short closing answer leaves the same stop line.
   expect(stopped([row("u", "user"), ran("a"), answer("first"), say("tail", "Stopping here.")])).toEqual([
     "worked-u:cancelled",
   ]);
@@ -221,19 +224,19 @@ test("Find opens the right fold for a row after a summary a steer continued", ()
     summary(),
   ];
   const folds = drawn(rows).filter((entry) => entry.startsWith("worked:"));
-  expect(folds).toEqual(["worked:worked-u", "worked:worked-longA", "worked:worked-s1"]);
+  expect(folds).toEqual(["worked:worked-u"]);
   expect(
     turnFoldFor(
       rows,
       rows.findIndex((entry) => entry.id === "tool2"),
     ),
-  ).toBe("worked-longA");
+  ).toBe("worked-u");
   expect(
     turnFoldFor(
       rows,
       rows.findIndex((entry) => entry.id === "tool3"),
     ),
-  ).toBe("worked-s1");
+  ).toBe("worked-u");
 });
 
 test("a code block keeps a reply in sight; a note naming a file inline still folds", () => {

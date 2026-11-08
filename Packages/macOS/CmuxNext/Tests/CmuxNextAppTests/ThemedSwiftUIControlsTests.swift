@@ -3,17 +3,17 @@ import AppKit
 @testable import CmuxNextApps
 @testable import CmuxNextBookmarks
 import CmuxNextDesign
-@testable import CmuxNextHistory
+import CmuxNextTestSupport
 import SwiftUI
 import Testing
 
-/// Theme sweep 3, batch D: SwiftUI panes drew AppKit's controls whatever the room's theme: History's
-/// search and the bookmark editor's name were `.roundedBorder` fields (system bezel, text and gray
+/// Theme sweep 3, batch D: SwiftUI panes drew AppKit's controls whatever the room's theme: a search
+/// field and the bookmark editor's name were `.roundedBorder` fields (system bezel, text and gray
 /// placeholder), the folder choice a stock pop-up, and Accounts' refresh a gray `ProgressView`.
 /// Hosted in a purple room, each draws the scope's tokens: the field's ink and hint, the pop-up's
 /// theme bezel, the spinner's loading ink (Accounts' refresh and an app scene's indeterminate
 /// `ProgressView`).
-@MainActor @Suite(.serialized) struct ThemedSwiftUIControlsTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ThemedSwiftUIControlsTests {
     /// `view` hosted in a window whose content roots the purple room.
     private static func host(_ view: some View, _ scope: ThemeScope, size: NSSize = NSSize(width: 520, height: 480)) throws -> (NSWindow, NSView) {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled], backing: .buffered, defer: false)
@@ -25,9 +25,15 @@ import Testing
         return (window, hosting)
     }
 
-    @Test func historySearchIsAThemedField() throws {
+    /// A search field as a SwiftUI pane draws it (the native History page's was the first; it is a
+    /// React page now).
+    private static var searchField: some View {
+        ThemedField(text: .constant(""), placeholder: "Search", font: Typography.subtitle, focusOnAppear: true)
+    }
+
+    @Test func aSearchFieldIsAThemedField() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
-        let (window, root) = try Self.host(HistoryPageView(model: HistoryPageModel(), appearance: HistoryPageAppearance()), scope)
+        let (window, root) = try Self.host(Self.searchField, scope)
         defer { window.contentView = nil; window.close() }
         let fields = HomeSheetThemeTests.editableFields(in: root)
         #expect(fields.count == 1, "the search field")
@@ -91,7 +97,7 @@ import Testing
     /// back to the window (its tab shown again), as SwiftUI's `.onAppear` focus did.
     @Test func aSearchTakesTheKeyboardAgainWhenItComesBack() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
-        let (window, root) = try Self.host(HistoryPageView(model: HistoryPageModel(), appearance: HistoryPageAppearance()), scope)
+        let (window, root) = try Self.host(Self.searchField, scope)
         defer { window.contentView = nil; window.close() }
         let field = try #require(HomeSheetThemeTests.editableFields(in: root).first)
         #expect(Self.isEditing(field, in: window), "the search takes the keyboard when it appears")

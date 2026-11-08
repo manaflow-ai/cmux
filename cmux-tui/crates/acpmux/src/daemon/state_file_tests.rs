@@ -35,10 +35,17 @@ fn daemon_log_refuses_a_symlink() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The managed-unit tests write a fake `systemctl` and then run it. Run at once, one test's
+/// fork could inherit the other's still-open write of its script, and the exec then fails with
+/// ETXTBSY ("Text file busy"): one at a time.
+#[cfg(target_os = "linux")]
+static FAKE_SYSTEMCTL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn managed_unit_start_avoids_a_symlinked_default_home() {
     use std::os::unix::fs::PermissionsExt;
+    let _one_at_a_time = FAKE_SYSTEMCTL.lock().await;
 
     let dir = std::env::temp_dir().join(format!(
         "acpmux-managed-start-{}-{}",
@@ -95,6 +102,7 @@ async fn managed_unit_start_avoids_a_symlinked_default_home() {
 #[tokio::test]
 async fn managed_unit_start_matches_shortened_sockets() {
     use std::os::unix::fs::PermissionsExt;
+    let _one_at_a_time = FAKE_SYSTEMCTL.lock().await;
     let scratch = cmux_unix_socket::short_test_dir("managed-socket");
     let dir = scratch.path();
     std::fs::create_dir_all(dir).unwrap();
@@ -127,5 +135,75 @@ async fn managed_unit_start_matches_shortened_sockets() {
                 .await
                 .unwrap();
         assert_eq!(result, Some(()), "managed daemon rejected its short socket");
+    }
+}
+
+/// A fake `systemctl` for `acpmux.service` in `home` whose `ActiveState` is `state`; each
+/// `ActiveState` probe adds a line to `probes` beside it.
+#[cfg(target_os = "linux")]
+fn fake_unit_in_state(
+    dir: &std::path::Path,
+    home: &std::path::Path,
+    state: &str,
+) -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let systemctl = dir.join("systemctl");
+    std::fs::write(
+        &systemctl,
+        format!(
+            "#!/bin/sh\ncase \"$5\" in\n  LoadState) echo loaded; exit 0;;\n  Environment) echo ACPMUX_HOME={}; exit 0;;\n  ActiveState) echo x >> \"$(dirname \"$0\")/probes\"; echo {state}; exit 0;;\nesac\n[ \"$2\" = start ] && exit 0\nexit 1\n",
+            home.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&systemctl, std::fs::Permissions::from_mode(0o700)).unwrap();
+    systemctl
+}
+
+/// A fleet lane host, 11-06: a review box ran `acpmux` while `acpmux.service` was stopping for
+/// a restart. A unit still `deactivating` keeps the command waiting for the unit's next daemon:
+/// a detached one would run in the review box's scope, under its task and CPU limits.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn managed_unit_still_stopping_keeps_the_wait() {
+    let _one_at_a_time = FAKE_SYSTEMCTL.lock().await;
+    let scratch = cmux_unix_socket::short_test_dir("managed-stopping");
+    let dir = scratch.path();
+    let home = dir.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let socket = crate::config::socket_path_for(&home, None);
+    let systemctl = fake_unit_in_state(dir, &home, "deactivating");
+    let probes = dir.join("probes");
+    let served = managed_unit_connect_with(&systemctl, &home, &socket, &|| {
+        let probes = probes.clone();
+        async move {
+            let seen = std::fs::read_to_string(&probes).unwrap_or_default().lines().count();
+            if seen >= 3 { Ok(seen) } else { Err(anyhow!("the unit's next daemon is not up")) }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(served, Some(3), "a stopping unit sent the command to a detached daemon");
+}
+
+/// A unit systemd marked inactive or failed has no daemon coming: the command takes the
+/// detached path.
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn managed_unit_gone_takes_the_detached_path() {
+    let _one_at_a_time = FAKE_SYSTEMCTL.lock().await;
+    for state in ["inactive", "failed"] {
+        let scratch = cmux_unix_socket::short_test_dir("managed-gone");
+        let dir = scratch.path();
+        let home = dir.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let socket = crate::config::socket_path_for(&home, None);
+        let systemctl = fake_unit_in_state(dir, &home, state);
+        let result = managed_unit_connect_with(&systemctl, &home, &socket, &|| async {
+            Err::<(), _>(anyhow!("no daemon"))
+        })
+        .await
+        .unwrap();
+        assert_eq!(result, None, "a {state} unit kept the wait");
     }
 }

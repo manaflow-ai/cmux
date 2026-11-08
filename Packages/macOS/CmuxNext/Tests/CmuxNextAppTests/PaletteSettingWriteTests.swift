@@ -4,40 +4,59 @@ import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextPalette
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
+import os
 import Testing
 
 /// A setting toggled on the palette's Settings page shows its new value on its row at once, keeps
 /// it once the write lands, and goes back when the write fails (cx-9ce.20). The row read the
 /// loaded settings, the write landed later, and nothing reloaded the page: the row kept its old
 /// value until something else reloaded it.
-@MainActor @Suite(.serialized) struct PaletteSettingWriteTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PaletteSettingWriteTests {
     struct Harness {
         let settings: SettingsController
         let palette: PaletteController
         let descriptor: SettingDescriptor
         let url: URL
+        let panels: [NSWindow]
 
         var rowID: String { "setting:\(descriptor.id)" }
         var row: PaletteItem? { palette.model.rows.first { $0.item.id == rowID }?.item }
-        /// The row's on/off state, as its symbol shows it.
-        var rowIsOn: Bool? { row.map { $0.symbol == "checkmark.circle.fill" } }
+        /// The row's on/off state, as its trailing On/Off shows it.
+        var rowIsOn: Bool? { row?.toggleState }
         var storedIsOn: Bool { descriptor.effectiveValue(in: settings.snapshot.root)?.boolValue ?? false }
 
         func tearDown() {
+            // The palette keeps its panel for the next open; this palette has none, so it closes.
+            // The search field ends editing first, so the system's text input window goes with it.
+            settings.stop()
+            for panel in panels { panel.makeFirstResponder(nil) }
             palette.hide()
+            for panel in panels {
+                panel.parent?.removeChildWindow(panel)
+                panel.close()
+            }
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         }
     }
 
-    func make() async throws -> Harness {
+    /// `watching`: the file watcher runs, as in the app, so its loads overlap the writes' own.
+    /// `recentOnRoot`: the palette opens on its root (Cmd-Shift-P) with an empty query, the
+    /// setting's row under Recent, as in Leo's recording; otherwise on the Settings page, searched.
+    func make(watching: Bool = false, recentOnRoot: Bool = false) async throws -> Harness {
         _ = NSApplication.shared
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-palette-setting-\(UUID().uuidString)")
+        var completed = false
+        defer {
+            if !completed { try? FileManager.default.removeItem(at: directory) }
+        }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
         try Data("{}".utf8).write(to: url)
         let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        if watching { settings.start() }
         await settings.reload()
         let descriptor = try #require(SettingsSchema.all.first {
             $0.isPaletteExposed && $0.kind == .toggle && $0.defaultValue == .bool(false)
@@ -45,10 +64,20 @@ import Testing
         var sources = PaletteSources()
         sources.settings = SettingsPaletteSource(settings: settings, themeColors: { [] })
         let palette = PaletteController(registry: ActionRegistry.standard(), sources: sources, frecencyPersistence: nil)
-        #expect(palette.show(scope: PaletteScopeID.settings))
-        palette.model.send(.setQuery(descriptor.title))
+        if recentOnRoot {
+            palette.model.recordUse("setting:\(descriptor.id)")
+            palette.show(.commands)
+        } else {
+            #expect(palette.show(scope: PaletteScopeID.settings))
+        }
+        // Keep ownership independently of visibility before the first suspension can lose focus.
+        let harness = Harness(settings: settings, palette: palette, descriptor: descriptor, url: url,
+                              panels: NSApp.windows.filter { palette.owns($0) })
+        defer { if !completed { harness.tearDown() } }
+        if !recentOnRoot { palette.model.send(.setQuery(descriptor.title)) }
         await palette.model.settle()
-        return Harness(settings: settings, palette: palette, descriptor: descriptor, url: url)
+        completed = true
+        return harness
     }
 
     /// Runs the row's toggle as Return does.
@@ -62,6 +91,23 @@ import Testing
     func settle(until done: () -> Bool) async {
         let deadline = ContinuousClock.now + .seconds(5)
         while !done(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(5)) }
+    }
+
+    @Test func teardownClosesTheOwnedPanelAfterThePaletteHides() async throws {
+        let harness = try await make()
+        defer { harness.tearDown() }
+        let panel = try #require(harness.panels.first)
+        let closes = OSAllocatedUnfairLock(initialState: 0)
+        let observer = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification,
+                                                              object: panel, queue: nil) { _ in
+            closes.withLock { $0 += 1 }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        harness.palette.hide()
+        #expect(harness.palette.visiblePanel == nil)
+        harness.tearDown()
+        #expect(closes.withLock { $0 } == 1, "a hidden owned panel must be closed, not only ordered out")
+        #expect(panel.parent == nil)
     }
 
     @Test func aToggledSettingShowsItsNewValueAtOnceAndKeepsItWhenTheWriteLands() async throws {
@@ -84,6 +130,40 @@ import Testing
         print("palette setting toggle-to-row: shown \(shown), write landed \(landed)")
         // The palette stays on the same page and query.
         #expect(harness.palette.model.query == harness.descriptor.title)
+    }
+
+    /// Leo, 2026-11-05: "when things get toggled on and off in the command palette, like it shouldn't
+    /// flicker, but it flickers right now. It goes like on and off." His recording toggles a setting
+    /// row under Recent on the root palette's empty query. Each click must change the row the palette
+    /// shows exactly once, with no frame of the old value after it, through the write, the watcher's
+    /// loads of it and the palette's reloads.
+    @Test func aRecentToggleOnTheRootChangesItsRowOnce() async throws {
+        let harness = try await make(watching: true, recentOnRoot: true)
+        defer { harness.tearDown() }
+        #expect(harness.palette.model.query.isEmpty)
+        var expected = false
+        for round in 0..<6 {
+            #expect(harness.rowIsOn == expected, "round \(round): the row is under Recent with the stored value")
+            expected.toggle()
+            var shown: [Bool?] = []
+            func sample() {
+                let value = harness.rowIsOn
+                if shown.last != value { shown.append(value) }
+            }
+            try toggle(harness)
+            sample()
+            let deadline = ContinuousClock.now + .seconds(5)
+            while harness.storedIsOn != expected, ContinuousClock.now < deadline {
+                sample()
+                try? await Task.sleep(for: .milliseconds(1))
+            }
+            let after = ContinuousClock.now + .milliseconds(500)
+            while ContinuousClock.now < after {
+                sample()
+                try? await Task.sleep(for: .milliseconds(1))
+            }
+            #expect(shown == [expected], "round \(round): the row showed \(shown)")
+        }
     }
 
     @Test func aToggleWhoseWriteFailsGoesBack() async throws {

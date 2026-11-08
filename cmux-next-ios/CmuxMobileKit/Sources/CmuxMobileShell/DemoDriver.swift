@@ -26,16 +26,42 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-elsewhere", "relay-only", "approve", "kbd-chat", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-feed", "retry-terminal", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
+        if name.hasPrefix("retry-") {
+            // Public capture fixtures contain no person's name or machine name.
+            shell.store.teams = shell.store.teams.enumerated().map { index, team in
+                var team = team
+                team.name = "Demo Team \(index + 1)"
+                team.macs = team.macs.enumerated().map { index, mac in
+                    var mac = mac
+                    mac.name = "Demo Mac \(index + 1)"
+                    return mac
+                }
+                return team
+            }
+        }
         switch name {
         case "drawer": await drawer()
         case "settings": await settings()
         case "settings-bottom": await settingsScrolled(to: "bottom")
         case "settings-middle": await settingsScrolled(to: "appearance")
         case "states": await states()
+        case "retry-workspaces":
+            shell.tab = .workspaces
+            shell.store.teamDataState = .failed
+        case "retry-feed":
+            shell.tab = .feed
+            // A failed real refresh is the fixture; no private connection is used.
+            FeedStore.shared.actions = nil
+            FeedStore.shared.setRefreshErrorForDemo()
+        case "retry-terminal":
+            shell.terminalTabs.mockDataEnabled = false
+            shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+            shell.tab = .workspaces
+            if let workspace = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [workspace] }
         case "editor": await editor()
         case "rubber": await rubber()
         case "workspaces": await workspaces()
@@ -43,6 +69,10 @@ struct DemoDriver {
         case "chief": await chief()
         case "chief-parity": await chiefParity()
         case "chief-settings": await chiefSettings()
+        case "call-scope": await callScope()
+        case "call-scope-home":
+            ChiefSources.shared.showDemoCloudChief(named: "Atlas")
+            shell.tab = .home
         case "chief-open":
             // Opens Chief and leaves it to real touches (verify/imsg-parity.sh).
             shell.tab = .home
@@ -54,6 +84,21 @@ struct DemoDriver {
             shell.tab = .workspaces
             await pause(1.0)
             if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
+        case "ws-terminal-kbd-toggles": await workspaceTerminalKeyboardToggles()
+        case "ws-terminal-armed":
+            // The zsh tab with a draft in the composer and Control armed: the
+            // Send button and an armed key, for screenshots of the key row.
+            shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+            shell.tab = .workspaces
+            await pause(0.6)
+            guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
+            shell.workspacesPath = [ws]
+            await pause(1.2)
+            guard let model = shell.terminalTabs.model(forTabID: "t-zsh") else { return }
+            model.toggleKeyboard()
+            await pause(0.5)
+            model.composerText = "ls -la"
+            model.demoArm(.control)
         case "ws-terminal-card": await workspaceTerminalCard()
         case "tour-a": await tourHomeAndWorkspaces()
         case "tour-b": await tourFeedChatDiff()
@@ -63,10 +108,40 @@ struct DemoDriver {
         case "approve": await approve()
         case "workspace-new": await workspaceNew()
         case "connect-mac": await connectMac()
+        case "connect-mac-no-account":
+            shell.store.accountMacCount = 0
+            // Stay on the unregistered-Mac state for UI tests and captures.
+            // No account Mac exists until connections are enabled on the Mac.
+            for index in shell.store.teams.indices {
+                shell.store.teams[index].macs = []
+            }
+            shell.tab = .workspaces
         case "connect-mac-elsewhere": await connectMacElsewhere()
         case "relay-only": await relayOnly()
+        case "large-preview": largePreview()
+        case "large-preview-low-space": largePreview(lowSpace: true)
         // Keyboard verification (verify/keyboard.md): open a screen and leave
         // it to real touches.
+        case "offline-send":
+            AgentSessionDirectory.shared.makeSource = { summary in
+                var summary = summary
+                summary.name = "Offline draft"
+                summary.macName = "Mac"
+                summary.cwd = "~/project"
+                return DisconnectedAgentSource(summary: summary)
+            }
+            shell.tab = .home
+            shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
+        case "disclosure-chat":
+            // An idle chat with history: a prompt gets the short turn, whose tool group sits at
+            // the bottom while the chat follows it (AgentDisclosureUITests).
+            AgentSessionDirectory.shared.makeSource = { summary in
+                var summary = summary
+                summary.status = .idle
+                return MockAgentSession(summary: summary, richFirstTurn: false, history: true)
+            }
+            shell.tab = .home
+            shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
         case "kbd-chat":
             shell.tab = .home
             shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
@@ -94,8 +169,78 @@ struct DemoDriver {
             }
         case "kbd-feed":
             shell.tab = .feed
+        // Voice mode (with CMUX_MOBILE_VOICE_MODE_DEMO=1, the scripted Realtime link): an idle
+        // chat with history, or a terminal with its composer open, for VoiceModeUITests to tap
+        // the composer's voice button; its scripted prompt goes to the agent for real.
+        case "voice-chat":
+            AgentSessionDirectory.shared.makeSource = { summary in
+                var summary = summary
+                summary.status = .idle
+                return MockAgentSession(summary: summary, richFirstTurn: false, history: true)
+            }
+            shell.tab = .home
+            shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
+        case "voice-terminal":
+            // Codex running in the zsh tab: voice mode is offered only while an agent runs there.
+            if let w = shell.store.workspaces.firstIndex(where: { $0.id == "ws-cmux" }),
+               let t = shell.store.workspaces[w].tabs.firstIndex(where: { $0.id == "t-zsh" }) {
+                shell.store.workspaces[w].tabs[t].harness = "codex"
+            }
+            shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+            shell.tab = .workspaces
+            await pause(1.0)
+            guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
+            shell.workspacesPath = [ws]
+            await pause(1.2)
+            shell.terminalTabs.model(forTabID: "t-zsh")?.toggleKeyboard()
         default: break
         }
+    }
+
+    /// `ws-terminal-kbd-toggles` (KeyboardToggleInterruptUITests): the zsh
+    /// tab, then the key row's keyboard key pressed again while the keyboard
+    /// is still moving, both ways, at several intervals, as quick taps do. The
+    /// keyboard-pin probe counts any frame where the composer jumps instead of
+    /// riding the keyboard; `demo=done` marks the end.
+    private func workspaceTerminalKeyboardToggles() async {
+        shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+        shell.tab = .workspaces
+        await pause(1.0)
+        guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
+        shell.workspacesPath = [ws]
+        await pause(2.0)
+        guard let model = shell.terminalTabs.model(forTabID: "t-zsh") else { return }
+        func toggle(_ label: String) {
+            KeyboardPinTrace.note(label)
+            model.toggleKeyboard()
+        }
+        let intervals = [0.05, 0.1, 0.15, 0.2, 0.3, 0.45]
+        // Shown, then hide and show again before the hide ends.
+        toggle("show")
+        await pause(1.5)
+        for interval in intervals {
+            toggle("hide")
+            await pause(interval)
+            toggle("reshow")
+            await pause(1.5)
+        }
+        // Hidden, then show and hide again before the show ends.
+        toggle("hide")
+        await pause(1.5)
+        for interval in intervals {
+            toggle("show")
+            await pause(interval)
+            toggle("rehide")
+            await pause(1.5)
+        }
+        // Three presses in a row.
+        for _ in 0..<2 {
+            toggle("burst")
+            await pause(0.08)
+        }
+        toggle("burst")
+        await pause(1.5)
+        KeyboardPinTrace.note("done")
     }
 
     private func pause(_ seconds: Double) async {
@@ -395,8 +540,8 @@ struct DemoDriver {
     /// Phone approvals end to end (verify/phone-approvals.md): waits for the link and
     /// the Mac's pairing, then works through the plan in the `cmuxMobile.demo.approve` default
     /// (comma separated; default `allow,allow,allow`). Each `allow` or `deny` answers the
-    /// next ask that reaches the Feed through the card's own path: Allow (Face ID signs
-    /// it) or the reject option for a permission, the first option (signed) or Decline
+    /// next ask that reaches the Feed through the card's own path: Allow (signed
+    /// with the approval key) or the reject option for a permission, the first option (signed) or Decline
     /// for a question. `signout` signs out as Settings does (the phone asks the Mac to
     /// forget it).
     private func approve() async {
@@ -582,10 +727,23 @@ struct DemoDriver {
         for (label, change) in [("hide alerts on", { session.setMuted(true) }), ("hide alerts off", { session.setMuted(false) }),
                                 ("receipts off", { session.setSendsReadReceipts(false) }), ("receipts on", { session.setSendsReadReceipts(true) })] {
             mark(label)
-            withAnimation { change() }
+            withAnimation(.default.unlessReduceMotion) { change() }
             await pause(1.5)
         }
         mark("end")
+    }
+
+    /// A call is to the Chief called (Aziz 2026-11-05): a Cloud Chief "Atlas" is the default
+    /// Chief, and the Mac Chief's info page is open; its Call must reach the Mac Chief, not Atlas.
+    /// The UI test taps Call (CMUX_MOBILE_CALL_DEMO=1: the scripted call link).
+    private func callScope() async {
+        ChiefSources.shared.showDemoCloudChief(named: "Atlas")
+        shell.tab = .home
+        await pause(1.5)
+        shell.homePath.append(ChiefRoute(place: .mac))
+        await pause(2.0)
+        ChiefDemoHook.shared.openSettings()
+        mark("mac chief info")
     }
 
     private func chiefParity() async {

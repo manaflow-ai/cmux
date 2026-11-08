@@ -147,8 +147,9 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           })),
           dir: "rtl",
           // RTL inherits the document; a local LTR line must keep its own endpoints.
+          // Specific enough to win over a reply's kept room (conversation.css `.acpmux-row--reply-room`).
           css:
-            '.acpmux-row[data-row-id="upper"] { padding-bottom: 64px; }' +
+            'article.acpmux-row.acpmux-row[data-row-id="upper"] { padding-bottom: 64px; }' +
             (lineDirection === "ltr" ? ".cv-md p { direction: ltr; }" : ""),
         });
         try {
@@ -168,6 +169,7 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
               };
             };
             const column = document.querySelector('[data-row-id="upper"]')!.getBoundingClientRect();
+            const below = document.querySelector('[data-row-id="lower"]')!.getBoundingClientRect();
             const view = document.querySelector(".acpmux-scroll")!.getBoundingClientRect();
             return {
               upper: line("upper"),
@@ -179,6 +181,9 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
                   .getBoundingClientRect();
                 return { top: rect.top, bottom: rect.bottom };
               })(),
+              // The row's bottom edge and the next row's top: the stack's placed gap lies between them.
+              rowBottom: column.bottom,
+              nextTop: below.top,
               xs: [
                 (view.left + column.left) / 2,
                 (column.left + column.right) / 2,
@@ -189,7 +194,10 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           expect(box.upper.direction).toBe(lineDirection);
           expect(box.lower.direction).toBe(lineDirection);
           expect(box.lower.top - box.upper.bottom).toBeGreaterThan(4);
-          expect(box.gap.bottom - box.gap.top).toBe(64);
+          // The gap target spans the row's 64px bottom padding and the gap the stack places under the
+          // row (design/grid.md 5.5), down to the next row.
+          expect(box.gap.top).toBeCloseTo(box.rowBottom - 64, 1);
+          expect(box.gap.bottom).toBeCloseTo(box.nextTop, 1);
           expect(box.gap.bottom).toBeLessThanOrEqual(box.lower.top);
           expect(box.gap.top - box.upper.bottom).toBeLessThan(box.lower.top - box.gap.top);
           expect(box.lower.top - box.gap.bottom).toBeLessThan(box.gap.bottom - box.upper.bottom);
@@ -253,9 +261,12 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         test(`${name}: ${above} to ${below} inter-row midpoint starts at the nearest caret`, async () => {
           const page = await open(name, above, below);
           // Integration-fixture spacing only: leave real row renderers and controls intact while
-          // making a positive gap outside both article boxes. Production does not use this margin.
-          await page.addStyleTag({
-            content: '[data-row-id="lower"], [data-row-id="after"] { margin-top: 32px; }',
+          // adding a positive gap outside both article boxes without replacing fractional placement.
+          await page.evaluate(() => {
+            for (const id of ["lower", "after"]) {
+              const row = document.querySelector<HTMLElement>(`[data-row-id="${id}"]`)!;
+              row.style.marginTop = `${(Number.parseFloat(row.style.marginTop) || 0) + 32}px`;
+            }
           });
           await paint(page);
           const box = await geometry(page);
@@ -405,7 +416,7 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         wrap.id = "selection-controls";
         wrap.style.cssText = "position:relative;z-index:2;padding:8px";
         wrap.innerHTML =
-          '<button>Attach file</button><a href="#fixture">Harbour link</a><span role="button" tabindex="0">Sender chip</span><input aria-label="Fixture field"><span draggable="true">Drag file</span><span data-interactive><span id="custom-control">Custom control</span></span><div class="acpmux-edited-title--toggle" data-interactive>Open file diff</div><div class="acpmux-turn-preview-frame" data-interactive style="height:30px">Open preview</div>';
+          '<button>Attach file</button><a href="#fixture">Harbour link</a><span role="button" tabindex="0">Sender chip</span><input aria-label="Fixture field"><span draggable="true">Drag file</span><span data-interactive><span id="custom-control">Custom control</span></span><div class="acpmux-edited-title--toggle" data-interactive>Open file diff</div>';
         row.querySelector(".cv-tools")!.append(wrap);
         wrap.addEventListener("pointerdown", (event) => (wrap.dataset.prevented = String(event.defaultPrevented)));
         const hidden = document.createElement("span");
@@ -424,7 +435,6 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         '[draggable="true"]',
         "#custom-control",
         ".acpmux-edited-title--toggle",
-        ".acpmux-turn-preview-frame",
       ]) {
         const control = page.locator(`#selection-controls ${selector}`);
         const box = (await control.boundingBox())!;

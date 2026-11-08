@@ -83,6 +83,10 @@ pub struct HostState {
     /// a reply posts, the owner stops its turn, or the failure note posts.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub awaiting: Vec<Awaiting>,
+    /// Messages closed by the most recent owner Stop, until another message
+    /// or turn. Explicit Continue alone reopens them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stopped_reply: Option<StoppedReply>,
     /// The outcome ledger (brain/outcome_ledger.rs): finished subagents whose
     /// outcome no Chief post has told the person yet.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -160,6 +164,39 @@ pub struct HostState {
     /// first. At most [`WAKES_KEPT`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub wakes: Vec<Wake>,
+    /// Watches the Chief started with `watch` (brain/watches.rs), oldest
+    /// first. At most `WATCHES_KEPT`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub watches: Vec<Watch>,
+    /// The number of the last watch started (`w<N>`); ids never repeat.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub last_watch: u64,
+    /// The cloud peers whose VMs this Chief paused (B4,
+    /// cloud-subagents-DESIGN.md). Saved, so a Chief that restarts or moves to
+    /// another Mac resumes such a VM before it tells a subagent there.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub cloud_paused: std::collections::BTreeSet<String>,
+}
+
+/// One watch the Chief started with `watch`: the host runs `command` off
+/// the turn until a line of its output matches `until` (or, without
+/// `until`, it exits), or `deadline_ms` passes, then a note wakes the Chief.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Watch {
+    /// `w<N>`.
+    pub id: String,
+    /// The shell command (`sh -c`).
+    pub command: String,
+    /// A regex on its output lines; None: fire when the command exits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<String>,
+    /// The Chief's own words, shown in the note.
+    #[serde(default)]
+    pub note: String,
+    /// When the Chief started it (ms since the epoch).
+    pub asked_ms: u64,
+    /// When it fires as timed out (ms since the epoch).
+    pub deadline_ms: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -328,6 +365,19 @@ pub enum SubStatus {
     Reported,
 }
 
+/// What opens a subagent's workspace later (`control show`): the key it
+/// opens under, its sidebar group and its terminal's folder on this machine.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceSlot {
+    /// The key it opens under: at first the one its session carries as
+    /// CMUX_WORKSPACE_ID; a fresh one after `control hide` closed it (the
+    /// daemon replays a mutation id it has seen, so a closed key never
+    /// opens again).
+    pub key: String,
+    pub group: String,
+    pub cwd: std::path::PathBuf,
+}
+
 /// One subagent.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SubRecord {
@@ -336,9 +386,25 @@ pub struct SubRecord {
     /// Its acpmux session, once created.
     #[serde(default)]
     pub session_id: Option<String>,
+    /// The harness its session runs on (`subagent.start`'s), kept so its
+    /// spend is still attributed after a host restart (usage.rs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness: Option<String>,
     /// Its cmux workspace, once created.
     #[serde(default)]
     pub workspace: Option<String>,
+    /// Where `control show` opens its workspace while it has none (hidden,
+    /// as the Chief chose, sidebar_choice.rs, or closed by `control hide`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_slot: Option<WorkspaceSlot>,
+    /// That workspace's public id (`ws_…`), when its place can name it: its
+    /// report's work is shown there (show.rs `block_in`).
+    #[serde(
+        default,
+        alias = "workspace_id",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub ws_id: Option<String>,
     /// The acpmux peer (a cloud VM) it runs on; None: this machine. Only
     /// local subagents count against the live cap.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -401,6 +467,16 @@ pub struct SubRecord {
     /// not ended a run with a real report since: it is not moved again.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub moved: bool,
+    /// The acpmux machine a Chief move handed it to (`acpmux session move`,
+    /// migrate_subagents.rs); None: where the Chief's own daemon runs. Its
+    /// `session_id` stays the same across the move.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<String>,
+    /// Raised by every Chief move that changes its `place` (one write with it),
+    /// so Home re-attaches an open tab where the session went
+    /// (home-agent-pills-DESIGN.md, "Identity").
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub epoch: u64,
     /// Messages the Chief sent it that it has not got yet (queued or
     /// starting, or held while paused), oldest first. Saved, so a restart
     /// never drops one.
@@ -474,6 +550,12 @@ pub struct InboxMessage {
 pub struct PendingPermission {
     pub id: String,
     pub request: Value,
+    /// The conversation owner acknowledged this request's Home card.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home_message: Option<String>,
+    /// A disabled rollout retired this card; the same request must not reopen it.
+    #[serde(default)]
+    pub home_closed: bool,
 }
 
 fn is_zero(n: &u32) -> bool {
@@ -503,6 +585,18 @@ pub struct QueuedLaunch {
     /// account hit a usage limit); None: the engine of now.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub harness: Option<String>,
+    /// The model its spawn chose (`spawn(model)`); None: the engine's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+/// Files awaiting a streamed upload. The manifest survives a Chief restart;
+/// the bytes remain on disk instead of entering the outbox JSON.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingMedia {
+    pub path: std::path::PathBuf,
+    pub mime_type: String,
+    pub image_syntax: Option<std::ops::Range<usize>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -532,6 +626,8 @@ pub struct OutboxEntry {
     /// new key (a reply is never dropped).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plain_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pending_media: Vec<PendingMedia>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -640,6 +736,10 @@ pub struct Item {
     /// that is cut again.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cut: Vec<String>,
+    /// A host note (a watch that fired, a wake, another Chief's message): a
+    /// turn it woke and a restart cut runs again, as for a human message.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub note: bool,
 }
 
 /// A cut turn to run again (`HostState::resumes`).
@@ -828,6 +928,13 @@ impl StateFile {
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .join("attachments")
+    }
+
+    /// The Chief's home (`$MUX_HOME`): the state is `<home>/optchat/host.json`
+    /// (paths.rs), so its folder's parent.
+    pub fn mux_home(&self) -> PathBuf {
+        let optchat = self.path.parent().unwrap_or_else(|| Path::new("."));
+        optchat.parent().unwrap_or(optchat).to_path_buf()
     }
 
     pub fn new(path: &Path) -> StateFile {
@@ -1228,4 +1335,11 @@ pub struct Awaiting {
     /// error, a refused post), for the retry note and the failure note.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub why: Option<String>,
+}
+
+/// The stopped reply batch retains the original turn's permission floor.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct StoppedReply {
+    pub messages: Vec<Awaiting>,
+    pub requires_approval: bool,
 }

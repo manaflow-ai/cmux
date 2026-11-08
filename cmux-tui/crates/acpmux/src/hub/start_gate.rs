@@ -203,13 +203,52 @@ impl StartMode {
     }
 }
 
+/// What a start-level grant checks (`Hub::names_start_level`): the request as it
+/// resolves now, or the session as it started.
+#[derive(Clone, Copy)]
+pub(crate) enum LevelTarget<'a> {
+    /// The resolved profile name, profile and whether it is a folder profile.
+    Request { agent: &'a str, profile: &'a HarnessProfile, folder: bool },
+    /// The started session.
+    Session(&'a crate::store::SessionMeta),
+}
+
 impl Hub {
     /// The session a first unix socket `initialize` proved it runs in
     /// (`hub/person.rs` (a)): `(sessionId, token)` from [`take_caller`],
     /// when the token is that session's on this run and the session is here.
     pub fn proven_caller(&self, (id, token): (String, String)) -> Option<String> {
-        let proves = caller_proves(&id, &token) || self.adopted_caller_proves(&id, &token);
+        let proves = self.caller_known(&id, &token);
         if proves && self.resolve(&id).is_ok_and(|s| s.id == id) { Some(id) } else { None }
+    }
+
+    /// Before a first unix socket `initialize` binds its caller: a token that proves nothing yet
+    /// waits for this run's adoption of the hosts a restart left (`adopt_agent_hosts`). An
+    /// agent's MCP servers connect anew for each call, so right after an update they reach this
+    /// run with the earlier run's token before adoption knows it (`adopt_caller_token`); bound
+    /// then, the call was refused as another chat's (bg tasks lost on 2026-11-01). Waits for
+    /// nothing outside a restart; a token adoption does not know is still refused after it.
+    pub(crate) async fn settle_caller(&self, session_id: &str, token: &str) {
+        if self.caller_known(session_id, token) {
+            return;
+        }
+        let _ = self.adoption_ready.subscribe().wait_for(|ready| *ready).await;
+    }
+
+    /// Whether `token` proves session `session_id` to this run: its own token, the one the
+    /// adopted host's record kept, or one an earlier run gave out that the session still
+    /// accepts (`caller_registry.rs`), so an agent that outlived its daemon is known from the
+    /// first request, before or without its host's adoption.
+    fn caller_known(&self, session_id: &str, token: &str) -> bool {
+        caller_proves(session_id, token)
+            || self.adopted_caller_proves(session_id, token)
+            || self.caller_registry.proves(session_id, token)
+    }
+
+    /// This run gave session `session_id`'s token to a process other than its harness (a
+    /// workflow runner): a later run knows it too (`caller_registry.rs`).
+    pub(crate) fn caller_issued(&self, session_id: &str) {
+        self.caller_registry.issued(session_id, &caller_token(session_id));
     }
 
     /// Whether `token` is the caller token session `session_id`'s adopted
@@ -225,10 +264,18 @@ impl Hub {
     /// and the MCP servers it started keep the caller token from the host's
     /// record, so this run knows the session by that token too. A token of
     /// this run, a malformed one or none (a host of an older build) records
-    /// nothing. Answers whether the agent holds a token this run knows: false
-    /// asks for a restart between turns (`Hub::restart_unproven`).
-    pub(super) fn adopt_caller_token(&self, session_id: &str, token: Option<String>) -> bool {
-        let known = token.as_deref().is_some_and(valid_key);
+    /// nothing. Answers whether the agent holds a token this run knows (the
+    /// record's, or the one the registry kept for host `incarnation`,
+    /// `caller_registry.rs`): false asks for a restart between turns
+    /// (`Hub::restart_unproven`).
+    pub(super) fn adopt_caller_token(
+        &self,
+        session_id: &str,
+        token: Option<String>,
+        incarnation: &str,
+    ) -> bool {
+        let known = token.as_deref().is_some_and(valid_key)
+            || self.caller_registry.knows_host(session_id, incarnation);
         let mut adopted =
             adopted_callers().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         match token.filter(|t| valid_key(t) && !caller_proves(session_id, t)) {
@@ -238,13 +285,15 @@ impl Hub {
         known
     }
 
-    /// A new host of session `session_id` started: its harness has this
-    /// run's token, and the adopted one's process group is gone.
-    pub(super) fn forget_adopted_caller(&self, session_id: &str) {
+    /// A new host `incarnation` of session `session_id` started: its harness
+    /// has this run's token, which the registry keeps for the next run
+    /// (`caller_registry.rs`), and the adopted one's process group is gone.
+    pub(super) fn forget_adopted_caller(&self, session_id: &str, incarnation: &str) {
         adopted_callers()
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(session_id);
+        self.caller_registry.host_started(session_id, &caller_token(session_id), incarnation);
     }
 
     /// A `session/new` without the person (module docs, (a), (b)): a mode
@@ -267,7 +316,7 @@ impl Hub {
         if pick("peer").is_some_and(|p| !p.is_empty()) {
             return Ok(());
         }
-        let (family, bridge, start) = {
+        let (family, target, bridge, start) = {
             let cfg = self.config.read().await;
             let Some(start) = StartMode::of(params, &cfg) else { return Ok(()) };
             let adopted =
@@ -284,6 +333,7 @@ impl Hub {
             ) {
                 Ok(r) => (
                     crate::config::derive_family(&r.agent, &r.profile),
+                    (r.agent.clone(), r.profile.clone(), r.folder_root.is_some()),
                     crate::codex_app_server::is_profile_launch(&r.profile.argv),
                     start,
                 ),
@@ -291,7 +341,9 @@ impl Hub {
                 Err(_) => return Ok(()),
             }
         };
-        self.start_mode_check(caller, &family, bridge, &start).await.map(|_| ())
+        let (agent, profile, folder) = target;
+        let target = LevelTarget::Request { agent: &agent, profile: &profile, folder };
+        self.start_mode_check(caller, &family, target, bridge, &start).await.map(|_| ())
     }
 
     /// Whether a client that is not the person may start a session of
@@ -310,6 +362,7 @@ impl Hub {
         &self,
         caller: Option<&str>,
         family: &str,
+        target: LevelTarget<'_>,
         bridge: bool,
         start: &StartMode,
     ) -> Result<StartGrant, RpcError> {
@@ -326,6 +379,18 @@ impl Hub {
         if start.preset_approved {
             return Ok(StartGrant::Preset);
         }
+        if self.names_start_level(caller, target, start).await {
+            return Ok(StartGrant::StartLevel);
+        }
+        // A caller in full access names a full-access mode of any family: a start that names
+        // none inherits it anyway (`full_access_children.rs`).
+        if !start.adopts
+            && start.preset.is_none()
+            && super::start_mode::is_full_access(&start.mode)
+            && self.starter_runs_full_access(caller)
+        {
+            return Ok(StartGrant::Inherit);
+        }
         // The caller's mode now, on the session the daemon bound it to.
         let inherits = match caller.and_then(|id| self.resolve(id).ok().filter(|s| s.id == id)) {
             Some(s) => {
@@ -340,6 +405,45 @@ impl Hub {
             Ok(StartGrant::Inherit)
         } else {
             Err(mode_person_required(&start.mode, start.preset.as_deref(), true, true))
+        }
+    }
+
+    /// Whether a plain `session/new` that names full-access mode `start.mode`
+    /// asks for nothing a start that names no mode does not already get
+    /// (cmux#37392: a Chief's `cmux chat new --mode bypassPermissions` was
+    /// refused although every agent runs in bypass by the person's rule): no
+    /// adopt and no preset (a preset's chat keeps its harness's own mode), and
+    /// the target would start in exactly that mode with none named
+    /// (`Hub::plain_start_is` for the request: the person's start level for the
+    /// profile is full access with `sessions.allowFullAccess` on, the mode is
+    /// the full-access one the harness offers, no folder profile and no profile
+    /// that pins its mode; `Hub::plain_session_is` again on the started
+    /// session). A proven caller session must itself run full access: a chat
+    /// it starts is never wider than it (`hub/start_mode.rs`, "Inherit").
+    async fn names_start_level(
+        &self,
+        caller: Option<&str>,
+        target: LevelTarget<'_>,
+        start: &StartMode,
+    ) -> bool {
+        if start.adopts || start.preset.is_some() {
+            return false;
+        }
+        let plain = match target {
+            LevelTarget::Request { agent, profile, folder } => {
+                self.plain_start_is(agent, profile, folder, &start.mode).await
+            }
+            LevelTarget::Session(meta) => self.plain_session_is(meta, &start.mode).await,
+        };
+        if !plain {
+            return false;
+        }
+        match caller {
+            None => true,
+            Some(id) => self.resolve(id).ok().filter(|s| s.id == id).is_some_and(|s| {
+                crate::web_modes::mode_of(&s.meta())
+                    .is_some_and(|m| super::start_mode::is_full_access(&m))
+            }),
         }
     }
 
@@ -466,8 +570,15 @@ impl Hub {
         let checked = if person {
             Ok(StartGrant::Person)
         } else {
-            self.start_mode_check(caller, &crate::web_modes::family_of(&s.meta()), bridge, &start)
-                .await
+            let meta = s.meta();
+            self.start_mode_check(
+                caller,
+                &crate::web_modes::family_of(&meta),
+                LevelTarget::Session(&meta),
+                bridge,
+                &start,
+            )
+            .await
         };
         let applied = match checked {
             Ok(grant) => match self.set_mode(s, &start.mode).await {
@@ -484,7 +595,12 @@ impl Hub {
                     // A mode granted because the caller runs in it is cmux's own only when the
                     // caller's is: a mode the caller's harness reported by itself passes on no
                     // `mode_set_by_cmux` (`trust_wait.rs` `full_access_by_cmux`).
-                    if matches!(grant, StartGrant::Inherit) && !self.mode_is_cmux_set(caller) {
+                    // A start-level grant from a caller is no wider than the caller either
+                    // (`names_start_level`), so it is held to the same rule.
+                    if matches!(grant, StartGrant::Inherit | StartGrant::StartLevel)
+                        && caller.is_some()
+                        && !self.mode_is_cmux_set(caller)
+                    {
                         s.meta.lock().unwrap_or_else(|e| e.into_inner()).mode_set_by_cmux = None;
                         self.save_meta(s);
                     }
@@ -521,14 +637,15 @@ impl Hub {
             return e;
         }
         let last = || {
+            // The tail holds cleaned lines (`Session::stderr_stream`).
             session
                 .stderr_tail
                 .lock()
                 .unwrap()
                 .iter()
                 .rev()
-                .map(|l| l.trim().to_owned())
                 .find(|l| super::exit_reason::explains_exit(l))
+                .cloned()
         };
         Self::drain_inbound(session).await;
         let mut found = last();

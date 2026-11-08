@@ -9,6 +9,8 @@ public struct MacScreenHomeActions {
     public var openDevice: (String, SessionScope?) -> Void = { _, _ in }
     /// Show one of the user's devices in a new tab.
     public var openDeviceInNewTab: (String, SessionScope?) -> Void = { _, _ in }
+    /// Sign In under Your Devices while this Mac is signed out of cmux.
+    public var signIn: () -> Void = {}
 
     public init() {}
 }
@@ -160,14 +162,15 @@ final class MacScreenHomeView: MacScreenThemedView {
         root.subviews.flatMap { [$0] + views(under: $0) }
     }
 
-    private func build(_ snapshot: MacScreenHomeSnapshot) {
+    /// Builds the rows of `snapshot` (the page's own draw; tests and galleries pass a made-up one).
+    func build(_ snapshot: MacScreenHomeSnapshot) {
         column.arrangedSubviews.forEach { $0.removeFromSuperview() }
         builtWithBorders = colors.borders
         needsLayout = true
         layoutPage()
         MacScreenStack.addFullWidth(header(), to: column)
         if let list = snapshot.devices { MacScreenStack.addFullWidth(yourDevices(list), to: column) }
-        if let sharing = snapshot.sharing { MacScreenStack.addFullWidth(sharingSection(sharing), to: column) }
+        if let sharing = snapshot.sharing { MacScreenStack.addFullWidth(sharingSection(sharing, look: snapshot.sharingLook), to: column) }
         if let keyboard = snapshot.keyboard { MacScreenStack.addFullWidth(keyboardSection(keyboard), to: column) }
         paint(column)
     }
@@ -175,7 +178,7 @@ final class MacScreenHomeView: MacScreenThemedView {
     private func header() -> NSView {
         let title = MacScreenStack.make(.horizontal, spacing: 8, alignment: .centerY, [
             MacScreenGlyph("display", font: MacScreenType.title, ink: \.primary),
-            MacScreenText(L.t("macScreen.home.title", "Mac Screen"), font: MacScreenType.title),
+            MacScreenText(L.t("macScreen.home.title", "Screen Sharing"), font: MacScreenType.title),
         ])
         let column = MacScreenStack.make(.vertical, spacing: 6, alignment: .leading)
         column.addArrangedSubview(title)

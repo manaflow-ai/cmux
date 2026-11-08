@@ -15,14 +15,14 @@ mod layout_columns;
 mod layout_rows;
 mod split_around;
 
-#[cfg(test)]
-pub(crate) use layout_columns::normalize_dock_columns;
 pub use layout_columns::{ColumnDock, DockEdge, DockMode, DockRole, ViewportColumn};
 pub(crate) use layout_columns::{
-    ColumnProjection, LayoutColumn, LayoutMutationKey, LayoutResizeOwner,
+    ColumnProjection, LONE_DOCK_NEIGHBOR_WIDTH, LayoutColumn, LayoutMutationKey, LayoutResizeOwner,
     dock_columns_are_consistent, dock_flags_are_consistent, flags_are_lone_pinned,
     project_layout_columns,
 };
+#[cfg(test)]
+pub(crate) use layout_columns::{LONE_DOCK_WIDTH, normalize_dock_columns};
 pub(crate) use layout_rows::{LayoutRow, ROW_HEIGHT_PERMILLE};
 
 #[derive(Debug, Clone)]
@@ -635,13 +635,15 @@ pub struct State {
     pub active_workspace: usize,
     pub panes: HashMap<PaneId, Pane>,
     /// View placements keyed by daemon-local placement identity.
-    pub surfaces: HashMap<SurfaceId, Arc<Surface>>,
+    pub surfaces: crate::route_table::RouteTable<SurfaceId, Arc<Surface>>,
     /// Stable terminal content kept alive independently of view placement.
-    pub(crate) terminal_catalog: HashMap<TerminalPublicId, Arc<Surface>>,
+    pub(crate) terminal_catalog: crate::route_table::RouteTable<TerminalPublicId, Arc<Surface>>,
     /// Reverse lookup for catalog owners addressed by daemon-local runtime ID.
-    pub(crate) terminal_catalog_by_runtime: HashMap<SurfaceId, TerminalPublicId>,
-    /// Host terminal id -> catalog owner (mux/terminal_catalog_index.rs).
-    pub(crate) terminal_catalog_by_host: HashMap<String, TerminalPublicId>,
+    pub(crate) terminal_catalog_by_runtime:
+        crate::route_table::RouteTable<SurfaceId, TerminalPublicId>,
+    /// Host terminal id -> catalog owner (mux/terminal_catalog_index.rs). Copy-on-write and published with the
+    /// routes, so the live-terminal lookup reads it with no lock (R-DAEMON-STATE stage S1).
+    pub(crate) terminal_catalog_by_host: crate::route_table::RouteTable<String, TerminalPublicId>,
     pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,
     pub(crate) resource_indexes: PublicSlotIndexes,
 }
@@ -917,6 +919,10 @@ impl State {
 
     pub(crate) fn workspace_by_key(&self, key: &str) -> Option<&Workspace> {
         self.workspace_id_by_key.get(key).and_then(|id| self.workspace_by_id(*id))
+    }
+
+    pub(crate) fn workspace_index_by_key(&self, key: &str) -> Option<usize> {
+        self.workspace_id_by_key.get(key).and_then(|id| self.workspace_index(*id))
     }
 
     /// Workspace and screen indices of the screen containing a pane.

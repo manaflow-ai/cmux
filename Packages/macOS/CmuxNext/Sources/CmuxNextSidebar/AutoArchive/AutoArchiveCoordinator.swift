@@ -16,8 +16,11 @@ public protocol AutoArchiveHost: AnyObject {
     func autoArchivePolicy() -> AutoArchivePolicy
     /// Shows a toast in the active window; `undo` runs on its Undo button (or Cmd-Z while it shows).
     func autoArchiveToast(_ message: String, undo: @escaping @MainActor () -> Void)
-    /// Shows `card` in the sidebar until the person answers; true for its prominent button.
-    func autoArchiveAsk(_ card: SidebarNoticeCard) async -> Bool
+    /// Shows `card` in the sidebar until the person answers; the id of the button they clicked,
+    /// nil for the x.
+    func autoArchiveAsk(_ card: SidebarNoticeCard) async -> String?
+    /// Writes `workspaces.autoArchive.style` (the card's Always Archive picks ``AutoArchivePolicy/Style/quiet``).
+    func autoArchiveSetStyle(_ style: AutoArchivePolicy.Style) async
     /// The document item that places workspace `id` (a dictionary read); nil while it is not placed.
     func autoArchiveItem(workspace id: String) -> String?
 }
@@ -57,12 +60,12 @@ public final class AutoArchiveCoordinator {
     static let cardNames = 5
 
     /// - Parameters:
-    ///   - document: the active sidebar document (by default `SidebarDocStore.current` while active).
+    ///   - document: the app's sidebar document while it is active (its own store, from the composition root).
     ///   - ledgerStore: where the last-seen ledger lasts across launches.
     ///   - clock: drives the pass and save deadlines (tests pass a manual clock).
     ///   - now: the wall clock the idle times are measured on.
     public init(host: any AutoArchiveHost,
-                document: @escaping () -> (any AutoArchiveDocument)? = { SidebarDocStore.current.flatMap { $0.isActive ? $0 : nil } },
+                document: @escaping () -> (any AutoArchiveDocument)?,
                 ledgerStore: AutoArchiveLedgerStore, clock: any Clock<Duration> = ContinuousClock(),
                 now: @escaping @MainActor () -> Date = { Date() }) {
         self.host = host
@@ -153,6 +156,8 @@ public final class AutoArchiveCoordinator {
 
     // MARK: - Plan
 
+    /// The planner's call (Rust `auto_archive_plan`) over the host's candidates, the document's marks
+    /// and groups, and the ledger's sights and snooze.
     private func plan(_ trigger: AutoArchivePlanner.Trigger) -> AutoArchivePlanner.Plan {
         guard let store = activeStore() else { return AutoArchivePlanner.Plan() }
         let records = store.records
@@ -163,31 +168,24 @@ public final class AutoArchiveCoordinator {
             if let rule = item.autoArchive { rules[item.id] = rule }
         }
         var candidates = host.autoArchiveCandidates()
+        var seen: [String: Date] = [:]
         for index in candidates.indices {
             var candidate = candidates[index]
-            let seen = ledger.lastSeen(candidate.workspace)
-            candidate.lastActive = [candidate.lastActive, seen].compactMap { $0 }.max()
-            if candidate.lastActive == nil {
-                // First sight: the clock starts now, so a workspace is never idle on arrival.
-                ledger.saw(candidate.workspace, at: time)
-                markDirty()
-            }
+            seen[candidate.workspace] = ledger.lastSeen(candidate.workspace)
             candidate.shown = candidate.shown || shown.contains(candidate.workspace)
             candidate.archived = candidate.archived || records.isArchived(item: candidate.item)
             candidate.pinned = candidate.pinned || records.isPinned(item: candidate.item)
             candidate.groups = groups(of: candidate.item, in: records)
             candidates[index] = candidate
         }
-        if trigger == .background, host.autoArchivePolicy().style == .suggest, let until = ledger.snoozedUntil,
-           time.timeIntervalSince1970 < until {
-            let deadline = Date(timeIntervalSince1970: until)
-            var plan = planner.plan(candidates, rules: rules, policy: host.autoArchivePolicy(), trigger: trigger, now: time)
-            plan.due = []
-            plan.nextCheck = plan.nextCheck.map { max($0, deadline) } ?? deadline
-            return plan
-        }
-        ledger.keep(only: Set(candidates.map(\.workspace)), items: Set(records.items.keys))
-        return planner.plan(candidates, rules: rules, policy: host.autoArchivePolicy(), trigger: trigger, now: time)
+        let snoozedUntil = ledger.snoozedUntil.map(Date.init(timeIntervalSince1970:))
+        let plan = planner.plan(candidates, seen: seen, rules: rules, policy: host.autoArchivePolicy(), trigger: trigger,
+                                now: time, snoozedUntil: snoozedUntil)
+        // First sight: the clock starts now, so a workspace is never idle on arrival.
+        for workspace in plan.firstSight { ledger.saw(workspace, at: time) }
+        if !plan.firstSight.isEmpty { markDirty() }
+        if !plan.snoozed { ledger.keep(only: Set(candidates.map(\.workspace)), items: Set(records.items.keys)) }
+        return plan
     }
 
     /// The group items above `item`, nearest first (bounded by the document's nesting limit).
@@ -215,6 +213,36 @@ public final class AutoArchiveCoordinator {
         host.autoArchiveToast(AutoArchiveStrings.archived(items.count)) { [weak self] in self?.restore(items) }
     }
 
+    /// The document items of `workspaces` that Archive Other Workspaces, Archive Workspaces Above or
+    /// Below would archive, in that order: placed, not pinned (top-level Pinned or pinned in a group)
+    /// and not archived yet, by itself or under an archived group.
+    public func archivableItems(workspaces: [String]) -> [String] {
+        guard let records = activeStore()?.records else { return [] }
+        var seen = Set<String>()
+        return workspaces.compactMap { host.autoArchiveItem(workspace: $0) }.filter { item in
+            records.items[item] != nil && seen.insert(item).inserted && !records.isPinned(item: item) && !records.isArchived(item: item)
+                && !groups(of: item, in: records).contains { records.isArchived(item: $0) }
+        }
+    }
+
+    /// Archives `workspaces` a person named (the bulk archive rows): their ``archivableItems(workspaces:)``
+    /// as one undo step, and a toast whose Undo brings the whole batch back. Returns how many it
+    /// archived; 0 sends nothing. Unlike the sweep it leaves the ledger alone: a hand archive is no
+    /// auto-archive, so showing the workspace again does not bring it back.
+    @discardableResult
+    public func archive(workspaces: [String]) throws(AutoArchiveRefusal) -> Int {
+        guard let store = activeStore() else { throw AutoArchiveRefusal(message: AutoArchiveStrings.needsDocument) }
+        let items = archivableItems(workspaces: workspaces)
+        guard !items.isEmpty else { return 0 }
+        do throws(SidebarDocSendRefusal) {
+            try store.setArchived(items, archived: true, title: AutoArchiveStrings.archiveWorkspacesTitle)
+        } catch {
+            throw AutoArchiveRefusal(message: error.message)
+        }
+        host.autoArchiveToast(AutoArchiveStrings.archivedByHand(items.count)) { [weak self] in self?.restore(items) }
+        return items.count
+    }
+
     /// Unarchives `items` (the toast's Undo, Restore in the Archived list).
     public func restore(_ items: [String]) {
         guard let store = activeStore(), !items.isEmpty else { return }
@@ -227,34 +255,42 @@ public final class AutoArchiveCoordinator {
         markDirty()
     }
 
+    /// The Tidy Up card, as small as it can be (Lawrence 18515, gallery pick T3): "2 idle workspaces",
+    /// the names, Archive and an inline "Always" switch; the x is Not Now (a day's snooze). Flipping Always turns
+    /// on `workspaces.autoArchive.style` `quiet` and archives these now.
     private func suggest(_ due: [AutoArchivePlanner.Candidate], days: Int) {
         guard card == nil else { return }
         var lines = due.prefix(Self.cardNames).map(\.title)
         if due.count > Self.cardNames { lines.append(AutoArchiveStrings.andMore(due.count - Self.cardNames)) }
         let card = SidebarNoticeCard(
-            id: "auto-archive.suggest", symbol: "archivebox", eyebrow: AutoArchiveStrings.cardEyebrow,
-            title: AutoArchiveStrings.cardTitle(due.count), detail: AutoArchiveStrings.cardDetail(days), lines: lines,
-            actions: [SidebarNoticeCard.Action(id: "archive", title: AutoArchiveStrings.cardArchive, prominent: true),
-                      SidebarNoticeCard.Action(id: "notNow", title: AutoArchiveStrings.cardNotNow)],
+            id: "auto-archive.suggest", symbol: "archivebox",
+            title: AutoArchiveStrings.cardQuestion(due.count), lines: lines,
+            actions: [SidebarNoticeCard.Action(id: Self.archiveAction, title: AutoArchiveStrings.cardArchive, prominent: true),
+                      SidebarNoticeCard.Action(id: Self.alwaysAction, title: AutoArchiveStrings.cardAlways, isSwitch: true)],
             dismissLabel: AutoArchiveStrings.cardNotNow)
         let items = due.map(\.item)
         // task-owner: the one open suggestion; cancelled by a settings change or stop()
         self.card = Task { @MainActor [weak self] in
             guard let self else { return }
-            let yes = await host.autoArchiveAsk(card)
+            let chosen = await host.autoArchiveAsk(card)
             self.card = nil
             guard !Task.isCancelled else { return }
-            if yes {
+            switch chosen {
+            case Self.archiveAction?, Self.alwaysAction?:
+                if chosen == Self.alwaysAction { await host.autoArchiveSetStyle(.quiet) }
                 // Only what is still idle: the person may have opened one while the card showed.
                 let still = Set(plan(.sweep).due.map(\.item))
                 try? archive(items.filter(still.contains))
-            } else {
+            default:
                 ledger.snoozedUntil = clockNow().addingTimeInterval(Self.snooze).timeIntervalSince1970
                 markDirty()
                 schedulePass(after: .seconds(Self.snooze))
             }
         }
     }
+
+    static let archiveAction = "archive"
+    static let alwaysAction = "always"
 
     // MARK: - Shows
 

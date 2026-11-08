@@ -25,7 +25,7 @@ enum LinkHandlers {
             guard let url = URL(string: trimmed), let parsed = DeepLink.read(url, scheme: services.linkScheme) else {
                 throw ActionFailure(message: RefusalStrings.linkNotRecognized(text))
             }
-            try DeepLinkNavigator(services: services).open(parsed.link, background: background)
+            try DeepLinkNavigator(services: services).open(parsed.link, background: background, beside: invocation["source"]?.stringValue)
             // A parameter cmux does not use never costs an agent link its chat: it opens, and a
             // toast names what was left out, so a stray `?cwd=…` is visible instead of silent.
             // Only this kind, and only after it opened: the older kinds have always ignored
@@ -40,11 +40,13 @@ enum LinkHandlers {
             if case .agent = parsed.link.target, !background, !registry.isCapturingRefusal,
                let notice = RefusalStrings.linkParametersIgnored(parsed.ignoredParameters,
                                                                  used: parsed.link.usedParameters) {
-                services.refusalHUD.show(notice, in: services.windows.active?.window ?? NSApp.keyWindow)
+                services.refusalHUD.show(notice, in: services.windows.active?.window ?? services.keyWindowSource())
             }
         })
-        registry.bind("palette.copyWorkspaceLink", run: { invocation in
-            context.copy(try services.link(workspace: try context.workspace(invocation).model))
+        // Every selected row, one link per line, as classic's Copy Workspace Links (#27709).
+        registry.bindEffect("palette.copyWorkspaceLink", requires: nil, effect: { invocation in
+            context.copy(try WindowMembershipHandlers.rowTargets(invocation, context).map { try services.link(workspace: $0) }.joined(separator: "\n"))
+            return .done
         })
         registry.bind("palette.copyPaneLink", run: { invocation in
             guard let pane = context.daemonPane(invocation) else { return }
@@ -59,6 +61,8 @@ enum LinkHandlers {
             guard let (tab, _) = context.daemonTab(invocation) else { return }
             context.copy(try services.link(tab: tab))
         })
+        // A new chat has no link until its first message: its row says so instead of an enabled row that refuses.
+        context.setTargetReason("palette.copySurfaceLink") { agentTab($0, services: services).flatMap { services.agentTabs.session(of: $0) == nil ? RefusalStrings.agentTabHasNoSession : nil } }
     }
 
     /// The agent tab an invocation names: an explicit agent chat tab

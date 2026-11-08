@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 
-/// One report in the Labs reports basket's list: the sender, when it arrived and the first lines of
+/// One report in the reports basket's list: the sender, when it arrived and the first lines of
 /// its text. Takes the report as a value (no store below the list); a click calls `select`.
 final class ReportsBasketRow: NSView {
     private(set) var item: FeedReport
@@ -18,7 +18,7 @@ final class ReportsBasketRow: NSView {
         self.select = select
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 5
+        layer?.cornerRadius = Metrics.insetCornerRadius
         translatesAutoresizingMaskIntoConstraints = false
         time.setContentCompressionResistancePriority(.required, for: .horizontal)
         time.setContentHuggingPriority(.required, for: .horizontal)

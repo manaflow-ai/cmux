@@ -11,20 +11,20 @@ mod typed_stream;
 mod wire;
 
 pub(crate) use client::decode_protocol_error;
-pub use client::{Client, Config};
+pub use client::{CallKind, Client, Config};
 pub use handles::state_ops::{
-    CONVERSATION_TABS_CAPABILITY, ClosedDeleteResult, ClosedDeleteTarget, ClosedItemSnapshot,
-    ClosedListOptions, ClosedMemberRecord, ClosedReopenOptions, ClosedReopenResult,
-    ClosedScreenRecord, ClosedTabRecord, ColumnEdge, ColumnMode, PALETTE_USAGE_CAPABILITY,
-    PALETTE_USAGE_IMPORT_MAX_ROWS, PALETTE_USAGE_KEY_MAX_CHARS, PaletteUsageImportResult,
-    PaletteUsageImportRow, PaletteUsagePick, PaletteUsageRevision, PaletteUsageRow,
-    PaletteUsageSnapshot, SavedTabGroupReopenResult, SavedTabGroupSnapshot, SavedTabMemberSnapshot,
-    StateDeleteResult, TAB_GROUP_MAX_TABS, TAB_HISTORY_MAX_URLS, TabGroupCreateOptions,
-    TabGroupMoveOptions, TabGroupReleaseResult, TabGroupSnapshot, TabGroupUpdateOptions,
-    TabUpdateOptions, WINDOW_RECORD_MAX_BYTES, WindowRecordDeleteResult, WindowRecordSnapshot,
-    WorkspaceCloseResult, WorkspaceGroupCreateOptions, WorkspaceGroupDeleteResult,
-    WorkspaceGroupSnapshot, WorkspaceGroupUpdateOptions, WorkspacePlaceOptions,
-    WorkspacePlacementSnapshot, WorkspaceRef, WorkspaceUpdateOptions,
+    CONVERSATION_TABS_CAPABILITY, ClosedAgentSessionRecord, ClosedDeleteResult, ClosedDeleteTarget,
+    ClosedItemSnapshot, ClosedListOptions, ClosedMemberRecord, ClosedReopenOptions,
+    ClosedReopenResult, ClosedScreenRecord, ClosedTabRecord, ColumnEdge, ColumnMode,
+    PALETTE_USAGE_CAPABILITY, PALETTE_USAGE_IMPORT_MAX_ROWS, PALETTE_USAGE_KEY_MAX_CHARS,
+    PaletteUsageImportResult, PaletteUsageImportRow, PaletteUsagePick, PaletteUsageRevision,
+    PaletteUsageRow, PaletteUsageSnapshot, SavedTabGroupReopenResult, SavedTabGroupSnapshot,
+    SavedTabMemberSnapshot, StateDeleteResult, TAB_GROUP_MAX_TABS, TAB_HISTORY_MAX_URLS,
+    TabGroupCreateOptions, TabGroupMoveOptions, TabGroupReleaseResult, TabGroupSnapshot,
+    TabGroupUpdateOptions, TabUpdateOptions, WINDOW_RECORD_MAX_BYTES, WindowRecordDeleteResult,
+    WindowRecordSnapshot, WorkspaceCloseResult, WorkspaceGroupCreateOptions,
+    WorkspaceGroupDeleteResult, WorkspaceGroupSnapshot, WorkspaceGroupUpdateOptions,
+    WorkspacePlaceOptions, WorkspacePlacementSnapshot, WorkspaceRef, WorkspaceUpdateOptions,
 };
 pub use handles::{
     Agent, Browser, ConnectedClient, FrontendProjection, Machine, Notification, PairingRequest,
@@ -52,12 +52,12 @@ pub use model::{
     PairingStatus, PaneNeighborResult, PaneSnapshot, PingResult, ProcessInfoResult,
     ProtocolFailure, ReloadConfigResult, RendererGrant, ResourceEntitySnapshot, ResourceSnapshot,
     ScreenSnapshot, SessionSnapshot, ShutdownResult, SidebarViewSnapshot, StreamEnd,
-    StreamEndReason, StreamPoll, TabContentId, TabContentKind, TabSnapshot, TerminalCopyResult,
-    TerminalDefaultsSnapshot, TerminalExit, TerminalExitOutcome, TerminalExitedLifecycle,
-    TerminalHistoryResult, TerminalLifecycle, TerminalPendingLifecycle, TerminalScreenResult,
-    TerminalSnapshot, TerminalStateResult, TerminalWaitExitExited, TerminalWaitExitPending,
-    TerminalWaitExitResult, TerminalWaitResult, TypedStreamItem, ViewAttachmentOutcome,
-    ViewerReleaseResult, ViewerResizeResult, WorkspaceSnapshot,
+    StreamEndReason, StreamItem, StreamPoll, TabContentId, TabContentKind, TabSnapshot,
+    TerminalCopyResult, TerminalDefaultsSnapshot, TerminalExit, TerminalExitOutcome,
+    TerminalExitedLifecycle, TerminalHistoryResult, TerminalLifecycle, TerminalPendingLifecycle,
+    TerminalScreenResult, TerminalSnapshot, TerminalStateResult, TerminalWaitExitExited,
+    TerminalWaitExitPending, TerminalWaitExitResult, TerminalWaitResult, TypedStreamItem,
+    ViewAttachmentOutcome, ViewerReleaseResult, ViewerResizeResult, WorkspaceSnapshot,
 };
 pub(crate) use options::validate_idempotency_key;
 pub use options::{
@@ -77,7 +77,7 @@ pub use options::{
     TerminalMouseKind, TerminalMouseOptions, TerminalProjectOptions, TextInputOptions,
     UndoLayoutOptions, Update, ViewportWidthOptions, WaitOptions, WheelOptions, ZoomOptions,
 };
-pub use stream::StreamCancellation;
+pub use stream::{ResourceStream, StreamCancellation};
 pub use typed_stream::{
     BrowserAttachment, BrowserAttachmentItem, BrowserFrameMime, ColorHex, JournalAuthority,
     JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity, JournalSubject,

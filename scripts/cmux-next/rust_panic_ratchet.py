@@ -27,8 +27,16 @@ Usage:
   cargo clippy --workspace --lib --bins --locked --message-format=json -- $(rust_panic_ratchet.py --flags) > clippy.jsonl
   # 2. compare (laptop OK, read-only):
   rust_panic_ratchet.py --clippy-json clippy.jsonl [--update-baseline] [--report md|json]
+                        [--base-clippy-json base.jsonl]
 Exit 1 when a crate gained a DENY_LINTS hit (a new crate: any), or an allow lacks a reason.
 TRACKED_LINTS increases print a warning annotation and pass.
+
+--base-clippy-json is the same lint run on the base a change merges into
+(cmux-next fast gates rerun the ratchet on a pull request merged with a tip
+whose baseline went down since its own check: cmux_next_fast_gates.py). A
+count over the baseline then fails only when it is also over the base run's
+count: a base already over its row is the base's red, and the change is red
+only for hits it adds. A base run that did not finish excuses nothing.
 """
 import argparse
 import collections
@@ -198,8 +206,18 @@ def _allow_scan(root, crates_dir):
     return bad
 
 
-def _changed_first(root, locations):
-    """Hit locations in files changed against origin/feat-cmux-next first (where a new hit is)."""
+def _changed_first(root, locations, base_locations=None):
+    """Hit locations in the files whose hit count the base run does not reach first (where a new
+    hit is), then files changed against origin/feat-cmux-next. A CI merge checkout often has no
+    origin/feat-cmux-next, so without a base run the list fell back to path order and named only
+    old hits (#37778's one new cmux-tui-core indexing_slicing hit hid behind 20 of them)."""
+    def per_file(locs):
+        return collections.Counter(loc.split(":", 1)[0] for loc in locs)
+
+    grown = set()
+    if base_locations is not None:
+        on_base = per_file(base_locations)
+        grown = {name for name, count in per_file(locations).items() if count > on_base[name]}
     try:
         import subprocess
         out = subprocess.run(["git", "-C", root, "diff", "--name-only", "origin/feat-cmux-next...HEAD"],
@@ -207,7 +225,8 @@ def _changed_first(root, locations):
     except (OSError, subprocess.SubprocessError):
         out = ""
     changed = {line.split("cmux-tui/", 1)[-1] for line in out.splitlines()}
-    return sorted(locations, key=lambda loc: (loc.split(":", 1)[0] not in changed, loc))
+    return sorted(locations, key=lambda loc: (loc.split(":", 1)[0] not in grown,
+                                              loc.split(":", 1)[0] not in changed, loc))
 
 
 def load_baseline():
@@ -220,7 +239,7 @@ def load_baseline():
 def write_baseline(crates):
     data = {
         "_doc": "Per-crate clippy hit counts of production code (scripts/cmux-next/rust_panic_ratchet.py). "
-                "Counts only go down. A crate with every deny lint at 0 is at deny.",
+                "Counts normally only go down; reviewed rollout rebaselines require authoritative Linux provenance. A crate with every deny lint at 0 is at deny.",
         "lints": LINTS,
         "deny_lints": DENY_LINTS,
         "crates": {crate: {lint: crates[crate].get(lint, 0) for lint in LINTS} for crate in sorted(crates)},
@@ -262,6 +281,7 @@ def main():
     parser.add_argument("--update-baseline", action="store_true", help="lower the baseline to the counts seen")
     parser.add_argument("--init-baseline", action="store_true", help="write the baseline from scratch (first run only)")
     parser.add_argument("--report", choices=["md", "json"])
+    parser.add_argument("--base-clippy-json", help="the same run on the base: a count it already reaches is the base's red")
     args = parser.parse_args()
     if args.flags:
         print(lint_flags())
@@ -276,6 +296,15 @@ def main():
     if args.report:
         report(checked, counts, files, args.report)
     baseline = load_baseline()
+    base_counts = None
+    base_hits = None
+    if args.base_clippy_json:
+        base_checked, base_counts, _, base_finished, base_hits = read_clippy(args.base_clippy_json)
+        if not base_checked or base_finished is not True:
+            print("::warning title=rust panic ratchet::the base clippy run did not finish successfully; "
+                  "every count over the baseline is charged to this change", file=sys.stderr)
+            base_counts = None
+            base_hits = None
     if args.init_baseline:
         write_baseline({crate: counts.get(crate, collections.Counter()) for crate in checked})
         print(f"rust-panic-ratchet: wrote {os.path.relpath(BASELINE, args.repo)} for {len(checked)} crates")
@@ -283,6 +312,7 @@ def main():
 
     failures = []
     warnings = []
+    base_reds = []
     lowered = {}
     for crate in sorted(checked):
         now = counts.get(crate, collections.Counter())
@@ -292,10 +322,16 @@ def main():
             allowed = 0 if base is None else base.get(lint, 0)
             if got > allowed:
                 where = "new crate (must be 0)" if base is None else f"baseline {allowed}"
+                on_base = None if base_counts is None else base_counts.get(crate, {}).get(lint, 0)
+                if lint in DENY_LINTS and on_base is not None and got <= on_base:
+                    base_reds.append(f"{crate}: clippy::{lint} {got} > {where}, and the base has {on_base}: "
+                                     "the base's red, not this change's")
+                    continue
                 # Tracked lints warn only: an added `x + 1` must not block a landing.
                 (failures if lint in DENY_LINTS else warnings).append(f"{crate}: clippy::{lint} {got} > {where}")
                 if lint in DENY_LINTS:
-                    for loc in _changed_first(args.repo, hits.get((crate, lint), []))[:20]:
+                    for loc in _changed_first(args.repo, hits.get((crate, lint), []),
+                                              None if base_hits is None else base_hits.get((crate, lint), []))[:20]:
                         failures.append(f"    {loc}")
         if base is not None and any(now.get(l, 0) < base.get(l, 0) for l in LINTS):
             lowered[crate] = {l: min(now.get(l, 0), base.get(l, 0)) for l in LINTS}
@@ -327,6 +363,8 @@ def main():
               " or a later change can add hits up to the old count", file=sys.stderr)
     for line in warnings:
         print(f"::warning title=rust panic ratchet (tracked lint)::{line}", file=sys.stderr)
+    for line in base_reds:
+        print(f"::warning title=rust panic ratchet (base red)::{line}", file=sys.stderr)
     if failures:
         print("rust-panic-ratchet: RED", file=sys.stderr)
         for line in failures:

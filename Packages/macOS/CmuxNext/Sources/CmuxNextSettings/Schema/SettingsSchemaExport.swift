@@ -81,7 +81,19 @@ public struct SettingsSchemaExport {
             if spec.devOnly { entry["dev_only"] = true }
             return entry
         }
-        return ["default_category": SettingsPageLayout.defaultCategory, "categories": categories]
+        // The sidebar's titled runs of categories; the untitled lead run has a null title.
+        let sidebarSections: [[String: Any]] = SettingsPageLayout.sidebarSections.map { section in
+            [
+                "id": section.id,
+                "title": section.title.map { text($0.text, $0.key) as Any } ?? NSNull(),
+                "categories": section.categories.map(\.id),
+            ]
+        }
+        return [
+            "default_category": SettingsPageLayout.defaultCategory,
+            "categories": categories,
+            "sidebar_sections": sidebarSections,
+        ]
     }
 
     nonisolated func row(for descriptor: SettingDescriptor, text: (String, String?) -> [String: Any]) -> [String: Any] {
@@ -96,6 +108,7 @@ public struct SettingsSchemaExport {
             "summary": descriptor.summary.map { text($0, keys.summary) as Any } ?? NSNull(),
             "default": descriptor.defaultValue.map(foundation) ?? NSNull(),
             "default_label": descriptor.defaultLabel.map { text($0, keys.defaultLabel) as Any } ?? NSNull(),
+            "placeholder": descriptor.placeholder.map { text($0.text, $0.key) as Any } ?? NSNull(),
             "keywords": descriptor.keywords,
             "agent_settable": SettingsSchema.agentSettable(descriptor) ?? false,
             "agent_refusal": SettingsSchema.agentRefusedKeys[descriptor.id].map { $0.rawValue as Any } ?? NSNull(),
@@ -104,9 +117,6 @@ public struct SettingsSchemaExport {
             "page_hidden": descriptor.page != .shown,
             "surfaces": descriptor.surfacePlan.exportObject,
         ]
-        let samples = SettingsSchemaSamples.samples(for: descriptor)
-        row["accepts"] = samples.accept.filter(descriptor.accepts).map(foundation)
-        row["refuses"] = samples.refuse.filter { !descriptor.accepts($0) }.map(foundation)
         func choices(_ choices: [SettingChoice]) -> [[String: Any]] {
             choices.map { ["value": $0.value, "title": text($0.title, $0.titleKey)] }
         }
@@ -150,26 +160,13 @@ public struct SettingsSchemaExport {
             row["choices"] = choices(list)
             row["ordered"] = false
         }
-        // Kinds whose valid values only the app knows (theme names, installed
-        // fonts, system sounds): another validator checks them against the
-        // value domain the app publishes, not a fixed rule.
-        if descriptor.path == ChatSettings.rootsPath {
-            row["validation"] = "domain:chat_roots"
-        } else if descriptor.path == CustomDensitiesSetting().configPath {
-            row["validation"] = "domain:custom_densities"
-        } else if descriptor.path == BackdropSelectionSetting().configPath {
-            row["validation"] = "domain:backdrop_selection"
-        } else if BrowserOmnibarSetting.templatePaths.contains(descriptor.path) {
-            // Portable: a web address that contains %s or {searchTerms}, or empty.
-            row["validation"] = "domain:search_template"
-        } else {
-            switch descriptor.kind {
-            case .theme: row["validation"] = "domain:theme"
-            case .fontFamily: row["validation"] = "domain:font_family"
-            case .sound: row["validation"] = "domain:sound"
-            default: row["validation"] = "portable"
-            }
-        }
+        // How another validator checks the value: portable, or a domain only the app knows (theme
+        // names, installed fonts, system sounds) or with its own shape (row-facts.json).
+        row["validation"] = SettingsSchema.validationByKey[descriptor.id]
+            ?? (row["kind"] as? String).flatMap { SettingsSchema.validationByKind[$0] } ?? SettingsSchema.defaultValidation
+        let samples = SettingsSchemaSamples.samples(row: row)
+        row["accepts"] = samples.accept.filter(descriptor.accepts).map(foundation)
+        row["refuses"] = samples.refuse.filter { !descriptor.accepts($0) }.map(foundation)
         return row
     }
 

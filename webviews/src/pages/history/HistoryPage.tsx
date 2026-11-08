@@ -1,9 +1,11 @@
 // The History page (plans/cmux-next/react-pages.md 2.4; behavior of the Swift page in
 // plans/cmux-next/history.md 5.1). State lives in `HistoryStore`; this file only renders it and
 // turns plain keys and clicks into store intents. Cmd/Ctrl chords never reach page handlers.
-import { useState, useSyncExternalStore, type KeyboardEvent, type MouseEvent } from "react";
+import { useRef, useState, useSyncExternalStore, type KeyboardEvent, type MouseEvent } from "react";
 import { PageMenu, type PageMenuItem } from "../shared/PageMenu";
 import type { Strings } from "../shared/i18n";
+import { useLasting } from "../../ui/lasting";
+import { CookieBackupsPanel } from "./CookieBackups";
 import { KindIcon } from "./KindIcon";
 import {
   BadgeLabel,
@@ -25,7 +27,7 @@ import {
 import type { HistoryStore } from "./store";
 import { HISTORY_RANGES, type HistoryEntry } from "./types";
 
-type OpenMenu = { x: number; y: number; items: PageMenuItem[]; returnFocus: HTMLElement | null };
+type OpenMenu = { session: number; x: number; y: number; items: PageMenuItem[]; returnFocus: HTMLElement | null };
 
 // Stable callback refs: React calls them only when the node mounts (or the ref is attached).
 const focusOnMount = (node: HTMLInputElement | null) => node?.focus();
@@ -47,7 +49,13 @@ export function HistoryPage({
 }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const [menu, setMenu] = useState<OpenMenu | null>(null);
+  // Even when two native menus open before the first reply, each owns its own actions.
+  const menuSession = useRef(0);
   const { t, language } = strings;
+  // A lost history owner shows nothing until it lasts past the grace (a launch, a daemon restart:
+  // the store re-reads once the link is back); then the disconnected line.
+  const down = snap.connection === "disconnected";
+  const downLasting = useLasting(down);
   const flat = flatten(snap.groups);
 
   const open = (entry: HistoryEntry | undefined, newTab = false) => {
@@ -90,6 +98,7 @@ export function HistoryPage({
       },
     }));
     setMenu({
+      session: ++menuSession.current,
       x: event.clientX,
       y: event.clientY,
       items,
@@ -99,7 +108,13 @@ export function HistoryPage({
 
   const headerMenu = (event: MouseEvent<HTMLButtonElement>, items: PageMenuItem[]) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    setMenu({ x: rect.left, y: rect.bottom + 4, items, returnFocus: event.currentTarget });
+    setMenu({
+      session: ++menuSession.current,
+      x: rect.left,
+      y: rect.bottom + 4,
+      items,
+      returnFocus: event.currentTarget,
+    });
   };
 
   const groupingItems = (): PageMenuItem[] =>
@@ -129,6 +144,9 @@ export function HistoryPage({
               onClick={(event) => headerMenu(event, groupingItems())}
             >
               {t("page.groupBy")}
+            </button>
+            <button type="button" className="history-menu-button" onClick={() => void store.showCookieBackups()}>
+              {t("page.cookieBackups")}
             </button>
             <button
               type="button"
@@ -173,7 +191,7 @@ export function HistoryPage({
           {snap.error}
         </p>
       ) : null}
-      {snap.connection === "disconnected" ? (
+      {down && !downLasting ? null : down ? (
         <output className="history-empty">{t("page.disconnected")}</output>
       ) : snap.groups.length === 0 ? (
         <div className="history-empty">{snap.loading ? "" : t(snap.text ? "page.emptySearch" : "page.empty")}</div>
@@ -204,8 +222,10 @@ export function HistoryPage({
           ))}
         </div>
       )}
+      {snap.cookieBackups.open && <CookieBackupsPanel store={store} state={snap.cookieBackups} strings={strings} />}
       {menu && (
         <PageMenu
+          key={menu.session}
           x={menu.x}
           y={menu.y}
           items={menu.items}

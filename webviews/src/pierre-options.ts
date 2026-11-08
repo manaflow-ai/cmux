@@ -1,5 +1,6 @@
 import { PIERRE_DIFFS_SCROLLER_CSS, PIERRE_TREES_SCROLLER_CSS } from "./scrollers";
 import { DIFF_NUMBER_TINT, DIFF_WEIGHT_CSS, diffModeTint } from "./diffWeight";
+import { TREE_TITLE_CSS } from "./agent-session/acpmux/changes/treeTitles";
 import type { CodeViewOptions } from "@pierre/diffs";
 import type { WorkerInitializationRenderOptions } from "@pierre/diffs/worker";
 import {
@@ -156,6 +157,11 @@ export function codeViewUnsafeCSS(): string {
       user-select: text;
       cursor: text;
     }
+    /* The page's selection (desktop.css), which does not reach into this shadow root: the fill fit
+       to the surface under it (ui/adaptiveSelection.ts), else the Ghostty config's color. */
+    ::selection {
+      background-color: var(--cmux-selection-fill, var(--cmux-text-selection, Highlight));
+    }
     /* A line listener (Cmd-click opens the file, openFile.ts) makes Pierre show a pointer on
        every line; the text cursor stays, since a plain click selects text. */
     [data-interactive-lines] [data-line] {
@@ -218,7 +224,7 @@ export function codeViewUnsafeCSS(): string {
       border-radius: 4px;
       background: var(--cmux-diff-accent, light-dark(#0a84ff, #7ab7ff));
       color: light-dark(#fff, #08233f);
-      cursor: pointer;
+      cursor: default;
       transform: scale(0.9);
       transition: transform 80ms ease;
     }
@@ -282,10 +288,6 @@ export function fileTreeUnsafeCSS(): string {
       padding-inline-end: 0;
       scrollbar-gutter: stable;
     }
-    [data-item-section='content'] {
-      flex: 1 1 auto;
-      min-width: 0;
-    }
     /* R139: rows are chrome, an arrow cursor like a native source list. */
     [data-type='item'] {
       cursor: default;
@@ -325,11 +327,6 @@ export function fileTreeUnsafeCSS(): string {
        backdrop, so it is mixed toward the text color there (--cmux-diff-tree-name-strength,
        styles.css): the same hue, brighter in a dark theme, darker in a light one. Elsewhere the
        strength is 100%, the status color itself. */
-    /* A shortened name's marker covers the hidden text: over glass the solid backdrop
-       (--cmux-diff-truncate-marker-bg), since the tree's own surfaces are clear there. */
-    [data-type='item'] {
-      --truncate-marker-background-color: var(--cmux-diff-truncate-marker-bg, var(--trees-bg));
-    }
     [data-item-git-status] > [data-item-section='content'] {
       color: color-mix(
         in oklab,
@@ -349,6 +346,9 @@ export function fileTreeUnsafeCSS(): string {
         backdrop-filter: none;
       }
     }
+    /* A long name is clipped with a fade at its end and scrolls once on hover or focus
+       (attachTreeTitles, FilesSidebar.tsx): no middle truncation and its solid marker block. */
+    ${TREE_TITLE_CSS}
     ${PIERRE_TREES_SCROLLER_CSS}
   `;
 }

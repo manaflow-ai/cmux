@@ -102,4 +102,11 @@ export const L = {
   runSent: "run.sent",
   runAll: "run.all",
   runAllTitle: "run.all.title",
+  findPlaceholder: "find.placeholder",
+  findPrevious: "find.previous",
+  findNext: "find.next",
+  findClose: "find.close",
+  findMatchCase: "find.matchCase",
+  findCount: "find.count",
+  findNoMatches: "find.noMatches",
 } as const;

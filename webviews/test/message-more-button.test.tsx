@@ -37,19 +37,31 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
 const { TurnFooter } = await import("../src/agent-session/acpmux/conversation/TurnRows");
-const { installMessageMenuReporter, messageMenuTarget, setMessageMenuSource } =
-  await import("../src/agent-session/acpmux/conversation/messageMenu");
+const {
+  installMessageMenuReporter,
+  messageMenuSessionMatches,
+  messageMenuTarget,
+  openForkMenu,
+  openMessageMenu,
+  setMessageMenuSource,
+} = await import("../src/agent-session/acpmux/conversation/messageMenu");
 
 const prompt: AcpmuxRow = { id: "prompt", version: 1, at: 1, kind: "user", text: "Make the chart" };
 const answer: AcpmuxRow = { id: "answer", version: 1, at: 2, kind: "assistant", text: "Here is **the chart**." };
 const summary: AcpmuxRow = { id: "summary-9", version: 1, at: 3, kind: "turnSummary", seq: 9, durationMs: 1_000 };
-const snapshot = { rows: [prompt, answer, summary], connection: "connected" } as unknown as AcpmuxSnapshot;
+const snapshot = {
+  rows: [prompt, answer, summary],
+  connection: "connected",
+  summary: { sessionId: "chat-a" },
+} as unknown as AcpmuxSnapshot;
 // The footer as the transcript draws it (turns.ts): the answer's text, and the answer's row.
 const footer: AcpmuxRow = { ...summary, text: answer.text, answerId: answer.id };
 
 const doc = dom.window.document;
 const reports: Record<string, unknown>[] = [];
-installMessageMenuReporter(doc, () => ({ postMessage: (body) => reports.push(body as Record<string, unknown>) }));
+const handler = () => ({ postMessage: (body: unknown) => reports.push(body as Record<string, unknown>) });
+let removeReporter = installMessageMenuReporter(doc, handler);
+afterAll(() => removeReporter());
 setMessageMenuSource((rowId) => messageMenuTarget(snapshot, rowId));
 
 const root = createRoot(doc.getElementById("root")!);
@@ -86,8 +98,96 @@ test("an answer's turn footer has More, which reports the answer as its right-cl
   expect(button).not.toBeNull();
   const report = (await press(button!))!;
   expect(report).toMatchObject({ text: "Here is the chart.", markdown: "Here is **the chart**." });
+  expect(typeof report.replyTime).toBe("string");
+  expect(report.replyTime).not.toBe("");
   const { popUp } = report;
   expect(popUp).toBeDefined();
+  expect(button!.hasAttribute("data-popup-open")).toBe(true);
+  expect(typeof report.popupId).toBe("string");
+  doc.defaultView!.dispatchEvent(new dom.window.CustomEvent("cmux-message-menu-closed", { detail: report.popupId }));
+  expect(button!.hasAttribute("data-popup-open")).toBe(false);
+});
+
+test("only a reply reports a timestamp header to the native menu", () => {
+  expect(messageMenuTarget(snapshot, prompt.id)?.replyTime).toBeUndefined();
+  expect(messageMenuTarget(snapshot, answer.id)?.replyTime).toBeDefined();
+});
+
+test("a stale native dismissal cannot clear a newer More menu", async () => {
+  const button = more(footer.id, ".cv-turn-actions")!;
+  const first = (await press(button))!;
+  const second = (await press(button))!;
+  expect(second.popupId).not.toBe(first.popupId);
+  doc.defaultView!.dispatchEvent(new dom.window.CustomEvent("cmux-message-menu-closed", { detail: first.popupId }));
+  expect(button.hasAttribute("data-popup-open")).toBe(true);
+  doc.defaultView!.dispatchEvent(new dom.window.CustomEvent("cmux-message-menu-closed", { detail: second.popupId }));
+  expect(button.hasAttribute("data-popup-open")).toBe(false);
+});
+
+test("Option-click Fork keeps its opener lit until the host closes the destination menu", () => {
+  const button = more(footer.id, ".cv-turn-actions")!;
+  expect(openForkMenu(9, button)).toBe(true);
+  const report = reports.at(-1)!;
+  expect(report.forkDestinations).toBe(9);
+  expect(typeof report.popupId).toBe("string");
+  expect(button.hasAttribute("data-popup-open")).toBe(true);
+  doc.defaultView!.dispatchEvent(new dom.window.CustomEvent("cmux-message-menu-closed", { detail: report.popupId }));
+  expect(button.hasAttribute("data-popup-open")).toBe(false);
+});
+
+test("a host refusal clears the opener immediately", () => {
+  removeReporter();
+  const remove = installMessageMenuReporter(doc, () => ({
+    postMessage: () => {
+      throw new Error("unavailable");
+    },
+  }));
+  const button = more(footer.id, ".cv-turn-actions")!;
+  expect(openMessageMenu(answer.id, button)).toBe(false);
+  expect(button.hasAttribute("data-popup-open")).toBe(false);
+  remove();
+  removeReporter = installMessageMenuReporter(doc, handler);
+});
+
+test("reporter teardown clears the open marker", async () => {
+  removeReporter();
+  const remove = installMessageMenuReporter(doc, () => ({ postMessage: () => {} }));
+  const button = more(footer.id, ".cv-turn-actions")!;
+  expect(openMessageMenu(answer.id, button)).toBe(true);
+  expect(button.hasAttribute("data-popup-open")).toBe(true);
+  remove();
+  expect(button.hasAttribute("data-popup-open")).toBe(false);
+  expect(openMessageMenu(answer.id, button)).toBe(false);
+  removeReporter = installMessageMenuReporter(doc, handler);
+});
+
+test("an assistant body pins the turn summary row used by the rail", () => {
+  const target = messageMenuTarget({ ...snapshot, canFork: true } as unknown as AcpmuxSnapshot, answer.id);
+  expect(target?.rowId).toBe("summary-9");
+  expect(target?.sessionId).toBe("chat-a");
+});
+
+test("an older completed assistant body keeps its pin target while a later turn works", () => {
+  const target = messageMenuTarget(
+    { ...snapshot, canFork: false, isWorking: true } as unknown as AcpmuxSnapshot,
+    answer.id,
+  );
+  expect(target?.rowId).toBe("summary-9");
+  expect(target?.forkSeq).toBeUndefined();
+});
+
+test("an assistant body without a completed summary has no pin target", () => {
+  const target = messageMenuTarget(
+    { ...snapshot, rows: [prompt, answer], canFork: false, isWorking: true } as unknown as AcpmuxSnapshot,
+    answer.id,
+  );
+  expect(target?.rowId).toBeUndefined();
+});
+
+test("a pin menu becomes a no-op when the chat changes before its action runs", () => {
+  expect(messageMenuSessionMatches("chat-a", "chat-a", "chat-a")).toBe(true);
+  expect(messageMenuSessionMatches("chat-a", "chat-b", "chat-b")).toBe(false);
+  expect(messageMenuSessionMatches("chat-a", "chat-a", "chat-b")).toBe(false);
 });
 
 test("a footer with no answer has no More", async () => {

@@ -7,7 +7,7 @@
   font: inherit;
   font-weight: 400;
   color: var(--cv-text);
-  cursor: pointer;
+  cursor: default;
   text-align: inherit;
 }
 .cv-chip__icon {
@@ -81,6 +81,27 @@
 .cv-chip__icon--gh {
   vertical-align: -1.5px;
 }
+/* A pull request chip's mark in its state's colour, as the hover card's glyph (linkCard.css):
+   open green, merged purple, closed red, draft grey; an unread one keeps the link's. */
+.cv-chip.is-ref[data-pr-state="open"] .cv-chip__icon--gh {
+  color: var(--agent-status-success);
+}
+.cv-chip.is-ref[data-pr-state="merged"] .cv-chip__icon--gh {
+  color: var(--agent-status-merged);
+}
+.cv-chip.is-ref[data-pr-state="closed"] .cv-chip__icon--gh {
+  color: var(--agent-status-failure);
+}
+.cv-chip.is-ref[data-pr-state="draft"] .cv-chip__icon--gh {
+  color: var(--agent-muted);
+}
+/* An issue as GitHub draws one: closed (completed) purple, not planned grey. */
+.cv-chip.is-ref[data-pr-kind="issue"][data-pr-state="closed"] .cv-chip__icon--gh {
+  color: var(--agent-status-merged);
+}
+.cv-chip.is-ref[data-pr-kind="issue"][data-pr-state="not_planned"] .cv-chip__icon--gh {
+  color: var(--agent-muted);
+}
 .cv-chip:focus-visible {
   outline: 1px solid var(--cv-link);
   outline-offset: 1px;
@@ -105,7 +126,7 @@
 .cv-image-placeholder {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   max-width: 100%;
   padding: 6px 10px;
   border: 1px solid color-mix(in srgb, var(--cv-fg) 14%, transparent);
@@ -127,7 +148,7 @@
   background: none;
   color: var(--cv-text);
   font: inherit;
-  cursor: pointer;
+  cursor: default;
 }
 .cv-image-placeholder__load:disabled {
   opacity: 0.5;
@@ -137,7 +158,7 @@
 .cv-image-file {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   max-width: 100%;
   padding: 6px 10px;
   border: 1px solid color-mix(in srgb, var(--cv-fg) 14%, transparent);
@@ -179,7 +200,7 @@
   background: none;
   color: var(--cv-text);
   font: inherit;
-  cursor: pointer;
+  cursor: default;
 }
 .cv-image-file__open:focus-visible {
   outline: 1px solid var(--cv-link);
@@ -199,7 +220,7 @@
   display: block;
   max-width: min(100%, 480px);
   max-height: 320px;
-  border-radius: 8px;
+  border-radius: var(--cv-media-radius, 8px);
   background: #000;
 }
 .cv-media.is-video:not(:has(video)) {
@@ -208,7 +229,7 @@
   align-items: center;
   justify-content: center;
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: var(--cv-media-radius, 8px);
   background: var(--cv-card-fill);
   box-shadow: inset 0 0 0 1px var(--cv-card-ring);
 }
@@ -234,9 +255,9 @@
   place-items: center;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--cv-media-radius, 8px);
   background: transparent;
-  cursor: pointer;
+  cursor: default;
 }
 @media (prefers-reduced-motion: no-preference) {
   .cv-media__poster {
@@ -283,14 +304,14 @@
   line-height: 1.4;
   letter-spacing: var(--text-detail--letter-spacing);
 }
-/* Every control on a playing video takes the pointing hand too (WebKit's own controls). */
+/* Every control on a playing video shows the arrow too (WebKit's own controls). */
 .cv-media__frame.is-playing video,
 .cv-media__frame video::-webkit-media-controls-panel,
 .cv-media__frame video::-webkit-media-controls-play-button,
 .cv-media__frame video::-webkit-media-controls-timeline,
 .cv-media__frame video::-webkit-media-controls-mute-button,
 .cv-media__frame video::-webkit-media-controls-fullscreen-button {
-  cursor: pointer;
+  cursor: default;
 }
 /* Open in tab and Expand: glass buttons in the top corner, shown while the pointer is on it. Each
  * takes a 28 px square click with its 24 px glass drawn inside, 8 px from the other; the row's own
@@ -319,9 +340,17 @@
 .cv-media.has-short-video > .cv-media__actions {
   top: 0;
 }
+/* They follow the pointer's dwell as a message's hover row does (conversation.css --cv-actions-*):
+ * in as long as the pointer stays, at once from the keyboard, out a little faster. */
 @media (prefers-reduced-motion: no-preference) {
   .cv-media__actions {
-    transition: opacity var(--cmux-motion-micro, 120ms);
+    transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
+  }
+  .cv-media:hover .cv-media__actions {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+  }
+  .cv-media__actions:focus-within {
+    transition: none;
   }
 }
 .cv-media__action {
@@ -333,7 +362,7 @@
   border: 0;
   background: none;
   color: var(--cv-text);
-  cursor: pointer;
+  cursor: default;
 }
 .cv-media__glass {
   display: grid;
@@ -380,9 +409,9 @@
   white-space: nowrap;
 }
 
-/* A reply's image thumbnail (ReplyImage.tsx `thumb`): glass of one fixed shape in every state
- * (waiting, Load image, unavailable, shown), so an image that loads never moves the reply. The image
- * fits inside whole; a click opens it in the image viewer. */
+/* A reply's image thumbnail (ReplyImage.tsx `thumb`): glass of one fixed shape
+ * while it waits (waiting, Load image, unavailable); a shown image takes its own shape (below), and
+ * a click opens it in the image viewer. */
 .cv-thumb {
   box-sizing: border-box;
   display: inline-flex;
@@ -410,6 +439,23 @@
 button.cv-thumb {
   appearance: none;
   cursor: zoom-in;
+}
+/* A shown image is no frame: once it loads (ReplyImage.tsx sets its natural size) the thumbnail is the
+ * whole image in its own shape, as wide as the column, the image, or 360px of height allows, whichever
+ * is least, under a hairline ring. A wide screenshot is a strip, a phone shot a narrow column, never a
+ * thin strip in an empty card (Leo, 2026-11-05: "I don't think we have good enough looking previews for
+ * these"). Until then it keeps the fixed frame, so a slow or lazy image holds its place. */
+.cv-thumb--sized {
+  width: min(100%, calc(var(--thumb-w) * 1px), calc(360px * var(--thumb-w) / var(--thumb-h)));
+  aspect-ratio: var(--thumb-w) / var(--thumb-h);
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+.cv-thumb--sized .cv-thumb__img {
+  border-radius: var(--cv-media-radius);
+  outline: 1px solid color-mix(in srgb, var(--cv-fg) 12%, transparent);
+  outline-offset: -1px;
 }
 button.cv-thumb:focus-visible {
   outline: 2px solid var(--agent-accent-soft);
@@ -454,6 +500,12 @@ button.cv-thumb:focus-visible {
   width: 100%;
   margin: 0;
 }
+/* A shown image in a row keeps its own shape inside its share, centred over its caption: never a
+   frame as wide as the share with the image capped inside it. */
+.cv-thumbs.is-row .cv-thumb--sized {
+  width: min(100%, calc(var(--thumb-w) * 1px), calc(360px * var(--thumb-w) / var(--thumb-h)));
+  align-self: center;
+}
 .cv-thumbs__item {
   display: flex;
   flex-direction: column;
@@ -472,4 +524,23 @@ button.cv-thumb:focus-visible {
 }
 .cv-li__images {
   display: block;
+}
+/* A file id only its provider opens (LinkChips.tsx ForeignFileRef): muted, never a link. */
+.cv-foreign-file {
+  color: var(--cv-text-muted);
+}
+.cv-foreign-file__icon {
+  width: 0.85em;
+  height: 0.85em;
+  margin-right: 4px;
+  vertical-align: -0.1em;
+}
+.cv-foreign-file__id {
+  font-family: var(--cv-code-font, var(--cv-mono));
+  font-size: 0.92em;
+}
+.cv-foreign-file__note {
+  margin-left: 4px;
+  font-size: 0.92em;
+  opacity: 0.8;
 }

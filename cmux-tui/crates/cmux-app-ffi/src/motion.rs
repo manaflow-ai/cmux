@@ -13,7 +13,7 @@ use cmux_motion::{
 };
 
 /// Bumped on any change to a type or function in the header.
-const ABI_VERSION: u32 = 3;
+const ABI_VERSION: u32 = 5;
 
 /// `SpringParameters`.
 #[repr(C)]
@@ -249,8 +249,8 @@ pub unsafe extern "C" fn cmux_motion_tween_base(token: u8, out: *mut CmuxMotionT
 }
 
 /// Seconds of tween token `token` under `policy`: 0 under speed off,
-/// Reduce Motion, or with the token's kind switched off (tabOpen and
-/// tabClose follow newTab); 0 for an unknown token.
+/// Reduce Motion, or with the token's kind switched off (tabOpen follows
+/// newTab); 0 for an unknown token.
 #[unsafe(no_mangle)]
 pub extern "C" fn cmux_motion_tween_seconds(token: u8, policy: CmuxMotionPolicy) -> f64 {
     MotionTween::ALL.get(usize::from(token)).map_or(0., |t| self::policy(&policy).tween(*t))

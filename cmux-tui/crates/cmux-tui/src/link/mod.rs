@@ -3,31 +3,39 @@
 //! to paired peers only, no relay.
 
 mod access_cli;
+mod acpmux;
 mod agent_cli;
-mod cloud;
 mod cloud_fs;
 mod control;
+mod daemon_entry;
+pub(crate) use daemon_entry::DaemonEntryStartup;
 mod dial;
 mod dial_cli;
 mod enrollment;
 mod ensure;
-mod sync_cli;
-// Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
-// map and a token format); tested now.
-#[cfg_attr(not(test), allow(dead_code))]
-mod host_inbound;
 mod inbound;
-#[cfg(target_os = "macos")]
+mod key_lock;
+// Also in tests elsewhere: its plist rewrite needs no launchd.
+#[cfg(any(test, target_os = "macos"))]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod launchd;
 mod lines;
 pub(crate) mod machine_gate;
+mod machine_pin;
 pub(crate) mod machine_update;
 mod mesh;
-mod mesh_cloud;
 mod paired_streams;
 mod process_exit;
+// `cmux link seed plan`; `cmux link seed push|clone|pull` is [`seed_cli`].
+#[cfg_attr(not(test), allow(dead_code))]
+mod seed;
+mod seed_cli;
+mod start_chat_cli;
 mod state;
+mod sync_cli;
 
+#[cfg(test)]
+mod acpmux_tests;
 #[cfg(test)]
 mod e2e_tests;
 #[cfg(test)]
@@ -54,6 +62,7 @@ use cmux_wg::{InterfaceAddress, WgMesh, WgMeshConfig};
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+use self::acpmux::AcpmuxTarget;
 use self::control::{Peers, serve_local, serve_overlay};
 use self::dial::Overlay as _;
 use self::mesh::MeshOverlay;
@@ -61,8 +70,7 @@ use self::state::{LINK_MTU, LinkConfig, LinkState};
 use crate::localization::catalog;
 
 /// The data behind `mutex`, also after a panic in another holder. The link's
-/// maps (peers, Cloud records, gateways) are consistent after every single
-/// step, so a poisoned lock is safe to keep using; the link never panics on it.
+/// peer map is consistent after every single step, so a poisoned lock is safe to keep using; the link never panics on it.
 fn locked<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
@@ -98,8 +106,8 @@ pub(crate) fn start_link_entry(
     Ok(Some(serve_remote_entry(mux.clone(), &path, verifier, link_entry_gate(), checks)?))
 }
 
-/// The gate of the remote entry: exactly the seven `fs-v1` ops, every
-/// other frame denied (`remote_denied`).
+/// The gate of the remote entry: exactly the seven `fs-v1` ops and the two
+/// `git-seed-v1` ops, every other frame denied (`remote_denied`).
 fn link_entry_gate() -> Arc<dyn cmux_tui_core::server::RemoteGate> {
     Arc::new(cmux_tui_core::server::FsGate)
 }
@@ -114,6 +122,12 @@ pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().map(String::as_str) == Some("sync") {
         return sync_cli::run(&args[1..]);
     }
+    if args.first().map(String::as_str) == Some("seed") {
+        if matches!(args.get(1).map(String::as_str), Some("push" | "clone" | "pull")) {
+            return seed_cli::run(args.get(1..).unwrap_or_default());
+        }
+        return seed::run(&args[1..]);
+    }
     // So do `agent` and `access`.
     if args.first().map(String::as_str) == Some("agent") {
         return agent_cli::run(&args[1..]);
@@ -122,7 +136,13 @@ pub(crate) fn run(args: &[String]) -> i32 {
         return access_cli::run(&args[1..]);
     }
     if args.first().map(String::as_str) == Some("machine") {
+        if args.get(1).map(String::as_str) == Some("pin") {
+            return machine_pin::run(args.get(2..).unwrap_or_default());
+        }
         return machine_update::run(&args[1..]);
+    }
+    if args.first().map(String::as_str) == Some("start-chat") {
+        return start_chat_cli::run(args.get(1..).unwrap_or_default());
     }
     // Asked-for help is a success on stdout, like every other scope.
     if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {
@@ -159,7 +179,7 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
         "peer" => run_peer(rest),
         "serve" => run_serve(&flags(
             rest,
-            &["--state-dir", "--session-socket", "--server-config", "--ready-fd"],
+            &["--state-dir", "--session-socket", "--server-config", "--ready-fd", key_lock::FLAG],
         )?),
         "ensure" => {
             // `--handoff` is the one flag without a value.
@@ -270,7 +290,7 @@ fn run_show_state(state: &LinkState) -> anyhow::Result<()> {
 /// and the pairing file the app watches for peer changes (`peers_file`).
 fn show_json(state: &LinkState) -> anyhow::Result<serde_json::Value> {
     let config = state.config()?;
-    let public_key = state::public_key(&*state.private_key()?);
+    let public_key = state.own_public_key()?;
     let live = ensure::live(state);
     if config.server_identity.is_some()
         && let Some(live) = &live
@@ -362,6 +382,13 @@ async fn reload(socket: &Path) -> bool {
 }
 
 fn run_serve(flags: &Flags) -> anyhow::Result<()> {
+    // Before any setup: an update during it is still seen (`launchd_refresh.rs`).
+    #[cfg(target_os = "macos")]
+    let watch = launchd::plist_path()
+        .ok()
+        .and_then(|plist| crate::launchd_refresh::for_agent(launchd::LABEL, plist));
+    #[cfg(not(target_os = "macos"))]
+    let watch: Option<AgentWatch> = None;
     let state = state(flags)?;
     let session_socket = flags.get("--session-socket").map(PathBuf::from);
     // `server.json` is read once: the owner session is parsed from, and
@@ -369,15 +396,29 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     let config_path = server_config_path(flags);
     let config_bytes = read_server_config(config_path.as_deref())?;
     let owner = owner_session(config_path.as_deref(), config_bytes.as_deref())?;
-    let ready = match flags.get("--ready-fd") {
+    let mut ready = match flags.get("--ready-fd") {
         Some(fd) => Some(ensure::ReadyPipe::take(fd)?),
         None => None,
     };
     // One link per state directory, for its whole life, taken before the
     // UDP bind: a second `serve` of the same state directory stops here.
     let _lock = serve_lock(&state)?;
+    // This machine's WireGuard key, for the link's whole life, before the key
+    // is read: while another process holds it, this link does not serve.
+    let explicit = flags.get(key_lock::FLAG).map(PathBuf::from);
+    // launchd gives `serve` none of the app's environment: without the flag,
+    // the lock directory below is a guess (`key_lock.rs`).
+    #[cfg(target_os = "macos")]
+    if explicit.is_none() && crate::launchd_refresh::run_by_launchd(launchd::LABEL) {
+        eprintln!(
+            "warning: launchd runs this link without {}: its WireGuard key lock directory is \
+             guessed; run `cmux link ensure` or `cmux link install-agent` from the app to fix the agent",
+            key_lock::FLAG
+        );
+    }
+    let key = key_lock::take(&state, explicit.as_deref(), &mut ready)?;
     let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
-    tokio_runtime()?.block_on(serve(state, session_socket, owner, ready, served))
+    tokio_runtime()?.block_on(serve(state, &key, session_socket, owner, ready, served, watch))
 }
 
 /// `<state>/link.lock`, held by a running `serve` (never blocks).
@@ -441,13 +482,15 @@ fn owner_session(
 
 async fn serve(
     state: LinkState,
+    key: &cmux_link::key_holder::KeyHolder,
     session_socket: Option<PathBuf>,
     owner: Option<Arc<OwnerSession>>,
     ready: Option<ensure::ReadyPipe>,
     served: ensure::Served,
+    watch: Option<AgentWatch>,
 ) -> anyhow::Result<()> {
     let config = state.config().context("run `cmux link init --install ID` first")?;
-    let private_key = state.private_key()?;
+    let private_key = state.private_key(key)?;
     let public_key = state::public_key(&private_key);
     let socket =
         tokio::net::UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, config.port)))
@@ -456,16 +499,13 @@ async fn serve(
     let own = overlay_address(&config.install);
     let mesh = WgMesh::start(
         WgMeshConfig {
-            private_key: private_key.clone(),
+            private_key,
             addresses: vec![InterfaceAddress { address: IpAddr::V6(own), prefix: 128 }],
             mtu: LINK_MTU,
         },
         socket,
     )?;
-    let overlay = Arc::new(MeshOverlay::new(mesh, private_key));
-    // Cloud host ids resolve through the host credential relay, which is
-    // not served yet: Cloud dials report `unreachable` until it ships.
-    let resolver = Arc::new(cloud::CloudResolver::new(cloud::RelaySource));
+    let overlay = Arc::new(MeshOverlay::new(mesh));
     let peers = Arc::new(Peers::load(state.peers_path())?);
     overlay.sync_peers(&peers.snapshot()).await?;
     let listener = overlay.listen(LINK_PORT).await?;
@@ -490,10 +530,13 @@ async fn serve(
     if let Some(ready) = ready {
         ready.send(&ready_line);
     }
+    // A paired peer's `acpmux` stream goes to this user's acpmux listener.
+    let acpmux = AcpmuxTarget::from_acpmux_home();
     let result = tokio::select! {
-        served = serve_local(local, overlay.clone(), peers.clone(), resolver, status) => served.map_err(anyhow::Error::from),
-        () = serve_overlay(listener, peers.clone(), session_socket, owner) => Ok(()),
+        served = serve_local(local, overlay.clone(), peers.clone(), status) => served.map_err(anyhow::Error::from),
+        () = serve_overlay(listener, peers.clone(), session_socket, owner, acpmux) => Ok(()),
         signal = shutdown_signal() => signal,
+        outcome = launchd_agent_outcome(watch) => outcome,
     };
     registration::remove_if_owned(&state.registration_dir(), pid);
     let _ = std::fs::remove_file(&socket_path);
@@ -503,11 +546,10 @@ async fn serve(
 /// Bind the local socket at mode 0600 in a 0700 directory, replacing a
 /// stale socket but never a live one.
 fn bind_local(path: &Path) -> anyhow::Result<tokio::net::UnixListener> {
-    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    use std::os::unix::fs::PermissionsExt;
     if let Some(parent) = path.parent() {
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
         // Never bind in a folder another user or a symlink put there.
-        state::check_socket_dir(parent)?;
+        state::ensure_socket_dir(parent)?;
     }
     if path.exists() {
         if std::os::unix::net::UnixStream::connect(path).is_ok() {
@@ -521,6 +563,38 @@ fn bind_local(path: &Path) -> anyhow::Result<tokio::net::UnixListener> {
     Ok(listener)
 }
 
+/// This serve's launchd agent watch (`launchd_refresh.rs`), opened first thing in
+/// `run_serve`.
+#[cfg(target_os = "macos")]
+type AgentWatch = crate::launchd_refresh::Agent;
+#[cfg(not(target_os = "macos"))]
+type AgentWatch = std::convert::Infallible;
+
+/// When launchd runs this serve as `com.cmuxterm.link` (`watch`): resolves
+/// once an update replaced its binary (an error, so launchd starts the new
+/// one) or its app was deleted (the agent booted itself out and removed its
+/// plist). Never resolves otherwise.
+async fn launchd_agent_outcome(watch: Option<AgentWatch>) -> anyhow::Result<()> {
+    #[cfg(target_os = "macos")]
+    if let Some(agent) = watch {
+        // A thread of its own: a blocking task would hold the runtime's shutdown.
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(agent.wait());
+        });
+        return match receiver.await {
+            Ok(crate::launchd_refresh::Outcome::Replaced) => {
+                Err(anyhow!("an update replaced this cmux; launchd starts the new build"))
+            }
+            Ok(crate::launchd_refresh::Outcome::Removed) => Ok(()),
+            Err(_) => std::future::pending().await,
+        };
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = watch;
+    std::future::pending().await
+}
+
 async fn shutdown_signal() -> anyhow::Result<()> {
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     tokio::select! {
@@ -529,19 +603,30 @@ async fn shutdown_signal() -> anyhow::Result<()> {
     }
 }
 
-#[cfg(target_os = "macos")]
-fn run_install_agent(flags: &Flags) -> anyhow::Result<()> {
-    let state = state(flags)?;
-    state.config().context("run `cmux link init --install ID` first")?;
+/// The launchd agent's `serve` arguments. The key lock directory is resolved
+/// here, in the app's process: launchd starts `serve` without the app's
+/// environment (`key_lock.rs`).
+#[cfg(any(test, target_os = "macos"))]
+fn agent_arguments(state: &LinkState, flags: &Flags) -> Vec<String> {
     let mut arguments = vec![
         "link".to_string(),
         "serve".to_string(),
         "--state-dir".to_string(),
         state.dir().to_string_lossy().into_owned(),
+        key_lock::FLAG.to_string(),
+        key_lock::lock_dir(state).to_string_lossy().into_owned(),
     ];
     if let Some(session) = flags.get("--session-socket") {
         arguments.extend(["--session-socket".to_string(), session.clone()]);
     }
+    arguments
+}
+
+#[cfg(target_os = "macos")]
+fn run_install_agent(flags: &Flags) -> anyhow::Result<()> {
+    let state = state(flags)?;
+    state.config().context("run `cmux link init --install ID` first")?;
+    let arguments = agent_arguments(&state, flags);
     let program = std::env::current_exe()?;
     let path = launchd::install(&program, &arguments)?;
     print_json(&json!({"ok": true, "plist": path, "label": launchd::LABEL}));

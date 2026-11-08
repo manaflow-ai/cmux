@@ -147,7 +147,7 @@ async fn peer_status_reads_each_peers_health_live_and_names_an_unreachable_one()
     assert!(peer["pressure"].get("warning").is_none(), "{reply}");
     assert_eq!(peer["liveSessions"], 0, "{reply}");
     assert_eq!(peer["version"], acpmux::hub::VERSION, "{reply}");
-    assert_eq!(peer["build"], acpmux::hub::BUILD, "{reply}");
+    assert_eq!(peer["build"], acpmux::hub::build(), "{reply}");
     assert_eq!(peer["outdated"], false, "{reply}");
 
     // Nothing answers there: not reachable, with why and the next step, and no numbers.
@@ -162,7 +162,10 @@ async fn peer_status_reads_each_peers_health_live_and_names_an_unreachable_one()
         one["hosts"].as_array().unwrap().iter().filter_map(|r| r["name"].as_str()).collect();
     assert_eq!(names, ["b"], "{one}");
     let unknown = ca.call("_acpmux/peer_status", json!({"name": "nope"})).await;
-    assert!(unknown.is_err_and(|e| e.contains("acpmux host ls")), "an unknown peer names host ls");
+    assert!(
+        unknown.is_err_and(|e| e.contains("acpmux machine ls")),
+        "an unknown peer names host ls"
+    );
 
     // A Web caller learns that b answered and on which build, not b's numbers.
     let mut web = client_as(a.clone(), Some(acpmux::server::Origin::Web)).await;
@@ -170,7 +173,7 @@ async fn peer_status_reads_each_peers_health_live_and_names_an_unreachable_one()
     let peer = row(&reply, "b");
     assert_eq!(peer["reachable"], true, "{reply}");
     assert!(peer["latencyMs"].is_u64(), "{reply}");
-    assert_eq!(peer["build"], acpmux::hub::BUILD, "{reply}");
+    assert_eq!(peer["build"], acpmux::hub::build(), "{reply}");
     for key in [
         "cpus",
         "load",

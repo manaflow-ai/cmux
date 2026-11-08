@@ -5,6 +5,8 @@
 import { lazy, Suspense, useRef, useState, useSyncExternalStore, type ChangeEvent, type ReactNode } from "react";
 import type { Strings } from "../shared/i18n";
 import { Toolbar, ToolbarButton, ToolbarGroup, ToolbarToggleGroup } from "../../ui/Toolbar";
+import type { EditorFind } from "../editor/editorFind";
+import { MarkdownFindBar } from "./MarkdownFindBar";
 import type { LinkOverlays } from "./overlays";
 import { L } from "./strings";
 import type { MarkdownReadOnlyReason } from "./host";
@@ -42,6 +44,8 @@ export interface MarkdownPageProps {
   reading?: ReadingSettingsActions;
   /** Run all: the runbook to an agent chat (no button without it, or without shell blocks). */
   onRunAll?(): void;
+  /** Find in the document (Cmd-F, the `find` page commands): its pill shows over the document. */
+  find?: EditorFind;
 }
 
 export function MarkdownPage({
@@ -54,6 +58,7 @@ export function MarkdownPage({
   onForward,
   reading,
   onRunAll,
+  find,
 }: MarkdownPageProps) {
   const state = useSyncExternalStore(store.subscribe, store.getState);
   const [readingOpen, setReadingOpen] = useState(false);
@@ -65,7 +70,11 @@ export function MarkdownPage({
   if (state.phase === "disconnected" || state.phase === "failed") {
     return (
       <div className="md-page md-page-message" role="alert">
-        <p>{t(state.phase === "disconnected" ? L.disconnected : L.failed)}</p>
+        <p>
+          {state.phase === "failed" && state.failure
+            ? state.failure
+            : t(state.phase === "disconnected" ? L.disconnected : L.failed)}
+        </p>
         <button type="button" className="md-button" onClick={() => void store.start()}>
           {t(L.retry)}
         </button>
@@ -192,6 +201,12 @@ export function MarkdownPage({
         </div>
       ) : null}
       {state.readOnly && readOnlyNote && state.phase === "ready" ? <div className="md-note">{readOnlyNote}</div> : null}
+      {state.unavailable && state.phase === "ready" ? <output className="md-note">{state.unavailable}</output> : null}
+      {find ? (
+        <div className="md-find-host">
+          <MarkdownFindBar find={find} strings={strings} />
+        </div>
+      ) : null}
       <main className="md-scroll">
         <div className="md-doc selectable" ref={editorRef} hidden={state.mode !== "rich"} />
         {state.mode === "source" ? (

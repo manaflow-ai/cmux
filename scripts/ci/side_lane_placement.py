@@ -55,12 +55,21 @@ contains(' <key> ') matches whole keys only:
   runner is no longer than Blacksmith 6 vCPU's queue per slot. A label whose queue is
   deeper than the pool (#26809, 2026-10-29: eleven swift tests queued behind nine busy
   gui runners for 45+ minutes) is written empty, so the GUI jobs take the workflow's
-  Blacksmith macOS leg instead of joining it. With no snapshot to weigh, the live label
-  stays (today's route; the rescue still watches it);
+  Blacksmith macOS leg instead of joining it. A label the janitor's snapshot lists as
+  unserved (a job queued on it, none running or started within ten minutes) has no room
+  either, unless one of its runners is idle, and this holds before the stalled-overflow and
+  health-contract keeps below: cmux#24295's daemon tests waited 90 minutes on a session label
+  whose five online runners were busy, while the gui label moved. An empty session_runner
+  sends those jobs to gui_runner. With no snapshot to weigh, the live label
+  stays (today's route; the rescue still watches it). While that leg is itself stalled or
+  dead (overflow_stalled(), read from a snapshot up to 45 minutes old too), a role label with
+  an online runner stays, full or deep: a busy owned queue moves, a stalled Blacksmith one does not;
 - `gui_overflow`: the Blacksmith macOS label the GUI jobs take when the owned GUI route
-  is declined above, and on the rescue's full re-run (rerun_main()), whose GUI jobs
-  never read gui_runner: before it, that re-run wrote no route and the GUI jobs fell
-  through to the fixed glaeda-gui label they were rescued from;
+  is declined above (or the runners are unread), and on the rescue's full re-run
+  (rerun_main()) when no GUI runner is idle: the largest size that starts them now
+  (next_macos_cascade.gui_overflow_label(): 12 vCPU while it moves and has room, else
+  6 vCPU). On the rescue's re-run gui_runner and session_runner name only an idle
+  runner (the free labels), so the re-run takes a free owned Mac first;
 - `session_lane_runner`: SESSION_LANE (vars.CI_SESSION_LANE_RUNNER, generated files' own glaeda-session-*
   label) while role_room() holds for it, else empty; generated files take the variable on the attempt this
   placement ran only when this is set;
@@ -76,7 +85,9 @@ contains(' <key> ') matches whole keys only:
   overflow route.
 - `fast_runner`: FAST_LABEL (vars.CI_FAST_LANE_RUNNER, the fast tier's
   reserved glaeda-fast-* runner) while an online runner carrying it is idle
-  now, else empty (fast_route()). Only then does the fast tier leave JOBS and
+  now; with none idle, the light minis' side label (SIDE_LABEL on the light class) while
+  one of its runners is idle and no nightly or release job waits on the light family
+  (light_fast_route()); else empty (fast_route()). Only then does the fast tier leave JOBS and
   CASCADE_RUNS; otherwise it is placed like any other job, so a busy or shrunken
   fast pool never holds it in a queue no overflow reaches.
 - `fresh_runner` and `fresh_jobs`: FRESH_LABEL (the DEV compile slot,
@@ -103,10 +114,12 @@ is preferred for Release compile and Blacksmith is the immediate overflow.
 """
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 import importlib.util
 import math
 import os
+import signal
 import sys
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -123,6 +136,13 @@ def _picker():
 
 pool = _picker()
 SIDE_RETRY_CAP_SECONDS = 5.0
+# Keep the placement step below its workflow timeout. A timed-out read must
+# leave a concrete default route, not strand the dependent Mac jobs.
+PLACEMENT_DEADLINE_SECONDS = 90
+
+
+class PlacementDeadline(BaseException):
+    """A whole-operation deadline that per-request error handlers cannot swallow."""
 
 
 def _cascade():
@@ -209,7 +229,7 @@ def route_wait(route: str, runners: Sequence[Mapping[str, Any]] | None, seen: An
              for runner in carriers}
     if len(hosts) <= 1:
         return math.inf
-    if seen is None:
+    if seen is None or getattr(seen, "stale", False):
         return None
     return float(getattr(seen, "owned", {}).get(route, 0.0))
 
@@ -246,8 +266,22 @@ def _live_role_label(label: str, runners: Sequence[Mapping[str, Any]] | None, ro
     return ""
 
 
-# The GUI jobs' Blacksmith macOS leg (cmux-next.yml swift-test, daemon-test, generated-files).
+# The Blacksmith queue a deep GUI queue is weighed against (role_room()). The leg the GUI jobs take is
+# gui_overflow(): the largest Blacksmith macOS size that starts them now, this one last.
 GUI_OVERFLOW = cascade.SMALL
+# The jobs that take the GUI and session routes, and so gui_overflow (cmux-next.yml).
+GUI_JOBS = ("swift-test", "daemon-test", "generated-files")
+
+
+def gui_overflow(env: Mapping[str, str], live: Mapping[str, int] | None, waiting: Mapping[str, int] | None,
+                 seen: Any, placed: Any = None) -> str:
+    """next_macos_cascade.gui_overflow_label() for this run's GUI jobs (in JOBS), with the Blacksmith slots the
+    run's own cascade just took (`placed`, a cascade.Placement) counted as in flight."""
+    if live is not None and placed is not None:
+        live = {**live, **{label: live.get(label, 0) + len(placed.jobs.get(label, ()))
+                           for label in cascade.LABELS}}
+    jobs = sum(1 for job in (env.get("JOBS") or "").split() if job in GUI_JOBS)
+    return cascade.gui_overflow_label(live, waiting, seen, jobs)
 
 
 def _role_online(candidate: str, runners: Sequence[Mapping[str, Any]]) -> tuple[int, int]:
@@ -266,12 +300,20 @@ def role_room(candidate: str, runners: Sequence[Mapping[str, Any]], seen: Any = 
     the label only while Blacksmith 6 vCPU's queue per slot is at least as deep (`waiting`, with
     next_macos_cascade.CAPACITY), so the job joins the shorter of the two queues. With no snapshot the
     queue is unknown and the label stays, as before this check.
+
+    A label the janitor found unserved (`seen.unserved`: a job queued on it and none running or started
+    within starved_labels.STARVED_AFTER) has no room whatever its counts say, unless a runner carrying it is
+    idle now: its queue is not moving. On 2026-10-29 cmux#24295's daemon tests waited 90 minutes on
+    glaeda-session-std-xcode-26.6, twice, with five session runners online and busy and the queue shorter
+    than them, while the gui label beside it started jobs within a minute.
     """
     online, idle = _role_online(candidate, runners)
     if not online:
         return False
     if idle:
         return True
+    if candidate in (getattr(seen, "unserved", None) or ()):
+        return False
     queues = getattr(seen, "owned_queued", None)
     if queues is None:
         return True
@@ -284,11 +326,53 @@ def role_room(candidate: str, runners: Sequence[Mapping[str, Any]], seen: Any = 
     return queued / online <= waiting.get(GUI_OVERFLOW, 0) / slots
 
 
+def overflow_stalled(seen: Any, waiting: Mapping[str, int] | None) -> bool:
+    """Whether the GUI jobs' Blacksmith leg (GUI_OVERFLOW) is not moving: dead in the snapshot (Seen.dead), or
+    stalled by the pickers' one rule (its oldest queued job has waited STALL_MINUTES; Seen.waits carry the
+    snapshot's age). A snapshot too old for the counts, or Blacksmith's queue unread, still reads the wait the
+    snapshot saw (Seen.waits, only for a label it saw a queue on; next_macos_cascade.late_waits()): on
+    2026-10-31 every placement read no snapshot under 15 minutes and sent swift test and daemon tests to a
+    6 vCPU queue whose oldest job had waited 179 min. No snapshot at all says nothing: False."""
+    if seen is None:
+        return False
+    if GUI_OVERFLOW in cascade.seen_dead(seen):
+        return True
+    waits = getattr(seen, "waits", None) or {}
+    wait = float(waits.get(GUI_OVERFLOW, 0.0))
+    if waiting is None or getattr(seen, "stale", False):
+        return cascade._picker_rule.blacksmith_stalled(1 if GUI_OVERFLOW in waits else 0, wait)
+    return cascade._picker_rule.blacksmith_stalled(int(waiting.get(GUI_OVERFLOW, 0)), wait)
+
+
 def healthy_role_label(live: str, runners: Sequence[Mapping[str, Any]] | None, seen: Any = None,
                        waiting: Mapping[str, int] | None = None) -> str:
     """`live` (a gui_route_label() or session_route_label() result) while role_room() holds, else ""."""
     if not live or runners is None:
         return live
+    # An unserved label (Seen.unserved: a job queued on it, none running or started within
+    # starved_labels.STARVED_AFTER) is not a busy queue that moves, so neither keep below holds it: with no idle
+    # runner it has no room (role_room()). cmux#24295's daemon tests waited 90 minutes on such a session label,
+    # twice, on 2026-10-29 while Blacksmith had no free slot; an empty session_runner sends them to gui_runner.
+    idle = _role_online(live, runners)[1]
+    if live in (getattr(seen, "unserved", None) or ()) and not idle:
+        return ""
+    # A busy owned queue still moves; a stalled or dead Blacksmith 6 vCPU queue does not. While the overflow
+    # is not moving, a role label with an online runner stays, full or deep (run 41163886431, #28823,
+    # 2026-10-31: the gui label read full, 37 queued on 10 busy runners, so swift-test took
+    # `blacksmith-6vcpu-macos-26` with 91 queued on 10 slots, oldest 102 min, and waited 106 min unstarted).
+    if overflow_stalled(seen, waiting) and _role_online(live, runners)[0]:
+        return live
+    # The janitor's glaeda health contract is the authoritative full-pool
+    # signal. A queued job whose label has no listening runner and is held
+    # offline for capacity, CPU, or claim livelock overflows immediately; the
+    # existing runner/queue comparison remains the fallback until those fields
+    # are present in the artifact.
+    if getattr(seen, "owned_full", {}).get(live, False):
+        return ""
+    if getattr(seen, "owned_full_known", {}).get(live, False):
+        # No backlog is not proof that a listener exists: an empty/offline
+        # session lane must not become a route merely because it is not full.
+        return live if _role_online(live, runners)[0] else ""
     return live if role_room(live, runners, seen, waiting) else ""
 
 
@@ -419,6 +503,69 @@ def fast_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
     return label if pool.live_owned_free(runners, [label])[label] > 0 else ""
 
 
+def light_side_label(label: str) -> str:
+    """The light class's side label for an owned side label (glaeda-side-std-xcode-26.6 ->
+    glaeda-side-light-xcode-26.6), or "" when `label` is no owned side label or is light already."""
+    if not label.startswith(pool.SIDE_PREFIX) or not pool.persistent(label):
+        return ""
+    own = pool.owned_class(label)
+    if not own or own == pool.LIGHT_CLASS:
+        return ""
+    parts = label.split("-")
+    return "-".join(pool.LIGHT_CLASS if part == own else part for part in parts)
+
+
+def _family(label: str) -> str:
+    """`<class>-xcode-<version>` for any glaeda label naming a class, whatever its role or namespace
+    (side, fast, trusted, nightly, promote, signing, aws), else "". Wider than
+    portable_job_placement.family(), which reads only pool.OWNED_LABEL: the nightly builder's pool
+    (glaeda-trusted-light-xcode-26.6, cmux22) is a light mini, and its queue must hold the light minis too."""
+    parts = (label or "").split("-")
+    if not parts or parts[0] != "glaeda":
+        return ""
+    own = next((index for index, part in enumerate(parts) if part in (*pool.RUN_CLASSES, "xl")), None)
+    if own is None or own + 2 >= len(parts) or parts[own + 1] != "xcode":
+        return ""
+    return "-".join(parts[own:own + 3])
+
+
+def light_fast_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None, seen: Any) -> str:
+    """The light minis' side label for the fast tier while one of its runners is idle, else "".
+
+    Leo, 2026-11-08, on the PR verdict taking p50 31 minutes against 10: "Ci it's fine to start stuff in
+    parallel sometimes the light minis are largely idling rn". Over the 7 days to 2026-11-08 the light
+    minis (cmux17 to cmux23, 16 GB, glaeda class light) averaged 16 to 28% CPU and held 0.1 to 0.3 of their
+    12 capacity units, while the std minis averaged 63 to 80% and glaeda-side-std-xcode-26.6 queued its
+    jobs p50 4.7 min and p90 34 min (ci-dash speed.json). On the fast lane the light minis already run
+    the fast tier (1,371 runs in 4 days, p50 8.8 min against 10.1 min on the std minis), but only on
+    their one fast runner each (FAST_LABEL); a busy fast runner sent the tier to the std side queue while
+    the same minis' side runners sat idle, because compatible_labels() never narrows a class.
+
+    So the fast tier alone, which needs no GUI or session runner, takes an idle light side runner when
+    no fast runner is idle. Only an idle runner (beyond the jobs already queued on the label), on attempt
+    1 of a run decide() places, and never while a nightly or release job waits on the light family (the
+    janitor snapshot's reserved_queued: nightly first). An unread or stale snapshot places nothing.
+    """
+    if not (env.get("FAST_LABEL") or "").strip() or runners is None:
+        return ""
+    if (env.get("GITHUB_RUN_ATTEMPT") or "").strip() not in ("", "1"):
+        return ""
+    label = light_side_label((env.get("SIDE_LABEL") or "").strip())
+    if not label or FAST_JOB not in (env.get("JOBS") or "").split():
+        return ""
+    snapshot = getattr(seen, "snapshot", None) if seen is not None else None
+    if not isinstance(snapshot, Mapping) or getattr(seen, "stale", True):
+        return ""
+    pools = snapshot.get("pools") or {}
+    own = _family(label)
+    if not isinstance(pools, Mapping) or any(
+            _family(str(name)) == own and int((entry or {}).get("reserved_queued") or 0) > 0
+            for name, entry in pools.items() if isinstance(entry, Mapping)):
+        return ""
+    queued = int((getattr(seen, "owned_queued", None) or {}).get(label, 0) or 0)
+    return label if pool.live_owned_free(runners, [label])[label] - queued > 0 else ""
+
+
 def fresh_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> tuple[str, tuple[str, ...]]:
     """(FRESH_LABEL, the FRESH_JOBS it takes) while its online runners are idle for them, else ("", ()).
 
@@ -527,6 +674,36 @@ def gateway_taken(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] |
     return taken
 
 
+def fleet_gateway(placed: Any, env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
+                  gateway: str, taken: Mapping[str, int] | None = None) -> Any:
+    """`placed` with its fleet_jobs kept only while `gateway` has an idle runner for each of them.
+
+    A listed job's build-fleet client (cmux-next.yml's <job>-fleet) runs on gateway_runner beside
+    GATEWAY_JOBS, so it needs an idle runner there beyond theirs and beyond the run's own jobs (`taken`,
+    as gateway_route() counts them). Without one the client would queue behind another gateway job
+    until its timeout and report no verdict, so placement lists nothing and the job keeps its route
+    (it waits on the owned label as before). No gateway (none idle, unread runners, a re-run) lists
+    nothing either.
+
+    A kept job that a Blacksmith macOS label also took (next_macos_cascade.place() lists it so the fleet
+    builds it warm) leaves that label; a dropped one keeps it.
+    """
+    if not placed.fleet_jobs:
+        return placed
+    want = len((env.get("GATEWAY_JOBS") or "").split()) + len(placed.fleet_jobs)
+    room = (pool.live_owned_free(runners, [gateway])[gateway] - (taken or {}).get(gateway, 0)
+            if gateway and runners is not None else 0)
+    if room >= want:
+        fleet = set(placed.fleet_jobs)
+        return dataclasses.replace(placed, jobs={label: tuple(job for job in names if job not in fleet)
+                                                 for label, names in placed.jobs.items()})
+    clients = ", ".join(f"{job}-fleet" for job in placed.fleet_jobs)
+    where = f"`{gateway}`" if gateway else "the gateway"
+    return dataclasses.replace(placed, fleet_jobs=(), why=(
+        f"{placed.why}; {where} has no idle runner left for {clients} ({max(room, 0)} for {want} gateway jobs), "
+        f"so {', '.join(placed.fleet_jobs)} keep their route"))
+
+
 def without_cascade(env: Mapping[str, str], job: str) -> dict[str, str]:
     """`env` with `job` dropped from CASCADE_RUNS and FIRST_JOBS."""
     trimmed = dict(env)
@@ -568,12 +745,14 @@ FEAT_BRANCH = "refs/heads/feat-cmux-next"
 def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> int:
     """The rescue's full re-run (next_macos_cascade.bot_rerun()): only the cascade is placed afresh.
 
-    The owned routes stay empty, as every re-run had them: the jobs that read runner, gui_runner,
-    session_runner, the free GUI and session labels, fast_runner or gateway_runner keep the routes their
+    The side runner is emitted only for freshly allocated owned jobs (the idle minis `owned` names);
+    fast_runner and gateway_runner stay empty, as every re-run had them: those jobs keep the routes their
     runs-on gives a re-run. With no gateway the build-fleet compiles skip, so their Mac fallbacks cascade.
+    The GUI jobs follow the routing order, as on attempt 1: gui_runner and session_runner (and the free
+    labels) name only a GUI or session runner idle now, else gui_overflow names the Blacksmith leg.
 
     Idle minis are counted on SIDE_LABEL itself: a re-run's cascade jobs fall back to
-    vars.CI_SIDE_LANE_RUNNER, never to side_route()'s wider class (runner is not read). A FEAT_BRANCH
+    that exact label, never to side_route()'s wider class. A FEAT_BRANCH
     push's Release compile takes no placement on a re-run (its runs-on reads it on attempt 1 only), so it
     leaves the cascade and takes no slot, and no idle mini is counted for it.
     """
@@ -592,25 +771,37 @@ def rerun_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | No
         why = (f"{len(owned)} idle `{label}` runner(s) take {', '.join(owned)}" if owned
                else f"no idle `{label}` runner now")
     fallback: tuple[str, ...] = ()
-    print(f"side-lane placement: the rescue's re-run; {why}")
-    output = env.get("GITHUB_OUTPUT")
-    if output:
-        with open(output, "a", encoding="utf-8") as handle:
-            # The GUI jobs of the rescue's re-run never read gui_runner: they leave the owned GUI queue they were
-            # rescued from for Blacksmith macOS (cmux-next.yml's gui_overflow leg).
-            handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
-                         f"gui_overflow={GUI_OVERFLOW}\n"
-                         f"watch={'false' if fallback and not owned else 'true'}\n")
+    # The GUI jobs leave the owned GUI queue they were rescued from: only a GUI or session runner idle now
+    # takes them (the free routes, never a queue), else the largest Blacksmith macOS size that starts them now
+    # (gui_overflow()). The rescue still watches this attempt, so a free runner lost to a race moves once more.
+    free_gui = free_gui_route_label(label, runners)
+    free_session = free_session_route_label(label, runners)
     live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
     # Runners read: the jobs past `owned` have no idle mini, so the cascade's overflow may take them.
     placed = cascade.place(env, owned, live, waiting, seen, saturated=runners is not None,
                            route_wait=route_wait(label, runners, seen))
+    # A re-run emits no gateway_runner, so no build-fleet client runs (fleet_gateway()).
+    placed = fleet_gateway(placed, env, runners, "")
+    overflow = "" if free_gui else gui_overflow(env, live, waiting, seen, placed)
+    gui_why = (f"the GUI jobs take idle `{free_gui}`" if free_gui
+               else f"no idle GUI runner, so the GUI jobs take `{overflow}`")
+    print(f"side-lane placement: the rescue's re-run; {why}; {gui_why}")
+    output = env.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
+                         f"runner={label if owned else ''}\ndeferred_runner={label}\n"
+                         f"gui_runner={free_gui}\nsession_runner={free_session}\n"
+                         f"free_gui_runner={free_gui}\nfree_session_runner={free_session}\n"
+                         f"gui_overflow={overflow}\n"
+                         f"watch={'false' if fallback and not owned else 'true'}\n")
     print(f"macOS cascade: {placed.why}")
     cascade.write(placed, env)
     return 0
 
 
-def main(env: Mapping[str, str] = os.environ) -> int:
+def read_runners(env: Mapping[str, str]) -> list[dict[str, Any]] | None:
+    """The org's runners, read live, or None when no token could read them."""
     runners = None
     repo = env.get("GITHUB_REPOSITORY", "")
     # The routing App first, then cmux-bot (ROUTE_TOKEN_FALLBACK) when the first read is refused.
@@ -623,13 +814,143 @@ def main(env: Mapping[str, str] = os.environ) -> int:
         if not (token and repo):
             continue
         try:
-            runners = pool.GitHub(token, repo, retry_cap=SIDE_RETRY_CAP_SECONDS, retries=retries).runners()
+            client = pool.GitHub(token, repo, retry_cap=SIDE_RETRY_CAP_SECONDS, retries=retries)
+            # The fallback mint grants org runner read only. Its approved org
+            # groups remain readable when repository registrations are not.
+            runners = (client.runners(include_repository=False) if name == "ROUTE_TOKEN_FALLBACK"
+                       else client.runners())
             break
         except Exception as error:  # noqa: BLE001 - fail open: keep today's route
             print(f"::warning title=side-lane placement::could not list runners with {name} ({error})")
+    return runners
+
+
+def rerun_fleet(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> tuple[str, str]:
+    """(the gateway label the fast tier's build-fleet client takes on a person's re-run, why), or ("", why).
+
+    A person's re-run carries attempt 1's macos-placement and its outputs (a successful job is not
+    re-run), so the fast tier took vars.MACOS_RUNNER_26, Blacksmith 6 vCPU, and fast-tier-fleet skipped
+    the stale gateway reading. On #38130 (run 42434830670) attempt 2 then ran out its 20 minutes on the
+    same cold build as attempt 1. cmux-next.yml's fast-tier-rerun-placement is skipped on attempt 1, so
+    a re-run evaluates it again and it reads the runners now: the client takes GATEWAY_LABEL (or a wider
+    class of it) while a runner there is idle for it, as attempt 1's fleet_gateway() requires, and the
+    tier only reports its verdict. The other gateway jobs skip on a re-run (their reading is attempt
+    1's), so the client needs one idle runner.
+
+    Nothing is listed on attempt 1 or the rescue's re-run (macos-placement places those), when the fast
+    tier does not run again in this attempt (FAST_TIER_STATUS, its status in this attempt, is
+    `completed`: its earlier result is carried), when that status is unread, or with no idle runner:
+    the tier keeps its re-run route.
+    """
+    attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
+    if attempt == "1" or cascade.bot_rerun(env):
+        return "", f"attempt {attempt} is placed by macos-placement"
+    status = (env.get("FAST_TIER_STATUS") or "").strip()
+    if not status:
+        return "", "the fast tier's status in this attempt is unread, so it keeps its re-run route"
+    if status == "completed":
+        return "", "the fast tier does not run again in this attempt (its earlier result is carried)"
+    label = (env.get("GATEWAY_LABEL") or "").strip()
+    gateway = gateway_route({"GATEWAY_LABEL": label, "GATEWAY_JOBS": f"{FAST_JOB}-fleet"}, runners)
+    if not gateway:
+        why = "owned runners unread" if runners is None else f"no idle `{label or 'gateway'}` runner (or a wider class's)"
+        return "", f"{why}, so the fast tier keeps its re-run route"
+    return gateway, (f"{FAST_JOB}-fleet takes idle `{gateway}` (a warm owned build before a cold Blacksmith "
+                     "macOS one); the fast tier reports its verdict")
+
+
+def rerun_fleet_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> int:
+    """Write rerun_fleet()'s reading in macos-placement's names: fleet_jobs, gateway_runner, gateway_attempt."""
+    gateway, why = rerun_fleet(env, runners)
+    attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
+    print(f"fast tier re-run placement: {why}")
+    output = env.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(f"fleet_jobs={delimited((FAST_JOB,) if gateway else ())}\ngateway_runner={gateway}\n"
+                         f"gateway_attempt={attempt if gateway else ''}\n")
+    summary = env.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write(f"### Fast tier re-run placement\n\n{why}\n")
+    return 0
+
+
+def handback(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
+             live: Mapping[str, int] | None, waiting: Mapping[str, int] | None, seen: Any) -> tuple[str, str]:
+    """(the label the fast tier takes when its build-fleet client hands it back, why).
+
+    cmux-next.yml's fast-tier-fleet hands the tier back (verdict `queued`) when a fleet step is still
+    queued after the client's 20-minute wait, and the tier then runs its Swift suites itself. macos-placement's
+    reading is from the start of the run, so fast-tier-handback-placement reads the runners and Blacksmith's
+    health again here, after that wait: the fast tier's own label while a runner there is idle, else an idle
+    owned side runner (a warm build), else Blacksmith 6 vCPU, the cascade's last resort, unless it has no free
+    slot now, is full, under a declared outage, dead or stalled (cmux#38627's review: the hand-back then queued
+    on an excluded label with no verdict). Then the owned route: the tier waits for a mini, as macos-placement's deferred_runner
+    does. Unread runners vouch for no idle mini; an unread Blacksmith reading excludes nothing.
+    """
+    fast = fast_route(env, runners)
+    if fast:
+        return fast, f"the fast tier takes idle `{fast}`, its own label"
+    label = (env.get("SIDE_LABEL") or "").strip()
+    side = side_route(label, runners, 1)
+    if side and runners is not None and pool.live_owned_free(runners, [side])[side] > 0:
+        return side, f"idle `{side}` takes the fast tier (a warm owned build before a cold Blacksmith one)"
+    small = cascade.SMALL
+    out = ""
+    # The pool snapshot carries only queued and running counts (no cap or health), so label_full_or_dead()
+    # never calls the label full from it: count its free slots here, as the cascade's retry label does.
+    slots = (min(cascade.CAPACITY[small] - live.get(small, 0) - waiting.get(small, 0),
+                 cascade.pool_room(live, waiting) // cascade.vcpus(small))
+             if live is not None and waiting is not None else 1)
+    if slots <= 0:
+        out = (f"full ({live.get(small, 0)} in flight + {waiting.get(small, 0)} queued of "
+               f"{cascade.CAPACITY[small]}, {max(cascade.pool_room(live, waiting), 0)} of the pool's "
+               f"{cascade.POOL_VCPU} vCPU free)")
+    elif seen is not None and cascade.label_full_or_dead(small, seen.snapshot, live=(live or {}).get(small, 0),
+                                                       queued=(waiting or {}).get(small, 0), now=seen.observed_at):
+        out = "full or under a declared outage"
+    elif small in cascade.seen_dead(seen):
+        out = "dead (nothing running, no job started in an hour)"
+    elif (seen is not None and live is not None and waiting is not None
+          and small in cascade.stalled(live, waiting, seen.waits, seen.age)):
+        out = f"stalled (oldest queued job {seen.waits.get(small, 0.0):.0f} min)"
+    owned = route_label(label, runners, 1) or label
+    if not out or not owned.startswith("glaeda-"):
+        return small, f"no idle owned Mac, so the fast tier takes `{small}`"
+    return owned, f"no idle owned Mac and `{small}` is {out}, so the fast tier waits on the owned route `{owned}`"
+
+
+def handback_main(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> int:
+    """Write handback()'s label as `runner`."""
+    live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
+    label, why = handback(env, runners, live, waiting, seen)
+    print(f"fast tier hand-back placement: {why}")
+    output = env.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(f"runner={label}\n")
+    summary = env.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write(f"### Fast tier hand-back placement\n\n{why}\n")
+    return 0
+
+
+def _main(env: Mapping[str, str] = os.environ) -> int:
+    runners = read_runners(env)
+    if (env.get("PLACEMENT") or "").strip() == "rerun-fleet":
+        return rerun_fleet_main(env, runners)
+    if (env.get("PLACEMENT") or "").strip() == "handback":
+        return handback_main(env, runners)
     if cascade.bot_rerun(env):
         return rerun_main(env, runners)
+    # The pool snapshot and Blacksmith's queues, read once: the light fast route and the GUI routes are
+    # weighed against them here and the cascade places with them below.
+    live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
     fast = fast_route(env, runners)
+    light_fast = "" if fast else light_fast_route(env, runners, seen)
+    fast = fast or light_fast
     if fast:
         env = without_fast(env)
     fresh, fresh_jobs = fresh_route(env, runners)
@@ -638,9 +959,6 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     owned, fallback, why = decide(env, runners)
     label = (env.get("SIDE_LABEL") or "").strip()
     route = route_label(label, runners, len((env.get("JOBS") or "").split()))
-    # The pool snapshot and Blacksmith's queues, read once: the GUI routes are weighed against them here and
-    # the cascade places with them below.
-    live, waiting, seen = cascade.read(env, pool, now=dt.datetime.now(dt.timezone.utc))
     live_gui = gui_route_label(label, runners)
     gui_route = healthy_role_label(live_gui, runners, seen, waiting)
     session_route = healthy_role_label(session_route_label(label, runners), runners, seen, waiting)
@@ -650,21 +968,12 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     # Unread runners are no reading: the lane is not vouched for, so the job keeps the route it had without it.
     session_lane = (healthy_role_label(lane, runners, seen, waiting)
                     if lane.startswith("glaeda-") and runners is not None else "")
-    # A known fleet with no usable GUI route must overflow, including when every role runner is offline.
-    # An unreadable fleet is not evidence of an empty one and keeps the existing fail-open route.
-    gui_overflow = GUI_OVERFLOW if runners is not None and not gui_route else ""
-    if live_gui and not gui_route:
-        # Its own name: `owned` is the jobs the idle minis took, which cascade.place() reads below.
-        role_queues = getattr(seen, "owned_queued", None) or {}
-        why += (f"; `{live_gui}` has no room ({role_queues.get(live_gui, 0)} queued, "
-                f"{_role_online(live_gui, runners or [])[0]} online, none idle), so the GUI jobs take `{GUI_OVERFLOW}`")
-    elif gui_overflow:
-        why += f"; no online GUI runner, so the GUI jobs take `{GUI_OVERFLOW}`"
     if route and route != label:
         why += (f"; `{route}` has more live room than `{label}`, routing jobs there"
                 if route.startswith(pool.SIDE_PREFIX) else f"; no online side runner, routing jobs on `{route}`")
     if (env.get("FAST_LABEL") or "").strip():
-        why += (f"; the fast tier takes idle `{fast}`" if fast
+        why += (f"; no idle `{env['FAST_LABEL'].strip()}` runner, so the fast tier takes idle light `{fast}`"
+                if light_fast else f"; the fast tier takes idle `{fast}`" if fast
                 else f"; no idle `{env['FAST_LABEL'].strip()}` runner, so the fast tier is placed like the other jobs")
     if (env.get("FRESH_LABEL") or "").strip() and (env.get("FRESH_JOBS") or "").strip() or fresh_jobs:
         why += (f"; {', '.join(fresh_jobs)} take idle `{fresh}`, the freshness slot" if fresh_jobs
@@ -673,7 +982,8 @@ def main(env: Mapping[str, str] = os.environ) -> int:
                      "like the other jobs")
     gateway_label = (env.get("GATEWAY_LABEL") or "").strip()
     attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip() or "1"
-    gateway = gateway_route(env, runners, gateway_taken(env, runners, fast))
+    taken = gateway_taken(env, runners, fast)
+    gateway = gateway_route(env, runners, taken)
     if gateway_label:
         if gateway:
             why += f"; the build-fleet compiles take idle `{gateway}`"
@@ -685,27 +995,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
         # The push's fleet fast check runs: its Mac fallback runs only without a verdict, and then on its own
         # route (cmux-next.yml), so it takes no cascade slot from the run's other jobs.
         env = without_cascade(env, GATEWAY_FALLBACKS["release-compile-fast"])
-    print(f"side-lane placement: {why}")
-    watch = "false" if fallback and not owned else "true"
     dedicated_ready = nightly_runner_ready(env, runners)
-    output = env.get("GITHUB_OUTPUT")
-    if output:
-        with open(output, "a", encoding="utf-8") as handle:
-            free_gui = free_gui_route_label(label, runners)
-            free_session = free_session_route_label(label, runners)
-            handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
-                         f"runner={route}\ngui_runner={gui_route}\nsession_runner={session_route}\n"
-                         f"free_gui_runner={free_gui}\nfree_session_runner={free_session}\n"
-                         f"gui_overflow={gui_overflow}\nsession_lane_runner={session_lane}\n"
-                         f"nightly_runner_ready={'true' if dedicated_ready else ''}\n"
-                         f"fast_runner={fast}\n"
-                         f"fresh_runner={fresh}\nfresh_jobs={delimited(fresh_jobs)}\n"
-                         f"gateway_runner={gateway}\ngateway_attempt={attempt if gateway_label else ''}\n"
-                         f"watch={watch}\n")
-    summary = env.get("GITHUB_STEP_SUMMARY")
-    if summary:
-        with open(summary, "a", encoding="utf-8") as handle:
-            handle.write(f"### macOS placement\n\n{why}\n")
     # The jobs no idle mini took: Blacksmith 12 vCPU, then 6 vCPU, while each has a free slot now and its
     # queue moves; the rest stay on the owned label (no GitHub-hosted overflow).
     # The dedicated nightly runner is preferred for Release compile. When it is
@@ -727,9 +1017,85 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     # for longer than 6 vCPU's oldest job has waited, or one host alone serves it), they take 6 vCPU.
     placed = cascade.place(env, owned, live, waiting, seen, promote_busy=promotion_busy,
                            saturated=runners is not None, route_wait=route_wait(route, runners, seen))
+    # A job listed for the build fleet runs its client on the gateway only with an idle runner of its own there.
+    placed = fleet_gateway(placed, env, runners, gateway, taken)
+    # With no GUI route that has room, the GUI jobs take the largest Blacksmith macOS size that starts them now,
+    # after the slots this run's cascade just took (gui_overflow()). An unread fleet vouches for no owned GUI
+    # queue either, so it overflows too, as it did before (the step's synthesized `runner` sent it to 6 vCPU).
+    overflow = "" if gui_route else gui_overflow(env, live, waiting, seen, placed)
+    if live_gui and not gui_route:
+        # Its own name: `owned` is the jobs the idle minis took, which cascade.place() read above.
+        role_queues = getattr(seen, "owned_queued", None) or {}
+        why += (f"; `{live_gui}` has no room ({role_queues.get(live_gui, 0)} queued, "
+                f"{_role_online(live_gui, runners or [])[0]} online, none idle), so the GUI jobs take `{overflow}`")
+    elif overflow:
+        why += (f"; no online GUI runner, so the GUI jobs take `{overflow}`" if runners is not None
+                else f"; owned runners unread, so the GUI jobs take `{overflow}`")
+    print(f"side-lane placement: {why}")
+    watch = "false" if fallback and not owned else "true"
+    output = env.get("GITHUB_OUTPUT")
+    if output:
+        with open(output, "a", encoding="utf-8") as handle:
+            free_gui = free_gui_route_label(label, runners)
+            free_session = free_session_route_label(label, runners)
+            handle.write(f"owned_jobs={delimited(owned)}\nfallback_jobs={delimited(fallback)}\n"
+                         f"runner={route}\ndeferred_runner={route or label}\ngui_runner={gui_route}\n"
+                         f"session_runner={session_route}\n"
+                         f"free_gui_runner={free_gui}\nfree_session_runner={free_session}\n"
+                         f"gui_overflow={overflow}\nsession_lane_runner={session_lane}\n"
+                         f"nightly_runner_ready={'true' if dedicated_ready else ''}\n"
+                         f"fast_runner={fast}\n"
+                         f"fresh_runner={fresh}\nfresh_jobs={delimited(fresh_jobs)}\n"
+                         f"gateway_runner={gateway}\ngateway_attempt={attempt if gateway_label else ''}\n"
+                         f"watch={watch}\n")
+    summary = env.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write(f"### macOS placement\n\n{why}\n")
     print(f"macOS cascade: {placed.why}")
     cascade.write(placed, env)
     return 0
+
+
+def _timeout_fallback(env: Mapping[str, str]) -> int:
+    """Publish a safe ephemeral Mac route when placement reads exceed the deadline."""
+    output = env.get("GITHUB_OUTPUT")
+    if output:
+        retry_jobs = cascade.delimited(cascade.candidates(env, ())[:cascade.MAX_PER_RUN])
+        with open(output, "a", encoding="utf-8") as handle:
+            handle.write(
+                f"owned_jobs=\nfallback_jobs=\nrunner={cascade.SMALL}\ndeferred_runner=\n"
+                f"gui_runner=\nsession_runner=\nfree_gui_runner=\nfree_session_runner=\n"
+                f"gui_overflow={cascade.SMALL}\nsession_lane_runner=\n"
+                f"nightly_runner_ready=\nfast_runner=\nfresh_runner=\nfresh_jobs=\n"
+                f"gateway_runner=\ngateway_attempt=\nwatch=false\n"
+                f"blacksmith_12_jobs=\nblacksmith_6_jobs=\nfresh_stalled=\nfleet_jobs=\n"
+                f"retry_runner={cascade.SMALL}\nfree_retry_runner={cascade.SMALL}\n"
+                f"retry_jobs={retry_jobs}\n"
+            )
+    summary = env.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as handle:
+            handle.write("### macOS placement\n\nPlacement exceeded its read deadline; using "
+                         f"{cascade.SMALL}.\n")
+    print(f"::warning title=side-lane placement::read deadline exceeded; using {cascade.SMALL}")
+    return 0
+
+
+def main(env: Mapping[str, str] = os.environ) -> int:
+    """Run placement with a hard deadline and a deterministic default route."""
+    previous = signal.getsignal(signal.SIGALRM)
+    def timeout(_signum: int, _frame: Any) -> None:
+        raise PlacementDeadline("side-lane placement read deadline exceeded")
+    try:
+        signal.signal(signal.SIGALRM, timeout)
+        signal.setitimer(signal.ITIMER_REAL, PLACEMENT_DEADLINE_SECONDS)
+        return _main(env)
+    except PlacementDeadline:
+        return _timeout_fallback(env)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 if __name__ == "__main__":

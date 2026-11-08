@@ -2,11 +2,15 @@
 import { expect, test } from "bun:test";
 import { isValidElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Markdown, parseMarkdown, renderInline } from "./Markdown";
+import { Markdown } from "./Markdown";
+import { renderInline } from "./inlineMarkdown";
+import { parseMarkdown } from "./markdownModel";
 import { MathInline } from "./Math";
 import { safeTail } from "./safeTail";
 
-const html = (source: string) => renderToStaticMarkup(<Markdown plainCode>{source}</Markdown>);
+// Long tokens get <wbr> break points after their separators (softBreaks.tsx, #27277); these tests
+// read the text the reader sees, so the break points are dropped before comparing.
+const html = (source: string) => renderToStaticMarkup(<Markdown plainCode>{source}</Markdown>).replaceAll("<wbr/>", "");
 const math = (source: string) =>
   renderInline(source).flatMap((node) =>
     isValidElement<{ tex: string }>(node) && node.type === MathInline ? [node.props.tex] : [],

@@ -3,9 +3,13 @@
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/). `ACPMUX_UPDATE_FIXTURES=1`
-// rewrites the pane fixtures the tests check (`adopt.rs`).
-const HERMETIC: daemon_env::Process =
-    daemon_env::Process::stand_in().keep(&["ACPMUX_UPDATE_FIXTURES"]);
+// rewrites the pane fixtures the tests check (`adopt.rs`); `LS_LATENCY_SESSIONS` and
+// `LS_LATENCY_RUNS` size the ignored `ls_latency` bench (`usage_stats.rs`).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
+    "ACPMUX_UPDATE_FIXTURES",
+    "LS_LATENCY_SESSIONS",
+    "LS_LATENCY_RUNS",
+]);
 
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
 use acpmux::hub::Hub;
@@ -21,12 +25,23 @@ use tokio::sync::mpsc;
 #[path = "hub_integration/idle_census.rs"]
 mod idle_census;
 
+#[path = "hub_integration/acp_schema.rs"]
+mod acp_schema;
 #[path = "hub_integration/agent_digest.rs"]
 mod agent_digest;
+#[path = "hub_integration/agent_inbox.rs"]
+mod agent_inbox;
 #[path = "hub_integration/agent_pairs.rs"]
 mod agent_pairs;
 #[path = "hub_integration/auto_resume.rs"]
 mod auto_resume;
+#[path = "hub_integration/away_recap.rs"]
+mod away_recap;
+#[path = "hub_integration/carried_turns.rs"]
+mod carried_turns;
+#[cfg(unix)]
+#[path = "hub_integration/codex_full_access_pending.rs"]
+mod codex_full_access_pending;
 #[path = "hub_integration/cursor_requests.rs"]
 mod cursor_requests;
 #[path = "hub_integration/drafts.rs"]
@@ -35,20 +50,31 @@ mod drafts;
 mod full_access_guards;
 #[path = "hub_integration/held_queue.rs"]
 mod held_queue;
+#[path = "hub_integration/inbox_digest.rs"]
+mod inbox_digest;
 #[path = "hub_integration/lanes.rs"]
 mod lanes;
 #[path = "hub_integration/log_retention.rs"]
 mod log_retention;
+#[path = "hub_integration/mcp_connect.rs"]
+mod mcp_connect;
 #[path = "hub_integration/permission_display.rs"]
 mod permission_display;
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
 #[path = "hub_integration/presence.rs"]
 mod presence;
+#[path = "hub_integration/prompt_approval.rs"]
+mod prompt_approval;
+#[path = "hub_integration/prompt_attribution.rs"]
+mod prompt_attribution;
 #[path = "hub_integration/prompt_class.rs"]
 mod prompt_class;
 #[path = "hub_integration/prompt_context.rs"]
 mod prompt_context;
+#[cfg(unix)]
+#[path = "hub_integration/prompt_delivery.rs"]
+mod prompt_delivery;
 #[path = "hub_integration/prompt_ledger.rs"]
 mod prompt_ledger;
 #[path = "hub_integration/prompt_provenance.rs"]
@@ -57,12 +83,16 @@ mod prompt_provenance;
 mod prompt_supersede;
 #[path = "hub_integration/prompt_withdraw.rs"]
 mod prompt_withdraw;
+#[path = "hub_integration/protected_resume.rs"]
+mod protected_resume;
 #[path = "hub_integration/protocol_serve.rs"]
 mod protocol_serve;
 #[path = "hub_integration/purged_stays_purged.rs"]
 mod purged_stays_purged;
 #[path = "hub_integration/questions.rs"]
 mod questions;
+#[path = "hub_integration/queue_admission.rs"]
+mod queue_admission;
 #[path = "hub_integration/restart.rs"]
 mod restart;
 #[path = "hub_integration/run_parent.rs"]
@@ -85,10 +115,14 @@ mod steer_now;
 mod steer_only;
 #[path = "hub_integration/stop.rs"]
 mod stop;
+#[path = "hub_integration/stop_steer_requeue.rs"]
+mod stop_steer_requeue;
 #[path = "hub_integration/stuck_liveness.rs"]
 mod stuck_liveness;
 #[path = "hub_integration/subagent_retry.rs"]
 mod subagent_retry;
+#[path = "hub_integration/successor_harness.rs"]
+mod successor_harness;
 #[path = "hub_integration/surfaces.rs"]
 mod surfaces;
 #[path = "hub_integration/tags_rules.rs"]
@@ -97,6 +131,9 @@ mod tags_rules;
 mod tasks;
 #[path = "hub_integration/xai_requests.rs"]
 mod xai_requests;
+
+#[path = "hub_integration/turn_attestation.rs"]
+mod turn_attestation;
 
 struct TestClient {
     tx: mpsc::Sender<String>,
@@ -160,6 +197,21 @@ async fn setup_defaults_env(
     env: BTreeMap<String, String>,
     defaults_env: BTreeMap<String, String>,
 ) -> (Arc<Hub>, TestClient) {
+    setup_inbox(policy, env, defaults_env, true).await
+}
+
+/// `setup` with `agentInbox` off: another agent's plain send queues or steers as before the
+/// inbox (`hub/inbox.rs`), for the tests of that path (still every non-plain agent message's).
+async fn setup_queue(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
+    setup_inbox(policy, BTreeMap::new(), BTreeMap::new(), false).await
+}
+
+async fn setup_inbox(
+    policy: PermissionPolicy,
+    env: BTreeMap<String, String>,
+    defaults_env: BTreeMap<String, String>,
+    inbox: bool,
+) -> (Arc<Hub>, TestClient) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
     agents.insert(
@@ -181,6 +233,7 @@ async fn setup_defaults_env(
         Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;
     cfg.permission_policy = policy;
+    cfg.agent_inbox = Some(inbox);
     if !defaults_env.is_empty() {
         let defaults = acpmux::config::SessionDefaults { env: defaults_env, ..Default::default() };
         cfg.defaults.insert("fake".into(), defaults);
@@ -437,6 +490,7 @@ async fn an_agents_bare_fork_error_names_the_harness() {
 async fn an_agent_that_fails_a_fork_while_the_chat_works_forks_from_the_chats_transcript() {
     let env = BTreeMap::from([("FAKE_FORK_ERROR".to_owned(), "1".to_owned())]);
     let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    hub.config.write().await.context_overrides.user = Some("GUIDANCE-ON-FORK".into());
     let s = c
         .request(
             method::SESSION_NEW,
@@ -462,6 +516,11 @@ async fn an_agent_that_fails_a_fork_while_the_chat_works_forks_from_the_chats_tr
         .await
         .unwrap_or_else(|e| panic!("a working chat forks, whatever its agent says: {e}"));
     let fid = f["sessionId"].as_str().unwrap().to_owned();
+    assert!(hub.resolve(&id).unwrap().meta().cmux_context_delivered);
+    assert!(
+        !hub.resolve(&fid).unwrap().meta().cmux_context_delivered,
+        "fresh reconstruction must deliver the hidden guidance to its new harness"
+    );
     let forked: Vec<Value> = hub
         .events(&fid, 0, 1000)
         .unwrap()
@@ -498,6 +557,7 @@ async fn an_agent_that_fails_a_fork_while_the_chat_works_forks_from_the_chats_tr
         .await
         .unwrap();
     assert_eq!(r["stopReason"], "end_turn", "{r}");
+    assert!(hub.resolve(&fid).unwrap().meta().cmux_context_delivered);
     let reply: String = hub
         .events(&fid, 0, 1000)
         .unwrap()
@@ -777,6 +837,67 @@ async fn wait_resolves_on_permission_then_on_ready() {
     );
 }
 
+/// `_acpmux/session_search` finds a session's prompts and the agent's replies by their words,
+/// newest first, by name or id; a bad query and an unknown session are errors.
+#[tokio::test]
+async fn session_search_finds_prompts_and_replies_newest_first() {
+    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "finder"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    for text in ["the broker quota", "a QUOTA for the broker again"] {
+        c.request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]}),
+        )
+        .await
+        .unwrap();
+    }
+    let r = c
+        .request(
+            method::MUX_SESSION_SEARCH,
+            json!({"sessionId": "finder", "query": "quota broker"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r["sessionId"], json!(id), "{r}");
+    let hits = r["hits"].as_array().unwrap();
+    let got: Vec<(&str, &str)> = hits
+        .iter()
+        .map(|h| (h["role"].as_str().unwrap(), h["snippet"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            ("assistant", "echo: a QUOTA for the broker again"),
+            ("user", "a QUOTA for the broker again"),
+            ("assistant", "echo: the broker quota"),
+            ("user", "the broker quota"),
+        ],
+        "{r}"
+    );
+    assert!(hits[0]["seq"].as_u64() > hits[1]["seq"].as_u64(), "{r}");
+    let r = c
+        .request(
+            method::MUX_SESSION_SEARCH,
+            json!({"sessionId": id, "query": "broker", "role": "user", "limit": 1}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r["hits"][0]["snippet"], "a QUOTA for the broker again", "{r}");
+    assert_eq!(r["hits"].as_array().unwrap().len(), 1, "{r}");
+    for params in
+        [json!({"sessionId": id, "query": " "}), json!({"sessionId": "nobody", "query": "x"})]
+    {
+        assert!(c.request(method::MUX_SESSION_SEARCH, params).await.is_err());
+    }
+}
+
 #[tokio::test]
 async fn turn_markers_history_and_cursor() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
@@ -830,7 +951,7 @@ async fn turn_markers_history_and_cursor() {
 }
 
 #[tokio::test]
-async fn limit_error_fails_over_to_the_fallback_profile() {
+async fn limit_error_stays_on_the_current_profile() {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
     agents.insert(
@@ -889,9 +1010,7 @@ async fn limit_error_fails_over_to_the_fallback_profile() {
     )
     .await
     .unwrap();
-    // The direct profile reports a usage limit; the pool profile answers.
-    // The fake agent echoes the same prompt text, so the failover reply is
-    // the echo of the limit prompt from the second process.
+    // A usage limit stays on the current account even when a fallback is configured.
     let r = c
         .request(
             method::SESSION_PROMPT,
@@ -901,12 +1020,9 @@ async fn limit_error_fails_over_to_the_fallback_profile() {
     let session = hub.resolve(&id).unwrap();
     let kinds: Vec<String> =
         hub.events(&id, 0, 1000).unwrap().into_iter().map(|e| e.kind).collect();
-    assert!(kinds.iter().any(|k| k == "failover"), "{kinds:?} {r:?}");
-    assert_eq!(hub.session_summary(&session)["harness"], "fake-pool");
-    // The pool profile is the same fake agent, so it reports the limit too:
-    // no second failover, the turn fails once and stays on the pool.
+    assert!(!kinds.iter().any(|k| k == "failover"), "{kinds:?} {r:?}");
+    assert_eq!(hub.session_summary(&session)["harness"], "fake");
     assert!(r.is_err(), "{r:?}");
-    assert_eq!(kinds.iter().filter(|k| *k == "failover").count(), 1);
     let ok = c
         .request(
             method::SESSION_PROMPT,
@@ -964,6 +1080,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
             policy: Some(PermissionPolicy::ApproveAll),
             prefer: vec!["fake-pool".into()],
             env: BTreeMap::new(),
+            permission_mode: None,
         },
     );
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
@@ -1027,7 +1144,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
     assert_eq!(fake_models[0], "fake/m3", "{fake_models:?}");
     assert!(fake_models.contains(&"m1"));
     // Presets: one harness, bundled model/effort/policy/env; -m still wins.
-    let p = c.request(method::MUX_PRESETS, json!({"name": "fast", "set": {"harness": "fake-pool", "model": "m1", "policy": "deny-all", "env": {"FAKE_MODEL": "${model}"}}})).await.unwrap();
+    let p = c.request(method::MUX_PRESETS, json!({"name": "fast", "set": {"harness": "fake-pool", "model": "m1", "policy": "approve-reads", "env": {"FAKE_MODEL": "${model}"}}})).await.unwrap();
     assert_eq!(p["profile"], "fake-pool");
     let err = c
         .request(method::MUX_PRESETS, json!({"name": "bad", "set": {"harness": "nope"}}))
@@ -1037,7 +1154,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
     let s4 = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"preset": "fast", "name": "pre"}}})).await.unwrap();
     assert_eq!(s4["_meta"]["acpmux"]["harness"], "fake-pool");
     assert_eq!(s4["_meta"]["acpmux"]["model"], "m1");
-    assert_eq!(s4["_meta"]["acpmux"]["policy"], "deny-all");
+    assert_eq!(s4["_meta"]["acpmux"]["policy"], "approve-reads");
     // ${model} in the preset env: the model is a spawn parameter the process sees.
     let id4 = s4["sessionId"].as_str().unwrap().to_owned();
     c.request(method::MUX_SET_POLICY, json!({"sessionId": id4, "policy": "approve-all"}))
@@ -1054,7 +1171,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
     // `fake` is the family: its prefer list still decides the profile.
     assert_eq!(s5["_meta"]["acpmux"]["harness"], "fake-pool");
     assert_eq!(s5["_meta"]["acpmux"]["model"], "m2");
-    assert_eq!(s5["_meta"]["acpmux"]["policy"], "deny-all");
+    assert_eq!(s5["_meta"]["acpmux"]["policy"], "approve-reads");
     let err = c
         .request(
             method::SESSION_NEW,
@@ -1063,6 +1180,18 @@ async fn family_defaults_presets_and_the_target_grammar() {
         .await
         .unwrap_err();
     assert!(err.contains("unknown preset"), "{err}");
+    // A deny-all preset on a harness that can keep it neither by a gate nor by a mode: the chat
+    // does not start (W5-L).
+    let locked = json!({"name": "locked", "set": {"harness": "fake-pool", "policy": "deny-all"}});
+    c.request(method::MUX_PRESETS, locked).await.unwrap();
+    let err = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"preset": "locked"}}}),
+        )
+        .await
+        .unwrap_err();
+    assert!(err.contains("cannot be enforced"), "{err}");
     let list = c.request(method::MUX_PRESETS, json!({})).await.unwrap();
     assert_eq!(list["presets"][0]["name"], "fast");
 }
@@ -1191,6 +1320,7 @@ async fn catalog_reload_preserves_pending_turn_and_rejects_invalid_config() {
         allowed_origins: Vec::new(),
         allowed_hosts: Vec::new(),
         token_rotated: 0,
+        allow_insecure_network: false,
     });
     next.defaults.insert(
         "deepseek".into(),
@@ -1576,6 +1706,8 @@ async fn a_resend_after_a_restart_is_answered_from_the_log() {
 
 #[path = "hub_integration/adopt.rs"]
 mod adopt;
+#[path = "hub_integration/adopt_profile.rs"]
+mod adopt_profile;
 #[path = "hub_integration/preset_args.rs"]
 #[cfg(unix)]
 mod preset_args;
@@ -1592,6 +1724,8 @@ mod lifecycle_fixes;
 mod quit_spawn;
 #[path = "hub_integration/session_hibernate.rs"]
 mod session_hibernate;
+#[path = "hub_integration/start_retry.rs"]
+mod start_retry;
 
 #[path = "hub_integration/fork_through.rs"]
 mod fork_through;

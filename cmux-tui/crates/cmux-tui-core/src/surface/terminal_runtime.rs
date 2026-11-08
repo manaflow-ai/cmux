@@ -52,6 +52,53 @@ impl Drop for ReaderCompletionGuard {
 }
 
 impl PtyTerminalRuntime {
+    /// The input route of `runtime`, for the input port (R-DAEMON-STATE stage S1 step 6).
+    #[cfg(any(unix, windows))]
+    pub(super) fn input_route_of(runtime: &PtyRuntime) -> Option<Arc<input_port::InputRoute>> {
+        match runtime {
+            PtyRuntime::Hosted(host) => {
+                Some(Arc::new(input_port::InputRoute::Hosted(host.input_route())))
+            }
+            PtyRuntime::ExitedHosted => Some(Arc::new(input_port::InputRoute::Exited)),
+            PtyRuntime::Local { .. } => None,
+        }
+    }
+
+    /// Replaces the terminal's runtime and republishes its input route, under the runtime lock the caller holds.
+    /// Every replacement goes through here, so the port always writes to the connection the runtime has.
+    #[cfg(any(unix, windows))]
+    pub(super) fn replace_runtime(&self, runtime: &mut PtyRuntime, next: PtyRuntime) {
+        *runtime = next;
+        // The new connection's other frames go after the keys the port took (S1.6b).
+        if let PtyRuntime::Hosted(host) = runtime {
+            host.set_input_order(self.input_port.order());
+        }
+        self.input_route.store(Self::input_route_of(runtime));
+        // After the store: a port writer waiting for a reconnect writes the keys it holds to the new connection now,
+        // before any other frame on it (#35082 review 1).
+        self.input_port.route_changed();
+    }
+
+    /// The reader will install no host connection now (it ended, gave the host up, or the owner detaches the
+    /// terminal): input that waits out a lost connection fails now, as the old path's write failed then.
+    pub(super) fn reader_gave_up(&self) {
+        self.stream_progress.notify();
+        // The input port's writer waits on its own route epoch, not on the stream (#35082 review 2).
+        self.input_port.reconnect_ended();
+    }
+
+    /// The reader shut the current host connection down and keeps retrying (`Failed`): input is refused until a
+    /// replacement connection is installed ([`Self::replace_runtime`] publishes its route), as the old path's write
+    /// to the shut connection failed. Takes the held runtime so it is ordered with every replacement.
+    #[cfg(any(unix, windows))]
+    pub(super) fn input_route_failed(&self, _runtime: &PtyRuntime) {
+        self.input_route.store(Some(Arc::new(input_port::InputRoute::Failed)));
+        // A port writer waiting for a reconnect fails its frame now, as the old path's write failed then.
+        self.input_port.route_changed();
+    }
+}
+
+impl PtyTerminalRuntime {
     /// Feed raw child output to the generic terminal metadata parser. The
     /// parser has no knowledge of agents or plugins and keeps only bounded
     /// terminal protocol state. Returns the desktop notifications (OSC 9,
@@ -70,8 +117,10 @@ impl PtyTerminalRuntime {
     }
 
     /// Applies the OSC 133 marks of the output just written to `term`. With
-    /// `recording` false (the default) marks are dropped, any running command
-    /// is forgotten, and nothing is read from the screen. The command line
+    /// `recording` [`Off`](crate::shell_history::Recording::Off) (the
+    /// default) marks are dropped, any running command and the last one are
+    /// forgotten, and nothing is read from the screen; with `LastCommand` the
+    /// tracker keeps its newest command and returns none. The command line
     /// comes from Ghostty's semantic input cells, so a command typed before
     /// recording turned on is still read whole at `C`. It also notes whether
     /// a running command set the terminal up for interactive use
@@ -79,8 +128,9 @@ impl PtyTerminalRuntime {
     pub(super) fn observe_shell_marks(
         &self,
         term: &mut Terminal,
-        recording: impl FnOnce() -> bool,
+        recording: impl FnOnce() -> crate::shell_history::Recording,
     ) -> Vec<crate::shell_history::FinishedCommand> {
+        use crate::shell_history::Recording;
         let marks = {
             let mut metadata = self.terminal_metadata.lock().unwrap();
             // The modes after this output: a running command that took the
@@ -91,14 +141,33 @@ impl PtyTerminalRuntime {
         if marks.is_empty() {
             return Vec::new();
         }
-        let mut tracker = self.command_tracker.lock().unwrap();
-        if !recording() {
+        let mut tracker =
+            self.command_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let recording = recording();
+        if recording == Recording::Off {
             tracker.reset();
             return Vec::new();
         }
         let mut screen = crate::shell_history::TerminalCommandScreen(term);
         let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
-        marks.into_iter().filter_map(|mark| tracker.apply(mark, now_ms, &mut screen)).collect()
+        let finished: Vec<_> =
+            marks.into_iter().filter_map(|mark| tracker.apply(mark, now_ms, &mut screen)).collect();
+        if recording == Recording::History { finished } else { Vec::new() }
+    }
+
+    /// The newest finished command the tracker kept, if any.
+    pub(super) fn last_finished_command(&self) -> Option<crate::shell_history::FinishedCommand> {
+        self.command_tracker
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .last()
+            .cloned()
+    }
+
+    /// The command a park keeps: the running one, else the newest finished one.
+    pub(super) fn kept_command(&self) -> Option<crate::shell_history::FinishedCommand> {
+        let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+        self.command_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner).kept(now_ms)
     }
 
     pub(super) fn terminal_osc_progress(&self) -> String {
@@ -244,6 +313,10 @@ pub struct PtyTerminalRuntime {
     /// The daemon is intentionally dropping its compatibility proxy while
     /// leaving the terminal host alive for a later daemon to adopt.
     pub(super) owner_detaching: AtomicBool,
+    /// The user asked to recover a terminal whose host link failed
+    /// (`restart-tab` on a `failed` tab): its host was ended, so the
+    /// reconnect loop stops its wait and retries at once.
+    pub(super) recover_requested: AtomicBool,
     /// The host socket ended without a sequenced Exit. Closing this proxy
     /// must retain the host record so a fresh snapshot can recover it.
     pub(super) host_connection_state: AtomicU8,
@@ -303,6 +376,17 @@ pub struct PtyTerminalRuntime {
     pub(super) render: Arc<RankedMutex<RenderHub>>,
     pub(super) render_generation: AtomicU64,
     pub(super) frame_requests: frame_producer::FrameRequests,
+    /// The view a key may skip its sizing note for, published by the terminal's sizing entry (R-DAEMON-STATE stage
+    /// S1, `mux::sizing_fast_path`); shared by every view of the terminal.
+    pub(super) sizing_fast_path: crate::mux::sizing_fast_path::SizingFastPathSlot,
+    /// The terminal's input port: on the input lane, interactive input to a hosted terminal goes through it
+    /// (R-DAEMON-STATE stage S1 step 6, `surface::input_port`).
+    #[cfg(any(unix, windows))]
+    pub(super) input_port: input_port::InputPort,
+    /// Where the port writes: the current host connection, the exited final screen, or `None` (not hosted).
+    /// Published by [`Self::replace_runtime`] and the constructors, so the port never takes the runtime lock.
+    #[cfg(any(unix, windows))]
+    pub(super) input_route: arc_swap::ArcSwapOption<input_port::InputRoute>,
     #[cfg(test)]
     pub(super) frame_producer_before_upgrade: FrameProducerTestHook,
 }

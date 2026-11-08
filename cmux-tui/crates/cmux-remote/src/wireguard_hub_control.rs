@@ -9,9 +9,11 @@
 //!
 //! - `path.get`: the current path as a `path.changed` body.
 //! - `path.subscribe`: the same as its reply, then one line per path event,
-//!   `{"event":"path.changed","path":P,"kind":K,"rtt_ms":..,"jitter_ms":..,
-//!   "loss_pct":..,"max_datagram":..}`, on every switch and every 5 s while
-//!   the tunnel carries traffic. No event precedes the reply.
+//!   `{"event":"path.changed","path":P,"kind":K,"medium":M,"rtt_ms":..,
+//!   "jitter_ms":..,"loss_pct":..,"max_datagram":..}`, on every switch and
+//!   every 5 s while the tunnel carries traffic. `medium` is `link`
+//!   (Thunderbolt Bridge, loopback), `lan` or `routed`. No event precedes
+//!   the reply.
 //! - `datagram.bind {"port":P,"class":"interactive"|"media"|"bulk"}`: bind
 //!   overlay UDP port `P` and serve it on a Unix datagram socket
 //!   `<control>.d/<P>.sock` (`0600`, in a `0700` directory the hub owns).
@@ -633,6 +635,7 @@ fn path_json(event: &PathEvent) -> Value {
     json!({
         "path": event.path.map(|path| path.0),
         "kind": event.kind.map(kind_name),
+        "medium": event.medium.map(cmux_wg::Medium::wire_name),
         "rtt_ms": event.rtt_ms,
         "jitter_ms": event.jitter_ms,
         "loss_pct": event.loss_pct,
@@ -647,6 +650,7 @@ pub fn kind_name(kind: PathKind) -> &'static str {
         PathKind::DirectWan => "direct-wan",
         PathKind::ViaCloudRegion => "via-cloud-region",
         PathKind::DoRelay => "do-relay",
+        PathKind::TurnRelay => "turn-relay",
     }
 }
 

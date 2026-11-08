@@ -58,7 +58,7 @@ struct HomeLoneDockTests {
         let lone = [LayoutColumn(id: "home", width: 0.5, root: .leaf("dock"), dock: Self.homeDock)]
         for mode in [NewColumnWidthMode.matchCurrent, .fixed, .fitScreen] {
             let plan = NewColumnWidth.plan(mode: mode, columns: lone, anchor: "home", visible: [], fixedWidth: 0.5)
-            #expect(plan == NewColumnPlan(width: 1, resizes: []), "\(mode)")
+            #expect(plan == NewColumnPlan(width: 1), "\(mode)")
         }
         // A tab dragged out of the only column beside the dock leaves the dock alone: same rule.
         let beside = lone + [LayoutColumn(id: "c1", width: 0.5, root: .leaf("p1"))]
@@ -68,26 +68,6 @@ struct HomeLoneDockTests {
         // With a column beside it, the mode decides as before.
         let next = NewColumnWidth.plan(mode: .matchCurrent, columns: beside, anchor: "c1", visible: ["c1"], fixedWidth: 0.5)
         #expect(next.width == 0.5)
-    }
-
-    /// A person's new tab, and a new chat, from the dock alone open in a new column right of it:
-    /// the pinned dock takes neither, and there is no scrolling pane to send them to. Home's dock
-    /// takes dragged tabs (`allow_tabs`, Leo 2026-10-21) and still opens new ones beside it, so
-    /// Cmd-D and Cmd-T from Home keep working.
-    @Test func newTabsFromTheLoneDockOpenBesideIt() {
-        let lone = [LayoutColumn(id: "home", root: .leaf("dock"), dock: Self.homeDock)]
-        #expect(ChatColumnPlacement.resolve(from: "dock", columns: lone) { _ in false } == .besideDock)
-        #expect(NewChatPlacement.resolve(from: "dock", columns: lone, isLoneChat: false) == .besideDock)
-        let open = [LayoutColumn(id: "home", root: .leaf("dock"),
-                                 dock: DockColumn(edge: .left, role: .agentChat, isPinned: true, allowsTabs: true))]
-        #expect(ChatColumnPlacement.resolve(from: "dock", columns: open) { _ in false } == .besideDock)
-        #expect(NewChatPlacement.resolve(from: "dock", columns: open, isLoneChat: false) == .besideDock)
-        // An unpinned chat dock alone keeps what it opens.
-        let plain = [LayoutColumn(id: "chat", root: .leaf("dock"), dock: DockColumn(edge: .left, role: .agentChat))]
-        #expect(ChatColumnPlacement.resolve(from: "dock", columns: plain) { _ in false } == .here)
-        // With a column beside it, the strip takes them as before.
-        let beside = lone + [LayoutColumn(id: "c1", root: .leaf("p1"))]
-        #expect(ChatColumnPlacement.resolve(from: "dock", columns: beside) { _ in false } == .tab(in: "p1"))
     }
 
     /// Only Home's own tab stays in Home: a tab right of its dock moves to a new workspace (a sidebar

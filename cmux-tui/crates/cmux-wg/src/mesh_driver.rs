@@ -1,10 +1,9 @@
 //! The task that runs a [`crate::WgMesh`].
 //!
 //! One Tokio task owns everything mutable: the peer table (one boringtun
-//! session per peer), the TCP stack, the pacer, the UDP socket and the
-//! gateways. Callers talk to it through commands. Nothing here sleeps to
-//! synchronize: the loop wakes on a datagram (from the UDP socket or a
-//! gateway), a command, a stream write, the earliest WireGuard
+//! session per peer), the TCP stack, the pacer and the UDP socket. Callers
+//! talk to it through commands. Nothing here sleeps to synchronize: the loop
+//! wakes on a datagram, a command, a stream write, the earliest WireGuard
 //! timer of any session, the pacer's next departure, or the deadline smoltcp
 //! asks for.
 
@@ -23,9 +22,8 @@ use tokio::time::Instant;
 use crate::config::InterfaceAddress;
 use crate::error::WgError;
 use crate::mesh::{MeshCommand, WgMeshConfig, WgPeer};
-use crate::mesh_gateway::{GATEWAY_INBOX, GatewayDatagram, Outbound};
 use crate::mesh_peers::PeerTable;
-use crate::mesh_route::PeerRoute;
+use crate::mesh_route::{Outbound, PeerRoute};
 use crate::pacing::Pacer;
 use crate::stream::WgStream;
 use crate::tcp_stack::TcpStack;
@@ -55,12 +53,9 @@ pub(crate) fn spawn(
 pub(crate) struct MeshDriver {
     pub(crate) table: PeerTable,
     pub(crate) stack: TcpStack,
-    /// The UDP socket and the gateways.
+    /// The UDP socket.
     pub(crate) out: Outbound,
-    /// Datagrams that arrived through any gateway.
-    gateway_inbox: mpsc::Receiver<GatewayDatagram>,
     addresses: Vec<InterfaceAddress>,
-    mtu: u16,
     /// Checks the MAC of every handshake initiation before the
     /// Diffie-Hellman that identifies its key, and rate-limits them.
     pub(crate) gate: RateLimiter,
@@ -69,6 +64,9 @@ pub(crate) struct MeshDriver {
     /// burst into a socket buffer loses segments.
     pub(crate) pacer: Pacer,
     pace_deadline: Option<Instant>,
+    /// Set by [`MeshCommand::Close`]: the driver stops once every connection delivered what
+    /// its owner wrote, or at this deadline.
+    closing: Option<Instant>,
     commands: mpsc::Receiver<MeshCommand>,
     wake: Arc<Notify>,
     pub(crate) scratch: Vec<u8>,
@@ -76,7 +74,6 @@ pub(crate) struct MeshDriver {
 
 enum Event {
     Datagram(usize, Option<SocketAddr>),
-    Gateway(Option<GatewayDatagram>),
     Drained,
     Fatal,
     Command(Option<MeshCommand>),
@@ -94,17 +91,15 @@ impl MeshDriver {
         let stack = TcpStack::new(&config.addresses, config.mtu, Arc::clone(&wake), true)?;
         let table = PeerTable::new(&config.private_key);
         let gate = RateLimiter::new(table.public(), HANDSHAKES_PER_SECOND);
-        let (inbox, gateway_inbox) = mpsc::channel(GATEWAY_INBOX);
         Ok(Self {
             table,
             stack,
-            out: Outbound::new(SocketPath::new(socket, None), local, inbox),
-            gateway_inbox,
+            out: Outbound::new(SocketPath::new(socket, None), local),
             addresses: config.addresses,
-            mtu: config.mtu,
             gate,
             pacer: Pacer::default(),
             pace_deadline: None,
+            closing: None,
             commands,
             wake,
             scratch: vec![0u8; BUFFER_BYTES + 32],
@@ -132,11 +127,11 @@ impl MeshDriver {
                     Err(error) if is_transient(&error) => Event::Wake,
                     Err(_) => Event::Fatal,
                 },
-                received = self.gateway_inbox.recv() => Event::Gateway(received),
                 command = self.commands.recv() => Event::Command(command),
                 () = wake.notified() => Event::Wake,
                 () = sleep_until(next_tick) => Event::Wake,
                 () = sleep_until(stack_deadline.map(|delay| Instant::now() + delay)) => Event::Wake,
+                () = sleep_until(self.closing) => Event::Wake,
             };
             self.run_timers();
             match event {
@@ -147,10 +142,13 @@ impl MeshDriver {
                     }
                     self.receive_ready(&mut datagram);
                 }
-                Event::Gateway(received) => self.receive_gateways(received),
                 Event::Fatal | Event::Command(Some(MeshCommand::Shutdown) | None) => {
                     self.shutdown();
                     return;
+                }
+                Event::Command(Some(MeshCommand::Close { deadline })) => {
+                    self.stack.close_all();
+                    self.closing = Some(self.closing.map_or(deadline, |d| d.min(deadline)));
                 }
                 Event::Command(Some(command)) => self.handle_command(command),
                 Event::Drained | Event::Wake => {}
@@ -158,6 +156,12 @@ impl MeshDriver {
             self.out.udp.flush();
             self.service();
             self.out.udp.flush();
+            if let Some(deadline) = self.closing
+                && (self.stack.delivered() || Instant::now() >= deadline)
+            {
+                self.shutdown();
+                return;
+            }
         }
     }
 
@@ -224,9 +228,15 @@ impl MeshDriver {
         if peer.route.is_none() {
             return;
         }
+        if peer.tunn.time_since_last_handshake().is_none() {
+            peer.waiting = Some(now);
+        }
         if let TunnResult::WriteToNetwork(datagram) =
             peer.tunn.encapsulate(packet, &mut self.scratch)
         {
+            if classify(datagram) == DatagramClass::WireGuardInitiation {
+                peer.initiated = Some(now);
+            }
             self.out.send(peer.route, datagram);
             peer.schedule.on_activity(now);
         }
@@ -246,8 +256,20 @@ impl MeshDriver {
                 let retry = classify(packet) == DatagramClass::WireGuardInitiation;
                 self.out.send(peer.route, packet);
                 if retry {
+                    peer.initiated = Some(now);
                     peer.schedule.on_activity(now);
                 }
+            }
+            // A dial waiting on the handshake gets an initiation every
+            // HANDSHAKE_RESEND, not only boringtun's every 5 s or more.
+            if peer.route.is_some()
+                && peer.resend_due(now)
+                && let TunnResult::WriteToNetwork(packet) =
+                    peer.tunn.format_handshake_initiation(&mut self.scratch, true)
+            {
+                self.out.send(peer.route, packet);
+                peer.initiated = Some(now);
+                peer.schedule.on_activity(now);
             }
         }
     }
@@ -268,16 +290,7 @@ impl MeshDriver {
             MeshCommand::Listen { port, reply } => {
                 let _ = reply.send(self.stack.begin_listen(port));
             }
-            MeshCommand::AddGateway { socket, reply } => {
-                let _ = reply.send(self.out.attach(socket, self.mtu));
-            }
-            MeshCommand::RemoveGateway { gateway, reply } => {
-                let _ = reply.send(self.remove_gateway(gateway));
-            }
-            MeshCommand::PeerRoute { public_key, reply } => {
-                let _ = reply.send(self.table.get_mut(&public_key).and_then(|peer| peer.route));
-            }
-            MeshCommand::Shutdown => {}
+            MeshCommand::Close { .. } | MeshCommand::Shutdown => {}
         }
     }
 
@@ -296,6 +309,7 @@ impl MeshDriver {
                 entry.tunn.format_handshake_initiation(&mut self.scratch, false)
         {
             self.out.send(entry.route, packet);
+            entry.initiated = Some(now);
             entry.schedule.on_activity(now);
         }
         self.stack.abort_conns(|conn| {
@@ -349,7 +363,6 @@ impl MeshDriver {
             }
         }
         self.out.udp.flush();
-        self.out.detach_all();
         self.stack.clear();
     }
 }
@@ -363,6 +376,3 @@ async fn sleep_until(deadline: Option<Instant>) {
 
 #[path = "mesh_receive.rs"]
 mod receive;
-
-#[path = "mesh_driver_gateway.rs"]
-mod gateway;

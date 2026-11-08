@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentActivity
 import CmuxNextBrowser
 import CmuxNextCookieImport
 import CmuxNextDesign
@@ -30,7 +31,7 @@ enum OnboardingHandlers {
         registry.bind("browser.importFromFiles", run: { invocation in
             BrowserFileImport(services: services).run(profile: BookmarkResolver(services: services).profile(invocation))
         })
-        // Cookies of one browser profile, for the CLI and agents: an agent's run asks the person first.
+        // Cookies of one browser profile, for the CLI and agents: an agent's run asks the person, whose own click alone allows.
         let cef = services.cache.cef
         let cookieImports = CookieImportService(host: CookieImportHost(
             requester: { invocation in
@@ -39,12 +40,12 @@ enum OnboardingHandlers {
                     workspace.screens.flatMap(\.panes).flatMap(\.tabs).map { tab in
                         CookieImportCandidate(tabID: tab.id, title: tab.displayTitle, workspace: workspace.displayName,
                                               agentSession: agentTabs.sessions[agentTabs.resolve(tab.id)] ?? tab.agentSession?.session,
-                                              terminalIDs: [tab.terminalID?.rawValue, tab.terminalResourceID?.rawValue].compactMap(\.self))
+                                              terminalIDs: [tab.terminalID?.rawValue, tab.terminalResourceID?.rawValue].compactMap(\.self),
+                                              isHomeChat: tab.isHomeDockPage && workspace.kind == "home")
                     }
                 }
-                return CookieImportRequester(invocation, among: tabs) { session in
-                    services.chatsFeed?.chats.first { $0.sessionID == session }.map { ($0.title, $0.preview) }
-                }
+                // The caller's acpmux session, by id (O(1)): its title and latest reply.
+                return CookieImportRequester(invocation, among: tabs) { services.agentLanes.lane($0).map { ($0.title, $0.preview) } }
             },
             target: { invocation in
                 let id = BookmarkResolver(services: services).profile(invocation)
@@ -52,9 +53,11 @@ enum OnboardingHandlers {
             },
             window: { services.windows.active?.window ?? NSApp.mainWindow ?? NSApp.windows.first(where: \.isVisible) },
             reveal: { tab in _ = registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), origin: .user)) },
-            track: { registry.track($0) },
-            destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) }))
+            track: { registry.track($0) }, imported: { services.onboarding.browserImportOffer.importFinished($0) },
+            destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) }, isPersonEvent: services.personInput.isPerson, dispatchingEvent: { [inputDispatch = services.inputDispatch] in inputDispatch.event }))
         registry.bind("browser.importCookies", run: { invocation in try cookieImports.run(invocation) })
+        // Brings the Import Cookies banner back (Don't Show Again undone) and shows it; it imports nothing.
+        registry.bindEffect("browser.showCookieImportBanner", effect: { _ in services.onboarding.browserImportOffer.showNow(); return .done })
         // Import suggestion cards (Settings › Import only): the same import run as the window's.
         ImportSuggestionsCenter.shared.bind(into: registry, host: importCardsHost(services))
         // Every entrypoint previews the exact snapshot and waits for the
@@ -95,14 +98,15 @@ enum OnboardingHandlers {
         })
     }
 
-    /// What the import cards run through the App: the Import from Browser window's import run
-    /// and Import Workspaces from Classic cmux.
+    /// What the import cards run through the App: the Import from Browser window's import run,
+    /// Import Workspaces from Classic cmux and Import from Conductor.
     static func importCardsHost(_ services: AppServices) -> ImportCardsHost {
         ImportCardsHost(
             runImport: { plan, keys, progress in try await AppOnboardingServices(owner: services.onboarding).runImport(plan, keys: keys, progress: progress) },
             importedProfiles: { Set(await services.onboarding.importStore.sources().map(\.sourceKey)) },
             openSettings: { route in try? services.settingsWindow.show(section: nil, route: route) },
-            importClassic: { progress in try await importClassic(services, in: nil, progress: progress)?.opened })
+            importClassic: { progress in try await importClassic(services, in: nil, progress: progress)?.opened },
+            importConductor: { progress in try await ConductorImport(host: services).run(progress: progress) })
     }
 
     /// Import Workspaces from Classic cmux as every entrypoint runs it (the action, the cmux
@@ -142,7 +146,7 @@ enum ClassicImportStrings {
         // The localized text uses fixed field labels; only the values vary.
         // Format those numbers for the person's locale before substitution.
         let text = String(
-            format: format, plan.source.fileName, plan.workspaces.count.formatted(.number),
+            format: format, source(plan), plan.workspaces.count.formatted(.number),
             plan.browserTabs.formatted(.number), plan.localFilePages.formatted(.number),
             plan.sshWorkspaces.formatted(.number), plan.agentChats.formatted(.number),
             plan.skippedCloudVMs.formatted(.number)
@@ -154,6 +158,33 @@ enum ClassicImportStrings {
         )
         let cleanup = String(format: cleanupFormat, plan.cleanupWorkspaces.formatted(.number))
         return text.components(separatedBy: "\n") + [cleanup]
+    }
+    /// The classic app the plan reads and when it saved (the newest save across classic's channels), and whether it is still open.
+    static func source(_ plan: ClassicImportPlan) -> String {
+        let saved = Date(timeIntervalSince1970: plan.savedAt).formatted(date: .abbreviated, time: .shortened)
+        let format = plan.classicRunning
+            ? String(localized: "classicImport.preview.sourceOpen",
+                     defaultValue: "%1$@ (classic), still open: its autosave from %2$@. Quit it first to bring its latest state.", bundle: .module)
+            : String(localized: "classicImport.preview.source", defaultValue: "%1$@ (classic), saved %2$@", bundle: .module)
+        return String(format: format, plan.source.appName, saved)
+    }
+    /// The first launch's toast when cmux-next already had workspaces, so classic's were only recorded.
+    static var inUseBefore: String {
+        String(localized: "classicImport.toast.inUseBefore",
+               defaultValue: "Classic cmux workspaces weren’t imported because this app already had its own. Import them any time from Settings › Import.",
+               bundle: .module)
+    }
+    /// The launch's toast when the person cancelled its preview.
+    static var declined: String {
+        String(localized: "classicImport.toast.declined",
+               defaultValue: "Classic workspaces stay in classic cmux. Import them any time from Settings › Import.", bundle: .module)
+    }
+    /// The first launch's toast when the classic app named `app` is open, so nothing came over.
+    static func classicOpen(_ app: String) -> String {
+        let format = String(localized: "classicImport.toast.classicOpen",
+                            defaultValue: "%@ (classic) is open, so its workspaces weren’t imported. Quit it and reopen this app, or import them from Settings › Import.",
+                            bundle: .module)
+        return String(format: format, app)
     }
     static var imported: String {
         String(localized: "classicImport.toast.imported", defaultValue: "Workspaces from classic cmux are open.", bundle: .module)

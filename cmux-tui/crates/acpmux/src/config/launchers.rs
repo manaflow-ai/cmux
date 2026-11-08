@@ -141,13 +141,12 @@ pub(crate) fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
     let out = child.wait_with_output().map_err(|e| e.to_string())?;
     let text =
         format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    // Each pipe is its own stream: a control one leaves open does not hide the other's lines.
+    let mut cleaned = [&out.stdout, &out.stderr]
+        .into_iter()
+        .flat_map(|pipe| crate::stderr::clean_stderr_lines(&String::from_utf8_lossy(pipe)));
     // Warnings (a peer that could not be reached) are not failures.
-    let first = text
-        .lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty() && !l.starts_with("warning:"))
-        .unwrap_or("")
-        .to_owned();
+    let first = cleaned.find(|l| !l.is_empty() && !l.starts_with("warning:")).unwrap_or_default();
     if !out.status.success()
         || first.starts_with("subrouter:")
         || text.to_lowercase().contains("unknown command")
@@ -161,12 +160,51 @@ pub(crate) fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
 }
 
 pub(crate) fn which(bin: &str) -> Option<String> {
-    let path = crate::login_env::path()?;
-    for dir in std::env::split_paths(&path) {
+    which_in(&crate::login_env::path().unwrap_or_default(), bin).or_else(|| native_install(bin))
+}
+
+/// `bin` in the directories of `path`, in order.
+fn which_in(path: &std::ffi::OsStr, bin: &str) -> Option<String> {
+    for dir in std::env::split_paths(path) {
         let candidate = dir.join(bin);
-        if candidate.is_file() {
+        // As a shell's lookup: a file it could not run does not hide a runnable one later on PATH.
+        if crate::harness_install::is_executable(&candidate) {
             return Some(candidate.to_string_lossy().into_owned());
         }
     }
     None
+}
+
+/// Claude Code's native installer puts `claude` in `~/.local/bin`, which a login PATH may not list
+/// (the installer only asks the person to add it), and a daemon read that PATH when it started: so a
+/// `claude` installed there (`acpmux harness install claude`) is found on the next reload.
+fn native_install(bin: &str) -> Option<String> {
+    if bin != "claude" {
+        return None;
+    }
+    let candidate = dirs::home_dir()?.join(".local/bin").join(bin);
+    // A stale or non-executable file there is no installed CLI (as `harness install` checks).
+    crate::harness_install::is_executable(&candidate)
+        .then(|| candidate.to_string_lossy().into_owned())
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::which_in;
+    use std::os::unix::fs::PermissionsExt as _;
+
+    /// A `claude` the shell could not run (no execute bit) earlier on PATH does not hide the one it
+    /// would run.
+    #[test]
+    fn which_skips_a_file_it_could_not_run() {
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+        std::fs::write(first.path().join("claude"), "").unwrap();
+        let runnable = second.path().join("claude");
+        std::fs::write(&runnable, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&runnable, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = std::env::join_paths([first.path(), second.path()]).unwrap();
+        assert_eq!(which_in(&path, "claude"), Some(runnable.to_string_lossy().into_owned()));
+        assert_eq!(which_in(&path, "codex"), None);
+    }
 }

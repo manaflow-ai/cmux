@@ -77,3 +77,12 @@ VM access. cmux.com does not yet hide marked teams from its team and billing vie
 
 Hosted tests use fake identity/VM API responses with real owner RPCs and SQLite;
 they do not establish a live provider rollout or production billing integration.
+
+## Guest image
+
+VM API machines use the same image as every other Cloud VM: root's
+`cmux host run --mode system`, baked and promoted by `cloud-vm-image-bake.yml`
+with no transport option. The Native receiver and its `native_receiver` bake
+input are gone; the app reaches the guest's session host over the carrier.
+`CLOUD_VM_TRANSPORT=vm-api` changes only how Cloud creates and tracks the
+machine, not what the guest starts.

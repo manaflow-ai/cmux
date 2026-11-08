@@ -91,8 +91,10 @@ import CmuxNextWakeupsTestSupport
     }
 
     /// A NIGHTLY on build 100 following `ring`, with build 300 staged ("Update Ready").
+    /// `replaceable`: found updates download by themselves; `cancellable`: this app's driver holds
+    /// the staged installer; `pulled`: the builds on the feed's pulled.json.
     static func make(ring: String, feed xml: String = feed(), held: Bool = false, replaceable: Bool = true,
-                     checkAutomatically: Bool = true) -> Harness {
+                     cancellable: Bool = true, pulled: [String] = [], checkAutomatically: Bool = true) -> Harness {
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.next.staged-yields", shortVersion: "1.0.0", build: "100",
                                            minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml", hasPublicKey: true)
@@ -108,7 +110,13 @@ import CmuxNextWakeupsTestSupport
         updater.stagedBuild = { sparkle.staged }
         updater.cancelStaged = { sparkle.cancels += 1; return true }
         updater.stagedRefresh.replaceable = { replaceable }
+        updater.stagedRefresh.cancellable = { cancellable }
+        let list = try! JSONSerialization.data(withJSONObject: pulled.map { ["build": $0, "reason": "crashed at launch in the fresh-home smoke"] })
+        updater.pulledWatch.fetch = { _ in list }
         updater.stagedRefresh.startCheck = { sparkle.backgroundChecks += 1 }
+        // No live release push: the Worker's first frame repeats the newest published build, which
+        // is newer than the staged one and reads the feed outside the schedule under test.
+        updater.releasePush.connect = { _ in ReleasePushListenerTests.FakeSocket() }
         updater.configure(checkAutomatically: checkAutomatically, checkInterval: interval, downloadAutomatically: true, ring: ring)
         updater.start()
         updater.debugIndicatorPhase = .ready(version: "3.0.0")
@@ -132,22 +140,29 @@ import CmuxNextWakeupsTestSupport
     @Test func aNewerDevBuildReplacesTheStagedOneAtTheNextScheduledCheck() async throws {
         let h = Self.make(ring: "dev")
         #expect(h.feed.fetches == 0, "the feed was read before the scheduled check")
-        try await h.clock.waitForSleeper()
+        try await probeArmed(h, at: Self.interval)
         h.clock.advance(by: .seconds(Self.interval))
         try await settle(h, fetches: 1)
         #expect(h.sparkle.cancels == 1, "the staged build 300 kept its installer though Dev build 500 is out")
         #expect(h.sparkle.backgroundChecks == 1, "nothing asked Sparkle to download the newer build")
     }
 
+    /// The staged probe's deadline sleeps on the clock at `offset`: other timers (the release
+    /// push's ping, say) sleep on it too, so any sleeper is not the signal that this one is set.
+    func probeArmed(_ h: Harness, at offset: TimeInterval) async throws {
+        let deadline = ManualClock.Instant(offset: .seconds(offset))
+        try #require(await eventually { h.clock.sleeperDeadlines.contains(deadline) }, "no probe was armed for \(offset) s")
+    }
+
     /// One probe per interval, and none while the staged build is still the newest one.
     @Test func theNewestStagedBuildIsKeptAndProbedOncePerInterval() async throws {
         let h = Self.make(ring: "nightly")
-        try await h.clock.waitForSleeper()
+        try await probeArmed(h, at: Self.interval)
         h.clock.advance(by: .seconds(Self.interval))
         try await settle(h, fetches: 1)
         #expect(h.sparkle.cancels == 0, "the newest staged build was dropped")
         #expect(h.sparkle.backgroundChecks == 0)
-        try await h.clock.waitForSleeper()
+        try await probeArmed(h, at: Self.interval * 2)
         h.clock.advance(by: .seconds(Self.interval / 2))
         try await Task.sleep(for: .milliseconds(100))
         #expect(h.feed.fetches == 1, "the feed was read again before an interval passed")
@@ -199,7 +214,7 @@ import CmuxNextWakeupsTestSupport
     /// archive: a newer build replaces the staged one at once, deltas listed or not.
     @Test func aFreshDevBuildWithNoDeltasSwapsAtOnce() async throws {
         let h = Self.make(ring: "dev", feed: Self.feed(devMinutesAgo: 10))
-        try await h.clock.waitForSleeper()
+        try await probeArmed(h, at: Self.interval)
         h.clock.advance(by: .seconds(Self.interval))
         try await settle(h, fetches: 1)
         #expect(h.sparkle.cancels == 1, "a newer build was held back for its deltas")
@@ -208,7 +223,7 @@ import CmuxNextWakeupsTestSupport
 
     @Test func aFreshDevBuildThatListsDeltasSwapsAtOnce() async throws {
         let h = Self.make(ring: "dev", feed: Self.feed(devMinutesAgo: 10, devDeltas: true))
-        try await h.clock.waitForSleeper()
+        try await probeArmed(h, at: Self.interval)
         h.clock.advance(by: .seconds(Self.interval))
         try await settle(h, fetches: 1)
         #expect(h.sparkle.cancels == 1)
@@ -324,7 +339,7 @@ import CmuxNextWakeupsTestSupport
         #expect(!h.updater.stagedRefresh.timer.isScheduled, "automatic checks are off but a probe is still pending")
         h.updater.configure(checkAutomatically: true, checkInterval: Self.interval * 2, downloadAutomatically: true)
         #expect(h.updater.stagedRefresh.timer.isScheduled, "turning checks back on armed no probe while an update waits")
-        try await h.clock.waitForSleeper()
+        try await probeArmed(h, at: Self.interval * 2)
         h.clock.advance(by: .seconds(Self.interval))
         try await Task.sleep(for: .milliseconds(100))
         #expect(h.feed.fetches == 0, "the old interval's deadline still fired")

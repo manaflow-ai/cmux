@@ -19,13 +19,17 @@ extension SidebarPriorityFeed {
                                rowAction: { [weak services] action in
                                    if let services { SidebarPriorityRowActions.perform(action, in: services.registry) }
                                },
-                               toggleShown: { [weak services] in _ = services?.registry.perform(Self.toggleAction, invocation: ActionInvocation(origin: .user)) }),
+                               toggleShown: { [weak services] in _ = services?.registry.perform(Self.toggleAction, invocation: ActionInvocation(origin: .user)) },
+                               openedSessions: { [weak services] in
+                                   guard let tabs = services?.agentTabs else { return [] }
+                                   return Set(tabs.listTabs().compactMap { tabs.sessions[$0.key] ?? $0.record.session })
+                               }),
                   chats: .app)
     }
 
     /// Opens a row's chat: the tab that shows it here, else the tab of the other machine's tree
     /// the row came from (its chat runs there), else a new tab here (the `cmux://session/<id>` path).
-    private static func open(_ lane: AgentActivityLane, services: AppServices) {
+    static func open(_ lane: AgentActivityLane, services: AppServices) {
         if services.agentTabs.tab(showing: lane.id) == nil, let tab = AgentPriorityChats.app.remoteTab(showing: lane.id),
            services.revealTab(tab) { return }
         services.agentActivityPage.jump(to: lane)
@@ -41,9 +45,9 @@ extension SidebarPriorityFeed {
         let machines = context.services.machines
         AgentPriorityChats.app.machines = .init(remote: { [weak machines] in machines?.priorityMachines ?? [] },
                                                 peer: { [weak machines] in machines?.machineName(peer: $0) },
-                                                // This Mac's rows gain its name with `sidebar.showLocalMachine` (#22763).
-                                                local: { nil })
-        SidebarPriorityRowActions(chats: .app, unavailable: { preferences().priorityViewEnabled ? nil : SidebarPriorityPanel.unavailableReason })
-            .bind(into: registry)
+                                                local: { nil }) // This Mac's rows gain its name with `sidebar.showLocalMachine` (#22763).
+        SidebarPriorityRowActions(chats: .app, unavailable: { preferences().priorityViewEnabled ? nil : SidebarPriorityPanel.unavailableReason }).bind(into: registry)
+        AgentNeedsInputJump(chats: .app, tabs: { AgentNeedsInputJump.tabs(of: context.services.daemon.store) })
+            .bind(into: registry, open: { Self.open($0, services: context.services) }, reveal: { _ = context.services.revealTab($0) })
     }
 }

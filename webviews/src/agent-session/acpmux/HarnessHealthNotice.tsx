@@ -1,42 +1,8 @@
-import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Spinner } from "./conversation/icons";
 import { useT } from "./i18n";
-import { useNoticeTurn } from "./NoticeSlot";
-
-/// One row of acpmux's `_acpmux/harness/health` (cx-ny85), as the host hands it to the pane
-/// (`harness.health`).
-export type HarnessHealth = {
-  id: string;
-  version?: string | null;
-  latest?: string | null;
-  outdated?: boolean;
-  /// Only from evidence (a profile's check, or a probe's sign-in error).
-  auth?: "signedIn" | "signedOut" | "unknown";
-  /// The command that signs it in.
-  login?: string | null;
-  /// How to update it; `elevated`: it needs sudo, so the pane never offers it.
-  update?: { command: string; elevated: boolean } | null;
-};
-
-/// The agent CLI versions the person chose to skip, by harness id (this browser profile).
-const SKIPPED = "cmux.acpmux.skippedUpdates";
-
-function skipped(): Record<string, string> {
-  try {
-    const value: unknown = JSON.parse(globalThis.localStorage?.getItem(SKIPPED) ?? "{}");
-    return value && typeof value === "object" ? (value as Record<string, string>) : {};
-  } catch {
-    return {};
-  }
-}
-
-function skip(id: string, version: string): void {
-  try {
-    globalThis.localStorage?.setItem(SKIPPED, JSON.stringify({ ...skipped(), [id]: version }));
-  } catch {
-    // No storage (a private window): skipped for this chat only.
-  }
-}
+import { useNoticeTurn } from "./noticeSlotModel";
+import { type HarnessHealth, needsLogin, skip, type UpdateOffer, skipped } from "./harnessHealthNoticeModel";
 
 type Open = (params: { kind: "terminal"; text: string; cwd?: string; run: true }) => void;
 /// The host's calls (`callNative`): `harness.update {id}` -> `{ok, version?, error?}` (it waits for
@@ -56,22 +22,6 @@ function record(value: unknown): Record<string, unknown> {
 
 const message = (error: unknown) => (error instanceof Error ? error.message.trim() : "");
 
-/// An agent CLI update on offer (hq#2569 #12): never a banner over the chat, and never a dot on the
-/// model chip (Leo 2026-10-21). The chip's tooltip names it and its menu and picker offer Update and
-/// Skip This Version (`UpdateOfferContext`).
-export type UpdateOffer = {
-  harness: string;
-  agent: string;
-  version: string;
-  latest: string;
-  update(): void;
-  skip(): void;
-};
-
-export const UpdateOfferContext = createContext<UpdateOffer | undefined>(undefined);
-
-export const useUpdateOffer = () => useContext(UpdateOfferContext);
-
 /// Agent CLI health above the composer, one quiet line in the composer's notice slot: a
 /// signed-out agent says so with Log In (an error: it outranks every other line), which runs its
 /// login in a terminal tab of the chat's folder (`open`, the host's `tab.open`). An outdated one
@@ -89,6 +39,7 @@ export function HarnessHealthNotice({
   turnRunning = false,
   onUpdated,
   onOffer,
+  onSignInVisible,
 }: {
   health: HarnessHealth | undefined;
   /// The chat's agent now; a row for another (fetched before a switch) shows nothing.
@@ -103,11 +54,13 @@ export function HarnessHealthNotice({
   onUpdated?: () => void;
   /// The update on offer for the model chip, or undefined once there is none (or it started).
   onOffer?: (offer: UpdateOffer | undefined) => void;
+  /// The sign-in card actually drawn, after dismissal and NoticeSlot arbitration.
+  onSignInVisible?: (visible: boolean) => void;
 }) {
   const t = useT();
   const [dismissed, setDismissed] = useState<string>();
   const [progress, setProgress] = useState<Progress>();
-  const signedOut = health && health.auth === "signedOut" && health.login ? health.login : undefined;
+  const signedOut = health && needsLogin(health.auth) && health.login ? health.login : undefined;
   const update =
     health &&
     health.outdated &&
@@ -159,6 +112,11 @@ export function HarnessHealthNotice({
   useEffect(() => () => offerOut.current?.(undefined), []);
   const line = ours && !offering && !!(kind || state) && !!key && key !== dismissed;
   const turn = useNoticeTurn("harness-health", kind === "signedOut" ? "error" : "update", line);
+  const signInVisible = ours && kind === "signedOut" && !offering && !!key && key !== dismissed && turn.shown;
+  useLayoutEffect(() => {
+    onSignInVisible?.(signInVisible);
+  }, [onSignInVisible, signInVisible]);
+  useLayoutEffect(() => () => onSignInVisible?.(false), [onSignInVisible]);
   if (!health || health.id !== harness) return null;
   if (!(kind || state) || !key || key === dismissed) return null;
   const run = (text: string) => open({ kind: "terminal", text, ...(cwd ? { cwd } : {}), run: true });
@@ -227,7 +185,7 @@ export function HarnessHealthNotice({
   let text: string;
   let buttons: ReactNode;
   if (kind === "signedOut") {
-    text = t("harness.signedOut", { agent: name });
+    text = health.auth === "expired" ? t("turn.authExpired") : t("harness.signedOut", { agent: name });
     buttons = (
       <button type="button" data-notice-action="login" onClick={() => run(signedOut!)}>
         {t("harness.logIn")}

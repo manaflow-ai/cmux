@@ -6,7 +6,8 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { runStretches, ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
+import { runStretches } from "../src/agent-session/acpmux/conversation/toolGroups";
+import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { toolGroupLabel, toolGroups } from "../src/agent-session/acpmux/conversation/toolGroups";
 import { toolRunSummary } from "../src/agent-session/acpmux/conversation/toolRunSummary";
 import { translate } from "../src/agent-session/acpmux/i18n";
@@ -66,7 +67,7 @@ test("reads, searches and commands with thoughts between them are one counted li
     command("git log -3"),
   ];
   const html = drawn(run(items));
-  expect(html).toContain("Read 2 files, ran a search, ran 2 commands");
+  expect(html).toContain("Read 2 files, ran 2 commands, and performed 1 other action");
   expect(lines(run(items))).toBe(1);
   // Closed until opened: no call shows under the line.
   expect(html).not.toContain("bun test retry");
@@ -86,12 +87,20 @@ test("a thought between two calls of one kind stays inside their group", () => {
   expect(toolGroupLabel(translate, "commands", (trailing[0] as { items: AcpmuxActivity[] }).items)).toBe(
     "Ran 2 commands",
   );
-  // Between calls of different kinds a thought keeps its own row.
+  // Between calls of different kinds a thought keeps its own row while the next run is one call.
   expect(toolGroups([read("a.ts"), longThought("x"), command("ls")]).map((entry) => entry.type)).toEqual([
     "item",
     "item",
     "item",
   ]);
+  // Before a run of two or more calls it leads their group, first (as Claude Code desktop draws a
+  // run's thinking inside it).
+  const thinking = longThought("y");
+  const led = toolGroups([read("a.ts"), thinking, command("ls"), command("pwd")]);
+  expect(led.map((entry) => entry.type)).toEqual(["item", "group"]);
+  expect((led[1] as { items: AcpmuxActivity[] }).items[0]).toBe(thinking);
+  // Before an edit it keeps its own row.
+  expect(toolGroups([longThought("z"), edit("src/a.ts")]).map((entry) => entry.type)).toEqual(["item", "group"]);
 });
 
 test("an edit folds with the work around it, named on the line in the order it came", () => {
@@ -99,7 +108,7 @@ test("an edit folds with the work around it, named on the line in the order it c
   const stretches = runStretches(run(items), toolGroups(items));
   expect(stretches.map((stretch) => stretch.fold)).toEqual([true]);
   const html = drawn(run(items));
-  expect(html).toContain("Read 2 files, ran a search, ran 2 commands, edited a file");
+  expect(html).toContain("Ran 2 commands, edited a file, and performed 3 other actions");
   expect(lines(run(items))).toBe(1);
 });
 
@@ -108,9 +117,9 @@ test("a coordination card stays in sight; the calls around it still fold", () =>
   const stretches = runStretches(run(items), toolGroups(items));
   expect(stretches.map((stretch) => stretch.fold)).toEqual([true, false, true]);
   const html = drawn(run(items));
-  expect(html).toContain("Read a file, ran a command");
+  expect(html).toContain("Read a file and ran a command");
   // Named in the order the run did them: the command came before the reads.
-  expect(html).toContain("Ran a command, read 2 files");
+  expect(html).toContain("Ran a command and read 2 files");
 });
 
 test("a failed call is counted on the run's line", () => {
@@ -127,7 +136,7 @@ test("a run that is not folded keeps every entry on its own line", () => {
 
 test("the summary counts distinct files read, and searches apart from reads", () => {
   const items = [read("a.ts"), read("a.ts"), read("b.ts"), search("x"), search("y")];
-  expect(toolRunSummary(translate, items)).toBe("Read 2 files, ran 2 searches");
+  expect(toolRunSummary(translate, items)).toBe("Read 2 files and ran 2 searches");
 });
 
 test("an ended turn's opened Worked for folds a run that edited, edit and all", () => {
@@ -144,13 +153,13 @@ test("an ended turn's opened Worked for folds a run that edited, edit and all", 
     { id: "done", kind: "assistant", version: 1, at: at(3), text: "Retries are in." },
     { id: "s", kind: "turnSummary", version: 1, at: at(4), status: "completed", toolCount: 5 },
   ];
-  const work = turnView(rows, new Set(["worked-u"]), { liveRuns: true }).find(
+  const work = turnView(rows, new Set(["worked-u"])).find(
     (entry) => entry.kind === "activity" && entry.id.startsWith("work") && entry.settled,
   )!;
   expect(work.foldRun).toBe(true);
   const html = drawn(work);
-  expect(html).toContain("Read 2 files, ran a search, edited a file, ran a command");
+  expect(html).toContain("Edited a file, ran a command, and performed 3 other actions");
   expect(lines(work)).toBe(1);
   // The reply is never folded: it stays its own row after the fold.
-  expect(turnView(rows, new Set(), { liveRuns: true }).some((entry) => entry.id === "done")).toBe(true);
+  expect(turnView(rows, new Set()).some((entry) => entry.id === "done")).toBe(true);
 });

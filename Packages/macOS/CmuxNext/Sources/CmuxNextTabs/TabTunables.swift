@@ -24,6 +24,40 @@ public nonisolated enum TabLoadingAnimation: String, Sendable, CaseIterable, Tun
     }
 }
 
+/// How a hovered tab's x takes its status's slot (`TabStripMetrics.hoverCloseSwap`; the tab bar
+/// playground's Hover Close page compares them). In every treatment but `beside` only the x shows on
+/// hover, in the slot the spinner or status mark holds at rest (Leo 2026-11-05).
+public nonisolated enum TabHoverCloseSwap: String, Sendable, CaseIterable {
+    /// The status fades out on the hover curve while the x fades in, and back on leaving.
+    case crossFade
+    /// The status gives way at once and the x fades in, as a sidebar workspace row's hover controls.
+    case instant
+    /// As `crossFade`, with the x's hover fill drawn while it stands in for the status.
+    case disc
+    /// Before: the x appears beside the status. The playground's comparison only.
+    case beside
+}
+
+/// What the tab bar's trailing controls (the plus, the pane's pins and "…") show at rest
+/// (`TabTunables.crowdedControls`). Their room is kept either way, so no tab moves on hover.
+public nonisolated enum TabCrowdedControls: String, Sendable, CaseIterable, TunableChoice {
+    /// Hidden at rest while the tabs leave room beside them; muted at rest once the tabs fill the
+    /// bar, so the room they keep never reads as an empty strip (Leo 2026-10-20).
+    case shownWhenCrowded
+    /// Muted at rest whatever the tab count (Leo 2026-10-19).
+    case alwaysShown
+    /// Hidden at rest whatever the tab count (Lawrence 2026-10-20).
+    case hiddenAtRest
+
+    public var tunableTitle: String {
+        switch self {
+        case .shownWhenCrowded: "Shown when the tabs fill the bar"
+        case .alwaysShown: "Always shown"
+        case .hiddenAtRest: "Hidden at rest"
+        }
+    }
+}
+
 /// Debug Settings tunables of the tab strip (plans/cmux-next/tabs.md). The
 /// derived ones compute their default from the density tokens exactly as
 /// `TabStripMetrics` always did; the expression lives here once.
@@ -41,7 +75,11 @@ public nonisolated enum TabTunables {
     // wide and scrolls; 7/10 of the max width (140 compact, 168 comfortable) shows a whole short title.
     public static let scrollTabMinWidth = points("scrollTabMinWidth", "Scrolling tab width", help: "Narrowest an unpinned tab gets with Tab Overflow set to Scroll. Default: 7/10 of the max width.",
                                                  range: 40...400) { (Metrics.tabMaxWidth * 7 / 10).rounded() }
-    public static let pinnedGroupGap = points("pinnedGroupGap", "Pinned gap", help: "Extra space after the last pinned tab.") { Metrics.space2 }
+    // @intent Lawrence msg 20243: the pinned group ends in a divider with the gap between two tabs on
+    // each side of it, so the extra space is one tab gap plus the hairline.
+    public static let pinnedGroupGap = points("pinnedGroupGap", "Pinned gap", help: "Extra space after the last pinned tab, for its divider. Default: the gap between two tabs plus the line.") {
+        2 * Metrics.tabBackgroundInset + 1
+    }
     public static let contentTrailingInset = points("contentTrailingInset", "Tab trailing inset", help: "Inset of the close button from a tab's trailing edge.") { Metrics.space2 }
     public static let closeButtonSize = points("closeButtonSize", "Close button size", help: "Side of a tab's close button.") { Metrics.space6 }
     public static let closeGlyphSize = points("closeGlyphSize", "Close glyph size", help: "Side of the x inside the close button.") { Metrics.space4 - Metrics.space1 / 2 }
@@ -59,12 +97,17 @@ public nonisolated enum TabTunables {
     public static let separatorHeight = points("separatorHeight", "Separator height", help: "Height of the line between tabs. Default: 55% of the tab height.") {
         (Metrics.tabHeight * 0.55).rounded()
     }
-    // @intent Leo 2026-10-14 asked for lines between tabs; Lawrence removed them in 7f9fc1ed, so they
-    // stay opt-in until the default call is made.
+    // @intent Lawrence 2026-11-05: "for horizontal tabs, we should have subtle border between all the
+    // tabs (and also between the last tab and plus button)". On by default; hidden only beside the
+    // selected tab, whose fill already makes that edge.
     public static let separators = Tunable<Bool>.toggle(
         "tabs.separators", .tabs, "Tab separators",
-        help: "A short line between tabs, hidden beside the selected and the hovered tab.",
-        default: false, code: "TabTunables.separators")
+        help: "A short line between tabs and before +, hidden beside the selected tab.",
+        default: true, code: "TabTunables.separators")
+    public static let pinnedDivider = Tunable<Bool>.toggle(
+        "tabs.pinnedDivider", .tabs, "Pinned group divider",
+        help: "A short line between the pinned tabs and the other tabs.",
+        default: true, code: "TabTunables.pinnedDivider")
     public static let separatorOpacity = Tunable<CGFloat>.number(
         "tabs.separatorOpacity", .tabs, "Separator strength", help: "Opacity of the theme's separator tone in the line between tabs.",
         default: 0.2, range: 0...1, step: 0.02, unit: .fraction, code: "TabTunables.separatorOpacity")
@@ -75,6 +118,27 @@ public nonisolated enum TabTunables {
         "tabs.restingControlOpacity", .tabs, "Tab bar controls at rest",
         help: "Opacity of the tab bar's plus and More while the pointer is elsewhere; hover shows them fully. 0 hides them.",
         default: 0, range: 0...1, step: 0.05, unit: .fraction, code: "TabTunables.restingControlOpacity")
+    // @intent Leo 2026-10-20 ("the rightmost area has a reservation of hidden icons"; "if you push or hover
+    // then you cant access the rightmost tabs"): the room stays (no push, no overlay), and once the tabs
+    // fill the bar its controls show muted at rest instead of leaving an empty strip.
+    public static let crowdedControls = Tunable<TabCrowdedControls>.choice(
+        "tabs.crowdedControls", .tabs, "Tab bar controls when crowded",
+        help: "Whether the plus and More show at rest once the tabs fill the bar, so their kept room is never an empty strip.",
+        default: .shownWhenCrowded, code: "TabTunables.crowdedControls")
+    public static let crowdedControlOpacity = Tunable<CGFloat>.number(
+        "tabs.crowdedControlOpacity", .tabs, "Tab bar controls at rest, crowded",
+        help: "Opacity of the tab bar's plus and More at rest while they show at rest (Tab bar controls when crowded).",
+        default: 0.5, range: 0...1, step: 0.05, unit: .fraction, code: "TabTunables.crowdedControlOpacity")
+
+    /// The trailing controls' opacity at rest; `crowded`: the tabs fill the bar (``TabStripView/isCrowded``).
+    public static func restingControlAlpha(crowded: Bool, in store: TunableStore = .shared) -> CGFloat {
+        let rest = restingControlOpacity.value(in: store), shown = max(rest, crowdedControlOpacity.value(in: store))
+        switch crowdedControls.value(in: store) {
+        case .hiddenAtRest: return rest
+        case .alwaysShown: return shown
+        case .shownWhenCrowded: return crowded ? shown : rest
+        }
+    }
     public static let groupUnderlineHeight = points("groupUnderlineHeight", "Group underline", help: "Height of the line under a tab group's tabs.", range: 0...8) { Metrics.space1 }
 
     // MARK: Drag and hover
@@ -97,17 +161,31 @@ public nonisolated enum TabTunables {
         "tabs.hoverPreviews", .tabs, "Tab hover previews",
         help: "Full shows a thumbnail on a tab's hover card; Compact shows only its facts.",
         default: .full, code: "TabTunables.hoverPreviews")
+    // @intent Leo 2026-11-07 asked whether the card should "morph together with the tab" ("goo ...
+    // that water surface tension thing"): the three entrances side by side in the tab bar
+    // playground's Hover Card page; the card grows out of its tab by default.
+    public static let hoverCardEntrance = Tunable<HoverCardEntrance>.choice(
+        "tabs.hoverCardEntrance", .tabs, "Tab hover card entrance",
+        help: "How a tab's hover card first shows: a fade, a fade and slide, or growing out of its tab.",
+        default: .morph, code: "TabTunables.hoverCardEntrance")
     /// Debug-only loading transition prototypes. Instant is the production
     /// default until one of the variants is selected for dogfood.
     public static let loadingAnimation = Tunable<TabLoadingAnimation>.choice(
         "tabs.loadingAnimation", .tabs, "Tab loading animation",
         help: "Prototype for a busy tab's indicator entering or leaving. Instant preserves the current behavior.",
         default: .instant, code: "TabTunables.loadingAnimation")
+    // @intent Lawrence 2026-11-07 ("i still dont like these UIs", the tab bar's `+ ⌄ ⋮`): one look for the three
+    // trailing controls. Glyphs only is the default; the tab bar playground's Trailing Buttons page compares them.
+    public static let trailingButtons = Tunable<TabTrailingButtons>.choice(
+        "tabs.trailingButtons", .tabs, "Tab bar buttons",
+        help: "How the tab bar's plus, pane-type chevron and More look and show hover.",
+        default: .glyphs, code: "TabTunables.trailingButtons")
     public static var all: [TunableDescriptor] {
         [compactTabWidth, scrollTabMinWidth, pinnedGroupGap, contentTrailingInset, closeButtonSize, closeGlyphSize, iconTitleSpacing, titleCloseSpacing,
          titleFadeWidth, badgeSize, closeMinContentsWidth, titleMinVisibleWidth, scrollFadeWidth,
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
-            + [separators.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
-               hoverPreviews.descriptor, loadingAnimation.descriptor]
+            + [separators.descriptor, pinnedDivider.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, crowdedControls.descriptor,
+               crowdedControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
+               hoverPreviews.descriptor, hoverCardEntrance.descriptor, loadingAnimation.descriptor, trailingButtons.descriptor] + VerticalTabTunables.all
     }
 }

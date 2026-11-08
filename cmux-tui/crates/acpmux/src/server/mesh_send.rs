@@ -8,6 +8,10 @@
 //! answers is `mesh:<messageId>`; `_acpmux/send_status` of one reads the hub's receipt once, with
 //! no wait. The hub's refusals answer as this daemon's: a name it does not know is `no session`,
 //! and one several hosts have lists them.
+//!
+//! [`relay`] is the outbox's other transport (`outbox.rs`): a delivery for a peer whose link is
+//! down, which no attempt has sent, goes to the hub for the session id the peer's last list
+//! named, so the hub never picks a session by a name an id was typed as.
 
 use super::*;
 use crate::mesh::{HubError, Kind, MeshHub, Mode, OutMessage, Receipt, Sender, Target};
@@ -29,12 +33,17 @@ fn idempotency_key(id: &str) -> String {
     }
 }
 
-/// Whom `target` names: `HOST/NAME`, or a bare name.
+/// Whom `target` names: `HOST/ID`, `HOST/NAME`, or a bare name.
 fn recipient(target: &str) -> Target {
     if target.starts_with('@') {
         return Target { team_address: Some(target.to_owned()), ..Target::default() };
     }
     match target.split_once('/') {
+        // `HOST/ID` names that session by its id (session ids are UUIDs), as a read does
+        // (`mesh_read.rs`): the hub matches a name only against names.
+        Some((host, id)) if !host.is_empty() && uuid::Uuid::try_parse(id).is_ok() => {
+            Target { session_id: Some(id.into()), host: Some(host.into()), ..Target::default() }
+        }
         Some((host, name)) if !host.is_empty() && !name.is_empty() => {
             Target { name: Some(name.into()), host: Some(host.into()), ..Target::default() }
         }
@@ -42,22 +51,82 @@ fn recipient(target: &str) -> Target {
     }
 }
 
-pub(super) async fn send(
-    hub: &Arc<Hub>,
-    conn: &Arc<Conn>,
-    mesh: &Arc<dyn MeshHub>,
-    request: &Value,
-    target: &str,
-) -> Result<Value, RpcError> {
-    if target.starts_with('@') {
-        super::team::authorize(hub, conn).await?;
-        if !valid_team_address(target) {
-            return Err(RpcError::invalid_params(
-                "team address must be @member/agent or @team/role",
-            )
-            .with_data(json!({"reason": "team.invalid_address", "address": target})));
-        }
+/// Whom the relay reaches for `target` while its peer's link is down: the session the peer's
+/// last list named, by its id alone (the hub matches every field it is given, and the host the
+/// hub knows is the peer's own machine name, which need not be the name this daemon gives it). A
+/// `PEER/KEY` the peer never listed goes by KEY: as that id when it is one (session ids are
+/// UUIDs), else as a name on host PEER, as `HOST/NAME` goes (`recipient`). None when nothing
+/// names a peer that is down, or `target` is a session here.
+fn down_peer_recipient(hub: &Hub, target: &str) -> Option<Target> {
+    if hub.resolve(target).is_ok() {
+        return None;
     }
+    if let Some((peer, id, _)) = hub.resolve_remote(target) {
+        let down = !peer.connected.load(std::sync::atomic::Ordering::SeqCst);
+        return down.then(|| Target { session_id: Some(id), ..Target::default() });
+    }
+    hub.peer_down_for(target)?;
+    let (host, key) = target.split_once('/')?;
+    if uuid::Uuid::try_parse(key).is_ok() {
+        return Some(Target { session_id: Some(key.to_owned()), ..Target::default() });
+    }
+    Some(Target { name: Some(key.into()), host: Some(host.into()), ..Target::default() })
+}
+
+/// The outbox's delivery through the hub while its peer is down (`outbox.rs`): the hub's
+/// acceptance, in the shape the outbox keeps (`relayDeliveryId` names the hub's message), or the
+/// hub's error. None when the relay is off, the peer is not down, or the delivery carries what
+/// the relay cannot: the outbox keeps it and tries the peer again. A delivery posted before is
+/// posted again as the same message (`Delivery::relay_post`), down peer or not; a first post is
+/// recorded before it goes, so a restart or a lost answer never leaves the outbox thinking
+/// nothing was sent.
+pub(super) async fn relay(
+    hub: &Arc<Hub>,
+    delivery: &crate::hub::outbox::Delivery,
+) -> Option<Result<Value, HubError>> {
+    let mesh = hub.mesh.get()?;
+    let message = match &delivery.relay_post {
+        Some(post) => post.clone(),
+        None => {
+            let to = down_peer_recipient(hub, &delivery.target)?;
+            let carried = carried(&delivery.request, &delivery.target).ok()?;
+            let message = OutMessage {
+                to,
+                from: sender(hub, delivery.caller.as_deref(), carried.named, carried.claim),
+                kind: Kind::Prompt,
+                op: None,
+                body: carried.body,
+                mode: carried.mode,
+                idempotency_key: idempotency_key(&carried.prompt_id),
+            };
+            hub.outbox.update(&delivery.id, |d| d.relay_post = Some(message.clone()));
+            message
+        }
+    };
+    Some(mesh.send(&message).await.map(|receipt| {
+        json!({
+            "via": "mesh",
+            "relayDeliveryId": format!("{PREFIX}{}", receipt.message_id),
+            "promptId": receipt.prompt_id.as_deref().unwrap_or(&receipt.message_id),
+            "sessionId": receipt.to.session_id.clone().or_else(|| message.to.session_id.clone()),
+            "steer": message.mode == Mode::Now,
+        })
+    }))
+}
+
+/// What the relay carries of a `session/prompt` request: its text, its mode, its prompt id, the
+/// display name it claims and the harness it says it came from.
+struct Carried {
+    body: String,
+    mode: Mode,
+    prompt_id: String,
+    named: Option<String>,
+    claim: Option<Value>,
+}
+
+/// `request` as the relay carries it, or the refusal for what it cannot carry: an attachment,
+/// `--supersede` or a class other than result.
+fn carried(request: &Value, target: &str) -> Result<Carried, RpcError> {
     let mut texts = Vec::new();
     // These refusals never say "no session": `acpmux send` turns any error with those words into
     // its own not-found error (cli/run/send_async.rs), which would hide what to change.
@@ -91,30 +160,60 @@ pub(super) async fn send(
         ))
         .with_data(json!({"reason": "mesh.no_class", "session": target})));
     }
-    let prompt_id = field("promptId")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())
-        .map_or_else(|| uuid::Uuid::now_v7().to_string(), str::to_owned);
-    // The proven caller names the sender; `fromAgent` (anything a client writes) only when no
-    // session is proven, as a display name.
-    let caller = conn.caller().filter(|_| !conn.is_person());
-    let named = field("fromAgent").and_then(Value::as_str).map(str::to_owned);
-    let message = OutMessage {
-        to: recipient(target),
-        from: Sender {
-            name: caller.map(|id| hub.session_name(id)).or(named),
-            session_id: caller.map(str::to_owned),
-            host: Some(crate::pairing::machine_name()),
-            ..Sender::default()
-        },
-        kind: Kind::Prompt,
-        op: None,
+    Ok(Carried {
         body: texts.join("\n\n"),
         mode: if field("steer") == Some(&json!(true)) { Mode::Now } else { Mode::TurnEnd },
+        prompt_id: field("promptId")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .map_or_else(|| uuid::Uuid::now_v7().to_string(), str::to_owned),
+        named: field("fromAgent").and_then(Value::as_str).map(str::to_owned),
+        // Sanitized, without what this daemon checked: the receiver keeps it as the sender's word.
+        claim: field(crate::sender_harness::META_KEY).and_then(crate::sender_harness::sanitized),
+    })
+}
+
+/// The proven caller names the sender; `fromAgent` (anything a client writes) only when no
+/// session is proven, as a display name. `claim` is provenance only, never the sender.
+fn sender(hub: &Hub, caller: Option<&str>, named: Option<String>, claim: Option<Value>) -> Sender {
+    Sender {
+        name: caller.map(|id| hub.session_name(id)).or(named),
+        session_id: caller.map(str::to_owned),
+        host: Some(crate::pairing::machine_name()),
+        claim,
+        ..Sender::default()
+    }
+}
+
+pub(super) async fn send(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    mesh: &Arc<dyn MeshHub>,
+    request: &Value,
+    target: &str,
+) -> Result<Value, RpcError> {
+    if target.starts_with('@') {
+        super::team::authorize(hub, conn).await?;
+        if !valid_team_address(target) {
+            return Err(RpcError::invalid_params(
+                "team address must be @member/agent or @team/role",
+            )
+            .with_data(json!({"reason": "team.invalid_address", "address": target})));
+        }
+    }
+    let carried = carried(request, target)?;
+    let caller = conn.caller().filter(|_| !conn.is_person());
+    let message = OutMessage {
+        to: recipient(target),
+        from: sender(hub, caller, carried.named, carried.claim),
+        kind: Kind::Prompt,
+        op: None,
+        body: carried.body,
+        mode: carried.mode,
         idempotency_key: if target.starts_with('@') {
-            super::team::sender_key(conn, &prompt_id)?
+            super::team::sender_key(conn, &carried.prompt_id)?
         } else {
-            idempotency_key(&prompt_id)
+            idempotency_key(&carried.prompt_id)
         },
     };
     let receipt = mesh.send(&message).await.map_err(|e| refusal(target, e))?;
@@ -245,6 +344,18 @@ pub(super) fn valid_team_address(address: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_and_a_session_id_name_that_session_by_id() {
+        let id = "01a1acb2-5bb4-75a3-b5eb-a0eeea1d59d5";
+        let to = recipient(&format!("machine-b/{id}"));
+        assert_eq!(
+            (to.session_id.as_deref(), to.name, to.host.as_deref()),
+            (Some(id), None, Some("machine-b"))
+        );
+        let to = recipient("machine-b/own-e2e");
+        assert_eq!((to.name.as_deref(), to.session_id), (Some("own-e2e"), None));
+    }
 
     #[test]
     fn a_prompt_id_the_hub_would_refuse_as_a_key_is_digested() {

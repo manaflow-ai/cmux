@@ -6,7 +6,9 @@
 //! stdio MCP client on first use and lists its tools as
 //! `<prefix>_<tool>` (`cmux-cua` is `cua`), so `cmux_docs` finds them and a
 //! `cmux_exec` script calls them through `Server::call`, under the same
-//! allowlist as every other tool.
+//! allowlist as every other tool. A list from an earlier start
+//! (`upstream_listing.rs`) answers `tools/list` without starting the server,
+//! so a chat that never calls one of its tools never starts it.
 
 use std::collections::BTreeSet;
 use std::io::{BufRead, BufReader, Write};
@@ -138,6 +140,8 @@ pub(super) struct Upstream {
     /// Why and when the last start failed: said once, retried after
     /// `START_BACKOFF`.
     failed: Option<(String, Instant)>,
+    /// Where lists from earlier starts are kept (`upstream_listing.rs`).
+    listings: Option<PathBuf>,
 }
 
 /// Why a request has no result.
@@ -174,16 +178,40 @@ impl Drop for Conn {
 impl Upstream {
     pub(super) fn new(spec: Spec) -> Self {
         let prefix = prefix(&spec.name);
-        Self { spec, prefix, conn: None, tools: None, instructions: None, failed: None }
+        let listings = super::upstream_listing::default_dir();
+        Self { spec, prefix, conn: None, tools: None, instructions: None, failed: None, listings }
+    }
+
+    /// The same server with its stored lists kept in `dir` (none: never stored).
+    #[cfg(test)]
+    pub(super) fn with_listings(mut self, dir: Option<PathBuf>) -> Self {
+        self.listings = dir;
+        self
+    }
+
+    /// Whether the server's process runs.
+    #[cfg(test)]
+    pub(super) fn started(&self) -> bool {
+        self.conn.is_some()
     }
 
     pub(super) fn name(&self) -> &str {
         &self.spec.name
     }
 
-    /// The tools under their cmux names, starting the server if needed.
-    /// `taken` holds names already in use; a clash is left out.
+    /// The tools under their cmux names: the stored list from an earlier
+    /// start, else the server's own, starting it. `taken` holds names already
+    /// in use; a clash is left out.
     pub(super) fn descriptors(&mut self, taken: &BTreeSet<String>) -> Vec<Value> {
+        if self.tools.is_none()
+            && let Some(stored) = self
+                .listings
+                .as_deref()
+                .and_then(|dir| super::upstream_listing::load(dir, &self.spec))
+        {
+            self.instructions = rules(&self.spec, stored.instructions.as_deref());
+            self.tools = Some(stored.tools);
+        }
         if self.tools.is_none() {
             if self.failed.as_ref().is_some_and(|(_, at)| at.elapsed() < START_BACKOFF) {
                 return Vec::new();
@@ -224,6 +252,12 @@ impl Upstream {
             .collect()
     }
 
+    /// Starts the server when it is not running, so a stored list gives way
+    /// to its own before a call is checked against it.
+    pub(super) fn connect(&mut self) -> Result<(), String> {
+        if self.conn.is_none() { self.start() } else { Ok(()) }
+    }
+
     /// The server's own name of cmux tool `name`, when it is one of its.
     pub(super) fn owns(&self, name: &str) -> Option<String> {
         let tool = name.strip_prefix(&self.prefix)?.strip_prefix('_')?;
@@ -232,17 +266,22 @@ impl Upstream {
 
     /// `tools/call` of `tool`: the server's result unchanged, or why there
     /// is none (`in_progress` when it may have run).
+    /// `meta` is the `_meta` it passes on ([`passed_meta`]).
     /// `cap` shortens the call's timeout (a `cmux_exec` script's own limit).
     pub(super) fn call(
         &mut self,
         tool: &str,
         arguments: Value,
+        meta: Option<&Value>,
         cap: Option<Duration>,
     ) -> Result<Value, (String, &'static str)> {
         if self.conn.is_none() {
             self.start().map_err(|error| (error, "not_run"))?;
         }
-        let params = json!({"name": tool, "arguments": arguments});
+        let mut params = json!({"name": tool, "arguments": arguments});
+        if let (Some(meta), Some(fields)) = (meta, params.as_object_mut()) {
+            fields.insert("_meta".to_owned(), meta.clone());
+        }
         let timeout = cap.map_or(self.spec.call_timeout, |cap| cap.min(self.spec.call_timeout));
         match self.request("tools/call", params, timeout) {
             Ok(result) => Ok(result),
@@ -267,6 +306,8 @@ impl Upstream {
 
     fn try_start(&mut self) -> Result<(), String> {
         self.conn = None;
+        // The key before the start: a list is stored only for the command it came from.
+        let key = self.listings.as_ref().and_then(|_| super::upstream_listing::key(&self.spec));
         let mut child = Command::new(&self.spec.command)
             .args(&self.spec.args)
             // This server's own folding and allowlist stay with it.
@@ -303,7 +344,8 @@ impl Upstream {
                 START_TIMEOUT,
             )
             .map_err(Failure::message)?;
-        self.instructions = rules(&self.spec, init["instructions"].as_str());
+        let given = init.get("instructions").and_then(Value::as_str).map(str::to_owned);
+        self.instructions = rules(&self.spec, given.as_deref());
         self.notify("notifications/initialized")?;
         let mut tools = Vec::new();
         let mut cursor = None::<String>;
@@ -316,6 +358,11 @@ impl Upstream {
                 Some(next) if !next.is_empty() && tools.len() < 1000 => cursor = Some(next.into()),
                 _ => break,
             }
+        }
+        if let (Some(dir), Some(key)) = (&self.listings, &key) {
+            let listing =
+                super::upstream_listing::Listing { tools: tools.clone(), instructions: given };
+            super::upstream_listing::store(dir, &self.spec, key, &listing);
         }
         self.tools = Some(tools);
         self.failed = None;
@@ -413,11 +460,25 @@ impl Proxied {
     }
 }
 
+/// Claude Code's name of the tool call a `tools/call` runs for (`_meta`), which its PreToolUse
+/// hook got too, with the subagent that made the call (acpmux's `bg_hook.rs` records it there).
+pub(super) const TOOL_USE_ID: &str = "claudecode/toolUseId";
+
+/// The `_meta` a call to cmux passes on to a proxied server's call it makes, its own or a
+/// `cmux_exec` script's: Claude Code's tool use id ([`TOOL_USE_ID`]), so acpmux's server knows
+/// which subagent called (W5-M, 2026-11-08). Nothing else: a progress token names this call.
+pub(super) fn passed_meta(params: &Value) -> Option<Value> {
+    let id = params.pointer("/_meta")?.get(TOOL_USE_ID)?.as_str()?;
+    Some(json!({ TOOL_USE_ID: id }))
+}
+
 /// A proxied tool call, runnable on any thread.
 pub(super) struct ProxiedCall {
     pub inner: std::sync::Arc<std::sync::Mutex<Upstream>>,
     pub name: String,
     pub arguments: Value,
+    /// What it passes on of its caller's `_meta` ([`passed_meta`]).
+    pub meta: Option<Value>,
     /// A computer use call's setup check (`computer_use_gate`).
     pub gate: Gate,
 }
@@ -432,13 +493,19 @@ impl ProxiedCall {
             return result;
         }
         let mut upstream = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Err(message) = upstream.connect() {
+            let error = json!({"code": "upstream.failed",
+                "message": format!("{}: {message}", upstream.name()),
+                "details": {}, "retryable": true});
+            return super::tool_error(super::envelope(error, "not_run", None));
+        }
         let Some(tool) = upstream.owns(&self.name) else {
             let error = json!({"code": "upstream.failed", "message": format!(
                 "{}: the server no longer lists {}", upstream.name(), self.name),
                 "details": {}, "retryable": true});
             return super::tool_error(super::envelope(error, "not_run", None));
         };
-        match upstream.call(&tool, self.arguments, cap) {
+        match upstream.call(&tool, self.arguments, self.meta.as_ref(), cap) {
             Ok(result) => result,
             Err((message, state)) => {
                 let error = json!({
@@ -497,7 +564,9 @@ impl<B: super::Backend> super::Server<B> {
             Some(Value::Object(arguments)) => arguments.clone(),
             Some(_) => return None,
         };
-        self.proxied_tool(name, &arguments)
+        let mut job = self.proxied_tool(name, &arguments)?;
+        job.meta = passed_meta(params);
+        Some(job)
     }
 
     /// The call of `name` when it is a proxied server's tool.
@@ -536,6 +605,7 @@ impl<B: super::Backend> super::Server<B> {
             ),
             None => Gate::Run,
         };
-        Some(ProxiedCall { inner, name: name.to_owned(), arguments, gate })
+        let meta = self.call_meta.clone();
+        Some(ProxiedCall { inner, name: name.to_owned(), arguments, meta, gate })
     }
 }

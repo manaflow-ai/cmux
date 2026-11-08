@@ -18,6 +18,8 @@ import {
   ACTION_RUN,
   CLIPBOARD_WRITE,
   HistoryOps,
+  type CookieBackup,
+  type CookieBackupsDeleted,
   type HistoryChanged,
   type HistoryEntry,
   type HistoryListParams,
@@ -39,6 +41,8 @@ export interface HistorySnapshot {
   connection: Connection;
   /** The last failed intent's message, cleared by the next success. */
   error?: string;
+  /** The Cookie Backups panel: open, and its rows once read (newest first). */
+  cookieBackups: { open: boolean; loading: boolean; backups: CookieBackup[]; error?: string };
 }
 
 export interface HistoryStoreOptions {
@@ -54,6 +58,13 @@ export class HistoryStore {
   private unsubscribe?: () => void;
   private unpage?: () => void;
   private starting = false;
+  private subscribingChanges = false;
+  /** A reconnect came while a subscribe was pending: follow again once it settles. */
+  private refollowQueued = false;
+  /** Counts the owner link's returns; a subscribe from before the last one is for the lost link. */
+  private linkEpoch = 0;
+  private changesUnsupported = false;
+  private lifetime = 0;
 
   constructor(
     private readonly client: PageClient | null,
@@ -67,7 +78,54 @@ export class HistoryStore {
       groups: [],
       loading: client !== null,
       connection: client ? "connecting" : "disconnected",
+      cookieBackups: { open: false, loading: false, backups: [] },
     };
+  }
+
+  private backupsGeneration = 0;
+
+  /** Opens the Cookie Backups panel and reads its rows. */
+  showCookieBackups(): Promise<void> {
+    this.set({ cookieBackups: { ...this.snapshot.cookieBackups, open: true } });
+    return this.readCookieBackups();
+  }
+
+  hideCookieBackups(): void {
+    ++this.backupsGeneration;
+    this.set({ cookieBackups: { open: false, loading: false, backups: [] } });
+  }
+
+  /** Reads the backups; an older read that lost to a newer one (a delete starts one) is dropped. */
+  private async readCookieBackups(): Promise<void> {
+    if (!this.client) return;
+    const generation = ++this.backupsGeneration;
+    this.set({ cookieBackups: { ...this.snapshot.cookieBackups, loading: true } });
+    try {
+      const result = await this.client.call<{ backups: CookieBackup[] }>(HistoryOps.cookieBackupsList, {});
+      if (generation !== this.backupsGeneration) return;
+      const backups = (result?.backups ?? []).map((backup) => ({
+        ...backup,
+        created_at_ms: Number(backup.created_at_ms),
+      }));
+      this.set({ cookieBackups: { open: true, loading: false, backups } });
+    } catch (error) {
+      if (generation !== this.backupsGeneration) return;
+      this.set({ cookieBackups: { ...this.snapshot.cookieBackups, loading: false, error: message(error) } });
+    }
+  }
+
+  /** Deletes backups for good: the app asks the person first (an agent can no longer undo those
+   * clears); a cancelled question changes nothing. */
+  async deleteCookieBackups(ids: string[]): Promise<void> {
+    if (!this.client || ids.length === 0) return;
+    try {
+      const result = await this.client.call<CookieBackupsDeleted>(HistoryOps.cookieBackupsDelete, { ids });
+      if (!result?.confirmed || !this.snapshot.cookieBackups.open) return;
+    } catch (error) {
+      this.set({ cookieBackups: { ...this.snapshot.cookieBackups, error: message(error) } });
+      return;
+    }
+    await this.readCookieBackups();
   }
 
   getSnapshot = (): HistorySnapshot => this.snapshot;
@@ -81,54 +139,130 @@ export class HistoryStore {
     };
   };
 
-  /** Subscribes to changes and loads the first window. Idempotent. */
+  /** Follows the owner link, then history changes, then loads the first window. Idempotent. The
+   * link comes first so a change stream that fails now is asked for again on the next reconnect. */
   async start(): Promise<void> {
-    if (!this.client || this.unsubscribe || this.starting) return;
+    if (!this.client || this.unsubscribe || this.unpage || this.starting) return;
+    const lifetime = ++this.lifetime;
+    const alive = () => lifetime === this.lifetime;
     this.starting = true;
     try {
-      const unsubscribe = await this.client.subscribe<HistoryChanged>(HistoryOps.changed, () => void this.reload());
-      if (this.listeners.size === 0 && !this.starting) {
-        unsubscribe();
-        return;
+      try {
+        const unpage = await subscribePageStreams(this.client, {
+          onConnection: (connected) => {
+            if (alive()) this.onConnection(connected, alive);
+          },
+        });
+        if (!alive()) {
+          unpage();
+          return;
+        }
+        this.unpage = unpage;
+      } catch (error) {
+        if (!alive()) return;
+        this.set(failure(error));
       }
-      this.unsubscribe = unsubscribe;
-    } catch (error) {
-      // An owner without the change stream still answers reads: show the list without live
-      // updates. Any other failure is a lost host.
-      if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op")) {
-        this.set({ connection: "disconnected", loading: false, error: message(error) });
-        return;
-      }
+      // The entries do not wait on the change stream: the list is the app's read model (its own log,
+      // every machine's commands), which can answer while the local daemon's stream is down.
+      if (alive()) await this.followChanges(alive);
+      if (alive()) await this.reload();
     } finally {
-      this.starting = false;
+      if (alive()) this.starting = false;
     }
-    try {
-      this.unpage = await subscribePageStreams(this.client, {
-        onConnection: (connected) => this.onConnection(connected),
-      });
-    } catch (error) {
-      this.set(failure(error));
-    }
-    await this.reload();
   }
 
   stop(): void {
+    ++this.lifetime;
+    ++this.generation;
     this.starting = false;
+    this.subscribingChanges = false;
+    this.refollowQueued = false;
+    this.changesUnsupported = false;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
     this.unpage?.();
     this.unpage = undefined;
   }
 
-  /** The host reports the owner link: down shows the disconnected state; back up re-reads. */
-  private onConnection(connected: boolean): void {
+  /** Subscribes to `history-changed` unless it already is; true when it follows them (subscribed,
+   * or an owner without the stream). A failure shows the disconnected state until a read answers;
+   * the next reconnect asks again. */
+  private async followChanges(alive: () => boolean): Promise<boolean> {
+    if (!this.client) return false;
+    if (this.unsubscribe || this.changesUnsupported) return true;
+    if (this.subscribingChanges) {
+      this.refollowQueued = true;
+      return false;
+    }
+    this.subscribingChanges = true;
+    const epoch = this.linkEpoch;
+    try {
+      const unsubscribe = await this.client.subscribe<HistoryChanged>(HistoryOps.changed, () => {
+        if (alive()) void this.reload();
+      });
+      if (!alive()) {
+        unsubscribe();
+        return false;
+      }
+      // The link went down and came back while this was pending: the queued follow asks again.
+      if (epoch !== this.linkEpoch) {
+        unsubscribe();
+        return false;
+      }
+      this.unsubscribe = unsubscribe;
+      return true;
+    } catch (error) {
+      if (!alive() || epoch !== this.linkEpoch) return false;
+      // Older owners without a change stream can still answer reads.
+      if (isPageError(error) && error.code === "cmux.protocol.unknown_op") {
+        this.changesUnsupported = true;
+        return true;
+      }
+      this.set({ connection: "disconnected", loading: false, error: message(error) });
+      return false;
+    } finally {
+      if (alive()) {
+        this.subscribingChanges = false;
+        // A reconnect that came while this was pending asked for a fresh stream; if this one
+        // failed (or belonged to the lost link), nothing else would ask again.
+        if (this.refollowQueued) {
+          this.refollowQueued = false;
+          queueMicrotask(() => this.refollow(alive));
+        }
+      }
+    }
+  }
+
+  /** Follows the changes, then re-reads. */
+  private refollow(alive: () => boolean): void {
+    if (!alive()) return;
+    void (async () => {
+      await this.followChanges(alive);
+      if (alive()) await this.reload();
+    })();
+  }
+
+  /** The host reports the owner link: down shows the disconnected state; back up (or up with no
+   * change stream yet) follows the changes again, then re-reads. */
+  private onConnection(connected: boolean, alive: () => boolean): void {
     if (!connected) {
       this.set({ connection: "disconnected", loading: false });
-    } else if (this.snapshot.connection === "disconnected") {
-      // The lost link's error would show again as a banner while the re-read is on its way.
-      this.set({ connection: "connecting", error: undefined });
-      void this.reload();
+      return;
     }
+    const wasDown = this.snapshot.connection === "disconnected";
+    if (!wasDown && (this.unsubscribe || this.changesUnsupported || this.subscribingChanges || this.starting)) return;
+    if (wasDown) {
+      this.linkEpoch += 1;
+      // The owner may have been replaced (an upgraded daemon): ask for the change stream again
+      // even when the old one did not have it.
+      this.changesUnsupported = false;
+      // The old stream ended with the link; ask for a fresh one. The lost link's error would show
+      // again as a banner while the re-read is on its way.
+      this.unsubscribe?.();
+      this.unsubscribe = undefined;
+      this.set({ connection: "connecting", error: undefined });
+    }
+    this.refollow(alive);
   }
 
   setText(text: string): void {
@@ -181,7 +315,7 @@ export class HistoryStore {
 
   /** Runs the row's restore action in the app (page open, go to, reopen, resume, run again). */
   open(entry: HistoryEntry, newTab = false): Promise<void> {
-    return this.intent(ACTION_RUN, { action: "history.open", args: { id: entry.id, new_tab: newTab } }, false);
+    return this.intent(ACTION_RUN, { action: "history.open", args: { id: entry.id, newTab } }, false);
   }
 
   remove(entry: HistoryEntry): Promise<void> {
@@ -191,13 +325,18 @@ export class HistoryStore {
   removeSite(entry: HistoryEntry): Promise<void> {
     const host = siteHost(entry);
     if (!host) return Promise.resolve();
-    return this.intent(HistoryOps.removeSite, { host, profile: entry.profile, idempotency_key: this.key() });
+    // Every profile's visits to the host go, as the native page's Remove All from This Site did.
+    return this.intent(HistoryOps.removeSite, { host, idempotency_key: this.key() });
   }
 
   /** Clears the range of the kinds the filter shows (every kind under All). */
   clear(range: HistoryRange): Promise<void> {
     const kinds = filterKinds(this.snapshot.filter);
-    return this.intent(HistoryOps.clear, { range, ...(kinds.length ? { kinds } : {}), idempotency_key: this.key() });
+    return this.intent(HistoryOps.clear, {
+      range,
+      ...(kinds.length ? { kinds } : {}),
+      idempotency_key: this.key(),
+    });
   }
 
   async copy(text: string): Promise<void> {
@@ -211,16 +350,19 @@ export class HistoryStore {
 
   private async intent(op: string, params: unknown, reread = true): Promise<void> {
     if (!this.client) return;
+    const lifetime = this.lifetime;
     try {
       await this.client.call(op, params);
+      if (lifetime !== this.lifetime) return;
       if (this.snapshot.error) this.set({ error: undefined });
     } catch (error) {
+      if (lifetime !== this.lifetime) return;
       this.set(failure(error));
       return;
     }
     // The provider also emits `cmux.history.changed`; re-reading here keeps the page correct when
     // the event is late, and the generation check drops the duplicate reply.
-    if (reread) await this.reload();
+    if (lifetime === this.lifetime && reread) await this.reload();
   }
 
   private key(): string {

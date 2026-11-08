@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxSpinner
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -31,11 +32,15 @@ public struct ConnectMacSteps: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            step(1, signInText)
+            if onlineMac == nil, noMacsForAccount {
+                otherAccount
+            } else {
+                step(1, signInText)
+            }
+            // A Mac with connections disabled has not registered with the account either.
             step(2, Text("In cmux on your Mac, turn on \(Text("Settings → Mobile → Allow iPhone Connections").fontWeight(.semibold))."))
             status
                 .padding(.top, 6)
-            if onlineMac == nil, noMacsForAccount { otherAccount }
         }
         .frame(maxWidth: 340, alignment: .leading)
     }
@@ -45,16 +50,7 @@ public struct ConnectMacSteps: View {
     /// method can make another account for the same person).
     private var otherAccount: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Group {
-                if let email, !email.isEmpty {
-                    Text("No Macs are signed in as \(Text(email).fontWeight(.semibold)). If your Mac uses a different account, sign in with the same one on both.")
-                } else {
-                    Text("No Macs are signed in to this account. If your Mac uses a different account, sign in with the same one on both.")
-                }
-            }
-            .font(theme.type.rowSubtitle)
-            .foregroundStyle(theme.colors.label2)
-            .fixedSize(horizontal: false, vertical: true)
+            step(1, signInText)
             if let openAccount {
                 Button("Account Settings", action: openAccount)
                     .font(theme.type.rowSubtitle.weight(.semibold))
@@ -62,14 +58,13 @@ public struct ConnectMacSteps: View {
                     .accessibilityIdentifier("connect-mac.account")
             }
         }
-        .accessibilityIdentifier("connect-mac.other-account")
     }
 
     private var signInText: Text {
         if let email, !email.isEmpty {
-            return Text("Open cmux on your Mac and sign in as \(Text(email).fontWeight(.semibold)).")
+            return Text("Sign in to cmux on your Mac as \(Text(email).fontWeight(.semibold)).")
         }
-        return Text("Open cmux on your Mac and sign in with this account.")
+        return Text("Sign in to cmux on your Mac with this account.")
     }
 
     private func step(_ number: Int, _ text: Text) -> some View {
@@ -98,7 +93,7 @@ public struct ConnectMacSteps: View {
                     Text("\(onlineMac) is online")
                 }
             } else {
-                ProgressView().controlSize(.small)
+                CmuxSpinner().controlSize(.small)
                 Text("Waiting for your Mac…")
             }
         }
@@ -106,7 +101,7 @@ public struct ConnectMacSteps: View {
         .foregroundStyle(theme.colors.label2)
         .frame(minHeight: 22)
         .contentTransition(.opacity)
-        .animation(theme.motion.snappy.animation, value: onlineMac)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: onlineMac)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("connect-mac.status")
     }

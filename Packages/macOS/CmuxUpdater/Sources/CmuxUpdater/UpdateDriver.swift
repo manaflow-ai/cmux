@@ -44,6 +44,14 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     var ring: UpdateRing = .nightly
     /// Builds at or below this are not offered (``UpdateController/skipsBuildsThrough``).
     var skipsBuildsThrough: String?
+    /// A found build waits for a click even in background mode (``UpdateController/asksBeforeInstalling``).
+    var asksBeforeInstalling = false
+    /// Builds the host refuses (``UpdateController/refusesUpdate``).
+    var refusesBuild: (@MainActor (String) -> Bool)?
+    /// The host's bounded refusal-policy read, awaited before any item is accepted.
+    var prepareUpdate: (@MainActor () async -> Void)?
+    private var preparedOfferGeneration: UInt64 = 0
+    private var preparedOfferReply: (@Sendable (SPUUserUpdateChoice) -> Void)?
     /// The update a background check accepted, and its held install once it is ready.
     var backgroundItem: SUAppcastItem?
     var stagedInstall: (() -> Void)?
@@ -70,6 +78,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// terminals, agents and running turns across the app relaunch. The flag applies to automatic
     /// installs too; a staged update must never wait behind live work on that host.
     var holdsUserInstalls = true
+    /// Bytes the download in progress received. Sparkle reports each network chunk (thousands a
+    /// second, on the main thread); the model hears of them only when the shown percent changes.
+    private var downloadedBytes: UInt64 = 0
     /// The update Sparkle's own silent driver staged (`willInstallUpdateOnQuit`), which never
     /// reaches ``backgroundItem``; read only while its "Restart to Complete Update" state holds.
     var quitInstallItem: SUAppcastItem?
@@ -129,9 +140,49 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     func showUpdateFound(with appcastItem: SUAppcastItem,
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+        invalidatePreparedOffer()
+        if quitInstallItem?.versionString == appcastItem.versionString, installsInBackground {
+            // Skip is the only public reply that cancels Sparkle's already-running silent
+            // installer. Do not expose that reply as the ordinary staged/quit cancellation:
+            // Sparkle records a skipped version here. After this cycle finishes, a fresh
+            // foreground check clears Sparkle's skipped state and downloads through our own
+            // driver, whose ready reply cancels without skipping the version (Sparkle 2.10).
+            quitInstallItem = nil
+            eventDelegate?.updateDriverNeedsSilentInstallResume()
+            reply(.skip)
+            return
+        }
+        guard let prepareUpdate else { return handleUpdateFound(appcastItem, reply: reply) }
+        let generation = preparedOfferGeneration
+        preparedOfferReply = reply
+        Task { @MainActor [weak self] in
+            await prepareUpdate()
+            guard let self, self.preparedOfferGeneration == generation else { return }
+            self.preparedOfferReply = nil
+            self.handleUpdateFound(appcastItem, reply: reply)
+        }
+    }
+
+    /// A policy read belongs to one check. Replacing/cancelling/ending that check releases its
+    /// Sparkle reply at once; a later read completion cannot publish or download its old item.
+    func invalidatePreparedOffer() {
+        preparedOfferGeneration &+= 1
+        let reply = preparedOfferReply
+        preparedOfferReply = nil
+        reply?(.dismiss)
+    }
+
+    private func handleUpdateFound(_ appcastItem: SUAppcastItem,
+                                   reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
         log.append("show update found: \(appcastItem.displayVersionString)")
         if let skip = skipsBuildsThrough, appcastItem.versionString.compare(skip, options: .numeric) != .orderedDescending {
             log.append("not offering \(appcastItem.versionString): a rollback left it (skips through \(skip))")
+            setState(.idle)
+            return reply(.dismiss)
+        }
+        // Before the background accept too: a refused build never downloads.
+        if refusesBuild?(appcastItem.versionString) == true {
+            log.append("not offering \(appcastItem.versionString): the host refuses it")
             setState(.idle)
             return reply(.dismiss)
         }
@@ -139,7 +190,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         available.reply.onConsumed = { [weak self] reply, choice, source in
             self?.handlePromptReply(reply, choice: choice, source: source, item: appcastItem)
         }
-        if installsInBackground && downloadsInBackground { return acceptInBackground(available) }
+        // On a build the person picked (a rollback or Install this version) a newer build waits for
+        // their click, never installs by itself: they chose this build, so forward is theirs too.
+        if installsInBackground && downloadsInBackground && !asksBeforeInstalling { return acceptInBackground(available) }
         setState(.updateAvailable(available))
     }
 
@@ -185,6 +238,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func showDownloadInitiated(cancellation: @escaping () -> Void) {
         log.append("show download initiated")
+        downloadedBytes = 0
         setState(.downloading(.init(
             cancel: { [weak self] in
                 cancellation()
@@ -201,6 +255,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         guard case let .downloading(downloading) = model.state else {
             return
         }
+        downloadedBytes = 0
         setState(.downloading(.init(
             cancel: downloading.cancel,
             expectedLength: expectedContentLength,
@@ -208,14 +263,25 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     }
 
     func showDownloadDidReceiveData(ofLength length: UInt64) {
-        log.append("download received data: \(length)")
         guard case let .downloading(downloading) = model.state else {
+            return
+        }
+        downloadedBytes = max(downloadedBytes, downloading.progress) &+ length
+        let step = Self.downloadStep(bytes: downloadedBytes, expected: downloading.expectedLength)
+        let complete = downloading.expectedLength.map { downloadedBytes >= $0 } ?? false
+        guard complete || step != Self.downloadStep(bytes: downloading.progress, expected: downloading.expectedLength) else {
             return
         }
         setState(.downloading(.init(
             cancel: downloading.cancel,
             expectedLength: downloading.expectedLength,
-            progress: downloading.progress + length)))
+            progress: downloadedBytes)))
+    }
+
+    /// The download's shown step: its whole percent, or each MiB while the length is unknown.
+    static func downloadStep(bytes: UInt64, expected: UInt64?) -> UInt64 {
+        guard let expected, expected > 0 else { return bytes >> 20 }
+        return UInt64((Double(bytes) / Double(expected) * 100).rounded(.down))
     }
 
     func showDownloadDidStartExtractingUpdate() {
@@ -223,9 +289,21 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         setState(.extracting(.init(progress: 0)))
     }
 
+    /// Sparkle calls this once per archive entry: thousands of times a second, on the main thread
+    /// (3,000 to 4,600 a second on Nov 7, when NIGHTLY showed "Not Responding"). Only a change of
+    /// the shown whole percent reaches the model and the log.
     func showExtractionReceivedProgress(_ progress: Double) {
+        if case .extracting(let extracting) = model.state,
+           Self.percent(extracting.progress) == Self.percent(progress) {
+            return
+        }
         log.append(String(format: "show extraction progress: %.2f", progress))
         setState(.extracting(.init(progress: progress)))
+    }
+
+    /// `progress` (`0...1`) as the whole percent the update surfaces show.
+    static func percent(_ progress: Double) -> Int {
+        Int((min(max(progress, 0), 1) * 100).rounded(.down))
     }
 
     func showReady(toInstallAndRelaunch reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
@@ -410,10 +488,12 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// Replaces the visible state. Controller paths that supersede a check use this instead of
     /// mutating the model directly.
     func replaceActiveState(with replacement: UpdateState) {
+        invalidatePreparedOffer()
         model.replaceActiveState(with: replacement)
     }
 
     private func beginChecking(cancel: @escaping () -> Void) {
+        invalidatePreparedOffer()
         model.setOverrideState(nil)
         checkTimeoutTask?.cancel()
         checkTimeoutTask = nil
@@ -422,6 +502,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
                 cancel()
                 return
             }
+            self.invalidatePreparedOffer()
             self.log.append("update check cancellation requested (source=\(source))")
             if source == .user {
                 self.eventDelegate?.updateDriverUserDidCancelCheck()
@@ -435,6 +516,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     }
 
     func setState(_ newState: UpdateState) {
+        invalidatePreparedOffer()
         checkTimeoutTask?.cancel()
         checkTimeoutTask = nil
         applyState(newState)

@@ -12,8 +12,13 @@ use std::sync::Mutex;
 
 /// The requests whose reply names a session the pane started (`/btw`'s side
 /// session included).
-pub const STARTING: [&str; 4] =
-    ["session/new", "acp.session.fork", "_acpmux/handoff_start", "_acpmux/btw"];
+pub const STARTING: [&str; 5] = [
+    "session/new",
+    "chat.fix_from_link",
+    "acp.session.fork",
+    "_acpmux/handoff_start",
+    "_acpmux/btw",
+];
 /// The requests whose reply is a handoff record (`handoffId`, `source.sessionId`).
 pub const HANDOFF_RECORDS: [&str; 4] = [
     "_acpmux/handoff_prepare",
@@ -54,6 +59,32 @@ impl PaneSessions {
     /// The user or the host opened `session` in this pane.
     pub fn add(&self, session: &str) {
         self.lock().sessions.insert(session.to_owned());
+    }
+
+    /// The pane has no session and starts none: its chat has not begun (no
+    /// prompt sent).
+    pub fn is_unstarted(&self) -> bool {
+        let s = self.lock();
+        s.sessions.is_empty() && s.awaiting.is_empty()
+    }
+
+    /// A chat on another machine (only a remote wire's frames): the remote
+    /// daemon's `_acpmux/watch` reply names the session it attached for the
+    /// tab (`tabSessionId`), and the page opens it, so it is the pane's
+    /// (Swift `observeTabSession`).
+    pub fn observe_tab_session(&self, object: &Map<String, Value>, reply_to: Option<&str>) {
+        if reply_to != Some("_acpmux/watch") || object.contains_key("method") {
+            return;
+        }
+        let session = object
+            .get("result")
+            .and_then(Value::as_object)
+            .and_then(|r| r.get("tabSessionId"))
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty());
+        if let Some(session) = session {
+            self.add(session);
+        }
     }
 
     /// The pane sent `method` with raw id `id`. `owned`: a click let the pane

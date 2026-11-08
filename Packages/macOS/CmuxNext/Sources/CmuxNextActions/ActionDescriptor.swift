@@ -24,6 +24,10 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     /// cmux MCP server puts it first in the action's tool description. The GUI
     /// does not show it. Nil when the catalog has none yet.
     public var description: String?
+    /// One localized line the GUI shows for the action beside its title: the palette row's
+    /// subtitle while it can run, and its Settings button's tooltip. Nil for most actions; for the
+    /// ones whose title alone does not say what a person gets (Edit cmux Live…).
+    public var hint: String?
     public var keywords: [String]
     public var defaultShortcut: Shortcut?
     /// Display text for shortcuts a `Shortcut` cannot express, such as the
@@ -113,11 +117,17 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     /// `action.run` with `wait` (the default) then allows that retry budget
     /// instead of failing at the control-plane deadline while the tab opens.
     public var waitsForKeyedCreate: Bool = false
+    /// The action opens a new tab or pane in the window's workspace (New
+    /// Terminal Tab, New Tab, a split): over a top page a person's run leaves
+    /// the page and runs there (``ActionTopPageRules``). The catalog marks
+    /// these in `ActionCatalog.workspaceContentActionIDs`.
+    public var opensWorkspaceContent: Bool = false
 
     public init(
         id: ActionID,
         title: String,
         description: String? = nil,
+        hint: String? = nil,
         keywords: [String] = [],
         defaultShortcut: Shortcut? = nil,
         shortcutLabel: String? = nil,
@@ -138,6 +148,7 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
         self.id = id
         self.title = title
         self.description = description
+        self.hint = hint
         self.keywords = keywords
         self.defaultShortcut = defaultShortcut
         self.shortcutLabel = shortcutLabel

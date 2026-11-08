@@ -67,12 +67,20 @@ final class HostView: NSView {
     var headerGlass: HeaderGlassView?
     /// cmux: no header at all (HeaderGlass.swift `useBareTop`): the rows start near the pane's top and fade out there.
     var bareTop = false
+    /// cmux: room kept clear above the oldest row at rest, in the view's points (Home's pinned
+    /// section, ``MessagesLabHomeView/rowsTopClearance``); 0: none.
+    var extraRowsTop: CGFloat = 0
+    /// cmux: room kept clear under the newest row, in the view's points (Home's toasts,
+    /// ``MessagesLabHomeView/rowsBottomClearance``); 0: none.
+    private(set) var extraRowsBottom: CGFloat = 0
     /// cmux: the chat top's look under the header (HostView+TopFade.swift); nil until Home sets one.
     var topFadeStyle: HomeTopFadeStyle?
     /// cmux: the band of the top fade style, when it draws one of its own (HomeTopFadeView).
     var topFadeView: HomeTopFadeView?
     /// cmux: Reply to Selection's quote over the message box (HostView+QuoteCard.swift); nil when none shows.
     var quoteCard: ReplyQuoteCardView?
+    /// cmux: the Chief composer's `/` menu (HostView+SlashSkills.swift); nil when none shows.
+    var slashMenuView: SlashSkillMenuView?
     private(set) var demo: MessagesWindowView?
     /// cmux: the Chief chat's zoom (MessagesLabHomeView.zoom): this view is laid out at its pane's size over the
     /// zoom and drawn magnified by it; its bitmaps render at the window's scale times it (PaneHost+Scale.swift).
@@ -171,6 +179,13 @@ final class HostView: NSView {
         placeNativeViews()
     }
 
+    /// cmux: sets ``extraRowsBottom``; the rows slide to their new place over `duration` seconds (0: at once).
+    func setExtraRowsBottom(_ value: CGFloat, duration: TimeInterval) {
+        extraRowsBottom = value
+        demo?.setRowsBottomInset(value / max(contentZoom, 0.01), duration: duration)
+        placeNativeViews()
+    }
+
     /// AppKit views follow the shared geometry (model values).
     func placeNativeViews() {
         guard let demo else { return }
@@ -179,11 +194,18 @@ final class HostView: NSView {
         // Below the titlebar (toolbar and name pill accessory): not adjacent
         // to it, so no scroll pocket.
         // cmux: no header (HeaderGlass.swift `useBareTop`): the rows start near the top and fade out there.
-        if bareTop, demo.rowsTopInset != bareRowsTop {
-            demo.rowsTopInset = bareRowsTop
-            demo.topFade = bareRowsTop
+        // cmux: a pinned section under the header keeps the oldest row clear of it (only the top of
+        // the scroll range moves; a chat at rest at its newest message does not).
+        let rowsTop = (bareTop ? bareRowsTop : Fixture.headerHeight + 8) + extraRowsTop / max(contentZoom, 0.01)
+        if demo.rowsTopInset != rowsTop || (bareTop && demo.topFade != bareRowsTop) {
+            demo.rowsTopInset = rowsTop
+            if bareTop { demo.topFade = bareRowsTop }
             demo.setNeedsLayout()
         }
+        // cmux: toasts over the chat keep the newest row above them (`setExtraRowsBottom` slides it there;
+        // a zoom change or a new transcript takes it here at once).
+        let rowsBottom = extraRowsBottom / max(contentZoom, 0.01)
+        if demo.rowsBottomInset != rowsBottom { demo.setRowsBottomInset(rowsBottom, duration: 0) }
         let top = titlebarHeight
         let sf = CGRect(x: 0, y: top, width: bounds.width, height: bounds.height - top)
         if scrollView.frame != sf { scrollView.frame = sf }
@@ -202,6 +224,7 @@ final class HostView: NSView {
         fieldChrome.place(field: demo.compose.fieldRect, plus: demo.compose.plusRect,
                           emoji: CGRect(x: bounds.width - Fixture.windowWidth + 586.5, y: demo.compose.plusRect.minY, width: 31, height: 30))
         placeQuoteCard(above: demo.compose.fieldRect)
+        placeSlashMenu(above: demo.compose.fieldRect)
     }
 
     /// Height of the header area over the content. cmux: the in-pane
@@ -343,8 +366,15 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private(set) var demo: MessagesWindowView?
     /// cmux: where the user's changes go (the HomeStore adapter).
     weak var intents: ChatIntents?
+    var approvalDecision: ((PartRef, Bool) -> Void)?
     /// cmux: a click on an app link (`URL.isCmuxAppLink`): the host runs it; nil opens nothing.
     var onAppLink: ((URL) -> Void)?
+    /// cmux: a click on an agent's pill in an agents row (``HomeAgentFoldRowProvider``): the host opens
+    /// that agent (its id, and the pill's frame in window coordinates); nil: the click opens and closes the row.
+    var onAgentPill: ((String, CGRect) -> Void)?
+    /// cmux: the context menu of an agent's pill: the host's items for that agent (its id); none or nil: the
+    /// message's own menu.
+    var agentPillMenu: ((String) -> [NSMenuItem])?
     /// cmux: the pointer moved over the transcript (or left it: nil), in screen coordinates; the
     /// host's hover cards for link chips follow it (HomeLinkChip).
     var onPointerMoved: ((CGPoint?) -> Void)?
@@ -414,6 +444,17 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// cmux: Reply to Selection's quote while the reply is written (ChatController+ReplyQuote.swift);
     /// nil: a reply answers the whole message.
     var replyQuote: ReplyQuote? { didSet { if replyQuote != oldValue { updateQuoteCard() } } }
+    /// cmux: the skills a Chief chat's `/` menu offers (ChatController+SlashSkills.swift); nil: no menu here.
+    var slashSkills: SlashSkillSource? {
+        didSet {
+            slashSkills?.onChange = { [weak self] in self?.updateSlashMenu() }
+            if slashSkills == nil { slashMenu = nil }
+        }
+    }
+    /// cmux: the `/` menu's state; nil while it is closed.
+    var slashMenu: SlashSkillMenu? { didSet { if slashMenu != oldValue { slashMenuChanged() } } }
+    /// cmux: the draft whose menu Esc closed (or a pick filled): it stays closed until the draft changes.
+    var slashMenuDismissed: String?
     /// Trackpad swipe-to-reply (SwipeReply.swift). cmux: installed only when
     /// the owner can honor `.reply` (`intents.canReply`).
     private(set) lazy var swipe = SwipeReply(controller: self)
@@ -426,12 +467,18 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var onInstalled: [(ChatController) -> Void] = []
     /// cmux: the host's shared stop action (Home: stop the Chief's turn).
     var onStop: (() -> Void)?
+    /// cmux: after an accepted stop, the same button offers Continue until
+    /// the next person message or turn.
+    var onContinue: (() -> Void)?
     /// cmux: the host's Stop all agents (Option-click on the stop button);
     /// nil: Option-click stops as a click does.
     var onStopAll: (() -> Void)?
     /// cmux: the stop button's tooltip while the Chief works (the host's
     /// words, naming Option-click); nil: "Stop".
     var stopToolTip: String? { didSet { updateStopButton() } }
+    /// True after `chief.stop` accepted the running turn and before a new
+    /// message or turn clears the action.
+    var continueAvailable = false { didSet { if continueAvailable != oldValue { updateStopButton() } } }
     /// cmux: whether a pasteboard holds text the field pastes (Cmd+V from the
     /// pane, PaneHost+Keyboard.swift); tests stub it.
     var pasteboardHasText: (NSPasteboard) -> Bool = { $0.availableType(from: [.string]) != nil }
@@ -533,7 +580,12 @@ final class ChatController: NSObject, NSTextViewDelegate {
         let tv = demo.compose.textView
         tv.view.delegate = self
         // cmux: Return while dictating finishes it (the words stay to edit), it does not send.
-        tv.onSend = { [weak self] in if self?.voice.finish() != true { self?.send() } }
+        tv.onSend = { [weak self] in
+            guard let self else { return }
+            // cmux: Return in the `/` menu picks the skill (ChatController+SlashSkills.swift).
+            if slashMenuTakesReturn() { return }
+            if voice.finish() != true { send() }
+        }
         // cmux: the send button sends as Return does, and follows the field and the draft.
         host.sendButton.onSend = { [weak self] in self?.send(); self?.focusCompose() }
         demo.compose.onSlotChange = { [weak self] in self?.placeSendButton(animated: true) }
@@ -599,6 +651,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func dispatch(_ a: Action) {
         guard let store else { return }
+        if case .reply(let ref) = a, intents?.canInteract(with: ref.messageId) == false { return }
         thread.note(a)
         forgetQuote(for: a)
         // MessagesLab bd65bbf (Host.dispatch): a keystroke goes first. Engine jobs due now
@@ -643,6 +696,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         if !selection.isEmpty { selection.refresh() }
         if let demo { host.fieldChrome.follow(field: demo.compose.fieldRect) }
         if replyQuote != nil { placeQuoteCard() }
+        if let demo, slashMenu != nil { host.placeSlashMenu(above: demo.compose.fieldRect) }
         scheduleWake()
     }
 
@@ -710,10 +764,12 @@ final class ChatController: NSObject, NSTextViewDelegate {
         let gone = draft.filter { !shown.contains($0.id) }
         for a in gone { dispatch(.removeDraftAttachment(a.id)) }
         intents?.draftChanged()
+        updateSlashMenu()  // cmux: the `/` menu follows the command
     }
 
     func escape() {
         if picker != nil { closePicker(); return }
+        if dismissSlashMenu() { return }  // cmux: Esc closes the `/` menu first
         // cmux: Esc while dictating drops the words and leaves the draft as it was.
         if voice.cancel() { return }
         // Innermost first. cmux: Reply to Selection: an empty field's Esc takes the quote off
@@ -727,7 +783,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     // MARK: Clicks
 
+    var approvalPress: ApprovalTarget?
+
     func mouseDown(at p: CGPoint, _ e: NSEvent) {
+        approvalPress = picker == nil ? approvalTarget(at: p) : nil
+        if approvalPress != nil { return }
         if let tv = demo?.compose.textView.view, demo?.compose.fieldRect.contains(p) == true { window?.makeFirstResponder(tv); return }
         linkPress = nil
         linkDragTaken = false
@@ -749,6 +809,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
     }
     func mouseDragged(at p: CGPoint, _ e: NSEvent) {
+        if approvalPress != nil { return }
         // cmux: a link pressed and moved past the selection's slop goes to the host as a link drag
         // (a split or pane drop zone); it then owns the gesture, so no selection, click or hold here.
         if linkDragTaken { return }
@@ -783,6 +844,11 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
     }
     func mouseUp(at p: CGPoint, _ e: NSEvent) {
+        if let pressed = approvalPress {
+            approvalPress = nil
+            if approvalTarget(at: p) == pressed { _ = approvalClicked(at: p) }
+            return
+        }
         if linkDragTaken {
             linkDragTaken = false
             _ = selection.mouseUp()
@@ -813,16 +879,46 @@ final class ChatController: NSObject, NSTextViewDelegate {
         // cmux: a long message's "Show all N lines" band expands it, "Show less" folds it again
         // (the vendored handler had no caller here: the band took no click, Lawrence 2026-10-21).
         if demo.longTextBandHit(p) { return }
+        if approvalClicked(at: p) { return }
         if let hit = demo.hit(p) {
             // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
             if openLink(hit, at: p) { return }
             // cmux: a reply's quote shows its words in the original (ChatController+ReplyQuote.swift).
             if quoteClicked(hit, at: p) { return }
+            // cmux: a click on an agent's pill opens its chat in the host's agent pane.
+            if let onAgentPill, case let .custom(custom) = hit.row.part,
+               let pill = HomeAgentFoldRowProvider.pill(custom, at: CGPoint(x: p.x - hit.body.minX, y: p.y - hit.body.minY),
+                                                        width: hit.body.width) {
+                onAgentPill(pill.peer, host.convert(pill.rect.offsetBy(dx: hit.body.minX, dy: hit.body.minY), to: nil))
+                return
+            }
+            // cmux: a picture in a table card opens in the large picture viewer, with the table's other pictures
+            // (the user, 2026-11-05: "i want to be able to expand and annotate").
+            if case let .custom(custom) = hit.row.part, custom.kind == HomeTableRowProvider.kind,
+               openTablePicture(custom, at: CGPoint(x: p.x - hit.body.minX, y: p.y - hit.body.minY), width: hit.body.width,
+                                body: hit.body.origin) {
+                return
+            }
+            // cmux: an agents row opens or closes (HomeStore.toggleAgentMessages).
+            if intents?.agentRowClicked(hit.row.ref.messageId) == true { return }
+            // cmux: a Feed row in the main Chief's transcript opens what it is about (HomeFeedRow.url).
+            if let url = intents?.feedRowURL(hit.row.ref.messageId) {
+                if url.isCmuxAppLink || url.isHomePathLink { onAppLink?(url) } else { onOpenLink(url, false) }
+                return
+            }
             switch hit.row.part {
             // cmux: the bytes come from HomeStore (Host.swift opened a fixture asset).
             // cmux: a video plays or pauses in its bubble (opening it in an
             // app is in the context menu); other attachments open.
-            case let .attachment(a) where a.kind == "video": intents?.toggleVideo(hit.row.ref, a.id)
+            // cmux: its expand button (shown once it played) opens the large viewer (the user, 2026-10-30).
+            case let .attachment(a) where a.kind == "video":
+                if intents?.videoState(hit.row.ref) != .poster, HomeVideo.expandRect(body: hit.body).insetBy(dx: -4, dy: -4).contains(p) {
+                    intents?.openVideo(hit.row.ref, a.id)
+                } else {
+                    intents?.toggleVideo(hit.row.ref, a.id)
+                }
+            // cmux: a picture opens large, to zoom and mark up (opening it in an app is in the context menu).
+            case let .attachment(a) where a.kind == "image": openPictureAttachment(hit.row.ref.messageId, a.id)
             case let .attachment(a): intents?.openAttachment(hit.row.ref.messageId, a.id)
             // cmux: a plain click on a bubble (no selection made) leaves the field ready to type
             // (Lawrence 2026-10-18: Home focused means the message box has the keyboard).
@@ -836,14 +932,18 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     /// Real Messages (MessagesLab 7f1a811): a double-click on a bubble selects
     /// the word under the cursor; the picker is press and hold.
+    /// cmux: a double-click on a video opens it in the large viewer (the user, 2026-10-30: "i want to
+    /// double click it and see it bigger").
     func doubleClicked(_ p: CGPoint) {
-        guard demo?.hit(p) != nil else { return }
+        guard let hit = demo?.hit(p) else { return }
+        if case let .attachment(a) = hit.row.part, a.kind == "video" { intents?.openVideo(hit.row.ref, a.id); return }
         if selection.selectWord(at: p) { window?.makeFirstResponder(host.scrollView.document) }
     }
 
     // MARK: Tapback picker
 
     func showPicker(for hit: MessagesWindowView.Hit) {
+        guard intents?.canInteract(with: hit.row.ref.messageId) != false else { return }
         closePicker()
         let mine = hit.row.reactions.first { $0.senderId == store?.state.me }?.kind
         let p = TapbackPickerView(ref: hit.row.ref, selected: mine) { [weak self] kind in

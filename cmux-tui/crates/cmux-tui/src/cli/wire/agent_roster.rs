@@ -1,12 +1,18 @@
 //! `agent list`: the `agent.list` rows ranked by who needs the person,
-//! limited, counted by state, and joined with their terminals' titles and
-//! folders. The daemon's rows are unchanged; only the CLI shapes them.
+//! limited, counted by status, and joined with their terminals' titles and
+//! folders. The daemon's fields are unchanged; the CLI adds `status`, the
+//! one status vocabulary (`working`, `blocked`, `done`, `idle`, `unknown`;
+//! `cmux_tui_core::AgentStatus`) that `terminal list --agents` and the TUI
+//! show. `done` is a finished turn nobody has viewed (the terminal's unread
+//! notification); the daemon's own `state` keeps `done` for a session that
+//! ended, which has `status: null` and counts as `ended`.
 
 use std::borrow::Cow;
 use std::cmp::Reverse;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::BufReader;
 
+use cmux_tui_core::AgentStatus;
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::resource::ResourceOperation;
 use ratatui::buffer::CellWidth;
@@ -15,8 +21,35 @@ use serde_json::{Map, Value, json};
 use super::super::command::{AgentRosterView, AgentSort, RequestPlan, ResponseView};
 use super::{append_table_row, human_cell, sanitize_human_cell};
 
-/// The states in the order the counts line names them.
-const STATES: [&str; 5] = ["blocked", "working", "idle", "done", "unknown"];
+/// The status words in the order the counts line names them (the TUI's
+/// attention order), then `ended` for a session that ended.
+const STATUSES: [&str; 6] = ["blocked", "done", "working", "idle", "unknown", "ended"];
+
+/// The status word of a row whose session ended (`status: null`).
+const ENDED: &str = "ended";
+
+/// The daemon `state` that `agent list --state <status>` asks for; the CLI
+/// then keeps the rows whose `status` is that word. `done` and `idle` are
+/// both the daemon's `idle` (the unread marker tells them apart), and
+/// `ended` is the daemon's `done`.
+pub(in crate::cli) fn daemon_state_for_status(status: &str) -> &str {
+    match status {
+        "done" | "idle" => "idle",
+        ENDED => "done",
+        other => other,
+    }
+}
+
+/// The terminals with an unread notification: a turn finished there that
+/// nobody has viewed (done-until-seen). `notifications` are
+/// `notification.list` (or `session.snapshot`) rows.
+pub(in crate::cli) fn unseen_terminals(notifications: &[Value]) -> HashSet<&str> {
+    notifications
+        .iter()
+        .filter(|notification| notification["unread"] == true)
+        .filter_map(|notification| notification["terminal_id"].as_str())
+        .collect()
+}
 
 /// The widest TITLE cell, in characters, ellipsis included.
 const MAX_TITLE: usize = 48;
@@ -32,20 +65,192 @@ pub(super) fn with_terminals(
 ) -> Value {
     let ResponseView::AgentRoster(view) = plan.view else { return result };
     let route = plan.params.as_object().map(super::super::resolve::route).unwrap_or_default();
-    let terminals = super::super::resolve::read(reader, ResourceOperation::TerminalList, route)
-        .ok()
-        .and_then(|terminals| terminals.as_array().cloned())
-        .unwrap_or_default();
-    shape(result, &terminals, view, unix_ms())
+    let terminals =
+        super::super::resolve::read(reader, ResourceOperation::TerminalList, route.clone())
+            .ok()
+            .and_then(|terminals| terminals.as_array().cloned())
+            .unwrap_or_default();
+    // Unread markers make an idle agent `done`. A refused read (an older
+    // daemon) leaves every idle agent `idle`.
+    let mut notification_params = route.clone();
+    notification_params.insert("limit".into(), json!(NOTIFICATION_LIMIT));
+    let notifications = super::super::resolve::read(
+        reader,
+        ResourceOperation::NotificationList,
+        notification_params,
+    )
+    .ok()
+    .and_then(|notifications| notifications.as_array().cloned())
+    .unwrap_or_default();
+    // A bare list is this session's roster: its terminal agents and the
+    // acpmux chats that run in its workspaces (`--all-sessions` lists every
+    // chat). A terminal selector intentionally keeps the daemon's existing
+    // agent.list response and never starts or contacts acpmux.
+    let result = if plan.params.get("terminal_id").is_none() {
+        // A refused or failed workspace read lists no chat: the roster never
+        // widens to other sessions' chats by accident.
+        let workspaces =
+            super::super::resolve::read(reader, ResourceOperation::WorkspaceList, route)
+                .ok()
+                .and_then(|workspaces| workspaces.as_array().cloned())
+                .unwrap_or_default();
+        let keys = workspace_keys(&workspaces);
+        let mut queued_params =
+            plan.params.as_object().map(super::super::resolve::route).unwrap_or_default();
+        queued_params.insert("state".into(), json!("queued"));
+        queued_params.insert("limit".into(), json!(1000));
+        let queued =
+            super::super::resolve::read(reader, ResourceOperation::AgentMessageList, queued_params)
+                .ok()
+                .and_then(|messages| messages.as_array().cloned())
+                .unwrap_or_default();
+        let sessions = super::super::agent_message::acp::sessions().unwrap_or_default();
+        merge_sources(
+            result,
+            &sessions,
+            &queued,
+            plan.params.get("state").and_then(Value::as_str),
+            Some(&keys),
+        )
+    } else {
+        result
+    };
+    shape(result, &terminals, &unseen_terminals(&notifications), view, unix_ms())
+}
+
+/// `notification.list`'s largest `limit`: a session keeps at most this many.
+pub(in crate::cli) const NOTIFICATION_LIMIT: u32 = 256;
+
+/// The keys of `workspaces` (`extra.key`) in one comparable form: lowercase,
+/// without dashes, as the daemon's `agent_message_policy::workspace_key`.
+fn workspace_keys(workspaces: &[Value]) -> HashSet<String> {
+    workspaces
+        .iter()
+        .filter_map(|workspace| workspace.pointer("/extra/key")?.as_str())
+        .map(workspace_key)
+        .collect()
+}
+
+fn workspace_key(value: &str) -> String {
+    value.chars().filter(|ch| *ch != '-').flat_map(char::to_lowercase).collect()
+}
+
+/// Whether the acpmux chat `session` runs in one of `workspaces`: the
+/// workspace it was created from (`createdBy.workspace`; the app names its
+/// pane's workspace, an agent's chat its creator's). `None` takes every chat.
+fn chat_in_scope(session: &Value, workspaces: Option<&HashSet<String>>) -> bool {
+    workspaces.is_none_or(|keys| {
+        session
+            .pointer("/createdBy/workspace")
+            .and_then(Value::as_str)
+            .is_some_and(|workspace| keys.contains(&workspace_key(workspace)))
+    })
+}
+
+/// Add the address and delivery metadata shared by terminal and acpmux rows.
+/// Terminal rows are already filtered by the daemon; the state filter must be
+/// applied to acpmux summaries here because they come from a second source.
+/// `workspaces` limits the chats to those of this session ([`chat_in_scope`]).
+fn merge_sources(
+    rows: Value,
+    sessions: &[Value],
+    queued: &[Value],
+    state: Option<&str>,
+    workspaces: Option<&HashSet<String>>,
+) -> Value {
+    let mut rows = match rows {
+        Value::Array(rows) => rows,
+        other => return other,
+    };
+    let queued = queued_counts(queued);
+    for row in &mut rows {
+        let Some(address) = row.get("terminal_id").and_then(Value::as_str).map(str::to_owned)
+        else {
+            continue;
+        };
+        if let Some(object) = row.as_object_mut() {
+            object.insert("address".into(), Value::String(address.clone()));
+            object.insert("kind".into(), json!("terminal"));
+            object.insert(
+                "queued_messages".into(),
+                json!(queued.get(&address).copied().unwrap_or(0)),
+            );
+        }
+    }
+    for session in sessions {
+        let Some(id) = session.get("sessionId").and_then(Value::as_str) else { continue };
+        if !chat_in_scope(session, workspaces) {
+            continue;
+        }
+        let acp_state =
+            acp_state(session.get("status").and_then(Value::as_str).unwrap_or_default());
+        if state.is_some_and(|wanted| wanted != acp_state) {
+            continue;
+        }
+        let address = format!("acp:{id}");
+        rows.push(json!({
+            "address": address,
+            "kind": "acp",
+            "name": session.get("name").cloned().unwrap_or(Value::String(id.to_owned())),
+            "agent": session.get("harness").cloned().unwrap_or(Value::Null),
+            "state": acp_state,
+            // acpmux's own word; `status` is the shared one ([`shape`]).
+            "acp_status": session.get("status").cloned().unwrap_or(Value::Null),
+            "cwd": session.get("cwd").cloned().unwrap_or(Value::Null),
+            "model": session.get("model").cloned().unwrap_or(Value::Null),
+            "agent_session_id": session.get("agentSessionId").cloned().unwrap_or(Value::Null),
+            "updated_at_ms": session.get("updatedAt").cloned().unwrap_or(json!(0)),
+            "queued_messages": queued.get(&address).copied().unwrap_or(0),
+        }));
+    }
+    Value::Array(rows)
+}
+
+fn queued_counts(messages: &[Value]) -> HashMap<String, u64> {
+    let mut counts = HashMap::new();
+    for message in messages {
+        for delivery in message.get("deliveries").and_then(Value::as_array).into_iter().flatten() {
+            if delivery.get("state").and_then(Value::as_str) == Some("queued")
+                && let Some(recipient) = delivery.get("recipient").and_then(Value::as_str)
+            {
+                *counts.entry(recipient.to_owned()).or_insert(0) += 1;
+            }
+        }
+    }
+    counts
+}
+
+fn acp_state(status: &str) -> &'static str {
+    match status {
+        "running" => "working",
+        "waiting" => "blocked",
+        "idle" | "ready" => "idle",
+        "closed" => "done",
+        _ => "unknown",
+    }
 }
 
 /// [`with_terminals`] for `--all-sessions`: `agents` is the joined rows,
-/// `terminals` every session's terminals.
-pub(in crate::cli) fn across(view: ResponseView, agents: Value, terminals: &[Value]) -> Value {
-    match view {
-        ResponseView::AgentRoster(view) => shape(agents, terminals, view, unix_ms()),
-        _ => agents,
-    }
+/// `terminals` every session's terminals and `notifications` every
+/// session's notifications. Without a terminal selector every acpmux chat
+/// on this machine joins them, whatever its workspace, filtered by
+/// `params.state` as the daemons filtered their rows.
+pub(in crate::cli) fn across(
+    view: ResponseView,
+    agents: Value,
+    terminals: &[Value],
+    notifications: &[Value],
+    params: &Value,
+) -> Value {
+    let ResponseView::AgentRoster(view) = view else { return agents };
+    let agents = if params.get("terminal_id").is_none() {
+        let sessions = super::super::agent_message::acp::sessions().unwrap_or_default();
+        let state = params.get("state").and_then(Value::as_str);
+        merge_sources(agents, &sessions, &[], state, None)
+    } else {
+        agents
+    };
+    shape(agents, terminals, &unseen_terminals(notifications), view, unix_ms())
 }
 
 /// What a machine-readable mode prints. `--json` stays the bare ranked
@@ -83,23 +288,41 @@ fn unix_ms() -> u64 {
 }
 
 /// The printed roster: `{"agents":[...],"counts":{...}}`. Each agent keeps
-/// every daemon field and gains `age_ms` (since its `updated_at_ms`) and,
-/// when its terminal is in `terminals`, that terminal's `title` and `cwd`.
-/// `counts` covers every listed agent, before `view.limit`.
-pub(super) fn shape(rows: Value, terminals: &[Value], view: AgentRosterView, now_ms: u64) -> Value {
+/// every daemon field and gains `status` (its terminal is in `unseen` when
+/// it has an unread notification), `age_ms` (since its `updated_at_ms`)
+/// and, when its terminal is in `terminals`, that terminal's `title` and
+/// `cwd`. `view.status` keeps only the agents with that status word.
+/// `counts` (by status word) covers every listed agent, before
+/// `view.limit`.
+pub(super) fn shape(
+    rows: Value,
+    terminals: &[Value],
+    unseen: &HashSet<&str>,
+    view: AgentRosterView,
+    now_ms: u64,
+) -> Value {
     let mut agents = match rows {
         Value::Array(rows) => rows,
         other => return other,
     };
+    for agent in &mut agents {
+        let status = status_of(agent, unseen).map(AgentStatus::as_str);
+        if let Some(object) = agent.as_object_mut() {
+            object.insert("status".into(), json!(status));
+        }
+    }
+    if let Some(wanted) = view.status {
+        agents.retain(|agent| status_word(agent) == wanted);
+    }
     let mut counts = Map::new();
-    for state in STATES {
-        let count = agents.iter().filter(|agent| state_of(agent) == state).count();
-        counts.insert(state.into(), json!(count));
+    for status in STATUSES {
+        let count = agents.iter().filter(|agent| status_word(agent) == status).count();
+        counts.insert(status.into(), json!(count));
     }
     counts.insert("total".into(), json!(agents.len()));
     match view.sort {
         AgentSort::NeedsMe => agents.sort_by_cached_key(|agent| {
-            (needs_me_rank(state_of(agent)), Reverse(updated_at(agent)), id_of(agent).to_owned())
+            (needs_me_rank(agent), Reverse(updated_at(agent)), id_of(agent).to_owned())
         }),
         AgentSort::Recent => {
             agents
@@ -143,10 +366,10 @@ pub(super) fn human(result: &Value, home: Option<&str>) -> String {
     if total == 0 {
         return "No agents.\n".to_owned();
     }
-    let mut output = STATES
+    let mut output = STATUSES
         .iter()
-        .filter(|state| **state != "unknown" || count(state) != 0)
-        .map(|state| format!("{} {state}", count(state)))
+        .filter(|status| !matches!(**status, "unknown" | ENDED) || count(status) != 0)
+        .map(|status| format!("{} {status}", count(status)))
         .collect::<Vec<_>>()
         .join(" · ");
     if (agents.len() as u64) < total {
@@ -167,12 +390,18 @@ pub(super) fn human(result: &Value, home: Option<&str>) -> String {
             if sessions {
                 row.push(cell(agent.get("session")));
             }
-            row.push(cell(agent.get("state")));
+            row.push(status_word(agent).to_owned());
             row.push(agent["age_ms"].as_u64().map_or_else(|| "-".to_owned(), age_text));
-            row.push(cell(agent.pointer("/extra/agent")));
-            row.push(truncate(cell(agent.get("title")), MAX_TITLE));
+            row.push(agent_name(agent));
+            row.push(truncate(
+                agent
+                    .get("title")
+                    .or_else(|| agent.get("name"))
+                    .map_or_else(|| "-".to_owned(), human_cell),
+                MAX_TITLE,
+            ));
             row.push(agent["cwd"].as_str().map_or_else(|| "-".to_owned(), |cwd| folder(cwd, home)));
-            row.push(cell(agent.get("terminal_id")));
+            row.push(cell(agent.get("terminal_id").or_else(|| agent.get("address"))));
             row
         })
         .collect::<Vec<_>>();
@@ -204,29 +433,48 @@ fn age_text(age_ms: u64) -> String {
     }
 }
 
-/// Blocked agents wait on the person; working ones may soon; idle and done
-/// ones have finished their turn.
-fn needs_me_rank(state: &str) -> u8 {
-    match state {
-        "blocked" => 0,
-        "working" => 1,
-        "idle" | "done" => 2,
-        _ => 3,
+/// The attention order of the TUI and `terminal list --agents`: blocked
+/// (waits on the person), done (a turn nobody has viewed), working, idle,
+/// unknown, then sessions that ended.
+fn needs_me_rank(agent: &Value) -> u8 {
+    match agent.get("status").and_then(Value::as_str).and_then(AgentStatus::parse) {
+        Some(status) => 4 - status.rank(),
+        None => 5,
     }
 }
 
-/// The agent's state, `unknown` for a state the CLI does not know (a newer
-/// daemon's, or an `--all-sessions` error row), so every row is counted once.
-fn state_of(agent: &Value) -> &str {
-    agent
-        .get("state")
+/// The shared status of a listed agent: from the daemon's `state`, `done`
+/// for an idle terminal agent in `unseen`. A state the CLI does not know (a
+/// newer daemon's, or an `--all-sessions` error row) is `unknown`, so every
+/// row is counted once; `None` for a session that ended.
+fn status_of(agent: &Value, unseen: &HashSet<&str>) -> Option<AgentStatus> {
+    let state = agent.get("state").and_then(Value::as_str).unwrap_or_default();
+    let unseen = agent
+        .get("terminal_id")
         .and_then(Value::as_str)
-        .filter(|state| STATES.contains(state))
-        .unwrap_or("unknown")
+        .is_some_and(|terminal| unseen.contains(terminal));
+    AgentStatus::from_state_str(state, unseen)
+}
+
+/// The row's status word ([`shape`] set it): `ended` for `status: null`.
+fn status_word(agent: &Value) -> &str {
+    agent.get("status").and_then(Value::as_str).unwrap_or(ENDED)
 }
 
 fn id_of(agent: &Value) -> &str {
-    agent.get("id").and_then(Value::as_str).unwrap_or_default()
+    agent
+        .get("id")
+        .and_then(Value::as_str)
+        .or_else(|| agent.get("address").and_then(Value::as_str))
+        .unwrap_or_default()
+}
+
+fn agent_name(agent: &Value) -> String {
+    agent
+        .pointer("/extra/agent")
+        .and_then(Value::as_str)
+        .or_else(|| agent.get("agent").and_then(Value::as_str))
+        .map_or_else(|| "-".to_owned(), str::to_owned)
 }
 
 /// `updated_at_ms` is a decimal string on the wire.

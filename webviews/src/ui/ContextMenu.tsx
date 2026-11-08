@@ -1,9 +1,25 @@
-import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import {
+  cloneElement,
+  isValidElement,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
-import { nativeMenu, pickedId, type NativeMenuRow } from "./nativeMenu";
-import { useEscapingPopup } from "./popupHost";
+import { useScrollEdges } from "./scrollEdges";
+import { hasNativeMenuPick, nativeMenu, pickedId, type NativeMenuRow } from "./nativeMenu";
+import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { usePopupHost } from "./UiProvider";
+import { useNativePopup, type NativePopupDescription } from "./nativePopup";
+import type { NativePopupEvent } from "./popupProtocol";
+import { popupAction } from "./popupDescriptors";
 
 /** An action in the standalone context menu. */
 export interface ContextMenuItem {
@@ -41,6 +57,18 @@ export interface ContextMenuProps {
    * popup a child opened (a picker's search field), though the popup draws elsewhere on the page.
    */
   targets?: "own";
+  /**
+   * The one child element is the host itself: it takes the right-click and Shift-F10 handlers and
+   * no wrapper is drawn, so the child keeps its place among its siblings (a flex slot's `>` and `+`
+   * rules, such as Send before the composer's mic). `className` is unused then.
+   */
+  asChild?: boolean;
+  /** Declarative rows for WebPopupHost; rows are never mounted or scraped when supplied. */
+  native?: {
+    model: NativePopupDescription;
+    onEvent?(event: NativePopupEvent, item?: ContextMenuItem): void;
+    onDismiss?(): void;
+  };
 }
 
 /** The control a closed menu gives focus back to. */
@@ -68,16 +96,6 @@ function nativeRows(items: readonly ContextMenuItem[]): NativeMenuRow[] | null {
   return rows;
 }
 
-/** Inline, as the placement is: the agent pane does not load ui.css. */
-const MENU_ICON = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  width: 16,
-  height: 16,
-  flex: "none",
-} as const;
-
 /**
  * A point-anchored context menu for surfaces that do not use the shared Menu trigger.
  * It owns only the context-menu gesture; regular menus and selects should use `Menu`/`Select`.
@@ -102,26 +120,76 @@ export function ContextMenu({
   onOpen,
   ignore,
   targets,
+  asChild,
+  native,
 }: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
+  const [nativeAnchor, setNativeAnchor] = useState<AnchorBox | null>(null);
+  const [nativeOpen, setNativeOpen] = useState(false);
   const [active, setActive] = useState(0);
   const returnFocus = useRef<HTMLElement | null>(null);
+  const popupTarget = useRef<HTMLElement | null>(null);
+  const nativeRequest = useRef(0);
   const menu = useRef<HTMLDivElement | null>(null);
   const host = usePopupHost();
+  const nativePopup = useNativePopup({
+    open: nativeOpen && native !== undefined,
+    model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
+    anchor: () => nativeAnchor,
+    onEvent: (event) => {
+      const action = event.type === "pick" && native ? popupAction(native.model, event.id) : undefined;
+      const item = event.id ? items.find((candidate) => candidate.id === event.id) : undefined;
+      native?.onEvent?.(event, item);
+      if (action && item && !item.disabled) {
+        item.onSelect();
+      }
+      if (action && !action.keepOpen) close();
+    },
+    onDismiss: (reason) => {
+      // The host never drew the rows (an older app, a stand-in bridge): the page draws its own menu
+      // where the right-click was, as when the legacy native menu is refused.
+      const anchor = reason === "refused" ? nativeAnchor?.getBoundingClientRect() : undefined;
+      if (anchor) {
+        setNativeOpen(false);
+        setPoint({ x: anchor.left, y: anchor.top });
+        return;
+      }
+      close();
+      native?.onDismiss?.();
+    },
+  });
   const [shown, setShown] = useState<HTMLDivElement | null>(null);
+  const edges = useScrollEdges();
   const attach = useCallback(
     (node: HTMLDivElement | null) => {
+      edges(node);
       menu.current = node;
       if (host) setShown(node);
     },
-    [host],
+    [host, edges],
+  );
+  useEffect(
+    () => () => {
+      nativeRequest.current += 1;
+      popupTarget.current?.removeAttribute("data-popup-open");
+      popupTarget.current = null;
+    },
+    [],
   );
   // No room above or below the pointer in the page: past the window's edge, as a Mac context menu
   // (popupHost.ts). The backdrop stays, so a click on the page still closes it.
   useEscapingPopup(
     host,
     shown,
-    () => point && { getBoundingClientRect: () => ({ left: point.x, right: point.x, top: point.y, bottom: point.y }) },
+    () =>
+      point && {
+        getBoundingClientRect: () => ({
+          left: point.x,
+          right: point.x,
+          top: point.y,
+          bottom: point.y,
+        }),
+      },
     { side: "bottom", align: "start", gap: 0, shell: "self" },
   );
   // Where the menu sits, measured before it paints.
@@ -146,7 +214,11 @@ export function ContextMenu({
   }, [place]);
   const enabled = items.filter((item) => !item.disabled);
   const close = (restoreFocus = false) => {
+    nativeRequest.current += 1;
     setPoint(null);
+    setNativeOpen(false);
+    popupTarget.current?.removeAttribute("data-popup-open");
+    popupTarget.current = null;
     const target = returnFocus.current;
     returnFocus.current = null;
     if (restoreFocus && target?.isConnected) target.focus({ preventScroll: true });
@@ -183,72 +255,98 @@ export function ContextMenu({
       run(enabled[active]);
     }
   };
-  return (
-    // The host has no role of its own: it relays Shift-F10 from the focusable control inside it.
-    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
-    <div
-      className={cx("ui-context-menu-host", className)}
-      onKeyDown={(event) => {
-        if (event.defaultPrevented || items.length === 0) return;
-        if (!(event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey))) return;
-        const target = event.target instanceof Element ? event.target : null;
-        // A key in the open menu (a portal, so React passes it up here) is the menu's own.
-        if (!target || menu.current?.contains(target)) return;
-        event.preventDefault();
-        // The same path as a right-click at the control's bottom start corner: a host that learns
-        // the menu's subject from its own contextmenu capture handler sees this open too, and the
-        // selection, `ignore` and `targets` rules apply alike.
-        const rect = target.getBoundingClientRect();
-        const rtl = getComputedStyle(target).direction === "rtl";
-        target.dispatchEvent(
-          new MouseEvent("contextmenu", {
-            bubbles: true,
-            cancelable: true,
-            clientX: rtl ? rect.right : rect.left,
-            clientY: rect.bottom,
-          }),
-        );
-      }}
-      onContextMenu={(event) => {
-        // A menu inside this host already took the right-click (its own item's Hide, inside a
-        // row's Show); a host with no items keeps the default.
-        if (event.defaultPrevented || items.length === 0) return;
-        if (targets === "own" && !(event.target instanceof Node && event.currentTarget.contains(event.target))) return;
-        if (selection !== "menu" && window.getSelection()?.isCollapsed === false) return;
-        if (ignore && event.target instanceof Element && event.target.closest(ignore)) return;
-        event.preventDefault();
-        onOpen?.();
-        setActive(0);
-        const target = event.target instanceof Element ? event.target : null;
-        returnFocus.current = target?.closest<HTMLElement>(RETURN_FOCUS) ?? null;
-        const at = { x: event.clientX, y: event.clientY };
-        const native = nativeMenu();
-        const rows = native && nativeRows(items);
-        if (!native || !rows) {
+  // The host has no role of its own: it relays Shift-F10 from the focusable control inside it.
+  const hostKeyDown = (event: KeyboardEvent<Element>) => {
+    if (event.defaultPrevented || items.length === 0) return;
+    if (!(event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey))) return;
+    const target = event.target instanceof Element ? event.target : null;
+    // A key in the open menu (a portal, so React passes it up here) is the menu's own.
+    if (!target || menu.current?.contains(target)) return;
+    event.preventDefault();
+    // The same path as a right-click at the control's bottom start corner: a host that learns
+    // the menu's subject from its own contextmenu capture handler sees this open too, and the
+    // selection, `ignore` and `targets` rules apply alike.
+    const rect = target.getBoundingClientRect();
+    const rtl = getComputedStyle(target).direction === "rtl";
+    target.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        clientX: rtl ? rect.right : rect.left,
+        clientY: rect.bottom,
+      }),
+    );
+  };
+  const hostContextMenu = (event: ReactMouseEvent<Element>) => {
+    // A menu inside this host already took the right-click (its own item's Hide, inside a
+    // row's Show); a host with no items keeps the default.
+    if (event.defaultPrevented || items.length === 0) return;
+    if (targets === "own" && !(event.target instanceof Node && event.currentTarget.contains(event.target))) return;
+    if (selection !== "menu" && window.getSelection()?.isCollapsed === false) return;
+    if (ignore && event.target instanceof Element && event.target.closest(ignore)) return;
+    const target = event.target instanceof Element ? event.target : null;
+    // Find the invoking HTML surface even when the pointer is over a nested SVG. The
+    // popup itself anchors at the pointer, preserving the context-menu gesture.
+    let nativeAnchor = target;
+    while (nativeAnchor && !(nativeAnchor instanceof HTMLElement)) nativeAnchor = nativeAnchor.parentElement;
+    const nativeTarget = nativeAnchor instanceof HTMLElement ? nativeAnchor : null;
+    if (native && nativePopup.available && !nativeTarget) return;
+    event.preventDefault();
+    onOpen?.();
+    popupTarget.current?.removeAttribute("data-popup-open");
+    popupTarget.current = null;
+    setPoint(null);
+    const requestId = nativeRequest.current + 1;
+    nativeRequest.current = requestId;
+    setNativeOpen(true);
+    setActive(0);
+    const opener = target?.closest<HTMLElement>(RETURN_FOCUS) ?? null;
+    popupTarget.current = opener;
+    opener?.setAttribute("data-popup-open", "");
+    returnFocus.current = opener;
+    const at = { x: event.clientX, y: event.clientY };
+    if (native && nativePopup.available) {
+      setNativeAnchor({
+        getBoundingClientRect: () => ({ left: at.x, right: at.x, top: at.y, bottom: at.y }),
+      });
+      setNativeOpen(true);
+      return;
+    }
+    const legacyMenu = nativeMenu();
+    const rows = legacyMenu && nativeRows(items);
+    if (!legacyMenu || !rows) {
+      setNativeOpen(false);
+      setPoint(at);
+      return;
+    }
+    // The rows as they were at the right-click: the menu runs the one chosen from them.
+    const shown = items;
+    legacyMenu({ items: rows, point: at }).then(
+      (reply) => {
+        if (nativeRequest.current !== requestId) return;
+        // An older legacy bridge can acknowledge an unknown method with a successful null
+        // value. That is not a native-menu dismissal (`{ picked: null }`); fall back to the
+        // page menu so a right-click never disappears without an actionable surface.
+        if (!hasNativeMenuPick(reply)) {
+          setNativeOpen(false);
           setPoint(at);
           return;
         }
-        // The rows as they were at the right-click: the menu runs the one chosen from them.
-        const shown = items;
-        native({ items: rows, point: at }).then(
-          (reply) => {
-            // An older legacy bridge can acknowledge an unknown method with a successful null
-            // value. That is not a native-menu dismissal (`{ picked: null }`); fall back to the
-            // page menu so a right-click never disappears without an actionable surface.
-            if (!reply || typeof reply !== "object" || !("picked" in reply)) {
-              setPoint(at);
-              return;
-            }
-            const chosen = shown.find((item) => item.id === pickedId(reply));
-            if (chosen) run(chosen);
-            else close(true);
-          },
-          // A host without the native menu (an older app): the page draws it.
-          () => setPoint(at),
-        );
-      }}
-    >
-      {children}
+        const chosen = shown.find((item) => item.id === pickedId(reply));
+        if (chosen) run(chosen);
+        else close(true);
+      },
+      // A host without the native menu (an older app): the page draws it.
+      () => {
+        if (nativeRequest.current !== requestId) return;
+        setNativeOpen(false);
+        setPoint(at);
+      },
+    );
+  };
+  const rest = (
+    <>
+      <span aria-hidden="true" hidden data-popup-open={point || nativeOpen ? "" : undefined} />
       {point
         ? createPortal(
             // Placement is inline, not only in ui.css: a host that does not load ui.css (the agent
@@ -256,12 +354,28 @@ export function ContextMenu({
             <div
               className="ui-context-menu-backdrop"
               style={{ position: "fixed", inset: 0, zIndex: "var(--layer-dropdown)" }}
-              onPointerDown={() => close(true)}
+              // A right-click (or Control-click) comes as pointerdown then contextmenu: closing on its
+              // pointerdown would take the backdrop away before contextmenu, and the browser's menu
+              // would open. Every other press (a click, a middle click) has no contextmenu after it.
+              onPointerDown={(event) => {
+                if (event.button !== 2 && !(event.button === 0 && event.ctrlKey)) close(true);
+              }}
+              // A right-click on the open menu or its backdrop stays here: the browser's own menu
+              // would open over it, and under `asChild` no host above the portal takes the event.
+              // On the backdrop it closes the menu, as a click there does.
+              onContextMenu={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (event.target === event.currentTarget) close(true);
+              }}
             >
               <div
                 ref={attach}
-                className={cx("ui-popup ui-glass ui-context-menu", popupClassName)}
+                className={cx("ui-popup ui-glass ui-context-menu ui-scroll-edge-fade", popupClassName)}
                 role="menu"
+                // The App's menu glass under the page, as ui/Menu's popups (ui/glass/hostGlass.ts).
+                data-host-glass="menu"
+                data-host-glass-cover=""
                 data-focus-ring="rows"
                 tabIndex={-1}
                 style={{
@@ -296,12 +410,16 @@ export function ContextMenu({
                     >
                       {/* A text label truncates with its full text as a tooltip; a composed label
                           (text plus a shortcut) keeps its own flex layout. */}
+                      {/* A toggle's check sits on the menu's state column and an icon in the
+                          14 box at the leading (popupSurface.css, "EVERY MENU ON ONE GRID"), so
+                          checked, unchecked and plain rows start their text on one line. */}
                       {item.checked !== undefined ? (
-                        <span className="ui-menu-icon" aria-hidden="true" style={MENU_ICON}>
+                        <span className="ui-menu-check" aria-hidden="true">
                           {item.checked ? "✓" : null}
                         </span>
-                      ) : item.icon ? (
-                        <span className="ui-menu-icon" aria-hidden="true" style={MENU_ICON}>
+                      ) : null}
+                      {item.icon ? (
+                        <span className="ui-menu-icon" aria-hidden="true">
                           {item.icon}
                         </span>
                       ) : null}
@@ -318,6 +436,35 @@ export function ContextMenu({
             document.body,
           )
         : null}
+    </>
+  );
+  if (asChild && isValidElement(children)) {
+    const child = children as ReactElement<{
+      onKeyDown?(event: KeyboardEvent<Element>): void;
+      onContextMenu?(event: ReactMouseEvent<Element>): void;
+    }>;
+    return (
+      <>
+        {/* Before the child, so the child's next sibling stays its own. */}
+        {rest}
+        {cloneElement(child, {
+          onKeyDown: (event: KeyboardEvent<Element>) => {
+            child.props.onKeyDown?.(event);
+            hostKeyDown(event);
+          },
+          onContextMenu: (event: ReactMouseEvent<Element>) => {
+            child.props.onContextMenu?.(event);
+            hostContextMenu(event);
+          },
+        })}
+      </>
+    );
+  }
+  return (
+    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions
+    <div className={cx("ui-context-menu-host", className)} onKeyDown={hostKeyDown} onContextMenu={hostContextMenu}>
+      {children}
+      {rest}
     </div>
   );
 }

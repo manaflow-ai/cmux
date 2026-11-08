@@ -47,6 +47,17 @@ Global options, accepted before the scope:
 `--socket`, `--session`, `--machine` and `--app-socket` also take the
 `--flag=value` form.
 
+A command that streams (every `stream_open` operation: `session events`,
+`session journal subscribe`, `terminal attach`) has no single JSON result:
+`--json` on one fails with `cli.use_jsonl`, exit 2, before anything connects.
+Its message and `details.command` name the same command with `--jsonl`.
+
+`cmux identify` with no cmux app to ask (a headless session, or `--session` or
+`CMUX_TUI_SOCKET` naming a session no app owns) answers from the session
+daemon: `session`, `machine`, `socket_path`, `caller` (found only in a cmux
+terminal), `app_connected: false`, `app: null` and `app_error` (why no app
+answered), exit 0. `--socket` and `--app-socket` still name the app socket.
+
 `--socket` is a daemon session socket. The remote commands (`connect`, `ssh`,
 `forward`, `rpc`) reach a ROUTE and refuse `--socket`. A tagged app's
 `~/.local/state/cmux/cmux-debug-<tag>.sock` is the app control socket: pass it with
@@ -66,6 +77,36 @@ person-only operations stay refused. JSON that is not one object is a usage
 error (exit 2); the app's own error passes through with its code (exit 1).
 Inside a tagged app's terminal, or through `CMUX_TAG=<tag>
 scripts/cmux-debug-cli.sh`, the socket is found without `--app-socket`.
+
+`app remote-views [--tab <tab>]` works with every build: it reads the app's
+`remote_view.state`, one row per Cloud desktop tab (or the one `--tab`
+names) with `tab`, `url`, `confirm` (the tab still asks for Connect),
+`viewer` (`rd`, `vnc` or `mock`), `connected` (streaming), `control`
+(`person` after the person's Take over, else `agent`) and `session` (the
+stream's state, mode and frame counts). It carries no credential and no
+screen content. Connect and Take over stay the person's clicks in the pane.
+
+`app machines [--no-refresh]` works with every build: it reads the app's
+`machine.list`, the right sidebar's Machines section as the person sees it,
+`{machines: [{id, name, kind, isLocal, linkState, online, serverState,
+joined}]}`. `kind` is `local`, `cloud`, `ssh`, `server` or `joined`;
+`linkState` is `connected`, `connecting`, `offline` or `paused`; `joined` is
+the hub's row (`id`, `state`, `meshPeerId`, `joinTokenId`, `platform`,
+`hostname`, `lastHeartbeat`) or null. A machine reached through the hub alone
+has the id `joined:<id>`, which `cmux action run machine.reconnect --target
+machine:<id>` takes. It reads `cmux machine list` once first unless
+`--no-refresh`.
+
+`app join-line [--mint] [--name <name>] [--no-open]` works with every build:
+it calls the app's `device.join_line`, Add Device's "Any machine" way. It
+opens the card on that way unless `--no-open`; `--mint` presses Make Line
+(New Line after an expiry or a failure) and waits for the line, never over a
+line still showing. The reply is `{shown, way, offersInvite, phase}` with
+`phase` `idle`, `minting`, `showing`, `joined`, `expired`, `failed` or
+`unavailable`; `showing` adds `line`, `joinTokenId`, `expiresAt`,
+`secondsLeft` and `name`, `joined` adds the machine and its checks (no line),
+`failed` adds `failure`. The line carries a single-use token: the CLI prints
+it and nothing logs it. It is refused with Cloud turned off.
 
 Every command acts on one session. Without `--socket`, `--session` or
 `--all-sessions`, lists and bulk commands act only on the session the CLI
@@ -257,7 +298,7 @@ two records share is `selector.ambiguous` with their ids.
 
 ```text
 cmux screen list
-cmux screen create [--name <value>] [--correlation-key <value>] [--shell <script> | -- <argv...>]
+cmux screen create [--workspace <selector>] [--name <value>] [--focus] [--correlation-key <value>] [--shell <script> | -- <argv...>]
 cmux screen <selector> show|focus|close
 cmux screen <selector> rename --name <value>
 cmux screen <selector> pin|unpin
@@ -273,6 +314,8 @@ cmux screen group <group> update [--name <value>] [--color <color>] [--icon <ico
 cmux screen group <group> add --screens <screen_id,...>
 cmux screen group remove --screens <screen_id,...>
 ```
+
+`screen create` keeps the focused screen unless `--focus` is given.
 
 Pinned screens sort first and leave their group. Group colors are `grey`,
 `blue`, `red`, `yellow`, `green`, `pink`, `purple`, `cyan` and `orange`.
@@ -292,10 +335,20 @@ cmux pane <selector> zoom [--enabled <bool>]
 cmux pane <selector> split ratio set --split <split_id> --ratio <value>
 cmux pane <selector> viewport width set --columns <value>
 cmux pane <selector> run [--on-exit <close|keep|shell>] [--cwd <path>] [--name <value>] -- <argv...>
+cmux pane <selector> move --to-pane <sel> [--split right|down|left|up] [--focus]
+cmux pane <selector> move --to-tab <sel> [--focus]
+cmux pane <selector> move --to-workspace <sel> [--name <value>] [--focus]
+cmux pane <selector> move --new-screen|--new-tab [--name <value>] [--focus]
 cmux pane <selector> tab ...
 ```
 
-`split` defaults to `--right`.
+`split` defaults to `--right`. `move` moves every tab of the pane, in order,
+and the emptied pane closes: to the end of another pane (or a new pane split
+off it with `--split`), after a tab, or into a new screen in a workspace
+(`--new-screen` and its alias `--new-tab`: the pane's own workspace). The
+focus stays unless `--focus`; when the moved pane had the focus, it goes with
+the tabs. `--json` prints `pane`, `moved_tabs`, `destination` (`workspace`,
+`screen`, `pane`, `index`), `created` and `focused_pane`.
 
 ### tab
 
@@ -345,7 +398,7 @@ cmux terminal <selector> write [--text <value>|--bytes-base64 <base64>]
 cmux terminal <selector> keys <key...>
 cmux terminal <selector> mouse <down|up|move|wheel> --row <n> --column <n> [--button <b>] [--delta-rows <n>] [--modifiers <list>]
 cmux terminal <selector> focus <in|out>
-cmux terminal <selector> screen read
+cmux terminal <selector> screen read [--details]
 cmux terminal <selector> screen wait --pattern <regex> [--timeout-ms <n>]
 cmux terminal <selector> state read
 cmux terminal <selector> history read [--before <n>] [--limit <n>] [--styled]
@@ -354,14 +407,19 @@ cmux terminal <selector> output read [--after <offset>] [--max-bytes <n>]
 cmux terminal <selector> copy [--mode screen|selection|scrollback]
 cmux terminal <selector> process show
 cmux terminal <selector> process wait [--timeout-ms <n>]
-cmux terminal <selector> wait --until idle|prompt [--timeout <500ms|30s|5m>|--timeout-ms <n>]
+cmux terminal <selector> wait --until idle|prompt|ready [--timeout <500ms|30s|5m>|--timeout-ms <n>]
 cmux terminal <selector> send --text <message|-> [--wait idle|prompt|none] [--timeout <5m>] [--settle <3s>] [--force]
 cmux terminal <selector> viewport scroll --delta-rows <n>
 cmux terminal <selector> move|project --workspace <sel> --screen <sel> --pane <sel> --index <n>
 cmux terminal <selector> attach [--read-only]
 cmux terminal <selector> close
 cmux terminal <term_id> keep on|off
+cmux terminal <selector> resume [--cmd <launcher>] [--pane <sel>] [--split <dir>] [--cwd <dir>] [--no-focus] [--no-wait]
 ```
+
+`screen read` prints the screen's text as it shows (no trailing blank rows);
+`--details` prints the whole record (`text`, `cols`, `rows`, `revision`, ...)
+in the human form, and `--json` prints the record as before.
 
 `write` sends text as typed, with no implied newline; without `--text` or
 `--bytes-base64` it reads stdin. `keys` takes key chords joined with `+`:
@@ -382,15 +440,32 @@ record. A passed timeout exits 124 with `wait.timeout`, also when the daemon
 stops answering. Both read shell state from OSC 133 marks: in a shell without
 integration `--until idle` returns while a command still runs. After the daemon
 reattaches to a running terminal host, the prompt and command state come back
-only with the shell's next mark.
+only with the shell's next mark. `--until ready` waits until the terminal's
+agent can take a message, as `cmux agent start` does (spec/cli.md "Agent start
+and resume"): a startup dialog such as Claude's folder-trust question ends it
+as `blocked` with `dialog` and `reason` (exit 4).
 
 `list --agents` lists the terminals that run a coding agent, from one
 `session.snapshot`: the harness (Claude Code, Codex, … from hook or plugin
-agent records, else the app of an OSC 7501 status record), its state (`busy`,
-`idle`, `waiting-for-input` when a permission dialog or question waits,
-`ended`), the age of that state, the workspace and the title. Waiting agents
-sort first. `--json` prints `[{terminal, harness, state, title, workspace_id,
-workspace, cwd, updated_at_ms, age_ms, source}]`.
+agent records, else the app of an OSC 7501 status record), its status
+(`blocked` when a permission dialog, question or error waits, `done` when a
+turn finished and nobody has viewed the terminal yet, `working`, `idle`,
+`unknown`, or `ended`), the age of that state, the workspace and the title.
+Blocked agents sort first, then done, working, idle, unknown and ended.
+Listing never clears `done`; viewing the tab in a client does. `--json` prints
+`[{terminal, harness, status, state, title, workspace_id, workspace, cwd,
+updated_at_ms, age_ms, source}]`: `status` is the word above (`null` for an
+ended session) and `state` keeps the older words (`busy`, `idle`,
+`waiting-for-input`, `ended`) for existing scripts.
+
+Each `list --agents` row also has `name` (the tab's name when it is an agent
+name, see `cmux agent start`), `tab_id`, `tab_name`, `pane_id` and
+`last_reply` (the agent's last answer from its hooks, one line of at most 200
+characters, kept in daemon memory only; null when unknown), and the human
+table starts with a NAME column. `harness` and `source` use one word each:
+`claude` (input aliases `claude-code`, `claude_code`, `Claude Code`), `codex`
+(`codex-cli`), `opencode`, `gemini`, `amp`; sources `hook`, `plugin` (older
+records say `detected`), `socket` and `program_status` (OSC 7501).
 
 `send` talks to the agent or shell in a terminal in one call. It types the
 message as one bracketed paste when the terminal has paste mode on (so a
@@ -430,7 +505,7 @@ These address `browser_…` resources. App browser tabs use the page commands in
 ```text
 cmux notification list [--limit <n>]
 cmux notification create --title <value> --body <value> [--subtitle <value>] [--level info|warning|error] [--terminal <term_id>]
-cmux notification clear [--terminal <term_id>]
+cmux notification clear [--terminal <term_id> | --workspace <ws_id> | --notification <notification_id>]
 cmux notification ack --client <id> <notification_id...>
 cmux notify [--title <value>] [--subtitle <value>] [--body <value>] [--surface <term_id|current>] [--workspace <ws_id|current>]
 cmux notify --clear [--surface <term_id|current>|--workspace <ws_id|current>]
@@ -444,7 +519,7 @@ refused. `--window` and `--id-format` are accepted and ignored.
 ### agent
 
 ```text
-cmux agent list [--terminal <term_id>] [--state working|blocked|idle|done|unknown] [--needs-me]
+cmux agent list [--terminal <term_id>] [--state working|blocked|done|idle|unknown|ended] [--needs-me]
                 [--sort needs-me|recent|none] [--limit <n>] [--counts]
 cmux agent report --terminal <term_id> --state <state> --source hook|socket [--source-session <id>]
 cmux agent hook install|uninstall|status [provider...]
@@ -455,10 +530,17 @@ cmux agent plugin use|update|remove <name-or-id>
 cmux agent plugin use --builtin
 ```
 
-`agent list` puts blocked agents first, then working, then idle and done
-(`--sort recent|none` for recency or the daemon's order). `--json` stays a bare
-array of agents; `--json --counts` adds the counts by state
-(`{"agents": [...], "counts": {...}}`).
+`agent list` lists the caller's session: its terminal agents and the acpmux
+chats created in its workspaces (`--all-sessions` for every session and every
+chat on the machine). Each row's `status` is the word `terminal list --agents`
+uses: `blocked`, `done` (idle with an unread notification), `working`, `idle`,
+`unknown`, or null for an ended session; the daemon's `state` field stays, and
+an acpmux chat's own status is `acp_status`. `--state` takes those words and
+`ended` (`--state done` selected ended sessions before; that is `--state ended`
+now). It puts blocked agents first, then done, working, idle, unknown and
+ended (`--sort recent|none` for recency or the daemon's order). `--json` stays
+a bare array of agents; `--json --counts` adds the counts by status, `ended` and
+`total` (`{"agents": [...], "counts": {...}}`).
 
 Hook providers are `codex`, `claude` (also `claude-code`), `gemini`, `opencode`
 and `pi`. `hook emit` reads the native payload from stdin when
@@ -540,6 +622,7 @@ cmux settings set <path> <value> [--confirm]
 cmux settings reset <path> [--confirm]
 cmux settings unset <path> [--confirm]
 cmux events [--after <seq>] [--name <n>]... [--category <c>]... [--no-heartbeats]
+            [--timeout <duration>] [--until <name>|<prefix>*] [--match <path>=<value>]...
 ```
 
 `settings set` parses the value as JSON when it parses, else as a string.
@@ -548,7 +631,9 @@ cmux events [--after <seq>] [--name <n>]... [--category <c>]... [--no-heartbeats
 Mac on a native sheet and waits for the answer with no client deadline; a
 declined sheet prints "declined in cmux" and exits 1. `--` ends the options:
 `cmux settings set <path> -- --confirm` sets the string "--confirm".
-`events` streams JSON lines until interrupted.
+`events` streams JSON lines until interrupted, or until `--timeout` (exit 124,
+with a last `{"type":"timeout","timed_out":true}` line in JSON modes); with
+`--until`/`--match` it prints the first matching event and exits 0.
 
 `action run -` reads app actions from stdin, a JSON array or one JSON object
 per line of `action.run` params (`{"action": "newColumn", "target": "pane:…",

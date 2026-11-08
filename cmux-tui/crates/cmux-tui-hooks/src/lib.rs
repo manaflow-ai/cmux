@@ -51,6 +51,8 @@ use windows_sys::Win32::System::Threading::{
 mod claude_worktree_tests;
 mod message_hooks;
 mod status_conflict;
+#[cfg(unix)]
+use message_hooks::hook_command_with;
 use message_hooks::{delivers_messages, hook_command, journal_hook_command};
 use status_conflict::{conflict_row, ensure_replaceable_target};
 
@@ -655,6 +657,18 @@ fn run_with_context(plan: &Plan, context: &Context) -> RunResult {
                     "path":path,
                     "state":state,
                     "changed":changed,
+                })),
+                // A read-only status reports one provider's unreadable
+                // config on that provider's row (the `unavailable` /
+                // `unreadable` shape of status_conflict.rs, which the app's
+                // Settings card already reads); the others still answer.
+                Err(error) if plan.action == Action::Status => results.push(json!({
+                    "provider":provider.id,
+                    "path":path,
+                    "state":"unavailable",
+                    "reason":"unreadable",
+                    "detail":format!("{error:#}"),
+                    "changed":false,
                 })),
                 Err(error) => errors.push(format!("{}: {error:#}", provider.id)),
             }
@@ -1756,6 +1770,7 @@ fn rewrite_json_hooks_with_helper(
         let entry = if nested {
             let command = if matches!(provider.format, Format::Nested { asynchronous: true, .. })
                 && !delivers_messages(provider.id, event)
+                && !sync_barrier_event(event)
             {
                 json!({"type":"command","command":command,"timeout":timeout,"async":true})
             } else {
@@ -1966,14 +1981,21 @@ fn muse_hook_command(helper: &Path, event: &str) -> anyhow::Result<String> {
     Ok(format!("{program} muse {event} #{COMMAND_MARKER}"))
 }
 
-/// Per-event override of the provider-wide timeout. Only codex SessionEnd
-/// differs: codex clamps it to 3s, so writing more only produces a warning.
+/// Pre-tool gates allow time for repo sync. Codex SessionEnd stays below its 3s cap.
 fn installed_hook_timeout(provider: Provider, event: &str, timeout: u64) -> u64 {
-    if provider.id == "codex" { codex_hook_timeout(event) } else { timeout }
+    if provider.id == "codex" {
+        codex_hook_timeout(event)
+    } else if provider.id == "claude" && sync_barrier_event(event) {
+        90
+    } else {
+        timeout
+    }
 }
 
 fn codex_hook_timeout(event: &str) -> u64 {
-    if event == "SessionEnd" {
+    if sync_barrier_event(event) {
+        90
+    } else if event == "SessionEnd" {
         CODEX_SESSION_END_TIMEOUT_SECONDS
     } else {
         COMMAND_HOOK_TIMEOUT_SECONDS
@@ -2011,9 +2033,8 @@ pub fn claude_session_hook_settings(
             for handler in handlers.into_iter().flatten() {
                 if let Some(handler) = handler.as_object_mut() {
                     handler.insert("command".into(), Value::String(command.clone()));
-                    // `agent hook emit` delivers no messages, so nothing
-                    // needs Claude to wait for its output.
-                    handler.insert("async".into(), Value::Bool(true));
+                    // The pre-tool helper is synchronous; journal-only events are asynchronous.
+                    handler.insert("async".into(), Value::Bool(!sync_barrier_event(event)));
                 }
             }
         }
@@ -2021,10 +2042,69 @@ pub fn claude_session_hook_settings(
     Ok(root)
 }
 
+/// Set to [`CLAUDE_PLUGIN_ORIGIN`] by the hook commands of the Claude Code
+/// plugin a cmux-tui pane names in `CLAUDE_CODE_PLUGIN_DIRS`, so the helper
+/// can tell that copy from the installed one and run only one of them.
+pub const CLAUDE_PLUGIN_ORIGIN_ENV: &str = "CMUX_TUI_HOOK_ORIGIN";
+/// The value of [`CLAUDE_PLUGIN_ORIGIN_ENV`] in the plugin's hook commands.
+pub const CLAUDE_PLUGIN_ORIGIN: &str = "claude-plugin";
+
 #[cfg(unix)]
-/// The `agent hook emit` fallback for `claude_session_hook_settings`. Its
-/// receipt is discarded because Claude Code adds hook stdout to the context.
+/// Claude's hook groups for the cmux-tui Claude Code plugin
+/// (`hooks/hooks.json`): the events, timeouts and command shapes of
+/// `agent hook install claude`, marked with [`CLAUDE_PLUGIN_ORIGIN_ENV`] and
+/// falling back to `helper` (this build's hook helper) when the agent's
+/// environment has no `CMUX_TUI_HOOK`. Claude Code runs plugin hooks beside
+/// settings hooks without merging identical commands, so the helper skips the
+/// plugin copy when the installed copy also runs.
+pub fn claude_plugin_hook_settings(helper: &Path) -> anyhow::Result<Map<String, Value>> {
+    let helper = helper.to_str().context("the hook helper path is not UTF-8")?;
+    let fallback = double_quote(helper);
+    let prefix = format!("export {CLAUDE_PLUGIN_ORIGIN_ENV}={CLAUDE_PLUGIN_ORIGIN};");
+    let mut root = claude_session_hook_settings(None)?;
+    let hooks = root.get_mut("hooks").and_then(Value::as_object_mut).context("hooks missing")?;
+    for (event, groups) in hooks.iter_mut() {
+        let command = hook_command_with("claude", event, &prefix, &fallback);
+        for group in groups.as_array_mut().into_iter().flatten() {
+            let handlers = group.get_mut("hooks").and_then(Value::as_array_mut);
+            for handler in handlers.into_iter().flatten() {
+                if let Some(handler) = handler.as_object_mut() {
+                    handler.insert("command".into(), Value::String(command.clone()));
+                }
+            }
+        }
+    }
+    Ok(root)
+}
+
+/// `value` as one double-quoted shell word.
+#[cfg(unix)]
+fn double_quote(value: &str) -> String {
+    let mut quoted = String::new();
+    quoted.push('"');
+    for character in value.chars() {
+        if matches!(character, '"' | '\\' | '$' | '`') {
+            quoted.push('\\');
+        }
+        quoted.push(character);
+    }
+    quoted.push('"');
+    quoted
+}
+
+fn sync_barrier_event(event: &str) -> bool {
+    event == "PreToolUse"
+}
+
+#[cfg(unix)]
+/// The fallback for `claude_session_hook_settings`. Pre-tool decisions are
+/// preserved; journal receipts from other events are discarded.
 fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String {
+    if sync_barrier_event(event) {
+        return format!(
+            "{quoted_binary} {HOOK_MODE_ARG} {provider} {event}||exit 2;#{COMMAND_MARKER}"
+        );
+    }
     format!(
         "{quoted_binary} agent hook emit --source {} --event {} >/dev/null 2>&1||:;echo {{}};#{COMMAND_MARKER}",
         shell_quote(provider),
@@ -2046,9 +2126,19 @@ fn codex_contextual_hook_command(
     terminal: &str,
     launcher: &Path,
 ) -> String {
-    let reply = if delivers_messages("codex", event) { "||echo {}" } else { "||:;echo {}" };
+    // SessionStart prints the session context (cmux-tui-hook
+    // session_context.rs) for this launch's hooks only, so only these
+    // commands let the helper answer it.
+    let reply = if sync_barrier_event(event) {
+        "||exit 2"
+    } else if delivers_messages("codex", event) || event == "SessionStart" {
+        "||echo {}"
+    } else {
+        "||:;echo {}"
+    };
+    let stderr = if sync_barrier_event(event) { "" } else { " 2>/dev/null" };
     format!(
-        "CMUX_TUI_HOOK_ROUTE=launch CMUX_TUI_SOCKET={} CMUX_TUI_TERMINAL_ID={} {} {HOOK_MODE_ARG} codex {} 2>/dev/null{reply};#{COMMAND_MARKER}",
+        "CMUX_TUI_HOOK_ROUTE=launch CMUX_TUI_SOCKET={} CMUX_TUI_TERMINAL_ID={} {} {HOOK_MODE_ARG} codex {}{stderr}{reply};#{COMMAND_MARKER}",
         shell_quote(&socket.to_string_lossy()),
         shell_quote(terminal),
         shell_quote(&launcher.to_string_lossy()),
@@ -2389,6 +2479,17 @@ fn codex_owned_trust_hashes() -> anyhow::Result<BTreeSet<String>> {
                 codex_trust_hash(label, &hook_command("codex", event), timeout),
                 codex_trust_hash(label, &journal_hook_command("codex", event), timeout),
                 codex_trust_hash(label, &legacy_hook_command("codex", event), timeout),
+                // Trust identities emitted before PreToolUse became a gate.
+                codex_trust_hash(
+                    label,
+                    &journal_hook_command("codex", event),
+                    COMMAND_HOOK_TIMEOUT_SECONDS,
+                ),
+                codex_trust_hash(
+                    label,
+                    &legacy_hook_command("codex", event),
+                    COMMAND_HOOK_TIMEOUT_SECONDS,
+                ),
             ])
         })
         .collect::<anyhow::Result<Vec<_>>>()
@@ -3153,7 +3254,7 @@ mod tests {
             "permission_request",
             "sha256:6a6d12a917dfc12fdfc3e0796f4c5f43d31db0a9dd1f7372cce0f6635cd32b24",
         ),
-        ("pre_tool_use", "sha256:73db9083c29d7b48384ab6e3684e0ab49f482f9d11cc07f6c7d2584f55175a34"),
+        ("pre_tool_use", "sha256:9a8c6ae67a0cc5583e8202f37bd62bc9c75b549b04338144ee5b97cbd3553239"),
         (
             "post_tool_use",
             "sha256:7eae35124685878835e8f7a4bc73214600f6732c8bddafc27370e4e89757d1a4",
@@ -3221,6 +3322,29 @@ mod tests {
             .and_then(toml::Value::as_table)
             .cloned()
             .expect("config.toml must contain a hooks.state table")
+    }
+
+    /// One provider's unreadable config made the whole read-only `agent hook
+    /// status` fail (bench round 3: `~/.copilot/config.json is not valid
+    /// JSON`). It is that provider's row now; the others still answer.
+    #[test]
+    fn w4j_status_reports_an_unreadable_config_on_its_own_row() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let copilot = context.home.join(".copilot/config.json");
+        fs::create_dir_all(copilot.parent().unwrap()).unwrap();
+        fs::write(&copilot, b"{ not json").unwrap();
+        let plan =
+            Plan { action: Action::Status, providers: vec!["copilot".into(), "claude".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(!result.failed, "{}", result.value);
+        let rows = result.value["providers"].as_array().unwrap();
+        let row = |id: &str| rows.iter().find(|row| row["provider"] == id).unwrap();
+        assert_eq!(row("copilot")["state"], "unavailable", "{}", result.value);
+        assert_eq!(row("copilot")["reason"], "unreadable", "{}", result.value);
+        assert!(row("copilot")["detail"].as_str().is_some_and(|detail| !detail.is_empty()));
+        assert_ne!(row("claude")["state"], "unavailable", "{}", result.value);
+        assert_eq!(result.value["errors"], json!([]));
     }
 
     #[test]
@@ -3343,7 +3467,7 @@ mod tests {
             let legacy = codex_trust_hash(
                 label,
                 &legacy_hook_command("codex", event),
-                codex_hook_timeout(event),
+                if *event == "SessionEnd" { 3 } else { 5 },
             );
             assert_eq!(legacy, *hash, "{event}");
             assert!(owned.contains(*hash), "{event}: an upgrade must replace the old entry");
@@ -3370,6 +3494,8 @@ mod tests {
             );
             if *event == "SessionEnd" {
                 assert_eq!(timeout, CODEX_SESSION_END_TIMEOUT_SECONDS);
+            } else if *event == "PreToolUse" {
+                assert_eq!(timeout, 90);
             } else {
                 assert_eq!(timeout, COMMAND_HOOK_TIMEOUT_SECONDS, "{event}");
             }
@@ -3968,6 +4094,151 @@ mod tests {
     }
 
     #[test]
+    fn claude_pre_tool_hook_waits_for_sync_barrier() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let install = Plan { action: Action::Install, providers: vec!["claude".into()] };
+        let result = run_with_context(&install, &context);
+        assert!(!result.failed, "{}", result.value);
+        let root: Value =
+            serde_json::from_slice(&fs::read(context.home.join(".claude/settings.json")).unwrap())
+                .unwrap();
+        let hook = &root["hooks"]["PreToolUse"][0]["hooks"][0];
+        assert_eq!(hook.get("async").and_then(Value::as_bool), None, "{hook}");
+    }
+
+    /// The Codex wrapper's SessionStart hook prints the helper's session
+    /// context alone on success and the empty object when the helper fails:
+    /// one JSON object either way.
+    #[cfg(unix)]
+    #[test]
+    fn codex_launch_session_context_prints_one_json_object() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let helper = root.path().join("hook");
+        let command = codex_contextual_hook_command(
+            "SessionStart",
+            Path::new("/unused"),
+            "term_test",
+            &helper,
+        );
+        for (script, expected) in [
+            (
+                "#!/bin/sh\necho '{\"hookSpecificOutput\":{\"additionalContext\":\"cmux\"}}'\n",
+                json!({"hookSpecificOutput": {"additionalContext": "cmux"}}),
+            ),
+            ("#!/bin/sh\nexit 1\n", json!({})),
+        ] {
+            fs::write(&helper, script).unwrap();
+            fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
+            let result = std::process::Command::new("sh").arg("-c").arg(&command).output().unwrap();
+            assert_eq!(result.status.code(), Some(0), "{command}");
+            let value: Value = serde_json::from_slice(&result.stdout)
+                .unwrap_or_else(|error| panic!("{error}: {:?}", result.stdout));
+            assert_eq!(value, expected, "{command}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn native_pre_tool_wrappers_keep_denials_and_block_helper_failures() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let helper = root.path().join("hook");
+        for provider in ["claude", "codex"] {
+            let installed = hook_command(provider, "PreToolUse");
+            let fallback =
+                emit_hook_command(&shell_quote(helper.to_str().unwrap()), provider, "PreToolUse");
+            let contextual = codex_contextual_hook_command(
+                "PreToolUse",
+                Path::new("/unused"),
+                "term_test",
+                &helper,
+            );
+            for command in [installed, fallback, contextual] {
+                for (script, expected) in [
+                    (
+                        "#!/bin/sh\necho '{\"hookSpecificOutput\":{\"permissionDecision\":\"deny\"}}'\n",
+                        0,
+                    ),
+                    ("#!/bin/sh\necho 'sync not ready' >&2\nexit 1\n", 2),
+                ] {
+                    fs::write(&helper, script).unwrap();
+                    fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
+                    let result = std::process::Command::new("sh")
+                        .arg("-c")
+                        .arg(&command)
+                        .env("CMUX_TUI_HOOK", &helper)
+                        .output()
+                        .unwrap();
+                    assert_eq!(result.status.code(), Some(expected), "{command}");
+                    if expected == 0 {
+                        let value: Value = serde_json::from_slice(&result.stdout).unwrap();
+                        assert_eq!(value["hookSpecificOutput"]["permissionDecision"], "deny");
+                    }
+                }
+            }
+        }
+        let settings = claude_session_hook_settings(Some(&helper)).unwrap();
+        let hook = &settings["hooks"]["PreToolUse"][0]["hooks"][0];
+        assert_eq!(hook["async"], false);
+        assert_eq!(hook["timeout"], 90);
+        assert!(hook["command"].as_str().unwrap().contains(HOOK_MODE_ARG));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn any_launcher_plugin_hooks_run_the_build_helper_marked_as_the_plugin_copy() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        // A path that needs every double-quote escape.
+        let folder = dir.path().join("a \"b\" $c `d` \\e");
+        fs::create_dir_all(&folder).unwrap();
+        let helper = folder.join("cmux-tui-hook");
+        let log = dir.path().join("log");
+        fs::write(
+            &helper,
+            format!(
+                "#!/bin/sh\nprintf '%s %s %s\\n' \"${CLAUDE_PLUGIN_ORIGIN_ENV}\" \"$1\" \"$2\" >> '{}'\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
+        let plugin = claude_plugin_hook_settings(&helper).unwrap();
+        let installed = claude_session_hook_settings(None).unwrap();
+        let events = |settings: &Map<String, Value>| {
+            settings["hooks"].as_object().unwrap().keys().cloned().collect::<Vec<_>>()
+        };
+        assert_eq!(events(&plugin), events(&installed));
+        for event in ["SessionStart", "Stop", "PreToolUse", "UserPromptSubmit"] {
+            let hook = &plugin["hooks"][event][0]["hooks"][0];
+            let twin = &installed["hooks"][event][0]["hooks"][0];
+            assert_eq!(hook["timeout"], twin["timeout"], "{event}");
+            assert_eq!(hook["async"], twin["async"], "{event}");
+            let command = hook["command"].as_str().unwrap();
+            assert_ne!(Some(command), twin["command"].as_str(), "{event}");
+            // Without CMUX_TUI_HOOK the build's helper runs; with it, that one.
+            for inherited in [None, Some(helper.as_os_str())] {
+                let mut shell = std::process::Command::new("sh");
+                shell.arg("-c").arg(command).env_remove(CLAUDE_PLUGIN_ORIGIN_ENV);
+                match inherited {
+                    Some(value) => shell.env("CMUX_TUI_HOOK", value),
+                    None => shell.env_remove("CMUX_TUI_HOOK"),
+                };
+                let result = shell.output().unwrap();
+                assert!(result.status.success(), "{event}: {command}");
+            }
+        }
+        let lines = fs::read_to_string(&log).unwrap();
+        assert_eq!(lines.lines().count(), 8, "{lines}");
+        assert!(
+            lines.lines().all(|line| line.starts_with(&format!("{CLAUDE_PLUGIN_ORIGIN} claude "))),
+            "{lines}"
+        );
+    }
+
+    #[test]
     fn cloud_catalog_covers_every_local_hook_provider_and_alias() {
         let expected = [
             "codex",
@@ -4117,7 +4388,7 @@ esac
         let helper_source = context.helper_source.as_ref().unwrap();
         atomic_write(
             helper_source,
-            b"#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$CAPTURE\"\n",
+            b"#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$CAPTURE\"\necho {}\n",
             Some(0o755),
         )
         .unwrap();
@@ -4129,7 +4400,7 @@ esac
             serde_json::from_slice(&fs::read(context.home.join(".codex/hooks.json")).unwrap())
                 .unwrap();
         let command = root["hooks"]["PreToolUse"][0]["hooks"][0]["command"].as_str().unwrap();
-        assert!(command.len() <= 170, "hook command is {} bytes: {command}", command.len());
+        assert!(command.len() <= 200, "hook command is {} bytes: {command}", command.len());
         assert!(!command.contains("CMUX_TUI_SOCKET"));
         assert!(!hook_command("claude", "Stop").contains("GROK_HOOK_EVENT"));
 

@@ -1,6 +1,8 @@
 public import AppKit
+public import CmuxHomeCore
 import CmuxNextCompat
 import CmuxNextDesign
+public import CmuxNextHomeModel
 
 /// The people under New Message's To: field (Messages' suggestion list):
 /// each row an avatar, the full name and under it what the recipient is
@@ -17,6 +19,8 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
     public var onNewChief: () -> Void = {}
     /// The Invite row was picked.
     public var onInvite: () -> Void = {}
+    /// An Invite to Team row was picked, with its address.
+    public var onInviteToTeam: (ContactAddress) -> Void = { _ in }
     /// The avatar and the line under the name the page knows for a recipient.
     public var look: (HomeRecipient) -> HomeRecipientLook = { _ in HomeRecipientLook() }
     /// The rows shown, headers and actions included.
@@ -37,7 +41,7 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
     let emptyLabel = ThemedLabel(wrappingLabelWithString: "")
     /// The list floats over the page: the shared overlay glass, never the solid popup surface
     /// (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS.").
-    let glass = Glass.makeOverlayPanel(cornerRadius: 10, interactive: false)
+    let glass = Glass.makeOverlayPanel(cornerRadius: Metrics.surfaceCornerRadius, interactive: false)
     static let rowHeight: CGFloat = 44
     static let headerHeight: CGFloat = 26
     static let avatarSize: CGFloat = 28
@@ -47,7 +51,7 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
     public override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerRadius = 10
+        layer?.cornerRadius = Metrics.surfaceCornerRadius
         layer?.masksToBounds = true
         glass.translatesAutoresizingMaskIntoConstraints = true
         glass.autoresizingMask = [.width, .height]
@@ -136,6 +140,7 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
         case .recipient(let recipient): onChoose(recipient)
         case .newChief: onNewChief()
         case .invite: onInvite()
+        case .inviteToTeam(let address, _): onInviteToTeam(address)
         case .header: break
         }
     }
@@ -188,6 +193,9 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
             return entryCell(name: HomeConversationStrings.newChief, detail: nil, symbol: "plus", avatar: nil, label: HomeConversationStrings.newChief)
         case .invite:
             return entryCell(name: HomeConversationStrings.invite, detail: nil, symbol: "envelope", avatar: nil, label: HomeConversationStrings.invite)
+        case .inviteToTeam(let address, let team):
+            let title = HomeConversationStrings.inviteAddressToTeam(address.description, team: team)
+            return entryCell(name: title, detail: nil, symbol: "person.2.badge.plus", avatar: nil, label: title)
         case .recipient(let item):
             let line = lines[row] ?? (look(item), Self.detail(item))
             return entryCell(name: item.label, detail: line.detail, symbol: nil, avatar: line.look.avatar,

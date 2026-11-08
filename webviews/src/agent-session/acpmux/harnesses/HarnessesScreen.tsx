@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { AgentMark } from "../../shared/AgentMark";
-import type { HarnessHealth } from "../HarnessHealthNotice";
+import { Spinner } from "../conversation/icons";
+import { type HarnessHealth, needsLogin } from "../harnessHealthNoticeModel";
 import { type StringKey, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxSnapshot } from "../model";
 import type { PickerCatalog } from "../modelCatalogData";
-import { cleanShellOutput } from "../shell/shellRuns";
 import { harnessRows, type HarnessRow, type HarnessStatus } from "./harnessRows";
+import { HostCommandFailed, runHostCommand } from "./hostCommand";
 import "./harnesses.css";
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -25,23 +26,15 @@ const STATUS: Record<HarnessStatus, StringKey> = {
 /// says so if acpmux still cannot run the harness), or a sign-in in a terminal tab the page waits for.
 type Progress =
   | { kind: "installing"; line?: string }
-  | { kind: "failed"; reason: string }
+  /// `retrySignIn`: a rejected sign-in terminal, retried with its saved `login`; `retryLaunch`: a
+  /// rejected Start Chat, retried with the row's action.
+  | { kind: "failed"; reason: string; retrySignIn?: boolean; login?: string; retryLaunch?: boolean }
   | { kind: "done" }
-  | { kind: "waiting" };
-
-type HostRead = { output?: string; next?: number; exit?: { code?: number; signal?: number } };
+  | { kind: "waiting" }
+  | { kind: "launching" };
 
 /// How long the page waits for a sign-in started from it.
 const SIGN_IN_WAIT_MS = 3 * 60 * 1000;
-/// Output kept to find the last line.
-const TAIL = 4096;
-
-const lastLine = (text: string) =>
-  cleanShellOutput(text)
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .at(-1);
 
 /// Integrate a harness (cx-uj5g8), in place in the pane: the agent CLIs cmux knows and their state
 /// on this Mac, each with one action. Start Chat starts a chat on it in this tab; Sign In runs its
@@ -57,6 +50,7 @@ export function HarnessesScreen({
   callNative,
   onClose,
   onStart = onClose,
+  onStartChat,
   checking = false,
   refreshCatalog,
   signInPollMs = 3000,
@@ -75,12 +69,15 @@ export function HarnessesScreen({
   onClose(): void;
   /// A chat starts in this tab: the page leaves (and a New Tab page becomes the chat).
   onStart?(): void;
+  /// A New Tab setup request continues its pending draft instead of creating an empty chat.
+  onStartChat?(harness: string): void;
 }) {
   const t = useT();
   const [health, setHealth] = useState<Record<string, HarnessHealth | undefined>>({});
   const [checks, setChecks] = useState(0);
   const [progress, setProgress] = useState<Record<string, Progress | undefined>>({});
   const live = useRef(true);
+  const launching = useRef(new Set<string>());
   useEffect(() => {
     live.current = true;
     return () => {
@@ -91,10 +88,28 @@ export function HarnessesScreen({
     if (live.current) setProgress((current) => ({ ...current, [harness]: next }));
   };
   const remember = (harness: string, reply: unknown) => {
-    const row = (reply as { health?: HarnessHealth | null } | null)?.health ?? undefined;
+    const row = (reply as { health?: HarnessHealth | null } | null)?.health ?? {
+      id: harness,
+      auth: "unknown" as const,
+    };
     if (live.current) setHealth((current) => ({ ...current, [harness]: row }));
     return row;
   };
+  useEffect(() => {
+    // A failed terminal launch can race with a health refresh that reports the harness ready.
+    // Reconcile that completed state so the stale failure cannot keep the row stuck on Sign In.
+    setProgress((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const [harness, state] of Object.entries(current)) {
+        if (state?.kind === "failed" && state.retrySignIn && health[harness]?.auth === "signedIn") {
+          next[harness] = undefined;
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [health, progress]);
   const installed = useMemo(
     () =>
       catalog.harnesses
@@ -108,10 +123,16 @@ export function HarnessesScreen({
     for (const id of installed ? installed.split("\n") : [])
       void callNative("harness.health", { id, ...(checks > 0 ? { refresh: true } : {}) })
         .then((reply) => {
-          const row = (reply as { health?: HarnessHealth | null } | null)?.health ?? undefined;
+          const row = (reply as { health?: HarnessHealth | null } | null)?.health ?? {
+            id,
+            auth: "unknown" as const,
+          };
           if (live) setHealth((current) => ({ ...current, [id]: row }));
         })
-        .catch(() => undefined);
+        .catch(() => {
+          // A failed health read is not evidence of a usable harness. Keep the row actionable.
+          if (live) setHealth((current) => ({ ...current, [id]: { id, auth: "unknown" } }));
+        });
     return () => {
       live = false;
     };
@@ -142,9 +163,12 @@ export function HarnessesScreen({
         ids.map((id) =>
           callNative("harness.health", { id, refresh: true })
             .then((reply) => {
-              if (remember(id, reply)?.auth !== "signedOut") mark(id, undefined);
+              if (!needsLogin(remember(id, reply)?.auth)) mark(id, undefined);
             })
-            .catch(() => undefined),
+            .catch(() => {
+              remember(id, { health: { id, auth: "unknown" } });
+              mark(id, undefined);
+            }),
         ),
       ).finally(() => {
         busy = false;
@@ -171,34 +195,27 @@ export function HarnessesScreen({
   const runInPlace = (row: HarnessRow, command: string) => {
     mark(row.harness, { kind: "installing" });
     void (async () => {
-      let tail = "";
       try {
-        // Straight from the click: the host runs a command only on the user's gesture.
-        const started = (await callNative("shell.run", { command, ...inFolder })) as { id: string };
-        let after = 0;
-        for (;;) {
-          const read = (await callNative("shell.read", { id: started.id, after })) as HostRead;
-          // The page closed: the command stops with it (another open offers Install again).
-          if (!live.current) {
-            if (!read.exit) void callNative("shell.stop", { id: started.id }).catch(() => undefined);
-            return;
-          }
-          after = read.next ?? after;
-          if (read.output) {
-            tail = (tail + read.output).slice(-TAIL);
-            const line = lastLine(tail);
-            mark(row.harness, { kind: "installing", ...(line ? { line } : {}) });
-          }
-          if (read.exit) {
-            if (read.exit.code !== 0) throw new Error(lastLine(tail) ?? t("harnesses.commandFailed"));
-            break;
-          }
-        }
-        if (!live.current) return;
+        // Straight from the click: the host runs a command only on the user's gesture. The page
+        // closing stops the command with it (another open offers Install again).
+        const ended = await runHostCommand(callNative, command, {
+          ...inFolder,
+          alive: () => live.current,
+          onLine: (line) => mark(row.harness, { kind: "installing", line }),
+        });
+        if (ended === "stopped" || !live.current) return;
         await rescan(row);
         mark(row.harness, { kind: "done" });
       } catch (error) {
-        mark(row.harness, { kind: "failed", reason: error instanceof Error ? error.message : String(error) });
+        mark(row.harness, {
+          kind: "failed",
+          reason:
+            error instanceof HostCommandFailed
+              ? (error.line ?? t("harnesses.commandFailed"))
+              : error instanceof Error
+                ? error.message
+                : String(error),
+        });
       }
     })();
   };
@@ -215,14 +232,52 @@ export function HarnessesScreen({
     if (row.docsUrl) return { label: t("harnesses.setupGuide"), run: () => openDocs(row) };
     return { label: t("harnesses.checkAgain"), run: () => checkAgain(row) };
   };
+  /// Opens a terminal or chat on the host: the row spins (its action disabled) until the host
+  /// answers, a second click while it does is ignored, and a rejection stays on the row with its
+  /// reason and a retry (`failure`) instead of waiting for a tab that never opened.
+  const launch = (
+    row: HarnessRow,
+    method: string,
+    params: Record<string, unknown>,
+    started: () => void,
+    failure: Partial<Extract<Progress, { kind: "failed" }>>,
+  ) => {
+    if (launching.current.has(row.harness)) return;
+    launching.current.add(row.harness);
+    mark(row.harness, { kind: "launching" });
+    void callNative(method, params).then(
+      () => {
+        launching.current.delete(row.harness);
+        if (live.current) started();
+      },
+      (error) => {
+        launching.current.delete(row.harness);
+        mark(row.harness, {
+          ...failure,
+          kind: "failed",
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      },
+    );
+  };
+  const retrySignIn = (row: HarnessRow, login: string) =>
+    // Keep the original login command. A health refresh can make the row ready before this button
+    // is clicked; routing through act(row) then starts a chat instead of retrying the login.
+    launch(
+      row,
+      "tab.open",
+      { kind: "terminal", text: login, ...inFolder, run: true, keep: true },
+      () => mark(row.harness, { kind: "waiting" }),
+      { retrySignIn: true, login },
+    );
   const act = (row: HarnessRow) => {
     if (row.status === "signIn" && row.login) {
       // `keep`: the page stays beside the new tab and checks again on return (a page with no chat
       // yet would otherwise be replaced by it).
-      void callNative("tab.open", { kind: "terminal", text: row.login, ...inFolder, run: true, keep: true }).catch(
-        () => undefined,
-      );
-      mark(row.harness, { kind: "waiting" });
+      retrySignIn(row, row.login);
+    } else if (row.status === "signIn") {
+      // Signed-out evidence without a command must never fall through to Start Chat.
+      fix(row).run();
     } else if (row.status === "notInstalled" && row.install) {
       runInPlace(row, row.install);
     } else if (row.status === "notInstalled" && row.docsUrl) {
@@ -230,8 +285,17 @@ export function HarnessesScreen({
     } else if (row.status === "unavailable") {
       fix(row).run();
     } else if (row.status === "ready") {
-      void callNative("chat.new", { harness: row.harness, ...inFolder }).catch(() => undefined);
-      onStart();
+      if (onStartChat) return onStartChat(row.harness);
+      launch(
+        row,
+        "chat.new",
+        { harness: row.harness, ...inFolder },
+        () => {
+          mark(row.harness, undefined);
+          onStart();
+        },
+        { retryLaunch: true },
+      );
     }
   };
   const custom = () => {
@@ -244,13 +308,15 @@ export function HarnessesScreen({
   const action = (row: HarnessRow): string | undefined =>
     row.status === "ready"
       ? t("harnesses.startChat")
-      : row.status === "signIn"
+      : row.status === "signIn" && row.login
         ? t("harnesses.signIn")
-        : row.status === "notInstalled" && (row.install || row.docsUrl)
-          ? t("harnesses.install")
-          : row.status === "unavailable"
-            ? fix(row).label
-            : undefined;
+        : row.status === "signIn"
+          ? fix(row).label
+          : row.status === "notInstalled" && (row.install || row.docsUrl)
+            ? t("harnesses.install")
+            : row.status === "unavailable"
+              ? fix(row).label
+              : undefined;
   return (
     <section className="acpmux-harnesses" aria-label={t("harnesses.title")}>
       <header className="acpmux-harnesses-head">
@@ -272,14 +338,19 @@ export function HarnessesScreen({
             : finished?.kind === "done"
               ? undefined
               : finished;
-          // A failed command offers its setup page, or another look.
+          // A failed login launch retries the login; failed installs offer setup or another look.
           const failedFix =
             doing?.kind === "failed"
-              ? row.docsUrl
-                ? { label: t("harnesses.setupGuide"), run: () => openDocs(row) }
-                : { label: t("harnesses.checkAgain"), run: () => checkAgain(row) }
+              ? doing.retrySignIn && doing.login
+                ? { label: t("harnesses.signIn"), run: () => retrySignIn(row, doing.login!) }
+                : doing.retryLaunch && action(row)
+                  ? { label: action(row)!, run: () => act(row) }
+                  : row.docsUrl
+                    ? { label: t("harnesses.setupGuide"), run: () => openDocs(row) }
+                    : { label: t("harnesses.checkAgain"), run: () => checkAgain(row) }
               : undefined;
-          const label = doing?.kind === "installing" ? undefined : (failedFix?.label ?? action(row));
+          const label =
+            doing?.kind === "installing" || doing?.kind === "waiting" ? undefined : (failedFix?.label ?? action(row));
           // acpmux's reason can run to several lines: the row shows the first, the tooltip all.
           const status =
             doing?.kind === "installing"
@@ -300,23 +371,25 @@ export function HarnessesScreen({
                 doing && (doing.kind !== "waiting" || row.status === "signIn") ? doing.kind : row.status
               }
             >
-              <AgentMark agent={row.mark} size={18} reserve />
+              <AgentMark agent={row.mark} size={20} reserve />
               <span className="acpmux-harness-text">
                 <span className="acpmux-harness-name">{row.name}</span>
                 <span
-                  className="acpmux-harness-status"
+                  className="acpmux-harness-detail"
                   {...(doing?.kind === "failed" ? { title: doing.reason } : row.detail ? { title: row.detail } : {})}
                 >
                   {status}
                 </span>
               </span>
-              {(doing?.kind === "installing" || doing?.kind === "waiting" || row.status === "checking") && (
-                <span className="acpmux-harness-spinner" aria-hidden="true" />
-              )}
+              {(doing?.kind === "installing" ||
+                doing?.kind === "waiting" ||
+                doing?.kind === "launching" ||
+                row.status === "checking") && <Spinner size={12} className="acpmux-harness-spinner" loading />}
               {label && (
                 <button
                   type="button"
                   className={row.status === "ready" ? "acpmux-harness-action" : "acpmux-harness-action is-primary"}
+                  disabled={doing?.kind === "launching"}
                   onClick={() => (failedFix ? failedFix.run() : act(row))}
                 >
                   {label}
@@ -328,7 +401,7 @@ export function HarnessesScreen({
       </ul>
       <button type="button" className="acpmux-harnesses-custom" data-harness-custom onClick={custom}>
         <span className="acpmux-harness-name">{t("harnesses.custom")}</span>
-        <span className="acpmux-harness-status">{t("harnesses.customDetail")}</span>
+        <span className="acpmux-harness-detail">{t("harnesses.customDetail")}</span>
       </button>
     </section>
   );

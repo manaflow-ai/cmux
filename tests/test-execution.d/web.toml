@@ -1,0 +1,39 @@
+# Python test execution registry: tests/test_web_*.py. Keep entries sorted by path;
+# scripts/ci/test_execution_registry.py says how the registry is split and read.
+
+[[test]]
+path = "tests/test_web_coalesce.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_web_complexity_scope.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_web_complexity_source_enumeration.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_web_complexity_trusted_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_web_lint_prepush.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_web_ota_publication_contract.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_web_overlay_manifest_commit.py"
+lane = "manual"
+reason = "Run by the lane that changes web-overlay.sh (no new CI tests): python3 tests/test_web_overlay_manifest_commit.py; needs only bash, git and python3."
+
+[[test]]
+path = "tests/test_web_url_handler_rank.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_web_validation.py"
+lane = "linux-guard"

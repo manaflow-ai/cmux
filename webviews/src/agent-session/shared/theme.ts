@@ -1,4 +1,3 @@
-import { SCROLLER_FADE_ATTRIBUTE } from "../../scrollers";
 import type { AgentSessionTheme } from "./types";
 
 const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
@@ -26,9 +25,6 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   palette: null,
   borders: null,
   focusRingEnabled: null,
-  chatWidth: null,
-  codexToolRuns: null,
-  liveLineBelow: null,
   toolRunLook: null,
   turnActionsPlacement: null,
   motion: null,
@@ -36,7 +32,6 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   workingLook: null,
   subagentTray: null,
   subagentTrayPlacement: null,
-  scrollerFade: null,
 };
 
 const motionVariables = {
@@ -70,8 +65,6 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   // How agent work shows on running rows (conversation.css WORKING-LOOK).
   if (theme.workingLook) root.dataset.workingLook = theme.workingLook;
   else delete root.dataset.workingLook;
-  // The opt-in scrollbar fade (scrollers.ts SCROLLER_FADE_ATTRIBUTE): shown scrollers fade at rest.
-  root.toggleAttribute(SCROLLER_FADE_ATTRIBUTE, theme.scrollerFade === true);
   for (const [key, variable] of Object.entries(cssVariables) as Array<[keyof AgentSessionTheme, string | null]>) {
     if (!variable) {
       continue;
@@ -96,6 +89,10 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   const motionValues = theme.motion ? Object.values(theme.motion) : [];
   if (motionValues.length > 0 && motionValues.every((value) => value === 0)) root.dataset.agentMotion = "off";
   else delete root.dataset.agentMotion;
+  // Reduce Motion zeroes only the move duration; CSS can't compare a custom property to 0, so the
+  // root says so, and transitions on the move token (the fold's chevron) snap under it.
+  if (theme.motion?.move === 0) root.dataset.agentMove = "instant";
+  else delete root.dataset.agentMove;
   if (root.dataset.agentMotion === "off") {
     for (const animation of document.getAnimations?.() ?? []) animation.cancel();
   }

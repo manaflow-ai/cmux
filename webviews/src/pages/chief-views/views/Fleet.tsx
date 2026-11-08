@@ -3,6 +3,8 @@
 // runner and queue totals on top. Without a dashboard named, or when it does not answer, the view
 // says so and offers a field to name one.
 import { useMemo, useState, type FormEvent } from "react";
+import { Button } from "../../../ui/Button";
+import { Input } from "../../../ui/Input";
 import { agentsOnHost, fleetTotals, loadPerCore } from "../model";
 import { agentsOf, Loaded } from "../parts";
 import type { ChiefViewProps } from "../registry";
@@ -182,7 +184,8 @@ function FleetSetup({
         {strings.t(configured ? "chiefViews.fleet.unreachable.body" : "chiefViews.fleet.unavailable.body")}
       </p>
       <div className="cv-setup-row">
-        <input
+        <Input
+          size="sm"
           className="cv-filter"
           type="url"
           inputMode="url"
@@ -195,9 +198,9 @@ function FleetSetup({
             setRefused(false);
           }}
         />
-        <button type="submit" className="cv-button" disabled={!url.trim() || busy}>
+        <Button type="submit" size="sm" className="cv-button" disabled={!url.trim() || busy}>
           {strings.t("chiefViews.fleet.url.save")}
-        </button>
+        </Button>
       </div>
       {refused && (
         <p className="cv-note cv-host-error" role="alert">

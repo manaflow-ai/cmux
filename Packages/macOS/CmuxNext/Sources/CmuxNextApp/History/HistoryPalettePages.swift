@@ -55,16 +55,29 @@ enum HistoryPalettePages {
                              kinds: Set<HistoryEntry.Kind>) -> PalettePageSpec {
         let provider = AsyncPaletteProvider(id: id) { [weak services] in
             guard let services else { return [] }
-            let entries = await services.history.entries(HistoryQuery(kinds: kinds, limit: 500))
-            return entries.map { item(for: $0, services: services) }
+            let query = HistoryQuery(kinds: kinds, limit: 500)
+            let read = await services.history.read(query)
+            return read.entries.map { item(for: $0, services: services) } + (read.status(query).map { [statusItem($0)] } ?? [])
         }
         return PalettePageSpec(id: id, title: title, placeholder: placeholder, symbol: symbol, providers: [provider])
     }
 
+    /// A page's status row (`HistoryRead.status`): Try Again reloads the page, and the palette shows its spinner meanwhile.
+    static func statusItem(_ status: HistoryRead.Status) -> PaletteItem {
+        PaletteItem(id: status.id, title: status.title, subtitle: status.detail, symbol: status.symbol, isEnabled: status.canRetry,
+                    primary: PaletteCommand(id: "retry", title: HistoryRead.tryAgain, symbol: "arrow.clockwise", effect: .performKeepingOpen {}))
+    }
+
     /// The brand mark an agent session's row draws (its provider's), or nil.
     nonisolated static func agentBrand(_ entry: HistoryEntry) -> String? {
-        guard case .agent(let session) = entry.payload else { return nil }
-        return AgentBrandCatalog.brand(for: session.provider)?.rawValue
+        switch entry.payload {
+        case .agent(let session):
+            return AgentBrandCatalog.brand(for: session.provider)?.rawValue
+        case .closed(let item):
+            return AgentBrandCatalog.brand(for: item.agentSession?.harness)?.rawValue
+        default:
+            return nil
+        }
     }
 
     static func item(for entry: HistoryEntry, services: AppServices) -> PaletteItem {

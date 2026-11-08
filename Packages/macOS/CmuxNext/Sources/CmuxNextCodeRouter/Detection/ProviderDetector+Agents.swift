@@ -37,13 +37,14 @@ extension ProviderDetector {
     func detectCodexLogin() -> ProviderDetection {
         let file = codexHome.appendingPathComponent("auth.json")
         let source = DetectionSource.file(environment.display(file))
+        // In keyring mode the Keychain item is the current sign-in, ahead of an `auth.json` left
+        // from file storage (Connect reads it first too).
+        let usesKeyring = codexUsesKeyring
+        if usesKeyring, environment.keychain.hasGenericPassword(service: Self.codexKeychainService) {
+            return ProviderDetection(provider: .codex, status: .signedIn, sources: [.keychain(Self.codexKeychainService)])
+        }
         guard environment.files.exists(file) else {
-            if codexUsesKeyring {
-                let found = environment.keychain.hasGenericPassword(service: Self.codexKeychainService)
-                return ProviderDetection(provider: .codex, status: found ? .signedIn : .missing,
-                                         sources: found ? [.keychain(Self.codexKeychainService)] : [])
-            }
-            return .missing(.codex)
+            return usesKeyring ? ProviderDetection(provider: .codex, status: .missing, sources: []) : .missing(.codex)
         }
         guard let root = environment.jsonObject(at: file) else {
             return ProviderDetection(provider: .codex, status: .unknown, sources: [source])
@@ -67,14 +68,15 @@ extension ProviderDetector {
 
     static let codexKeychainService = "Codex Auth"
 
-    /// Whether config.toml sets `cli_auth_credentials_store = "keyring"`.
+    /// Whether config.toml keeps credentials in the OS keychain (`keyring` or
+    /// Codex's `auto` mode when its platform store is selected).
     var codexUsesKeyring: Bool {
         let config = codexHome.appendingPathComponent("config.toml")
         guard let data = environment.files.data(at: config), let text = String(data: data, encoding: .utf8) else { return false }
         return text.split(whereSeparator: \.isNewline).contains { line in
             let parts = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
             return parts.count == 2 && parts[0] == "cli_auth_credentials_store"
-                && parts[1].trimmingCharacters(in: CharacterSet(charactersIn: "\"'")) == "keyring"
+                && ["keyring", "auto"].contains(parts[1].trimmingCharacters(in: CharacterSet(charactersIn: "\"'")))
         }
     }
 
@@ -122,15 +124,17 @@ extension ProviderDetector {
     static let claudeKeychainService = "Claude Code-credentials"
 
     /// `.claude.json` next to the config dir's parent (`~/.claude.json`),
-    /// or inside `$CLAUDE_CONFIG_DIR`.
+    /// or inside `$CLAUDE_CONFIG_DIR`. No plan: `organizationName` is the
+    /// account's organization ("alex@example.com's Organization"), not its
+    /// subscription; Settings > Agents > Harnesses reads the plan from
+    /// `claude auth status` (`ClaudeAuthStatus`).
     private func claudeIdentity(configDir: URL) -> (account: AccountLabel?, plan: String?) {
         let candidates = environment.value("CLAUDE_CONFIG_DIR") != nil
             ? [configDir.appendingPathComponent(".claude.json")]
             : [environment.home.appendingPathComponent(".claude.json"), configDir.appendingPathComponent(".claude.json")]
         for url in candidates {
             guard let oauthAccount = environment.jsonObject(at: url)?["oauthAccount"] as? [String: Any] else { continue }
-            let organization = (oauthAccount["organizationName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            return (account(.claude, oauthAccount["emailAddress"] as? String, plan: organization), organization)
+            return (account(.claude, oauthAccount["emailAddress"] as? String), nil)
         }
         return (nil, nil)
     }

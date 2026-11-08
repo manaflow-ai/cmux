@@ -4,7 +4,7 @@
 # scrolling, video, switching tabs; cold launch; new tab first paint; idle
 # wakeups and CPU at 20 tabs; memory at 1/10/20 tabs). Method and rows:
 # scripts/perf-bench/README.md. Run alone on an idle mini (it launches apps):
-#   cmux-ci run --class exclusive --measurement --label measure \
+#   cmux-ci run --class exclusive --measurement --pool perf-lead --label measure \
 #     --script scripts/measure/perf-bench.sh --ref SHA --artifact artifacts/perf-bench/results.json \
 #     [--arg=rounds=3] [--arg=launches=2] [--arg=idle=60] [--arg=active=30] [--arg=cmux=build|nightly]
 #     [--arg=browsers=cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari] [--arg=gate=1]
@@ -73,6 +73,12 @@ if [ "$cmux" = build ] || [ "$debug" = 1 ]; then
     fi
     ./scripts/download-prebuilt-ghosttykit.sh
   fi
+  # The web bundles need the bun webviews/package.json pins; the account's ~/.bun may hold an older one
+  # (M6 minis 2026-10-31: 1.3.6-1.4.2, webviews pins 1.4.4). The build gets its own checked copy, first on
+  # PATH, as an absolute path: the web builders cd into webviews/ before they run bun.
+  RUNNER_TEMP="$PWD/$work" GITHUB_PATH="$PWD/$work/bun-path" ./scripts/cmux-next/private-bun.sh
+  PATH="$(tail -n 1 "$work/bun-path"):$PATH"
+  export PATH
 fi
 
 apps=()

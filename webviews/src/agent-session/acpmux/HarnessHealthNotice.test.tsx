@@ -7,7 +7,8 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer } from "./HarnessHealthNotice";
+import { HarnessHealthNotice } from "./HarnessHealthNotice";
+import { type HarnessHealth, type UpdateOffer } from "./harnessHealthNoticeModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -138,6 +139,15 @@ test("a signed-out agent CLI says so, and Log In runs its login in a terminal ta
   // Not Now hides it for this chat.
   await press(container, "dismiss");
   expect(notice(container)).toBeNull();
+});
+
+test("an expired sign-in says so, and Log In runs its login like a signed-out one", async () => {
+  const container = installDom();
+  const opened = await render(container, { ...signedOut, auth: "expired" });
+  expect(notice(container)?.dataset.harnessNotice).toBe("signedOut");
+  expect(text(container)).toContain("Your sign-in expired.");
+  await press(container, "login");
+  expect(opened).toEqual([{ kind: "terminal", text: "codex login", cwd: "/work", run: true }]);
 });
 
 test("an outdated agent CLI draws no line: the model chip offers its update; Skip This Version stays skipped until a newer one", async () => {

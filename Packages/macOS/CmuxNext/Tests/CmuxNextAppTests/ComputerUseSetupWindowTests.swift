@@ -36,14 +36,14 @@ struct ComputerUseSetupWindowTests {
         #expect(model.nextPane == .accessibility)
         #expect(model.isPrimary(.accessibility))
         #expect(!model.isPrimary(.screenRecording))
-        #expect(ComputerUseSetupView.control(.screenRecording, model) == .allow(primary: false))
+        #expect(OnboardingPageState.control(.screenRecording, model) == "allow")
 
         source.current.accessibility = true
         await settle(model) { model.permissions.accessibility }
         #expect(model.nextPane == .screenRecording)
         #expect(model.isPrimary(.screenRecording))
-        #expect(ComputerUseSetupView.control(.accessibility, model) == .done)
-        #expect(ComputerUseSetupView.control(.screenRecording, model) == .allow(primary: true))
+        #expect(OnboardingPageState.control(.accessibility, model) == "done")
+        #expect(OnboardingPageState.control(.screenRecording, model) == "allowPrimary")
         #expect(!model.allGranted)
     }
 
@@ -55,7 +55,7 @@ struct ComputerUseSetupWindowTests {
         #expect(source.opened == [.accessibility])
         #expect(model.helping == .accessibility)
         #expect(!model.isPrimary(.accessibility), "the row's Allow goes gray while the panel shows")
-        #expect(ComputerUseSetupView.control(.accessibility, model) == .allow(primary: false))
+        #expect(OnboardingPageState.control(.accessibility, model) == "allow")
     }
 
     @Test func theGrantLandingClosesThePanelAndBringsTheWindowBack() async {
@@ -75,7 +75,7 @@ struct ComputerUseSetupWindowTests {
         #expect(model.comebacks == 2)
         #expect(model.allGranted)
         #expect(model.nextPane == nil)
-        #expect(ComputerUseSetupView.noteText(model) == nil)
+        #expect(OnboardingPageState.note(model) == nil)
     }
 
     @Test func aGrantWithoutThePanelDoesNotPullTheWindowForward() async {
@@ -130,8 +130,8 @@ struct ComputerUseSetupWindowTests {
         defer { window.leave() }
         await settle(window.computerUse) { window.computerUse.permissions.helperFailed }
         #expect(window.computerUse.nextPane == nil)
-        #expect(ComputerUseSetupView.control(.accessibility, window.computerUse) == .hidden)
-        #expect(ComputerUseSetupView.noteText(window.computerUse) == OnboardingStrings.computerUseHelperFailed)
+        #expect(OnboardingPageState.control(.accessibility, window.computerUse) == "hidden")
+        #expect(OnboardingPageState.note(window.computerUse) == "helperFailed")
         window.next()
         #expect(source.restartCount == 1)
         #expect(source.opened.isEmpty)
@@ -145,7 +145,7 @@ struct ComputerUseSetupWindowTests {
         #expect(model.unavailable)
         #expect(source.opened.isEmpty)
         #expect(!model.isPrimary(.accessibility))
-        #expect(ComputerUseSetupView.noteText(model) == OnboardingStrings.computerUseHelperUnavailable)
+        #expect(OnboardingPageState.note(model) == "unavailable")
     }
 
     // MARK: Entry points
@@ -162,11 +162,11 @@ struct ComputerUseSetupWindowTests {
             let services = MockOnboardingServices()
             services.computerUseSource = MockComputerUsePermissionSource()
             return OnboardingModel(services: services, step: step)
-        }, present: { _ in presented.count += 1 })
+        }, activeLook: nil, present: { _ in presented.count += 1 })
         presenter.show(step: .computerUse)
         let first = presenter.controller
         #expect(first?.model.step == .computerUse)
-        #expect(first?.window?.contentView?.frame.size == ComputerUseSetupView.size)
+        #expect(first?.window?.contentView?.frame.size == OnboardingModel.Step.computerUse.windowSize)
         presenter.show(step: .computerUse)
         #expect(presenter.controller === first, "a second open brings the same window forward")
         #expect(presented.count == 2)

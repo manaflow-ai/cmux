@@ -42,11 +42,13 @@ USAGE
   cmux notification list [--limit <1..256>]
   cmux notification create --title <value> --body <value> [--subtitle <value>]
     [--level info|warning|error] [--terminal <term_id> | --workspace <ws_id>]
-  cmux notification clear [--terminal <term_id> | --workspace <ws_id>]
+  cmux notification clear [--terminal <term_id> | --workspace <ws_id> |
+    --notification <notification_id>]
   cmux notification ack --client <id> <notification_id>...
 
-clear without --terminal or --workspace clears every notification of the
-session; --workspace clears that workspace's rows and those of its terminals. `cmux
+clear without a scope clears every notification of the session;
+--workspace clears that workspace's rows and those of its terminals;
+--notification clears that one row. `cmux
 notify` takes the flags of the macOS `cmux notify` (`cmux notify --help`).
 ";
 
@@ -54,6 +56,8 @@ pub(super) const ATTENTION_HELP: &str = "\
 USAGE
   cmux attention request --tab <tab_…> --reason <text>
   cmux attention clear --tab <tab_…>
+  cmux attention next [--after <tab_…>] [--focus]
+  cmux attention list
 
 request marks the tab where the person must act (confirm, log in, approve,
 pick): the tab and its workspace show as needing them in every cmux client.
@@ -62,6 +66,14 @@ to take the person there when they ask, run `cmux tab <tab_…> focus`. The mark
 when you clear it, when a browser tab goes to another page, or when the tab
 closes. Name the workspace and tab by their titles when you talk to the person,
 never by a ws_ or tab_ id.
+
+next answers the tab the person should go to next, as JSON {target,
+queue_length, focused}: tabs where they must act first (a request, a blocked
+agent or program), then unread error and warning notifications, then other
+unread ones, each oldest first. target is the entry after the focused tab (or
+after --after), wrapping to the first, or null. It moves focus only with
+--focus. list answers the whole queue as {queue}. The TUI key `Ctrl-b a`
+(next-attention) visits the same order; `Ctrl-b A` lists it.
 ";
 
 pub(super) const NOTIFY_HELP: &str = "\
@@ -141,6 +153,7 @@ USAGE
   cmux closed list [--window <install/window>] [--limit <n>]
   cmux closed reopen [--window <install/window>]
   cmux closed reopen --tab <tab> [--fallback-pane <pane>]
+  cmux closed reopen --workspace <ws>
   cmux closed <closed> reopen [--window <install/window>] [--members <i,j,...>] [--fallback-pane <pane>]
   cmux closed <closed> delete [--members <i,j,...>]
   cmux closed clear [--since-ms <unix-ms>] [--before-ms <unix-ms>] [--keep-newest <n>]
@@ -160,11 +173,24 @@ closed at or after that time, --before-ms only those closed before it, and
 --keep-newest every group but the newest n (retention by age and by count).
 ";
 
+pub(super) const SPACE_HELP: &str = "\
+USAGE
+  cmux space list [--json]
+  cmux space new <name> [--json]
+  cmux space switch <name> [--json]
+  cmux space rename <old-name> <new-name> [--json]
+  cmux space move workspace <workspace> <space> [--json]
+  cmux space move tab <tab> <space> [--json]
+  cmux space close <name> [--json]
+";
+
 pub(super) const GIT_HELP: &str = "\
 USAGE
   cmux git status [TARGET]
-  cmux git diff [TARGET] [--scope <scope>] [--patch] [--max-patch-bytes <n>]
-    [--max-files <n>] [--context-lines <n>] [<path>...]
+  cmux git diff [TARGET] [--scope <scope> | --scope commits --base <commit> --head <commit>]
+    [--patch] [--max-patch-bytes <n>]
+    [--max-files <n>] [--context-lines <n>] [--after-path <path>]
+    [--patch-offset <n> [--patch-revision <revision>]] [<path>...]
   cmux git branches [TARGET] [--limit <n>]
   cmux git files [TARGET] [--limit <n>] <query>...
   cmux git list [TARGET] [--limit <n>]
@@ -177,6 +203,7 @@ USAGE
   cmux git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
   cmux git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch]
     [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>]
+    [--after-path <path>] [--patch-offset <n> [--patch-revision <revision>]]
   cmux git commit [TARGET] --message <text> [--all [--include-untracked]] [--amend]
     [--no-verify] [--expected-head <commit>] [<path>...]
   cmux git push [TARGET] [--remote <name>] [--branch <name>]
@@ -184,6 +211,10 @@ USAGE
   cmux git worktree create [TARGET] [--name <name>] [--base <revision>]
   cmux git worktree apply [TARGET]
   cmux git worktree remove [TARGET] [--discard]
+  cmux git worktree setup [TARGET] [--since <offset>]
+  cmux git comments list [--root <path>]
+  cmux git comments save [--root <path>] --comment <json-object>
+  cmux git comments delete [--root <path>] <comment-id>... [--versions-json <json-object>]
 
 TARGET
   --path <path>          A file or folder in the repository
@@ -201,6 +232,9 @@ SCOPES
   committed    HEAD against its first parent
   branch       The working tree against the merge base with the base branch,
                with untracked files
+  commits      --head against its merge base with --base (a pull request's
+               change), both full commit ids already in the repository;
+               nothing is fetched
 
 status prints the branch, upstream, how far it is ahead and behind, the base
 branch (the one a worktree create recorded for the branch, else origin's
@@ -208,7 +242,11 @@ default branch, else main or master), and in a linked worktree its main
 checkout. diff prints each changed file's status and line counts; --patch
 adds each file's patch from its first @@ line, cut at --max-patch-bytes
 (262144 by default). At most --max-files files (500) are listed; the rest are
-counted. Paths are relative to the repository root and taken literally.
+counted, and --after-path with the reply's next_path lists the next page.
+With --patch and one file path, --patch-offset reads that file's whole patch
+in pages from a byte offset (start at 0); pass the first page's revision as
+--patch-revision to read the later pages. Paths are relative to the repository
+root and taken literally.
 
 branches lists local branches, then remote-tracking ones, newest commit first:
 each one's ref and commit, and for a local branch its upstream and how far it
@@ -258,7 +296,19 @@ work does not apply cleanly there.
 worktree remove, run in such a worktree, removes it (with its ignored files) and
 the cmux/<name> branch worktree create made. It is refused while the worktree has
 uncommitted changes or commits on no other branch or remote, unless --discard.
-The main checkout is never removed.
+The main checkout is never removed. Before it goes, the project's teardown runs.
+
+worktree setup shows the project's worktree recipe (.worktreeinclude,
+.cmux/worktree.toml and the saved one) and, in a worktree worktree create made,
+its setup: state, port and output (from byte --since).
+
+comments are the diff page's review comments, kept by the session host for a
+worktree root (--root, the current directory by default; give the worktree's
+top folder, as the diff page does). list prints them. save adds the comment
+object (filePath, side, startLine, endLine, message, ...), or replaces the
+saved one whose id it names; the session host sets createdAt and updatedAt.
+delete removes the named comments; --versions-json maps an id to the updatedAt
+you read, so a comment edited since then is kept.
 ";
 
 /// Levenshtein distance, for "did you mean" scope suggestions.

@@ -5,6 +5,7 @@
 
 use super::CLIENT_DETACH_WRITE_TIMEOUT;
 use super::DAEMON_SHUTDOWN_EVENT;
+use super::DAEMON_SHUTDOWN_RESTART_CAPABILITY;
 use super::DetachClientTarget;
 use super::DetachNotice;
 use super::MessageWriter;
@@ -125,7 +126,7 @@ fn disconnect_client_with_notice(
     mux: &Arc<Mux>,
     client: u64,
     send_detached: bool,
-    notice: Option<&str>,
+    notice: Option<&Value>,
     detach: &DetachNotice,
 ) -> bool {
     let record = {
@@ -137,6 +138,8 @@ fn disconnect_client_with_notice(
         record
     };
     mux.unbind_conversation_principal(client);
+    #[cfg(unix)]
+    mux.forget_cloud_token_client(client);
     mux.release_cloud_conversation_client(client);
     // Provider capabilities are valid only for the control connection that
     // published them. Release before announcing detachment so waiters can
@@ -165,7 +168,7 @@ fn disconnect_client_with_notice(
     if send_detached {
         let _ = record.writer.set_write_timeout(Some(CLIENT_DETACH_WRITE_TIMEOUT));
         if let Some(event) = notice {
-            let _ = record.writer.send_control(&json!({"event": event}));
+            let _ = record.writer.send_control(event);
             let _ = record.writer.flush_control(CLIENT_DETACH_WRITE_TIMEOUT);
         }
         for (surface, attached) in &record.attached {
@@ -183,6 +186,19 @@ fn disconnect_client_with_notice(
     true
 }
 
+/// The [`DAEMON_SHUTDOWN_EVENT`] for one client. `restart` says whether a
+/// replacement daemon follows (an attached TUI reconnects) or the session
+/// stops (it exits); it goes only to a client that negotiated
+/// [`DAEMON_SHUTDOWN_RESTART_CAPABILITY`], and is left out when the requester
+/// did not say.
+pub(super) fn daemon_shutdown_notice(restart: Option<bool>, negotiated: bool) -> Value {
+    let mut notice = json!({"event": DAEMON_SHUTDOWN_EVENT});
+    if let Some(restart) = restart.filter(|_| negotiated) {
+        notice.insert("restart", json!(restart));
+    }
+    notice
+}
+
 pub(super) fn complete_daemon_shutdown_after_ack(
     mux: &Arc<Mux>,
     requesting_client: u64,
@@ -197,17 +213,24 @@ pub(super) fn complete_daemon_shutdown_after_ack(
         mux.cancel_daemon_handoff(requesting_client);
         return false;
     }
+    let restart = mux.control_clients.daemon_handoff_restart();
+    let notice_for = |client: u64| {
+        let negotiated =
+            mux.control_clients.supports_capability(client, DAEMON_SHUTDOWN_RESTART_CAPABILITY);
+        daemon_shutdown_notice(restart, negotiated)
+    };
     let requester_notice_sent = writer
-        .send_control(&json!({"event": DAEMON_SHUTDOWN_EVENT}))
+        .send_control(&notice_for(requesting_client))
         .and_then(|()| writer.flush_control(SHUTDOWN_ACK_FLUSH_TIMEOUT))
         .is_ok();
     for peer in mux.control_clients.client_ids() {
         if peer != requesting_client {
+            let notice = notice_for(peer);
             disconnect_client_with_notice(
                 mux,
                 peer,
                 true,
-                Some(DAEMON_SHUTDOWN_EVENT),
+                Some(&notice),
                 &DetachNotice { reason: detach_reason::HOST_SHUTDOWN, by: None },
             );
         }

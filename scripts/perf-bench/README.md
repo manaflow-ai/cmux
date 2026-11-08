@@ -10,7 +10,7 @@ the same way. The goal: every cmux cell at a tenth of the best other browser.
 ## Run it (fleet mini only, never a laptop)
 
 ```sh
-cmux-ci run --class exclusive --measurement --label measure \
+cmux-ci run --class exclusive --measurement --pool perf-lead --label measure \
   --script scripts/measure/perf-bench.sh --ref <40-char sha> \
   --artifact artifacts/perf-bench/results.json \
   [--arg=rounds=3] [--arg=launches=2] [--arg=idle=60] [--arg=active=30] \
@@ -55,7 +55,7 @@ process (pid, kind, command, footprint, RSS, CPU %, wakeups/s), so a PR can quot
 per process from the same measurement.
 
 ```sh
-cmux-ci run --class exclusive --measurement --label bench --target-worker cmux20-bench \
+cmux-ci run --class exclusive --measurement --pool perf-lead --label bench --target-worker cmux20-bench \
   --script scripts/measure/perf-bench.sh --ref <40-char sha> --artifact artifacts/perf-bench/results.json \
   --arg=browsers=cmux-budget --arg=launches=0 --arg=rounds=1 --arg=tabswitch=off --arg=palette=off
 ```
@@ -113,7 +113,8 @@ The step needs a logged-in console user: `open` fails on the AWS workers (aws-m4
 login; xbench exits 3 with `PERF-BENCH-NO-GUI`). The bench host is **cmux20-bench** (cmux20, Apple M6,
 macOS 27.0, user `cmux` at the console): a controller worker that advertises only `bench`, so it takes
 no CI step and no build (hq `build-fleet/mini-ops/bench-worker/bench-worker.sh`). Submit with
-`--label bench --target-worker cmux20-bench`; the nightly job does. It has bun and node under
+`--measurement --pool perf-lead --label bench --target-worker cmux20-bench`; the nightly job does (cmux20 is
+owner-only for pool perf-lead, so the controller refuses any other `--label bench` step). It has bun and node under
 `~cmux` for the Debug build. The owned M4 Pro minis (cmux7s-13s) can open apps too, but they are busy
 CI hosts; `baseline/apple-m4-pro-macos27.json` came from one (cmuxs-Mac-mini 6, load 3 to 8). The aws-m4pro
 minis start the app but its control socket never appears (a252), so they cannot run xbench.

@@ -64,6 +64,7 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/merge-pbxproj.py",
             "scripts/merge-baseline.py",
             "scripts/merge-daemon-capabilities.py",
+            "scripts/merge-insertions.py",
             "scripts/ci/merge_main_resolver.py",
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
@@ -75,6 +76,7 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/cmux-next/prepush-gate.py",
             "scripts/cmux-next/git_batch.py",
             "scripts/ci/base_merge_warning.py",
+            "scripts/ci/github_release_download.py",
         ):
             source, target = SOURCE / relative, root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -315,6 +317,33 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertIn('path = "tests/test_mine.py"', text)
         self.assertNotIn("tests/test_base.py", text)
 
+    def test_pre_commit_registers_a_new_test_in_its_area_fragment(self):
+        """The registry is tests/test-execution.d/<area>.toml: a new test goes into its area's file,
+        and the hook stages that file, including a fragment the registration creates."""
+        self.assertEqual(self.install().returncode, 0)
+        workflow = self.repo / ".github/workflows/ci-guards.yml"
+        workflow.parent.mkdir(parents=True, exist_ok=True)
+        workflow.write_text(
+            "name: CI guards\njobs:\n  workflow-guard-tests:\n    steps:\n"
+            "      - run: python3 tests/test_ci_kept.py\n      - run: python3 tests/test_ci_mine.py\n",
+            encoding="utf-8",
+        )
+        fragments = self.repo / "tests/test-execution.d"
+        fragments.mkdir(parents=True)
+        (fragments / "ci.toml").write_text('# ci\n\n[[test]]\npath = "tests/test_ci_kept.py"\nlane = "linux-guard"\n',
+                                           encoding="utf-8")
+        (self.repo / "tests/test_ci_kept.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "--no-verify", "-m", "base")
+
+        (self.repo / "tests/test_ci_mine.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        self.git("add", "tests/test_ci_mine.py")
+        result = self.run_pre_commit(self.env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('path = "tests/test_ci_mine.py"', (fragments / "ci.toml").read_text(encoding="utf-8"))
+        self.assertFalse((self.repo / "tests/test-execution.toml").exists())
+        self.assertIn("tests/test-execution.d/ci.toml", self.git("diff", "--cached", "--name-only").stdout)
+
     def test_pre_commit_registers_a_test_its_workflow_change_names(self):
         """A commit that only adds a workflow line for an existing test registers that test, and
         still not the base's other unregistered one (#21946)."""
@@ -341,6 +370,47 @@ class InstallGitHooksTests(unittest.TestCase):
         text = registry.read_text(encoding="utf-8")
         self.assertIn('path = "tests/test_mine.py"', text)
         self.assertNotIn("tests/test_base.py", text)
+
+    def test_pre_commit_registers_no_test_in_a_merge_commit(self):
+        """Merging the base into a pull request staged every test the base added since the branch
+        point, so the hook wrote the base's unregistered test into the pull request's merge commit
+        (tests/test_nightly_dedicated_mini.py in #30071 and #30351). A merge adds no test of its own."""
+        self.assertEqual(self.install().returncode, 0)
+        commit = ("-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet")
+        workflow = self.repo / ".github/workflows/ci-guards.yml"
+        workflow.parent.mkdir(parents=True, exist_ok=True)
+        base_workflow = ("name: CI guards\njobs:\n  workflow-guard-tests:\n    steps:\n"
+                         "      - run: python3 tests/test_kept.py\n")
+        workflow.write_text(base_workflow, encoding="utf-8")
+        registry = self.repo / "tests/test-execution.toml"
+        registry.parent.mkdir(parents=True, exist_ok=True)
+        registry_text = 'version = 1\n\n[[test]]\npath = "tests/test_kept.py"\nlane = "linux-guard"\n'
+        registry.write_text(registry_text, encoding="utf-8")
+        (self.repo / "tests/test_kept.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git(*commit, "--no-verify", "-m", "base")
+
+        self.git("checkout", "--quiet", "-b", "pr")
+        (self.repo / "notes.txt").write_text("pull request work\n", encoding="utf-8")
+        self.git("add", "notes.txt")
+        self.git(*commit, "--no-verify", "-m", "pull request work")
+
+        # The base adds a test and the workflow line that runs it, and leaves it unregistered.
+        self.git("checkout", "--quiet", "main")
+        (self.repo / "tests/test_theirs.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+        workflow.write_text(base_workflow + "      - run: python3 tests/test_theirs.py\n", encoding="utf-8")
+        self.git("add", "-A")
+        self.git(*commit, "--no-verify", "-m", "base adds a test")
+
+        self.git("checkout", "--quiet", "pr")
+        merged = self.git("-c", "user.name=t", "-c", "user.email=t@t", "merge", "--quiet", "--no-ff",
+                          "--no-commit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        result = self.git(*commit, "--no-edit", check=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(self.git("rev-list", "--parents", "-n", "1", "HEAD").stdout.split()), 3)
+        self.assertEqual(self.git("show", "HEAD:tests/test-execution.toml").stdout, registry_text)
+        self.assertEqual(registry.read_text(encoding="utf-8"), registry_text)
 
     def test_pre_commit_formats_rust_outside_cmux_tui_with_its_edition(self):
         self.assertEqual(self.install().returncode, 0)
@@ -574,7 +644,6 @@ cat > node_modules/.bin/vp <<'VP'
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/pane.js",
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/locales/en.js",
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/highlight-worker.js",
-            "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
             "webviews/src/agent-session/acpmux/generated/strings.json",
             "webviews/src/pages/settings/generated/strings.json",
             # Other checked exports: lanes committed "regenerate after the tip
@@ -582,6 +651,8 @@ cat > node_modules/.bin/vp <<'VP'
             "plans/cmux-next/actions.md",
             "plans/cmux-next/action-surfaces.json",
             "schemas/settings/settings-schema.json",
+            # The docs reference that follows the schema: 13 conflicts in a week.
+            "web/data/next-docs/settings-reference.generated.json",
             "docs/mdm/com.manaflow.cmux.plist",
             "Packages/macOS/CmuxNext/ci-target-graph.json",
             "cmux-tui/bindings/go/raw/generated_types.go",
@@ -689,6 +760,243 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertNotEqual(clash.returncode, 0)
         self.assertIn("<<<<<<<", counts.read_text())
         self.assertIn('"decode": 5', counts.read_text())
+
+    def test_design_token_baseline_merges_count_by_count(self):
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        self.assertEqual(self.install().returncode, 0)
+        jsonl = self.repo / "webviews/scripts/design-tokens-baseline.jsonl"
+        jsonl.parent.mkdir(parents=True, exist_ok=True)
+        row = '{{"file":"{}","kind":"height","property":"height","values":{}}}\n'.format
+        jsonl.write_text(row("a.css", '{"8px":2,"9px":1}') + row("b.css", '{"4px":1}'))
+        self.commit_all("base")
+        self.git("checkout", "--quiet", "-b", "lane")
+        jsonl.write_text(row("a.css", '{"8px":1,"9px":1}') + row("b.css", '{"4px":1}'))
+        self.commit_all("lane")
+        self.git("checkout", "--quiet", "main")
+        jsonl.write_text(row("a.css", '{"8px":2}') + row("b.css", '{"4px":1}') + row("c.css", '{"6px":1}'))
+        self.commit_all("main")
+        self.git("checkout", "--quiet", "lane")
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(jsonl.read_text(), row("a.css", '{"8px":1}') + row("b.css", '{"4px":1}')
+                         + row("c.css", '{"6px":1}'))
+
+        # Two rows with one key: a merge would keep one row's counts and drop the other's.
+        self.git("checkout", "--quiet", "-b", "doubled")
+        jsonl.write_text(row("a.css", '{"8px":1}') + row("a.css", '{"7px":3}'))
+        self.commit_all("doubled")
+        doubled = self.git("rev-parse", "HEAD").stdout.strip()
+        jsonl.write_text(row("a.css", '{"8px":1}') + row("a.css", '{"7px":3}') + row("d.css", '{"1px":1}'))
+        self.commit_all("doubled ours")
+        self.git("checkout", "--quiet", "-b", "doubled-theirs", doubled)
+        jsonl.write_text(row("a.css", '{"8px":2}') + row("a.css", '{"7px":3}'))
+        self.commit_all("doubled theirs")
+        clash = self.git("merge", "--no-edit", "doubled", check=False)
+        self.assertNotEqual(clash.returncode, 0, clash.stdout + clash.stderr)
+        self.git("merge", "--abort")
+
+        # The same key with its fields in another order is still the same key.
+        reordered = '{"property":"height","kind":"height","file":"a.css","values":{"7px":3}}\n'
+        self.git("checkout", "--quiet", "-b", "reordered", doubled)
+        jsonl.write_text(row("a.css", '{"8px":1}'))
+        self.commit_all("single")
+        single = self.git("rev-parse", "HEAD").stdout.strip()
+        jsonl.write_text(row("a.css", '{"8px":1}') + reordered)
+        self.commit_all("reordered ours")
+        reordered_ours = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "-b", "reordered-theirs", single)
+        jsonl.write_text(row("a.css", '{"8px":2}'))
+        self.commit_all("reordered theirs")
+        clash = self.git("merge", "--no-edit", reordered_ours, check=False)
+        self.assertNotEqual(clash.returncode, 0, clash.stdout + clash.stderr)
+        self.git("merge", "--abort")
+
+    def test_insertions_both_sides_made_merge_and_changes_still_conflict(self):
+        """Two lanes that each append to the same list merge with both entries; a line both
+        changed, or a JSON result that no longer parses, stays a conflict."""
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        self.assertEqual(self.install().returncode, 0)
+        command = shlex.split(self.git("config", "--get", "merge.cmux-insertions-v1.driver").stdout.strip())
+        self.assertEqual(Path(command[2]).resolve(),
+                         (self.common_dir() / "cmux-merge-drivers/merge-insertions.py").resolve())
+        self.assertEqual(command[3:], ["%O", "%A", "%B", "%P", "%L"])
+        log = self.repo / "plans/cmux-next/sidebar-owner.md"
+        lib = self.repo / "cmux-tui/crates/demo/src/lib.rs"
+        surfaces = self.repo / ".github/design-surfaces.json"
+        for path in (log, lib, surfaces):
+            path.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text("# Log\n\n- first\n")
+        lib.write_text("pub mod a;\n\nfn shared() {}\n")
+        surfaces.write_text('{\n "a": 1\n}\n')
+        self.commit_all("base")
+        base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("checkout", "--quiet", "-b", "lane")
+        log.write_text("# Log\n\n- first\n- lane entry\n")
+        lib.write_text("pub mod a;\npub mod lane;\n\nfn shared() {}\n")
+        self.commit_all("lane")
+        self.git("checkout", "--quiet", "main")
+        log.write_text("# Log\n\n- first\n- main entry\n")
+        lib.write_text("pub mod a;\npub mod main;\n\nfn shared() {}\n")
+        self.commit_all("main")
+        self.git("checkout", "--quiet", "lane")
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(log.read_text(), "# Log\n\n- first\n- lane entry\n- main entry\n")
+        self.assertEqual(lib.read_text(), "pub mod a;\npub mod lane;\npub mod main;\n\nfn shared() {}\n")
+
+        # Two appended functions both end in `}`: each keeps its own.
+        self.git("checkout", "--quiet", "-b", "fn-a", base)
+        lib.write_text("pub mod a;\n\nfn shared() {}\nfn a() {\n    1\n}\n")
+        self.commit_all("fn a")
+        self.git("checkout", "--quiet", "-b", "fn-b", base)
+        lib.write_text("pub mod a;\n\nfn shared() {}\nfn b() {\n    2\n}\n")
+        self.commit_all("fn b")
+        merged = self.git("merge", "--no-edit", "fn-a", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(lib.read_text(), "pub mod a;\n\nfn shared() {}\nfn b() {\n    2\n}\nfn a() {\n    1\n}\n")
+
+        # A line of the file that looks like a conflict marker is content, never a hunk.
+        self.git("checkout", "--quiet", "-b", "marker-base", base)
+        log.write_text("# Log\n\nTitle\n=======\n<<<<<<< see docs\n- first\n")
+        self.commit_all("marker base")
+        marker_base = self.git("rev-parse", "HEAD").stdout.strip()
+        log.write_text("# Log\n\nTitle\n=======\n<<<<<<< see docs\n- first\n- x\n")
+        self.commit_all("marker x")
+        self.git("checkout", "--quiet", "-b", "marker-y", marker_base)
+        log.write_text("# Log\n\nTitle\n=======\n<<<<<<< see docs\n- first\n- y\n")
+        self.commit_all("marker y")
+        merged = self.git("merge", "--no-edit", "marker-base", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(log.read_text(), "# Log\n\nTitle\n=======\n<<<<<<< see docs\n- first\n- y\n- x\n")
+
+        # An inserted line as long as the driver's own markers is content too.
+        long_line = ">" * 51 + " documentation\n"
+        self.git("checkout", "--quiet", "-b", "long-x", base)
+        log.write_text("# Log\n\n- first\n" + long_line)
+        self.commit_all("long x")
+        self.git("checkout", "--quiet", "-b", "long-y", base)
+        log.write_text("# Log\n\n- first\n- y\n")
+        self.commit_all("long y")
+        merged = self.git("merge", "--no-edit", "long-x", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(log.read_text(), "# Log\n\n- first\n- y\n" + long_line)
+
+        # One function both sides added with different bodies is one change made twice: kept
+        # both, the file would define it twice, so it stays a conflict.
+        self.git("checkout", "--quiet", "-b", "twice-a", base)
+        lib.write_text("pub mod a;\n\nfn shared() {}\nfn helper(value: u32) -> u32 {\n    let doubled = value * 2;\n    doubled + 1\n}\n")
+        self.commit_all("twice a")
+        self.git("checkout", "--quiet", "-b", "twice-b", base)
+        lib.write_text("pub mod a;\n\nfn shared() {}\nfn helper(value: u32) -> u32 {\n    let doubled = value * 2;\n    doubled + 2\n}\n")
+        self.commit_all("twice b")
+        clash = self.git("merge", "--no-edit", "twice-a", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.assertEqual(lib.read_text().count("let doubled"), 2, lib.read_text())
+        self.assertIn("<<<<<<<", lib.read_text())
+        self.git("merge", "--abort")
+
+        # A file both branches created is two versions of one file, never two insertions.
+        self.git("checkout", "--quiet", "-b", "new-a", base)
+        (lib.parent / "fresh.rs").write_text("fn fresh() {\n    one();\n}\n")
+        self.commit_all("new a")
+        self.git("checkout", "--quiet", "-b", "new-b", base)
+        (lib.parent / "fresh.rs").write_text("fn fresh() {\n    two();\n}\n")
+        self.commit_all("new b")
+        clash = self.git("merge", "--no-edit", "new-a", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.assertIn("<<<<<<<", (lib.parent / "fresh.rs").read_text())
+        self.git("merge", "--abort")
+
+        # TOML: a key one side appends to the last table stays in that table when the other
+        # side appends a new table; keys and tables on both sides stay a conflict.
+        toml = self.repo / "tests/test-execution.d/demo.toml"
+        toml.parent.mkdir(parents=True, exist_ok=True)
+        self.git("checkout", "--quiet", "-b", "toml-base", base)
+        toml.write_text('[[test]]\npath = "a"\n')
+        self.commit_all("toml base")
+        toml_base = self.git("rev-parse", "HEAD").stdout.strip()
+        toml.write_text('[[test]]\npath = "a"\n\n[[test]]\npath = "b"\n')
+        self.commit_all("toml table")
+        self.git("checkout", "--quiet", "-b", "toml-key", toml_base)
+        toml.write_text('[[test]]\npath = "a"\nserial = true\n')
+        self.commit_all("toml key")
+        merged = self.git("merge", "--no-edit", "toml-base", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(toml.read_text(), '[[test]]\npath = "a"\nserial = true\n\n[[test]]\npath = "b"\n')
+        self.git("checkout", "--quiet", "-b", "toml-both", toml_base)
+        toml.write_text('[[test]]\npath = "a"\nx = 1\n[[test]]\npath = "c"\n')
+        self.commit_all("toml both")
+        clash = self.git("merge", "--no-edit", "toml-key", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.git("merge", "--abort")
+
+        # The same line changed two ways is still the author's conflict.
+        self.git("checkout", "--quiet", "-b", "other", base)
+        lib.write_text("pub mod a;\n\nfn shared() { other() }\n")
+        self.commit_all("other")
+        self.git("checkout", "--quiet", "-b", "another", base)
+        lib.write_text("pub mod a;\n\nfn shared() { another() }\n")
+        self.commit_all("another")
+        clash = self.git("merge", "--no-edit", "other", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.assertIn("<<<<<<<", lib.read_text())
+        self.git("merge", "--abort")
+
+        # Both sides inserting after the last key leaves JSON without a comma: a conflict, never a broken file.
+        self.git("checkout", "--quiet", "-b", "json-a", base)
+        surfaces.write_text('{\n "a": 1\n}\n "b": 2\n')
+        self.commit_all("json a")
+        self.git("checkout", "--quiet", "-b", "json-b", base)
+        surfaces.write_text('{\n "a": 1\n}\n "c": 3\n')
+        self.commit_all("json b")
+        clash = self.git("merge", "--no-edit", "json-a", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.assertIn("<<<<<<<", surfaces.read_text())
+        self.git("merge", "--abort")
+
+        # Both sides adding the same key parses, but one value would silently win: a conflict.
+        self.git("checkout", "--quiet", "-b", "key-a", base)
+        surfaces.write_text('{\n "new": 1,\n "a": 1\n}\n')
+        self.commit_all("key a")
+        self.git("checkout", "--quiet", "-b", "key-b", base)
+        surfaces.write_text('{\n "new": 2,\n "a": 1\n}\n')
+        self.commit_all("key b")
+        clash = self.git("merge", "--no-edit", "key-a", check=False)
+        self.assertNotEqual(clash.returncode, 0)
+        self.assertIn("<<<<<<<", surfaces.read_text())
+        self.git("merge", "--abort")
+
+        # The same key added in two places merges clean line by line, yet one value would win.
+        self.git("checkout", "--quiet", "-b", "spread-base", base)
+        surfaces.write_text('{\n "a": 1,\n "m": 0,\n "z": 2\n}\n')
+        self.commit_all("spread base")
+        spread_base = self.git("rev-parse", "HEAD").stdout.strip()
+        surfaces.write_text('{\n "new": 1,\n "a": 1,\n "m": 0,\n "z": 2\n}\n')
+        self.commit_all("spread top")
+        self.git("checkout", "--quiet", "-b", "spread-bottom", spread_base)
+        surfaces.write_text('{\n "a": 1,\n "m": 0,\n "z": 2,\n "new": 2\n}\n')
+        self.commit_all("spread bottom")
+        clash = self.git("merge", "--no-edit", "spread-base", check=False)
+        self.assertNotEqual(clash.returncode, 0, clash.stdout + clash.stderr)
+        self.git("merge", "--abort")
+
+        # A clean merge of a file one side already broke is still not a valid result.
+        self.git("checkout", "--quiet", "-b", "broken-base", base)
+        surfaces.write_text('{\n "a": 1,\n "b": 2,\n "c": 3,\n "d": 4,\n "e": 5\n}\n')
+        self.commit_all("broken base")
+        broken_base = self.git("rev-parse", "HEAD").stdout.strip()
+        surfaces.write_text('{\n "a": 9,\n "b": 2,\n "c": 3,\n "d": 4,\n "e": 5\n}\n')
+        self.commit_all("fine")
+        self.git("checkout", "--quiet", "-b", "broken-ours", broken_base)
+        surfaces.write_text('{\n "a": 1,\n "b": 2,\n "c": 3,\n "d": 4\n "e": 5\n}\n')
+        self.commit_all("broken ours")
+        clash = self.git("merge", "--no-edit", "broken-base", check=False)
+        self.assertNotEqual(clash.returncode, 0, clash.stdout + clash.stderr)
+        self.git("merge", "--abort")
 
     def test_repo_relative_python_is_rejected_without_execution(self):
         tools = self.repo / "tools"
@@ -828,6 +1136,34 @@ cat > node_modules/.bin/vp <<'VP'
         hook = (SOURCE / "scripts/git-hooks/pre-push").read_text()
         self.assertLess(hook.index("refresh_checks.py"), hook.index("cmux_next_prepush_gate.py"),
                         "pre-push refreshes the checks before it runs them")
+
+    def test_installed_and_refreshed_checks_carry_the_swift_source_masker(self):
+        # Review of #28365: check-package-dependency-lists.py imports scripts/swift_source_mask.py, and the hook runs
+        # its copy from the checks folder, so both the install and a refresh put the masker beside it.
+        masker = self.repo / "scripts/swift_source_mask.py"
+        if not masker.is_file():
+            masker.parent.mkdir(parents=True, exist_ok=True)
+            masker.write_bytes((SOURCE / "scripts/swift_source_mask.py").read_bytes())
+        self.stale_install()
+        self.assertTrue((self.installed_checks() / "swift_source_mask.py").is_file(), "the install has no masker")
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "swift_source_mask.py").read_bytes(),
+                         (SOURCE / "scripts/swift_source_mask.py").read_bytes(), "the refreshed copy has no masker")
+
+    def test_a_refresh_puts_the_release_download_fallback_beside_the_gate(self):
+        # #38454 review: the gate loads scripts/ci/github_release_download.py from beside itself, so a refresh that
+        # rewrites the gate rewrites the helper from the same feat-cmux-next.
+        hook_dir = self.common_dir() / "cmux-git-hooks"
+        self.stale_install()
+        (hook_dir / "github_release_download.py").unlink()  # an install from before the helper
+        helper = self.repo / "scripts/ci/github_release_download.py"
+        helper.write_text(helper.read_text() + "# newer\n")
+        self.commit_all("newer helper")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", self.git("rev-parse", "HEAD").stdout.strip())
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((hook_dir / "github_release_download.py").read_bytes(), helper.read_bytes())
 
     def test_refresh_leaves_other_pushes_and_lookalike_remotes_alone(self):
         self.stale_install()
