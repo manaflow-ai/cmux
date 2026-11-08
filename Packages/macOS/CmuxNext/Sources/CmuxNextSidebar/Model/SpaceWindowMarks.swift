@@ -44,6 +44,9 @@ public nonisolated enum SpaceWindowAction: Hashable, Sendable {
     @ObservationIgnored private var observation: Task<Void, Never>?
 
     public init() {}
+
+    /// The marks observe the windows now (tests: a closed window's switcher leaves no observer behind).
+    var isObserving: Bool { observation != nil }
 }
 
 /// The App's side of one window's switcher (`SpaceWindowMarks.install`): it reads the open windows and runs a choice.
