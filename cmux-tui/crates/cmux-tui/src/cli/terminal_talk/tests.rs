@@ -78,6 +78,46 @@ fn agent_rows_name_harness_state_title_and_workspace_and_skip_plain_shells() {
 }
 
 #[test]
+fn agent_rows_carry_the_shared_status_and_done_until_seen() {
+    let rows = roster::agent_rows(&snapshot());
+    let statuses: Vec<Option<&str>> =
+        rows.iter().map(|row| row.to_json(0)["status"].as_str()).collect();
+    assert_eq!(statuses, [Some("blocked"), Some("working"), Some("idle")]);
+
+    // An unread notification on the idle claude terminal: its turn finished
+    // and nobody viewed it, so it is done and sorts above working.
+    let mut unseen = snapshot();
+    unseen["notifications"] = json!([
+        {"id": "notification_1", "terminal_id": "term_c1a0de00000000000000000000000001",
+         "unread": true, "title": "Claude finished"},
+        {"id": "notification_2", "terminal_id": "term_c0dec000000000000000000000000004",
+         "unread": false, "title": "Codex needs approval"},
+    ]);
+    let rows = roster::agent_rows(&unseen);
+    let summary: Vec<(&str, &str, &str)> = rows
+        .iter()
+        .map(|row| (row.harness.as_str(), row.status_word(), row.state.as_str()))
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            ("codex", "blocked", "waiting-for-input"),
+            ("claude", "done", "idle"),
+            ("muse", "working", "busy")
+        ],
+        "the old state word stays for compatibility"
+    );
+    let table = roster::table(&rows, 1_000);
+    assert!(table.lines().nth(2).is_some_and(|line| line.contains(" done ")), "{table}");
+
+    let mut ended = snapshot();
+    ended["agents"][0]["state"] = json!("done");
+    let ended = roster::agent_rows(&ended);
+    let last = ended.last().unwrap();
+    assert_eq!((last.status_word(), last.to_json(0)["status"].clone()), ("ended", Value::Null));
+}
+
+#[test]
 fn agent_table_has_one_header_and_one_line_per_agent() {
     let rows = roster::agent_rows(&snapshot());
     let table = roster::table(&rows, 61_000);

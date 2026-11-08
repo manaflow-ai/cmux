@@ -479,6 +479,16 @@ pub struct App {
     pub(crate) tabs_footer_scroll: usize,
     projection_rails: HashMap<String, ProjectionRailState>,
     projection_order_cache: AgentOrderCache,
+    /// Agent status for the default sidebar and tab chips, rebuilt with
+    /// the tree on each layout frame (`sync_layout`), read on every frame.
+    pub(crate) sidebar_status: crate::sidebar_status::SidebarStatus,
+    /// The agents section's scroll offset in rows.
+    pub(crate) agent_section_scroll: usize,
+    /// Whether the host terminal window has focus, from its focus reports;
+    /// `None` until the host sends one (a host without focus reporting).
+    pub(crate) host_focused: Option<bool>,
+    /// The done tab this client last acknowledged as viewed.
+    pub(crate) done_tab_ack_sent: Option<cmux_tui_core::SurfaceId>,
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
     pub(crate) tabs_rail_follow_selection: bool,
