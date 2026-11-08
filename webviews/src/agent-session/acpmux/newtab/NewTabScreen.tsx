@@ -175,6 +175,7 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// Open in terminal from an All chats row's right-click menu.
   onOpenChatInTerminal?(key: string): void;
   onViewChat?(key: string): void;
+  onExportChats?(keys: string[], format: "json" | "markdown", all: boolean): unknown;
   /// One page of All chats from the host (`chats.page`); without it the page shows no All chats list.
   loadChatsPage?: LoadChatsPage;
   onShowAll(): void;
@@ -1968,6 +1969,7 @@ export function NewTabScreen(props: Props) {
           onOpenActive={openCard}
           {...(props.onOpenChatInTerminal ? { onOpenInTerminal: props.onOpenChatInTerminal } : {})}
           {...(props.onViewChat ? { onViewOnly: props.onViewChat } : {})}
+          {...(props.onExportChats ? { onExport: props.onExportChats } : {})}
           {...(now !== undefined ? { now } : {})}
         />
       )}

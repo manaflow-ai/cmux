@@ -218,6 +218,7 @@ pub use new_request::{
 pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, fit_reply, page_bytes};
 pub use spawn::expand_env_value;
 pub mod approvers;
+pub(crate) mod chat_export;
 pub(crate) mod key_route;
 pub mod mac_approvers;
 pub mod no_session;

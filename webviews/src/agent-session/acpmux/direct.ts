@@ -2795,6 +2795,24 @@ export class AcpmuxDirectClient {
     );
   }
 
+  /// The Rust exporter supplies session metadata as well as the event journal, so a JSON file
+  /// saved from the active chat can be imported after the app's local data is removed.
+  async portableChatExport(format: "json" | "markdown", isCurrent: () => boolean): Promise<string | null> {
+    const sessionId = this.selectedSessionId;
+    const generation = this.selectionGeneration;
+    const connection = this.socket;
+    const current = () =>
+      !this.closed &&
+      this.socket === connection &&
+      generation === this.selectionGeneration &&
+      this.selectedSessionId === sessionId &&
+      isCurrent();
+    if (!sessionId) throw new Error("conversation_export_no_session");
+    const result = await this.request("_acpmux/chat_export", { sessionId, format });
+    if (!current()) return null;
+    return typeof result?.content === "string" ? result.content : null;
+  }
+
   static async connect(
     host: AcpmuxHostConfig,
     listener: Listener,

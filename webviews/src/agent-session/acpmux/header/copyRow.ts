@@ -13,6 +13,7 @@ export function copyRow(
   t: Translate = translate,
   copyFullConversation?: () => Promise<string | null>,
   saveMarkdown?: () => void,
+  saveJson?: () => void,
 ): Exclude<ChatMenuItem, "separator"> | undefined {
   const { link, rows, sessionId } = chat;
   // The menu's rows are read on every render: only check here, build the text on selection.
@@ -43,6 +44,8 @@ export function copyRow(
     });
   if (answered && saveMarkdown)
     children.push({ key: "saveMarkdown", label: t("chatMenu.saveMarkdown"), onSelect: saveMarkdown });
+  if (answered && saveJson)
+    children.push({ key: "saveJson", label: "Export JSON", onSelect: saveJson });
   if (sessionId)
     children.push({ key: "copySessionId", label: t("chatMenu.copySessionId"), onSelect: () => copy(sessionId) });
   if (!children.length) return undefined;

@@ -119,6 +119,7 @@ export function AllChatsList({
   onOpenInTerminal,
   onViewOnly,
   onBring,
+  onExport,
   now: fixedNow,
   scrollParent,
 }: {
@@ -135,6 +136,7 @@ export function AllChatsList({
   onViewOnly?(key: string): void;
   /// Rows select, and the menu's Bring into Active Sessions opens the selection (cx-zlnl).
   onBring?(keys: string[]): unknown;
+  onExport?(keys: string[], format: "json" | "markdown", all: boolean): unknown;
   now?: number;
   /** New Tab scrolls the whole page; History retains its own list viewport. */
   scrollParent?: string;
@@ -382,6 +384,32 @@ export function AllChatsList({
             label: nt("viewOnly"),
             disabled: !menuTarget || !watchable(menuTarget),
             onSelect: () => menuTarget && watchable(menuTarget) && onViewOnly(menuTarget),
+          },
+        ]
+      : []),
+    ...(onExport
+      ? [
+          {
+            id: "exportMarkdown",
+            label: "Export Markdown",
+            disabled: menuKeys.length === 0,
+            onSelect: () => onExport(menuKeys, "markdown", false),
+          },
+          {
+            id: "exportJson",
+            label: "Export JSON",
+            disabled: menuKeys.length === 0,
+            onSelect: () => onExport(menuKeys, "json", false),
+          },
+          {
+            id: "exportAllMarkdown",
+            label: "Export all chats as Markdown",
+            onSelect: () => onExport([], "markdown", true),
+          },
+          {
+            id: "exportAllJson",
+            label: "Export all chats as JSON",
+            onSelect: () => onExport([], "json", true),
           },
         ]
       : []),
