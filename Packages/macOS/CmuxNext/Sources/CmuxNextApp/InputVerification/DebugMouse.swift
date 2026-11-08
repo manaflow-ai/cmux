@@ -17,7 +17,7 @@ import CmuxNextSettings
 /// (window-local points from the top-left, as the journal records them) or
 /// `pane` (the center of that pane's content) or `row` (a sidebar workspace row, `DebugMouse+Rows`) or `divider` (a pane
 /// divider's center, `DebugMouse+Rows`); `action`: `click` (default),
-/// `double_click`, `down`, `up`, `drag` (to `to_x`,`to_y`
+/// `double_click`, `triple_click`, `down`, `up`, `drag` (to `to_x`,`to_y`
 /// or `to_edge` of the shown workspace, in `steps`), `move` (pointer motion with no button, for hover: tab and workspace
 /// hover cards), `hover` (tracking-area owners get entered, moved and
 /// exited at once, `DebugHover`: the tab strip's hover reveal), or `scroll`
@@ -54,8 +54,8 @@ enum DebugMouse {
         switch action {
         case "click":
             events = [mouse(down, at: point, in: window, flags: flags, clicks: 1), mouse(up, at: point, in: window, flags: flags, clicks: 1)]
-        case "double_click":
-            events = (1...2).flatMap { clicks in
+        case "double_click", "triple_click":
+            events = (1...(action == "triple_click" ? 3 : 2)).flatMap { clicks in
                 [mouse(down, at: point, in: window, flags: flags, clicks: clicks), mouse(up, at: point, in: window, flags: flags, clicks: clicks)]
             }
         case "down":
