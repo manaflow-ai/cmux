@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42510535616",
+  "recorded_at": "2026-11-08T18:39:56Z",
+  "reason": "cmux-tui bc39a31d26b1 changes the image's cmux-tui (pinned d5baf30a28d7)",
+  "dry_run": false,
+  "cmux_tui": "bc39a31d26b11171c57c9c559c0d7162dd38e169",
+  "fixes": [
+    {
+      "sha": "bc39a31d26b11171c57c9c559c0d7162dd38e169",
+      "mergedAt": "2026-11-08T10:16:08-08:00",
+      "subject": "fix(ci): verify-cmux-tui-hosted never cancels its run on a waiter return or timeout (#38750)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T18:39:56Z",
+    "snapshot_id": "sh-72ba46a5bb0d4205aea5c4e5d627bf0b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42510535616): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "bdabc4782ad7d2a5d71b92b36e0780db18b29e7a",
+    "image": "cloud-native-auto-bc39a31d-42510535616-1",
+    "revision": "ci-42510535616-1",
+    "at": "2026-11-08T18:39:56Z"
+  },
+  "rolled_back": false
+}
