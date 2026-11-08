@@ -1059,13 +1059,11 @@ async fn acp_steps(
         &format!("pid {} in {}", pid.unwrap_or(0), folder.display()),
         None,
     );
-    let mut wire = Wire {
-        stdin,
-        lines: BufReader::new(stdout).lines(),
-        next: 1,
-        reply: String::new(),
-        noise: 0,
-    };
+    // `codex app-server` speaks no ACP itself: a session's launch puts the in-process bridge in
+    // front of it (`ChildAgent::spawn_with`, `codex_app_server.rs`), so the doctor talks through
+    // the same bridge and checks the path a session takes (#38152).
+    let bridged = crate::codex_app_server::is_profile_launch(&spawn.argv);
+    let mut wire = Wire::new(stdin, stdout, bridged);
     let endpoint = crate::byo_endpoint::Kind::of_env(&profile.env);
     // An endpoint's first turn may install its provider package first.
     let prompt_limit = match endpoint {

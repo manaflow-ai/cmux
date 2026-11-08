@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextSettings
 import CmuxNextHomeModel
 @testable import CmuxNextHomeEngine
 import Testing
@@ -8,7 +9,7 @@ import Testing
 /// The Chief Settings popover set the harness straight away, so a harness that could not answer
 /// became the Chief's brain. Now a new harness on this Mac's brain is checked first.
 @MainActor @Suite struct HomeChiefHarnessCheckTests {
-    static func view(_ writes: AsyncStream<[String: String?]>.Continuation, checked: @escaping @MainActor (String) async -> Bool,
+    static func view(_ writes: AsyncStream<[String: String?]>.Continuation, checked: @escaping @MainActor (String) async -> HomeHarnessCheck,
                      local: Bool = true) async -> HomeChiefSettingsView {
         let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: CheckedChief(writes: writes, isLocal: local))
         view.checkHarness = checked
@@ -19,7 +20,7 @@ import Testing
     @Test func aHarnessThatFailsItsCheckIsNotSet() async {
         let (writes, continuation) = AsyncStream.makeStream(of: [String: String?].self)
         var checked: [String] = []
-        let view = await Self.view(continuation, checked: { checked.append($0); return false })
+        let view = await Self.view(continuation, checked: { checked.append($0); return .failed(step: "prompt", detail: "") })
         await view.pickHarness(ChiefBackend.codex.id).value
         continuation.finish()
         var sent: [[String: String?]] = []
@@ -33,13 +34,46 @@ import Testing
 
     @Test func aHarnessThatPassesItsCheckIsSet() async {
         let (writes, continuation) = AsyncStream.makeStream(of: [String: String?].self)
-        let view = await Self.view(continuation, checked: { _ in true })
+        let view = await Self.view(continuation, checked: { _ in .passed })
         await view.pickHarness(ChiefBackend.codex.id).value
         continuation.finish()
         var sent: [[String: String?]] = []
         for await write in writes { sent.append(write) }
         #expect(sent.map { $0["harness"] } == [.some(ChiefBackend.codex.id)])
         #expect(view.failure.isHidden)
+    }
+
+    /// #38152: the note names the step that failed and the doctor's reason, not only "did not
+    /// pass its check", so a person can tell a missing login from a harness that cannot start.
+    @Test func aFailedCheckNamesTheFailingStep() async {
+        let (writes, continuation) = AsyncStream.makeStream(of: [String: String?].self)
+        let detail = "session/new failed (-32601): unknown variant `session/new`\nmore output"
+        let view = await Self.view(continuation, checked: { _ in .failed(step: "session", detail: detail) })
+        await view.pickHarness(ChiefBackend.codex.id).value
+        continuation.finish()
+        for await _ in writes {}
+        let note = view.failure.stringValue
+        #expect(note.contains(ChiefBackend.title(for: ChiefBackend.codex.id)))
+        #expect(note.contains("session"))
+        #expect(note.contains("unknown variant `session/new`"))
+        #expect(!note.contains("more output"))
+    }
+
+    /// The app reads the daemon's doctor answer (`harness_admin::doctor_value`) as its first
+    /// failing step; an answer that passed is a pass even with a warning step.
+    @Test func aDoctorAnswerIsReadAsItsFirstFailingStep() async {
+        let failed: JSONValue = ["id": "codex", "ok": false, "steps": .array([
+            ["name": "launch", "ok": true, "status": "pass", "detail": "pid 1"],
+            ["name": "session", "ok": false, "status": "fail", "detail": "no answer to session/new in 30 s"],
+            ["name": "stderr", "ok": true, "status": "warn", "detail": "last harness output"],
+        ])]
+        let describe: @MainActor (any Error) -> String = { "\($0)" }
+        #expect(await HomeHarnessCheck(describe: describe) { failed } == .failed(step: "session", detail: "no answer to session/new in 30 s"))
+        let passed: JSONValue = ["id": "codex", "ok": true, "steps": .array([
+            ["name": "stdout", "ok": true, "status": "warn", "detail": "1 line(s)"],
+        ])]
+        #expect(await HomeHarnessCheck(describe: describe) { passed } == .passed)
+        #expect(await HomeHarnessCheck(describe: describe) { () throws -> JSONValue? in throw CheckError() } == .failed(step: "doctor", detail: "refused"))
     }
 
     /// While the check runs the pickers stay off, a refresh (a new message, a turn's end) too,
@@ -55,7 +89,7 @@ import Testing
         let second = view.pickHarness(ChiefBackend.unii.id)
         for _ in 0..<200 where gate.waiting.count < 2 { await Task.yield() }
         #expect(gate.waiting.count == 2)
-        for check in gate.waiting { check.resume(returning: true) }
+        for check in gate.waiting { check.resume(returning: .passed) }
         await first.value
         await second.value
         continuation.finish()
@@ -69,7 +103,7 @@ import Testing
     @Test func aRouteHarnessIsNotChecked() async {
         let (writes, continuation) = AsyncStream.makeStream(of: [String: String?].self)
         var checked = 0
-        let view = await Self.view(continuation, checked: { _ in checked += 1; return false })
+        let view = await Self.view(continuation, checked: { _ in checked += 1; return .failed(step: "prompt", detail: "") })
         await view.pickHarness("claude-cr").value
         continuation.finish()
         var sent = 0
@@ -82,7 +116,7 @@ import Testing
     @Test func aCloudChiefIsNotCheckedOnThisMac() async {
         let (writes, continuation) = AsyncStream.makeStream(of: [String: String?].self)
         var checked = 0
-        let view = await Self.view(continuation, checked: { _ in checked += 1; return false }, local: false)
+        let view = await Self.view(continuation, checked: { _ in checked += 1; return .failed(step: "prompt", detail: "") }, local: false)
         await view.pickHarness(ChiefBackend.codex.id).value
         continuation.finish()
         var sent = 0
@@ -92,9 +126,13 @@ import Testing
     }
 }
 
+private struct CheckError: Error, CustomStringConvertible {
+    var description: String { "refused" }
+}
+
 /// Checks that wait until the test answers them.
 @MainActor private final class CheckGate {
-    var waiting: [CheckedContinuation<Bool, Never>] = []
+    var waiting: [CheckedContinuation<HomeHarnessCheck, Never>] = []
 }
 
 /// A brain on Claude that records each write.

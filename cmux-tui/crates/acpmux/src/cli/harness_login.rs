@@ -29,7 +29,6 @@ use std::time::Duration;
 use anyhow::{Result, anyhow, bail};
 use serde::Serialize;
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, BufReader};
 
 use super::harness::wire::{TempFolder, Wire};
 use crate::config::profiles;
@@ -157,13 +156,8 @@ async fn start(id: &str, profile: &HarnessProfile, timeout: Duration) -> Result<
     let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
         bail!("no stdio pipes");
     };
-    let wire = Wire {
-        stdin,
-        lines: BufReader::new(stdout).lines(),
-        next: 1,
-        reply: String::new(),
-        noise: 0,
-    };
+    // A Codex app-server profile signs in through the codex CLI (`codex_bridge`), never here.
+    let wire = Wire::new(stdin, stdout, false);
     let mut started = Started { child, wire, folder, init: Value::Null };
     let init = json!({
         "protocolVersion": 1,

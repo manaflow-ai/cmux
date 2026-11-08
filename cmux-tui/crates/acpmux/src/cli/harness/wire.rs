@@ -1,6 +1,8 @@
 //! Owns the harness doctor JSON-RPC wire and private temporary folder.
 
 use super::*;
+use std::collections::VecDeque;
+use std::sync::Arc;
 
 pub(crate) struct Wire {
     pub(crate) stdin: tokio::process::ChildStdin,
@@ -8,32 +10,85 @@ pub(crate) struct Wire {
     pub(crate) next: i64,
     pub(crate) reply: String,
     pub(crate) noise: usize,
+    /// The in-process Codex bridge, when the harness is `codex app-server`: the same translator
+    /// a real session's launch puts between acpmux and the app-server (`agent.rs`, `CodexLink`),
+    /// so the doctor speaks ACP through it and checks the path a session takes.
+    codex: Option<Arc<crate::codex_app_server::Translator>>,
+    /// ACP messages the bridge produced for the doctor, read before the next stdout line.
+    bridged: VecDeque<Value>,
+    /// The bridge's first lines went out.
+    started: bool,
 }
 
 impl Wire {
-    pub(crate) async fn send(&mut self, msg: Value) -> Result<(), String> {
-        let mut line = msg.to_string();
-        line.push('\n');
+    /// A wire on a started harness. A `codex app-server` harness (`codex`) gets the bridge; its
+    /// first lines (the app-server's own initialize) go out before the doctor's first message,
+    /// as a session's spawn sends them.
+    pub(crate) fn new(
+        stdin: tokio::process::ChildStdin,
+        stdout: tokio::process::ChildStdout,
+        codex: bool,
+    ) -> Self {
+        Self {
+            stdin,
+            lines: BufReader::new(stdout).lines(),
+            next: 1,
+            reply: String::new(),
+            noise: 0,
+            codex: codex.then(crate::codex_app_server::translator),
+            bridged: VecDeque::new(),
+            started: false,
+        }
+    }
+
+    /// Writes the bridge's lines for the app-server and keeps its ACP messages for the doctor.
+    async fn bridge(&mut self, outs: Vec<cmux_codex_acp::Out>) -> Result<(), String> {
+        let split = crate::codex_app_server::split(outs);
+        let mut text = String::new();
+        for line in &split.server {
+            text.push_str(&crate::codex_app_server::line(line));
+        }
+        self.write_raw(&text).await?;
+        self.bridged.extend(split.hub.iter().map(|m| m.to_value()));
+        Ok(())
+    }
+
+    async fn write_raw(&mut self, text: &str) -> Result<(), String> {
+        if text.is_empty() {
+            return Ok(());
+        }
         self.stdin
-            .write_all(line.as_bytes())
+            .write_all(text.as_bytes())
             .await
             .map_err(|e| format!("write to the harness: {e}"))?;
         self.stdin.flush().await.map_err(|e| format!("write to the harness: {e}"))
     }
 
-    /// One request; answers the harness's own requests (permission asks are
-    /// cancelled, anything else is refused) and collects reply text.
-    pub(crate) async fn call(
+    pub(crate) async fn send(&mut self, msg: Value) -> Result<(), String> {
+        if let Some(tr) = self.codex.clone() {
+            if !self.started {
+                self.started = true;
+                self.bridge(tr.start()).await?;
+            }
+            return self.bridge(tr.from_client(&msg)).await;
+        }
+        let mut line = msg.to_string();
+        line.push('\n');
+        self.write_raw(&line).await
+    }
+
+    /// The next ACP message: one the bridge already made, else the next stdout line (through
+    /// the bridge for an app-server). Err with the text the caller reports.
+    async fn next_message(
         &mut self,
         method: &str,
-        params: Value,
         limit: Duration,
+        deadline: tokio::time::Instant,
     ) -> Result<Value, String> {
-        let id = self.next;
-        self.next += 1;
-        self.send(json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params})).await?;
-        let deadline = tokio::time::Instant::now() + limit;
         loop {
+            if let Some(msg) = self.bridged.pop_front() {
+                return Ok(msg);
+            }
             let line = match tokio::time::timeout_at(deadline, self.lines.next_line()).await {
                 Err(_) => return Err(format!("no answer to {method} in {} s", limit.as_secs())),
                 Ok(Err(e)) => return Err(format!("read from the harness: {e}")),
@@ -49,6 +104,27 @@ impl Wire {
                 self.noise += 1;
                 continue;
             };
+            match self.codex.clone() {
+                Some(tr) => self.bridge(tr.from_server(&msg)).await?,
+                None => return Ok(msg),
+            }
+        }
+    }
+
+    /// One request; answers the harness's own requests (permission asks are
+    /// cancelled, anything else is refused) and collects reply text.
+    pub(crate) async fn call(
+        &mut self,
+        method: &str,
+        params: Value,
+        limit: Duration,
+    ) -> Result<Value, String> {
+        let id = self.next;
+        self.next += 1;
+        self.send(json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params})).await?;
+        let deadline = tokio::time::Instant::now() + limit;
+        loop {
+            let msg = self.next_message(method, limit, deadline).await?;
             let incoming = msg.get("method").and_then(Value::as_str).map(str::to_owned);
             match (msg.get("id").cloned(), incoming.as_deref()) {
                 (Some(rid), Some("session/request_permission")) => {

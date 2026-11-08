@@ -220,7 +220,7 @@ extension HomeChiefSettingsView {
     /// effort, as the Chief editor's backend picker does: the brain keeps a field it is not sent,
     /// and another harness's model would not run on this one. On this Mac's brain a new harness
     /// first passes its backend check (`checkHarness`, one real hello turn), as the editor
-    /// requires; one that fails is not set, and the note says so. Only the official engines are
+    /// requires; one that fails is not set, and the note names the step that failed and why. Only the official engines are
     /// checked: the check runs on the app's acpmux, and a route the Chief's own acpmux config adds
     /// (`claude-cr`) is not there. While the check runs the pickers stay off and the note says so;
     /// a newer pick or another Chief drops its answer.
@@ -238,12 +238,12 @@ extension HomeChiefSettingsView {
         // task-owner: the check, then one write; ends when its result is shown
         return Task { [weak self] in
             guard let self else { return }
-            let passed = await checkHarness(value)
+            let check = await checkHarness(value)
             guard checkingHarness == value, muxHome == home, source.isLocal else { return }
             checkingHarness = nil
-            guard passed else {
+            guard check == .passed else {
                 if let shownEngine { show(shownEngine) }
-                note(String(format: HomeEngineStrings.harnessCheckFailedFormat, title), kept: true)
+                note(HomeEngineStrings.harnessCheckFailed(title, check), kept: true)
                 return
             }
             await pick(fields).value
