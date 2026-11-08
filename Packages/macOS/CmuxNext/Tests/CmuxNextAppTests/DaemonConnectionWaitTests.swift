@@ -10,17 +10,20 @@ struct DaemonConnectionWaitTests {
     /// `work`'s answer, or `.timedOut` when it is still waiting after `limit`.
     enum Outcome: Equatable { case answered(Bool), timedOut }
 
-    func within(_ limit: Duration = .seconds(5), _ work: @escaping @MainActor () async -> Bool) async -> Outcome {
-        await withTaskGroup(of: Outcome.self) { group in
-            group.addTask { @MainActor in .answered(await work()) }
-            group.addTask {
-                try? await Task.sleep(for: limit)
-                return .timedOut
-            }
-            let first = await group.next() ?? .timedOut
-            group.cancelAll()
-            return first
+    func within(_ limit: Duration = .seconds(5), _ work: @escaping @Sendable @MainActor () async -> Bool) async -> Outcome {
+        let answer = Task { @MainActor in await work() }
+        let deadline = Task {
+            try? await Task.sleep(for: limit)
+            return !Task.isCancelled
         }
+        // Whichever ends first: the answer cancels the deadline; a deadline that passes leaves the answer waiting.
+        let answered = Task { @MainActor in
+            let value = await answer.value
+            deadline.cancel()
+            return value
+        }
+        if await deadline.value { return .timedOut }
+        return .answered(await answered.value)
     }
 
     @Test func aServiceNeverStartedAnswersNilAtOnce() async {
