@@ -164,6 +164,39 @@ import Testing
         let all = DaemonHistoryClient.clearParams(kinds: [], since: nil, profile: nil)
         #expect(all["range"] == .string("all"))
         #expect(all["local_day_start_ms"] == nil)
+        #expect(all["until_ms"] == nil)
+    }
+
+    /// cmux#38186 review: a queued clear also carries the click as its end (`until_ms`), so an agent active
+    /// between the click and the delivery stays (the daemon side: cmux-tui
+    /// `a_queued_agent_clear_keeps_a_session_active_after_its_click`).
+    @Test func aClearCarriesTheClickTimeEnd() {
+        let click = Date(timeIntervalSince1970: 1_700_003_600)
+        let params = DaemonHistoryClient.clearParams(kinds: [.agent], since: Date(timeIntervalSince1970: 1_700_000_000), until: click, profile: nil)
+        #expect(params["until_ms"] == .string("1700003600000"))
+        #expect(params["local_day_start_ms"] == .string("1700000000000"))
+        #expect(DaemonHistoryClient.clearUntilCapability == "history-clear-until-v1")
+    }
+
+    /// cmux#38186 review: with the local daemon away, a connected remote daemon's command rows (its mirror
+    /// in `commands`) still list in history and resolve by id; only the local daemon's kinds are unavailable.
+    @Test func remoteCommandsListWhileTheLocalDaemonIsAway() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let command = TerminalCommand(id: 7, machine: "ssh-box", terminal: "term_1", command: "make test", cwd: "/src", exitCode: 0,
+                                      startedAt: Date().addingTimeInterval(-30), duration: 1)
+        var mirror = TerminalCommandMirror(machine: "ssh-box")
+        #expect(mirror.apply([command], version: "v1", truncated: false, after: nil))
+        services.history.commands.mirrors["ssh-box"] = mirror
+        #expect(services.history.daemonHistory == nil)
+        let read = await services.history.read(HistoryQuery())
+        #expect(read.entries.map(\.id) == ["command:\(command.qualifiedID)"])
+        #expect(read.unavailable, "the local daemon's kinds read as empty, not unavailable")
+        let commandsOnly = await services.history.read(HistoryQuery(kinds: [.command]))
+        #expect(commandsOnly.entries.count == 1)
+        #expect(!commandsOnly.unavailable)
+        let entry = await services.history.entry(id: "command:\(command.qualifiedID)")
+        #expect(entry?.title == "make test")
     }
 
     /// cmux#38186 review: a write whose reply never came (`timedOut`) goes again, with the same key, so a

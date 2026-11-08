@@ -15,7 +15,7 @@ import os
 /// Turning recording off offers to delete what was already recorded.
 final class CommandHistory {
     private unowned let services: AppServices
-    private var mirrors: [String: TerminalCommandMirror] = [:]
+    var mirrors: [String: TerminalCommandMirror] = [:]  // Each machine's rows; set directly only by tests.
     /// Repeated successful commands for one exact machine and directory, rebuilt from the mirrors
     /// (``TerminalCommandSuggestionStore``). The projection is opt-in with command history and never runs a command.
     var suggestions = TerminalCommandSuggestionStore()

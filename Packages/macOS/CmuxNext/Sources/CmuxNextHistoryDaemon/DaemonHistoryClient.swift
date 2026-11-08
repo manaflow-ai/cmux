@@ -57,22 +57,29 @@ public struct DaemonHistoryClient: Sendable {
         _ = try await relay.send(operation: "history.site.remove", params: params, idempotencyKey: key)
     }
 
-    /// Clears `kinds` (empty: all) from `since` (nil: all time) on; a profile narrows the clear to its page visits.
-    /// `since` is the absolute start taken when the person clicked, so a clear the queue delivers later
-    /// still starts there, never at a range counted back from the delivery.
-    public func clear(kinds: Set<HistoryEntry.Kind>, since: Date?, profile: String? = nil, key: String = DaemonHistoryClient.key()) async throws {
-        _ = try await relay.send(operation: "history.clear", params: Self.clearParams(kinds: kinds, since: since, profile: profile),
-                                 idempotencyKey: key)
+    /// The daemon takes `until_ms` on `history.clear` (the end of a clear that waited in the queue).
+    public static let clearUntilCapability = "history-clear-until-v1"
+
+    /// Clears `kinds` (empty: all) from `since` (nil: all time) until `until`; a profile narrows the clear to
+    /// its page visits. Both are taken when the person clicked, so a clear the queue delivers later still
+    /// covers that span, never one counted from the delivery (activity after the click stays). A daemon
+    /// without ``clearUntilCapability`` clears until its own now.
+    public func clear(kinds: Set<HistoryEntry.Kind>, since: Date?, until: Date, profile: String? = nil,
+                      key: String = DaemonHistoryClient.key()) async throws {
+        let bounded = await connection.identity?.supports(Self.clearUntilCapability) == true
+        let params = Self.clearParams(kinds: kinds, since: since, until: bounded ? until : nil, profile: profile)
+        _ = try await relay.send(operation: "history.clear", params: params, idempotencyKey: key)
     }
 
     /// `history.clear`'s params for an absolute start: range `today` starts at the given
-    /// `local_day_start_ms`, the daemon's one absolute range start; nil is range `all`.
-    public static func clearParams(kinds: Set<HistoryEntry.Kind>, since: Date?, profile: String?) -> [String: JSONValue] {
+    /// `local_day_start_ms`, the daemon's one absolute range start; nil is range `all`. `until` is `until_ms`.
+    public static func clearParams(kinds: Set<HistoryEntry.Kind>, since: Date?, until: Date? = nil, profile: String?) -> [String: JSONValue] {
         var params: [String: JSONValue] = [
             "kinds": .array(kinds.map(\.rawValue).sorted().map(JSONValue.string)),
             "range": .string((since == nil ? HistoryRange.all : .today).rawValue),
         ]
         if let since { params["local_day_start_ms"] = decimal(max(since, Date(timeIntervalSince1970: 0))) }
+        if let until { params["until_ms"] = decimal(max(until, Date(timeIntervalSince1970: 0))) }
         if let profile { params["profile"] = .string(profile) }
         return params
     }

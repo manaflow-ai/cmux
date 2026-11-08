@@ -82,16 +82,14 @@ final class HistoryService {
 
     /// Same, with whether an owner did not answer (an empty list is then not "nothing there").
     func read(_ query: HistoryQuery) async -> HistoryRead {
-        // The local daemon is (re)connecting: say so, never an empty history.
-        guard let daemon = daemonHistory else { return HistoryRead(entries: [], unavailable: true) }
-        return await daemonEntries(query, daemon)
+        // The local daemon may be (re)connecting: its kinds are then unavailable, every connected daemon's commands still list.
+        await daemonEntries(query, daemonHistory)
     }
 
     /// The entry with `id`: one the History page shows, else among every owner's current entries, or nil when it is gone.
     func entry(id: String) async -> HistoryEntry? {
         if let shown = pages.allObjects.lazy.compactMap({ $0.shown[id] }).first { return shown }
-        guard let daemon = daemonHistory else { return nil }
-        return await daemonEntry(id: id, daemon)
+        return await daemonEntry(id: id, daemonHistory)
     }
 
     /// Closed tabs, screens and workspaces, as the daemons record them
@@ -176,17 +174,17 @@ final class HistoryService {
 
     // MARK: Clearing
 
-    /// Clears `kinds` (empty: all) in `range` from its start at the click (the daemon clear may wait in `writes`). Pages clear in every profile.
+    /// Clears `kinds` (empty: all) in `range`, from its start to the click (the daemon clear may wait in `writes`). Pages clear in every profile.
     func clear(kinds: Set<HistoryEntry.Kind>, range: HistoryRange) {
         let wants = { (kind: HistoryEntry.Kind) in kinds.isEmpty || kinds.contains(kind) }
-        let since = range.start(now: Date())
+        let now = Date(), since = range.start(now: now)
         if wants(.page) { Task { [sync = services.onboarding.historySync] in await sync.forget(profile: nil, since: since) } }  // task-owner: imported pages too
         // The daemon removes page visits, trail entries and closed items and hides agents; terminal
         // commands are deleted as rows in each connected daemon. The app's Back/Forward steps drop too.
         let appOwned: Set<HistoryEntry.Kind> = [.command]
         let owned = kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appOwned) : kinds.subtracting(appOwned)
-        if !owned.isEmpty { daemonMutation { try await $0.clear(kinds: owned, since: since, key: $1) } }
-        if owned.contains(.agent) { hidden.hideLocally { $0.hide(since: since, now: Date(), kind: "agent") } }
+        if !owned.isEmpty { daemonMutation { try await $0.clear(kinds: owned, since: since, until: now, key: $1) } }
+        if owned.contains(.agent) { hidden.hideLocally { $0.hide(since: since, now: now, kind: "agent") } }
         if wants(.command) { commands.delete(since: since) }
         if wants(.page) {
             for profile in [BrowserProfileID.default] + services.browserProfiles.ordered.map(\.engineProfile) {
@@ -199,10 +197,10 @@ final class HistoryService {
 
     /// Clears one profile's page history (Clear Browser History).
     func clearPages(profile: BrowserProfileID, range: HistoryRange) {
-        let since = range.start(now: Date())
+        let now = Date(), since = range.start(now: now)
         let wireID = BrowserProfileRecord.wireID(for: profile)
         Task { [sync = services.onboarding.historySync] in await sync.forget(profile: wireID, since: since) }  // task-owner: imported pages too
-        daemonMutation { try await $0.clear(kinds: [.page], since: since, profile: wireID, key: $1) }
+        daemonMutation { try await $0.clear(kinds: [.page], since: since, until: now, profile: wireID, key: $1) }
         services.cache.history(for: profile).forget(since: since)
         onChange?()
     }
@@ -239,8 +237,8 @@ final class HistoryService {
 
     /// A deleted browser profile: its page history goes too, on the daemon.
     func forget(profile: BrowserProfileID) {
-        let wireID = BrowserProfileRecord.wireID(for: profile)
-        daemonMutation { try await $0.clear(kinds: [.page], since: nil, profile: wireID, key: $1) }
+        let wireID = BrowserProfileRecord.wireID(for: profile), now = Date()
+        daemonMutation { try await $0.clear(kinds: [.page], since: nil, until: now, profile: wireID, key: $1) }
         routes[profile] = nil
     }
 }
