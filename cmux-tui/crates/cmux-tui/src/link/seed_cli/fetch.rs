@@ -31,7 +31,9 @@
 //! `fetch.no_remote` (a partial clone without an `https://` origin),
 //! `fetch.not_a_seed`, `fetch.clone_failed`, `fetch.base_unreachable` (the
 //! seed's HEAD is not on the remote: push it from the machine first),
-//! `machine_outdated`, `sync_conflict`, `sync_failed`.
+//! `machine_outdated`, `sync_conflict`, `sync_failed`; with `--find-root`,
+//! `fetch.too_broad` (no repository, and the chat's folder is `/`, a top
+//! folder or a home folder: it would bring the machine's sign-ins along).
 
 use std::path::Path;
 use cmux_process::Command;
@@ -47,6 +49,10 @@ pub(super) fn run(socket: &Path, local: &Path, remote: &str, adopt: bool, find_r
     let keep_new = |relative: &str| !access_cli::is_secret(relative);
     let found = if find_root { sync_cli::fetch::repo_root(socket, remote).ok().flatten() } else { None };
     let remote = found.as_deref().unwrap_or(remote);
+    if find_root && sync_cli::fetch::too_broad(remote) {
+        let error = format!("{remote} is a home or top folder on the machine; open the chat in a project folder to transfer it");
+        return (json!({ "ok": false, "error": error, "error_code": "fetch.too_broad" }), 1);
+    }
     let back = match sync_cli::fetch::shape(socket, remote) {
         Ok(Shape::Partial { remote_url }) => partial(socket, local, remote, remote_url, adopt),
         Ok(_) => sync_cli::fetch::fetch(socket, local, remote, adopt, &keep_new),

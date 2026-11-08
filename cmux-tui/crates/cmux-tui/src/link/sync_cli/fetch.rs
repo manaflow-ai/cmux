@@ -110,6 +110,14 @@ pub(in crate::link) fn repo_root(socket: &Path, path: &str) -> anyhow::Result<Op
     Ok(None)
 }
 
+/// Whether `path` is `/`, a top folder (`/home`, `/tmp`) or a home folder itself (`/home/NAME`,
+/// `/Users/NAME`, `/root`): a folder too broad to copy to another Mac, since it holds the machine's
+/// own sign-ins and keys (dotfiles no secret list fully names).
+pub(in crate::link) fn too_broad(path: &str) -> bool {
+    let parts: Vec<&str> = path.split('/').filter(|part| !part.is_empty() && *part != ".").collect();
+    parts.len() <= 1 || (parts.len() == 2 && matches!(parts[0], "home" | "Users")) || parts.iter().any(|part| *part == "..")
+}
+
 /// Whether `path` is below a home folder (`/home/NAME/x`, `/root/x`, `/Users/NAME/x`) or three
 /// folders deep elsewhere: a folder a project can be.
 fn deep_enough(path: &str) -> bool {
@@ -246,6 +254,22 @@ mod tests {
         for (path, ok) in [("/", false), ("/home", false), ("/home/cmux", false), ("/home/cmux/app", true), ("/root", false),
             ("/root/app", true), ("/Users/me", false), ("/Users/me/app", true), ("/work/a", false), ("/work/a/b", true)] {
             assert_eq!(deep_enough(path), ok, "{path}");
+        }
+        for (path, broad) in [("/", true), ("", true), ("/home", true), ("/tmp", true), ("/root", true), ("/root/", true),
+            ("/home/cmux", true), ("/home/cmux/", true), ("/Users/me", true), ("/home/cmux/../..", true),
+            ("/home/cmux/app", false), ("/root/app", false), ("/workspace/app", false), ("/tmp/x", false)] {
+            assert_eq!(too_broad(path), broad, "{path}");
+        }
+    }
+
+    #[test]
+    fn agent_and_tool_sign_ins_never_come_over_but_project_settings_do() {
+        use crate::link::access_cli::is_secret;
+        for path in [".codex/auth.json", "x/.claude/.credentials.json", ".claude.json", ".config/gh/hosts.yml", ".Docker/Config.json"] {
+            assert!(is_secret(path), "{path}");
+        }
+        for path in [".claude/settings.json", ".claude/commands/review.md", ".config/app.toml", "src/auth.json"] {
+            assert!(!is_secret(path), "{path}");
         }
     }
 

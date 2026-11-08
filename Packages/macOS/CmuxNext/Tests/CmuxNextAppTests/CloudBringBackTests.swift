@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
@@ -105,6 +106,18 @@ struct CloudBringBackTests {
         #expect(CloudTransferRules.localChat(local: "/l", remoteChat: "/r/sub/x", remoteRoot: "/r") == ("/r", "/l/sub/x"))
         #expect(CloudTransferRules.localChat(local: "/l", remoteChat: "/r", remoteRoot: nil) == ("/r", "/l"))
         #expect(CloudTransferRules.localChat(local: "/l", remoteChat: "/rx/a", remoteRoot: "/r") == ("/r", "/l"), "a root that is not a parent")
+    }
+
+    /// The machine's refusals each say what to do; a conflict is left to Bring Back's own message.
+    @Test func eachTransferRefusalSaysWhy() {
+        let say = { (code: String) in
+            CloudTransferLocalStrings.refusal(.init(ok: false, errorCode: code), machine: "Box", folder: "/here")
+        }
+        #expect(say("fetch.too_broad") == CloudTransferLocalStrings.tooBroad)
+        #expect(say("fetch.no_folder") == CloudTransferLocalStrings.noFolder)
+        #expect(say("fetch.folder_not_empty")?.contains("/here") == true)
+        #expect(say("fetch.base_unreachable") == CloudTransferLocalStrings.notOnRemote)
+        #expect(say("sync_conflict") == nil)
     }
 
     @Test func onlyTheCreatorOwnsATeamMachine() {

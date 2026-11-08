@@ -22,7 +22,8 @@ import type { DomainReply } from "./team-domain-external.ts"
  * enters an op param, event, snapshot, ledger row or log: the audit op carries the agent, kind and
  * generation only.
  *
- * A removal keeps the row's generation (sealed cleared), so a later set never reuses one; every set
+ * A removal clears the seal and raises the row's generation like a set, so a later set never reuses
+ * one and the status revision moves on every change; every set
  * and removal compares and swaps on it across the seal's await, so two admins at once never
  * interleave (the later one answers revision.conflict and retries).
  */
@@ -153,7 +154,7 @@ export const agentKeyExternal = async (deps: AgentKeyDeps, p: Principal, frame: 
     const row = rowOf(deps.sql, d.value.agent)
     if (!row?.sealed) return { ...base, ok: true, value: { agent: d.value.agent, removed: false } }
     deps.sql.exec(
-      `UPDATE team_agent_keys SET sealed = NULL, kind = NULL, hint = NULL, updated_at = ?, updated_by = ?, last_key = NULL WHERE agent = ? AND generation = ?`,
+      `UPDATE team_agent_keys SET sealed = NULL, kind = NULL, hint = NULL, generation = generation + 1, updated_at = ?, updated_by = ?, last_key = NULL WHERE agent = ? AND generation = ?`,
       deps.now(),
       by,
       d.value.agent,
@@ -202,11 +203,12 @@ export const agentKeyExternal = async (deps: AgentKeyDeps, p: Principal, frame: 
 export const agentKeyStatus = (deps: Pick<AgentKeyDeps, "state" | "rows" | "team" | "sql">, p: Principal) => {
   const state = deps.state()
   if (p.team !== deps.team || !memberOf(state, deps.rows, p.user)) return { ok: false as const, code: "auth.forbidden", message: "not a member of this team" }
-  const manager = can(state, deps.rows, p.user, "team.manage")
+  // Only a person's own session manages or sees a hint; their agents and other principals see set or not.
+  const manager = can(state, deps.rows, p.user, "team.manage") && p.kind === "session" && !p.agent
   return {
     ok: true as const,
-    value: { team: deps.team, can_manage: manager && p.kind === "session" && !p.agent, agents: TEAM_AGENTS.map((agent) => stateOf(agent, rowOf(deps.sql, agent), manager)) },
-    // Decimal (ReadResponse.revision): the generations only grow, so their sum does too.
+    value: { team: deps.team, can_manage: manager, agents: TEAM_AGENTS.map((agent) => stateOf(agent, rowOf(deps.sql, agent), manager)) },
+    // Decimal (ReadResponse.revision): a set and a removal each raise a generation, so the sum only grows.
     revision: String(TEAM_AGENTS.reduce((sum, agent) => sum + (rowOf(deps.sql, agent)?.generation ?? 0), 0))
   }
 }

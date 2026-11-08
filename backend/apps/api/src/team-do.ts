@@ -81,7 +81,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   protected read(state: TeamState, op: string, params: unknown, principal: Principal): ReadResult { return teamRead(state, op, params, principal, this.rows) }
   async aiUserLimit(entity: string, user: string): Promise<number> { return codeRunLimit(this.isBound(entity) ? this.bind(entity).currentState : undefined, this.rows, user) } // RPC from code runs: this member's AI limit only, 0 for a non-member (team-ai-limit.ts)
   async aiLimitView(entity: string, user: string, cursor?: string) { return aiLimitViewOf(this.isBound(entity) ? this.bind(entity).currentState : undefined, this.rows, entity, user, cursor) } // RPC from the team.ai_limit.get route
-  override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> { if (op === "team.agent_key.status") return agentKeyStatus(this.agentKeyDeps(entity), principal); const r = await super.readOp(entity, principal, op, params); const fenced = (r.ok && (await teamVmAccountsFence(() => this.teamVm(entity).currentInstall(entity), principal, op))) || r; return op === "team.ai_limit.get" ? withAiSpend(this.env, entity, fenced, (await import("./inference/plan.ts")).storedPlan(this.ctx.storage.sql)) : fenced }
+  override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> { if (op === "team.agent_key.status") return this.isBound(entity) ? agentKeyStatus(this.agentKeyDeps(entity), principal) : { ok: false, code: "auth.forbidden", message: "not a member of this team" }; const r = await super.readOp(entity, principal, op, params); const fenced = (r.ok && (await teamVmAccountsFence(() => this.teamVm(entity).currentInstall(entity), principal, op))) || r; return op === "team.ai_limit.get" ? withAiSpend(this.env, entity, fenced, (await import("./inference/plan.ts")).storedPlan(this.ctx.storage.sql)) : fenced }
 
   /** Backoff after a failed push to ConnectionDO (in memory: a restart retries at once). */
   private syncRetryAt: number | null = null
@@ -518,7 +518,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   /** RPC from the Worker: team.agent_key.set and team.agent_key.remove (team-agent-keys.ts; the key only in this request). */
   async agentKeyOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> { return agentKeyExternal(this.agentKeyDeps(entity), principal, frame) }
   /** RPC from the model route only (resolveTeamSharedKey; cmux-platform through its TEAM_DO binding): the team's shared key, or null. Never a client read. */
-  async agentKeyResolve(entity: string, agent: TeamAgent, user?: string): Promise<TeamSharedKey | null> { return agentKeyOpen(this.agentKeyDeps(entity), agent, user) }
+  async agentKeyResolve(entity: string, agent: TeamAgent, user?: string): Promise<TeamSharedKey | null> { return this.isBound(entity) ? agentKeyOpen(this.agentKeyDeps(entity), agent, user) : null } // an unknown team has no key, and asking creates no storage
   private agentKeyDeps(entity: string): AgentKeyDeps {
     const engine = this.bind(entity)
     return { state: () => this.boundEngine?.currentState ?? engine.currentState, rows: engine.rows, team: entity, stream: engine.stream, env: this.env, http: this.http, sql: this.ctx.storage.sql, now: () => Date.now(), submitSystem: (op, params, key) => this.submitSystem(op, params, key) }

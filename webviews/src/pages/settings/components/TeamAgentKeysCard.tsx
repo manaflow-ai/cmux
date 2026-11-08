@@ -154,7 +154,8 @@ function KeyForm({ row, keys, onDone }: { row: TeamAgentKeyRow; keys: TeamAgentK
       data-agent-key-form={row.agent}
       onSubmit={(event) => {
         event.preventDefault();
-        if (secret.trim() !== "") send();
+        // Enter in the field submits even while a change is in flight; the app would drop it, so keep the key here.
+        if (!keys.busy && secret.trim() !== "") send();
       }}
     >
       <div className="row-main">

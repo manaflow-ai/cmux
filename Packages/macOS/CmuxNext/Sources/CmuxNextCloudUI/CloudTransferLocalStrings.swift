@@ -24,6 +24,9 @@ public struct CloudTransferLocalStrings {
     public static var noFolder: String {
         String(localized: "cloud.transferLocal.noFolder", defaultValue: "This chat has no folder on the machine to copy.", table: "Cloud", bundle: .module)
     }
+    public static var tooBroad: String {
+        String(localized: "cloud.transferLocal.tooBroad", defaultValue: "This chat's folder on the machine is a home or top folder, which holds the machine's sign-ins. Open the chat in a project folder to transfer it.", table: "Cloud", bundle: .module)
+    }
     public static func copyFailed(_ machine: String, _ detail: String) -> String {
         String(format: String(localized: "cloud.transferLocal.copyFailed", defaultValue: "Couldn't copy the folder from %1$@: %2$@", table: "Cloud", bundle: .module),
                machine, detail)
@@ -53,6 +56,7 @@ public struct CloudTransferLocalStrings {
         switch answer.errorCode {
         case "fetch.folder_not_empty": return folderNotEmpty(folder)
         case "fetch.no_folder": return noFolder
+        case "fetch.too_broad": return tooBroad
         case "fetch.base_unreachable": return notOnRemote
         case "fetch.clone_failed", "fetch.no_remote", "fetch.not_a_seed": return cloneFailed
         case "sync_conflict": return nil

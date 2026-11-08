@@ -42,8 +42,8 @@ describe("team shared agent keys (C4)", { timeout: 60_000 }, () => {
     expect((await op(t.creator.token, "team.agent_key.remove", { agent: "claude" }, t.team)).body.value).toEqual({ agent: "claude", removed: true })
     expect((await op(t.creator.token, "team.agent_key.remove", { agent: "claude" }, t.team)).body.value).toEqual({ agent: "claude", removed: false })
     expect(await resolveTeamSharedKey(testEnv as never, t.team, "claude")).toBeNull()
-    // A removal keeps the generation: the next set never reuses a sealed row's address.
-    expect((await op(t.creator.token, "team.agent_key.set", { agent: "claude", kind: "api_key", secret: KEY }, t.team)).body.value).toMatchObject({ generation: 3 })
+    // A removal raises the generation (2 to 3): the next set never reuses a sealed row's address.
+    expect((await op(t.creator.token, "team.agent_key.set", { agent: "claude", kind: "api_key", secret: KEY }, t.team)).body.value).toMatchObject({ generation: 4 })
 
     await inDO(teamStub(t.team), async (_instance, state) => {
       const everything = JSON.stringify(["own_events", "own_ledger", "own_state", "own_outbox"].map((table) => state.storage.sql.exec(`SELECT * FROM ${table}`).toArray()))
@@ -79,11 +79,15 @@ describe("team shared agent keys (C4)", { timeout: 60_000 }, () => {
     const outsider = await rolesTeam()
     expect((await op(t.creator.token, "team.agent_key.set", { agent: "claude", kind: "api_key", secret: KEY }, t.team)).body.ok).toBe(true)
     const foreign = await call(outsider.creator.token, "/v1/read", { op: "team.agent_key.status", params: {} }, t.team)
-    expect(foreign.body?.value).toBeUndefined()
+    expect(codeOf(foreign)).toBe("auth.forbidden")
+    const store = new ModelKeys(createExecutionContext(), testEnv as never)
     expect(await resolveTeamSharedKey(testEnv as never, t.team, "claude", { user: member.user })).toEqual({ kind: "api_key", secret: KEY })
+    expect(await store.resolveTeamSharedKey(t.team, "claude", member.user)).toEqual({ kind: "api_key", secret: KEY })
     t.w.members.delete(`${t.stackTeam}:${member.stackUser}`)
     expect((await deliver("team_membership.deleted", { team_id: t.stackTeam, user_id: member.stackUser })).status).toBe(200)
     expect(await resolveTeamSharedKey(testEnv as never, t.team, "claude", { user: member.user })).toBeNull()
+    // The platform's path too: a removed member's machine token still names them for up to an hour.
+    expect(await store.resolveTeamSharedKey(t.team, "claude", member.user)).toBeNull()
     expect(await resolveTeamSharedKey(testEnv as never, t.team, "claude", { user: outsider.creator.user })).toBeNull()
     expect(await resolveTeamSharedKey(testEnv as never, t.team, "claude", { user: t.creator.user })).toEqual({ kind: "api_key", secret: KEY })
   })
@@ -110,11 +114,19 @@ describe("the platform's MODEL_KEYS store (C2/C4 seam)", { timeout: 60_000 }, ()
     const t = await rolesTeam()
     expect((await op(t.creator.token, "team.agent_key.set", { agent: "claude", kind: "api_key", secret: KEY }, t.team)).body.ok).toBe(true)
     const store = new ModelKeys(createExecutionContext(), testEnv as never)
-    expect(await store.resolveTeamSharedKey(t.team, "claude")).toEqual({ kind: "api_key", secret: KEY })
-    expect(await store.resolveTeamSharedKey(t.team, "codex")).toBeNull()
-    expect(await store.resolveTeamSharedKey(t.team, "gemini")).toBeNull()
-    expect(await store.resolveTeamSharedKey("not-a-team", "claude")).toBeNull()
-    expect(await modelKeyForTeam(testEnv as never, 42, "claude")).toBeNull()
+    const owner = t.creator.user
+    expect(await store.resolveTeamSharedKey(t.team, "claude", owner)).toEqual({ kind: "api_key", secret: KEY })
+    expect(await store.resolveTeamSharedKey(t.team, "claude"), "a call that names no owner").toBeNull()
+    expect(await store.resolveTeamSharedKey(t.team, "codex", owner)).toBeNull()
+    expect(await store.resolveTeamSharedKey(t.team, "gemini", owner)).toBeNull()
+    expect(await store.resolveTeamSharedKey("not-a-team", "claude", owner)).toBeNull()
+    expect(await store.resolveTeamSharedKey("team_00000000000000000000", "claude", owner), "an unknown team").toBeNull()
+    expect(await modelKeyForTeam(testEnv as never, 42, "claude", owner)).toBeNull()
+    // A removal moves the status revision on, like a set.
+    const before = (await read(t.creator.token, "team.agent_key.status", {}, t.team)).body.revision
+    expect((await op(t.creator.token, "team.agent_key.remove", { agent: "claude" }, t.team)).body.value).toEqual({ agent: "claude", removed: true })
+    expect(Number((await read(t.creator.token, "team.agent_key.status", {}, t.team)).body.revision)).toBeGreaterThan(Number(before))
+    expect(await store.resolveTeamSharedKey(t.team, "claude", owner)).toBeNull()
     // Answered, not missing: over a service binding a missing method throws, which the platform reads as unreachable.
     expect(await store.resolveOwnerProviderKey(t.creator.user, "claude")).toBeNull()
   })

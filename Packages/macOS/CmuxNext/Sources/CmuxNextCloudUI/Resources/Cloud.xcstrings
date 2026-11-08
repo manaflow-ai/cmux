@@ -5834,6 +5834,32 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Cuộc trò chuyện này không có thư mục nào trên máy để sao chép."}}
       }
     },
+    "cloud.transferLocal.tooBroad": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "This chat's folder on the machine is a home or top folder, which holds the machine's sign-ins. Open the chat in a project folder to transfer it."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Der Ordner dieses Chats auf der Maschine ist ein Home- oder oberster Ordner mit den Anmeldungen der Maschine. Öffne den Chat in einem Projektordner, um ihn zu übertragen."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Le dossier de cette discussion sur la machine est un dossier personnel ou de premier niveau, qui contient les connexions de la machine. Ouvrez la discussion dans un dossier de projet pour la transférer."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مجلد هذه المحادثة على الجهاز هو مجلد رئيسي أو مجلد علوي يحتوي على تسجيلات دخول الجهاز. افتح المحادثة في مجلد مشروع لنقلها."}},
+        "es": {"stringUnit": {"state": "translated", "value": "La carpeta de este chat en la máquina es una carpeta personal o de nivel superior, que guarda los inicios de sesión de la máquina. Abre el chat en una carpeta de proyecto para transferirlo."}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "這個聊天在機器上的資料夾是主資料夾或頂層資料夾，裡面有機器的登入資訊。請在專案資料夾中開啟聊天後再轉移。"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "这个聊天在机器上的文件夹是主文件夹或顶层文件夹，里面有机器的登录信息。请在项目文件夹中打开聊天后再转移。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "이 채팅의 머신 폴더는 머신의 로그인 정보가 있는 홈 폴더 또는 최상위 폴더입니다. 옮기려면 프로젝트 폴더에서 채팅을 여세요."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "このチャットのマシン上のフォルダは、マシンのサインイン情報があるホームまたは最上位のフォルダです。転送するには、プロジェクトフォルダでチャットを開いてください。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Folder ovog chata na mašini je početni ili vršni folder, u kojem su prijave mašine. Otvorite chat u folderu projekta da ga prenesete."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Denne chats mappe på maskinen er en hjemmemappe eller topmappe med maskinens logins. Åbn chatten i en projektmappe for at overføre den."}},
+        "it": {"stringUnit": {"state": "translated", "value": "La cartella di questa chat sulla macchina è una cartella home o di primo livello, che contiene gli accessi della macchina. Apri la chat in una cartella di progetto per trasferirla."}},
+        "km": {"stringUnit": {"state": "translated", "value": "ថតរបស់ការជជែកនេះនៅលើម៉ាស៊ីន គឺជាថតដើម ឬថតកំពូល ដែលមានការចូលគណនីរបស់ម៉ាស៊ីន។ សូមបើកការជជែកក្នុងថតគម្រោង ដើម្បីផ្ទេរវា។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Mappen til denne chatten på maskinen er en hjemmemappe eller toppmappe med maskinens pålogginger. Åpne chatten i en prosjektmappe for å overføre den."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Folder tego czatu na maszynie to folder domowy lub najwyższego poziomu, w którym są logowania maszyny. Otwórz czat w folderze projektu, aby go przenieść."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A pasta deste chat na máquina é uma pasta pessoal ou de nível superior, que guarda os logins da máquina. Abra o chat em uma pasta de projeto para transferi-lo."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Папка этого чата на машине — домашняя или папка верхнего уровня, в ней хранятся входы машины. Откройте чат в папке проекта, чтобы перенести его."}},
+        "th": {"stringUnit": {"state": "translated", "value": "โฟลเดอร์ของแชทนี้บนเครื่องเป็นโฟลเดอร์หลักหรือโฟลเดอร์ระดับบนสุด ซึ่งเก็บการลงชื่อเข้าใช้ของเครื่องไว้ เปิดแชทในโฟลเดอร์โปรเจกต์เพื่อโอนย้าย"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bu sohbetin makinedeki klasörü, makinenin oturum açma bilgilerini tutan bir ana klasör veya üst klasör. Aktarmak için sohbeti bir proje klasöründe açın."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Папка цього чату на машині — домашня або папка верхнього рівня, у ній зберігаються входи машини. Відкрийте чат у папці проєкту, щоб перенести його."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Thư mục của cuộc trò chuyện này trên máy là thư mục chính hoặc thư mục cấp cao nhất, nơi chứa thông tin đăng nhập của máy. Hãy mở cuộc trò chuyện trong một thư mục dự án để chuyển nó."}}
+      }
+    },
     "cloud.transferLocal.copyFailed": {
       "extractionState": "manual",
       "localizations": {
