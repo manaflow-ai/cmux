@@ -332,7 +332,7 @@ nonisolated enum MachineSettingsSchema {
                 section: .general,
                 group: group,
                 title: SettingsText.keyed("settings.remote.ultraMode", "Ultra Connection Mode"),
-                help: SettingsText.keyed("settings.remote.ultraMode.help", "Sends repair data with every connection to Cloud and your other machines, so a network that drops packets stays fast. Uses about 2 to 3 times the data. Applies to the next connection."),
+                help: SettingsText.keyed("settings.remote.ultraMode.help", "Sends repair data with what this Mac sends to Cloud and your other machines, so typing and uploads stay fast on a network that drops packets. Uses about 2 to 3 times the data. Applies to the next connection."),
                 summary: SettingsText.keyed("settings.remote.ultraMode.summary", "Uses more data to stay fast on lossy networks"),
                 kind: .toggle,
                 default: .bool(RemoteSettings.ultraModeDefault),

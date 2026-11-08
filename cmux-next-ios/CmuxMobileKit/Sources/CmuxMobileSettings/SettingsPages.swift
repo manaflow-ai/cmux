@@ -484,7 +484,7 @@ struct TransportPage: View {
                 }
                 .accessibilityIdentifier("settings.transport.ultraOnCellular")
             } footer: {
-                Text("On cellular, WireGuard sends repair data so a network that drops packets stays fast. Uses about 2 to 3 times the cellular data. Applies at the next connection.")
+                Text("On cellular, what this iPhone sends over WireGuard carries repair data, so typing stays fast on a network that drops packets. Uses about 2 to 3 times the cellular data. Applies at the next connection.")
             }
             #if !DEBUG
             Section {
