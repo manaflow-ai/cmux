@@ -473,6 +473,7 @@ impl Hub {
                     opts.thread.as_deref(),
                     opts.provenance.as_ref(),
                     opts.human_authenticated,
+                    opts.wake_or_fail,
                     &mut accept,
                 ))
                 .await;
@@ -2277,6 +2278,18 @@ impl Hub {
         {
             return Ok(());
         }
+        // A chat that goes: its forks take its history before anything of it is stopped or marked
+        // purged, and no fork references it after. A fork still being made fails the delete here,
+        // with the chat as it was (review of #37020: it failed after `purged`, and the chat's
+        // later records were never written).
+        let _fence = if purge && !session.replaced.load(Ordering::SeqCst) {
+            Some(
+                crate::store::fence_history(self.store.as_ref(), &session.id)
+                    .map_err(|e| RpcError::internal(e.to_string()))?,
+            )
+        } else {
+            None
+        };
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
         session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);
