@@ -49,6 +49,8 @@ final class TerminalSurfaceView: UIView {
     /// The font size the surface was built with or last set to (Settings → Terminal).
     private var fontSize = CmuxMobilePreferences.terminalFontSize()
     private var defaultsObserver: (any NSObjectProtocol)?
+    /// Predictive local echo (`TerminalSurfacePrediction`), made with the surface.
+    private(set) var prediction: TerminalSurfacePrediction?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -91,7 +93,10 @@ final class TerminalSurfaceView: UIView {
         guard let app = try? CmuxMobileGhosttyApp.shared() else { return }
         self.app = app
         let box = InputBox()
-        box.deliver = { [weak self] data in self?.onInput?(data) }
+        box.deliver = { [weak self] data in
+            self?.prediction?.sent(data)
+            self?.onInput?(data)
+        }
         box.view = self
         inputBox = box
         var config = ghostty_surface_config_new()
@@ -115,6 +120,7 @@ final class TerminalSurfaceView: UIView {
         }
         surface = ghostty_surface_new(app.app, &config)
         guard let surface else { return }
+        prediction = TerminalSurfacePrediction(view: self, alternateScreen: showsAlternateScreen)
         // Ghostty draws only while the surface can be seen (`updateOcclusion`).
         observeAppState()
         updateOcclusion()
@@ -175,7 +181,10 @@ final class TerminalSurfaceView: UIView {
     private func observeFontSize() {
         guard defaultsObserver == nil else { return }
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.applyFontSize() }
+            MainActor.assumeIsolated {
+                self?.applyFontSize()
+                self?.prediction?.applySetting()
+            }
         }
     }
 
@@ -184,6 +193,7 @@ final class TerminalSurfaceView: UIView {
         guard let surface, size != fontSize else { return }
         fontSize = size
         viewportEpoch += 1
+        prediction?.gridChanged()
         let action = "set_font_size:\(size)"
         _ = action.withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
         ghostty_surface_refresh(surface)
@@ -223,6 +233,7 @@ final class TerminalSurfaceView: UIView {
         guard size.0 > 0, size.1 > 0, size != lastPixelSize || scale != lastScale else { return }
         lastPixelSize = size
         viewportEpoch += 1
+        prediction?.gridChanged()
         if scale != lastScale { ghostty_surface_set_content_scale(surface, scale, scale) }
         lastScale = scale
         ghostty_surface_set_size(surface, size.0, size.1)
@@ -427,8 +438,11 @@ final class TerminalSurfaceView: UIView {
         }
         let ref = SurfaceRef(surface)
         let done = completion.map(MainCallback.init)
+        let predictor = prediction?.engine
         outputQueue.async {
             let bytes = transform?(data) ?? data
+            // What the remote sent (not the row shift), before Ghostty parses it.
+            let predictionChanged = predictor?.prediction.output(bytes: data, nowUs: TerminalSurfacePrediction.now()) ?? false
             bytes.withUnsafeBytes { raw in
                 guard let base = raw.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
                 ghostty_surface_process_output(ref.surface, base, UInt(raw.count))
@@ -437,6 +451,7 @@ final class TerminalSurfaceView: UIView {
                 // Ghostty also renders on its own after parsing, but later:
                 // without this request a keystroke echo waited ~3x longer.
                 self?.setNeedsTerminalDraw()
+                self?.prediction?.parsed(changed: predictionChanged)
                 done?.run()
             } }
         }
@@ -650,6 +665,7 @@ final class TerminalSurfaceView: UIView {
             MainActor.assumeIsolated {
                 guard let self, self.presentPending else { return }
                 self.presentPending = false
+                self.prediction?.presented()
                 self.onPresent?()
             }
         }
