@@ -1,3 +1,4 @@
+import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextCompat
 import CryptoKit
@@ -11,8 +12,9 @@ import Foundation
 
     nonisolated static func name(provider: Provider, teamID: String?, userID: String, machineID: String? = nil) -> String {
         let vm = provider == .codex ? (machineID ?? "") : ""
-        let scope = SHA256.hash(data: Data((userID + ":" + (teamID ?? "personal") + ":" + vm).utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
-        return "\(provider.rawValue.uppercased())_TRANSFER_\(scope)"
+        let scope = SHA256.hash(data: Data((userID + ":" + (teamID ?? "personal") + ":" + vm).utf8))
+            .prefix(CloudMachineSecrets.signInScopeBytes).map { String(format: "%02x", $0) }.joined()
+        return CloudMachineSecrets.signInName(provider: provider.rawValue, scope: scope)
     }
 
     /// The cached login, read the way it was stored: `cmux cloud secret set` writes the item with

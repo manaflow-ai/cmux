@@ -28,6 +28,25 @@ import Testing
         #expect(section.summary.stringValue == HomeEngineStrings.vaultUnreadable)
     }
 
+    /// cmux issue 38140: the vault also keeps cmux's own cached Cloud sign-ins, stored under a made-up
+    /// name (`CLAUDE_TRANSFER_<hash>`). The section shows them as the sign-in they are, each provider
+    /// once, and never the stored name; a name the person set shows as they wrote it.
+    @Test func theVaultNamesASignInCmuxKeepsByItsProviderNeverItsStoredName() {
+        // As `CloudCredentialLogin.name` stores them (CloudCredentialTransferTests checks that it does).
+        let claudePersonal = "CLAUDE_TRANSFER_" + String(repeating: "ab", count: 12)
+        let claudeTeam = "CLAUDE_TRANSFER_" + String(repeating: "01", count: 12)
+        let codex = "CODEX_TRANSFER_0123456789abcdef01234567"
+        let section = HomeChiefVaultSection()
+        section.show([claudePersonal, claudeTeam, codex, "GITHUB_TOKEN", "MY_TRANSFER_KEY"])
+        let text = section.summary.stringValue
+        #expect(!text.contains("_TRANSFER_0") && !text.contains("_TRANSFER_a"), "a stored name shows: \(text)")
+        #expect(text.contains(HomeEngineStrings.vaultSignIn("claude")))
+        #expect(text.contains(HomeEngineStrings.vaultSignIn("codex")))
+        #expect(text.contains("GITHUB_TOKEN"))
+        #expect(text.contains("MY_TRANSFER_KEY"))
+        #expect(text.hasPrefix("4"), "the two Claude sign-ins count once: \(text)")
+    }
+
     @Test func theVaultReadsWhenTheCardOpens() async {
         let section = HomeChiefVaultSection()
         let reads = Counter()

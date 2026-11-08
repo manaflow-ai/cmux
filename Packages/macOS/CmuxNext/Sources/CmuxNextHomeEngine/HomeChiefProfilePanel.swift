@@ -4,13 +4,16 @@ import CmuxNextDesign
 /// The Chief's profile (``HomeChiefProfileView``) as a panel beside a Home chat (Lawrence's
 /// reference, 2026-11-04, after Grok's bot panel; it replaced the settings popover under the name
 /// pill). Side by side with the chat when the pane has room for both, over the chat when it does not,
-/// with a hairline between them. The Home view owns one and lays the chat out through it.
+/// with a hairline between them. Over the chat it is opaque (``Palette/paneCover``): it stands in for the
+/// chat, which never shows through it (cmux issue 38140). The Home view owns one and lays the chat out through it.
 @MainActor
 public final class HomeChiefProfilePanel {
     public let view: HomeChiefProfileView
     let divider = NSView()
     /// The computer the control bar changes now (``follow(agent:machine:make:)``).
     private var controlKey: [String?]?
+    /// The open panel lies over the chat (a pane too narrow for both), not beside it.
+    public private(set) var coversChat = false
 
     public init(settings: HomeChiefSettingsView) {
         view = HomeChiefProfileView(settings: settings)
@@ -44,6 +47,7 @@ public final class HomeChiefProfilePanel {
         let hadKeyboard = holdsKeyboard(view.window?.firstResponder)
         view.isHidden = true
         divider.isHidden = true
+        coversChat = false
         view.superview?.needsLayout = true
         if hadKeyboard { chat.window?.makeFirstResponder(chat) }
     }
@@ -66,6 +70,11 @@ public final class HomeChiefProfilePanel {
         chat.frame = frames.chat
         divider.isHidden = frames.divider == nil
         if let line = frames.divider { divider.frame = line }
+        let covers = frames.divider == nil
+        guard covers != coversChat else { return }
+        coversChat = covers
+        // The fill follows in this layout pass, in the theme of the host that draws it.
+        view.superview?.performWithTheme { applyTheme() }
     }
 
     /// The panel's, the chat's and the hairline's frames in `bounds`: side by side when both fit
@@ -78,7 +87,8 @@ public final class HomeChiefProfilePanel {
         return (panel, NSRect(x: bounds.minX, y: bounds.minY, width: line.minX - bounds.minX, height: bounds.height), line)
     }
 
-    /// The panel's fill and its hairline, in the theme of the view drawing them (call inside its theme scope).
+    /// The panel's fill and its hairline, in the theme of the view drawing them (call inside its theme scope):
+    /// beside the chat the pane's own fill, over it an opaque cover.
     public func applyTheme() {
         view.layer?.backgroundColor = Palette.paneFill.cgColor
         divider.layer?.backgroundColor = Palette.paneBorder.cgColor

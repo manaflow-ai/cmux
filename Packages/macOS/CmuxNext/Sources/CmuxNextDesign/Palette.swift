@@ -43,6 +43,12 @@ public struct Palette {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
         return WindowBackdrop.current(tokens).panesPaintBackground ? tokens.surfaceBackground.withAlpha(1).nsColor : .clear
     }
+    /// A view that lies over a pane's own content and stands in for it (Home's Chief profile over
+    /// the chat in a narrow pane): the surface background, opaque in every window, so nothing under
+    /// it shows through, also where ``paneFill`` is clear over a see-through window (cmux issue 38140).
+    public static var paneCover: NSColor {
+        (ThemeContext.active ?? ThemeScope.app.tokens).surfaceBackground.withAlpha(1).nsColor
+    }
     /// A translucent scrim of the surface background for text over the
     /// window's backdrop (``ThemeTokens/legibilityScrim``).
     public static var legibilityScrim: NSColor { color(\.legibilityScrim, dynamic: PaletteDynamic.legibilityScrim) }

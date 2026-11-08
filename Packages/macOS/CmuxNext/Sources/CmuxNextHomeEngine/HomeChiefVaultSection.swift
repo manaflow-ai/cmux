@@ -1,9 +1,11 @@
 public import AppKit
+import CmuxNextCloud
 import CmuxNextDesign
 
 /// The Chief Settings card's Vault section (cmux issue 34263, building on 26412): the names of the
 /// credentials this Mac keeps for the Chief and its agents, never a value. The app reads them off the
-/// main thread each time the card opens.
+/// main thread each time the card opens. A name cmux made for itself (a cached provider sign-in,
+/// `CLAUDE_TRANSFER_<hash>`) shows by what it is, "Claude sign-in", never as that name (cmux issue 38140).
 @MainActor
 public final class HomeChiefVaultSection: NSStackView {
     /// Reads the saved names (sorted, each once); nil when the vault's index cannot be read.
@@ -68,8 +70,19 @@ public final class HomeChiefVaultSection: NSStackView {
         summary.stringValue = switch names {
         case nil: HomeEngineStrings.vaultUnreadable
         case let names? where names.isEmpty: HomeEngineStrings.vaultEmpty
-        case let names?: HomeEngineStrings.vaultNames(names.count, names.joined(separator: ", "))
+        case let names?: Self.listing(of: Self.shownNames(names))
         }
         if summary.stringValue != before { onResize() }
+    }
+
+    /// "2 saved: A, B" for the names the section lists.
+    private static func listing(of shown: [String]) -> String {
+        HomeEngineStrings.vaultNames(shown.count, shown.joined(separator: ", "))
+    }
+
+    /// What the section lists for the vault's `names`: a name the person set as it is, a sign-in cmux
+    /// keeps by its provider, each once, sorted.
+    static func shownNames(_ names: [String]) -> [String] {
+        names
     }
 }

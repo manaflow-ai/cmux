@@ -122,6 +122,44 @@ import Testing
     }
 
     /// The capture scene's fixture computer keeps its control bar through the host's own reads.
+    /// cmux issue 38140: in a pane too narrow for both, the panel lies over the chat. Over a see-through
+    /// window the pane's fill is clear, and the chat's welcome text showed through the panel's own text.
+    /// Over the chat the panel is opaque; beside it, it keeps the pane's clear fill.
+    @Test func overTheChatThePanelIsOpaqueInASeeThroughWindow() throws {
+        // The see-through branch is under test: Reduce Transparency paints every surface opaque.
+        let savedReduceTransparency = ReduceTransparency.shared.override
+        ReduceTransparency.shared.override = false
+        defer { ReduceTransparency.shared.override = savedReduceTransparency }
+        let workspace = ThemeScope(level: .workspace)
+        workspace.pinBackdrop(.selection(.art(.vanGoghStarryNight)))
+        defer { workspace.pinBackdrop(.inherit) }
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 600))
+        host.wantsLayer = true
+        workspace.root(host)
+        let chat = NSView()
+        host.addSubview(chat)
+        let panel = HomeChiefProfilePanel(settings: Self.card())
+        panel.install(in: host)
+        try #require(host.performWithTheme { Palette.paneFill.alphaComponent } == 0, "the window must be see-through, or this passes without the fix")
+        panel.open(.details)
+        let fillAlpha = { () -> CGFloat in
+            host.performWithTheme { panel.applyTheme() } // the host's theme pass (HomeHostView.updateLayer)
+            return panel.view.layer?.backgroundColor?.alpha ?? 0
+        }
+
+        panel.layout(chat: chat, in: host.bounds)
+        #expect(panel.coversChat)
+        #expect(panel.view.frame == host.bounds)
+        #expect(fillAlpha() == 1)
+
+        let wide = NSRect(x: 0, y: 0, width: 4 * HomeChiefProfileView.panelWidth, height: 600)
+        host.frame = wide
+        panel.layout(chat: chat, in: wide)
+        #expect(!panel.coversChat)
+        #expect(!panel.view.frame.intersects(chat.frame))
+        #expect(fillAlpha() == 0)
+    }
+
     @Test func aPinnedControlBarIgnoresTheHostsComputer() {
         let panel = HomeChiefProfilePanel(settings: Self.card())
         let lease = Lease()

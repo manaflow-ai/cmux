@@ -16,6 +16,15 @@ extension HomeEngineStrings {
     static func vaultNames(_ count: Int, _ names: String) -> String {
         String(localized: "home.engine.vault.names", defaultValue: "\(count) saved: \(names)", table: "Home", bundle: .module)
     }
+    /// A provider sign-in cmux keeps in the vault to copy to Cloud machines ("Claude sign-in"), by the
+    /// provider's lowercased id; never its stored name.
+    static func vaultSignIn(_ provider: String) -> String {
+        switch provider {
+        case "claude": String(localized: "home.engine.vault.signIn.claude", defaultValue: "Claude sign-in", table: "Home", bundle: .module)
+        case "codex": String(localized: "home.engine.vault.signIn.codex", defaultValue: "Codex sign-in", table: "Home", bundle: .module)
+        default: String(localized: "home.engine.vault.signIn.other", defaultValue: "Cloud sign-in", table: "Home", bundle: .module)
+        }
+    }
     static var vaultNote: String {
         String(localized: "home.engine.vault.note",
                defaultValue: "Kept in your Keychain. Chief and its agents use them by name; values never appear in chat. Add one with cmux cloud secret set NAME.",
