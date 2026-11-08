@@ -307,7 +307,6 @@ fn process_identity(_pid: u32) -> io::Result<((u64, u64), u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
     #[test]
     fn the_start_time_is_field_22_after_the_command_name() {
