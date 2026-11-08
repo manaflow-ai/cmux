@@ -198,6 +198,8 @@ import Testing
         deadline = ContinuousClock.now + .seconds(5)
         while await serve.answer != .unknown, ContinuousClock.now < deadline { await Task.yield() }
         #expect(await serve.answer == .unknown)
+        // The live link follows through the ordered ownership hand-off (one hop after the answer).
+        while await link.ownerLink != nil, ContinuousClock.now < deadline { await Task.yield() }
         #expect(await link.ownerLink == nil)
         _ = try await link.connect(origin: .user)
         #expect(await link.callerOwnership == .unknown, "the record's creator rule overrode a connection's answer")
