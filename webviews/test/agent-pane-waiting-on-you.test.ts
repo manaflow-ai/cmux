@@ -207,11 +207,11 @@ test("a pull request's verdict names the PR and its chat; other kinds and other 
     sessionId: "s1",
     verdict: "accepted",
   });
-  // No comment: acpmux records the verdict only, so the page sends none it would drop.
-  expect(verdictParams(pr, "changes")).toEqual({
+  expect(verdictParams(pr, "changes", "  Split the commit  ")).toEqual({
     prUrl: "https://example.com/pull/7",
     sessionId: "s1",
     verdict: "changes",
+    comment: "Split the commit",
   });
   expect(verdictParams(item(), "accept")).toBeUndefined();
   // acpmux records a verdict on this Mac only, for a chat it has.
@@ -349,4 +349,70 @@ test("a row that entered late still collapses when answered: the entrance never 
   // A `forwards`/`both` fill would keep the entrance's last frame (1fr, opaque) over [data-leaving].
   expect(rule).toContain(":not([data-leaving])");
   expect(rule).not.toMatch(/\b(both|forwards)\b/);
+});
+
+test("an approval with only a lasting allow, or a near-match kind, takes no one-click answer", () => {
+  // The one-click answers are exactly allow once and reject once: anything else is the chat's.
+  expect(queueAnswers(item({ options: [{ optionId: "always", name: "Always allow", kind: "allow_always" }] }))).toEqual(
+    [],
+  );
+  expect(
+    queueAnswers(
+      item({
+        options: [
+          { optionId: "a", name: "Allow", kind: "allow" },
+          { optionId: "d", name: "Deny", kind: "reject_always" },
+        ],
+      }),
+    ),
+  ).toEqual([]);
+});
+
+test("the queue also reads again when what a chat waits on, its status or its pull request's title or checks change", () => {
+  const chat = { sessionId: "s4" };
+  const waiting = queueKey([], [{ ...chat, waitingOn: { on: "review" } } as never]);
+  expect(waiting).not.toBe(queueKey([], [chat]));
+  expect(queueKey([], [{ ...chat, waitingOn: { on: "input" } } as never])).not.toBe(waiting);
+  expect(queueKey([], [{ ...chat, status: "waiting" }])).not.toBe(queueKey([], [chat]));
+  const open = { number: 7, title: "Fix", state: "open" as const };
+  const withPr = queueKey([], [{ ...chat, pullRequest: open }]);
+  expect(queueKey([], [{ ...chat, pullRequest: { ...open, title: "Fix the upload" } }])).not.toBe(withPr);
+  expect(queueKey([], [{ ...chat, pullRequest: { ...open, checks: "failing" } } as never])).not.toBe(withPr);
+  const one = queueKey([], [{ ...chat, pullRequestUrls: ["https://example.com/pull/1"] }]);
+  expect(
+    queueKey([], [{ ...chat, pullRequestUrls: ["https://example.com/pull/1", "https://example.com/pull/2"] }]),
+  ).not.toBe(one);
+});
+
+test("the queue's total is acpmux's count before its limit, never fewer than the rows it sent", () => {
+  const raw = { items: [item()], now: 10 };
+  expect(readQueue({ ...raw, total: 250 }).total).toBe(250);
+  expect(readQueue(raw).total).toBe(1);
+  expect(readQueue({ ...raw, total: 0 }).total).toBe(1);
+  expect(readQueue({ ...raw, total: "many" }).total).toBe(1);
+});
+
+test("a Request changes comment an older acpmux dropped opens the chat to say it there", async () => {
+  const selected: string[] = [];
+  let reply: unknown = {};
+  const pages = historyPages({
+    client: () => ({
+      ledger: async () => ({}),
+      reviewQueue: async () => ({}),
+      reviewVerdict: async () => reply,
+      audit: async () => ({ entries: [] }),
+    }),
+    callNative: async <T>() => undefined as T,
+    selectSession: (sessionId) => selected.push(sessionId),
+    asks: [],
+  });
+  const pr = item({ kind: "pr", prUrl: "https://example.com/pull/1" });
+  await pages.queue.verdict(pr, "changes", "Split the commit");
+  expect(selected).toEqual(["s1"]);
+  // A daemon that delivered it leaves the page where it is; so does a verdict with no words.
+  reply = { commentDelivered: true };
+  await pages.queue.verdict(pr, "changes", "Split the commit");
+  reply = {};
+  await pages.queue.verdict(pr, "changes");
+  expect(selected).toEqual(["s1"]);
 });

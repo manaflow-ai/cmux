@@ -49,6 +49,8 @@ let root: Root | undefined;
 const { createRoot } = await import("react-dom/client");
 const { QueueScreen } = await import("../src/agent-session/acpmux/queue/QueueScreen");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
+const { createQueueCache } = await import("../src/agent-session/acpmux/queue/useQueue");
+type QueueCache = import("../src/agent-session/acpmux/queue/useQueue").QueueCache;
 
 afterEach(() => {
   act(() => root?.unmount());
@@ -105,7 +107,11 @@ const items = [
 
 type Calls = { answers: [string, string][]; verdicts: [string, string][]; opened: string[]; exports: number };
 
-async function render(load: () => Promise<unknown> = async () => ({ items, now: 10 }), refuseVerdict = false) {
+async function render(
+  load: () => Promise<unknown> = async () => ({ items, now: 10 }),
+  refuseVerdict = false,
+  extra: { cache?: QueueCache; refreshKey?: string } = {},
+) {
   const calls: Calls = { answers: [], verdicts: [], opened: [], exports: 0 };
   root = createRoot(host);
   await act(async () =>
@@ -125,6 +131,7 @@ async function render(load: () => Promise<unknown> = async () => ({ items, now: 
           calls.exports++;
           return 3;
         }}
+        {...extra}
       />,
     ),
   );
@@ -201,10 +208,10 @@ test("a question is answered in its chat; on a pull request Deny asks for the ch
   expect(calls.opened).toEqual(["s2"]);
   await press(list, "j");
   expect(selected()).toBe("wq-row-pr_u");
-  // Deny is Request changes: it sends the verdict at once, with no box to type words acpmux drops.
   await shortcut("Deny");
-  expect(host.querySelector("textarea")).toBeNull();
-  expect(calls.verdicts).toEqual([["pr:u", "changes"]]);
+  expect(host.querySelector(".wq-comment-field")).not.toBeNull();
+  await shortcut("AllowOnce");
+  expect(calls.verdicts).toEqual([["pr:u", "accept"]]);
 });
 
 test("another machine's pull request offers no verdict here and keeps its row", async () => {
@@ -219,11 +226,21 @@ test("another machine's pull request offers no verdict here and keeps its row", 
   expect(host.querySelector("#wq-row-pr_peer")?.hasAttribute("data-leaving")).toBe(false);
 });
 
-test("a refused Request changes keeps its row and says so", async () => {
+test("a refused Request changes brings its box back with what was typed", async () => {
   const pr = items[2]!;
   await render(async () => ({ items: [pr], now: 10 }), true);
   await shortcut("Deny");
-  expect(host.querySelector("textarea")).toBeNull();
+  const field = host.querySelector<HTMLTextAreaElement>(".wq-comment-field")!;
+  await act(async () => {
+    const set = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!;
+    set.call(field, "Split the commit");
+    field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+  const send = host.querySelector<HTMLButtonElement>('.wq-comment-actions button[data-tone="allow"]')!;
+  await act(async () => {
+    send.click();
+  });
+  expect(host.querySelector<HTMLTextAreaElement>(".wq-comment-field")?.value).toBe("Split the commit");
   expect(host.querySelector(".wq-failure")?.textContent).toBe(translate("waiting.answerFailed"));
   expect(host.querySelector("#wq-row-pr_u")?.hasAttribute("data-leaving")).toBe(false);
 });
@@ -232,4 +249,44 @@ test("an acpmux older than the queue says so in words", async () => {
   await render(async () => Promise.reject({ code: -32601, message: "Method not found" }));
   expect(host.querySelector(".wq-status")?.textContent).toBe(translate("waiting.older"));
   expect(host.querySelectorAll(".wq-row").length).toBe(0);
+});
+
+test("a return to the tab paints what it showed without a read, and reads again once the asks changed", async () => {
+  const cache = createQueueCache();
+  let reads = 0;
+  const load = async () => {
+    reads++;
+    return { items, now: 10 };
+  };
+  await render(load, false, { cache, refreshKey: "p1" });
+  expect(reads).toBe(1);
+  act(() => root?.unmount());
+  // Back on the tab with the same asks: the rows are there at once and nothing is read.
+  await render(load, false, { cache, refreshKey: "p1" });
+  expect(reads).toBe(1);
+  expect(host.querySelectorAll(".wq-row").length).toBe(3);
+  act(() => root?.unmount());
+  // The asks changed while another tab showed: the kept rows paint, and the queue reads again.
+  await render(load, false, { cache, refreshKey: "p1,p9" });
+  expect(reads).toBe(2);
+});
+
+test("a failed read keeps the rows it showed, says it failed and offers a retry", async () => {
+  const cache = createQueueCache();
+  await render(async () => ({ items, now: 10 }), false, { cache, refreshKey: "a" });
+  act(() => root?.unmount());
+  await render(async () => Promise.reject(new Error("offline")), false, { cache, refreshKey: "b" });
+  expect(host.querySelectorAll(".wq-row").length).toBe(3);
+  expect(host.querySelector(".wq-status")?.textContent).toContain(translate("waiting.failed"));
+  expect(host.querySelector(".wq-status button")).not.toBeNull();
+});
+
+test("a list cut at the read limit says how many there were", async () => {
+  await render(async () => ({ items, now: 10, total: 250 }));
+  expect(host.querySelector(".wq-status")?.textContent).toContain(translate("waiting.more", { shown: 3, total: 250 }));
+  act(() => root?.unmount());
+  root = undefined;
+  // An acpmux that does not send `total` reads as the rows it sent.
+  await render();
+  expect(host.querySelector(".wq-status")?.textContent).not.toContain(translate("waiting.more", { shown: 3, total: 3 }));
 });

@@ -13,6 +13,8 @@ import { Tabs, TabsList, TabsTrigger } from "../../../ui/Tabs";
 import { useT } from "../i18n";
 import { LedgerScreen } from "../ledger/LedgerScreen";
 import { QueueScreen } from "../queue/QueueScreen";
+import { createQueueCache } from "../queue/useQueue";
+import { createLedgerCache } from "../ledger/LedgerScreen";
 import { AllChatsList } from "./AllChatsList";
 import { type LoadChatsPage } from "./allChatsListModel";
 import { useNoEntryMotion } from "./noEntryMotion";
@@ -46,6 +48,10 @@ export function HistoryScreen({
   // A New Tab page too: what it shows or opens appears at once (noEntryMotion.ts).
   useNoEntryMotion();
   const [tab, setTab] = useState<HistoryTab>(initialTab);
+  // What Waiting on you and Costs last showed, kept while another tab shows: a return paints it
+  // at once, and Waiting on you reads again only when what it lists changed meanwhile.
+  const [queueCache] = useState(createQueueCache);
+  const [ledgerCache] = useState(createLedgerCache);
   const tabbed = Boolean(queue || ledger);
   const shown: HistoryTab = (tab === "queue" && !queue) || (tab === "ledger" && !ledger) ? "history" : tab;
   return (
@@ -67,9 +73,9 @@ export function HistoryScreen({
         </Tabs>
       )}
       {shown === "queue" && queue ? (
-        <QueueScreen {...queue} {...(now !== undefined ? { now } : {})} />
+        <QueueScreen {...queue} cache={queueCache} {...(now !== undefined ? { now } : {})} />
       ) : shown === "ledger" && ledger ? (
-        <LedgerScreen {...ledger} {...(now !== undefined ? { now } : {})} />
+        <LedgerScreen {...ledger} cache={ledgerCache} {...(now !== undefined ? { now } : {})} />
       ) : (
         <AllChatsList
           load={load}
