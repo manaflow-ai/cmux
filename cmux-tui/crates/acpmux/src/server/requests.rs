@@ -2486,19 +2486,14 @@ async fn dispatch_request_with_identity(
         method::MUX_PROMPTS_SAVE | method::MUX_PROMPTS_DELETE if !conn.is_person() => {
             Err(crate::hub::person::person_required("changing saved prompts"))
         }
-        // A stashed draft is the person's unsent text and chips: the person's composer only.
-        method::MUX_STASH_LIST
-        | method::MUX_STASH_PUSH
-        | method::MUX_STASH_GET
-        | method::MUX_STASH_DROP
-            if !conn.is_person() =>
-        {
-            Err(crate::hub::person::person_required("the composer's stashed drafts"))
-        }
         method::MUX_STASH_LIST
         | method::MUX_STASH_PUSH
         | method::MUX_STASH_GET
         | method::MUX_STASH_DROP => {
+            // A stashed draft is the person's unsent text and chips: the person's composer only.
+            if !conn.is_person() {
+                return Err(crate::hub::person::person_required("the composer's stashed drafts"));
+            }
             let (m, params) = (m.to_owned(), params.clone());
             tokio::task::spawn_blocking(move || crate::stash::handle(&m, &params))
                 .await

@@ -218,7 +218,10 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         ),
         (
             method::MUX_STASH_PUSH,
-            Any(json!({"chat": "stack", "text": "aside"}), "the person check refuses this connection"),
+            Any(
+                json!({"chat": "stack", "text": "aside"}),
+                "the person check refuses this connection",
+            ),
         ),
         (
             method::MUX_STASH_GET,

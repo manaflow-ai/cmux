@@ -109,7 +109,9 @@ pub fn handle(m: &str, params: &Value) -> Result<Value, RpcError> {
             let attachments = match params.get("attachments") {
                 None | Some(Value::Null) => Vec::new(),
                 Some(Value::Array(list)) if list.iter().all(Value::is_object) => list.clone(),
-                Some(_) => return Err(RpcError::invalid_params("attachments must be a list of chips")),
+                Some(_) => {
+                    return Err(RpcError::invalid_params("attachments must be a list of chips"));
+                }
             };
             let replaces = params.get("replaces").and_then(Value::as_str);
             let draft = push(&dir, chat, text, attachments, replaces, crate::store::now_ms())?;
@@ -230,7 +232,9 @@ fn id_param(params: &Value) -> Result<&str, RpcError> {
 }
 
 fn unreadable(reason: String) -> RpcError {
-    RpcError::internal(format!("{reason}; the stash is not changed until it is fixed or moved away"))
+    RpcError::internal(format!(
+        "{reason}; the stash is not changed until it is fixed or moved away"
+    ))
 }
 
 fn not_saved(e: io::Error) -> RpcError {
