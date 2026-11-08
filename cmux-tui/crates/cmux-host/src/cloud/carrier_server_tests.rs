@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 
 use super::{CarrierServer, UNBOUND_WAIT};
 use crate::cloud::client::{CloudClient, Http};
+use crate::cloud::github_minter::Stop;
 use crate::cloud::wire::{Bound, Env};
 
 const DEV: &str = "https://cmux-api-development.debussy.workers.dev";
@@ -66,6 +67,10 @@ impl Http for Fake {
 }
 
 fn client(fake: &Fake) -> CloudClient<Fake> {
+    client_with(fake.clone())
+}
+
+fn client_with<H: Http>(http: H) -> CloudClient<H> {
     let bound = Bound {
         machine: MACHINE.to_owned(),
         team: "team_t0000000000000000001".to_owned(),
@@ -80,7 +85,7 @@ fn client(fake: &Fake) -> CloudClient<Fake> {
         bound_at: T0,
     };
     let key = InstallKey::generate(&SystemRandom::new()).unwrap();
-    CloudClient::new(fake.clone(), bound, key)
+    CloudClient::new(http, bound, key)
 }
 
 fn fixed_now() -> u64 {
@@ -94,9 +99,35 @@ fn keep_log(line: &str) {
 }
 
 fn serve(dir: &tempfile::TempDir) -> (CarrierServer<Fake>, std::path::PathBuf) {
+    serve_with(dir, Arc::default())
+}
+
+fn serve_with<H: Http + Send + 'static>(
+    dir: &tempfile::TempDir,
+    stop: Arc<Stop>,
+) -> (CarrierServer<H>, std::path::PathBuf) {
     let path = dir.path().join("carrier.sock");
     let listener = UnixListener::bind(&path).unwrap();
-    (CarrierServer::spawn(listener, fixed_now, keep_log).unwrap(), path)
+    (CarrierServer::spawn(listener, fixed_now, keep_log, stop).unwrap(), path)
+}
+
+/// A fake whose ticket route says it was reached, then waits for the test to release it.
+struct Gated {
+    inner: Fake,
+    entered: Mutex<std::sync::mpsc::Sender<()>>,
+    gate: Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
+impl Http for Gated {
+    fn post(&self, url: &str, body: &Value, bearer: Option<&str>) -> Result<(u16, Value), String> {
+        self.inner.post(url, body, bearer)
+    }
+
+    fn post_empty(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
+        let _ = self.entered.lock().unwrap().send(());
+        let _ = self.gate.lock().unwrap().recv();
+        self.inner.post_empty(url, bearer)
+    }
 }
 
 fn ask(path: &std::path::Path, line: &str) -> Value {
@@ -190,4 +221,55 @@ fn dropping_the_server_ends_an_ask_waiting_for_the_bind() {
     drop(server);
     assert!(started.elapsed() < Duration::from_secs(2), "the stop waited out the bind wait");
     assert_eq!(asking.join().unwrap()["error"]["code"], "vm.agent_stopping");
+}
+
+#[test]
+fn a_stop_from_the_role_withholds_a_ticket_minted_in_flight() {
+    // The role sets its stop before it asks the worker to end; a worker stuck past the deadline has not dropped
+    // this server yet, and the ticket of a mint in flight must not go out.
+    let (release, gate) = std::sync::mpsc::channel();
+    let (entered, reached) = std::sync::mpsc::channel();
+    let http =
+        Gated { inner: Fake::default(), entered: Mutex::new(entered), gate: Mutex::new(gate) };
+    let dir = tempfile::tempdir().unwrap();
+    let stop = Arc::new(Stop::default());
+    let (server, path) = serve_with(&dir, Arc::clone(&stop));
+    server.bound(client_with(http));
+    let asking = std::thread::spawn(move || ask(&path, r#"{"carrier_ticket": {}}"#));
+    reached.recv_timeout(Duration::from_secs(10)).unwrap();
+    stop.set();
+    release.send(()).unwrap();
+    let reply = asking.join().unwrap();
+    assert_eq!(reply["error"]["code"], "vm.agent_stopping", "{reply}");
+    assert!(!reply.to_string().contains(TICKET));
+    // A later ask gets no ticket either.
+    let path = dir.path().join("carrier.sock");
+    assert_eq!(ask(&path, r#"{"carrier_ticket": {}}"#)["error"]["code"], "vm.agent_stopping");
+    drop(server);
+}
+
+#[test]
+fn a_client_dripping_its_line_is_cut_off_at_the_line_wait() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, path) = serve(&dir);
+    let fake = Fake::default();
+    server.bound(client(&fake));
+    wait_for_requests(&fake, 2);
+    let mut drip = UnixStream::connect(&path).unwrap();
+    let started = Instant::now();
+    let dripping = std::thread::spawn(move || {
+        for byte in br#"{"carrier_ticket": {}}"# {
+            if drip.write_all(&[*byte]).is_err() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(300));
+        }
+    });
+    std::thread::sleep(Duration::from_millis(100));
+    // The next asker is answered once the dripping one is cut off, well before it would have finished (6.6 s).
+    let reply = ask(&path, r#"{"carrier_ticket": {}}"#);
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert!(started.elapsed() < Duration::from_secs(4), "waited {:?}", started.elapsed());
+    dripping.join().unwrap();
+    drop(server);
 }

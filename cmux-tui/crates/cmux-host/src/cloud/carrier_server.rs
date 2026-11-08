@@ -21,9 +21,12 @@
 //! one reply line out ([`super::carrier_ticket::reply_for`]), then the
 //! connection closes. Dropping the [`CarrierServer`] (the worker ending)
 //! stops the thread and joins it; a request in flight is bounded by the API
-//! client's timeouts, as the minter's are.
+//! client's timeouts, as the minter's are. The role's stop ([`Stop`], shared
+//! with the minter) is the credential fence: once it is set, no ticket is
+//! handed out, also not one minted while it was set, even when the worker is
+//! stuck past the role's deadline and has not dropped this server yet.
 
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
@@ -35,7 +38,7 @@ use serde_json::Value;
 use super::carrier_ticket::{REQUEST_KEY, check_ask};
 use super::client::{CloudClient, Http};
 use super::github::refusal;
-use super::github_minter::connected;
+use super::github_minter::{Stop, connected};
 
 /// The socket the ticket command asks first (root and group cmux, 0660,
 /// beside the agent socket). An older cmux-host has none, and the command
@@ -46,7 +49,7 @@ pub const CARRIER_SOCKET: &str = "/run/cmux-vm-agent/carrier.sock";
 /// host's 10 s ticket command timeout, so the ask is answered either way.
 pub const UNBOUND_WAIT: Duration = Duration::from_secs(8);
 
-/// How long the asker has to send its line.
+/// How long the asker has to send its whole line.
 const LINE_WAIT: Duration = Duration::from_secs(2);
 /// A client that does not read its reply line within this is dropped.
 const REPLY_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
@@ -97,6 +100,7 @@ impl<H: Http + Send + 'static> CarrierServer<H> {
         listener: UnixListener,
         now: fn() -> u64,
         log: fn(&str),
+        stop: Arc<Stop>,
     ) -> io::Result<CarrierServer<H>> {
         listener.set_nonblocking(true)?;
         let (wake, woken) = UnixStream::pair()?;
@@ -109,7 +113,7 @@ impl<H: Http + Send + 'static> CarrierServer<H> {
         let theirs = Arc::clone(&shared);
         let thread = std::thread::Builder::new()
             .name("cmux-host-carrier".to_owned())
-            .spawn(move || run(&listener, &woken, &theirs, now, log))?;
+            .spawn(move || run(&listener, &woken, &theirs, &stop, now, log))?;
         Ok(CarrierServer { shared, wake, thread: Some(thread) })
     }
 
@@ -125,6 +129,7 @@ fn run<H: Http>(
     listener: &UnixListener,
     woken: &UnixStream,
     shared: &Shared<H>,
+    stop: &Stop,
     now: fn() -> u64,
     log: fn(&str),
 ) {
@@ -156,7 +161,7 @@ fn run<H: Http>(
             if take_next(shared, &mut client, now) {
                 return;
             }
-            answer(stream, &mut client, shared, now, log);
+            answer(stream, &mut client, shared, stop, now, log);
         }
     }
 }
@@ -219,18 +224,20 @@ fn answer<H: Http>(
     stream: UnixStream,
     client: &mut Option<CloudClient<H>>,
     shared: &Shared<H>,
+    stop: &Stop,
     now: fn() -> u64,
     log: fn(&str),
 ) {
     let started = Instant::now();
-    let reply = match read_ask(&stream) {
+    let stopping = || refusal("vm.agent_stopping", "the Cloud agent is stopping; retry");
+    let mut reply = match read_ask(&stream) {
         Err(why) => refusal("request.invalid", &why),
         Ok(()) => {
             if client.is_none() {
                 *client = wait_bound(shared, now);
             }
-            if shared.lock().stopping {
-                refusal("vm.agent_stopping", "the Cloud agent is stopping; retry")
+            if shared.lock().stopping || stop.is_set() {
+                stopping()
             } else if !connected(&stream) {
                 // Gone while it waited: no ticket for nobody.
                 return;
@@ -242,18 +249,43 @@ fn answer<H: Http>(
             }
         }
     };
-    log(&note(&reply, started.elapsed()));
+    // The check and the write hold the stop's lock, so a stop is either
+    // before both (no ticket goes out) or after the write.
+    let stopped = stop.lock();
+    if *stopped {
+        reply = stopping();
+    }
     let _ = write_reply(stream, &reply);
+    drop(stopped);
+    log(&note(&reply, started.elapsed()));
 }
 
-/// The ask's line: exactly a `carrier_ticket` ask.
+/// The ask's line: exactly a `carrier_ticket` ask, all of it within
+/// [`LINE_WAIT`] (a client sending a byte at a time does not hold the thread).
 fn read_ask(stream: &UnixStream) -> Result<(), String> {
+    let deadline = Instant::now() + LINE_WAIT;
     stream.set_nonblocking(false).map_err(|e| e.to_string())?;
-    stream.set_read_timeout(Some(LINE_WAIT)).map_err(|e| e.to_string())?;
-    let mut line = String::new();
-    BufReader::new(stream.take(MAX_LINE)).read_line(&mut line).map_err(|e| e.to_string())?;
+    let mut line = Vec::new();
+    let mut byte = [0_u8; 256];
+    let mut reader = stream;
+    while !line.contains(&b'\n') {
+        let left = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|d| !d.is_zero())
+            .ok_or("the ask's line did not come in time")?;
+        stream.set_read_timeout(Some(left)).map_err(|e| e.to_string())?;
+        match reader.read(&mut byte) {
+            Ok(0) => break,
+            Ok(n) => line.extend_from_slice(byte.get(..n).unwrap_or_default()),
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(_) => return Err("the ask's line did not come in time".to_owned()),
+        }
+        if line.len() as u64 > MAX_LINE {
+            return Err("the ask is too long".to_owned());
+        }
+    }
     let value: Value =
-        serde_json::from_str(&line).map_err(|_| "the ask is not one JSON line".to_owned())?;
+        serde_json::from_slice(&line).map_err(|_| "the ask is not one JSON line".to_owned())?;
     match value.get(REQUEST_KEY) {
         Some(ask) => check_ask(ask),
         None => Err("this socket answers only carrier_ticket".to_owned()),

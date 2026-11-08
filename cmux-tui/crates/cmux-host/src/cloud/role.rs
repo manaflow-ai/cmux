@@ -27,6 +27,7 @@ use cmux_server_core::role::{HostEvent, Role, RoleContext, RoleError, StopContex
 use serde_json::{Value, json};
 
 use super::agent_socket::listen;
+use super::carrier_server::CarrierServer;
 use super::client::{
     BindResult, CloudClient, Http, Store, bind_machine, ensure_install_key, ensure_wg_key,
 };
@@ -529,7 +530,7 @@ struct Worker {
     /// GitHub token asks, off the poll loop (`github_minter.rs`).
     github: Minter<PosterHttp>,
     /// The session host's relay Register tickets, on their own socket and thread (`carrier_server.rs`).
-    carrier: Option<super::carrier_server::CarrierServer<PosterHttp>>,
+    carrier: Option<CarrierServer<PosterHttp>>,
     /// The carrier grant keyset's own fetch (`carrier_keyset.rs`).
     keyset: super::carrier_keyset::Refresher<PosterHttp>,
     /// ACP chats kept in cmux Cloud and restored on a replacement (`trajectory_thread.rs`).
@@ -569,6 +570,11 @@ impl Worker {
             spawn_trajectories(&paths).map_err(|e| log(&format!("trajectory mirror: {e}"))).ok();
         forget_harness_login_state(&paths);
         let keyset = super::carrier_keyset::Refresher::spawn(paths.clone(), log)?;
+        // Before the bind: a ticket asked meanwhile waits for it there, not in the poll loop.
+        let carrier = listen(&paths, super::carrier_server::CARRIER_SOCKET)
+            .and_then(|l| CarrierServer::spawn(l, wall_ms, log, Arc::clone(&github_stop)))
+            .map_err(|e| log(&format!("carrier socket: {e}")))
+            .ok();
         Ok(Worker {
             bootstrap: None,
             bootstrap_retry_at: None,
@@ -593,7 +599,7 @@ impl Worker {
             },
             live: None,
             github: Minter::spawn(wall_ms, log, github_stop)?,
-            carrier: None,
+            carrier,
             keyset,
             trajectories,
             relay: None,
@@ -616,13 +622,6 @@ impl Worker {
     fn run(&mut self) -> io::Result<()> {
         self.listener =
             listen(&self.paths, AGENT_SOCKET).map_err(|e| log(&format!("agent socket: {e}"))).ok();
-        // Before the bind: a ticket asked meanwhile waits for it there, not in this loop.
-        self.carrier = listen(&self.paths, super::carrier_server::CARRIER_SOCKET)
-            .and_then(|listener| {
-                super::carrier_server::CarrierServer::spawn(listener, wall_ms, log)
-            })
-            .map_err(|e| log(&format!("carrier socket: {e}")))
-            .ok();
         if self.store.read(BIND_FILE).is_some() {
             self.bind_now();
         } else if let Some(saved) = self.store.read(BOUND_FILE) {
