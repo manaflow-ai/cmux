@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42528734742",
+  "recorded_at": "2026-11-08T22:17:02Z",
+  "reason": "cmux-tui 1f686b340a45 changes the image's cmux-tui (pinned bfefcd23124b)",
+  "dry_run": false,
+  "cmux_tui": "1f686b340a458c2c52fcc7f571e1483199b9c7f7",
+  "fixes": [
+    {
+      "sha": "1f686b340a458c2c52fcc7f571e1483199b9c7f7",
+      "mergedAt": "2026-11-08T21:52:42Z",
+      "subject": "chore(next): base autofix at 4218270f1279"
+    },
+    {
+      "sha": "4218270f1279d9ec6bd492641a50b5b78f0b092b",
+      "mergedAt": "2026-11-08T13:49:49-08:00",
+      "subject": "acpmux: surface stuck agent loops (#38619)"
+    },
+    {
+      "sha": "00ce7f4a5e04ce9d7369a9a357bd405879bcd4f8",
+      "mergedAt": "2026-11-08T13:47:56-08:00",
+      "subject": "acpmux: answer a send's info read from the mirrored row while the link's rows are current (#38305)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T22:17:02Z",
+    "snapshot_id": "sh-a51c44198ea1428cbaed1fd548d0fef7",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42528734742): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f72d5e0ec283a837d92f83fffca23b8230e3367d",
+    "image": "cloud-native-auto-1f686b34-42528734742-1",
+    "revision": "ci-42528734742-1",
+    "at": "2026-11-08T22:17:02Z"
+  },
+  "rolled_back": false
+}
