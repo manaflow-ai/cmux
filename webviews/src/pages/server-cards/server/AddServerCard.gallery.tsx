@@ -30,7 +30,6 @@ export default componentEntry<Props>({
       setName: noop,
       setTeam: noop,
       setRunChief: noop,
-      approve: noop,
       cancel: noop,
       done: noop,
     };
@@ -43,6 +42,7 @@ export default componentEntry<Props>({
             strings={strings}
             words={words}
             autoFocus={false}
+            controlStandIn
           />
         </div>
       );

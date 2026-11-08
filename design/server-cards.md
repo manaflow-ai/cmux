@@ -132,7 +132,8 @@ and call the cloud.
   review (facts, words, name, team choice when more than one, Run my Chief) → approving (spinner
   in the footer, review disabled) → added (one success block, Done) or approveFailed (banner, Try
   Again). Every step has a default and an Escape button: Escape is the card's Cancel (or Deny once a
-  server is on the card); Return presses Done, never Approve or Try Again, which take only a click. Typing a different code
+  server is on the card); Return presses Done, never Approve or Try Again, which are the card
+  panel's native footer button under the page (the page leaves their slot). Typing a different code
   drops the found server; a late answer for an older code is dropped (the model's own rule). The
   fields keep what the person typed; a new opening (`approver.session`) starts them from the
   model's draft.
@@ -141,9 +142,13 @@ and call the cloud.
 
 The switch, Show Pairing Code, Fix and Revoke (`cmux.server.send`) and Run my Chief answer only the
 person's own click or key in the page (`userGesture`, the host's record), else `cmux.app.user_only`.
-Approve and Try Again add a server to the person's team, so they answer only the person's own click
-on that button (`WebCardPanel.isPersonClick`, the family rule above); Return never approves. `send` takes only those four intents; a lookup or an approve never goes
-through it. Team must be one of the found server's teams. The QR comes from the app's one encoder
+Approve and Try Again add a server to the person's team, so they are not page controls (the family
+rule above): `ServerPageProvider` names the card's `PersonControl` from the model's step whenever its
+state changes (Approve while the found server shows, Adding… disabled while it adds, Try Again after
+a refusal, none otherwise), the card panel lays it out in its own footer, and only the person's own
+click on it reaches the provider (`WebCard.personPressed`), which approves once the model can. The
+page has no approve op; the Name field reaches the draft by `approver.setName`, and Return never
+approves. `send` takes only those four intents; a lookup or an approve never goes through it. Team must be one of the found server's teams. The QR comes from the app's one encoder
 (`PairingQRCode`, the same as mobile pairing and Pair Another Machine) as a PNG data URL; the key
 fingerprint never reaches the page, only the code, the words and the image.
 

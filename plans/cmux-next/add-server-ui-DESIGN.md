@@ -51,9 +51,10 @@ opened in Home's right pane):
 (`webviews/src/pages/server-cards/server`, design/server-cards.md) in the one floating card panel
 (`WebCardPanel`); the Swift views below (`AddServerCardPanel`, `ServerApproverView`,
 `ServerHostView`) are deleted. `ServerModel` still owns the steps and the draft; the page derives
-the buttons and keys (`server/model.ts`). Approve and Try Again now take only the person's own
-click on the button (`WebCardPanel.isPersonClick`), as Pair Another Machine's Confirm; Return no
-longer approves.
+the buttons and keys (`server/model.ts`). Approve and Try Again are now the card panel's native
+footer button (`PersonControl`, named by `ServerPageProvider`), as Pair Another Machine's Confirm:
+only the person's own click on it approves (`WebCard.personPressed`), the page has no approve op,
+and Return no longer approves.
 The rest of this section is the design as first built.
 
 **Card.** `AddServerCardPanel` (CmuxNextServer): a borderless, non-activating floating panel,

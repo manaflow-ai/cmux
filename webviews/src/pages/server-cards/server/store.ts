@@ -71,11 +71,6 @@ export class ServerStore {
     return this.run(ServerOps.setRunChief, { on });
   }
 
-  /** The app takes it only from the person's own click or key. */
-  approve(name: string): Promise<boolean> {
-    return this.run(ServerOps.approve, { name });
-  }
-
   cancel(): Promise<boolean> {
     return this.run(ServerOps.cancel, {});
   }

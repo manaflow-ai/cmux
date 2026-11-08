@@ -11,14 +11,14 @@ export const ServerOps = {
   send: "cmux.server.send",
   /** `{code}` → null: the Add Server code field (a complete code is looked up). */
   setCode: "cmux.server.approver.setCode",
-  /** `{name}` → null. */
+  /** `{name}` → null: the Name field, read when Approve goes. */
   setName: "cmux.server.approver.setName",
   /** `{team}` → null: one of the found server's teams. */
   setTeam: "cmux.server.approver.setTeam",
   /** `{on}` → null: run the person's Chief on the server. The person's own click or key. */
   setRunChief: "cmux.server.approver.setRunChief",
-  /** `{name}` → null: adds the found server. The person's own click or key only. */
-  approve: "cmux.server.approver.approve",
+  // No approve op: Approve and Try Again are the card panel's native control in its own footer under
+  // the page (WebCardPanel's PersonControl), and only the person's click on it adds the server.
   /** `{}` → null: Cancel or Deny: the draft and the last answer go. */
   cancel: "cmux.server.approver.cancel",
   /** Stream: one empty event whenever the status may have changed; the page asks again. */

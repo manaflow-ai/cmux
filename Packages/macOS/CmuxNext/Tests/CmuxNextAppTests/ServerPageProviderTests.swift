@@ -6,8 +6,9 @@ import Testing
 
 /// The server pages' provider (webviews/src/pages/server-cards/server): the model's state as page
 /// JSON (the offer's QR image, never its key fingerprint), the Add Server draft and step, and the
-/// changes only a person may make (the switch, Show Pairing Code, Fix, Revoke, Approve, the Chief
-/// option) refused without their own click or key in the page.
+/// changes only a person may make (the switch, Show Pairing Code, Fix, Revoke, the Chief option)
+/// refused without their own click or key in the page. Approve is no page op at all: it is the card
+/// panel's native control, and only its press (``ServerPageProvider/personPressed()``) adds a server.
 @MainActor
 struct ServerPageProviderTests {
     private let page = PageCallContext(page: "cmux.server-cards")
@@ -66,24 +67,32 @@ struct ServerPageProviderTests {
         let (source, provider) = provider()
         try await call(provider, ServerPageProvider.setCodeOp, ["code": "7kq4m2xd"])
         #expect(source.received.map(\.kind) == [.lookupCode(MockServerScenario.offerCode)])
-        // Not found yet: Approve sends nothing.
-        provider.approve(name: nil)
+        // Not found yet: no native control shows, and a press sends nothing.
+        #expect(provider.personControl == nil)
+        provider.personPressed()
         #expect(source.received.count == 1)
         source.deliverHeld()
         var status = try await provider.call(ServerPageProvider.statusOp, params: [:], context: page)
         #expect(status["approver"]?["step"] == "review")
         #expect(status["approver"]?["candidate"]?["teams"]?.arrayValue?.count == 2)
         #expect(status["approver"]?["draft"]?["code"] == "7KQ4-M2XD")
-        // A page call, even with the person's key, never approves: only their click on the card's
-        // Approve does (WebCardPanel.isPersonClick; no card panel here, so nothing passes).
-        await #expect(throws: PageError.self) { try await call(provider, ServerPageProvider.approveOp, ["name": "box"]) }
-        await #expect(throws: PageError.self) { try await call(provider, ServerPageProvider.approveOp, ["name": "box"], as: person) }
+        // SECURITY: no page call, even with the person's key, approves: Approve is the card panel's
+        // native control (PersonControl), and the page has no op for it.
+        #expect(provider.personControl == PersonControl(title: ServerStrings.approve, isEnabled: true))
+        await #expect(throws: PageError.self) { try await call(provider, "cmux.server.approver.approve", ["name": "box"]) }
+        await #expect(throws: PageError.self) { try await call(provider, "cmux.server.approver.approve", ["name": "box"], as: person) }
         #expect(source.received.count == 1)
         try await call(provider, ServerPageProvider.setTeamOp, ["team": "team_manaflow"])
-        provider.approve(name: " box ")
+        // The Name field reaches the draft by setName; the native press reads it, trimmed.
+        try await call(provider, ServerPageProvider.setNameOp, ["name": " box "])
+        provider.personPressed()
         #expect(source.received.last?.kind == .approveCode(code: MockServerScenario.offerCode, team: "team_manaflow", name: "box", placeChief: false))
         status = try await provider.call(ServerPageProvider.statusOp, params: [:], context: page)
         #expect(status["approver"]?["step"] == "approving")
+        // While it adds, the control shows disabled and a second press sends nothing.
+        #expect(provider.personControl == PersonControl(title: ServerStrings.adding, isEnabled: false))
+        provider.personPressed()
+        #expect(source.received.count == 2)
     }
 
     @Test func aTeamTheServerDoesNotOfferIsRefused() async throws {

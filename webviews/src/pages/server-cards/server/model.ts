@@ -182,7 +182,8 @@ export function addServerButtons(approver: Pick<ServerApprover, "step" | "canApp
 }
 
 /** Whether only the person's own click on the button answers it: Approve and Try Again add a
- * server to the person's team (the card panel checks the click, WebCardPanel.isPersonClick). */
+ * server to the person's team, so they are the card panel's native footer (WebCardPanel's
+ * PersonControl), never the page's. */
 export function isClickOnly(action: AddServerAction): boolean {
   return action === "approve" || action === "retry";
 }

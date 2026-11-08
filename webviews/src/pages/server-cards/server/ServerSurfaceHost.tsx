@@ -56,7 +56,6 @@ export function ServerSurfaceHost({
     setName: (name) => void store.setName(name),
     setTeam: (team) => void store.setTeam(team),
     setRunChief: (on) => void store.setRunChief(on),
-    approve: (name) => void store.approve(name),
     cancel: () => {
       void store.cancel();
       close();

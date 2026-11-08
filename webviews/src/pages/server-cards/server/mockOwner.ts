@@ -2,7 +2,8 @@
 // An in-memory server for the browser dev loop (`/server-cards/?mock#/server-panel`) and the page
 // tests: one canned scenario, each intent applied and echoed on the next turn as the app's owner
 // would (the switch, a new pairing code, Fix resolves its alert, Revoke drops the device), and the
-// Add Server flow (offerCode finds build-01; Approve adds it a moment later).
+// Add Server flow (offerCode finds build-01; the native Approve, `personPressed`, adds it a moment
+// later; the dev loop stops at the review, as Approve is the app panel's own button).
 import { candidate, offer, offerCode, status, type ServerScenario } from "./fixtures";
 import { PairingCode } from "./model";
 import { ServerOps, type ServerApprover, type ServerIntent, type ServerStatus } from "./types";
@@ -52,11 +53,6 @@ export class MockServerOwner {
         return null;
       case ServerOps.setRunChief:
         this.approver({ draft: { ...this.state.approver.draft, runChief: p.on === true } });
-        return null;
-      case ServerOps.approve:
-        this.approve(
-          typeof p.name === "string" && p.name.trim() !== "" ? p.name.trim() : this.state.approver.draft.name,
-        );
         return null;
       case ServerOps.cancel:
         this.approver({
@@ -128,7 +124,10 @@ export class MockServerOwner {
     });
   }
 
-  private approve(name: string) {
+  /** The person clicked the panel's native Approve or Try Again (ServerPageProvider.personPressed):
+   * no page op approves, so the tests press it here. */
+  personPressed() {
+    const name = this.state.approver.draft.name.trim() || this.state.approver.candidate?.name || "";
     const step = this.state.approver.step;
     if ((step !== "review" && step !== "approveFailed") || !this.state.approver.canApprove) return;
     this.approver({ step: "approving", canApprove: false, draft: { ...this.state.approver.draft, name } });
@@ -142,6 +141,12 @@ export class MockServerOwner {
         }),
       this.approveDelay,
     );
+  }
+
+  /** The server refused the approve of the found server (Try Again shows). */
+  refuse(reject: string) {
+    if (!this.state.approver.candidate) return;
+    this.approver({ step: "approveFailed", reject, canApprove: true });
   }
 
   /** The card opened again (a new session). */

@@ -11,4 +11,10 @@ nonisolated enum ServerStrings {
     static var stopFailed: String { t("refusal.stopFailed", "Could not stop the server. Run `cmux server down` in a terminal to see why.") }
     static var pairStartFailed: String { t("refusal.pairStartFailed", "Could not start pairing. Run `cmux server pair` in a terminal to see why.") }
     static var unreachable: String { t("status.unreachable", "Server is not running") }
+
+    /// The card panel's native Add Server control (ServerPageProvider.personControl); the page's
+    /// keys of the same table (approver.*).
+    static var approve: String { t("approver.approve", "Approve") }
+    static var adding: String { t("approver.adding", "Adding…") }
+    static var tryAgain: String { t("approver.retry", "Try Again") }
 }

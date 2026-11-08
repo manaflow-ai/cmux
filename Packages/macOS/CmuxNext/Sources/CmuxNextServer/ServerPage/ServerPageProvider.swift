@@ -14,11 +14,12 @@ import Foundation
 ///   Revoke go only with the person's own click or key in the page (the host's record, never the
 ///   page's word);
 /// - `approver.setCode|setName|setTeam {...}` → null: the Add Server draft (a complete code is
-///   looked up, which changes nothing);
+///   looked up, which changes nothing; the Name field is read when Approve goes);
 /// - `approver.setRunChief {on}` → null: the person's own click or key;
-/// - `approver.approve {name?}` → null: SECURITY: adds the found server to the person's team, only
-///   from the person's own click on the card's Approve (``WebCardPanel/isPersonClick(_:)``), once
-///   the model can approve;
+/// - SECURITY: Approve and Try Again are not page ops. They are the card panel's native control
+///   (``PersonControl``, named here from the model's step) over the slot the page leaves for it,
+///   and only the person's own click on it adds the found server to their team
+///   (``personPressed()``): no key, script, MCP call or page reaches it;
 /// - `approver.cancel` → null: Cancel or Deny: the draft and the last answer go;
 /// - stream `changes` → one empty event whenever `status` may have changed.
 @MainActor
@@ -30,7 +31,6 @@ public final class ServerPageProvider: WebCard {
     static let setNameOp = "cmux.server.approver.setName"
     static let setTeamOp = "cmux.server.approver.setTeam"
     static let setRunChiefOp = "cmux.server.approver.setRunChief"
-    static let approveOp = "cmux.server.approver.approve"
     static let cancelOp = "cmux.server.approver.cancel"
     static let changesStream = "cmux.server.changes"
 
@@ -97,14 +97,6 @@ public final class ServerPageProvider: WebCard {
             try requireGesture(context)
             guard let on = params["on"]?.boolValue else { throw PageError.invalidParams("on is required") }
             model.approval.runChief = on
-        case Self.approveOp:
-            // SECURITY: adds a server to the person's team: only their own click on the card's
-            // Approve (WebCardPanel.isPersonClick), as Pair Another Machine's Confirm; no key,
-            // script, MCP call or page reaches it.
-            guard host?.isPersonClick(context) == true else {
-                throw PageError(code: PageNativeOp.userOnlyCode, message: personOnlyMessage)
-            }
-            approve(name: params["name"]?.stringValue)
         case Self.cancelOp:
             model.dismissApproval()
         default:
@@ -145,10 +137,12 @@ public final class ServerPageProvider: WebCard {
         }
     }
 
-    /// The state changed: the pages read `status` again, and on the card panel a click begun before
-    /// the card redrew does not count as aimed at its Approve (``WebCardPanel/rearm(at:)``).
+    /// The state changed: the pages read `status` again, the card panel shows the control for the
+    /// new step, and a click begun before the card redrew does not count as aimed at its Approve
+    /// (``WebCardPanel/rearm(at:)``).
     private func changed() {
         host?.rearm()
+        host?.setPersonControl(personControl, card: card)
         for listener in listeners.values { listener(.object([:])) }
     }
 
@@ -158,9 +152,29 @@ public final class ServerPageProvider: WebCard {
             + "|\(model.lastReject ?? "")|\(model.lastApproved ?? "")|\(String(describing: model.candidate))|\(model.approval)"
     }
 
+    /// SECURITY: the person clicked the native Approve or Try Again (the panel checked the click).
+    public func personPressed() {
+        approve(name: model.approval.name)
+    }
+
+    /// The native click-only control for the model's step: Approve while the found server shows,
+    /// Try Again after a refusal, none otherwise.
+    var personControl: PersonControl? {
+        switch model.addServerStep {
+        case .review: PersonControl(title: ServerStrings.approve, isEnabled: model.canApprove)
+        case .approving: PersonControl(title: ServerStrings.adding, isEnabled: false)
+        case .approveFailed: PersonControl(title: ServerStrings.tryAgain, isEnabled: model.canApprove)
+        default: nil
+        }
+    }
+
     /// SECURITY: adds the found server once the model can; `name` is the card's Name field (empty
     /// keeps the draft's).
     func approve(name: String?) {
+        switch model.addServerStep {
+        case .review, .approveFailed: guard model.canApprove else { return }
+        default: return
+        }
         if let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty { model.approval.name = trimmed }
         model.approve()
     }

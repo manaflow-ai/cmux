@@ -4,10 +4,10 @@
 // dots carry state. Alert titles and bodies come from the server (they carry live numbers); check
 // names are ours.
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Spinner } from "../../../agent-session/acpmux/conversation/icons";
 import { DialogButton } from "../../../ui/DialogButton";
 import { Switch } from "../../../ui/Switch";
 import { cx } from "../../../ui/cx";
-import { PERSON_CLICK_ATTRIBUTE } from "../host";
 import type { Strings } from "../../shared/i18n";
 import { formatBytes, formatRelative, formatTime, regionName } from "./format";
 import { ServerIcon, type ServerIconName } from "./icons";
@@ -850,7 +850,6 @@ export interface AddServerActions {
   setName(name: string): void;
   setTeam(team: string): void;
   setRunChief(on: boolean): void;
-  approve(name: string): void;
   /** Cancel or Deny: the draft goes and the card closes. */
   cancel(): void;
   /** Done: the card closes. */
@@ -867,12 +866,15 @@ export function AddServerCard({
   strings,
   words = PICKS.words,
   autoFocus = true,
+  controlStandIn = false,
 }: {
   status: ServerStatus;
   actions: AddServerActions;
   strings: Strings;
   words?: WordsLayout;
   autoFocus?: boolean;
+  /** Draws Approve and Try Again in the card's footer (the gallery); in the app the panel's native footer does. */
+  controlStandIn?: boolean;
 }) {
   const approver = status.approver;
   const { step, candidate } = approver;
@@ -896,7 +898,7 @@ export function AddServerCard({
     switch (action) {
       case "approve":
       case "retry":
-        return actions.approve(shownName);
+        return; // The panel's native button (WebCardPanel's PersonControl), never the page.
       case "done":
         return actions.done();
       case "cancel":
@@ -1018,22 +1020,24 @@ export function AddServerCard({
         </>
       )}
       <footer className="server-card-footer">
-        {busy && <span className="server-card-spinner" aria-hidden="true" />}
+        {busy && <Spinner size={12} loading className="server-card-spinner" />}
         <span className="server-card-footer-gap" />
-        {buttons.map((button) => (
-          <DialogButton
-            key={button.isDefault ? "return" : "escape"}
-            // Approve and Try Again take only a click (no key): the panel checks it inside this frame.
-            dialogKey={isClickOnly(button.action) ? null : button.isDefault ? "return" : "escape"}
-            {...(isClickOnly(button.action) ? { [PERSON_CLICK_ATTRIBUTE]: "" } : {})}
-            className={cx("server-card-button", button.isDefault && "is-default")}
-            data-action={button.action}
-            disabled={!button.enabled}
-            onClick={() => run(button.action)}
-          >
-            {strings.t(button.isDefault ? returnTitleKey(step) : escapeTitleKey(step))}
-          </DialogButton>
-        ))}
+        {buttons
+          // Approve and Try Again are the panel's native footer, never the page's (the gallery
+          // draws them in their place).
+          .filter((button) => controlStandIn || !isClickOnly(button.action))
+          .map((button) => (
+            <DialogButton
+              key={button.isDefault ? "return" : "escape"}
+              dialogKey={isClickOnly(button.action) ? null : button.isDefault ? "return" : "escape"}
+              className={cx("server-card-button", button.isDefault && "is-default")}
+              data-action={button.action}
+              disabled={!button.enabled}
+              onClick={isClickOnly(button.action) ? undefined : () => run(button.action)}
+            >
+              {strings.t(button.isDefault ? returnTitleKey(step) : escapeTitleKey(step))}
+            </DialogButton>
+          ))}
       </footer>
     </div>
   );
@@ -1044,7 +1048,7 @@ function CodeStatus({ step, reject, strings }: { step: string; reject?: string; 
     case "lookingUp":
       return (
         <span className="sv-split sv-secondary">
-          <span className="server-card-spinner" aria-hidden="true" />
+          <Spinner size={12} loading className="server-card-spinner" />
           {strings.t("approver.lookingUp")}
         </span>
       );

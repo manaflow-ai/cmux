@@ -1,8 +1,8 @@
 // l10n-allow-file: test fixtures.
 // The server surfaces on the server card page over the stand-in owner: the menu bar panel draws the
 // app's status, its switch and Health row ask the app (Health opens in the same popover), and the
-// Add Server card looks a code up, approves only on a click (never Return) once the server is found,
-// closes on Done (Return), and cancels the draft and closes on Escape. `#/approver` is the card's other name.
+// Add Server card looks a code up, leaves Approve to the card panel's native button (no page button,
+// key or op approves), closes on Done (Return), and cancels the draft and closes on Escape. `#/approver` is the card's other name.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -134,12 +134,11 @@ test("the panel draws the status, sends the switch, and opens Health in the same
   expect(ops(fake.calls, "cmux.server.send").at(-1)).toEqual({ kind: "fixCheck", check: "sleep.enabled" });
 });
 
-test("Add Server looks the code up, approves only on a click once found, and Done closes", async () => {
+test("Add Server looks the code up, leaves Approve to the panel's native button, and Done closes", async () => {
   const fake = fakeHost();
   await mount("add-server", fake);
   expect(host.querySelector("[data-surface='add-server']")?.getAttribute("data-step")).toBe("enterCode");
   await key("Enter");
-  expect(ops(fake.calls, "cmux.server.approver.approve")).toEqual([]);
   await type("7kq4m2xd");
   expect(ops(fake.calls, "cmux.server.approver.setCode").at(-1)).toEqual({ code: "7KQ4-M2XD" });
   expect(host.querySelector("[data-surface='add-server']")?.getAttribute("data-step")).toBe("review");
@@ -150,11 +149,21 @@ test("Add Server looks the code up, approves only on a click once found, and Don
     "4violet",
   ]);
   expect(host.querySelector("[data-action='cancel']")?.textContent).toContain("Deny");
-  expect(host.querySelector("[data-action='approve']")?.hasAttribute("data-person-click")).toBe(true);
+  // SECURITY: Approve is the panel's native footer, not the page's: the page has no Approve, and
+  // neither Return nor anything in it approves.
+  expect(host.querySelector("[data-action='approve']")).toBeNull();
   await key("Enter");
-  expect(ops(fake.calls, "cmux.server.approver.approve")).toEqual([]);
-  await press("[data-action='approve']");
-  expect(ops(fake.calls, "cmux.server.approver.approve")).toEqual([{ name: "build-01" }]);
+  expect(host.querySelector("[data-surface='add-server']")?.getAttribute("data-step")).toBe("review");
+  expect(fake.calls.filter((call) => /approve\b|confirm/i.test(call.op))).toEqual([]);
+  // A refusal leaves Try Again to the panel too.
+  act(() => fake.owner.refuse("cmux could not add the server. Try again."));
+  await flush();
+  expect(host.querySelector("[data-surface='add-server']")?.getAttribute("data-step")).toBe("approveFailed");
+  expect(host.querySelector("[data-action='retry']")).toBeNull();
+  expect(host.querySelector("[data-action='cancel']")).not.toBeNull();
+  // The person's click on the native button (ServerPageProvider.personPressed) adds the server.
+  act(() => fake.owner.personPressed());
+  await flush();
   expect(host.querySelector("[data-surface='add-server']")?.getAttribute("data-step")).toBe("added");
   await key("Enter");
   expect(ops(fake.calls, "cmux.card.close")).toEqual([{ card: "add-server" }]);
