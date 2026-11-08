@@ -221,6 +221,14 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.setQuickActions")
             }
             return AgentPaneReply.success()
+        case .paneAction(Self.diffAction, let cwd?, false) where newTab?.review == true:
+            // The Review queue's Return: the row's folder in the diff viewer, beside the queue (the
+            // header's Changes path), never a split of a chat or any other header action.
+            guard let header, let folder = folderForOtherTabs(cwd) else {
+                return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action")
+            }
+            header.run(Self.diffAction, folder)
+            return AgentPaneReply.success(["ran": true])
         case .paneAction(let id, let cwd, let toggle):
             guard newTab == nil, Self.headerActions.contains(id), let header else {
                 return header?.respond(toOther: id, session: newTab == nil ? sessionId : nil) ?? AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.action")
@@ -335,6 +343,8 @@ extension AgentPaneModel {
             return AgentPaneAskOpen.respond(session, at: place, in: self)
         case .asksAnswer(let ask):
             return await ask.respond(in: self)
+        case .review(let review):
+            return await review.respond(in: self)
         case .newChatHere(let cwd):
             guard sessionId != nil, newTab == nil, let header, header.newChat(cwd) else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.newHere")

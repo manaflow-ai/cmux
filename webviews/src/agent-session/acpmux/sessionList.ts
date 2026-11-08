@@ -46,6 +46,9 @@ export type AcpmuxSessionEntry = {
   /** A side chat: a fork tagged `side` with its chat's session, shown beside that chat and off every list. */
   side?: boolean;
   pullRequest?: SessionPullRequest;
+  /** The Review queue's verdict on the chat's folder (acpmux tag `review.done`, review/reviewModel.ts):
+   *  `accepted:<signature>` or `changes:<signature>`. */
+  reviewDone?: string;
   /** The pull request URLs the session's `gh pr create` calls printed (acpmux `pullRequests`),
    *  oldest first; absent from an acpmux that does not record them. */
   pullRequestUrls?: string[];
@@ -177,6 +180,9 @@ function tagged(tags: unknown, tag: string): boolean {
   return typeof tags === "object" && tags !== null && tag in tags;
 }
 
+/** The Review queue's verdict tag (review/reviewModel.ts), set by the host's `review.accept` and `review.send`. */
+export const REVIEW_DONE_TAG = "review.done";
+
 /** A lane's tag naming the session it reports to (acpmux hub/lane_reports.rs `TAG`). */
 const REPORTS_TO_TAG = "lane.reportsTo";
 
@@ -288,6 +294,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     // A side question's throwaway copy (`aside`, acpmux hub/aside.rs) is never listed either.
     side: session.side === true || tagged(session.tags, SIDE_TAG) || tagged(session.tags, ASIDE_TAG),
     pullRequest: pullRequest(session.pullRequest),
+    reviewDone: tagValue(session.tags, REVIEW_DONE_TAG),
     pullRequestUrls: pullRequestUrls(session.pullRequests),
     preview: text(session.preview),
     lastMessage: text(session.lastMessage?.text) ?? text(session.preview),

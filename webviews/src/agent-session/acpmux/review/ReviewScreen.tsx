@@ -1,0 +1,354 @@
+// The Review queue (Show Review Queue, `agentReview.show`): every agent's changes waiting on the
+// person, one row per folder, newest needing you first (reviewModel.ts). Keyboard first: j/k or the
+// arrows move, Return opens the folder in the diff viewer (the existing diff tab, beside this page),
+// `a` accepts and moves on, `r` opens a comment under the row whose Return sends it to the folder's
+// chat as a prompt. A row leaves the queue in the frame the person decides; the host's answer
+// confirms it, and a refusal brings it back with the reason under it.
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Counts } from "../changes/Counts";
+import { age } from "../homeListsModel";
+import { useT } from "../i18n";
+import { Keycap } from "../Keycap";
+import { useNoEntryMotion } from "../newtab/noEntryMotion";
+import type { AcpmuxSessionEntry } from "../sessionList";
+import { changesPrompt, verdictTag, type ReviewRow, type ReviewVerdict } from "./reviewModel";
+import { useReviewQueue, type ReadDiff } from "./useReviewQueue";
+
+/// How much of a row shows (gallery `pages.review`): one line, the change and its turn, or that with
+/// its first files. Detail is the shipped look.
+export type ReviewLook = "compact" | "detail" | "files";
+
+export type ReviewActions = {
+  readDiff: ReadDiff;
+  /// The folder in the diff viewer, beside this page (`pane.action openDiffViewer {cwd}`).
+  openDiff(cwd: string): Promise<unknown>;
+  /// Tags `sessionId` `review.done` = `tag` (the host's `review.accept`).
+  accept(sessionId: string, tag: string): Promise<unknown>;
+  /// Sends `text` to `sessionId` as a prompt, then tags it (the host's `review.send`).
+  send(sessionId: string, text: string, tag: string, promptId: string): Promise<unknown>;
+};
+
+type Props = ReviewActions & {
+  sessions: readonly AcpmuxSessionEntry[];
+  look?: ReviewLook;
+  now?: number;
+  /// Gallery only: the row the comment opens under at first.
+  initialComment?: string;
+};
+
+const SHOWN_FILES = 3;
+/// The cursor this close to the last row reads further down the queue.
+const NEAR_END = 3;
+
+const plain = (event: React.KeyboardEvent) => !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
+
+const newPromptId = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `review-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+export function ReviewScreen({ sessions, readDiff, openDiff, accept, send, look = "detail", now, initialComment }: Props) {
+  const t = useT();
+  // A New Tab page too: what it shows appears at once (noEntryMotion.ts).
+  useNoEntryMotion();
+  /// Verdicts given here that acpmux's tags may not carry yet: `<folder>:<signature>`.
+  const [local, setLocal] = useState<ReadonlySet<string>>(() => new Set());
+  const { rows, pending, extend } = useReviewQueue(sessions, readDiff, local, now);
+  const [selected, setSelected] = useState<string | undefined>();
+  const lastIndex = useRef(0);
+  const [comment, setComment] = useState<{ key: string; text: string } | undefined>(
+    initialComment ? { key: initialComment, text: "" } : undefined,
+  );
+  const [failures, setFailures] = useState<ReadonlyMap<string, string>>(() => new Map());
+  const list = useRef<HTMLDivElement>(null);
+
+  // The cursor follows its row by folder; a row that left gives its place to the next one.
+  const found = rows.findIndex((row) => row.key === selected);
+  const index = rows.length === 0 ? -1 : found >= 0 ? found : Math.min(lastIndex.current, rows.length - 1);
+  const current = index >= 0 ? rows[index] : undefined;
+  useLayoutEffect(() => {
+    if (index >= 0) lastIndex.current = index;
+    if (current && current.key !== selected) setSelected(current.key);
+  });
+  useEffect(() => {
+    if (index >= rows.length - NEAR_END) extend();
+  }, [index, rows.length, extend]);
+  useEffect(() => {
+    list.current?.focus({ preventScroll: true });
+  }, []);
+  useEffect(() => {
+    if (current) document.getElementById(rowId(current.key))?.scrollIntoView({ block: "nearest" });
+  }, [current]);
+
+  const decide = useCallback(
+    (row: ReviewRow, verdict: ReviewVerdict, run: (tag: string) => Promise<unknown>, failed: string) => {
+      const mark = `${row.key}:${row.stat.signature}`;
+      setLocal((previous) => new Set(previous).add(mark));
+      setFailures((previous) => without(previous, row.key));
+      run(verdictTag(verdict, row.stat)).catch(() => {
+        setLocal((previous) => {
+          const next = new Set(previous);
+          next.delete(mark);
+          return next;
+        });
+        setFailures((previous) => new Map(previous).set(row.key, failed));
+      });
+    },
+    [],
+  );
+
+  const acceptRow = (row: ReviewRow) =>
+    decide(row, "accepted", (tag) => accept(row.owner.sessionId, tag), t("review.failed.accept"));
+
+  const sendComment = (row: ReviewRow, text: string) => {
+    if (!text.trim()) return;
+    const promptId = newPromptId();
+    setComment(undefined);
+    decide(
+      row,
+      "changes",
+      (tag) => send(row.owner.sessionId, changesPrompt(row, text), tag, promptId),
+      t("review.failed.send"),
+    );
+    list.current?.focus({ preventScroll: true });
+  };
+
+  const move = (step: number) => {
+    const next = rows[Math.max(0, Math.min(rows.length - 1, index + step))];
+    if (next) setSelected(next.key);
+  };
+
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    if (event.target !== event.currentTarget || !plain(event) || event.nativeEvent.isComposing) return;
+    const handled = (() => {
+      switch (event.key) {
+        case "j":
+        case "ArrowDown":
+          move(1);
+          return true;
+        case "k":
+        case "ArrowUp":
+          move(-1);
+          return true;
+        case "Enter":
+          if (current) void openDiff(current.key).catch(() => undefined);
+          return Boolean(current);
+        case "a":
+          if (current) acceptRow(current);
+          return Boolean(current);
+        case "r":
+          if (current) setComment({ key: current.key, text: "" });
+          return Boolean(current);
+        default:
+          return false;
+      }
+    })();
+    if (handled) event.preventDefault();
+  };
+
+  return (
+    <div className="rv" data-look={look}>
+      <h1 className="rv-title">{t("review.title")}</h1>
+      {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a listbox of rows with their own controls */}
+      <div
+        ref={list}
+        className="rv-list"
+        role="listbox"
+        aria-label={t("review.list")}
+        aria-activedescendant={current ? rowId(current.key) : undefined}
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+      >
+        {rows.map((row) => (
+          <Row
+            key={row.key}
+            row={row}
+            look={look}
+            now={now}
+            selected={row === current}
+            failure={failures.get(row.key)}
+            onSelect={() => setSelected(row.key)}
+            onOpen={() => void openDiff(row.key).catch(() => undefined)}
+            comment={comment?.key === row.key ? comment.text : undefined}
+            onComment={(text) => setComment({ key: row.key, text })}
+            onSend={(text) => sendComment(row, text)}
+            onCancel={() => {
+              setComment(undefined);
+              list.current?.focus({ preventScroll: true });
+            }}
+          />
+        ))}
+        {/* One status line, always the same height, so the list never moves when reads finish. */}
+        <div className="rv-status" aria-live="polite">
+          {pending ? t("review.reading") : rows.length === 0 ? t("review.empty") : ""}
+        </div>
+      </div>
+      <div className="rv-keys">
+        <span>
+          <Keycap>j</Keycap>
+          <Keycap>k</Keycap>
+          {t("review.key.move")}
+        </span>
+        <span>
+          <Keycap>↩</Keycap>
+          {t("review.key.open")}
+        </span>
+        <span>
+          <Keycap>a</Keycap>
+          {t("review.key.accept")}
+        </span>
+        <span>
+          <Keycap>r</Keycap>
+          {t("review.key.changes")}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+const rowId = (key: string) => `rv-row-${key.replace(/[^A-Za-z0-9_-]/g, "_")}`;
+
+function without<V>(map: ReadonlyMap<string, V>, key: string): ReadonlyMap<string, V> {
+  if (!map.has(key)) return map;
+  const next = new Map(map);
+  next.delete(key);
+  return next;
+}
+
+function Row({
+  row,
+  look,
+  now,
+  selected,
+  failure,
+  onSelect,
+  onOpen,
+  comment,
+  onComment,
+  onSend,
+  onCancel,
+}: {
+  row: ReviewRow;
+  look: ReviewLook;
+  now?: number;
+  selected: boolean;
+  failure?: string;
+  onSelect(): void;
+  onOpen(): void;
+  comment?: string;
+  onComment(text: string): void;
+  onSend(text: string): void;
+  onCancel(): void;
+}) {
+  const t = useT();
+  const { owner, stat } = row;
+  const title = owner.displayTitle ?? owner.title ?? owner.name ?? row.key.split("/").pop() ?? row.key;
+  const checks = owner.pullRequest?.checks;
+  const when = age(row.at, now, t);
+  return (
+    // oxlint-disable-next-line jsx-a11y/click-events-have-key-events -- the listbox owns the keys (j/k, Return)
+    <div
+      id={rowId(row.key)}
+      className="rv-row"
+      role="option"
+      aria-selected={selected}
+      data-selected={selected || undefined}
+      onClick={onSelect}
+      onDoubleClick={onOpen}
+    >
+      <div className="rv-line">
+        <span className="rv-name">{title}</span>
+        {owner.branch && <span className="rv-branch">{owner.branch}</span>}
+        {row.working && <span className="rv-tag">{t("review.working")}</span>}
+        {row.others > 0 && <span className="rv-meta">{t("review.others", { n: row.others })}</span>}
+        <span className="rv-fill" />
+        <span className="rv-meta">{t("review.files", { n: stat.totalFiles })}</span>
+        <Counts additions={stat.additions} deletions={stat.deletions} />
+        {when && <span className="rv-meta rv-age">{when}</span>}
+      </div>
+      {look !== "compact" && (
+        <div className="rv-line rv-sub">
+          <span className="rv-turn">{owner.lastMessage ?? row.key}</span>
+          {checks && (
+            <span className="rv-checks" data-checks={checks}>
+              {t(`review.checks.${checks}`)}
+            </span>
+          )}
+        </div>
+      )}
+      {look === "files" && (
+        <ul className="rv-files">
+          {stat.files.slice(0, SHOWN_FILES).map((file) => (
+            <li key={file.path}>
+              <span className="rv-path">{file.path}</span>
+              <Counts additions={file.additions} deletions={file.deletions} />
+            </li>
+          ))}
+          {stat.totalFiles > SHOWN_FILES && (
+            <li className="rv-meta">{t("review.moreFiles", { n: stat.totalFiles - SHOWN_FILES })}</li>
+          )}
+        </ul>
+      )}
+      {failure && <div className="rv-failure">{failure}</div>}
+      {comment !== undefined && (
+        <CommentBox text={comment} onChange={onComment} onSend={onSend} onCancel={onCancel} />
+      )}
+    </div>
+  );
+}
+
+function CommentBox({
+  text,
+  onChange,
+  onSend,
+  onCancel,
+}: {
+  text: string;
+  onChange(text: string): void;
+  onSend(text: string): void;
+  onCancel(): void;
+}) {
+  const t = useT();
+  const field = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    field.current?.focus();
+  }, []);
+  return (
+    <div className="rv-comment">
+      <textarea
+        ref={field}
+        className="rv-comment-field"
+        rows={2}
+        value={text}
+        placeholder={t("review.comment.placeholder")}
+        aria-label={t("review.key.changes")}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (event.nativeEvent.isComposing) return;
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          } else if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            onSend(text);
+          }
+        }}
+      />
+      <div className="rv-comment-actions">
+        <button type="button" className="rv-button" onClick={onCancel}>
+          {t("review.comment.cancel")}
+        </button>
+        <button
+          type="button"
+          className="rv-button"
+          data-primary
+          disabled={!text.trim()}
+          onClick={() => onSend(text)}
+        >
+          {t("review.comment.send")}
+        </button>
+      </div>
+    </div>
+  );
+}

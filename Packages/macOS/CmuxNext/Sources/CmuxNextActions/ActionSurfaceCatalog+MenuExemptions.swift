@@ -63,7 +63,7 @@ nonisolated extension ActionSurfaceCatalog {
             "browser.hibernation.off", "browser.hibernation.moderate", "browser.hibernation.aggressive",
             "browser.keepNeighborTabsAwake.0", "browser.keepNeighborTabsAwake.1", "browser.keepNeighborTabsAwake.2",
             "browser.keepNeighborTabsAwake.3",
-            "layout.toggleStripScrollbar", "recentlyFocused", "recentlyClosed", "history.commands", "history.show", "agentHistory.show",
+            "layout.toggleStripScrollbar", "recentlyFocused", "recentlyClosed", "history.commands", "history.show", "agentHistory.show", "agentReview.show",
             "music.open", "music.stop",
             "browserShowHistory", "history.search", "history.resumeAgentSession", "history.reopen", "history.open", "history.clear",
             "layout.undo", "agentActivity.open",

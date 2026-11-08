@@ -119,6 +119,19 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "agentReview.show",
+        group: GROUP,
+        title: t("HistoryActions", "action.history.showReviewQueue", "Show Review Queue"),
+        keywords: &["review", "changes", "diff", "agents", "worktrees", "accept", "queue"],
+        category: "window",
+        symbol: "checklist",
+        surfaces: PALETTE | MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action agent-review-show",
+        main_menu: Some("window"),
+        ..Action::DEFAULT
+    },
+    Action {
         id: "browserShowHistory",
         group: GROUP,
         title: t("HistoryActions", "action.history.showFromPage", "Show Browser History"),

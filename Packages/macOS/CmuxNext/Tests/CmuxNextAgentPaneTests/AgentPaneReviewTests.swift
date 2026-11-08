@@ -1,0 +1,112 @@
+import Foundation
+import Testing
+@testable import CmuxNextAgentPane
+
+/// The Review queue's verdicts (`review.accept`, `review.send`, ``AgentPaneReview``): only from the
+/// Review page, on the person's own key or click, to a chat on this Mac's acpmux, writing only the
+/// `review.done` tag; a send tags only once acpmux took the prompt.
+@MainActor
+struct AgentPaneReviewTests {
+    private static let socket = "/tmp/acpmux-main.sock"
+    private static let environment = AcpmuxEnvironment(executable: URL(fileURLWithPath: "/usr/bin/true"),
+                                                       home: URL(fileURLWithPath: "/tmp/acpmux-home"), socketPath: socket,
+                                                       daemonArguments: [], childEnvironment: [:])
+
+    private actor Host: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+        func answerEnvironment(socket: String) async -> AcpmuxEnvironment? {
+            socket == AgentPaneReviewTests.socket ? AgentPaneReviewTests.environment : nil
+        }
+    }
+
+    /// What reached acpmux: prompts and tags, in order.
+    private final class Acpmux: @unchecked Sendable {
+        var calls: [String] = []
+        var delivers = true
+    }
+
+    private static func page(review: Bool = true) -> AgentPaneModel {
+        var page = AgentPaneNewTab(kind: .agent)
+        page.review = review ? true : nil
+        let model = AgentPaneModel(host: Host(), newTab: page, transport: AgentPaneTransport(gestures: AgentPaneUserGestures()))
+        model.transport.acpmuxSocket = socket
+        return model
+    }
+
+    private static func run(_ review: AgentPaneReview, _ model: AgentPaneModel, _ acpmux: Acpmux) async -> [String: Any] {
+        await review.respond(in: model, deliver: { _, session, text, promptID in
+            acpmux.calls.append("send \(session) \(promptID) \(text)")
+            return acpmux.delivers
+        }, tag: { socket, session, set in
+            acpmux.calls.append("tag \(socket) \(session) \(set.map { "\($0.key)=\($0.value)" }.joined())")
+        })
+    }
+
+    private static func code(_ reply: [String: Any]) -> String? {
+        reply["ok"] as? Bool == true ? nil : (reply["error"] as? [String: Any])?["code"] as? String
+    }
+
+    private static let accept = AgentPaneReview(method: "review.accept", params: ["sessionId": "a1", "tag": "accepted:0badf00d"])!
+    private static let send = AgentPaneReview(method: "review.send", params: [
+        "sessionId": "a1", "tag": "changes:0badf00d", "text": "Use the shared helper.", "promptId": "p1",
+    ])!
+
+    @Test func theRequestsDecodeOnlyWithTheirOwnKeysAndATagOfTheirVerdict() {
+        #expect(AgentPageOps.all.contains("cmux.agent.review.accept"))
+        #expect(AgentPageOps.all.contains("cmux.agent.review.send"))
+        #expect(AgentPaneRequest(body: ["method": "review.accept", "params": ["sessionId": "a1", "tag": "accepted:0badf00d"]]) == .review(Self.accept))
+        let bad: [(String, [String: Any])] = [
+            ("review.accept", ["sessionId": "a1", "tag": "changes:0badf00d"]),
+            ("review.accept", ["sessionId": "a1", "tag": "accepted:not-hex"]),
+            ("review.accept", ["sessionId": "a1", "tag": "pinned:1"]),
+            ("review.accept", ["sessionId": "a1", "tag": "accepted:0badf00d", "set": ["pinned": "1"]]),
+            ("review.accept", ["sessionId": "", "tag": "accepted:0badf00d"]),
+            ("review.send", ["sessionId": "a1", "tag": "changes:0badf00d", "text": "   ", "promptId": "p1"]),
+            ("review.send", ["sessionId": "a1", "tag": "accepted:0badf00d", "text": "x", "promptId": "p1"]),
+            ("review.send", ["sessionId": "a1", "tag": "changes:0badf00d", "text": "x"]),
+        ]
+        for (method, params) in bad {
+            #expect(AgentPaneReview(method: method, params: params) == nil, "\(method) \(params)")
+        }
+    }
+
+    @Test func acceptTagsTheChatOnThePersonsKeyPress() async {
+        let model = Self.page(), acpmux = Acpmux()
+        #expect(Self.code(await Self.run(Self.accept, model, acpmux)) == "refused")
+        #expect(acpmux.calls.isEmpty)
+        model.transport.gestures.record()
+        #expect(Self.code(await Self.run(Self.accept, model, acpmux)) == nil)
+        #expect(acpmux.calls == ["tag \(Self.socket) local/a1 review.done=accepted:0badf00d"])
+        // One key press, one verdict.
+        #expect(Self.code(await Self.run(Self.accept, model, acpmux)) == "refused")
+        #expect(acpmux.calls.count == 1)
+    }
+
+    @Test func aSendTagsOnlyOnceAcpmuxTookThePrompt() async {
+        let model = Self.page(), acpmux = Acpmux()
+        acpmux.delivers = false
+        model.transport.gestures.record()
+        #expect(Self.code(await Self.run(Self.send, model, acpmux)) == "refused")
+        #expect(acpmux.calls == ["send local/a1 p1 Use the shared helper."])
+        acpmux.delivers = true
+        model.transport.gestures.record()
+        #expect(Self.code(await Self.run(Self.send, model, acpmux)) == nil)
+        #expect(acpmux.calls.suffix(2) == ["send local/a1 p1 Use the shared helper.", "tag \(Self.socket) local/a1 review.done=changes:0badf00d"])
+    }
+
+    @Test func onlyTheReviewPageOnThisMacsAcpmuxForALocalChat() async {
+        let acpmux = Acpmux()
+        let chatPage = Self.page(review: false)
+        chatPage.transport.gestures.record()
+        #expect(Self.code(await Self.run(Self.accept, chatPage, acpmux)) == "unsupported")
+        let other = AgentPaneReview(method: "review.accept", params: ["sessionId": "vm/a1", "tag": "accepted:0badf00d"])!
+        let page = Self.page()
+        page.transport.gestures.record()
+        #expect(Self.code(await Self.run(other, page, acpmux)) == "unsupported")
+        let elsewhere = Self.page()
+        elsewhere.transport.acpmuxSocket = nil
+        elsewhere.transport.gestures.record()
+        #expect(Self.code(await Self.run(Self.accept, elsewhere, acpmux)) == "unsupported")
+        #expect(acpmux.calls.isEmpty)
+    }
+}

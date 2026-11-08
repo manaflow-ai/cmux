@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1374,
+    "entries": 1375,
     "shortcuts": 189
   },
   "sections": [
@@ -528,6 +528,12 @@
         {
           "id": "agentHistory.show",
           "title": "Show Agent History",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "agentReview.show",
+          "title": "Show Review Queue",
           "shortcut": null,
           "command": null
         },

@@ -92,6 +92,8 @@ export type NewTabHost = {
   focusesField?: boolean;
   /// The page is agent history (the sidebar's History dot, cx-zlnl), not the New Tab page.
   history?: boolean;
+  /// The page is the Review queue (Show Review Queue, `agentReview.show`, review/ReviewScreen.tsx).
+  review?: boolean;
   /// The widget view under the composer (Debug Settings `newTab.widgets`, newtab/WidgetCards.tsx).
   widgets?: boolean;
   /// The Minimal layout's widgets the user turned on (`tabs.newTabWidgets.*`, newtab/pageWidgets.ts);
@@ -179,6 +181,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
     ...(object.focusesField === false ? { focusesField: false } : {}),
     ...(object.history === true ? { history: true } : {}),
+    ...(object.review === true ? { review: true } : {}),
     ...(object.widgets === true ? { widgets: true } : {}),
     ...(pageWidgets ? { pageWidgets } : {}),
     ...(weather ? { weather } : {}),

@@ -64,6 +64,7 @@ import { setNowPlaying } from "./newtab/nowPlaying";
 import { setAttentionTabs } from "./needsYou/attentionTabs";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
+import { ReviewScreen } from "./review/ReviewScreen";
 import type { AllChatsPage } from "./newtab/allChatsListModel";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
@@ -10979,7 +10980,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           ref={setPaneMain}
         >
           <div ref={setToastTop} className="acpmux-toasts-top" />
-          {!harnessesOpen && showNewTab && !newTab.history && (
+          {!harnessesOpen && showNewTab && !newTab.history && !newTab.review && (
             // The page's dots, under it: Claude Minimal, Claude Minimal with the quick actions, Codex
             // Minimal (newtab/tabDots.ts, from the look and Minimal's actions widget), then with the
             // style dots on (on Minimal a widget, off by default: newtab/pageWidgets.ts) the page's
@@ -10995,7 +10996,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             />
           )}
           {showNewTab && folderAskView}
-          {showNewTab && !newTab.history && shownTemplate(newTab) !== "classic" ? (
+          {showNewTab && !newTab.history && !newTab.review && shownTemplate(newTab) !== "classic" ? (
             <>
               {/* Setup keeps this page's draft and project, while its hidden input effects stop. */}
               <Activity mode={harnessesOpen ? "hidden" : "visible"}>
@@ -11180,6 +11181,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             harnessesPage
           ) : contextOpen && !showNewTab ? (
             contextPage
+          ) : showNewTab && newTab.review ? (
+            <ReviewScreen
+              sessions={snapshot.sessions}
+              readDiff={(cwd, scope) => callNative("git.diff", { cwd, scope, include_patch: false })}
+              openDiff={(cwd) => callNative("pane.action", { id: "openDiffViewer", cwd })}
+              accept={(sessionId, tag) => callNative("review.accept", { sessionId, tag })}
+              send={(sessionId, text, tag, promptId) => callNative("review.send", { sessionId, text, tag, promptId })}
+            />
           ) : showNewTab && newTab.history ? (
             <HistoryScreen
               load={(params) => callNative<AllChatsPage | undefined>("chats.page", params)}

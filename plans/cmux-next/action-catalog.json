@@ -96014,6 +96014,75 @@
       "arguments" : [
 
       ],
+      "category" : "window",
+      "cliName" : "action agent-review-show",
+      "computed" : {
+        "canonical_action_id" : "agentReview.show",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "HistoryActionCatalog",
+      "hint" : null,
+      "id" : "agentReview.show",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "review",
+        "changes",
+        "diff",
+        "agents",
+        "worktrees",
+        "accept",
+        "queue"
+      ],
+      "mainMenu" : "window",
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "guiOnly"
+        },
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "menu"
+      ],
+      "symbol" : "checklist",
+      "targets" : [
+
+      ],
+      "title" : "Show Review Queue",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
       "category" : "browser",
       "cliName" : "browser show-history",
       "computed" : {
