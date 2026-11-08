@@ -201,6 +201,8 @@ mod tests {
             "from here, go left",
             "Can you check the trace id of that run?",
             "I generated this with a script",
+            // Review of #37190 (F2): prose that says "generated with" is not a footer.
+            "The docs were generated with Sphinx",
         ] {
             assert!(!detect(text).agent(), "{text:?} read as an agent's");
         }

@@ -272,6 +272,19 @@ mod tests {
         );
     }
 
+    /// Review of #37190 (F3): a title's newlines never break the attribution line.
+    #[test]
+    fn a_suggested_tasks_title_reads_on_one_line() {
+        let provenance =
+            crate::prompt_provenance::offer_result("offer-1", "child-1", "Fix\nlogin\n\nnow");
+        let mut params = json!({"sessionId": "s", "prompt": [{"type": "text", "text": "Done."}]});
+        mark(&mut params, None, Some(&provenance));
+        assert_eq!(
+            texts(&params)[0],
+            "From another agent (the suggested task \"Fix login now\"), not the person:"
+        );
+    }
+
     #[test]
     fn an_agents_message_names_its_sender() {
         let context = json!({"type": "text", "text": "<cmux-workspace-context/>",
