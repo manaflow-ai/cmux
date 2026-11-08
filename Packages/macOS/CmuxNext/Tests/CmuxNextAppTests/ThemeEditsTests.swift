@@ -73,4 +73,23 @@ import Testing
         for _ in 0..<200 where !GhosttyRuntime.themeEdits.isEmpty { await Task.yield() }
         #expect(GhosttyRuntime.themeEdits.isEmpty)
     }
+    /// Hovering a Theme File previews its whole look, the terminal font included; any other
+    /// preview (a font size slider's ticks) leaves the font on the loaded settings.
+    @Test func aThemeFilePreviewCarriesItsTerminalFont() async throws {
+        let (settings, url) = try await make(#"{ "terminal": { "fontSize": 12 } }"#)
+        let themes = url.deletingLastPathComponent().appending(path: "themes")
+        try FileManager.default.createDirectory(at: themes, withIntermediateDirectories: true)
+        try Data(#"{ "terminal.fontFamily": "Menlo", "terminal.fontSize": 15 }"#.utf8).write(to: themes.appending(path: "harbor.json"))
+        await settings.reload()
+        let themeFile = try #require(SettingsSchema.descriptor(for: ThemeFileSetting.configPath))
+        #expect(settings.preview(themeFile, "harbor"))
+        #expect(settings.lookFollowed.terminalFontSize == 15)
+        #expect(settings.lookFollowed.terminalFontFamily == "Menlo")
+        settings.endPreview()
+        #expect(settings.lookFollowed.terminalFontSize == 12)
+        let size = try #require(SettingsSchema.descriptor(for: ["terminal", "fontSize"]))
+        #expect(settings.preview(size, 20))
+        #expect(settings.lookFollowed.terminalFontSize == 12)
+        settings.endPreview()
+    }
 }
