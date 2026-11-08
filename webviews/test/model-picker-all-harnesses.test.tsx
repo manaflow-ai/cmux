@@ -153,8 +153,10 @@ describe("harnesses this machine does not have", () => {
     await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-picker-button")!.click());
     await settle();
     const doc = dom.window.document;
-    const geminiTab = doc.querySelector<HTMLButtonElement>('.acpmux-mp-rail-tab[aria-label="Gemini CLI"]')!;
-    expect(geminiTab).not.toBeNull();
+    const geminiTab = [...doc.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].find(
+      (tab) => tab.textContent?.trim() === "Gemini CLI",
+    )!;
+    expect(geminiTab).not.toBeUndefined();
     await act(async () => geminiTab.click());
     await settle();
     const row = [...doc.querySelectorAll<HTMLButtonElement>('.acpmux-mp-models [role="option"]')].find((item) =>
