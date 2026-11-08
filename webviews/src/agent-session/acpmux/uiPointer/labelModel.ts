@@ -72,8 +72,12 @@ export function placeLabel(
   const t = visiblePart(target, view);
   const minX = UI_POINTER_EDGE;
   const minY = UI_POINTER_EDGE;
-  const maxX = view.width - UI_POINTER_EDGE - label.width;
-  const maxY = view.height - UI_POINTER_EDGE - label.height;
+  // The last top-left corner that keeps the label whole on screen; a label wider (or taller) than
+  // the viewport has none, so its bound stays at the near edge: it starts there and runs past the far one.
+  const lastX = view.width - UI_POINTER_EDGE - label.width;
+  const lastY = view.height - UI_POINTER_EDGE - label.height;
+  const maxX = Math.max(minX, lastX);
+  const maxY = Math.max(minY, lastY);
   const gap = UI_POINTER_LABEL_GAP;
   const spot = (side: LabelSide) => {
     switch (side) {
@@ -92,7 +96,7 @@ export function placeLabel(
   const sides = ORDER[placement];
   for (const side of sides) {
     const at = spot(side);
-    const inside = at.x >= minX && at.y >= minY && at.x <= maxX && at.y <= maxY;
+    const inside = at.x >= minX && at.y >= minY && at.x <= lastX && at.y <= lastY;
     if (inside && (side === "inside" || overlapArea({ ...at, ...label }, t) === 0)) return { ...at, side };
   }
   // No side fits whole: every side's spot pulled on screen, the one that covers the element least.

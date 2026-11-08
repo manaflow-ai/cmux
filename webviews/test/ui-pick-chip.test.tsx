@@ -212,3 +212,28 @@ test("text that is not a pick draws as it did", async () => {
   expect(host.querySelector("[data-chip-kind]")).toBeNull();
   expect(host.querySelector("pre")).toBeTruthy();
 });
+
+test("a pick in a huge legacy prompt still draws as the chip, the text around it literal", async () => {
+  const { designSelectionChips } = await import("../src/agent-session/acpmux/designSelection");
+  const { promptText } = await import("../src/agent-session/acpmux/attachments");
+  const { PromptTyped } = await import("../src/agent-session/acpmux/conversation/PromptText");
+  const { HUGE_PROMPT_CHARS, isHugePrompt } = await import("../src/agent-session/acpmux/conversation/promptCollapse");
+  const [pick] = designSelectionChips(SELECTION);
+  // A pasted log past the huge threshold, then the pick, as a legacy send joined them.
+  const log = `# Log\n${"x".repeat(HUGE_PROMPT_CHARS)}`;
+  const sent = promptText(log, [pick!]);
+  expect(isHugePrompt(sent)).toBe(true);
+  await render(
+    <div className="cv-user">
+      <PromptTyped text={sent} show={(text) => text} />
+    </div>,
+  );
+  const chip = host.querySelector<HTMLElement>('.cv-user [data-chip-kind="ui"]');
+  expect(chip).toBeTruthy();
+  // The report is the chip's, not raw fenced text beside it.
+  expect(host.textContent).not.toContain("```");
+  // The huge text before it still draws as one literal node: no Markdown heading.
+  expect(host.querySelector("h1")).toBeNull();
+  expect(host.textContent).toContain("# Log");
+  opensAndFolds(chip!);
+});

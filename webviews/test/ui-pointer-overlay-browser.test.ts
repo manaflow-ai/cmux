@@ -71,6 +71,9 @@ await requireBrowserLane("ui-pointer-overlay-browser.test.ts", async () => {
       <div id="row1"><span id="s1">One</span> <span id="s2">Two</span></div>
       <div id="row2">Second row</div>
     </section>
+    <section class="abs" id="wrapped" style="left:340px;top:300px;width:120px;height:100px">
+      <div id="contents" style="display:contents"><span id="inner">Inner</span></div>
+    </section>
     <input class="abs" id="field" style="left:20px;top:440px;width:200px;height:24px">
     <p class="abs" id="bl" style="left:0;bottom:0;width:120px;height:30px">Bottom left</p>
     <p class="abs" id="br" style="right:0;bottom:0;width:100px;height:30px">Bottom right</p>
@@ -208,6 +211,29 @@ await requireBrowserLane("ui-pointer-overlay-browser.test.ts", async () => {
     expect(await page.evaluate(() => (window as any).keys)).toEqual([]);
     expect(await page.inputValue("#field")).toBe("");
     await page.close();
+  });
+
+  test("the walk steps through a wrapper that draws no box (display: contents), both ways", async () => {
+    const page = await open();
+    await page.evaluate(() => (window as any).picker.start());
+    await hover(page, "inner");
+    expect(await outlined(page)).toBe("inner");
+    // Up skips the wrapper: it has no box to outline or report.
+    await page.keyboard.press("ArrowUp");
+    expect(await outlined(page)).toBe("wrapped");
+    const outline = (await rect(page, "[data-cmux-ui-pointer-outline]"))!;
+    expect(Math.round(outline.width)).toBe(120);
+    await page.keyboard.press("ArrowDown");
+    expect(await outlined(page)).toBe("inner");
+    await page.close();
+    // From a hover on the outer element, with no trail, Down still finds the child inside the wrapper.
+    const fresh = await open();
+    await fresh.evaluate(() => (window as any).picker.start());
+    await hover(fresh, "wrapped");
+    expect(await outlined(fresh)).toBe("wrapped");
+    await fresh.keyboard.press("ArrowDown");
+    expect(await outlined(fresh)).toBe("inner");
+    await fresh.close();
   });
 
   test("after a walk a small move keeps the walked element; a deliberate one resumes hovering", async () => {

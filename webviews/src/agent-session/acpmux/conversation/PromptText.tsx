@@ -267,10 +267,13 @@ export function PromptTyped({
   const shown = show(text);
   // A skill's `/name` draws as the composer's command words do, its description on hover.
   const skills = useContext(SkillWordsContext).words;
-  if (plain || isHugePrompt(text)) return <span className="cv-user__typed">{plainWithForeignFiles(shown)}</span>;
-  // An inspector pick the composer sent draws as its chip, opening its report in place (SentUIPick.tsx).
+  // An inspector pick the composer sent draws as its chip, opening its report in place (SentUIPick.tsx),
+  // in a huge prompt too: the chip draws a line, never the report, and the text around it stays
+  // literal (`plain` passed on, and a huge part is still huge).
   const picks = sentUIPickSegments(text);
-  if (picks) return <SentUIPicks segments={picks} typed={(part) => <PromptTyped text={part} show={show} />} />;
+  if (picks)
+    return <SentUIPicks segments={picks} typed={(part) => <PromptTyped text={part} show={show} plain={plain} />} />;
+  if (plain || isHugePrompt(text)) return <span className="cv-user__typed">{plainWithForeignFiles(shown)}</span>;
   // Drawn as Markdown, the renderer reads its code as send does (`commonmark`) and lights skills
   // only in its own plain text.
   return isPromptMarkdown(text) ? (
