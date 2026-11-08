@@ -356,7 +356,9 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     await settle(page);
   }
   /// The command's toggle, at the start of the turn.
-  const commandToggle = (page: Page) => page.locator("button[aria-expanded]", { hasText: "ls build" }).first();
+  // The `ls build` call's toggle, by its call id: its words say what it did (commandActions.ts).
+  const COMMAND = 'button[aria-expanded][data-tool-id="c1"]';
+  const commandToggle = (page: Page) => page.locator(COMMAND).first();
 
   test("the transcript and the composer share one column, inset by the page edge, wider in wide panes", async () => {
     const chat = newChat();
@@ -459,7 +461,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     await toStart(page);
     const command = commandToggle(page);
     await command.waitFor();
-    await watch(page, "ls build");
+    await watch(page, undefined, COMMAND);
     await command.click();
     await page.getByText("build/step-13.o").waitFor();
     const tops = (await stop(page)).map((frame) => frame.top);
@@ -564,20 +566,28 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   // (Leo, 2026-10-20).
   test("a hover shows Copy on a prompt's action row, none on a tool row", async () => {
     const page = await open(newChat(), 900);
-    /// The Copy buttons in the row holding `text` that show, by their own and their parents' opacity.
-    const shown = (text: string) =>
-      page.evaluate((text) => {
-        const row = [...document.querySelectorAll<HTMLElement>(".acpmux-row")].find((node) =>
-          node.textContent?.includes(text),
-        )!;
-        return [...row.querySelectorAll<HTMLElement>("button")].filter((button) => {
-          if (!/^Cop(y|ied)$/.test(button.getAttribute("aria-label") ?? "")) return false;
-          for (let node: HTMLElement | null = button; node && node !== row.parentElement; node = node.parentElement)
-            if (Number(getComputedStyle(node).opacity) === 0 || getComputedStyle(node).visibility === "hidden")
-              return false;
-          return true;
-        }).length;
-      }, text);
+    /// The Copy buttons in the row holding `text` (or `selector`'s element) that show, by their own and
+    /// their parents' opacity.
+    const shown = (text: string | undefined, selector?: string) =>
+      page.evaluate(
+        ([text, selector]) => {
+          const row = (
+            selector
+              ? document.querySelector(selector)?.closest<HTMLElement>(".acpmux-row")
+              : [...document.querySelectorAll<HTMLElement>(".acpmux-row")].find((node) =>
+                  node.textContent?.includes(text!),
+                )
+          )!;
+          return [...row.querySelectorAll<HTMLElement>("button")].filter((button) => {
+            if (!/^Cop(y|ied)$/.test(button.getAttribute("aria-label") ?? "")) return false;
+            for (let node: HTMLElement | null = button; node && node !== row.parentElement; node = node.parentElement)
+              if (Number(getComputedStyle(node).opacity) === 0 || getComputedStyle(node).visibility === "hidden")
+                return false;
+            return true;
+          }).length;
+        },
+        [text, selector] as const,
+      );
     /// Resolves once the pointer is over `selector` and the row holding it has no fade left to run.
     const hovered = (selector: string) =>
       page.waitForFunction((selector) => {
@@ -591,7 +601,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const onPrompt = await shown("Why does the build retry?");
     await commandToggle(page).hover();
     await hovered("button[aria-expanded]");
-    expect({ onPrompt, onTool: await shown("ls build") }).toEqual({ onPrompt: 1, onTool: 0 });
+    expect({ onPrompt, onTool: await shown(undefined, COMMAND) }).toEqual({ onPrompt: 1, onTool: 0 });
     await page.close();
   });
 

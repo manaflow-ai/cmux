@@ -163,7 +163,7 @@ test("a run with an edit waiting for its permission is not collapsed", () => {
     (entry) => entry.id === "work",
   )!;
   expect(work.foldRun).toBe(false);
-  expect(words(work)).toContain("ls");
+  expect(words(work)).toContain("Listed files");
 });
 
 test("a delete or a move waiting for its permission stays in sight, live and in an ended turn", () => {
