@@ -34,7 +34,9 @@ import QuartzCore
 /// the program's output at that grid (`GHOSTTY_HOST_FRAME_READY_PROGRAM`), for at most `holdTicks` refreshes from the
 /// send. Until then the view keeps its old bounds and the program's last frame, as for a frame not drawn yet; at the
 /// bound a frame of the size only (`READY`: the program's last picture clipped or padded) shows, so a program that does
-/// not redraw never stops the resize. Ghostty wakes the main run loop when such a frame completes, so the pass that
+/// not redraw never stops the resize. Only a program-drawn screen holds (Ghostty's alternate screen,
+/// ``TerminalSurfaceView/programHoldTicks``); a primary-screen terminal shows Ghostty's reflow at the new size in the first
+/// frame. Each request has its own bound: a missed one never turns the hold off for later sizes. Ghostty wakes the main run loop when such a frame completes, so the pass that
 /// presents it runs at once, not at the next refresh. The divider and the pane chrome never wait: their layout never asks
 /// the presenter. Chromium does the same for a renderer's new size: the compositor keeps the old surface until the
 /// renderer submits a frame for the new size, then shows it with its bounds.
@@ -297,7 +299,7 @@ final class TerminalFramePresenter {
             CATransaction.unlock()
             if presented {
                 stats.presented += 1
-                if shown == GHOSTTY_HOST_FRAME_PRESENTED { programRedrew(view, request: request, state: state) }
+                if shown == GHOSTTY_HOST_FRAME_PRESENTED, request.holdTicks > 0 { countHold(state) }
                 #if DEBUG || CMUX_BENCH_HOOKS
                 presentedHook?(view)
                 #endif
@@ -318,17 +320,10 @@ final class TerminalFramePresenter {
         stats.longestPass = max(stats.longestPass, started.duration(to: .now))
     }
 
-    /// A request's frame showed: a frame the program drew at its grid lets the view's next sizes wait for the program's
-    /// redraw again; one of the size only at a hold's bound (the program did not redraw in time) stops them waiting, so a
-    /// program that does not redraw at a new grid costs one bound per resize, not one per frame of its spring.
-    private func programRedrew(_ view: TerminalSurfaceView, request: Request, state: ghostty_host_frame_e) {
-        if state == GHOSTTY_HOST_FRAME_READY_PROGRAM {
-            view.frameOwnership.programMissedHold = false
-            if request.holdTicks > 0 { stats.programPresents += 1 }
-        } else if request.holdTicks > 0 {
-            view.frameOwnership.programMissedHold = true
-            stats.boundPresents += 1
-        }
+    /// A held request's frame showed: the program's redraw at its grid, or a frame of the size only at its bound. Each
+    /// request has its own bound (RESIZE P0 15): a missed bound does not stop the next size waiting.
+    private func countHold(_ state: ghostty_host_frame_e) {
+        if state == GHOSTTY_HOST_FRAME_READY_PROGRAM { stats.programPresents += 1 } else { stats.boundPresents += 1 }
     }
 
     /// After the pass: each spring's next size goes to Ghostty (a key resize's with its grid), so its frame is drawn during the refresh.

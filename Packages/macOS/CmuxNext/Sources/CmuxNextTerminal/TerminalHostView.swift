@@ -309,6 +309,15 @@ public final class TerminalHostView: NSView {
         current = surfaceView
         old?.removeFromSuperview()
         followScrollbar(of: surfaceView)
+        // Beside the surface the host shows the program's own background when it set one (``programBackgroundDidChange(_:)``).
+        if surfaceView.session?.model.backgroundOverride != nil || old?.session?.model.backgroundOverride != nil { paintBackground() }
+    }
+
+    /// The current surface's program set its background (OSC 11, ``TerminalSurfaceModel/backgroundOverride``): what the
+    /// host shows beside its surface (a held frame's grow strip, RESIZE P0 15) is the colour of the program's empty cells.
+    func programBackgroundDidChange(_ surfaceView: TerminalSurfaceView) {
+        guard current === surfaceView else { return }
+        paintBackground()
     }
 
     /// Shows the surface's scrollbar state (Ghostty's scrollbar action) on the scroller, now and on
@@ -551,6 +560,12 @@ public final class TerminalHostView: NSView {
             return
         }
         guard !backdrop.panesPaintBackground else {
+            // The program set its own background (OSC 11): the host beside the surface (a held frame's grow strip) has
+            // the colour of its empty cells.
+            if let program = current?.session?.model.backgroundOverride {
+                layer?.backgroundColor = program.cgColor
+                return
+            }
             guard let rgb = theme?.colors?.background else {
                 layer?.backgroundColor = GhosttyRuntime.shared.backgroundColor.cgColor
                 return
