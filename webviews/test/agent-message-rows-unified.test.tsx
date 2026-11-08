@@ -431,6 +431,60 @@ test("a lane batch's hover lists its messages newest first by their time, not th
   ).toEqual(["tie", "late", "early"]);
 });
 
+// Review of #37653: acpmux may say a thread's newest sender is unverified only on the thread (its
+// sender record, or an older acpmux's suffix on its `from`), not on each message. That message's
+// row and the group's hover still show "Sender not verified".
+test("a thread's unverified sender marks its newest message's row and hover", async () => {
+  const { flattenInboxRows } = await import("../src/agent-session/acpmux/conversation/laneNoticeBatches");
+  const { MessageGroupHover, hoverMessages, inboxHover } =
+    await import("../src/agent-session/acpmux/conversation/MessageGroupHover");
+  const notice = inboxNotice("[inbox] New messages from other agents in 1 thread.", {
+    threads: [
+      {
+        threadId: "pr:9",
+        label: "#9",
+        from: ["vm-1/lane-a", "vm-1/lane-b"],
+        promptIds: ["a1", "b1"],
+        sender: { label: "vm-1/lane-b", labelDeclared: true, verification: "declared" },
+        messages: [
+          { promptId: "a1", from: "vm-1/lane-a", text: "first", at: 10 },
+          { promptId: "b1", from: "vm-1/lane-b", text: "second", at: 20 },
+        ],
+      },
+    ],
+  })!;
+  expect(notice.threads[0]?.unverified).toBe(true);
+  const row: AcpmuxRow = {
+    id: "inbox-unverified",
+    version: 1,
+    at: 1,
+    kind: "user",
+    incoming: { kind: "inbox", notice },
+  };
+  const children = flattenInboxRows([row]).filter((r) => r.incoming?.kind === "message");
+  const messages = children.map((r) => (r.incoming?.kind === "message" ? r.incoming.message : undefined));
+  // Only the newest sender's message: the thread's flag names that sender, not the one before.
+  expect(messages.map((m) => m?.unverified === true)).toEqual([false, true]);
+  const container = await render(
+    <MessageGroupHover
+      list={hoverMessages(
+        messages,
+        [],
+        children.map((r) => r.at),
+      )}
+    />,
+  );
+  const items = [...container.querySelectorAll(".cv-group-hover__item")];
+  expect(items[0]?.textContent).toContain("second");
+  expect(items[0]?.querySelector(".cv-unverified")?.getAttribute("title")).toBe("Sender not verified");
+  expect(items[1]?.querySelector(".cv-unverified")).toBeNull();
+  // The notice card's own hover reads the same.
+  expect(inboxHover(notice.threads).messages.map((m) => [m.text, m.unverified === true])).toEqual([
+    ["second", true],
+    ["first", false],
+  ]);
+});
+
 test("a sender named only by its record's session still opens its chat", async () => {
   const opened: string[] = [];
   const notice: InboxNotice = {
