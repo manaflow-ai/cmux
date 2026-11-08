@@ -29,13 +29,14 @@ def run_case(
     in_cmux: bool = True,
     custom_real_path: bool = False,
     custom_dir: str = "custom",
+    bin_dir_name: str = "bin",
 ) -> dict[str, object]:
     """Run the wrapper directly with a fake real agy and a fake cmux CLI behind a listening socket.
 
     Returns what the real agy received, the cmux calls the wrapper made, and the socket path.
     """
-    bin_dir = root / "bin"
-    bin_dir.mkdir()
+    bin_dir = root / bin_dir_name
+    bin_dir.mkdir(parents=True)
     real_agy = (root / custom_dir / "agy") if custom_real_path else (bin_dir / "agy")
     real_agy.parent.mkdir(parents=True, exist_ok=True)
     real_result = root / "agy-result.json"
@@ -93,11 +94,13 @@ def shim(path: Path, root: Path) -> None:
     )
 
 
-def run_shim_case(root: Path, *, custom_points_at_shim: bool = False, real_agy: bool = True) -> dict[str, object]:
+def run_shim_case(root: Path, *, custom_target: str | None = None, real_agy: bool = True) -> dict[str, object]:
     """Launch agy through the surface shim with the shim, a stale shim, another cmux bundle's
     wrapper and, unless real_agy is False, the real agy on PATH, in that order.
 
-    Returns the exit code, stderr, and what the real agy received (None when it did not run).
+    `custom_target` sets CMUX_CUSTOM_ANTIGRAVITY_PATH to the current shim ("shim") or to the other
+    bundle's wrapper ("other-bundle"). Returns the exit code, stderr, and what the real agy received
+    (None when it did not run).
     """
     shim_root = root / "home" / ".cmuxterm" / "cmux-cli-shims" / "surface-agy"
     stale_root = root / "home" / ".cmuxterm" / "cmux-cli-shims" / "surface-earlier"
@@ -124,8 +127,10 @@ def run_shim_case(root: Path, *, custom_points_at_shim: bool = False, real_agy: 
         "AGY_RESULT": str(real_result),
         "CMUX_SURFACE_ID": "surface-agy",
     }
-    if custom_points_at_shim:
+    if custom_target == "shim":
         environment["CMUX_CUSTOM_ANTIGRAVITY_PATH"] = str(current_shim)
+    elif custom_target == "other-bundle":
+        environment["CMUX_CUSTOM_ANTIGRAVITY_PATH"] = str(other_bundle_bin / "agy")
     process = subprocess.Popen(
         [str(current_shim), "--version"],
         env=environment,
@@ -140,7 +145,7 @@ def run_shim_case(root: Path, *, custom_points_at_shim: bool = False, real_agy: 
         process.communicate()
         raise AssertionError(
             "agy through the surface shim did not exit within 5s: the wrapper re-entered a cmux agy "
-            f"shim instead of the real agy (custom_points_at_shim={custom_points_at_shim}, real_agy={real_agy})"
+            f"shim instead of the real agy (custom_target={custom_target}, real_agy={real_agy})"
         ) from None
     real = json.loads(real_result.read_text(encoding="utf-8")) if real_result.exists() else None
     return {"returncode": process.returncode, "stderr": stderr, "real": real}
@@ -223,13 +228,28 @@ def main() -> int:
         if result["real"]["argv"] != ["--prompt-interactive", "hello"]:
             raise AssertionError(f"an agy shipped in another app's Resources/bin did not run: {result}")
 
+    with tempfile.TemporaryDirectory(prefix="cmux-agy-wrapper-app-bundle-path-") as directory:
+        result = run_case(
+            Path(directory),
+            ("--prompt-interactive", "hello"),
+            bin_dir_name="Antigravity.app/Contents/Resources/bin",
+        )
+        if result["real"]["argv"] != ["--prompt-interactive", "hello"]:
+            raise AssertionError(f"an agy found on PATH in another app's Resources/bin did not run: {result}")
+
     with tempfile.TemporaryDirectory(prefix="cmux-agy-wrapper-shim-") as directory:
         expect_real_agy_ran(run_shim_case(Path(directory)), "agy through the surface shim")
 
     with tempfile.TemporaryDirectory(prefix="cmux-agy-wrapper-custom-shim-") as directory:
         expect_real_agy_ran(
-            run_shim_case(Path(directory), custom_points_at_shim=True),
+            run_shim_case(Path(directory), custom_target="shim"),
             "a custom path naming the shim",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="cmux-agy-wrapper-custom-bundle-") as directory:
+        expect_real_agy_ran(
+            run_shim_case(Path(directory), custom_target="other-bundle"),
+            "a custom path naming another cmux bundle's wrapper",
         )
 
     with tempfile.TemporaryDirectory(prefix="cmux-agy-wrapper-shim-only-") as directory:
