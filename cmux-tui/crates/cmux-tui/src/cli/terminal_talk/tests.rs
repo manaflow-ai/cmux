@@ -1234,3 +1234,62 @@ fn w5q_terminal_list_agents_lists_only_terminals_whose_lifecycle_says_they_run()
         assert!(!listed(not_live), "lifecycle {not_live:?}");
     }
 }
+
+/// Claude Code's input box after a resume, empty, and then holding a typed
+/// message that Enter did not submit (bench round 4, A6: 2 of 2).
+const RESUMED_EMPTY: &str = "⏺ P1_FIRST_OK\n\n\
+────────────────────────────────────────────────────────────────────────────────\n\
+❯\u{a0}\n\
+────────────────────────────────────────────────────────────────────────────────\n\
+  ⏵⏵ bypass permissions on (shift+tab to cycle)               ● high · /effort";
+const RESUMED_UNSENT: &str = "⏺ P1_FIRST_OK\n\n\
+────────────────────────────────────────────────────────────────────────────────\n\
+❯\u{a0}Reply with exactly P1_RESUMED_OK\n\
+────────────────────────────────────────────────────────────────────────────────\n\
+  ⏵⏵ bypass permissions on (shift+tab to cycle)               ● high · /effort";
+
+/// Bench round 4 (A6): the first send after `agent resume` typed the message
+/// but Enter did not submit it; send answered rc 0, `state idle`, empty
+/// output. A message that still sits in the input box once the screen is
+/// still, with no report from the agent since Enter, was not submitted:
+/// send says so with a typed error, and the caller can press Enter.
+#[test]
+fn w5r_send_fails_when_enter_left_the_message_in_the_input_box() {
+    let mut daemon = FakeDaemon::new(snapshot(), &[(1, RESUMED_EMPTY), (2, RESUMED_UNSENT)]);
+    // Only the screen-detection plugin wrote a record after Enter.
+    daemon.agents = json!([{"terminal_id": "term_c1a0de00000000000000000000000001",
+                            "state": "idle", "source": "plugin",
+                            "updated_at_ms": u64::MAX.to_string()}]);
+    let failure = send::run(&daemon, None, &quick("Reply with exactly P1_RESUMED_OK"))
+        .expect_err("a message left in the input box is no successful send");
+    assert_eq!(failure.failure.error["code"], "send.not_submitted", "{:?}", failure.failure.error);
+    assert_eq!(failure.exit, 1);
+    let details = &failure.failure.error["details"];
+    assert_eq!(details["terminal"], "term_c1a0de00000000000000000000000001", "{details}");
+    let message = failure.failure.error["message"].as_str().unwrap_or_default();
+    assert!(message.contains("keys enter"), "the error says how to submit it: {message}");
+    assert_eq!(daemon.writes().len(), 2, "the paste and one Enter, nothing more");
+}
+
+/// The same screen after a submit the agent reported (its UserPromptSubmit
+/// hook, `working`, then idle): a turn ran, so the send is no failure even
+/// when the input box shows text again.
+#[test]
+fn w5r_send_with_a_reported_turn_is_submitted() {
+    let mut daemon = FakeDaemon::new(snapshot(), &[(1, RESUMED_EMPTY), (2, RESUMED_UNSENT)]);
+    daemon.agents = json!([{"terminal_id": "term_c1a0de00000000000000000000000001",
+                            "state": "idle", "source": "hook",
+                            "updated_at_ms": u64::MAX.to_string()}]);
+    let receipt = send::run(&daemon, None, &quick("Reply with exactly P1_RESUMED_OK"))
+        .expect("an agent-reported turn is a submitted message");
+    assert_eq!(receipt["state"], "idle");
+}
+
+/// An empty input box after the send is a submitted message.
+#[test]
+fn w5r_send_with_an_empty_input_box_is_submitted() {
+    let daemon = FakeDaemon::new(snapshot(), &[(1, RESUMED_EMPTY), (2, RESUMED_EMPTY)]);
+    let receipt =
+        send::run(&daemon, None, &quick("Reply with exactly P1_RESUMED_OK")).expect("submitted");
+    assert_eq!(receipt["state"], "idle");
+}
