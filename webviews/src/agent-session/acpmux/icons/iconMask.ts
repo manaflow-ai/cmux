@@ -22,7 +22,9 @@ function shape(layer: IconLayer, width: number, color: string): string {
   const rule = layer.rule ? ` fill-rule="${layer.rule}"` : "";
   const alpha = layer.alpha !== undefined && color === "black" ? ` opacity="${attr(layer.alpha)}"` : "";
   if (layer.op === "fill" || layer.op === "clearFill")
+    // l10n-allow: SVG markup for a CSS mask image, never shown as text
     return `<path d="${attr(layer.d)}" fill="${color}"${rule}${alpha}/>`;
+  // l10n-allow: SVG markup for a CSS mask image, never shown as text
   return `<path d="${attr(layer.d)}" stroke="${color}"${strokeAttrs(layer, width)}${alpha}/>`;
 }
 
@@ -45,6 +47,7 @@ export function iconSvg(layers: IconLayer[], width: number): string {
     const id = `m${masks++}`;
     drawn = `<mask id="${id}" maskUnits="userSpaceOnUse" x="-24" y="-24" width="72" height="72"><rect x="-24" y="-24" width="72" height="72" fill="white"/>${clears}</mask><g mask="url(#${id})">${drawn}</g>`;
   }
+  // l10n-allow: SVG markup for a CSS mask image, never shown as text
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">${drawn}</svg>`;
 }
 
