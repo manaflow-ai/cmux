@@ -10538,11 +10538,11 @@ enum BrowserDataImporter {
             do {
                 try querySQLiteRows(
                     sourceDatabaseURL: databaseURL,
-                    sql: """
-                    SELECT host, name, value, path, expiry, isSecure, isHttpOnly, sameSite, originAttributes,
-                           (SELECT user_version FROM pragma_user_version)
-                    FROM moz_cookies
-                    """
+                    makeSQL: { database in
+                        BrowserImportedCookie.firefoxCookiesQuery(
+                            columns: sqliteColumnNames(database, table: "moz_cookies")
+                        )
+                    }
                 ) { statement in
                     let host = sqliteColumnText(statement, index: 0) ?? ""
                     let name = sqliteColumnText(statement, index: 1) ?? ""

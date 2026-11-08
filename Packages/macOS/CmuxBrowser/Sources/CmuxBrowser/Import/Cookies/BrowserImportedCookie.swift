@@ -54,7 +54,9 @@ public struct BrowserImportedCookie: Sendable, Equatable {
     /// Reads one row of a Firefox-family `moz_cookies` table (Firefox, Zen,
     /// Floorp, LibreWolf and the other Gecko browsers).
     ///
-    /// - Parameter schemaVersion: The cookie database's `PRAGMA user_version`.
+    /// - Parameters:
+    ///   - schemaVersion: The cookie database's `PRAGMA user_version`.
+    ///   - now: The time before which an expiry means the cookie has expired.
     /// - Returns: The cookie to import, or `nil` when the row is not imported.
     public static func firefox(
         host: String,
@@ -73,12 +75,20 @@ public struct BrowserImportedCookie: Sendable, Equatable {
         // A partitioned (CHIPS) cookie belongs to one embedding site; importing it
         // unpartitioned would hand it to the embedded site everywhere.
         guard !originAttributes.contains("partitionKey=") else { return nil }
+        // First-party isolation keys a cookie to one top-level site, which a
+        // WebKit cookie store cannot express.
+        guard !originAttributes.contains("firstPartyDomain=") else { return nil }
+        // Firefox never writes a session cookie to cookies.sqlite, so a row
+        // without a future expiry is expired. Importing it would replace a live
+        // destination cookie with an expired one.
+        guard let expiresDate = firefoxExpiryDate(expiry, schemaVersion: schemaVersion),
+              expiresDate > now else { return nil }
         return BrowserImportedCookie(
             domain: host,
             name: name,
             value: value,
             path: path,
-            expiresDate: firefoxExpiryDate(expiry, schemaVersion: schemaVersion),
+            expiresDate: expiresDate,
             isSecure: isSecure,
             isHTTPOnly: isHTTPOnly,
             sameSite: sameSite == 1 ? .lax : (sameSite == 2 ? .strict : .none)
@@ -88,6 +98,7 @@ public struct BrowserImportedCookie: Sendable, Equatable {
     /// Reads one row of a Chromium-family `cookies` table (Chrome, Arc, Brave,
     /// Edge, Dia and the other Chromium browsers), after its value is decrypted.
     ///
+    /// - Parameter now: The time before which an expiry means the cookie has expired.
     /// - Returns: The cookie to import, or `nil` when the row is not imported.
     public static func chromium(
         host: String,
@@ -103,12 +114,15 @@ public struct BrowserImportedCookie: Sendable, Equatable {
     ) -> BrowserImportedCookie? {
         guard !name.isEmpty else { return nil }
         guard topFrameSiteKey.isEmpty else { return nil }
+        // An `expires_utc` of 0 is a session cookie; any other past expiry is expired.
+        let expiresDate = chromiumDate(fromWebKitMicroseconds: expiresUTC)
+        if let expiresDate, expiresDate <= now { return nil }
         return BrowserImportedCookie(
             domain: host,
             name: name,
             value: value,
             path: path,
-            expiresDate: chromiumDate(fromWebKitMicroseconds: expiresUTC),
+            expiresDate: expiresDate,
             isSecure: isSecure,
             isHTTPOnly: isHTTPOnly,
             sameSite: sameSite == 1 ? .lax : (sameSite == 2 ? .strict : .none)
@@ -119,15 +133,18 @@ public struct BrowserImportedCookie: Sendable, Equatable {
     /// columns, in the order ``firefox(host:name:value:path:expiry:isSecure:isHTTPOnly:sameSite:originAttributes:schemaVersion:now:)``
     /// takes them.
     public static func firefoxCookiesQuery(columns: Set<String>) -> String {
-        """
-        SELECT host, name, value, path, expiry, isSecure, isHttpOnly, sameSite, originAttributes,
+        // Cookie schema 8 added `originAttributes` and schema 9 `sameSite`.
+        let sameSite = columns.contains("sameSite") ? "sameSite" : "0"
+        let originAttributes = columns.contains("originAttributes") ? "originAttributes" : "''"
+        return """
+        SELECT host, name, value, path, expiry, isSecure, isHttpOnly, \(sameSite), \(originAttributes),
                (SELECT user_version FROM pragma_user_version)
         FROM moz_cookies
         """
     }
 
     /// The query that reads a Chromium-family `cookies` table with the given
-    /// columns, in the order ``chromium(host:name:value:path:expiresUTC:isSecure:isHTTPOnly:sameSite:topFrameSiteKey:)``
+    /// columns, in the order ``chromium(host:name:value:path:expiresUTC:isSecure:isHTTPOnly:sameSite:topFrameSiteKey:now:)``
     /// takes them after the encrypted value.
     public static func chromiumCookiesQuery(columns: Set<String>) -> String {
         // Cookie schema 15 (2021) added `top_frame_site_key`; an older table
@@ -164,8 +181,8 @@ public struct BrowserImportedCookie: Sendable, Equatable {
         }
     }
 
-    /// The expiry date of a `moz_cookies.expiry` value, or `nil` for a session
-    /// cookie. Cookie schema 16 moved the column from seconds to milliseconds.
+    /// The expiry date of a `moz_cookies.expiry` value, or `nil` when it is not
+    /// positive. Cookie schema 16 moved the column from seconds to milliseconds.
     private static func firefoxExpiryDate(_ expiry: Int64, schemaVersion: Int64) -> Date? {
         guard expiry > 0 else { return nil }
         let seconds = schemaVersion >= 16 ? Double(expiry) / 1_000.0 : Double(expiry)
