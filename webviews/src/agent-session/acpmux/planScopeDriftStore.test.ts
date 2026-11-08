@@ -19,6 +19,10 @@ describe("plan scope drift", () => {
     ]);
   });
 
+  test("extracts absolute paths from a plan", () => {
+    expect(planScopeFromMarkdown("Edit /Users/leo/repo/auth/session.rs")).toEqual(["/Users/leo/repo/auth/session.rs"]);
+  });
+
   test("alerts once per area, then Keep going adds that area", () => {
     approvePlan(session, "Edit ui/settings/*");
     expect(observePlanEdit(session, ["ui/settings/panel.tsx"])).toBeUndefined();
@@ -41,12 +45,8 @@ describe("plan scope drift", () => {
 
   test("keeps absolute edit areas distinct", () => {
     approvePlan(session, "Edit ui/settings/*");
-    expect(observePlanEdit(session, ["/Users/leo/project/auth/session.rs"])?.area).toBe(
-      "/Users/leo/project/auth/",
-    );
-    expect(observePlanEdit(session, ["/Users/leo/project/web/session.ts"])?.area).toBe(
-      "/Users/leo/project/web/",
-    );
+    expect(observePlanEdit(session, ["/Users/leo/project/auth/session.rs"])?.area).toBe("/Users/leo/project/auth/");
+    expect(observePlanEdit(session, ["/Users/leo/project/web/session.ts"])?.area).toBe("/Users/leo/project/web/");
     clearPlanScope(session);
   });
 });

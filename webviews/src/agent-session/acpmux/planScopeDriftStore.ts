@@ -42,7 +42,7 @@ function areaOf(path: string): string {
 export function planScopeFromMarkdown(markdown: string): string[] {
   const found = new Set<string>();
   const token =
-    /(?:^|[\s(`'"*])((?:\.\.?\/)?[A-Za-z0-9_.@-]+(?:\/[A-Za-z0-9_.@*~-]+)+\/?|[A-Za-z0-9_.@-]+\.[A-Za-z0-9_-]+)(?=$|[\s)`'"*,.:;])/g;
+    /(?:^|[\s(`'"*])((?:\/|\.\.?\/)?[A-Za-z0-9_.@-]+(?:\/[A-Za-z0-9_.@*~-]+)+\/?|[A-Za-z0-9_.@-]+\.[A-Za-z0-9_-]+)(?=$|[\s)`'"*,.:;])/g;
   for (const match of markdown.matchAll(token)) {
     const path = pathOf(match[1]);
     if (!path || path.startsWith("http://") || path.startsWith("https://")) continue;

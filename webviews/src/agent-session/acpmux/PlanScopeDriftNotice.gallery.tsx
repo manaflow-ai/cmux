@@ -10,9 +10,15 @@ export default componentEntry<{ path: string }>({
   height: 120,
   widths: { narrow: 360, normal: 560, wide: 760 },
   covers: ["agent-session/acpmux/PlanScopeDriftNotice.tsx#PlanScopeDriftNotice"],
-  load: async () => function GalleryPlanScopeDrift(props: { path: string }) {
-    return <PlanScopeDriftCard drift={{ sessionId: "gallery", path: props.path, area: props.path.split("/")[0] ?? props.path }} onStop={() => undefined} />;
-  },
+  load: async () =>
+    function GalleryPlanScopeDrift(props: { path: string }) {
+      return (
+        <PlanScopeDriftCard
+          drift={{ sessionId: "gallery", path: props.path, area: props.path.split("/")[0] ?? props.path }}
+          onStop={() => undefined}
+        />
+      );
+    },
   styles: () => import("../../ui/notice.css"),
   variants: {
     "short-path": {
