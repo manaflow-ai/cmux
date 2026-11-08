@@ -21,6 +21,7 @@ import { setPageChats } from "../src/agent-session/acpmux/chips/cmuxLinkResolve"
 import { SessionHoverStore } from "../src/agent-session/acpmux/started/sessionHover";
 import { SessionHoverContext } from "../src/agent-session/acpmux/started/sessionHoverCardModel";
 import { linkedText } from "../src/agent-session/acpmux/chips/linkedText";
+import { deeplinks } from "../src/agent-session/acpmux/composer/deeplinks";
 import { resetSessionRefs, setSessionRefResolver } from "../src/agent-session/acpmux/conversation/sessionRefs";
 import { SubsessionContext, SubsessionStore } from "../src/agent-session/acpmux/subagents/subsessions";
 import { openOfferChat, openSenderChat } from "../src/agent-session/acpmux/rows/rowActions";
@@ -577,6 +578,54 @@ test("a prompt's selection copies its chips as their links", async () => {
   expect(chipSelectionText(range)).toBe(`See ${WORKSPACE} and ${AGENT}`);
   // Nothing is left behind in the page.
   expect(document.body.lastElementChild?.getAttribute("aria-hidden")).not.toBe("true");
+});
+
+// A selection of a chip's title alone clones the title without its anchor: it still copies as the
+// link (review of #38166, F3), in a reply's copy and in a prompt's.
+test("a reply's selection of part of a chip's title copies its link", async () => {
+  setLinkPlaces([place("Retry fix")]);
+  await mount(
+    <div className="cv-md">
+      <p>{linkedText(`See ${WORKSPACE} now`, "r")}</p>
+    </div>,
+  );
+  const title = host.querySelector("[data-cmux-link=workspace] .cv-cmux-link__title")!.firstChild!;
+  const range = document.createRange();
+  range.setStart(title, 2);
+  range.setEnd(title, 5);
+  expect(htmlMarkdown(selectionHtml(range)!)).toBe(WORKSPACE);
+  // From the text before it into its title: the text, then the whole link.
+  const before = host.querySelector("p")!.firstChild!;
+  range.setStart(before, 0);
+  expect(htmlMarkdown(selectionHtml(range)!)).toBe(`See ${WORKSPACE}`);
+});
+
+test("a prompt's selection of a chip's title alone copies its link", async () => {
+  setLinkPlaces([place("Retry fix")]);
+  await mount(<PromptTyped text={`See ${WORKSPACE} now`} show={(text) => text} />);
+  const title = host.querySelector("[data-cmux-link=workspace] .cv-cmux-link__title")!.firstChild!;
+  const range = document.createRange();
+  range.selectNodeContents(title);
+  expect(selectionHtml(range)).toBeNull();
+  expect(chipSelectionText(range)).toBe(WORKSPACE);
+});
+
+// An app link inside another URL is that URL's (review of #38166, F2): one link, the whole URL, as
+// the page drew it before the chips; in a reply, a prompt and the draft's tokenizer alike.
+const NESTED = "https://example.com/?next=cmux://session/s1";
+
+test("an app link inside a web URL stays the web URL's, in a reply and a prompt", async () => {
+  expect(deeplinks(`Open ${NESTED} now`)).toEqual([]);
+  expect(deeplinks(`Open ${NESTED} and cmux://session/s2`).map((link) => link.href)).toEqual(["cmux://session/s2"]);
+  const reply = renderToStaticMarkup(<>{linkedText(`Open ${NESTED} now`, "k")}</>);
+  expect(reply).not.toContain("is-app");
+  expect(reply).not.toContain("data-cmux-link");
+  expect(reply.match(/<a /g)?.length).toBe(1);
+  expect(reply).toContain(`href="${NESTED}"`);
+  const prompt = renderToStaticMarkup(<PromptTyped text={`Open ${NESTED} now`} show={(text) => text} />);
+  expect(prompt).not.toContain("is-app");
+  expect(prompt.match(/<a /g)?.length).toBe(1);
+  expect(prompt).toContain(`href="${NESTED}"`);
 });
 
 test("a selection with no chip is the page's own copy", async () => {

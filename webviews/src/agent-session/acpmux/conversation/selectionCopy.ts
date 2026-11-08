@@ -30,6 +30,19 @@ function chipsAsLinks(root: ParentNode) {
   for (const chip of root.querySelectorAll(LINK_CHIP)) chip.replaceWith(chip.getAttribute("href") ?? "");
 }
 
+/// `range` reaching to the whole of a chip either end is inside (a selection of part of a chip's
+/// title, or of all of it: its clone leaves out the chip's anchor, so its link would be lost; review
+/// of #38166, F3). The same range when neither end is in a chip, so every other copy is base's.
+export function withWholeChips(range: Range): Range {
+  const startChip = elementOf(range.startContainer)?.closest(LINK_CHIP);
+  const endChip = elementOf(range.endContainer)?.closest(LINK_CHIP);
+  if (!startChip && !endChip) return range;
+  const whole = range.cloneRange();
+  if (startChip) whole.setStartBefore(startChip);
+  if (endChip) whole.setEndAfter(endChip);
+  return whole;
+}
+
 /// The document the listener is on: once per page, and again for a new one (a test's next DOM).
 let installedOn: Document | undefined;
 
@@ -45,7 +58,8 @@ function elementOf(node: Node): Element | null {
 
 /** The selection's HTML, cleaned of the transcript's chrome and attributes; null when it is not one
  * this copy takes. */
-export function selectionHtml(range: Range): string | null {
+export function selectionHtml(selected: Range): string | null {
+  const range = withWholeChips(selected);
   const reply = elementOf(range.commonAncestorContainer)?.closest(".cv-md");
   if (!reply) return null;
   // Math is mathCopy.ts's, also a selection that starts or ends inside an equation (its clone
@@ -98,26 +112,41 @@ export function selectionHtml(range: Range): string | null {
 }
 
 /** The plain text of a selection outside a reply's copy that holds a cmux link chip, each chip as
- * its link; null when it holds none (the page's own copy), or math or code (theirs). */
-export function chipSelectionText(range: Range): string | null {
+ * its link; null when it holds none (the page's own copy), or math or code (theirs). The text
+ * between chips is the page's own selection text, read from the live page (`Selection.toString`,
+ * which keeps a prompt's line ends and spaces as its white-space lays them out), so it is exactly
+ * what the page's copy would give; only each chip's title becomes its link (review of #38166, F1:
+ * a detached clone lost the prompt's `pre-wrap`). */
+export function chipSelectionText(selected: Range): string | null {
+  const range = withWholeChips(selected);
   const chips = [...document.querySelectorAll(LINK_CHIP)].filter((chip) => range.intersectsNode(chip));
   if (!chips.length) return null;
   for (const element of document.querySelectorAll(`${MATH}, pre`)) if (range.intersectsNode(element)) return null;
-  // Laid out as the selection's own box is (a prompt's kept line ends), off screen, for its text.
-  const around = elementOf(range.commonAncestorContainer);
-  const holder = (around?.cloneNode(false) as HTMLElement | undefined) ?? document.createElement("div");
-  holder.removeAttribute("id");
-  holder.setAttribute("aria-hidden", "true");
-  holder.style.cssText = "position:fixed;left:-100000px;top:0;";
-  holder.append(range.cloneContents());
-  chipsAsLinks(holder);
-  for (const element of holder.querySelectorAll(CHROME)) element.remove();
-  document.body.append(holder);
+  const selection = document.getSelection();
+  const kept = selection ? Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index)) : [];
+  /// The page's own text of `piece`, as a selection of it reads.
+  const textOf = (piece: Range) => {
+    if (piece.collapsed) return "";
+    if (!selection) return piece.toString();
+    selection.removeAllRanges();
+    selection.addRange(piece);
+    return selection.toString();
+  };
   try {
-    // innerText reads the layout's line ends; a DOM with no layout has textContent only.
-    return (typeof holder.innerText === "string" ? holder.innerText : holder.textContent) ?? "";
+    let text = "";
+    const piece = range.cloneRange();
+    for (const chip of chips) {
+      piece.setEndBefore(chip);
+      text += textOf(piece) + (chip.getAttribute("href") ?? "");
+      piece.setStartAfter(chip);
+      piece.setEnd(range.endContainer, range.endOffset);
+    }
+    return text + textOf(piece);
   } finally {
-    holder.remove();
+    if (selection) {
+      selection.removeAllRanges();
+      for (const each of kept) selection.addRange(each);
+    }
   }
 }
 
