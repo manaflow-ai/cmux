@@ -349,6 +349,22 @@ int main() {
     Expect(cmux_shim::PageHeaderValue("").empty(), "live csp empty");
   }
 
+  // A page host's Content-Type goes to CEF as a bare type and a charset: a dev server's
+  // `text/html; charset=utf-8` as the type drew the page's source as plain text.
+  {
+    std::string mime, charset;
+    cmux_shim::SplitPageMimeType("text/html; charset=utf-8", &mime, &charset);
+    Expect(mime == "text/html" && charset == "utf-8", "content type split: " + mime + " / " + charset);
+    cmux_shim::SplitPageMimeType("Text/JavaScript;Charset=\"UTF-8\"", &mime, &charset);
+    Expect(mime == "text/javascript" && charset == "utf-8", "content type case and quotes: " + mime + " / " + charset);
+    cmux_shim::SplitPageMimeType("image/png", &mime, &charset);
+    Expect(mime == "image/png" && charset.empty(), "content type without parameters");
+    cmux_shim::SplitPageMimeType("text/plain; format=flowed; charset=iso-8859-1", &mime, &charset);
+    Expect(mime == "text/plain" && charset == "iso-8859-1", "content type other parameters dropped");
+    cmux_shim::SplitPageMimeType("", &mime, &charset);
+    Expect(mime.empty() && charset.empty(), "content type empty");
+  }
+
   std::string cleanup = "rm -rf '" + made + "' '" + base + "'";
   if (system(cleanup.c_str()) != 0) std::cerr << "warning: could not remove " << base << "\n";
   std::cout << g_cases << " cases, " << g_failures << " failures\n";

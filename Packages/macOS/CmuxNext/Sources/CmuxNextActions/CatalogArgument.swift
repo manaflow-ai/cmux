@@ -222,6 +222,12 @@ nonisolated enum CatalogArgument {
     }
 
     /// `cloud new-machine --repo OWNER/NAME[@REF]`: the GitHub repository the machine clones.
+    /// `cloud new-machine --environment ID|NAME`: the Cloud environment the new machine boots in.
+    static var environmentString: ActionArgument {
+        ActionArgument(name: "environment", title: String(localized: "argument.environment", defaultValue: "Cloud Environment", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     static var repoString: ActionArgument {
         ActionArgument(name: "repo", title: String(localized: "argument.repo", defaultValue: "Repository", bundle: .module),
                        kind: .string, isRequired: false)

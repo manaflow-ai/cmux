@@ -8,7 +8,7 @@
         "key": "settings.group.chats",
         "text": "Chats"
       },
-      "note": "Device-local chat indexing controls (enabled, discovery and roots are privacy decisions for the person) and the session recap, which spends the person's usage.",
+      "note": "Device-local chat indexing controls (enabled, discovery and roots are privacy decisions for the person) and the session recap, which spends the person's usage. The default `cmux chat` target is a CLI default the person may ask an agent to set.",
       "rows": [
         {
           "key": "agents.chats.enabled",
@@ -90,6 +90,31 @@
             "summary",
             "away",
             "claude"
+          ]
+        },
+        {
+          "key": "chat.on",
+          "name": "chatOn",
+          "note": "The default target of `cmux chat` (cli/chat_start.rs): here, cloud, vm:new, vm:ID|NAME, or a device id or name. `--on` and then CMUX_ON come first; empty is here. The CLI reads it through settings.get only when both are absent, and `cmux config set on TARGET` is the CLI's short name for this key (cli/app/settings.rs). Leo, 2026-11-07: \"cmux chat is normal, and cmux chat with the flag/arguments can separate if you want it on a different device/vm/cloud/whatevret\".",
+          "title": {
+            "key": "settings.chats.on",
+            "text": "Default Chat Target"
+          },
+          "help": {
+            "key": "settings.chats.on.help",
+            "text": "Where cmux chat starts a chat when neither --on nor CMUX_ON names one: here, cloud, vm:new, vm:NAME, or a device name. Empty is here."
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "chat",
+            "cli",
+            "target",
+            "on",
+            "device",
+            "vm",
+            "cloud",
+            "default"
           ]
         }
       ]

@@ -1,6 +1,5 @@
-// The line over a running turn's work, with the Codex-style turn off (Debug toggles codexToolRuns
-// or liveLineBelow; with both on, the default, the turn's one live line at its bottom is
-// Thinking.tsx and it draws the same counts): "Working for 42s", ticking each second from the prompt,
+// The older "Working for" line over a running turn's work (a `working` row; the transcript now
+// draws the turn's one live line at its bottom instead, Thinking.tsx, with the same counts): "Working for 42s", ticking each second from the prompt,
 // or held at `durationMs` while text streams. While a call runs (`row.doing`, turns.ts) it names
 // that call beside the time instead, as Claude desktop's line does, after the terminal glyph when
 // the call is a command; not while the call's own tool row is on screen, which names it already.
@@ -18,66 +17,22 @@
 // above the composer, waitingOn.ts), the line says so in place of the time and the call: the clock
 // would read as the agent still working.
 //
-// Drawn as the turn's last row (`row.below`, Debug Settings `agentPane.debug.liveLineBelow`), it
-// has no rule under it and its clock never stops while the turn runs, and before any output
+// Drawn as the turn's last row (`row.below`), it has no rule under it and its clock never stops while the turn runs, and before any output
 // (`row.thinkingNow`) it reads "Thinking" beside the time.
-import { createContext, useContext } from "react";
-import { type Translate, useT } from "../i18n";
-import type { AcpmuxRow, TurnTokenSplit } from "../model";
+import { useContext } from "react";
+import { useT } from "../i18n";
+import type { AcpmuxRow } from "../model";
 import { usePageNow as useTicking } from "../../../ui/pageClock";
-export { usePageNow as useTicking } from "../../../ui/pageClock";
 import { TerminalSquare } from "./icons";
 import { useTextSwap } from "../../../ui/motion/useTextSwap";
 import { BackgroundHint } from "./BackgroundHint";
 import { TimedLabel, TurnTokens } from "./TurnTokens";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { formatDuration } from "./turns";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { StatusVerb } from "./StatusVerb";
-
-export const workingLabel = (t: Translate, at: number, now: number) =>
-  t("turn.working", { time: formatDuration(Math.max(0, now - at)) });
-
-/// What the running turn's line counts (App.tsx): the subagents, background commands and started
-/// chats still running, and what opens each.
-export type WorkingCounts = {
-  agents: number;
-  commands: number;
-  sessions: number;
-  openAgents: () => void;
-  openCommands: () => void;
-  openSessions: () => void;
-  /// The turn's generated output tokens so far (snapshot `turnTokens`), when the harness reports them.
-  tokens?: number;
-  /// Those tokens split into output and what the calls read (snapshot `turnTokenSplit`), when known.
-  split?: TurnTokenSplit;
-};
-
-export { workingTokens } from "./TurnTokens";
-
-/// The running line's counts, each opening what it counts: the subagents and the chats the agent
-/// started are one count, "3 subagents" (the tray's word, subagents/SubagentTray.tsx), then the
-/// commands.
-export function workingParts(t: Translate, counts: WorkingCounts): { key: string; label: string; open: () => void }[] {
-  const subagents = counts.agents + counts.sessions;
-  const parts = [
-    subagents > 0 && {
-      key: "agents",
-      label: t("subagents.count", { n: subagents }),
-      open: counts.agents > 0 ? counts.openAgents : counts.openSessions,
-    },
-    counts.commands > 0 && {
-      key: "commands",
-      label: t("turn.working.commands", { n: counts.commands }),
-      open: counts.openCommands,
-    },
-  ];
-  return parts.filter((part) => part !== false);
-}
-
-export const WorkingCountsContext = createContext<WorkingCounts | undefined>(undefined);
-
+import { workingParts, WorkingCountsContext } from "./workingForModel";
 export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () => number }) {
   const t = useT();
   const counts = useContext(WorkingCountsContext);

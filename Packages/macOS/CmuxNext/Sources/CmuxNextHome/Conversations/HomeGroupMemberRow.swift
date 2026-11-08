@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextDesign
+import CmuxNextHomeModel
 import SwiftUI
 
 /// One member row of the group info sheet: a monogram avatar, the name with its tags, and Remove.

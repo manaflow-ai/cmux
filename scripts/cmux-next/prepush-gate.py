@@ -387,6 +387,19 @@ def changed_files(repo: Path, base: str, head: str) -> list[str]:
     return sorted(n for n in names.split("\0") if n and n.startswith(SCOPES + ("Packages/Shared/", "cmux-next-ios/")))
 
 
+def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
+    """Files whose RATCHET_BASELINES row the push adds or changes, present at both revs. The trees hold only changed
+    files, so a row added for an untouched file (a base red's fix: a reviewed row for sites already on base) read 0
+    sites against its row and was refused as "fewer than the baseline" (#37531, fast gates on the merge)."""
+    files: set[str] = set()
+    for name, (keys, count) in RATCHET_BASELINES.items():
+        rows = [_ratchet_rows(blob.decode(errors="replace"), keys, count) if blob else {}
+                for blob in (blob_at(repo, rev, f"{SCRIPTS}/{name}") for rev in (base, head))]
+        files.update(key[0] for key in rows[0].keys() | rows[1].keys() if rows[0].get(key) != rows[1].get(key))
+    return sorted(p for p in files if p.startswith(SCOPES) and blob_at(repo, base, p) is not None
+                  and blob_at(repo, head, p) is not None)
+
+
 def deleted_package_swift(repo: Path, base: str, head: str) -> list[str]:
     """Package Swift files the push deletes (a rename's old path too). Deleting a baseline import's last file makes its
     IMPORT_BASELINE line stale, so the dependency check runs on them: the base tree holds them, the head tree not."""
@@ -1436,7 +1449,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     # The git-only checks above need no trees: a run of only those (CI's sidebar sweep) stops here.
     if only is not None and not only & {"scanners", "ast-grep", "swiftformat", "swiftlint", "rustfmt"}:
         return reserved
-    changed = changed_files(repo, base, head)
+    changed = sorted(set(changed_files(repo, base, head)) | set(ratchet_row_files(repo, base, head)))
     deleted = deleted_package_swift(repo, base, head) if only is None or "scanners" in only else []
     if restrict is not None:
         changed = [p for p in changed if p in restrict]

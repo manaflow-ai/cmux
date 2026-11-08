@@ -84,7 +84,7 @@ nonisolated extension SidebarLayout {
                               metrics m: SidebarLayoutMetrics, to rows: inout [SidebarRow], y: inout CGFloat) {
         guard !split.archived.isEmpty else { return }
         if !firstRow { y += m.sectionSpacing }
-        let open = o.openDoneFolds.contains(.archive) && o.gap == nil && !o.showEmptyPinned
+        let open = o.openDoneFolds.contains(.archive) && o.gap == nil && !o.dragClosesArchive
         let h = m.height(for: WorkspaceRowContent())
         rows.append(SidebarRow(
             key: .doneFold(.archive), y: y, height: h, section: SidebarDoneFoldID.archive.section, group: nil, siblingIndex: 0,

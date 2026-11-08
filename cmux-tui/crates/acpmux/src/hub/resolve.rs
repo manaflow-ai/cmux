@@ -350,6 +350,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         tags: Default::default(),
         unread: false,
         claude_unstored: false,
+        // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
+        wait_start: false,
         hibernated_ms: 0,
         idle_launch: None,
         moved_to: None,
@@ -380,6 +382,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         subsession: None,
         subsession_limits: Default::default(),
         lineage: None,
+        created_by: None,
         subagent_retry_open: false,
         turn_cap_ms: None,
         turn_cap_noticed: None,

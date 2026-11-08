@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { AgentMark } from "../../shared/AgentMark";
 import { Spinner } from "../conversation/icons";
-import { type HarnessHealth, needsLogin } from "../HarnessHealthNotice";
+import { type HarnessHealth, needsLogin } from "../harnessHealthNoticeModel";
 import { type StringKey, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxSnapshot } from "../model";

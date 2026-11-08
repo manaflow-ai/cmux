@@ -103,11 +103,15 @@ pub(crate) fn plan(
     max_total_bytes: u64,
     disk_low: bool,
 ) -> Vec<(TerminalPublicId, Keep)> {
-    let mut wants: Vec<(usize, Keep)> = parked
+    let mut wants: Vec<(usize, &Parked, Keep)> = parked
         .iter()
         .enumerate()
         .map(|(index, file)| {
-            (index, Keep::for_age(now_ms.saturating_sub(file.written_at_ms)).min(file.current()))
+            (
+                index,
+                file,
+                Keep::for_age(now_ms.saturating_sub(file.written_at_ms)).min(file.current()),
+            )
         })
         .collect();
     // Over the budget: the oldest step down first, one tier a round, until it fits. A trimmed file's size is not
@@ -119,18 +123,17 @@ pub(crate) fn plan(
         Keep::Lines(lines) if lines <= MONTH_LINES => file.bytes / 8,
         _ => file.bytes / 2,
     };
-    let mut total: u64 = wants.iter().map(|(index, keep)| estimate(&parked[*index], *keep)).sum();
-    wants.sort_by_key(|(index, _)| (parked[*index].written_at_ms, *index));
+    let mut total: u64 = wants.iter().map(|(_, file, keep)| estimate(file, *keep)).sum();
+    wants.sort_by_key(|(index, file, _)| (file.written_at_ms, *index));
     while total > max_total_bytes {
         let mut stepped = false;
-        for (index, keep) in &mut wants {
+        for (_, file, keep) in &mut wants {
             if total <= max_total_bytes {
                 break;
             }
             if *keep == Keep::RecordOnly {
                 continue;
             }
-            let file = &parked[*index];
             let before = estimate(file, *keep);
             *keep = keep.lower();
             total = total - before + estimate(file, *keep);
@@ -142,8 +145,7 @@ pub(crate) fn plan(
     }
     wants
         .into_iter()
-        .filter_map(|(index, keep)| {
-            let file = &parked[index];
+        .filter_map(|(_, file, keep)| {
             if keep == file.current() {
                 return None;
             }
@@ -249,7 +251,10 @@ fn trim(directory: &Path, terminal_id: &TerminalPublicId, lines: usize) -> anyho
     };
     let bytes = trimmed_replay(&replay.bytes, replay.cols, replay.rows, lines)
         .ok_or_else(|| anyhow::anyhow!("the snapshot does not replay"))?;
-    header["kept_lines"] = serde_json::json!(lines);
+    header
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("the snapshot header is not an object"))?
+        .insert("kept_lines".to_owned(), serde_json::json!(lines));
     let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
     encoder.write_all(&bytes)?;
     let compressed = encoder.finish()?;

@@ -56,7 +56,7 @@ const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
-const { takeBackSteer } = await import("../src/agent-session/acpmux/conversation/PendingSteer");
+const { takeBackSteer } = await import("../src/agent-session/acpmux/conversation/pendingSteerModel");
 
 afterAll(() => {
   dom.window.close();
@@ -150,6 +150,27 @@ test("a steer the agent read has no X", async () => {
     });
     await render();
     expect(takeBackButtons()).toEqual([]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// Leo, 2026-11-06: "I can't ... cancel and edit these messages. Why? Is it because the ... codex thing
+// sent them?" Another session's CLI steer was read, but the agent's next reply was slow (or only a
+// tool call), so the row still offered an X that acpmux refused as read. acpmux's `steer_read`
+// record now drops the X at once, with no words from the agent after it.
+test("a steer acpmux logged read has no X, before the agent says anything", async () => {
+  const { daemon, root, render } = await waitingSteer();
+  try {
+    await render();
+    expect(takeBackButtons().length).toBe(1);
+    await act(async () => {
+      daemon.push(record([["mux", "steer_read", { promptId: "p-steer", turnId: "t-1" }]], 3));
+      await settle();
+    });
+    await render();
+    expect(takeBackButtons()).toEqual([]);
+    expect(daemon.requests.filter((request) => request.method === "_acpmux/queue_edit")).toEqual([]);
   } finally {
     await act(async () => root.unmount());
   }

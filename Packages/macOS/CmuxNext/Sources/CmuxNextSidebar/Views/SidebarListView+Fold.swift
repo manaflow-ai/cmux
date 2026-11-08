@@ -64,6 +64,7 @@ extension SidebarListViewComponents {
                 let target = frame(for: row)
                 view.targetSize = target.size
                 if key == .group(id) { configure(view, row: row, animated: animate) } // the chevron, count and activity
+                view.isSelected = selectedRowKey == key // a row the fold keeps shows the selection as it is now
                 targets.append((view, target))
                 continue
             }
@@ -161,6 +162,12 @@ extension SidebarListViewComponents {
         }
         // In list order, top to bottom, as a full rebuild lists them.
         lines.insert(contentsOf: own, at: lines.firstIndex { $0.frame.minY > header.y } ?? lines.count)
-        return (lines, start)
+        // A group the fold brings near the visible rows had no line yet (the lines are made near them, `groupLines`).
+        let listed = Set(lines.map(\.group))
+        let near = groupLines(new).filter { !listed.contains($0.group) }
+        guard !near.isEmpty else { return (lines, start) }
+        let groups = Set(near.map(\.group))
+        for line in near { lines.insert(line, at: lines.firstIndex { $0.frame.minY > line.frame.minY } ?? lines.count) }
+        return (lines, start + groupLines(new, current: true).filter { groups.contains($0.group) })
     }
 }
