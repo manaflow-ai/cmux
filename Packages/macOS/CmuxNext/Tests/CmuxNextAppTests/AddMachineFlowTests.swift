@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextPages
 import CmuxNextRemote
 @testable import CmuxNextServer
 import Foundation
@@ -163,6 +164,24 @@ import Testing
         #expect(host.recorded.map(\.0) == ["ssh-leo@huge-blue.ts.net"])
         #expect(runs.run?.machineID == "ssh-leo@huge-blue.ts.net")
         runs.openWorkspace()
+        #expect(host.opened == ["ssh-leo@huge-blue.ts.net"])
+    }
+
+    @Test func openWorkspaceFromTheCardTakesOnlyThePersonsOwnClick() async throws {
+        host.scripts = [[Self.report("huge-blue", "leo@huge-blue.ts.net", ok: true, Self.okSteps)]]
+        runs.begin()
+        runs.add(destination: "leo@huge-blue.ts.net", name: "")
+        #expect(await runs.finished() == nil)
+        let provider = AddMachineCardProvider(runs: runs)
+        // A page script (no gesture) never opens a workspace on the machine.
+        do {
+            _ = try await provider.call(AddMachineCardProvider.openWorkspaceOp, params: .object([:]),
+                                        context: PageCallContext(page: PageDescriptor.serverCards.id))
+            Issue.record("openWorkspace ran without the person's click")
+        } catch let error as PageError { #expect(error.code == PageNativeOp.userOnlyCode) }
+        #expect(host.opened.isEmpty)
+        _ = try await provider.call(AddMachineCardProvider.openWorkspaceOp, params: .object([:]),
+                                    context: PageCallContext(page: PageDescriptor.serverCards.id, userGesture: true, gestureEvent: 1))
         #expect(host.opened == ["ssh-leo@huge-blue.ts.net"])
     }
 
