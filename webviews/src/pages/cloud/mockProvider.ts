@@ -360,7 +360,7 @@ export class MockCloudProvider implements PageClient {
       classic: false,
       created_at: Date.UTC(2026, 9, 2),
       last_active_at: null,
-      idle_policy: null,
+      idle_policy: { idle_seconds: 0 },
       error: null,
       revision: "1",
     };

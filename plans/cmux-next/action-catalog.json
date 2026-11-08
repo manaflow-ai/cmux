@@ -95431,6 +95431,17 @@
               }
             ],
             "when" : "surfaceKind != page && !codeEditorFocused"
+          },
+          {
+            "keys" : [
+              {
+                "key" : "-",
+                "modifiers" : [
+                  "ctrl"
+                ]
+              }
+            ],
+            "when" : "surfaceKind != terminal"
           }
         ],
         "is_palette_visible" : true,
@@ -95440,9 +95451,10 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : {
-        "key" : "-",
+        "key" : ",",
         "modifiers" : [
-          "ctrl"
+          "opt",
+          "cmd"
         ]
       },
       "description" : null,
@@ -95515,6 +95527,18 @@
               }
             ],
             "when" : "surfaceKind != page && !codeEditorFocused"
+          },
+          {
+            "keys" : [
+              {
+                "key" : "-",
+                "modifiers" : [
+                  "ctrl",
+                  "shift"
+                ]
+              }
+            ],
+            "when" : "surfaceKind != terminal"
           }
         ],
         "is_palette_visible" : true,
@@ -95524,10 +95548,10 @@
       },
       "defaultChord" : null,
       "defaultShortcut" : {
-        "key" : "-",
+        "key" : ".",
         "modifiers" : [
-          "ctrl",
-          "shift"
+          "opt",
+          "cmd"
         ]
       },
       "description" : null,
@@ -110792,6 +110816,57 @@
           ]
         },
         "when_text" : "surfaceKind != page && !codeEditorFocused"
+      },
+      {
+        "argument" : null,
+        "arguments" : {
+
+        },
+        "command" : "focusHistoryBack",
+        "keys" : [
+          {
+            "key" : "-",
+            "modifiers" : [
+              "ctrl"
+            ]
+          }
+        ],
+        "source" : "default",
+        "when" : {
+          "notEquals" : [
+            "surfaceKind",
+            {
+              "string" : "terminal"
+            }
+          ]
+        },
+        "when_text" : "surfaceKind != terminal"
+      },
+      {
+        "argument" : null,
+        "arguments" : {
+
+        },
+        "command" : "focusHistoryForward",
+        "keys" : [
+          {
+            "key" : "-",
+            "modifiers" : [
+              "ctrl",
+              "shift"
+            ]
+          }
+        ],
+        "source" : "default",
+        "when" : {
+          "notEquals" : [
+            "surfaceKind",
+            {
+              "string" : "terminal"
+            }
+          ]
+        },
+        "when_text" : "surfaceKind != terminal"
       }
     ],
     "home_chat_scoped" : [
@@ -112919,8 +112994,6 @@
     ],
     "yields_to_terminal" : [
       "decreaseWorkspaceTerminalFontSize",
-      "focusHistoryBack",
-      "focusHistoryForward",
       "groupSelectedWorkspaces",
       "increaseWorkspaceTerminalFontSize",
       "resetWorkspaceTerminalFontSize",
