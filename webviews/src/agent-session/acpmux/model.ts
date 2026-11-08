@@ -379,9 +379,18 @@ export type PromptContentPart =
 export type QueuedPromptImage = PromptImage & { src?: string; local?: boolean };
 
 /// A turn's tokens as Anthropic counts them: what the model wrote (`output`) apart from what it read,
-/// which is the fresh input, the prompt cache's reads and its writes. The running line adds up each
-/// model call's (direct.ts `turnTokenSplit`); a finished turn's comes from its `turn_result`.
-export type TurnTokenSplit = { output: number; input: number; cacheRead: number; cacheWrite: number };
+/// which is the fresh input, the prompt cache's reads and its writes, each its calls added up. The
+/// running line adds up each model call's (direct.ts `turnTokenSplit`); a finished turn's comes from
+/// its `turn_result`. `context` is what the chat's context held after the turn's last call, and
+/// `calls` how many calls the counts add up, when acpmux names them (tokenSplit.ts).
+export type TurnTokenSplit = {
+  output: number;
+  input: number;
+  cacheRead: number;
+  cacheWrite: number;
+  context?: number;
+  calls?: number;
+};
 
 /// One retry of a turn's failed model request, as acpmux logs it (`turn_retrying`): Claude Code's
 /// `system/api_retry` (attempt of maxRetries, error, errorStatus) or Codex's stream error.
