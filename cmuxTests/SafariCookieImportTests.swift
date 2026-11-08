@@ -23,17 +23,17 @@ final class SafariCookieImportTests: XCTestCase {
     }
 
     @MainActor
-    func testImportWritesSecureHTTPOnlyCookieToTheSelectedProfileOnly() async throws {
-        let cookieName = "cmux-safari-import-\(UUID().uuidString)"
+    func testImportWritesOnlyEligibleCookiesToTheSelectedProfile() async throws {
+        let prefix = "cmux-safari-import-\(UUID().uuidString)"
+        let now = Date()
+        let future = now.addingTimeInterval(3_600)
+        let past = now.addingTimeInterval(-3_600)
         let sourceProfile = try writeSourceProfile(records: [
-            Self.record(
-                domain: ".example.com",
-                name: cookieName,
-                path: "/",
-                value: "imported",
-                expiry: Date().addingTimeInterval(3_600),
-                flags: 0x1 | 0x4
-            ),
+            Self.record(domain: ".example.com", name: "\(prefix)-secure", path: "/", value: "secure", expiry: future, flags: 0x1 | 0x4),
+            Self.record(domain: "login.example.com", name: "\(prefix)-session", path: "/account", value: "session", expiry: nil, flags: 0),
+            Self.record(domain: ".other.net", name: "\(prefix)-excluded", path: "/", value: "excluded", expiry: future, flags: 0),
+            Self.record(domain: ".example.com", name: "\(prefix)-expired", path: "/", value: "expired", expiry: past, flags: 0),
+            Self.record(domain: ".other.net", name: "\(prefix)-excluded-expired", path: "/", value: "excluded", expiry: past, flags: 0),
         ])
         let destination = try XCTUnwrap(
             BrowserProfileStore.shared.createProfile(named: "Safari import target \(UUID().uuidString)")
@@ -47,24 +47,38 @@ final class SafariCookieImportTests: XCTestCase {
         let result = await BrowserDataImporter.importSafariCookies(
             sourceProfiles: [sourceProfile],
             destinationProfileID: destination.id,
-            domainFilters: [],
+            domainFilters: ["example.com"],
             reader: SafariCookieStoreReader(homeDirectory: temporaryDirectory),
             parser: SafariBinaryCookiesParser(),
-            now: Date()
+            now: now
         )
 
-        XCTAssertEqual(result.importedCount, 1)
+        // Expired cookies inside the filters count as skipped. Cookies outside
+        // the filters were not asked for, so they are not counted, as in the
+        // Firefox and Chromium importers.
+        XCTAssertEqual(result.importedCount, 2)
+        XCTAssertEqual(result.skippedCount, 1)
         XCTAssertEqual(result.warnings, [])
         let destinationCookies = await BrowserProfileStore.shared
             .websiteDataStore(for: destination.id).httpCookieStore.allCookies()
-        let imported = try XCTUnwrap(destinationCookies.first { $0.name == cookieName })
-        XCTAssertEqual(imported.value, "imported")
-        XCTAssertEqual(imported.domain, ".example.com")
-        XCTAssertTrue(imported.isSecure)
-        XCTAssertTrue(imported.isHTTPOnly)
+            .filter { $0.name.hasPrefix(prefix) }
+        XCTAssertEqual(
+            Set(destinationCookies.map(\.name)),
+            ["\(prefix)-secure", "\(prefix)-session"]
+        )
+        let secure = try XCTUnwrap(destinationCookies.first { $0.name == "\(prefix)-secure" })
+        XCTAssertEqual(secure.value, "secure")
+        XCTAssertEqual(secure.domain, ".example.com")
+        XCTAssertTrue(secure.isSecure)
+        XCTAssertTrue(secure.isHTTPOnly)
+        let session = try XCTUnwrap(destinationCookies.first { $0.name == "\(prefix)-session" })
+        XCTAssertEqual(session.path, "/account")
+        XCTAssertTrue(session.isSessionOnly)
+        XCTAssertFalse(session.isSecure)
+        XCTAssertFalse(session.isHTTPOnly)
         let otherCookies = await BrowserProfileStore.shared
             .websiteDataStore(for: otherProfile.id).httpCookieStore.allCookies()
-        XCTAssertFalse(otherCookies.contains { $0.name == cookieName })
+        XCTAssertFalse(otherCookies.contains { $0.name.hasPrefix(prefix) })
     }
 
     @MainActor
@@ -129,13 +143,14 @@ final class SafariCookieImportTests: XCTestCase {
         return Data(bytes)
     }
 
-    /// One cookie record: a 56-byte header, then null-terminated strings.
+    /// One cookie record: a 56-byte header, then null-terminated strings. A `nil`
+    /// expiry is stored as `0`, Safari's session cookie.
     private static func record(
         domain: String,
         name: String,
         path: String,
         value: String,
-        expiry: Date,
+        expiry: Date?,
         flags: UInt32
     ) -> [UInt8] {
         let strings = [domain, name, path, value].map { Array($0.utf8) + [0] }
@@ -155,7 +170,7 @@ final class SafariCookieImportTests: XCTestCase {
         }
         bytes += littleEndian(UInt32(0))
         bytes += littleEndian(UInt32(0))
-        bytes += littleEndian(expiry.timeIntervalSinceReferenceDate.bitPattern)
+        bytes += littleEndian((expiry?.timeIntervalSinceReferenceDate ?? 0).bitPattern)
         bytes += littleEndian(Double(0).bitPattern)
         for string in strings {
             bytes += string
