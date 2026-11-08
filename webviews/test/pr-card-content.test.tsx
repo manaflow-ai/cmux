@@ -96,7 +96,7 @@ async function unmount() {
 afterEach(unmount);
 
 /** Renders the card body against a host that answers `pr.inspect` with `answer`. */
-async function card(answer: Record<string, unknown>) {
+async function card(answer: Record<string, unknown>, url = PR_URL, known = KNOWN) {
   const { act } = await import("react");
   const { createRoot } = await import("react-dom/client");
   const { UiProvider } = await import("../src/ui/UiProvider");
@@ -118,7 +118,7 @@ async function card(answer: Record<string, unknown>) {
   await act(async () =>
     root.render(
       <UiProvider container={element}>
-        <PullRequestCardBody url={PR_URL} known={KNOWN} open />
+        <PullRequestCardBody url={url} known={known} open />
       </UiProvider>,
     ),
   );
@@ -284,7 +284,10 @@ test("a read that answered nothing and is not running says nothing, instead of r
 
 test("no answer yet: the card says it is reading and keeps asking the app, not GitHub", async () => {
   const { body, calls } = await card({ pullRequest: null, reading: true });
-  expect(body.querySelector(".acpmux-pr-card__age")?.textContent).toBe("reading…");
+  // The placeholders hold the rows, so "reading…" is for screen readers: no line shows and then
+  // goes when the answer lands (Leo 2026-11-08: "a bit too discontinuous and jumpy").
+  expect(body.querySelector(".acpmux-pr-card__sr")?.textContent).toBe("reading…");
+  expect(body.querySelector(".acpmux-pr-card__age")).toBeNull();
   // What the chat already knows is still there.
   expect(body.textContent).toContain("manaflow-ai/cmux#22777");
   expect(calls.every((method) => method === "pr.inspect")).toBe(true);
@@ -511,4 +514,61 @@ test("checks read as CI checks in words: passed, failed and running", async () =
   expect(visible).toEqual(["Checks", "11 passed", "1 failed", "1 running"]);
   // It has names to list, so a keyboard can reach it as a pointer can.
   expect(row.tabIndex).toBe(0);
+});
+
+// Leo 2026-11-08, of a private repo's issue whose card showed only its link: an issue reads as one,
+// in GitHub's colours (open green, closed purple, not planned grey), with its author and labels and
+// none of a pull request's checks, files or branches.
+test("an issue's card draws the issue glyph, its state, author and labels", async () => {
+  const url = "https://github.com/manaflow-ai/cmuxterm-hq/issues/7707";
+  for (const [state, label, glyph] of [
+    ["open", "Open", "git.issue"],
+    ["closed", "Closed", "git.issue.closed"],
+    ["not_planned", "Not planned", "git.issue.notplanned"],
+  ] as const) {
+    const { body } = await card(
+      {
+        pullRequest: {
+          url,
+          number: 7707,
+          title: "Hover cards flash",
+          state,
+          kind: "issue",
+          author: "octocat",
+          labels: ["bug"],
+          labelColors: { bug: "d73a4a" },
+          checks: { state: "none", passed: 0, total: 0 },
+          checkList: [],
+        },
+        fetchedAt: Date.now() / 1000 - 5,
+        reading: false,
+      },
+      url,
+      { repo: "manaflow-ai/cmuxterm-hq", number: 7707 },
+    );
+    const shown = body.querySelector(".acpmux-pr-card__state")!;
+    expect({ state, text: shown.textContent, kind: shown.getAttribute("data-kind") }).toEqual({
+      state,
+      text: label,
+      kind: "issue",
+    });
+    expect(body.querySelector(".acpmux-pr-card__glyph")?.getAttribute("data-kind")).toBe("issue");
+    expect(body.querySelector(".acpmux-pr-card__glyph [data-icon]")?.getAttribute("data-icon")).toBe(glyph);
+    expect(body.querySelector(".acpmux-pr-card__author")?.textContent).toBe("octocat");
+    expect(body.querySelector(".acpmux-pr-card__label")?.textContent).toBe("bug");
+    expect(body.querySelector(".acpmux-pr-card__checks")).toBeNull();
+    expect(body.querySelector(".acpmux-pr-card__changes")).toBeNull();
+    expect(body.querySelector(".acpmux-pr-card__ref")?.getAttribute("href")).toBe(url);
+    await teardown?.();
+  }
+});
+
+test("while an issue is read, its card holds an issue's rows: no files and no branches", async () => {
+  const url = "https://github.com/manaflow-ai/cmuxterm-hq/issues/7707";
+  const { body } = await card({ pullRequest: null, reading: true }, url, {
+    repo: "manaflow-ai/cmuxterm-hq",
+    number: 7707,
+  });
+  const rows = [...body.querySelectorAll<HTMLElement>("[data-placeholder]")].map((row) => row.dataset.placeholder);
+  expect(rows).toEqual(["status", "who", "labels"]);
 });

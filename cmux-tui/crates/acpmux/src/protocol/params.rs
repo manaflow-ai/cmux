@@ -137,6 +137,8 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "resend",
     "route",
     "sessionCreatedAt",
+    "senderHarness",
+    "senderHarnessChecked",
     "spawnToolCallId",
     "startLater",
     "steer",

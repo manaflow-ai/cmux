@@ -1048,6 +1048,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/uploads_keep",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/dispatch",
       "params": true,
       "result": true
@@ -2068,6 +2074,8 @@
         "requireFullAccess": true,
         "resend": true,
         "route": true,
+        "senderHarness": true,
+        "senderHarnessChecked": true,
         "sessionCreatedAt": true,
         "spawnToolCallId": true,
         "startLater": true,

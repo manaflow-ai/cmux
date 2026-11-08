@@ -935,6 +935,20 @@ pub(super) async fn handle_request(
         }
         _ => {}
     }
+    // What the socket peer's process chain shows of a send that names its harness, looked at
+    // once here, before the outbox keeps it or a peer gets it (`sender_harness.rs`).
+    if matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE) {
+        let (pid, carried) = crate::sender_harness::check_trust(
+            conn.socket_peer,
+            conn.origin == super::Origin::Local,
+            conn.origin == super::Origin::Peer && conn.auth == super::ConnAuth::PeerToken,
+        );
+        let prompt =
+            if m == method::MUX_SEND_QUEUE { params.get_mut("request") } else { Some(&mut params) };
+        if let Some(prompt) = prompt {
+            crate::sender_harness::stamp_checked(prompt, pid, carried).await;
+        }
+    }
     let key = super::session_key(&params).ok().map(str::to_owned);
     // Audited on arrival, once every gate above took it: a `session/prompt`'s reply comes only
     // when its turn ends, which may be minutes (2026-11-05: a message between two lane machines
@@ -1146,7 +1160,7 @@ async fn dispatch_request_with_identity(
                 method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT,
                 method::MUX_INFO, method::MUX_MACHINE_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION,
                 method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
-                method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_SET_DIRECTORIES, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_WHO_ELSE, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
+                method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_SET_DIRECTORIES, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_UPLOADS_KEEP, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_WHO_ELSE, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
             ];
             #[allow(unused_mut)]
             let mut reply = json!({
@@ -1853,6 +1867,14 @@ async fn dispatch_request_with_identity(
             }
             // From here the prompt's own uploads go only if the session refuses it.
             let saved = crate::attach::Saved::with_owned(saved, &s.id, owned.take());
+            // Where the send came from, as its harness says and the daemon checked: a record of
+            // its own beside the prompt, never part of who sent it (`sender_harness.rs`). Not from
+            // the app or a Web client, which name no harness.
+            if matches!(conn.origin, super::Origin::Local | super::Origin::Peer)
+                && let Some(claim) = crate::sender_harness::recorded(&params, prompt_id.as_deref())
+            {
+                hub.append(&s, "mux", crate::sender_harness::RECORD_KIND, claim);
+            }
             let cloud_turn: Option<crate::cloud_rewind::CloudTurnEnvelope> =
                 match params.get("cloud_turn") {
                     Some(value) => Some(
@@ -3004,6 +3026,7 @@ async fn dispatch_request_with_identity(
         method::MUX_FILE_PUT_FINISH => crate::hub::file_uploads::handle_finish(hub, params).await,
         method::MUX_FILE_PUT_CANCEL => crate::hub::file_uploads::handle_cancel(hub, params).await,
         method::MUX_FILE_PUT_STATUS => crate::hub::file_uploads::handle_status(hub, params).await,
+        method::MUX_UPLOADS_KEEP => crate::hub::file_uploads::handle_keep(hub, params).await,
         // Every Claude workflow of this daemon's chats.
         method::MUX_WORKFLOWS => crate::hub::workflow_index::handle(hub, &params),
         // A chat's media, from this connection's handles; a peer's chat went there.
