@@ -253,10 +253,32 @@ impl TerminalMetadata {
         self.command.last_command()
     }
 
-    /// Keep `previous`'s last command when this replacement parser has seen
-    /// none (a reconnect to the same terminal host).
-    pub(crate) fn keep_last_command_of(&mut self, previous: &TerminalMetadata) {
-        self.command.keep_last_command_of(&previous.command);
+    /// Take `previous`'s command state (a reconnect to the same terminal
+    /// host replaces the parser, not the shell): a running command keeps its
+    /// start, a prompt with no `D` still finishes it, and an already
+    /// published record does not publish again.
+    pub(crate) fn keep_command_state_of(&mut self, previous: &TerminalMetadata) {
+        self.command = previous.command;
+    }
+
+    /// Whether the last command changed since the last call, marking it
+    /// published (`terminal-exit-status-v1` upserts).
+    #[cfg(test)]
+    pub(crate) fn take_last_command_change(&mut self) -> bool {
+        self.command.take_change()
+    }
+
+    /// Record `published` as the last command the public graph has.
+    pub(crate) fn mark_last_command_published(
+        &mut self,
+        published: Option<crate::terminal_command::LastCommand>,
+    ) {
+        self.command.mark_published(published);
+    }
+
+    /// Whether `take_last_command_change` would report a change; marks nothing.
+    pub(crate) fn has_last_command_change(&self) -> bool {
+        self.command.has_change()
     }
 
     pub(crate) fn osc_progress(&self) -> &str {
@@ -301,6 +323,25 @@ mod tests {
         // OSC 9 progress still parses next to the marks.
         metadata.observe_output(b"\x1b]9;4;1;50\x07");
         assert_eq!(metadata.osc_progress(), "4;1;50");
+    }
+
+    #[test]
+    fn read_run_osc_133_command_state_survives_a_parser_replacement() {
+        let mut previous = TerminalMetadata::default();
+        previous.observe_output(b"\x1b]133;C\x07");
+        let mut replacement = TerminalMetadata::default();
+        replacement.keep_command_state_of(&previous);
+        // The command started before the reconnect ends after it, with no D.
+        replacement.observe_output(b"\x1b]133;A\x07$ ");
+        let last = replacement.last_command().expect("the prompt finished the command");
+        assert_eq!(last.exit_code, None);
+        assert!(last.started_at_ms.is_some(), "the start survives the reconnect");
+        assert!(replacement.take_last_command_change());
+
+        let mut again = TerminalMetadata::default();
+        again.keep_command_state_of(&replacement);
+        assert_eq!(again.last_command(), Some(last));
+        assert!(!again.take_last_command_change(), "a published record does not publish again");
     }
 
     #[test]

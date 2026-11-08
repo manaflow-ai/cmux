@@ -86,6 +86,7 @@ impl Mux {
             self.state.lock().unwrap().terminal_catalog.values().cloned().collect::<Vec<_>>();
         for surface in terminals {
             surface.publish_pending_directory();
+            surface.publish_pending_last_command();
         }
     }
 }

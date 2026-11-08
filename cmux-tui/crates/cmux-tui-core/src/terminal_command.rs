@@ -7,7 +7,9 @@
 //! so it never publishes a record: a missing `last_command` means
 //! "unknown", never success. The record is not part of the terminal-host
 //! handoff, so a daemon that adopts a terminal after a restart learns it from
-//! the next command; a reconnect to the same host keeps it.
+//! the next command; a reconnect to the same host keeps the whole tracker. A
+//! changed record is published once as a terminal upsert (`has_change`,
+//! `mark_published`).
 
 use serde_json::{Value, json};
 
@@ -56,6 +58,8 @@ pub(crate) struct CommandTracker {
     /// When the running command's `C` arrived.
     busy_since_ms: Option<u64>,
     last: Option<LastCommand>,
+    /// The record last handed to the public graph.
+    published: Option<LastCommand>,
 }
 
 impl CommandTracker {
@@ -87,12 +91,22 @@ impl CommandTracker {
         self.last
     }
 
-    /// Keep `previous`'s record when this tracker has none: a reconnect to
-    /// the same terminal host replaces the parser, not the shell.
-    pub(crate) fn keep_last_command_of(&mut self, previous: &CommandTracker) {
-        if self.last.is_none() {
-            self.last = previous.last;
-        }
+    /// Whether the record changed since the last call, marking it published.
+    #[cfg(test)]
+    pub(crate) fn take_change(&mut self) -> bool {
+        let changed = self.last != self.published;
+        self.published = self.last;
+        changed
+    }
+
+    /// Record `published` as the record the public graph has.
+    pub(crate) fn mark_published(&mut self, published: Option<LastCommand>) {
+        self.published = published;
+    }
+
+    /// Whether `take_change` would report a change now; marks nothing.
+    pub(crate) fn has_change(&self) -> bool {
+        self.last != self.published
     }
 }
 
@@ -149,7 +163,7 @@ mod tests {
     }
 
     #[test]
-    fn read_run_last_command_parses_marks_and_survives_a_parser_replacement() {
+    fn read_run_last_command_parses_marks() {
         assert_eq!(ShellMark::parse(b"A"), Some(ShellMark::PromptStart));
         assert_eq!(ShellMark::parse(b"C;cmdline=ls"), Some(ShellMark::CommandStart));
         assert_eq!(
@@ -159,12 +173,22 @@ mod tests {
         assert_eq!(ShellMark::parse(b"D"), Some(ShellMark::CommandEnd { exit_code: None }));
         assert_eq!(ShellMark::parse(b"D;x"), Some(ShellMark::CommandEnd { exit_code: None }));
         assert_eq!(ShellMark::parse(b"B"), None);
+    }
 
-        let mut previous = CommandTracker::default();
-        previous.observe(ShellMark::CommandStart, 1);
-        previous.observe(ShellMark::CommandEnd { exit_code: Some(0) }, 2);
-        let mut replacement = CommandTracker::default();
-        replacement.keep_last_command_of(&previous);
-        assert_eq!(replacement.last_command(), previous.last_command());
+    #[test]
+    fn read_run_last_command_publishes_each_new_record_once() {
+        let mut tracker = CommandTracker::default();
+        assert!(!tracker.take_change(), "no record, nothing to publish");
+        tracker.observe(ShellMark::CommandStart, 1);
+        assert!(!tracker.has_change(), "a running command changes no record");
+        tracker.observe(ShellMark::CommandEnd { exit_code: Some(0) }, 2);
+        assert!(tracker.has_change());
+        assert!(tracker.take_change(), "a finished command publishes");
+        assert!(!tracker.take_change(), "once");
+        tracker.observe(ShellMark::PromptStart, 3);
+        assert!(!tracker.take_change(), "the prompt after D keeps the record");
+        tracker.observe(ShellMark::CommandStart, 4);
+        tracker.observe(ShellMark::CommandEnd { exit_code: Some(0) }, 5);
+        assert!(tracker.take_change(), "an equal status at a new time is a new record");
     }
 }

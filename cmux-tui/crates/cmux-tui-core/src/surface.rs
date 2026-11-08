@@ -2792,6 +2792,7 @@ impl Surface {
                         }
                         drop(journal_update);
                         surface.publish_pending_directory();
+                        surface.publish_pending_last_command();
                         pty.stream_progress.notify();
                         pty.request_frame(generation);
                         if let Some((offset, at_bottom)) = scroll_changed
@@ -3399,6 +3400,7 @@ impl Surface {
                                 }
                                 drop(journal_update.take());
                                 surface.publish_pending_directory();
+                                surface.publish_pending_last_command();
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(title) = title_update
@@ -3843,9 +3845,9 @@ impl Surface {
                             **term = replacement_term;
                             {
                                 // A reconnect replaces the parser, not the
-                                // shell: keep its last finished command.
+                                // shell: keep its command state.
                                 let mut metadata = pty.terminal_metadata.lock().unwrap();
-                                replacement_metadata.keep_last_command_of(&metadata);
+                                replacement_metadata.keep_command_state_of(&metadata);
                                 *metadata = replacement_metadata;
                             }
                             pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);

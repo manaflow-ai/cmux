@@ -355,7 +355,7 @@ tab <selector> show|rename|move|focus|close
 tab <selector> terminal|browser ...
 
 terminal list
-terminal <selector> show|write|keys|mouse|copy|move|project|attach|close
+terminal <selector> show|write|keys|mouse|move|project|attach|close
 terminal <selector> focus <in|out>
 terminal <selector> screen read [--unwrap] [--lines <n>]
 terminal <selector> screen wait --pattern <regex> [--new] [--timeout-ms <n>]
@@ -410,8 +410,8 @@ With OSC 133 shell integration the terminal record carries
 finished, with `exit_code` from `D;<code>` (absent when the shell sent none,
 or when the next prompt came without `D`), `finished_at_ms` and
 `started_at_ms` (decimal strings). Without integration the field is absent, so
-its absence never means success. `terminal list` and `terminal <t> show` read
-the current value.
+its absence never means success. A change to it publishes a terminal upsert,
+so a subscriber sees the new value without a read.
 
 `notify` takes the flags of the macOS `cmux notify` so scripts and agent hooks
 work unchanged inside a machine: `--title` (default `Notification`, at most

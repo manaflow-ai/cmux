@@ -2135,7 +2135,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. last_command ({exit_code?: int32, started_at_ms?: decimal, finished_at_ms: decimal}) is the last command the shell finished, from OSC 133 C and D (terminal-exit-status-v1): exit_code is the status D reported and is absent when the shell reported none or the next prompt came without D; the field is absent until a shell with shell integration finishes a command, so its absence never means success. It is present only while the terminal runs, and a read gives the current value. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. last_command ({exit_code?: int32, started_at_ms?: decimal, finished_at_ms: decimal}) is the last command the shell finished, from OSC 133 C and D (terminal-exit-status-v1): exit_code is the status D reported and is absent when the shell reported none or the next prompt came without D; the field is absent until a shell with shell integration finishes a command, so its absence never means success. It is present only while the terminal runs, and a change publishes a terminal upsert. Unknown sibling fields remain forbidden."
         }
       },
       "extra": false,
