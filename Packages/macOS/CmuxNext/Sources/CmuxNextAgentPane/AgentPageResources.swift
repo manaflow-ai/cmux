@@ -24,6 +24,7 @@ final class AgentPageResources: PageDynamicResourceSource, PageRangedResourceSou
         // The chat's copy is read from when the page is made, while its document loads: at launch
         // the main thread is busy, and the request then waits on no disk read of its own.
         if let chat = session(), !chat.isEmpty {
+            aheadGeneration = AgentPaneTailCache.shared.generation
             // task-owner: one bounded disk read per page made; kept until the document asks for it
             ahead = (chat, Task { [weak self] in
                 let kept = await AgentPaneTailCache.shared.snapshots.snapshot(for: chat)
@@ -39,6 +40,14 @@ final class AgentPageResources: PageDynamicResourceSource, PageRangedResourceSou
     /// document asks, about a second.
     private var ahead: (session: String, read: Task<JSONValue?, Never>)?
     private var read: (session: String, kept: JSONValue?)?
+    /// The chats' lifecycle when the read ahead began: a sign-out since (``AgentPaneTailCache/clear()``)
+    /// makes what it read no one's to serve.
+    private var aheadGeneration: UInt64 = 0
+
+    /// Whether the copy read ahead is still servable: no sign-out since it was read.
+    private var aheadIsCurrent: Bool {
+        aheadGeneration == AgentPaneTailCache.shared.generation && AgentPaneTailCache.shared.acceptsTails
+    }
 
     /// The script at once, in the turn Chromium asks, once the read ahead is in (or when the page
     /// shows no chat, or one it may not keep): at launch the main thread runs a long queue, and the
@@ -47,8 +56,10 @@ final class AgentPageResources: PageDynamicResourceSource, PageRangedResourceSou
         guard request.prefix == AgentPaneChatSnapshots.prefix, request.path == ["chat.js"] else { return nil }
         let chat = session()
         let keeps = allowed() && !(chat?.isEmpty ?? true)
-        guard !keeps || read?.session == chat else { return nil }
-        let kept = keeps ? read?.kept : nil
+        let current = aheadIsCurrent
+        guard !keeps || !current || read?.session == chat else { return nil }
+        // After a sign-out the copy read before it is dropped, and the page is answered with none.
+        let kept = keeps && current ? read?.kept : nil
         (ahead, read) = (nil, nil)
         return PageResource(data: AgentPaneTailCache.shared.snapshots.script(for: chat, allowed: allowed(), themeKey: themeKey(), kept: kept),
                             mimeType: "text/javascript")
@@ -60,7 +71,7 @@ final class AgentPageResources: PageDynamicResourceSource, PageRangedResourceSou
     func resource(for request: PageResourceRequest) async -> PageResource? {
         guard request.prefix == AgentPaneChatSnapshots.prefix, request.path == ["chat.js"] else { return nil }
         let chat = session()
-        let read = ahead.flatMap { $0.session == chat ? $0.read : nil }
+        let read = aheadIsCurrent ? ahead.flatMap { $0.session == chat ? $0.read : nil } : nil
         (ahead, self.read) = (nil, nil)
         return PageResource(data: await AgentPaneTailCache.shared.snapshots.script(for: chat, allowed: allowed(), themeKey: themeKey(), read: read),
                             mimeType: "text/javascript")

@@ -111,6 +111,33 @@ struct ChatSnapshotStoreTests {
         }
     }
 
+    /// A copy read ahead before a sign-out is never served after it, at once or the usual way, and
+    /// the store's copies on disk are gone.
+    @Test func aCopyReadAheadIsNotServedAfterSignOut() async throws {
+        try await Self.withDisk { disk in
+            try await Self.put("s-8", html: "<main>before sign-out</main>")
+            await disk.settled()
+            let url = URL(string: "cmux-page://cmux.agent/__snapshot/chat.js")!
+            let request = PageResourceRequest(prefix: "__snapshot", path: ["chat.js"], url: url)
+            let ready = AgentPageResources(session: { "s-8" }, allowed: { true })
+            let usual = AgentPageResources(session: { "s-8" }, allowed: { true })
+            await ready.readAhead()
+            await usual.readAhead()
+            AgentPaneTailCache.shared.clear()
+            await disk.settled()
+            #expect(await disk.read("s-8") == nil)
+            let answer = try #require(ready.readyResource(for: request))
+            let script = try #require(String(data: answer.data, encoding: .utf8))
+            #expect(script.hasPrefix("self.__cmuxChatSnapshot=null;"))
+            #expect(!script.contains("before sign-out"))
+            // A new lifecycle after the sign-out does not bring the old copy back.
+            AgentPaneTailCache.shared.resume()
+            let served = try #require(await Self.served(usual))
+            #expect(served.hasPrefix("self.__cmuxChatSnapshot=null;"))
+            #expect(!served.contains("before sign-out"))
+        }
+    }
+
     /// An incognito chat's page is never kept and never served, also when a page outside incognito
     /// kept a copy of the same chat, and also with that copy read ahead when the page was made.
     /// The pane takes a page whose window it does not know yet as incognito (AgentPaneView).

@@ -18,7 +18,7 @@ const ROW_SELECTOR = ".acpmux-row";
 /// What a copy never carries: script, frames, and the page's own media (a copy cannot play it).
 const DROPPED = "script, iframe, object, embed, frame, frameset, video, audio, canvas";
 
-type Plan = { drop: boolean; scroll?: string; value?: string; checked?: boolean; shadow?: ShadowRoot };
+type Plan = { drop: boolean; scroll?: string; checked?: boolean; shadow?: ShadowRoot };
 
 function planFor(element: Element, viewHeight: number): Plan | undefined {
   let plan: Plan | undefined;
@@ -30,12 +30,10 @@ function planFor(element: Element, viewHeight: number): Plan | undefined {
     plan = { drop: false, scroll: `${Math.round(element.scrollTop)},${Math.round(element.scrollLeft)}` };
   // By tag, not `instanceof`: the page's realm is not always this module's (a test's window).
   const tag = element.tagName;
-  if (tag === "TEXTAREA" || tag === "INPUT") {
-    const field = element as HTMLInputElement;
+  // No field's text is written (``scrubFields``); a box's checked state is not text.
+  if (tag === "INPUT" && (element as HTMLInputElement).checked) {
     plan ??= { drop: false };
-    // Typed text is a property, not markup; a password never leaves its field.
-    if (field.type !== "password") plan.value = field.value;
-    if (tag === "INPUT") plan.checked = field.checked;
+    plan.checked = true;
   }
   const shadow = element.shadowRoot;
   if (shadow) {
@@ -62,10 +60,30 @@ function shadowTemplate(doc: Document, shadow: ShadowRoot): HTMLTemplateElement 
   return template;
 }
 
-function stripHandlers(root: Element): void {
-  for (const element of [root, ...Array.from(root.querySelectorAll("*"))])
+/// Input types whose `value` is a label or a choice the page wrote, not something typed.
+const LABEL_INPUTS = new Set(["button", "submit", "reset", "image", "checkbox", "radio", "range", "color"]);
+
+/// Every field's text leaves the copy: a text input's `value` attribute (a controlled input's,
+/// which carries what it shows, such as an API key in a sign-in field) and a textarea's text,
+/// in the markup and in its shadow roots' templates. The chat's composer draft is the prompt
+/// editor's own markup, not a field, so the copy still shows it.
+function scrubFields(root: ParentNode): void {
+  for (const field of Array.from(root.querySelectorAll("input, textarea"))) {
+    if (field.tagName === "TEXTAREA") field.textContent = "";
+    else if (!LABEL_INPUTS.has((field.getAttribute("type") ?? "text").toLowerCase())) field.removeAttribute("value");
+  }
+  for (const template of Array.from(root.querySelectorAll("template"))) scrubFields(template.content);
+}
+
+function stripHandlers(root: ParentNode): void {
+  // By shape, not `instanceof` (the page's realm is not always this module's).
+  const self = "attributes" in root ? [root as Element] : [];
+  const elements = [...self, ...Array.from(root.querySelectorAll("*"))];
+  for (const element of elements) {
     for (const attribute of Array.from(element.attributes))
       if (/^on/i.test(attribute.name)) element.removeAttribute(attribute.name);
+    if (element.tagName === "TEMPLATE") stripHandlers((element as HTMLTemplateElement).content);
+  }
 }
 
 /// The theme's own sheet (WebTheme's bootstrap), which `<html>` already carries under the copy.
@@ -114,10 +132,6 @@ export function captureSnapshot(doc: Document, theme: string): ChatSnapshot | un
       return;
     }
     if (plan.scroll) element.setAttribute(SNAPSHOT_SCROLL_ATTRIBUTE, plan.scroll);
-    if (plan.value !== undefined) {
-      if (element.tagName === "TEXTAREA") element.textContent = plan.value;
-      else element.setAttribute("value", plan.value);
-    }
     if (plan.checked) element.setAttribute("checked", "");
     if (plan.shadow) {
       const adopted = plan.shadow.adoptedStyleSheets ?? [];
@@ -135,6 +149,7 @@ export function captureSnapshot(doc: Document, theme: string): ChatSnapshot | un
   });
   for (const node of Array.from(copy.querySelectorAll(DROPPED))) node.remove();
   stripHandlers(copy);
+  scrubFields(copy);
   const html = copy.outerHTML;
   const sheetTexts = Array.from(sheets.keys(), sheetText);
   const root = attributesOf(doc.documentElement);

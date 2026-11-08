@@ -56,7 +56,7 @@ await requireBrowserLane("agent-pane-chat-snapshot.test.ts", async () => {
       { length: 100 },
       (_, at) => `<article class="acpmux-row" data-row-id="r${at}" style="top:${at * 40}px">row ${at}</article>`,
     ).join("");
-    return `<div class="header">Chat title</div><div class="acpmux-scroll"><div class="acpmux-spacer">${rows}</div></div><div class="composer"><textarea></textarea></div>`;
+    return `<div class="header">Chat title</div><div class="acpmux-scroll"><div class="acpmux-spacer">${rows}</div></div><div class="composer"><div class="prompt" contenteditable="true"></div><textarea></textarea></div>`;
   };
   /// The person's theme.css, which the page adds once the host sends it (paneTheme.ts).
   const USER_CSS = "#root .header { height: 52px; }";
@@ -101,7 +101,8 @@ w.atBundle = host && copy ? {
   header: box(copy.querySelector(".header")),
   row: box(copy.querySelector('[data-row-id="r60"]')),
   composer: box(copy.querySelector(".composer textarea")),
-  text: (copy.querySelector(".composer textarea") as HTMLTextAreaElement).value,
+  text: copy.querySelector(".composer .prompt")!.textContent,
+  field: (copy.querySelector(".composer textarea") as HTMLTextAreaElement).value,
   scrollTop: copy.querySelector(".acpmux-scroll")!.scrollTop,
   rows: copy.querySelectorAll(".acpmux-row").length,
   headerColor: getComputedStyle(copy.querySelector(".header")!).backgroundColor,
@@ -113,7 +114,7 @@ user.textContent = w.userCss;
 document.head.append(user);
 root.innerHTML = w.liveMarkup;
 document.documentElement.style.setProperty("--agent-indent", "20px");
-(root.querySelector("textarea") as HTMLTextAreaElement).value = "draft text";
+root.querySelector(".prompt")!.textContent = "draft text";
 root.querySelector(".acpmux-scroll")!.scrollTop = 2000;
 w.frames = [];
 const watch = () => {
@@ -154,7 +155,9 @@ requestAnimationFrame(() => {
       user.id = "acpmux-user-theme";
       user.textContent = (window as any).userCss;
       document.head.append(user);
-      document.querySelector("textarea")!.value = "draft text";
+      // The composer's draft is the prompt editor's markup; a field's typed text is never written.
+      document.querySelector(".prompt")!.textContent = "draft text";
+      document.querySelector("textarea")!.value = "typed in a field";
       document.querySelector(".acpmux-scroll")!.scrollTop = 2000;
       const box = (el: Element | null) => {
         const r = el!.getBoundingClientRect();
@@ -239,6 +242,8 @@ requestAnimationFrame(() => {
     expect(atBundle.row).toEqual(before.row);
     expect(atBundle.composer).toEqual(before.composer);
     expect(atBundle.text).toBe("draft text");
+    expect(atBundle.field).toBe("");
+    expect(snapshot.html).not.toContain("typed in a field");
     expect(atBundle.scrollTop).toBe(2000);
     expect(atBundle.rows as number).toBeLessThan(20);
     expect(atBundle.headerColor).toBe("rgb(10, 20, 30)");
@@ -357,5 +362,39 @@ requestAnimationFrame(() => {
     expect(afterSwap.header).toEqual(atBundle.header as number[]);
     await context.close();
     await shorter.close();
+  });
+
+  test("no field's text is written: a sign-in key in a controlled input, a password, a textarea, in shadow roots too", async () => {
+    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const page = await context.newPage();
+    await page.route("http://chat.test/a.html", (route) =>
+      route.fulfill({ contentType: "text/html", body: htmlDocument(`<main id="root">${MARKUP()}</main>`) }),
+    );
+    await page.goto("http://chat.test/a.html");
+    await page.addScriptTag({ content: capture });
+    const snapshot = (await page.evaluate(() => {
+      const KEY = "sk-ant-api03-SECRETKEY";
+      // As React renders `<input value={key}>`: the attribute and the property both carry it.
+      const card = document.createElement("form");
+      card.className = "cloud-sign-in";
+      card.innerHTML =
+        `<input type="text" class="key" value="${KEY}"><input type="password" value="${KEY}">` +
+        `<input autocomplete="one-time-code" value="${KEY}"><textarea>${KEY}</textarea>` +
+        `<input type="checkbox" value="remember" checked><button type="submit">Sign in</button>`;
+      (card.querySelector(".key") as HTMLInputElement).value = KEY;
+      const host = document.createElement("div");
+      const shadow = host.attachShadow({ mode: "open" });
+      shadow.innerHTML = `<input value="${KEY}"><textarea>${KEY}</textarea><button onclick="steal()">x</button>`;
+      const root = document.getElementById("root")!;
+      root.prepend(card, host);
+      return (globalThis as any).captureSnapshot(document, "theme-1");
+    })) as Record<string, unknown>;
+    expect(snapshot).toBeDefined();
+    expect(JSON.stringify(snapshot)).not.toContain("SECRETKEY");
+    expect(snapshot.html as string).toContain('class="cloud-sign-in"');
+    expect(snapshot.html as string).toContain('value="remember"');
+    expect(snapshot.html as string).toContain('shadowrootmode="open"');
+    expect(snapshot.html as string).not.toContain("onclick");
+    await context.close();
   });
 });

@@ -126,7 +126,11 @@ public final class AgentPaneChatSnapshots {
     func script(for sessionId: String?, allowed: Bool, themeKey: String? = nil, read: Task<JSONValue?, Never>? = nil) async -> Data {
         var kept: JSONValue?
         if allowed, let sessionId, !sessionId.isEmpty {
+            let cache = AgentPaneTailCache.shared
+            let generation = cache.generation
             if let read { kept = await read.value } else { kept = await snapshot(for: sessionId) }
+            // A sign-out while it read: what was read is no one's to serve.
+            if generation != cache.generation || !cache.acceptsTails { kept = nil }
         }
         return script(for: sessionId, allowed: allowed, themeKey: themeKey, kept: kept)
     }
