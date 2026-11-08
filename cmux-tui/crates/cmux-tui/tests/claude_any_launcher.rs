@@ -193,7 +193,8 @@ impl Daemon {
         response["data"].clone()
     }
 
-    /// Runs `script` (sh) in a new terminal named `tag`; returns its terminal id.
+    /// Runs `script` (sh) in a new terminal named `tag`; returns its public
+    /// terminal id (`term_<id>`, the form the CLI takes).
     fn run(&mut self, tag: &str, script: &str) -> String {
         let created = self.request(serde_json::json!({
             "id": 1, "cmd": "run", "argv": ["/bin/sh", "-c", script],
@@ -205,7 +206,7 @@ impl Daemon {
         if let Some(surface) = created["surface"].as_u64() {
             self.surfaces.push((tag.to_owned(), surface));
         }
-        terminal
+        if terminal.starts_with("term_") { terminal } else { format!("term_{terminal}") }
     }
 
     /// The screen of the terminal named `tag`, for a failure message.
@@ -241,7 +242,10 @@ impl Daemon {
         }
         let output = command.output().unwrap();
         if !output.status.success() {
-            return serde_json::Value::Null;
+            return serde_json::Value::String(format!(
+                "agent list failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
         }
         let listed: serde_json::Value =
             serde_json::from_slice(&output.stdout).unwrap_or(serde_json::Value::Null);
