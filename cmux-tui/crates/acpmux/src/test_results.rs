@@ -74,11 +74,51 @@ impl TestResults {
         if !self.counts_reported {
             self.failed += 1;
         }
+        self.retain_failure(failure);
+    }
+
+    fn retain_failure(&mut self, failure: TestFailure) {
+        if self.failures.iter().any(|old| old.name == failure.name) {
+            return;
+        }
         if self.failures.len() < MAX_FAILURES {
             self.failures.push(failure);
         } else {
             self.failures_truncated = true;
         }
+    }
+
+    pub(crate) fn merge(&mut self, other: TestResults) {
+        if self.counts_reported || other.counts_reported {
+            self.passed = self.passed.max(other.passed);
+            self.failed = self.failed.max(other.failed);
+            self.skipped = self.skipped.max(other.skipped);
+            self.total = self.total.max(other.total);
+            self.counts_reported = true;
+        } else {
+            self.passed += other.passed;
+            self.failed += other.failed;
+            self.skipped += other.skipped;
+            self.total += other.total;
+        }
+        for failure in other.failures {
+            self.retain_failure(failure);
+        }
+        self.failures_truncated |= other.failures_truncated;
+        self.normalize();
+    }
+
+    pub(crate) fn merge_snapshot(&mut self, other: TestResults) {
+        self.passed = self.passed.max(other.passed);
+        self.failed = self.failed.max(other.failed);
+        self.skipped = self.skipped.max(other.skipped);
+        self.total = self.total.max(other.total);
+        self.counts_reported |= other.counts_reported;
+        for failure in other.failures {
+            self.retain_failure(failure);
+        }
+        self.failures_truncated |= other.failures_truncated;
+        self.normalize();
     }
 }
 
@@ -95,10 +135,10 @@ pub fn parse(command: &str, output: &str) -> Option<TestResults> {
         return None;
     }
 
-    let text_output = bounded_tail(output);
+    let output = bounded_tail(output);
     let mut parsed = parse_json(output);
     if parsed.is_none() {
-        parsed = parse_text(text_output);
+        parsed = parse_text(output);
     }
     parsed.filter(|result| !result.is_empty()).map(|mut result| {
         result.normalize();
@@ -112,13 +152,13 @@ fn parse_json(output: &str) -> Option<TestResults> {
     {
         if let Some(object) = value.as_object() {
             let has_jest_counts = object.get("numTotalTests").is_some();
+            let pending = usize_value(object.get("numPendingTests"));
+            let todo = usize_value(object.get("numTodoTests"));
             let mut result = TestResults {
                 total: usize_value(object.get("numTotalTests")),
                 passed: usize_value(object.get("numPassedTests")),
                 failed: usize_value(object.get("numFailedTests")),
-                skipped: usize_value(
-                    object.get("numPendingTests").or_else(|| object.get("numTodoTests")),
-                ),
+                skipped: pending + todo,
                 counts_reported: has_jest_counts,
                 ..Default::default()
             };
@@ -137,7 +177,10 @@ fn parse_json(output: &str) -> Option<TestResults> {
                             "failed" => result.add_failure(TestFailure {
                                 name,
                                 reason: reason_from_json(assertion),
-                                file: file_from_json(assertion),
+                                file: file_from_json(
+                                    assertion,
+                                    suite.get("name").and_then(Value::as_str),
+                                ),
                                 line: line_from_json(assertion),
                             }),
                             "pending" | "skipped" | "todo" if !has_jest_counts => {
@@ -294,8 +337,8 @@ fn reason_from_json(value: &Value) -> String {
         .map(|a| cap_reason_parts(a.iter().filter_map(Value::as_str)))
         .unwrap_or_default()
 }
-fn file_from_json(value: &Value) -> Option<String> {
-    value.get("testFilePath").and_then(Value::as_str).map(cap_text)
+fn file_from_json(value: &Value, suite_name: Option<&str>) -> Option<String> {
+    value.get("testFilePath").and_then(Value::as_str).or(suite_name).map(cap_text)
 }
 fn line_from_json(value: &Value) -> Option<u32> {
     value.get("location").and_then(|l| l.get("line")).and_then(Value::as_u64).map(|n| n as u32)
@@ -409,5 +452,20 @@ mod tests {
         let output = r#"{"summary":{"passed":2,"failed":1,"skipped":1,"total":4},"tests":[{"outcome":"passed"},{"outcome":"passed"},{"outcome":"skipped"},{"outcome":"failed","nodeid":"tests/test.py::bad"}]}"#;
         let result = parse("pytest --json", output).unwrap();
         assert_eq!((result.passed, result.failed, result.skipped), (2, 1, 1));
+    }
+
+    #[test]
+    fn merges_delta_counts_without_resetting() {
+        let mut result = parse("cargo test", "test parser::one ... ok").unwrap();
+        result.merge(parse("cargo test", "test parser::two ... ok").unwrap());
+        assert_eq!(result.passed, 2);
+    }
+
+    #[test]
+    fn uses_jest_suite_name_and_adds_todo_count() {
+        let output = r#"{"numTotalTests":3,"numPassedTests":1,"numFailedTests":1,"numPendingTests":0,"numTodoTests":1,"testResults":[{"name":"src/parser.test.ts","assertionResults":[{"title":"rejects","status":"failed","failureMessages":["bad"],"location":{"line":9}}]}]}"#;
+        let result = parse("jest --json", output).unwrap();
+        assert_eq!(result.skipped, 1);
+        assert_eq!(result.failures[0].file.as_deref(), Some("src/parser.test.ts"));
     }
 }

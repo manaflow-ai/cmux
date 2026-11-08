@@ -200,6 +200,19 @@ fn text_of(content: &Value) -> String {
     }
 }
 
+fn cap_tool_detail(mut detail: String) -> String {
+    if detail.len() <= 4000 {
+        return detail;
+    }
+    let mut cut = 4000;
+    while !detail.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    detail.truncate(cut);
+    detail.push_str("\n…");
+    detail
+}
+
 /// Whether a user row's `shown` text is prompt `text`: the TUI's echo of a prompt with
 /// images adds an `[image: …]` line (`tui/mod.rs`).
 fn shows_prompt(shown: &str, text: &str) -> bool {
@@ -363,9 +376,11 @@ impl Transcript {
                         other => other.to_string(),
                     };
                 }
-                if let Some(delta) =
-                    update.pointer("/_meta/terminal_output_delta/data").and_then(Value::as_str)
-                {
+                let terminal_delta = update
+                    .pointer("/_meta/terminal_output_delta/data")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
+                if let Some(delta) = terminal_delta.as_deref() {
                     if !detail.is_empty() {
                         detail.push('\n');
                     }
@@ -375,18 +390,14 @@ impl Transcript {
                     if matches!(tkind.as_deref(), Some("execute" | "terminal" | "shell"))
                         || command.to_ascii_lowercase().contains("test")
                     {
-                        crate::test_results::parse(command, &detail)
+                        crate::test_results::parse(
+                            command,
+                            terminal_delta.as_deref().unwrap_or(&detail),
+                        )
                     } else {
                         None
                     };
-                if detail.len() > 4000 {
-                    let mut cut = 4000;
-                    while !detail.is_char_boundary(cut) {
-                        cut -= 1;
-                    }
-                    detail.truncate(cut);
-                    detail.push_str("\n…");
-                }
+                detail = cap_tool_detail(detail);
                 if let Some(existing) = self.items.iter_mut().rev().find_map(|i| match i {
                     Item::Tool { id: tid, .. } if *tid == id => Some(i),
                     _ => None,
@@ -410,10 +421,27 @@ impl Transcript {
                             *es = s;
                         }
                         if !detail.is_empty() {
-                            *ed = detail;
+                            if terminal_delta.is_some() && !ed.is_empty() {
+                                let mut combined = std::mem::take(ed);
+                                combined.push('\n');
+                                combined.push_str(&detail);
+                                *ed = cap_tool_detail(combined);
+                            } else {
+                                *ed = detail;
+                            }
                         }
-                        if test_results.is_some() {
-                            *er = test_results;
+                        if let Some(results) = test_results {
+                            if terminal_delta.is_some() {
+                                if let Some(existing) = er {
+                                    existing.merge(results);
+                                } else {
+                                    *er = Some(results);
+                                }
+                            } else if let Some(existing) = er {
+                                existing.merge_snapshot(results);
+                            } else {
+                                *er = Some(results);
+                            }
                         }
                     }
                 } else {
