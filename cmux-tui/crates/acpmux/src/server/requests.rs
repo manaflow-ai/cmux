@@ -1820,6 +1820,20 @@ async fn dispatch_request_with_identity(
             let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
             let steer = flag("steer").or_else(|| params.get("steer").and_then(Value::as_bool));
             let steer = steer.unwrap_or(false);
+            // A subagent's prompt that starts a turn of a lane of its own lead: that turn's answer
+            // reaches the subagent (`hub/lane_report_subagents.rs`), so the receiver is told to end
+            // its turn with it rather than send it to the lead (`hub/prompt_attribution.rs`). Not
+            // one steered into a running turn: that turn's answer goes where its own prompt's does.
+            let provenance = provenance.map(|p| {
+                let lane_of_caller = conn.caller().is_some_and(|c| {
+                    c != s.id && hub.lane_report_parent(&s.id).as_deref() == Some(c)
+                });
+                let steers_in = steer && s.turn().is_some();
+                if steers_in || !lane_of_caller {
+                    return p;
+                }
+                crate::prompt_provenance::subagent_gets_reply(p)
+            });
             let prompt_id = mux_meta(&params)
                 .and_then(|m| m.get("promptId"))
                 .and_then(Value::as_str)
@@ -1898,6 +1912,16 @@ async fn dispatch_request_with_identity(
                     hub.append(&s, "mux", crate::sender_harness::RECORD_KIND, claim);
                 };
                 on_accepted = crate::sender_harness::on_kept(claim, write, on_accepted);
+            }
+            // The caller waits for this prompt's reply and prints it (`readsReply`, `acpmux run`,
+            // `acpmux send --wait`): when the session a lane reports to sent it, that turn is
+            // read, and no lane report of it goes to the same session again
+            // (`hub/lane_report_reads.rs`). Held until this request returns.
+            let reply_reader = (flag(crate::cli::output::READS_REPLY_META) == Some(true))
+                .then(|| hub.lane_report_reply_reader(conn.caller(), &s.id, conn.ended.subscribe()))
+                .flatten();
+            if let Some(reader) = &reply_reader {
+                on_accepted = Some(reader.watch(on_accepted));
             }
             let cloud_turn: Option<crate::cloud_rewind::CloudTurnEnvelope> =
                 match params.get("cloud_turn") {
@@ -2018,6 +2042,8 @@ async fn dispatch_request_with_identity(
                 crate::suggestion_gate::withdraw(&s.id);
             }
             let answer = heap(|| hub.prompt_with(&s, blocks, &client, steer, opts)).await;
+            // The turn ended (its read was decided) before the answer came back.
+            drop(reply_reader);
             if let Some(saved) = saved {
                 saved.settle(hub, &answer).await;
             }
