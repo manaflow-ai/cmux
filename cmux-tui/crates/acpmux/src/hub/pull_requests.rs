@@ -215,15 +215,16 @@ fn printed_url(output: &str) -> Option<&str> {
 }
 
 /// Notes a `tool_call` or `tool_call_update` into `m`: a shell call that runs `gh pr create` is
-/// remembered, and the pull request URL its output prints joins `m.pull_requests`.
-pub(super) fn absorb(session: &Session, update: &Value, m: &mut SessionMeta) {
+/// remembered, and the pull request URL its output prints joins `m.pull_requests`. Returns that
+/// URL when it is new, for the cost ledger (`hub/ledger`).
+pub(super) fn absorb(session: &Session, update: &Value, m: &mut SessionMeta) -> Option<String> {
     let mut calls = session.pr_creates.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(url) = track(&mut calls, update)
-        && m.pull_requests.len() < MAX_PULL_REQUESTS
-        && !m.pull_requests.contains(&url)
-    {
-        m.pull_requests.push(url);
+    let url = track(&mut calls, update)?;
+    if m.pull_requests.len() < MAX_PULL_REQUESTS && !m.pull_requests.contains(&url) {
+        m.pull_requests.push(url.clone());
+        return Some(url);
     }
+    None
 }
 
 /// Follows one update of a `gh pr create` call in `calls` (its id, and the URL it printed so far):
