@@ -598,6 +598,9 @@ dependencies = [
 [[package]]
 name = "cmux-transport"
 version = "0.1.0"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "cmux-wg"
