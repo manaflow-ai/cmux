@@ -155,7 +155,7 @@ fn snapshot_queue(snapshot: &Value) -> Vec<Value> {
         }
     }
     let mut rows: Vec<&Value> = newest.into_values().collect();
-    rows.sort_by_key(|row| text(*row, "terminal_id"));
+    rows.sort_by(|a, b| text(a, "terminal_id").cmp(&text(b, "terminal_id")));
     for notification in rows {
         if field(notification, "unread") != true {
             continue;
