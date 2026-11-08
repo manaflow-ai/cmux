@@ -579,9 +579,19 @@ pub(super) fn copy_folder_with_progress(
     keep: &dyn Fn(&str, bool) -> bool,
     progress: &mut dyn FnMut(),
 ) -> anyhow::Result<(u64, u64)> {
-    let local =
-        std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
-    let mut set = local::collect_files(&local)?;
+    // `local` is the canonical folder the caller authorized: a folder or a
+    // symlink swapped in since then is refused, never followed.
+    let unmoved = || {
+        std::fs::canonicalize(local).is_ok_and(|now| now == local)
+            && std::fs::symlink_metadata(local).is_ok_and(|meta| meta.is_dir())
+    };
+    if !unmoved() {
+        anyhow::bail!("{} changed after it was checked; nothing of it was sent", local.display());
+    }
+    let mut set = local::collect_files(local)?;
+    if !unmoved() {
+        anyhow::bail!("{} changed while it was listed; nothing of it was sent", local.display());
+    }
     let git = set.git;
     let before = set.files.len();
     set.files.retain(|relative, _| keep(relative, git));
@@ -593,6 +603,12 @@ pub(super) fn copy_folder_with_progress(
     for (relative, file) in set.files {
         // Each file's checks are round trips too: the app's idle deadline hears them.
         progress();
+        // A file reached through a symlink swapped in after listing stays.
+        let path = local.join(&relative);
+        if !std::fs::canonicalize(&path).is_ok_and(|real| real == path) {
+            skipped += 1;
+            continue;
+        }
         let at = format!("{target}/{relative}");
         let (parent, _) = remote::split(&at)?;
         if through_link(&mut remote, target, parent, &mut seen)? {
