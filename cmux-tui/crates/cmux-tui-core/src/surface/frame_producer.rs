@@ -66,17 +66,20 @@ struct Slot {
 /// terminal leaves the producer when this is dropped (the producer holds
 /// only a weak reference to its slot).
 ///
-/// It also holds the terminal's scroll position change that output caused
-/// and no `scroll-changed` event has published yet. Output moves the scroll
+/// It also holds the newest terminal scroll position change that no
+/// `scroll-changed` event has published yet. Output moves the scroll
 /// offset on almost every chunk (93k events/s while one terminal floods,
 /// perf100 tui lane), so output only records the newest position here and
 /// the producer publishes it once per frame. Every other scroll change (a
-/// viewport scroll, a resize, a clear, a replay) publishes at once and drops
-/// a recorded one, under the same lock, so an older position can never be
-/// published after a newer one.
+/// viewport scroll, a resize, a clear, a replay) records its position under
+/// the terminal lock too, then flushes after unlocking. Publishers never
+/// reinsert captured positions, so a delayed publisher cannot undo a newer
+/// scroll. A separate publication lock serializes flushes; recording never
+/// waits for a publisher that may be waiting for mux state.
 pub(crate) struct FrameRequests {
     slot: Arc<Slot>,
     scroll: Mutex<Option<(u64, bool)>>,
+    scroll_publication: Mutex<()>,
 }
 
 impl FrameRequests {
@@ -84,7 +87,7 @@ impl FrameRequests {
     pub(super) fn new() -> Self {
         // The producer thread starts with the first terminal.
         let _ = scheduler();
-        Self { slot: Arc::default(), scroll: Mutex::new(None) }
+        Self { slot: Arc::default(), scroll: Mutex::new(None), scroll_publication: Mutex::new(()) }
     }
 
     /// Ask for a frame of at least `generation`; `announce`: the producer
@@ -109,31 +112,23 @@ impl FrameRequests {
 }
 
 impl FrameRequests {
-    /// Output moved the scroll position: publish it with the next frame.
+    /// Record a viewport transition while holding the terminal lock.
+    /// Output flushes it at the next frame; explicit scrolls flush after
+    /// releasing the terminal lock. Never record a captured position later:
+    /// another transition could already have recorded or published its move.
     pub(super) fn defer_scroll(&self, offset: u64, at_bottom: bool) {
         *self.scroll.lock().recover_poison() = Some((offset, at_bottom));
     }
 
-    /// Publish a recorded output scroll change, if any; whether one was.
+    /// Publish the newest recorded position. Call without mux, terminal or
+    /// geometry locks. Release the recording lock before calling the mux:
+    /// mux state may already be held by a thread waiting for the terminal.
     pub(super) fn flush_scroll(&self, mux: &Mux, surface: SurfaceId) -> bool {
-        let mut pending = self.scroll.lock().recover_poison();
-        let Some((offset, at_bottom)) = pending.take() else { return false };
+        let _publication = self.scroll_publication.lock().recover_poison();
+        let pending = self.scroll.lock().recover_poison().take();
+        let Some((offset, at_bottom)) = pending else { return false };
         mux.emit_terminal_scroll(surface, offset, at_bottom);
         true
-    }
-
-    /// A scroll change that is not output's: publish it now, replacing a
-    /// recorded one.
-    pub(super) fn publish_scroll_now(
-        &self,
-        mux: &Mux,
-        surface: SurfaceId,
-        offset: u64,
-        at_bottom: bool,
-    ) {
-        let mut pending = self.scroll.lock().recover_poison();
-        *pending = None;
-        mux.emit_terminal_scroll(surface, offset, at_bottom);
     }
 }
 

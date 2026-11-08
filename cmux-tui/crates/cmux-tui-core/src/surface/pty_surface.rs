@@ -519,12 +519,12 @@ impl PtySurface {
     /// `Mux::state` (mux events take it). Render taps already got the move,
     /// ordered before the frame. Returns whether the geometry changed.
     pub(super) fn publish_geometry_commit(&self, commit: GeometryCommit) -> bool {
-        if let Some((offset, at_bottom)) = commit.scroll
+        if commit.scroll.is_some()
             && let Some(mux) = self.mux.upgrade()
         {
-            // Not output's move: it replaces a position output deferred to
-            // the next frame, so that older one is never published after it.
-            self.frame_requests.publish_scroll_now(&mux, self.event_surface_id, offset, at_bottom);
+            // The move was recorded under the terminal lock. Publish the
+            // newest recorded position, including any intervening scroll.
+            self.frame_requests.flush_scroll(&mux, self.event_surface_id);
         }
         commit.changed
     }
@@ -701,9 +701,9 @@ impl PtySurface {
         // output events it publishes: this caller may hold `Mux::state`.
         #[cfg(unix)]
         if let Some(output) = local_output.as_mut()
-            && let Some(position) = scroll.take()
+            && scroll.take().is_some()
         {
-            output.queue_scroll_changed(generation, position);
+            output.queue_scroll_changed(generation);
         }
         if let Some(replay) = replay {
             let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();

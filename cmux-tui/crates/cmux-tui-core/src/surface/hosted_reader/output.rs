@@ -25,7 +25,6 @@ impl HostedReader {
             follow_marks(pty, &output);
         }
         cmux_flow_trace::hop_on_traced("daemon.output.host", pty.flow_terminal_id());
-        let mut scroll_changed = None;
         let mut title_update = None;
         let terminal_notifications;
         let finished_commands;
@@ -104,7 +103,6 @@ impl HostedReader {
             }
             pty.record_directory(term.pwd());
             if before != after {
-                scroll_changed = Some(after);
                 broadcast_render_scroll_locked(pty, after);
             }
             // Advance the output watermark while the
@@ -127,10 +125,6 @@ impl HostedReader {
         // next frame (a key's echo) must not wait for the registry (#35413).
         surface.queue_pending_publications();
         pty.stream_progress.notify();
-        // Published by the frame lane, once per frame (FrameRequests).
-        if let Some((offset, at_bottom)) = scroll_changed {
-            pty.frame_requests.defer_scroll(offset, at_bottom);
-        }
         pty.request_frame_from_reader(generation);
         if let Some(title) = title_update
             && let Some(mux) = mux.upgrade()

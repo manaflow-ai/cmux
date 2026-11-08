@@ -133,8 +133,8 @@ impl HostedReader {
                 mux.emit_terminal_title(surface.id, title.into());
             }
             mux.emit_terminal_resized(surface.id, cols, rows, None);
-            if let Some((offset, at_bottom)) = scroll_changed {
-                pty.frame_requests.publish_scroll_now(&mux, surface.id, offset, at_bottom);
+            if scroll_changed.is_some() {
+                pty.frame_requests.flush_scroll(&mux, surface.id);
             }
         }
         Flow::Continue
