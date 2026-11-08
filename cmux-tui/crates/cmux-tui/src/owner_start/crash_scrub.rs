@@ -33,7 +33,7 @@ const SECRET_RULES: &[&str] = &[
     r"(?i)-----BEGIN[A-Z ]+(?:PRIVATE|PUBLIC) KEY-----[\s\S]+?-----END[A-Z ]+(?:PRIVATE|PUBLIC) KEY-----",
     r"\b(?:3[47]\d|4\d{3}|5[1-5]\d\d|65\d\d|6011)(?:[-\s]?\d){12}\b",
     concat!(
-        r"\b(?:AT|AD|AE|AL|AZ|BA|BE|BG|BH|BR|BY|CH|CR|CY|CZ|DE|DK|DO|EE|EG|ES|FI|FO|FR|GB|GE|GI|GL|",
+        r"(?i)\b(?:AT|AD|AE|AL|AZ|BA|BE|BG|BH|BR|BY|CH|CR|CY|CZ|DE|DK|DO|EE|EG|ES|FI|FO|FR|GB|GE|GI|GL|",
         r"GR|GT|HR|HU|IE|IL|IQ|IS|IT|JO|KW|KZ|LB|LC|LI|LT|LU|LV|LY|MC|MD|ME|MK|MR|MT|MU|NL|NO|",
         r"PK|PL|PS|PT|QA|RO|RU|RS|SA|SC|SE|SI|SK|SM|ST|SV|TL|TN|TR|UA|VA|VG|XK|DZ|AO|BJ|BF|BI|",
         r"CV|CM|CF|TD|KM|CG|CI|DJ|GQ|GA|GW|HN|IR|MG|ML|MA|MZ|NI|NE|SN|TG)",
@@ -51,7 +51,7 @@ struct Rules {
 }
 
 fn compile(pattern: &str) -> Regex {
-    // Every rule is a constant above; `keeps_field_prefixes_and_ordinary_text` compiles them all.
+    // Every rule is a constant above or an escaped home path; the tests compile them all.
     Regex::new(pattern).expect("crash_scrub rule compiles")
 }
 
@@ -59,8 +59,8 @@ static RULES: LazyLock<Rules> = LazyLock::new(|| Rules {
     url_userinfo: compile(r"([A-Za-z][A-Za-z0-9+.\-]*://)[^/?#\s]+@"),
     secrets: SECRET_RULES.iter().copied().map(compile).collect(),
     email: compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"),
-    users: compile(r#"/Users/[^/\s"']+"#),
-    homes: compile(r#"/home/[^/\s"']+"#),
+    users: compile(r#"(?i)/Users/[^/\s"']+"#),
+    homes: compile(r#"(?i)/home/[^/\s"']+"#),
 });
 
 /// Keeps group 1 (a field prefix such as `token=`) and replaces the rest of the match with `with`.
@@ -77,7 +77,9 @@ pub(super) fn scrub(text: &str, home: Option<&str>) -> String {
     }
     out = rules.email.replace_all(&out, EMAIL).into_owned();
     if let Some(home) = home.filter(|home| home.len() > 1) {
-        out = out.replace(home, "~");
+        // Only a whole path component: with `/Users/al`, `/Users/alice` must not become `~ice`.
+        let bounded = compile(&format!(r#"(?i){}([/\s"']|$)"#, regex::escape(home)));
+        out = bounded.replace_all(&out, "~$1").into_owned();
     }
     out = rules.users.replace_all(&out, format!("/Users/{USER}")).into_owned();
     rules.homes.replace_all(&out, format!("/home/{USER}")).into_owned()
