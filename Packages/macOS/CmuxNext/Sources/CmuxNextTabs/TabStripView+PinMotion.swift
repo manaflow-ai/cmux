@@ -77,6 +77,8 @@ extension TabStripView {
         // the gap; it never moves through the divider).
         let slid = sampled(neighbours)
         let slidEnds = slid.last ?? []
+        // The first tab whose resting middle is right of the divider's new place.
+        let anchor = slidEnds.indices.filter { slidEnds[$0].midX > newX }.min { slidEnds[$0].minX < slidEnds[$1].minX }
         func covers(_ x: CGFloat, _ frame: CGRect) -> Bool { x > frame.minX - 0.5 && x < frame.maxX + 0.5 }
         let last = times.count - 1
         // Out: by half the move, or the sample before a tab from its right reaches it (at least two samples).
@@ -91,10 +93,10 @@ extension TabStripView {
             let left = frames[k].indices.reduce(newX) { x, index in
                 ends[index].maxX <= newX ? max(x, frames[k][index].maxX + (newX - ends[index].maxX)) : x
             }
-            // A sliding tab that lands right of the new place carries it on its leading edge.
-            return slidEnds.indices.reduce(left) { x, index in
-                slidEnds[index].minX >= newX ? min(x, slid[k][index].minX - (slidEnds[index].minX - newX)) : x
-            }
+            // The sliding tab right of the new place (its cell may reach into the gap) carries it at its resting
+            // offset from that tab's leading edge: same frame per tick, so it never draws through the tab's icon.
+            guard let anchor else { return left }
+            return min(left, slid[k][anchor].minX + (newX - slidEnds[anchor].minX))
         }
         let coveredLast = frames.indices.last { k in
             frames[k].contains { covers(inXs[k], $0) }
