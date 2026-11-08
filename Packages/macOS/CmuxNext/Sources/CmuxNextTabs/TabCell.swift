@@ -80,14 +80,22 @@ final class TabCell {
     /// The form the tab showed when it was pinned or unpinned, until the strip's move of its width takes its parts
     /// from that look to the new one on the width's progress (`TabCell+InnerPath`, `retimeInner`).
     var pinStartForm: TabChromeVisibility?
-    /// Created on the first occlusion (`occlude(visible:)`).
+    /// Created on the first occlusion (`occlude(visible:)`): a clear layer whose two opaque sides
+    /// (`occlusionSides`, the part before the pill and the part after it) are what of the tab draws.
     private(set) var occlusionMaskIfMade: CALayer?
     var occlusionMask: CALayer {
         if let occlusionMaskIfMade { return occlusionMaskIfMade }
         let mask = CALayer()
+        for _ in 0..<2 {
+            let side = CALayer()
+            side.backgroundColor = NSColor.black.cgColor
+            mask.addSublayer(side)
+        }
         occlusionMaskIfMade = mask
         return mask
     }
+    /// The occlusion mask's leading and trailing sides (`TabOcclusion.Visible`).
+    var occlusionSides: [CALayer] { occlusionMask.sublayers ?? [] }
     var style: TabStripStyle = .chrome { didSet { if oldValue != style { layoutLayers() } } }
     var metrics: TabStripMetrics = .standard {
         didSet {
