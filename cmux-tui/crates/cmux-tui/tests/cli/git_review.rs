@@ -196,7 +196,15 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     assert_eq!(comment["side"], "additions", "{comment}");
     assert_eq!(comment["lineText"], "line 10, fixed", "{comment}");
     let renamed = [
-        "review", "comment", "--file", "new name.txt", "--line", "3", "--side", "old", "--message",
+        "review",
+        "comment",
+        "--file",
+        "new name.txt",
+        "--line",
+        "3",
+        "--side",
+        "old",
+        "--message",
         "Why this change?",
     ];
     let renamed = git_cli(&server, &worktree, &renamed);
