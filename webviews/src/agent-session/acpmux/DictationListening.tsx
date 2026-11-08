@@ -61,7 +61,7 @@ export function DictationStrip({ dictation, shown }: { dictation: Dictation; sho
   if (!presence.present) return null;
   return (
     <>
-      {look === "codex" && !presence.leaving && <DictationCancelButton dictation={dictation} />}
+      {look === "codex" && <DictationCancelButton dictation={dictation} leaving={presence.leaving} />}
       <span className="acpmux-dictation-pill" {...presence.props}>
         <DictationWave state={dictation.state} />
       </span>
@@ -71,13 +71,17 @@ export function DictationStrip({ dictation, shown }: { dictation: Dictation; sho
 
 /// ✕: ends the session and drops its words (`dictation.cancel`), as Esc does; ChatGPT's, at the
 /// left of its dictation row.
-export function DictationCancelButton({ dictation }: { dictation: Dictation }) {
+/// While the pill leaves, the button keeps its slot (inert, fading with it) so the row moves once.
+export function DictationCancelButton({ dictation, leaving = false }: { dictation: Dictation; leaving?: boolean }) {
   const t = useT();
   const label = t("dictation.cancel");
   return (
     <button
       type="button"
       className="acpmux-dictation-cancel"
+      data-leaving={leaving || undefined}
+      disabled={leaving}
+      tabIndex={leaving ? -1 : undefined}
       aria-label={label}
       {...tooltipProps(label, undefined)}
       // Keep focus and the selection in the prompt, as the mic does.
