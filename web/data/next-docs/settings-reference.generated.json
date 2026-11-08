@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 609,
+  "count": 607,
   "sections": [
     {
       "id": "general",
@@ -1975,45 +1975,6 @@
           "values": [
             "left",
             "right"
-          ]
-        },
-        {
-          "key": "agentPane.display.senderIcon.badge",
-          "title": "Sender Badge",
-          "help": "The small colored glyph on a sender's icon that tells sessions of one model family apart.",
-          "kind": "choice",
-          "default": "diamond",
-          "group": "Agent Chat",
-          "values": [
-            "diamond",
-            "robot",
-            "none"
-          ]
-        },
-        {
-          "key": "agentPane.display.senderIcon.corner",
-          "title": "Sender Badge Corner",
-          "help": "Where the small glyph sits on a sender's icon.",
-          "kind": "choice",
-          "default": "bottom-right",
-          "group": "Agent Chat",
-          "values": [
-            "bottom-right",
-            "bottom-left",
-            "top-right",
-            "top-left"
-          ]
-        },
-        {
-          "key": "agentPane.display.senderIcon.lead",
-          "title": "Sender Icon Emphasis",
-          "help": "Which is big in a sender's icon: the model family's mark, or the session's own colored badge.",
-          "kind": "choice",
-          "default": "family",
-          "group": "Agent Chat",
-          "values": [
-            "family",
-            "session"
           ]
         },
         {
@@ -5174,6 +5135,14 @@
           "key": "browser.import.cookieBanner",
           "title": "Offer to Import Cookies",
           "help": "Browser tabs offer to import cookies from your other browsers, so you stay signed in. Nothing imports until you click Import. Don't Show Again on the banner turns this off.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Import"
+        },
+        {
+          "key": "browser.import.cookieSync",
+          "title": "Keep Imported Cookies in Sync",
+          "help": "After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it.",
           "kind": "toggle",
           "default": true,
           "group": "Import"

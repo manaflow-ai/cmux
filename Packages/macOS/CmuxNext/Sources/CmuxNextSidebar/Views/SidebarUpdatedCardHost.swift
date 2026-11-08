@@ -137,6 +137,9 @@ final class SidebarUpdatedCardHost: NSView {
     /// the glass. A report taller than it still grows the card. 0: nothing held (no remembered height,
     /// or the sidebar's width changed).
     private(set) var heldHeight: CGFloat = 0
+    /// The interface scale ``heldHeight`` was taken at: the page's points follow a live scale change, so
+    /// the hold does too (a card held at 60 at 125% holds 48 at 100%, never its old, larger height).
+    private var heldScale: CGFloat = 1
     /// The hold was armed for this showing of the card (once: a resize releases it, never re-arms it).
     private var holdArmed = false
     /// A height the page reported before the card's width was known: remembered at that width once the
@@ -151,7 +154,7 @@ final class SidebarUpdatedCardHost: NSView {
         guard card != nil, island != nil, slotWidth > 0 else { return }
         if !holdArmed {
             holdArmed = true
-            heldHeight = Self.rememberedHeight(width: slotWidth)
+            (heldHeight, heldScale) = (Self.rememberedHeight(width: slotWidth), DesignSettings.shared.uiScale)
         }
         if let pending = pendingRememberedHeight {
             pendingRememberedHeight = nil
@@ -242,13 +245,19 @@ final class SidebarUpdatedCardHost: NSView {
     /// card), and until then the height it last reported
     /// at this card's width (``rememberedHeight(width:)``; 0 when it never drew), so the room is there from the first frame and
     /// the words fill in where they stay.
+    /// ``heldHeight`` at the interface scale now.
+    private var held: CGFloat {
+        let scale = DesignSettings.shared.uiScale
+        return scale == heldScale || heldScale <= 0 ? heldHeight : (heldHeight * scale / heldScale).rounded(.up)
+    }
+
     var height: CGFloat {
         guard card != nil, let island else { return 0 }
         guard pageReported else {
-            return heldHeight > 0 ? heldHeight : Self.rememberedHeight(width: slotWidth > 0 ? slotWidth : bounds.width)
+            return heldHeight > 0 ? held : Self.rememberedHeight(width: slotWidth > 0 ? slotWidth : bounds.width)
         }
         let content = island.contentHeight
-        return content > 0 ? max(content, heldHeight) : 0
+        return content > 0 ? max(content, held) : 0
     }
 
     /// Shows the x while the pointer is on the card, with the hover-reveal fade (instant under Reduce

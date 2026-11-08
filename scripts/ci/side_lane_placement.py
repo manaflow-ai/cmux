@@ -619,6 +619,9 @@ def fleet_gateway(placed: Any, env: Mapping[str, str], runners: Sequence[Mapping
     until its timeout and report no verdict, so placement lists nothing and the job keeps its route
     (it waits on the owned label as before). No gateway (none idle, unread runners, a re-run) lists
     nothing either.
+
+    A kept job that a Blacksmith macOS label also took (next_macos_cascade.place() lists it so the fleet
+    builds it warm) leaves that label; a dropped one keeps it.
     """
     if not placed.fleet_jobs:
         return placed
@@ -626,7 +629,9 @@ def fleet_gateway(placed: Any, env: Mapping[str, str], runners: Sequence[Mapping
     room = (pool.live_owned_free(runners, [gateway])[gateway] - (taken or {}).get(gateway, 0)
             if gateway and runners is not None else 0)
     if room >= want:
-        return placed
+        fleet = set(placed.fleet_jobs)
+        return dataclasses.replace(placed, jobs={label: tuple(job for job in names if job not in fleet)
+                                                 for label, names in placed.jobs.items()})
     clients = ", ".join(f"{job}-fleet" for job in placed.fleet_jobs)
     where = f"`{gateway}`" if gateway else "the gateway"
     return dataclasses.replace(placed, fleet_jobs=(), why=(

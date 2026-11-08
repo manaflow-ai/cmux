@@ -38,7 +38,8 @@ import {
 } from "./turns";
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
-import { hasTokens, TimedLabel, tokensText } from "./TurnTokens";
+import { TimedLabel } from "./TurnTokens";
+import { hasTokens, tokensText } from "./turnTokensModel";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
 import {
   ForkButton,
@@ -70,10 +71,8 @@ import { useCodeRouterChoice } from "./codeRouterOfferModel";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./presentationContextModel";
 import { useTranscriptReadOnly } from "./readOnly";
-import { useTurnWaterfall } from "./TurnWaterfall";
-
-/// Where a folded run splits (toolGroups.ts), which the row estimate (model.ts) reads too.
-export { runStretches, type RunStretch } from "./toolGroups";
+import { useTurnWaterfall } from "./useTurnWaterfall";
+import { thoughtIds } from "./turnRowsModel";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
 function WorkedLabel({ row }: { row: AcpmuxRow }) {
@@ -230,31 +229,6 @@ function groupNode(
         />
       );
   }
-}
-
-/// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). The
-/// Codex-style runs fold a finished run (`foldRun`) of two or more entries under one summary line
-/// (toolRunSummary.ts: "Read 6 files, ran 4 commands"), and a run that is one group under that
-/// group's closed line ("Ran 3 commands"), so finished work is one click away between the
-/// paragraphs; coordination cards stay in sight between such lines (`runStretches`). A run not
-/// folded (`foldRun` unset) keeps each group and call on its own line.
-/// Whether the whole run folds under one summary line.
-export function shouldFoldToolRun(row: AcpmuxRow, groups: readonly ToolGroup[]): boolean {
-  const stretches = runStretches(row, groups);
-  return stretches.length === 1 && stretches[0]!.fold;
-}
-
-/// How many thoughts come before each entry of a run. A thought keeps its number as calls arrive
-/// (a run only grows at its end, and grouping keeps the order), so its open state stays with it when
-/// a call that finished joins it to a group (Codex review of #24075).
-export function thoughtIds(groups: readonly ToolGroup[]): number[] {
-  let thoughts = 0;
-  return groups.map((group) => {
-    const before = thoughts;
-    const items = "items" in group ? group.items : [group.item];
-    thoughts += items.filter((item) => !item.tool && item.kind !== "note").length;
-    return before;
-  });
 }
 
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {

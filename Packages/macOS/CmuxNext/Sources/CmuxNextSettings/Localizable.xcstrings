@@ -14091,6 +14091,270 @@
         }
       }
     },
+    "settings.browser.importCookieSync": {
+      "comment": "Settings > Browser > Import: toggle that keeps cookies imported from Chrome in sync.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Imported Cookies in Sync"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إبقاء ملفات تعريف الارتباط المستوردة متزامنة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drži uvezene kolačiće usklađenim"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold importerede cookies synkroniseret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importierte Cookies synchron halten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantener sincronizadas las cookies importadas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder les cookies importés synchronisés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantieni sincronizzati i cookie importati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インポートしたCookieを同期し続ける"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រក្សាខូគីដែលបាននាំចូលឱ្យធ្វើសមកាលកម្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져온 쿠키 동기화 유지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hold importerte informasjonskapsler synkronisert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Synchronizuj zaimportowane pliki cookie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manter cookies importados sincronizados"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Синхронизировать импортированные файлы cookie"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซิงค์คุกกี้ที่นำเข้าไว้เสมอ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İçe aktarılan çerezleri eşitlenmiş tut"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Синхронізувати імпортовані файли cookie"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giữ cookie đã nhập luôn đồng bộ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持导入的 Cookie 同步"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持匯入的 Cookie 同步"
+          }
+        }
+      }
+    },
+    "settings.browser.importCookieSync.help": {
+      "comment": "Settings > Browser > Import: help under Keep Imported Cookies in Sync.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بعد استيراد ملفات تعريف الارتباط من Chrome أو متصفح آخر مبني على Chromium، ينقل cmux المواقع التي تغيّرت ملفات تعريف الارتباط الخاصة بها هناك لتبقى مسجّل الدخول. لا يقرأ إلا الملف الشخصي الذي استوردت منه على هذا الـ Mac، ولا يغادره شيء."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nakon što uvezete kolačiće iz Chromea ili drugog preglednika zasnovanog na Chromiumu, cmux prenosi stranice čiji su se kolačići tamo promijenili, kako biste ostali prijavljeni. Čita samo profil iz kojeg ste uvezli, na ovom Macu; ništa ga ne napušta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når du har importeret cookies fra Chrome eller en anden Chromium-browser, henter cmux de websteder, hvis cookies er ændret der, så du forbliver logget ind. Den læser kun den profil, du importerede fra, på denne Mac; intet forlader den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nachdem du Cookies aus Chrome oder einem anderen Chromium-Browser importiert hast, übernimmt cmux die Websites, deren Cookies sich dort geändert haben, damit du angemeldet bleibst. Es liest nur das Profil, aus dem du importiert hast, auf diesem Mac; nichts verlässt ihn."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Después de importar cookies de Chrome u otro navegador Chromium, cmux trae los sitios cuyas cookies cambiaron allí, para que sigas con la sesión iniciada. Solo lee el perfil del que importaste, en este Mac; nada sale de él."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Après l’importation des cookies depuis Chrome ou un autre navigateur Chromium, cmux reprend les sites dont les cookies y ont changé, pour que vous restiez connecté. Il ne lit que le profil dont vous avez importé, sur ce Mac ; rien n’en sort."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo aver importato i cookie da Chrome o da un altro browser Chromium, cmux riporta i siti i cui cookie sono cambiati lì, così resti connesso. Legge solo il profilo da cui hai importato, su questo Mac; nulla lo lascia."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chrome などの Chromium ブラウザから Cookie をインポートした後、そこで Cookie が変わったサイトを cmux が取り込むので、サインインしたままでいられます。読み取るのはこの Mac 上のインポート元のプロファイルだけで、何も外部に送信されません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ទាប់ពីអ្នកនាំចូលខូគីពី Chrome ឬកម្មវិធីរុករក Chromium ផ្សេងទៀត cmux នាំយកគេហទំព័រដែលខូគីបានផ្លាស់ប្ដូរនៅទីនោះ ដើម្បីឱ្យអ្នកនៅតែចូលគណនី។ វាអានតែប្រវត្តិរូបដែលអ្នកបាននាំចូលពី នៅលើ Mac នេះ ហើយគ្មានអ្វីចាកចេញពីវាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chrome 또는 다른 Chromium 브라우저에서 쿠키를 가져온 뒤, cmux는 그곳에서 쿠키가 바뀐 사이트를 가져와 로그인 상태를 유지합니다. 이 Mac에서 가져온 프로필만 읽으며, 아무것도 Mac 밖으로 나가지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etter at du har importert informasjonskapsler fra Chrome eller en annen Chromium-nettleser, henter cmux nettstedene der informasjonskapslene har endret seg, så du forblir pålogget. Den leser bare profilen du importerte fra, på denne Macen; ingenting forlater den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po zaimportowaniu plików cookie z Chrome lub innej przeglądarki Chromium cmux przenosi witryny, których pliki cookie się tam zmieniły, abyś pozostał zalogowany. Odczytuje tylko profil, z którego importowano, na tym Macu; nic go nie opuszcza."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Depois que você importa cookies do Chrome ou de outro navegador Chromium, o cmux traz os sites cujos cookies mudaram lá, para você continuar conectado. Ele lê apenas o perfil de onde você importou, neste Mac; nada sai dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "После импорта файлов cookie из Chrome или другого браузера на Chromium cmux переносит сайты, чьи cookie там изменились, чтобы вы оставались в аккаунте. Он читает только профиль, из которого вы импортировали, на этом Mac; ничего не покидает его."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หลังจากนำเข้าคุกกี้จาก Chrome หรือเบราว์เซอร์ Chromium อื่น cmux จะนำเว็บไซต์ที่คุกกี้เปลี่ยนไปที่นั่นเข้ามา เพื่อให้คุณยังลงชื่อเข้าใช้อยู่ โดยอ่านเฉพาะโปรไฟล์ที่คุณนำเข้ามาบน Mac เครื่องนี้ และไม่มีสิ่งใดออกจากเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çerezleri Chrome'dan veya başka bir Chromium tarayıcısından içe aktardıktan sonra cmux, çerezleri orada değişen siteleri getirir; böylece oturumunuz açık kalır. Yalnızca içe aktardığınız profili bu Mac'te okur; hiçbir şey dışarı çıkmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Після імпорту файлів cookie з Chrome або іншого браузера на Chromium cmux переносить сайти, чиї cookie там змінилися, щоб ви залишалися в обліковому записі. Він читає лише профіль, з якого ви імпортували, на цьому Mac; ніщо його не залишає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sau khi bạn nhập cookie từ Chrome hoặc một trình duyệt Chromium khác, cmux mang sang các trang có cookie đã thay đổi ở đó để bạn vẫn đăng nhập. Nó chỉ đọc hồ sơ bạn đã nhập từ, trên máy Mac này; không gì rời khỏi máy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 Chrome 或其他 Chromium 浏览器导入 Cookie 后，cmux 会同步那里 Cookie 发生变化的网站，让你保持登录。它只读取这台 Mac 上你导入时所选的配置文件，任何数据都不会离开这台 Mac。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從 Chrome 或其他 Chromium 瀏覽器匯入 Cookie 後，cmux 會同步那裡 Cookie 有變動的網站，讓你保持登入。它只讀取這台 Mac 上你匯入時所選的設定檔，任何資料都不會離開這台 Mac。"
+          }
+        }
+      }
+    },
     "settings.browser.importEnabled": {
       "extractionState": "manual",
       "localizations": {
