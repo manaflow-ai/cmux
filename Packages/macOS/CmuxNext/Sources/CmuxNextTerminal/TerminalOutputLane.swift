@@ -60,16 +60,19 @@ nonisolated final class TerminalOutputLane: @unchecked Sendable {
     var pendingBytes: Int { backlog.withLock { $0.bytes } }
 
     /// `replacesScreen`: a VT replay of the whole screen, not output the remote sent after the keys typed (the echo
-    /// engine starts over once it is parsed).
+    /// engine starts over once it is parsed). An empty replay still replaces the screen (an empty terminal's, or a
+    /// swapped-in surface's), so the engine starts over for it too; only plain output with no bytes is dropped.
     func processOutput(_ data: Data, replacesScreen: Bool = false) {
-        guard !data.isEmpty else { return }
+        guard !data.isEmpty || replacesScreen else { return }
         backlog.withLock { $0.bytes += data.count }
         queue.async { [self] in
             defer { parsed(data.count) }
             guard let surface, !closing.load(ordering: .relaxed) else { return }
-            data.withUnsafeBytes { buffer in
-                guard let base = buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
-                ghostty_surface_process_output(surface, base, UInt(buffer.count))
+            if !data.isEmpty {
+                data.withUnsafeBytes { buffer in
+                    guard let base = buffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
+                    ghostty_surface_process_output(surface, base, UInt(buffer.count))
+                }
             }
             if let prediction {
                 if replacesScreen { prediction.missedOutput(alternateScreen: Self.alternateScreen(surface)) } else { prediction.output(data) }
