@@ -31,11 +31,13 @@ fi
 # absolute source paths, so a workspace move is a new tree.
 worker_key="$(printf '%s\n' "${RUNNER_NAME:?}" "$repo_root" | shasum -a 256 | cut -c1-16)"
 # Keyed by the pinned toolchain file, not `rustc -vV`, so the job can pick the target
-# before the toolchain is installed. The SDK build covers a host's Xcode update, which
-# Cargo's fingerprints do not see.
+# before the toolchain is installed. The selected Xcode (its path, version and SDK build)
+# covers the C compiler and SDK that build scripts use, which Cargo's fingerprints do not see.
+developer_dir="${DEVELOPER_DIR:-$(xcode-select -p 2>/dev/null || echo none)}"
+xcode_version="$(xcodebuild -version 2>/dev/null || echo none)"
 sdk_build="$(xcrun --sdk macosx --show-sdk-build-version 2>/dev/null || echo none)"
-toolchain_key="$( { cat "$repo_root/cmux-tui/rust-toolchain.toml"; uname -m; echo "$sdk_build"; } \
-  | shasum -a 256 | cut -c1-16)"
+toolchain_key="$( { cat "$repo_root/cmux-tui/rust-toolchain.toml"; uname -m; echo "$developer_dir";
+  echo "$xcode_version"; echo "$sdk_build"; } | shasum -a 256 | cut -c1-16)"
 worker_root="${HOME:?}/Library/Caches/cmux-next-ci/cmux-tui-cargo/$worker_key"
 target="$worker_root/rust-$toolchain_key"
 mkdir -p "$worker_root"

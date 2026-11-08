@@ -33,6 +33,11 @@ updated=$(run env RUNNER_NAME=ultra1-glaeda-4 STUB_SDK=25B200)
 [[ "$updated" != "$first" && ! -e "$first" && ! -e "$updated/kept" ]] \
   || fail "another toolchain's tree is removed"
 
+# Another Xcode with the same SDK build is a new toolchain too.
+xcode=$(run env RUNNER_NAME=ultra1-glaeda-4 STUB_SDK=25B200 DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer)
+[[ "$xcode" != "$updated" && ! -e "$updated" ]] || fail "another Xcode's tree is separate"
+updated=$(run env RUNNER_NAME=ultra1-glaeda-4 STUB_SDK=25B200)
+
 # A tree over the cap starts over cold.
 head -c 2048 /dev/zero > "$updated/big"
 capped=$(run env RUNNER_NAME=ultra1-glaeda-4 STUB_SDK=25B200 CMUX_TUI_WARM_TARGET_MAX_GIB=0 2>"$TMP/err")
