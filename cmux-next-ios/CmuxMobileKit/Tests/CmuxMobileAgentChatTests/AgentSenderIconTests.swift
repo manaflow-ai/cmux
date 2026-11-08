@@ -78,4 +78,69 @@ import Testing
         #expect(incoming.messages.first?.toneKey == "coordinator")
         #expect(incoming.oneSenderKey == "coordinator")
     }
+
+    /// A digest as acpmux records it (hub/digest.rs `digest_provenance`): each part's `from` is its
+    /// sender's name, and the sending chat's address is in the part's own `provenance.from`.
+    @Test func digestPartsTakeTheirSessionIdsFromTheirOwnProvenance() throws {
+        let provenance = try json(#"""
+        {"kind":"agent_digest","messages":[
+          {"promptId":"p-1","from":"coordinator",
+           "provenance":{"kind":"agent_message","from":"acp:0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a60","fromName":"coordinator","msgId":"m-1"}},
+          {"promptId":"p-2","from":"coordinator",
+           "provenance":{"kind":"session_message","from":"0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a63","fromName":"coordinator"}},
+          {"promptId":"p-3","from":"build-box/lane-3","provenance":{"kind":"agent_message","from":"fromAgent","fromName":"build-box/lane-3"}}]}
+        """#)
+        let text = """
+        3 messages from other agents arrived while you were busy. Each follows as it was sent, oldest first.
+
+        [agent message 1 of 3] from coordinator
+        landing #9
+
+        [agent message 2 of 3] from coordinator
+        landed #9
+
+        [agent message 3 of 3] from build-box/lane-3
+        review passed
+        """
+        let incoming = try #require(AgentIncoming.parse(text: text, provenance: provenance))
+        #expect(incoming.messages.map(\.sender) == ["coordinator", "coordinator", "build-box/lane-3"])
+        #expect(incoming.messages.map(\.toneKey)
+            == ["0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a60", "0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a63", "build-box/lane-3"])
+    }
+
+    /// Two sessions whose ids hash to the same tone: the Mac's `agentTones` (agentTones.ts, run with
+    /// bun on these ids) gives the first its hash's tone and moves the second to the next free one.
+    @Test func idsThatHashAlikeTakeTheMacsAssignedTones() {
+        let a = "0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a02", b = "0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a09"
+        let c = "0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a0a", d = "0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a63"
+        #expect([a, b, c].map(AgentSenderIcon.hashTone) == [3, 3, 3])
+        var two = AgentTones()
+        #expect(two.assign([.init(id: a, startedAt: 1), .init(id: b, startedAt: 2)]) == [a: 3, b: 4])
+        var four = AgentTones()
+        let all = four.assign([.init(id: d, startedAt: 4), .init(id: c, startedAt: 3), .init(id: b, startedAt: 2), .init(id: a, startedAt: 1)])
+        #expect(all == [a: 3, b: 4, c: 0, d: 1])
+        // An agent keeps the tone it has when a later one joins.
+        #expect(two.assign([.init(id: a, startedAt: 1), .init(id: b, startedAt: 2), .init(id: c, startedAt: 3)]) == [a: 3, b: 4, c: 0])
+    }
+
+    /// In a chat, the senders' cards take those assigned tones: two sessions whose ids hash alike
+    /// draw in two tones, as on the Mac.
+    @MainActor @Test func aChatsSendersWhoseIdsHashAlikeDrawInTwoTones() throws {
+        let store = AgentChatStore(source: AgentIncomingTests.Recorder())
+        let a = "0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a02", b = "0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a09"
+        let start = Date(timeIntervalSince1970: 1_000)
+        for (index, id) in [a, b].enumerated() {
+            store.apply(.userMessage(text: "done", promptId: "p-\(index)", turnId: "t-\(index)", attachments: [],
+                                     at: start.addingTimeInterval(Double(index))))
+            let provenance = try json(#"{"kind":"agent_message","from":"acp:"# + id + #"","fromName":"lane"}"#)
+            store.apply(.promptFrom(turnId: "t-\(index)", incoming: try #require(AgentIncoming.parse(text: "done", provenance: provenance))))
+        }
+        let rows = ChatTranscriptBuilder(diffs: ChatDiffCache()).build(turns: store.turns, pendingPermission: nil, askOpen: false,
+                                                                         permissionBarHidden: false)
+        let tones = rows.flatMap(\.rows).compactMap { row -> Int? in
+            guard case .incoming(let incoming, _, _) = row.kind else { return nil }
+            return incoming.messages.first?.tone
+        }
+        #expect(tones == [3, 4])
+    }
 }
