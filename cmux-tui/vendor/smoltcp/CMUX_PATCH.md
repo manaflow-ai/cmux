@@ -23,7 +23,7 @@ The patch also adds tail-loss probes (RFC 8985 section 7), off by default:
 segment lost at the end of a burst draws no duplicate ACKs, so only the RTO
 resends it, and the RTO then collapses the congestion window and resends
 everything in flight. A probe resends the oldest unacknowledged segment once
-`2 * SRTT + max_ack_delay` (at least 10 ms) passes with no ACK of new data,
+`max(2 * SRTT, 10 ms) + max_ack_delay` passes with no ACK of new data,
 keeps the congestion window, and leaves the RTO's deadline as it was. It runs
 only in ESTABLISHED and CLOSE-WAIT, only after an RTT measurement, only when it
 would fire before the RTO, and at most once per ACK of new data. cmux-wg turns
