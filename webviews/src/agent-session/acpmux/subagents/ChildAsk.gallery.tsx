@@ -51,9 +51,7 @@ function ChildAskInPane({ look, deep = false, more = 0 }: Props) {
       style={{ flexDirection: "column", justifyContent: "flex-end", gap: 12, padding: 16 }}
     >
       {look !== "line" && <style>{looks[look]}</style>}
-      <p style={{ margin: 0, color: "var(--agent-text)" }}>
-        Started a sub-session to run the tests; I'll wait for it.
-      </p>
+      <p style={{ margin: 0, color: "var(--agent-text)" }}>Started a sub-session to run the tests; I'll wait for it.</p>
       <div className="acpmux-permission acpmux-asks-stack" style={{ padding: 0 }}>
         <ChildAsk child={child} waiting={more} shortcuts onOpen={() => undefined} />
       </div>
@@ -76,7 +74,10 @@ export default componentEntry({
     Promise.all([import("../styles.css"), import("../bottomStack.css"), import("../conversation/PendingAsks.css")]),
   load: async () => ChildAskInPane,
   variants: {
-    line: variant("line", "Shipped: the stack's quiet line names the sub-session, with Open, over the chat's own card."),
+    line: variant(
+      "line",
+      "Shipped: the stack's quiet line names the sub-session, with Open, over the chat's own card.",
+    ),
     "line-deep": variant("line", "Shipped: a grandchild's ask reads Related · its name.", { deep: true }),
     "line-more": variant("line", "Shipped: two more asks below wait behind this one.", { more: 2 }),
     chip: variant("chip", "Alternative: the name as a pill over the card, no Open."),
