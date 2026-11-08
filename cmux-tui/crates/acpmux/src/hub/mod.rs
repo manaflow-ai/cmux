@@ -561,6 +561,9 @@ pub struct Hub {
     pub(crate) workflow_runs: crate::workflow_runs::Service,
     pub config: RwLock<Config>,
     pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
+    /// The hub carrier once it starts (`hub_carrier.rs`); every peer holds this slot.
+    #[cfg(feature = "hub-carrier")]
+    pub hub_carrier: crate::hub_carrier::HubCarrierSlot,
     pub(super) store: Box<dyn Store>,
     pub(super) mailbox: Mailbox,
     /// The forum log (`forum.rs`, `hub/forum.rs`).
@@ -961,6 +964,8 @@ impl Hub {
             config: RwLock::new(config),
             usage_limits,
             wireguard,
+            #[cfg(feature = "hub-carrier")]
+            hub_carrier: Default::default(),
             store,
             mailbox,
             forum: std::sync::OnceLock::new(),

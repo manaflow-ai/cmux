@@ -159,6 +159,11 @@ impl Hub {
         {
             peer.set_wireguard(transport.clone(), address);
         }
+        #[cfg(feature = "hub-carrier")]
+        peer.set_hub_carrier(
+            self.hub_carrier.clone(),
+            pc.wireguard.as_ref().map(|configured| configured.public_key.clone()),
+        );
         peer.set_vm_boundary(pc.vm_boundary);
         peer.set_github_broker(pc.github_broker);
         peer.set_github_app(self.github_app.clone());

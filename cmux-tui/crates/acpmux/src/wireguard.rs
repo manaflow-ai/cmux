@@ -218,7 +218,7 @@ fn public_key(text: &str) -> Result<[u8; 32]> {
     Ok(key)
 }
 
-fn local_websocket(mut address: SocketAddr) -> Result<SocketAddr> {
+pub(crate) fn local_websocket(mut address: SocketAddr) -> Result<SocketAddr> {
     if address.ip().is_unspecified() {
         address.set_ip(if address.is_ipv4() {
             IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)

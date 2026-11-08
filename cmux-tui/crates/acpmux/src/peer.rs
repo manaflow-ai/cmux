@@ -24,6 +24,9 @@ mod features;
 #[path = "peer_health.rs"]
 mod health;
 
+#[cfg(feature = "hub-carrier")]
+#[path = "peer_hub.rs"]
+mod hub_path;
 #[path = "peer_ssh.rs"]
 mod ssh_errors;
 #[path = "peer_tokens.rs"]
@@ -137,6 +140,10 @@ pub struct Peer {
     /// The `ssh -W` process carrying an `ssh://` peer's current connection.
     tunnel: Mutex<Option<tokio::process::Child>>,
     wireguard: std::sync::OnceLock<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)>,
+    /// The daemon's hub carrier and the hub `daemonId` this peer's config names (its WireGuard
+    /// key), if any (`peer_hub.rs`).
+    #[cfg(feature = "hub-carrier")]
+    hub_carrier: std::sync::OnceLock<(crate::hub_carrier::HubCarrierSlot, Option<String>)>,
     /// Outbound frames, each tagged with the link epoch it was admitted on:
     /// `serve` drops one whose link is gone, so it never goes out on the next,
     /// and `fail_link_requests` fails the request it carries as not sent.
@@ -358,6 +365,8 @@ impl Peer {
             peer_token,
             tunnel: Mutex::new(None),
             wireguard: std::sync::OnceLock::new(),
+            #[cfg(feature = "hub-carrier")]
+            hub_carrier: std::sync::OnceLock::new(),
             out,
             out_rx: Mutex::new(Some(out_rx)),
             next_id: AtomicI64::new(1),
@@ -1457,6 +1466,13 @@ impl Peer {
                 return self.serve_heard(ws, out_rx, Some(heard)).await;
             }
             tracing::debug!(peer = %self.name, "WireGuard unavailable; trying the configured peer route");
+        }
+        // The hub carrier (`peer_hub.rs`): the platform's relay, with the same credentials.
+        #[cfg(feature = "hub-carrier")]
+        if let Some((token, peer_token)) = credentials
+            && let Some(end) = self.connect_hub(token, peer_token, out_rx).await
+        {
+            return end;
         }
         let mut restarted = false;
         while self.ssh_parts().is_some() {
