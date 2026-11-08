@@ -1079,10 +1079,12 @@ impl Session {
                 let notifications = mux.surface_notifications();
                 let presentation = mux.presentation_snapshot();
                 mux.with_state(|state| {
+                    let git_branches = mux.tab_git_branches_in_state(state);
                     tree::tree_from_state_with_notifications(
                         state,
                         &notifications,
                         &presentation.tab_attention,
+                        &git_branches,
                     )
                 })
             }
