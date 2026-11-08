@@ -113,6 +113,10 @@ export class AttachmentDrafts {
   /** The bytes of the files sent last, by hash, oldest first (at most SENT_BYTES_BUDGET), for `resend`. */
   private readonly sent = new Map<string, File>();
   private sentBytes = 0;
+  /** Finished files whose bytes the app refused to keep (by hash): they are not kept across a
+   * relaunch either, since a kept entry with no bytes cannot go up again once the owner lets go of
+   * its upload. */
+  private readonly bytesRefused = new Set<string>();
 
   constructor(private readonly keeper?: AttachmentKeeper) {
     this.loaded = !keeper;
@@ -385,7 +389,7 @@ export class AttachmentDrafts {
     let unkept = false;
     for (const items of this.trays.values()) {
       if (items.some((item) => !item.part && !item.error)) uploading = true;
-      if (!this.keeper || items.some((item) => !item.part)) unkept = true;
+      if (!this.keeper || items.some((item) => !item.part || this.bytesRefused.has(item.part.hash))) unkept = true;
     }
     this.hold = uploading ? "home.uploading" : unkept && this.trays.size ? "home.attachments" : null;
     if (this.loaded && this.keeper) {
@@ -396,6 +400,13 @@ export class AttachmentDrafts {
       for (const id of changed) this.save(id);
     }
     for (const listener of this.listeners) listener();
+  }
+
+  /** The app refused `hash`'s bytes: its kept entry goes, and the tray counts it as not kept. */
+  private refuseBytes(conversation: string, hash: string): void {
+    if (this.bytesRefused.has(hash)) return;
+    this.bytesRefused.add(hash);
+    this.write(conversation, this.files(conversation));
   }
 
   private save(conversation: string): void {
@@ -409,15 +420,22 @@ export class AttachmentDrafts {
     const saved = this.saved.get(conversation) ?? new Set<string>();
     const now = new Set<string>();
     for (const item of tray) {
-      if (!item.part) continue;
+      if (!item.part || this.bytesRefused.has(item.part.hash)) continue;
       now.add(item.part.hash);
       if (saved.has(item.part.hash)) continue;
       saved.add(item.part.hash);
       keeper.put(conversation, item.part, this.at++);
       // Its bytes too (after the entry, so the app never takes them for a page's leftovers). The app
-      // keeps them within its own bound and refuses past it, on the first frame: the part stays kept.
+      // keeps them within its own bound and refuses past it: then the entry goes too (below), so a
+      // relaunch never restores a file with no bytes, and the tray says it is not kept.
+      const hash = item.part.hash;
       if (keeper.write && item.file.size === item.part.byteCount && item.file.size > 0)
-        void keeper.write(item.part.hash, item.file).catch(() => false);
+        void keeper
+          .write(hash, item.file)
+          .catch(() => false)
+          .then((kept) => {
+            if (!kept) this.refuseBytes(conversation, hash);
+          });
     }
     for (const hash of saved) {
       if (now.has(hash)) continue;
