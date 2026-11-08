@@ -5,7 +5,7 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
 import type { ComposerAttachment } from "../attachments";
 import { translate } from "../i18n";
-import { PresentationContext } from "./PresentationContext";
+import { PresentationContext } from "./presentationContextModel";
 import { TurnActionsContext, type TurnActions } from "./turnActions";
 import { UserBubble } from "./UserBubble";
 
