@@ -420,7 +420,9 @@ fn parse_session(
 ) -> Result<CommandPlan, UsageError> {
     match strs(words).as_slice() {
         ["list"] => request(ResourceOperation::SessionList, selectors, flags, Map::new()),
-        [selector, "show"] => {
+        // `session current` alone is `session current show`: an agent's
+        // first "which session am I in" (`cmux identify` has the whole path).
+        [selector, "show"] | [selector] => {
             selectors.insert("session", "session", selector)?;
             request(ResourceOperation::SessionGet, selectors, flags, Map::new())
         }
