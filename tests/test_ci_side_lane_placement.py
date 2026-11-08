@@ -1157,6 +1157,28 @@ class FastTierHandback(unittest.TestCase):
         self.assertEqual(self.place(busy, outage=True, SIDE_LABEL="")[0], self.SMALL)
         self.assertEqual(self.place(None, outage=True, SIDE_LABEL=self.SMALL)[0], self.SMALL)
 
+    def test_a_full_blacksmith_keeps_the_owned_route(self):
+        # #38646's review: the pool snapshot macos-placement reads carries only queued and running counts (no
+        # cap, capacity or bs_health), so label_full_or_dead() never calls 6 vCPU full there, and the hand-back
+        # queued behind a full pool. A full label or pool (no slot free now) keeps the owned route.
+        busy = [runner("mini-a-glaeda-1", busy=True), runner("mini-b-glaeda-1", busy=True)]
+        shot = {"generated_at": "2026-11-08T14:58:00Z",
+                "pools": {self.SMALL: {"queued": 0, "running": 10, "oldest_queued_minutes": 0}}}
+        seen = placement.cascade.seen(shot, self.NOW)
+        capacity = placement.cascade.CAPACITY[self.SMALL]
+        values = {"SIDE_LABEL": SIDE, "FAST_LABEL": FAST}
+        for live, waiting, expected in (
+                ({self.SMALL: capacity}, {self.SMALL: 0}, SIDE),           # every slot running
+                ({self.SMALL: capacity - 1}, {self.SMALL: 1}, SIDE),       # the last slot already promised
+                # The shared 60 vCPU pool full on 12 vCPU: no 6 vCPU slot either.
+                ({self.SMALL: 0, "blacksmith-12vcpu-macos-26": 5}, {self.SMALL: 0}, SIDE),
+                ({self.SMALL: capacity - 1}, {self.SMALL: 0}, self.SMALL)):  # one slot free
+            with self.subTest(live=live, waiting=waiting):
+                label, why = placement.handback(values, busy, live, waiting, seen)
+                self.assertEqual(label, expected, why)
+                if expected == SIDE:
+                    self.assertIn("full", why)
+
     def test_main_writes_the_runner(self):
         busy = [runner("mini-a-glaeda-1", busy=True)]
         for outage, expected in ((False, self.SMALL), (True, SIDE)):
