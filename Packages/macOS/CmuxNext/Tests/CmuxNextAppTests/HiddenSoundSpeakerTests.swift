@@ -131,7 +131,8 @@ import Testing
         try await rig.pressDown(page)
         try await Self.until(rig, page, "both play", "!player.paused && player.currentTime > 0 && window.synth?.state === 'running'")
         _ = try await page.evaluate("player.pause(); true", world: .page, gesture: .cmux)
-        try await rig.until("the paused element is reported, with the other sound") {
+        try await Self.until(rig, page, "the Web Audio runs on", "player.paused && window.synth.state === 'running'")
+        try await rig.until("the paused element is reported, with the other sound (now \(String(describing: page.state.media)))") {
             page.state.media.map { !$0.isPlaying && !$0.isSoundOnly && $0.isOtherSound } == true
         }
         #expect(BrowserTabAudio.badge(page.state) == .playing, "Web Audio still sounds")
