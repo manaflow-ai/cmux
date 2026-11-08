@@ -143,6 +143,18 @@ test("a bare @ offers the most recent other chats before anything is typed", asy
   ]);
 });
 
+test("a harness mention is offered as a read-only guest and inserts its target token", () => {
+  const catalog = [
+    { id: "codex", name: "Codex", models: [], pickable: true, family: "codex" },
+    { id: "claude", name: "Claude", models: [], pickable: true, family: "claude" },
+    { id: "router", name: "Router", models: [], pickable: true, kind: "cmux-router" },
+    { id: "offline", name: "Offline", models: [], pickable: true, unavailable: "missing" },
+  ];
+  const items = mentionItems({ query: "cod", files: [], sessions: [], harnesses: catalog });
+  expect(items.map((item) => item.key)).toEqual(["harness:codex"]);
+  expect(mentionInsert(items[0]!).shown).toBe("@codex ");
+});
+
 test("a bare @ also offers recently picked files, and a query fuzzy-matches them", () => {
   const recent = mentionItems({
     query: "",
