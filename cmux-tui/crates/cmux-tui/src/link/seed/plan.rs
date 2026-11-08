@@ -492,10 +492,9 @@ fn build(
     // WORK's parents are INDEX and HEAD. The stash ref is independent of all three.
     let (base, unchanged) = match since {
         Since::Base(base) => ((*base).to_string(), false),
-        Since::Previous(previous) => (
-            previous.work.clone(),
-            previous.work == work_commit && previous.stash == stash,
-        ),
+        Since::Previous(previous) => {
+            (previous.work.clone(), previous.work == work_commit && previous.stash == stash)
+        }
     };
     // A stash-only deletion has no new Git object. Git refuses an empty bundle,
     // so carry a tiny synthetic commit, excluded from the destination's seed record.
@@ -505,11 +504,9 @@ fn build(
         && stash.is_none()
         && previous.work == work_commit
     {
-        let tree = git::text(git::at(&repo.top).args([
-            "rev-parse",
-            &format!("{work_commit}^{{tree}}"),
-        ]))
-        .map_err(|error| failed("reading the work tree", error))?;
+        let tree =
+            git::text(git::at(&repo.top).args(["rev-parse", &format!("{work_commit}^{{tree}}")]))
+                .map_err(|error| failed("reading the work tree", error))?;
         Some(commit(repo, &tree, &previous.work, "cmux seed stash cleared")?)
     } else {
         None

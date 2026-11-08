@@ -188,7 +188,8 @@ pub(crate) fn seed_pull(
         Ok(change) => change,
         Err(reason) => {
             return Ok(SeedPulled::Conflict(
-                vec![".git/refs/stash".into()], vec![format!(".git/refs/stash: {reason}")],
+                vec![".git/refs/stash".into()],
+                vec![format!(".git/refs/stash: {reason}")],
             ));
         }
     };
@@ -359,9 +360,9 @@ pub(crate) fn seed_pull(
             return undone(transaction, &staging, error);
         }
     }
-    if let Err(error) = move_git(
-        &folder, &here_git, fast_forward.as_deref(), staged.as_deref(), stash.as_ref(),
-    ) {
+    if let Err(error) =
+        move_git(&folder, &here_git, fast_forward.as_deref(), staged.as_deref(), stash.as_ref())
+    {
         return undone(transaction, &staging, error);
     }
     transaction.finish();
@@ -490,7 +491,8 @@ fn receive(quarantine: &Path, bundle: &Path, exported: &Exported) -> anyhow::Res
         quarantine_git(quarantine).args(["bundle", "list-heads"]).arg(bundle),
     )?)
     .into_owned();
-    let mut named = vec![("head", &exported.head), ("index", &exported.index), ("work", &exported.work)];
+    let mut named =
+        vec![("head", &exported.head), ("index", &exported.index), ("work", &exported.work)];
     if let Some(stash) = &exported.stash {
         named.push(("stash", stash));
     }
@@ -589,7 +591,8 @@ impl Quarantine<'_> {
     /// ref changes there.
     fn fetch_into(&self, folder: &Path, exported: &Exported) -> anyhow::Result<()> {
         let mut wanted = Vec::new();
-        let mut named = vec![("head", &exported.head), ("index", &exported.index), ("work", &exported.work)];
+        let mut named =
+            vec![("head", &exported.head), ("index", &exported.index), ("work", &exported.work)];
         if let Some(stash) = &exported.stash {
             named.push(("stash", stash));
         }
