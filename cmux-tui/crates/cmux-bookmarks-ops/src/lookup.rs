@@ -93,7 +93,9 @@ pub fn folders(tree: &Tree, bar_title: &str, other_title: &str) -> Vec<FolderCho
             }
             choices.push(FolderChoice { id: node.id.clone(), title: node.title.clone(), depth });
             if depth < MAX_BOOKMARK_DEPTH {
-                stack.extend(tree.children(&node.id).into_iter().rev().map(|child| (child, depth + 1)));
+                stack.extend(
+                    tree.children(&node.id).into_iter().rev().map(|child| (child, depth + 1)),
+                );
             }
         }
     }
@@ -167,7 +169,8 @@ pub fn folder(
     bar_title: &str,
     other_title: &str,
 ) -> Result<String, Unresolved> {
-    let container = |id: &str| is_root(id) || tree.get(id).is_some_and(|node| node.kind == "folder");
+    let container =
+        |id: &str| is_root(id) || tree.get(id).is_some_and(|node| node.kind == "folder");
     let Some(text) = text.map(str::trim).filter(|text| !text.is_empty()) else {
         return Ok(fallback.filter(|id| container(id)).unwrap_or(BOOKMARKS_BAR).to_string());
     };

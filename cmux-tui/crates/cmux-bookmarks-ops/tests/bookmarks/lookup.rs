@@ -64,18 +64,26 @@ fn the_status_finds_the_same_page_and_says_whether_the_bar_shows() {
     let tree = tree();
     let found = matches(
         &tree,
-        &["https://example.com/".into(), "https://nowhere.example/".into(), "HTTPS://GITHUB.COM".into()],
+        &[
+            "https://example.com/".into(),
+            "https://nowhere.example/".into(),
+            "HTTPS://GITHUB.COM".into(),
+        ],
     );
     assert_eq!(found, vec![vec![id(5)], vec![], vec![id(6)]]);
     assert!(bar_filled(&tree));
-    assert!(bar_filled(&Tree::from_listing("default", [node(6, "other", "url", "G", Some("https://g/"))])));
+    assert!(bar_filled(&Tree::from_listing(
+        "default",
+        [node(6, "other", "url", "G", Some("https://g/"))]
+    )));
     assert!(!bar_filled(&Tree::new("default")));
 }
 
 #[test]
 fn folder_choices_list_the_roots_and_every_folder_in_tree_order() {
     let choices = folders(&tree(), "Bookmarks Bar", "Other Bookmarks");
-    let shape = |id: &str, title: &str, depth| FolderChoice { id: id.into(), title: title.into(), depth };
+    let shape =
+        |id: &str, title: &str, depth| FolderChoice { id: id.into(), title: title.into(), depth };
     assert_eq!(
         choices,
         vec![

@@ -498,8 +498,8 @@ fn bounded(field: &str, count: usize) -> Result<(), ResourceError> {
 fn resolve(tree: &Tree, request: Resolve) -> Result<Value, Unresolved> {
     let mut answer = Map::new();
     if let Some(text) = &request.bookmark {
-        let node =
-            lookup::find(tree, text, request.folders_first, now_ms()).ok_or(Unresolved::NotFound)?;
+        let node = lookup::find(tree, text, request.folders_first, now_ms())
+            .ok_or(Unresolved::NotFound)?;
         answer.insert("bookmark".into(), lookup::placed(tree, &node));
     }
     if let Some(folder) = &request.folder {

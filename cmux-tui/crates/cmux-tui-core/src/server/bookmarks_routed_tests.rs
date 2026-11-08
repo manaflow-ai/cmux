@@ -416,7 +416,8 @@ fn the_apps_reads_answer_from_the_stored_tree() {
         json!({"browser_profile_id": profile, "bar_title": "Bar", "other_title": "Other"}),
         None,
     ));
-    let ids = folders["folders"].as_array().unwrap().iter().map(|f| f["id"].clone()).collect::<Vec<_>>();
+    let ids =
+        folders["folders"].as_array().unwrap().iter().map(|f| f["id"].clone()).collect::<Vec<_>>();
     assert_eq!(ids, [json!("bar"), json!(FOLDER), json!("other")]);
     // The CLI's names: a bookmark, a folder and a typed URL in one read.
     let titles_ = json!({"bar_title": "Bar", "other_title": "Other"});
