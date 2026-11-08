@@ -23,9 +23,11 @@
 //!   permission (recorded under a session's append lock) only sends its entry down a channel; a
 //!   line that cannot be written is counted (`writeErrors` in `_acpmux/audit`) and logged, never
 //!   silently dropped. A review verdict waits for its line ([`AuditLog::record_durable`]): the
-//!   verdict fails, and its pull request stays in the queue, unless the line is on disk. At start
-//!   the thread reads the file once for the chain's head (so a restart continues the chain) and
-//!   the pull requests that already have a verdict, by session and URL.
+//!   verdict fails, and its pull request stays in the queue, unless the line is on disk. `open`
+//!   reads the file once, before it returns, for the chain's head (so a restart continues the
+//!   chain) and the pull requests that already have a verdict, by session and URL, so the first
+//!   queue read already leaves them out. At shutdown (`Hub::flush`) [`AuditLog::close`] ends the
+//!   channel and waits, bounded, for the writer to write what was sent and exit.
 //! - A memory store (tests) keeps the entries in memory, chained the same way.
 
 use std::collections::HashSet;
@@ -75,7 +77,10 @@ impl Default for Head {
 }
 
 pub(crate) struct AuditLog {
-    tx: StdMutex<mpsc::Sender<Msg>>,
+    /// None once closed: a record after that is counted as not written.
+    tx: StdMutex<Option<mpsc::Sender<Msg>>>,
+    /// Disconnects when the writer thread exits.
+    exited: StdMutex<Option<mpsc::Receiver<()>>>,
     /// Pull requests (session, URL) whose verdict is written: they leave the review queue.
     reviewed: Arc<StdMutex<Reviewed>>,
     /// Entries the writer could not write.
@@ -93,7 +98,7 @@ impl AuditLog {
         let path = dir.map(|d| d.join(FILE));
         let memory = path.is_none().then(|| Arc::new(StdMutex::new(Vec::new())));
         let write_errors = Arc::new(AtomicU64::new(0));
-        let writer = Writer {
+        let mut writer = Writer {
             path: path.clone(),
             memory: memory.clone(),
             reviewed: reviewed.clone(),
@@ -101,10 +106,22 @@ impl AuditLog {
             head: Head::default(),
             file: None,
         };
-        // The thread ends when the log (its sender) drops.
-        let _ =
-            std::thread::Builder::new().name("acpmux-audit".into()).spawn(move || writer.run(rx));
-        AuditLog { tx: StdMutex::new(tx), reviewed, write_errors, path, memory }
+        // Before the first queue read: the verdicts already written leave their pull requests out.
+        writer.load();
+        let (exit_tx, exited) = mpsc::channel::<()>();
+        // The thread ends when the log closes or drops (its sender), after what was sent.
+        let _ = std::thread::Builder::new().name("acpmux-audit".into()).spawn(move || {
+            let _exit = exit_tx;
+            writer.run(rx)
+        });
+        AuditLog {
+            tx: StdMutex::new(Some(tx)),
+            exited: StdMutex::new(Some(exited)),
+            reviewed,
+            write_errors,
+            path,
+            memory,
+        }
     }
 
     /// Sends `entry` (without `v`, `seq`, `prevHash` and `hash`) to the writer: never blocks. A
@@ -130,7 +147,24 @@ impl AuditLog {
     }
 
     fn send(&self, msg: Msg) -> Result<(), ()> {
-        self.tx.lock().unwrap_or_else(|e| e.into_inner()).send(msg).map_err(|_| ())
+        let tx = self.tx.lock().unwrap_or_else(|e| e.into_inner());
+        tx.as_ref().ok_or(())?.send(msg).map_err(|_| ())
+    }
+
+    /// At shutdown: ends the channel and waits up to `deadline` for the writer to write every
+    /// entry sent before and exit. Whether it did. Later records are counted as not written.
+    pub(crate) fn close(&self, deadline: Duration) -> bool {
+        drop(self.tx.lock().unwrap_or_else(|e| e.into_inner()).take());
+        let Some(exited) = self.exited.lock().unwrap_or_else(|e| e.into_inner()).take() else {
+            return true;
+        };
+        match exited.recv_timeout(deadline) {
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                tracing::warn!("audit: the writer did not finish within {deadline:?} at shutdown");
+                false
+            }
+            _ => true,
+        }
     }
 
     fn lost(&self, why: &str) {
@@ -152,8 +186,7 @@ impl AuditLog {
     /// Waits until every entry recorded before this call is written (or the writer is gone).
     pub(crate) fn flush(&self) {
         let (tx, rx) = mpsc::channel();
-        let sent = self.tx.lock().unwrap_or_else(|e| e.into_inner()).send(Msg::Flush(tx));
-        if sent.is_ok() {
+        if self.send(Msg::Flush(tx)).is_ok() {
             let _ = rx.recv_timeout(DURABLE_WAIT);
         }
     }
@@ -260,7 +293,6 @@ struct Writer {
 
 impl Writer {
     fn run(mut self, rx: mpsc::Receiver<Msg>) {
-        self.load();
         while let Ok(msg) = rx.recv() {
             match msg {
                 Msg::Entry(entry, done) => {
@@ -587,6 +619,37 @@ mod tests {
         log.flush();
         assert_eq!(log.write_errors(), 2);
         let _ = std::fs::remove_file(&d);
+    }
+
+    #[test]
+    fn close_writes_what_was_sent_before_it_returns() {
+        let d = dir("close");
+        let log = AuditLog::open(Some(d.clone()));
+        for at in 1..=50 {
+            log.record(entry("s1", at));
+        }
+        assert!(log.close(Duration::from_secs(10)));
+        let lines = std::fs::read_to_string(d.join(FILE)).unwrap().lines().count();
+        assert_eq!(lines, 50);
+        assert_eq!(log.write_errors(), 0);
+        log.record(entry("s1", 51));
+        assert_eq!(log.write_errors(), 1, "a record after close is counted, not lost silently");
+        assert!(log.close(Duration::from_secs(1)));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn open_knows_the_written_verdicts_before_it_returns() {
+        let d = dir("ready");
+        let url = "https://github.com/o/r/pull/3";
+        AuditLog::open(Some(d.clone()))
+            .record_durable(json!({"at": 1, "sessionId": "s1", "kind": "review", "prUrl": url,
+                                   "ask": "Review", "decision": {"kind": "accept"},
+                                   "answeredBy": {"person": true}}))
+            .unwrap();
+        // No flush or wait: the first read after open already knows the verdict.
+        assert!(AuditLog::open(Some(d.clone())).reviewed("s1", url));
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
