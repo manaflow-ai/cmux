@@ -66,16 +66,16 @@ export function EmptyState({
       </svg>
       <div className="acpmux-empty-title-anchor">
         <h2 className="acpmux-empty-title">
-        {project ? (
-          <>
-            {before}
-            {chooser ?? <span className="acpmux-empty-project">{project}</span>}
-            {after}
-          </>
-        ) : (
-          t(EMPTY_STATE_LABELS.prompt)
-        )}
-      </h2>
+          {project ? (
+            <>
+              {before}
+              {chooser ?? <span className="acpmux-empty-project">{project}</span>}
+              {after}
+            </>
+          ) : (
+            t(EMPTY_STATE_LABELS.prompt)
+          )}
+        </h2>
         {project && tour && <TourOffer {...tour} />}
       </div>
       {/* No project yet: the picker sits under the question, so a folder can still be chosen. */}

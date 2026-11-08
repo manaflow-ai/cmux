@@ -122,7 +122,11 @@ function TourTaskRow({ task, onStart }: { task: TourTask; onStart?: StartTourTas
             onClick={start}
             title={t("tour.startTitle")}
           >
-            {run.state === "starting" ? t("tour.starting") : run.state === "started" ? t("tour.started") : t("tour.start")}
+            {run.state === "starting"
+              ? t("tour.starting")
+              : run.state === "started"
+                ? t("tour.started")
+                : t("tour.start")}
           </button>
         )}
       </div>

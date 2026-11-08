@@ -1,6 +1,6 @@
 // The tour offer on a new chat's hero (EmptyState.tsx): one quiet line under the question, in a
 // folder no chat has used yet (tourModel.ts offersTour). Never run by itself: Take the tour sends
-// the tour prompt; the × closes it for this folder. It hangs below the question, out of the hero's
+// the tour prompt; the dim × closes it for this folder. It hangs below the question, out of the hero's
 // flow, so its arrival never moves the question, and it fades in (none under Reduce Motion).
 import { useT } from "../i18n";
 import { TourGlyph } from "./TourCard";
@@ -23,8 +23,8 @@ export function TourOffer({ onTake, onDismiss }: TourOfferActions) {
         aria-label={t("tour.dismiss")}
         title={t("tour.dismiss")}
       >
-        <svg width={10} height={10} viewBox="0 0 10 10" aria-hidden="true" focusable="false">
-          <path d="m2 2 6 6M8 2 2 8" stroke="currentColor" strokeWidth={1.25} strokeLinecap="round" />
+        <svg width={12} height={12} viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+          <path d="m3 3 6 6M9 3 3 9" stroke="currentColor" strokeWidth={1.25} strokeLinecap="round" />
         </svg>
       </button>
     </div>

@@ -9521,7 +9521,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The repo tour (repoTour/): a new chat in a folder no chat on this Mac has used offers it under
   // the hero's question; Take the tour sends the tour prompt as this chat's first message, and the
   // × closes the offer for that folder.
-  const [tourDismissals, setTourDismissals] = useState(0);
+  const [tourDismissed, setTourDismissed] = useState<ReadonlySet<string>>(() => new Set());
   const tourCwd = composerSnapshot.summary?.cwd;
   const tourOffered = useMemo(
     () =>
@@ -9535,9 +9535,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         listed: composerSnapshot.listedSessions === true,
         sessions: newTabSessions,
         sessionId: snapshot.sessionId,
-        dismissed: isTourDismissed,
+        dismissed: (folder) => tourDismissed.has(folder) || isTourDismissed(folder),
       }),
-    // tourDismissals: a × reads the dismissed folders again.
     [
       heroPicker,
       remoteChat,
@@ -9549,7 +9548,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       composerSnapshot.listedSessions,
       newTabSessions,
       snapshot.sessionId,
-      tourDismissals,
+      tourDismissed,
     ],
   );
   const tourOffer = useMemo<TourOfferActions | undefined>(
@@ -9559,7 +9558,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             onTake: () => void callNative("chat.send", { text: TOUR_PROMPT }).catch(() => undefined),
             onDismiss: () => {
               dismissTour(tourCwd);
-              setTourDismissals((count) => count + 1);
+              setTourDismissed((folders) => new Set(folders).add(tourCwd.replace(/(.)\/+$/, "$1")));
             },
           }
         : undefined,
@@ -11611,7 +11610,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     {...(sandboxRetryable(sandboxView) ? { onPersistent: () => sandbox.setMode("persistent") } : {})}
                   />
                 ) : freshView ? (
-                  <EmptyState project={projectName(composerSnapshot.summary?.cwd)} picker={heroPicker} tour={tourOffer} />
+                  <EmptyState
+                    project={projectName(composerSnapshot.summary?.cwd)}
+                    picker={heroPicker}
+                    tour={tourOffer}
+                  />
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>
                     <AgentNamesContext.Provider value={chatAgentNames}>

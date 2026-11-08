@@ -7,12 +7,10 @@
 // The tour is cached per repository head by the agent itself: it saves the fence under the git
 // common folder, which every worktree of the repository shares, by HEAD's sha. A second tour at the
 // same commit, in any worktree, prints the saved one instead of reading the repository again.
-import type { AcpmuxSessionEntry } from "../model";
 import { isAgentHome } from "../sessionList";
 import { TOUR_ASK, TOUR_FENCE } from "./tourPrompt";
 
 export { TOUR_ASK, TOUR_FENCE, TOUR_PROMPT } from "./tourPrompt";
-
 
 export type TourModule = { path: string; about: string };
 export type TourCommand = { command: string; about?: string };
@@ -100,7 +98,7 @@ export function offersTour({
   local: boolean;
   /// The daemon listed its chats to this page: an unlisted folder is not yet known to be new.
   listed: boolean;
-  sessions: readonly Pick<AcpmuxSessionEntry, "sessionId" | "cwd" | "peer" | "hostKind">[];
+  sessions: readonly { sessionId: string; cwd?: unknown; peer?: string; hostKind?: string }[];
   /// This chat's own entry, which never makes its folder seen.
   sessionId?: string;
   dismissed: (folder: string) => boolean;

@@ -69,11 +69,11 @@ export default componentEntry<Props>({
       play: open,
     },
     "tour-offer": {
-      note: "A folder no chat has used: Take a tour of this repo hangs under the question, out of its flow, so the question never moves; its × shows on hover.",
+      note: "A folder no chat has used: Take a tour of this repo hangs under the question, out of its flow, so the question never moves; a dim × (Not now) sits beside it.",
       props: { project: "atlas-web", picker: picker("/Users/you/src/atlas-web"), tour },
     },
     "tour-offer-hover": {
-      note: "Hovering the offer shows its × (Not now), which closes it for this folder.",
+      note: "Hovering the offer fills it; the × closes it for this folder.",
       props: { project: "atlas-web", picker: picker("/Users/you/src/atlas-web"), tour },
       play: async (ctx) => {
         await ctx.hover({ selector: ".acpmux-tour-offer-take" });

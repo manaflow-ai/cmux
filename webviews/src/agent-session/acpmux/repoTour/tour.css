@@ -12,7 +12,7 @@
   left: 50%;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--ds-space-1);
   transform: translateX(-50%);
   white-space: nowrap;
   animation: acpmux-tour-in var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out) both;
@@ -57,11 +57,6 @@
   height: 20px;
   border-radius: var(--ds-radius-control);
   color: var(--acpmux-composer-dim);
-  opacity: 0;
-}
-.acpmux-tour-offer:hover .acpmux-tour-offer-dismiss,
-.acpmux-tour-offer-dismiss:focus-visible {
-  opacity: 1;
 }
 .acpmux-tour-offer-take:hover,
 .acpmux-tour-offer-dismiss:hover {
@@ -75,7 +70,7 @@
   width: 100%;
   min-width: 0;
   margin: var(--ds-space-1) 0;
-  padding: 2px var(--ds-space-3) var(--ds-space-2);
+  padding: 0 var(--ds-space-3) var(--ds-space-2);
   border-radius: var(--grid-cards-radius);
   background: var(--acpmux-composer-tray);
   color: var(--agent-text);
@@ -84,7 +79,7 @@
   letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-tour[data-pending] {
-  padding-bottom: 2px;
+  padding-bottom: 0;
   color: var(--acpmux-composer-dim);
 }
 .acpmux-tour-head {
@@ -108,7 +103,7 @@
   overflow-wrap: anywhere;
 }
 .acpmux-tour-label {
-  margin: var(--ds-space-2) 0 2px;
+  margin: var(--ds-space-2) 0 0;
   color: var(--acpmux-composer-dim);
   font-size: var(--text-detail);
   font-weight: var(--weight-regular);
@@ -191,7 +186,7 @@
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-tour-task-error {
-  margin: 2px 0 0;
+  margin: var(--ds-space-1) 0 0;
   color: var(--agent-danger);
   font-size: var(--text-detail);
   overflow-wrap: anywhere;

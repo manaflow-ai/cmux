@@ -32,7 +32,7 @@
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--ds-space-1);
   min-width: 0;
 }
 .tour-designs-card-text strong {
@@ -52,7 +52,6 @@
   transform: none;
 }
 .tour-designs-composer {
-  height: 72px;
   padding: var(--ds-space-3);
   box-sizing: border-box;
   border-radius: var(--grid-cards-radius);

@@ -82,7 +82,15 @@ export default componentEntry<Props>({
     },
     sparse: {
       note: "A small repository: no run commands, two modules.",
-      props: { tour: { summary: "A single-file CLI that renames photos by EXIF date.", modules: tour.modules.slice(0, 2), run: [], tasks: tour.tasks.slice(0, 1) }, onStart: never },
+      props: {
+        tour: {
+          summary: "A single-file CLI that renames photos by EXIF date.",
+          modules: tour.modules.slice(0, 2),
+          run: [],
+          tasks: tour.tasks.slice(0, 1),
+        },
+        onStart: never,
+      },
     },
   },
 });
