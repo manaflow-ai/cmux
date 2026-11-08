@@ -2,7 +2,7 @@
 import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
-import { NEXT_STEP } from "../conversation/turns";
+import { NEXT_STEP, turnViewFrom, waitingAsks } from "../conversation/turns";
 import type { AcpmuxPermission, AcpmuxRow } from "../model";
 import type { WatchedAsk } from "../needsYou/model";
 import type { AcpmuxSessionEntry } from "../sessionList";
@@ -218,5 +218,60 @@ describe("the questions the composer hat holds", () => {
     expect(one).not.toBe(two);
     expect(sameHatQuestions(one, two)).toBe(true);
     expect(sameHatQuestions(one, [])).toBe(false);
+  });
+});
+
+// #38964: one waiting question drew twice at the composer, as a pinned "Needs your input" card
+// (conversation/PendingAsks.tsx) and again in the hat right under it, and the card's Dismiss seemed to
+// do nothing: it hid the card, and the hat's copy stayed in its place. The hat holds a tagged ask
+// while it is the chat's last word; once another turn came after it, the pinned card holds it, with
+// its Dismiss. Read from the same shaped rows the pane gives both, each ask is in exactly one.
+describe("a waiting tagged ask is in the hat or pinned above the composer, never both", () => {
+  let at = 0;
+  const line = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow =>
+    ({ id, version: 1, at: (at += 1000), kind, ...extra }) as AcpmuxRow;
+  const ASK = "Read the lock path.\n\n[taste] Do you mean computer use, still working while the Mac is locked?";
+  const asked = [
+    line("p1", "user", { text: "Why does capture stop on lock?" }),
+    line("a1", "assistant", { text: ASK }),
+    line("s1", "turnSummary", { status: "completed" }),
+  ];
+  const peer = (id: string, text: string) =>
+    line(id, "user", {
+      text,
+      untyped: true,
+      incoming: { kind: "message", message: { name: "ci-lane", text, raw: text } },
+    } as Partial<AcpmuxRow>);
+  const surfaces = (rows: readonly AcpmuxRow[], working = false) => {
+    const view = turnViewFrom(rows, new Set(), { working });
+    const hat = hatQuestions({ sessionId: "chat", nextStepOwner: "chat", rows: view.rows, sessions: [], asks: [] });
+    return { hat: hat.map((question) => question.prompt), pinned: waitingAsks(view).map(questionOf) };
+  };
+  const questionOf = (card: AcpmuxRow) => card.nextStep?.ask.question;
+  const QUESTION = "Do you mean computer use, still working while the Mac is locked?";
+
+  test("the chat's last word: in the hat only", () => {
+    expect(surfaces(asked)).toEqual({ hat: [QUESTION], pinned: [] });
+  });
+
+  test("another agent's message opened a turn after it: pinned only, while that turn runs and after", () => {
+    const opened = [...asked, peer("m1", "Pushed abc123; the focused checks are running.")];
+    expect(surfaces([...opened, line("a2", "assistant", { text: "Reading" })], true)).toEqual({
+      hat: [],
+      pinned: [QUESTION],
+    });
+    const ended = [...opened, line("a2", "assistant", { text: "Noted." }), line("s2", "turnSummary", { status: "completed" })];
+    expect(surfaces(ended)).toEqual({ hat: [], pinned: [QUESTION] });
+  });
+
+  test("a send that failed after it: pinned only, still answerable", () => {
+    expect(surfaces([...asked, line("p2", "user", { text: "Yes", failed: true })])).toEqual({
+      hat: [],
+      pinned: [QUESTION],
+    });
+  });
+
+  test("the person's reply after it: in neither", () => {
+    expect(surfaces([...asked, line("p2", "user", { text: "Not yet" })])).toEqual({ hat: [], pinned: [] });
   });
 });
