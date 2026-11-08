@@ -1045,8 +1045,13 @@ impl Session {
         match self {
             Session::Local(mux) => {
                 let notifications = mux.surface_notifications();
+                let presentation = mux.presentation_snapshot();
                 mux.with_state(|state| {
-                    tree::tree_from_state_with_notifications(state, &notifications)
+                    tree::tree_from_state_with_notifications(
+                        state,
+                        &notifications,
+                        &presentation.tab_attention,
+                    )
                 })
             }
             Session::Remote(remote) => remote.cached_tree(),

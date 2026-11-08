@@ -747,9 +747,10 @@ const JUMP_LATEST_DISTANCE = 80;
 /// window never changes the reader's follow choice; it only distinguishes subsequent events.
 const READER_SCROLL_MS = 1000;
 
-/// How far a followed view's offset must rise, with no input seen yet, to be the reader's own scroll:
-/// past the browser's rounding of a fractional end, never a whole trackpad step.
-const UNSEEN_READER_MOVE_PX = 1;
+/// How far a followed view's offset must rise, with no input seen yet, to be the reader's own scroll.
+/// WebKit itself moves a followed offset a pixel or two above the latest line as a reply grows
+/// (cx-02st5, agent-pane-follow-live), so a rise inside the follow deadband stays layout work.
+const UNSEEN_READER_MOVE_PX = FOLLOW_BOTTOM_DEADBAND_PX;
 
 /// How long a followed view keeps the room a queued prompt's card left, for the prompt to arrive.
 const FLOOR_HOLD_MS = 1000;
@@ -3034,8 +3035,8 @@ function TranscriptView({
       // the stored one. A click or downward input refreshes readerAt too, but must not turn a
       // layout correction into a new reader move (the base reader intent rule).
       const inputAt = followingRef.current || readerUpPending.current ? readerAt.current : Number.NEGATIVE_INFINITY;
-      // A followed view whose offset rose with the viewport unchanged and no clamp to explain it was
-      // moved by the reader, even before any of their input reached the page. WebKit scrolls a
+      // A followed view whose offset rose past the deadband with the viewport unchanged and no clamp
+      // to explain it was moved by the reader, even before any of their input reached the page. WebKit scrolls a
       // passive-wheel scroller on its scrolling thread and hands the page the wheel later; a streamed
       // snapshot that commits in between pinned the reader back to the bottom, gesture after gesture
       // (Lawrence, 2026-11-07: "scrolling up is broken"). The transcript never moves its own offset up
@@ -3779,17 +3780,10 @@ function TranscriptView({
     // also what the jsdom behavior tests dispatch without a wheel event, so do not classify every
     // programmatic-looking event as layout work.
     // A held disclosure (foldAnchor) keeps the view where it is, not at the latest row.
-    // Layout moves a followed offset up only by clamping it to the scroller's new end; a rise that
-    // stops short of the end is the reader's, its wheel still on its way to the page (WebKit's
-    // scrolling thread scrolls first, the placement pass's `unseenReaderMove`).
-    const roseShortOfEnd =
-      next < scrolledTo.current.top - UNSEEN_READER_MOVE_PX &&
-      next < node.scrollHeight - node.clientHeight - UNSEEN_READER_MOVE_PX;
     const layoutDriven =
       followingRef.current &&
       programmatic &&
       !foldAnchor.current &&
-      !roseShortOfEnd &&
       Math.abs(next - scrolledTo.current.top) <= FOLLOW_BOTTOM_DEADBAND_PX;
     if (layoutDriven) {
       const latest = Math.max(0, layout.totalHeight - node.clientHeight);
@@ -3806,7 +3800,7 @@ function TranscriptView({
     // A recent upward input is authoritative even when it moved only a pixel or two. The
     // deadband absorbs layout rounding, but must not turn a real trackpad step into bottom follow.
     const movedUp = next < was.top - 0.5;
-    const recentUp = movedUp && (!programmatic || roseShortOfEnd);
+    const recentUp = !programmatic && movedUp;
     // Only the reader's own downward scroll input brings following back at the end; the input hold
     // alone (`programmatic`) is any input of the last second, a press or a hover after a lost
     // release too, and a layout change landing at the end inside it is not the reader's.

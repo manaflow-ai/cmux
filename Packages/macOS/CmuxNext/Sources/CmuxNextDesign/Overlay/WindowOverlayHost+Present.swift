@@ -124,6 +124,12 @@ public extension WindowOverlayHost {
         return NSRect(x: frame.minX + rect.minX, y: y, width: rect.width, height: rect.height)
     }
 
+    /// Where the overlay takes clicks (window coordinates), nil for its whole frame: a toast stack's
+    /// toasts (``OverlayHandle/hitRegions``), or a dialog's card (``OverlayOptions/mouseRect``).
+    func clickRegions(of handle: OverlayHandle) -> [NSRect]? {
+        handle.hitRegions ?? mouseRect(of: handle).map { [$0] }
+    }
+
     /// What of the overlay shows (window coordinates): a `.pane` overlay
     /// inside its clip and outside every occluder.
     func visibleRegion(of handle: OverlayHandle) -> [NSRect] {
@@ -174,7 +180,9 @@ public extension WindowOverlayHost {
             if let region = options.modalRegion { rects.append(region) }
             if !options.passesThroughClicks {
                 let visible = visibleRegion(of: handle)
-                rects += mouseRect(of: handle).map { mouse in visible.map { $0.intersection(mouse) }.filter { !$0.isEmpty } } ?? visible
+                rects += clickRegions(of: handle).map { regions in
+                    regions.flatMap { region in visible.map { $0.intersection(region) } }.filter { !$0.isEmpty }
+                } ?? visible
             }
             return rects
         }
