@@ -288,7 +288,9 @@ function inspectResult(result: Record<string, unknown>, runs: number, errors: st
       !commits(run.reactCommits) ||
       // A drag target paint has no cadence window to report (rail-flow.ts sends null); only frame-time
       // metrics are built from frame gaps, so only they must carry a nonempty list.
-      (cadence ? !numbers(run.frameGaps) || run.frameGaps.length === 0 : run.frameGaps !== null && !numbers(run.frameGaps))
+      (cadence
+        ? !numbers(run.frameGaps) || run.frameGaps.length === 0
+        : run.frameGaps !== null && !numbers(run.frameGaps))
     ) {
       errors.push(`${id}: incomplete or uninstrumented adapter run`);
       valid = false;

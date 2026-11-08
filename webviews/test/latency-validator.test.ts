@@ -317,7 +317,10 @@ test.each(["probe", "adapter"])("every %s cadence run must contribute a nonempty
 });
 
 test("the gate workflow's and bootstrap's --pages measure exactly the budget's expected cases", () => {
-  const workflow = fs.readFileSync(path.join(import.meta.dir, "../../.github/workflows/cmux-next-web-perf.yml"), "utf8");
+  const workflow = fs.readFileSync(
+    path.join(import.meta.dir, "../../.github/workflows/cmux-next-web-perf.yml"),
+    "utf8",
+  );
   const pages = workflow.match(/--pages "([^"]+)"/)?.[1].split(",") ?? [];
   const budgetFile = JSON.parse(fs.readFileSync(path.join(import.meta.dir, "latency/budget.json"), "utf8"));
   const cases = PAGES.filter((spec) => pages.includes(spec.name)).flatMap((spec) =>
@@ -360,7 +363,10 @@ test("a drag target paint run with no cadence window (frameGaps null) is accepte
 });
 
 test("the measurement job runs the target base's harness, never the candidate's", () => {
-  const workflow = fs.readFileSync(path.join(import.meta.dir, "../../.github/workflows/cmux-next-web-perf.yml"), "utf8");
+  const workflow = fs.readFileSync(
+    path.join(import.meta.dir, "../../.github/workflows/cmux-next-web-perf.yml"),
+    "utf8",
+  );
   const pin = workflow.indexOf('git checkout "$BASE_SHA" -- webviews/scripts/latency webviews/test/latency');
   expect(pin).toBeGreaterThan(-1);
   expect(pin).toBeLessThan(workflow.indexOf("bun scripts/latency/run.ts"));
@@ -378,7 +384,10 @@ test("the gate rejects results not measured with the target base's harness", () 
   expect(validateEvidence(own, baseline(), budget, options).errors).not.toContain(
     `results harness ${source.base} is not the target base's`,
   );
-  const workflow = fs.readFileSync(path.join(import.meta.dir, "../../.github/workflows/cmux-next-web-perf.yml"), "utf8");
+  const workflow = fs.readFileSync(
+    path.join(import.meta.dir, "../../.github/workflows/cmux-next-web-perf.yml"),
+    "utf8",
+  );
   expect(workflow).toContain("CMUX_LATENCY_HARNESS_SHA: ${{ env.BASE_SHA }}");
   expect(workflow).toContain("--require-base-harness");
 });

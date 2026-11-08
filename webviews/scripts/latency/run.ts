@@ -85,7 +85,10 @@ export function parseOptions(args: string[]) {
     pageFilter: values.get("--page"),
     // Exact page names, comma separated: the trusted gate measures exactly its budget's pages, where
     // --page's substring match would also pick up pages like "chat rail pointer".
-    pageNames: values.get("--pages")?.split(",").map((name) => name.trim()),
+    pageNames: values
+      .get("--pages")
+      ?.split(",")
+      .map((name) => name.trim()),
     actionFilter: values.get("--action"),
     engineFilter: values.get("--engine"),
     base: values.get("--base"),
