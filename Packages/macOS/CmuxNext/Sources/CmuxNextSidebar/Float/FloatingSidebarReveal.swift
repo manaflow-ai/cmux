@@ -77,7 +77,6 @@ public final class FloatingSidebarReveal {
     /// Applies the inputs: schedules or cancels the open and the close. Also the call after a
     /// hold ended, a setting changed or the window's content changed.
     public func reconcile() {
-        return
         guard isOpen else {
             closeTimer.cancel()
             guard edgeEngaged, canFloat else { return openTimer.cancel() }

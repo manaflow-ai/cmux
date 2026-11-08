@@ -255,6 +255,8 @@ public final class SidebarModel {
     /// sidebar in the same turn.
     public var presentation: SidebarPresentation = .shown {
         didSet {
+            // Shown, the sidebar has its place beside the content: nothing floats.
+            if presentation == .shown, isFloating { isFloating = false }
             if presentation != oldValue { onPresentationChange?(presentation) }
         }
     }
@@ -311,7 +313,7 @@ public final class SidebarModel {
     public var displayWidth: CGFloat {
         switch presentation {
         case .shown: style == .rail && !isRailOpen ? SidebarRailLayout.Metrics().railWidth : width
-        case .hidden: 0
+        case .hidden: isFloating ? width : 0
         }
     }
 

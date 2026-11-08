@@ -399,6 +399,7 @@ public final class SidebarContainerView: NSView {
     /// nothing, so the observation and a synchronous caller can both run it.
     func apply() {
         // The float look comes with the float, and stays through its slide out (`finishCollapseIfReady`).
+        if model.isFloating { isFloatOverlay = true } else if !model.isHidden { isFloatOverlay = false }
         let hidden = isPanelCollapsed
         let target = floatTargetWidth
         let collapseMotion = SidebarTunables.collapseMotion.value
