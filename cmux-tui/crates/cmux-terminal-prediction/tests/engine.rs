@@ -1213,3 +1213,59 @@ fn output_before_an_opaque_period_ends_is_not_taken_for_echo_when_the_window_wou
         session.status()
     );
 }
+
+#[test]
+fn a_contradicted_rewrite_does_not_re_arm_by_matching_new_keys() {
+    // The same as a contradicted guess, when the remote first moved back over
+    // text it echoed and then printed something other than that text.
+    let mut session = Session::new();
+    for key in ["l", "s", "a", "b"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(150));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("q", ms(100));
+    session.remote_after("\x08Z", ms(20));
+    for key in ["y", "z"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(80));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("w", ms(50));
+    assert!(
+        !session.drawn().contains('w'),
+        "drawn {:?}, status {:?}",
+        session.drawn(),
+        session.status()
+    );
+}
+
+#[test]
+fn retyping_the_character_a_backspace_erased_cannot_leave_a_key_unechoed() {
+    // Backspace and the same character again can reach the line editor in one
+    // read, however far apart they were sent: together they change nothing,
+    // so nothing comes back for either. Had the character been tracked, it
+    // would wait for an echo that never comes, and the next keys' echoes would
+    // confirm the wrong entries.
+    let mut session = Session::new();
+    for key in ["l", "s", "a", "b"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(150));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("\x7f", ms(100));
+    session.type_key_after("b", ms(100));
+    session.type_key_after("b", ms(300));
+    session.type_key_after("b", ms(100));
+    session.remote_after("b", ms(50));
+    session.remote_after("b", ms(100));
+    session.type_key_after("z", ms(50));
+    let glyphs = session.engine.glyphs();
+    let z = glyphs.iter().find(|glyph| glyph.character == b'z');
+    assert!(
+        z.is_none_or(|glyph| glyph.offset == 0),
+        "drawn {:?} at {:?}",
+        session.drawn(),
+        session.live_offsets()
+    );
+}

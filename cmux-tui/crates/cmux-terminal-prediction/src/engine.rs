@@ -235,6 +235,11 @@ pub struct TerminalPredictionEngine {
     /// Until when output may come from a key whose effect is not modelled
     /// (Return, an editing key, a lost read): it can print anything.
     opaque_echo_until: Option<Duration>,
+    /// When the last key that erases or does something unmodelled was sent and
+    /// withdrew. The next printable key may reach the remote in the same read
+    /// and cancel it (Backspace, then the same character again), so that
+    /// nothing comes back for either.
+    cancellable_key_at: Option<Duration>,
 }
 
 impl Default for TerminalPredictionEngine {
@@ -268,6 +273,7 @@ impl TerminalPredictionEngine {
             newest_untracked_keystroke: None,
             untracked_bytes: Vec::new(),
             opaque_echo_until: None,
+            cancellable_key_at: None,
         }
     }
 
@@ -435,6 +441,7 @@ impl TerminalPredictionEngine {
                 return expired;
             }
             self.mark_opaque_echo(now);
+            self.cancellable_key_at = Some(now);
             return self.withdraw_all(false, now, true) || expired;
         };
         if self.entries.len() >= self.configuration.maximum_speculative_glyphs {
@@ -443,10 +450,18 @@ impl TerminalPredictionEngine {
         }
         let in_untracked_window =
             self.untracked_echo_deadline.is_some_and(|deadline| now < deadline);
-        if in_untracked_window
-            && self
-                .newest_untracked_keystroke
-                .is_some_and(|untracked| now.saturating_sub(untracked) < self.coalescing_gap())
+        // The first printable key after a withdrawn erase or unmodelled key may
+        // reach the remote in the same read as it, however far apart they were
+        // sent, and undo it with no output at all; it is untracked.
+        let may_cancel = self
+            .cancellable_key_at
+            .take()
+            .is_some_and(|at| in_untracked_window && now < at + self.untracked_echo_settle());
+        if may_cancel
+            || in_untracked_window
+                && self
+                    .newest_untracked_keystroke
+                    .is_some_and(|untracked| now.saturating_sub(untracked) < self.coalescing_gap())
         {
             // Readline and zle redraw pending input as one net change, so a key
             // sent right behind an untracked one may come back merged with it,
@@ -505,6 +520,7 @@ impl TerminalPredictionEngine {
             }
             // Its echo may redraw the rest of the line.
             self.mark_opaque_echo(now);
+            self.cancellable_key_at = Some(now);
             return self.withdraw_all(false, now, true) || expired;
         };
         // A glyph whose echo arrived but is still held for its frame is
@@ -547,6 +563,7 @@ impl TerminalPredictionEngine {
             return changed || expired;
         }
         self.mark_opaque_echo(now);
+        self.cancellable_key_at = Some(now);
         self.withdraw_all(false, now, true) || expired
     }
 
@@ -756,7 +773,9 @@ impl TerminalPredictionEngine {
     fn consume_printable(&mut self, byte: u8, now: Duration) -> bool {
         if let Some(&rewritten) = self.rewound.first() {
             if rewritten != byte {
-                // Not a rewrite of what it moved back over: a redraw.
+                // Not a rewrite of what it moved back over: a redraw, which may
+                // go on printing.
+                self.mark_opaque_echo(now);
                 return self.withdraw_all(false, now, false);
             }
             self.rewound.remove(0);
@@ -922,22 +941,26 @@ impl TerminalPredictionEngine {
                 .map(|e| e.typed_at)
                 .max()
         };
+        let mut in_flight = Vec::new();
+        let mut opaque = false;
         for entry in &self.entries {
             if entry.standing != Standing::Speculative {
                 continue;
             }
             match entry.keystroke {
-                Keystroke::Glyph(byte) => {
-                    self.untracked_bytes.push((byte, entry.typed_at));
-                }
+                Keystroke::Glyph(byte) => in_flight.push((byte, entry.typed_at)),
                 // An erase may redraw the rest of the line, and an unmodelled
                 // key may print anything.
-                Keystroke::Barrier | Keystroke::Erase(_) => {
-                    let until = now + self.untracked_echo_settle();
-                    self.opaque_echo_until =
-                        Some(self.opaque_echo_until.map_or(until, |known| known.max(until)));
-                }
+                Keystroke::Barrier | Keystroke::Erase(_) => opaque = true,
             }
+        }
+        for (byte, sent_at) in in_flight {
+            self.push_untracked_byte(byte, sent_at, now);
+        }
+        if opaque {
+            let until = now + self.untracked_echo_settle();
+            self.opaque_echo_until =
+                Some(self.opaque_echo_until.map_or(until, |known| known.max(until)));
         }
         if let Some(newest) = newest_untracked {
             self.newest_untracked_keystroke =
@@ -1080,12 +1103,16 @@ impl TerminalPredictionEngine {
     /// Keeps at most the last 64 untracked keys: each is dropped once its echo
     /// can no longer be on its way.
     fn note_untracked_byte(&mut self, byte: u8, now: Duration) {
+        self.push_untracked_byte(byte, now, now);
+    }
+
+    fn push_untracked_byte(&mut self, byte: u8, sent_at: Duration, now: Duration) {
         let settle = self.untracked_echo_settle();
-        self.untracked_bytes.retain(|&(_, sent_at)| now < sent_at + settle);
+        self.untracked_bytes.retain(|&(_, sent)| now < sent + settle);
         if self.untracked_bytes.len() >= 64 {
             self.untracked_bytes.remove(0);
         }
-        self.untracked_bytes.push((byte, now));
+        self.untracked_bytes.push((byte, sent_at));
     }
 
     /// A key whose effect is not modelled was sent or answered now.
