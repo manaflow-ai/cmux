@@ -52,6 +52,7 @@ public nonisolated enum AppSceneNodeType: String, Sendable, Hashable, CaseIterab
     case circle = "Circle", capsule = "Capsule", rectangle = "Rectangle", roundedRectangle = "RoundedRectangle"
     case progressView = "ProgressView", textField = "TextField"
     case row = "Row", badge = "Badge", emptyState = "EmptyState"
+    case toggle = "Toggle", slider = "Slider", panel = "Panel"
 
     /// Lays its children out inline in the parent's stack.
     public var isInline: Bool { self == .group || self == .forEach }

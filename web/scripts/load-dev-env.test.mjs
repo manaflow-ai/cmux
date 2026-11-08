@@ -15,6 +15,8 @@ function sourceDevEnv({
   localKeyID = "",
   providerFileContents = "",
   extraFileContents = "",
+  downloadedFreestyleEnabled = "",
+  freestyleEnabled = "",
 }) {
   const home = mkdtempSync(path.join(tmpdir(), "cmux-load-dev-env-"));
   const secrets = path.join(home, ".secrets");
@@ -31,6 +33,7 @@ function sourceDevEnv({
     [
       `CMUX_RELAY_POLICY_KEY_ID=${downloadedKeyID}`,
       `CMUX_RELAY_POLICY_PRIVATE_KEY_PEM=${downloadedPrivateKey}`,
+      `CMUX_VM_FREESTYLE_ENABLED=${downloadedFreestyleEnabled}`,
       "",
     ].join("\n"),
     { mode: 0o600 },
@@ -48,7 +51,7 @@ function sourceDevEnv({
       "bash",
       [
         "-c",
-        `source "$1"; printf '%s\\0%s\\0%s\\0%s\\0%s' "\${CMUX_RELAY_POLICY_KEY_ID-}" "\${CMUX_RELAY_POLICY_PRIVATE_KEY_PEM-}" "\${FREESTYLE_API_KEY-}" "\${FREESTYLE_SANDBOX_SNAPSHOT-}" "\${CMUX_VM_DEFAULT_PROVIDER-}"`,
+        `source "$1"; printf '%s\\0%s\\0%s\\0%s\\0%s\\0%s' "\${CMUX_RELAY_POLICY_KEY_ID-}" "\${CMUX_RELAY_POLICY_PRIVATE_KEY_PEM-}" "\${FREESTYLE_API_KEY-}" "\${FREESTYLE_SANDBOX_SNAPSHOT-}" "\${CMUX_VM_DEFAULT_PROVIDER-}" "\${CMUX_VM_FREESTYLE_ENABLED-}"`,
         "bash",
         scriptPath,
       ],
@@ -62,6 +65,7 @@ function sourceDevEnv({
           CMUX_RELAY_POLICY_PRIVATE_KEY_PEM: "",
           CMUX_RELAY_POLICY_LOCAL_KEY_ID: localKeyID,
           CMUX_VM_DEFAULT_PROVIDER: "",
+          CMUX_VM_FREESTYLE_ENABLED: freestyleEnabled,
           CMUXTERM_EXTRA_ENV_FILE: extraFileContents ? extraFile : "",
         },
       },
@@ -133,6 +137,32 @@ test("loads an explicitly selected Freestyle provider from the extra environment
 
   assert.equal(apiKey, "explicit-freestyle-key");
   assert.equal(provider, "freestyle");
+});
+
+test("downloaded Cloud secrets do not enable classic provisioning for development", () => {
+  const [, , , , , enabled] = sourceDevEnv({
+    downloadedFreestyleEnabled: "1",
+  });
+
+  assert.equal(enabled, "0");
+});
+
+test("an explicit caller can enable classic provisioning for maintenance", () => {
+  const [, , , , , enabled] = sourceDevEnv({
+    downloadedFreestyleEnabled: "0",
+    freestyleEnabled: "1",
+  });
+
+  assert.equal(enabled, "1");
+});
+
+test("the caller's classic provisioning disable survives downloaded secrets", () => {
+  const [, , , , , enabled] = sourceDevEnv({
+    downloadedFreestyleEnabled: "1",
+    freestyleEnabled: "0",
+  });
+
+  assert.equal(enabled, "0");
 });
 
 function sourcedNetworkNamespace(env) {

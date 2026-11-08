@@ -119,6 +119,7 @@ nonisolated enum AcpmuxVersionHandoff {
     /// bundled one.
     static func handOffIfStale(_ status: AcpmuxStatus, environment: AcpmuxEnvironment, daemons: AcpmuxLocalDaemons) async -> Bool {
         let bundled = await bundledBuild(environment)
+        AgentPaneLaunchTimings.shared.mark("acpmux.bundled_build_read")
         let isReplaced = runsReplacedExecutable(status, environment: environment, log: true)
         let policy = launchPolicyDiffers(daemon: status.agentLaunch, environment: environment.childEnvironment)
         guard restarts(status, bundled: bundled, replaced: isReplaced, policyDiffers: policy), let pid = status.pid else {
@@ -144,6 +145,7 @@ nonisolated enum AcpmuxVersionHandoff {
         logger.info("acpmux \(pid) runs build \(status.build ?? "?", privacy: .public)\(isReplaced ? " from a replaced bundle" : "", privacy: .public)\(status.agentHosts ? "" : " without agent hosts; its chats resume from disk", privacy: .public); handing off to \(bundled ?? "?", privacy: .public)")
         do {
             try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)
+            AgentPaneLaunchTimings.shared.mark("acpmux.handoff_shutdown_sent")
         } catch {
             logger.error("acpmux handoff request failed: \(String(describing: error), privacy: .public)")
             daemons.mark(home: environment.home, restarting: false)

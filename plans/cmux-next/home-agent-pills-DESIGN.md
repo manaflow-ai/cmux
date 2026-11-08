@@ -117,3 +117,46 @@ Pills over the mock owner, and each open style live:
    Go to workspace. Red test first (the projection makes one pill per touched agent, under its turn,
    with its state and unread dot; a click opens one tab per agent; a second click selects it).
 3. Cloud transport and the move events, with a963 and a964.
+
+## Landing slices (2026-11-03)
+
+Slice 1 ships pills from the data Home already reads, with no new owner read, so it does not wait on
+the `HomeAgentPeer` / `HomeAgentSessionRef` agreement with a963 and a964:
+
+- `HomeAgentMessages.inserting` puts ONE agents row (the `.fold` kind, same group id) after the turn
+  for one or more messages, and status notes join it (no second "Disconnected (N)" row, no lone
+  bubble). Per agent, first-seen order: state = its newest step (task `told` = working, report
+  `reported`, status note `stopped`); title = `HomeAgentMessageRow.title(of:)` of the Chief's first
+  message to it, else its id. Local and Cloud Chief runs map through the same `HomeAgentRunMapping`.
+- The shipped `HomeAgentFoldRowProvider` draws `HomeAgentPills` (`.pill`) for that row; note and Feed
+  rows keep the caption line. Unread = `reported` until slice 2 adds `readAt`.
+- A click still opens and closes the turn's messages under the pills (no pane yet).
+
+Slice 2 (shipped): a pill click (`ChatController.onAgentPill`) opens `HomeAgentPane` (constructor-injected
+over `HomeStore`, tabs keyed by agent id per chat) in a right pane of the Home chat; the chat comes from
+`HomeStore.agentThread` (the run rows): task as "Sent via Chief" with Show more, "Worked for" = first to
+newest step (to now while it works), the later messages with the Chief's labelled. Opening marks the
+agent's newest report seen (`HomeStore.markAgentSeen`, this launch only), so its unread dot clears until a
+newer report. "Go to workspace" opens the Chief's own `[aN](cmux://chief/<home>/session/<id>)` link from
+its replies (optchat-chief `workspaces::subagent_link`, opened by the existing subagent-link route); no
+link in the chat: no button. Pill titles: the `Title:` line, else the first clause at a word edge (~32
+characters); the pill clips the rest.
+
+Slice 3 (steps 1 and 2 built in Home; needs owner changes, owned by a963/a964 and the Chief producer):
+- Owner part shipped: a963's subagent `place` and `epoch` in host/spawns landed on feat-cmux-next
+  (ded88aaa..ad4816c7). Home reads them into `HomeAgentSessionRef`; the session id stays the same across a
+  move, and the agent pane follows an agent by its session id and re-attaches where a higher epoch says.
+- The composer's send: the person's message must reach the subagent through the Chief and be recorded
+  in the Chief's run with its sender. Needs a `tell` input field `from` (or `_meta.cmux.sender`) in
+  optchat-chief, and `HomeIntent.agentNote(peer, text)` through the owner so the Chief sees it.
+- Labels: `HomeAgentRunMapping` reads `from`, `HomeAgentThread.Entry` carries it, the chat labels You or
+  Chief (the `.you` sender and its string already ship).
+- Session identity: "Go to workspace" and a live transcript of the subagent's own session need the
+  `HomeAgentSessionRef` shape above; the pane only passes the Chief's link through today.
+
+Old plan, slice 2: the pill click (`onPill`, now shipped) -> a constructor-injected `@MainActor @Observable`
+`HomeAgentPaneCoordinator` (tabs keyed by (chief, peer), open selects, closing the last hides the
+pane), the pane's first content from the same run rows (task as "Sent via Chief", "Worked for" =
+report time minus task time, the later messages), and the seen set for the unread dot. "Go to
+workspace" waits for the `HomeAgentSessionRef` shape. Slice 3: sender labels and the shared composer
+(needs the `_meta.cmux.sender` and `agentNote` owner changes above).

@@ -3,15 +3,19 @@
 // (Leo 2026-11-03, after ChatGPT's one-step update), so its progress and Cancel live here, and so
 // does a failed check's or download's Try Again, background ones included. Every text is the host's.
 import { useState } from "react";
+import { Button } from "../../../ui/Button";
 import { useSettingsState, useStore } from "../context";
 import type { AppUpdateAction } from "../ops";
 import { ActionRow } from "./ActionRow";
+import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
 
 export function AppUpdateCard() {
   const store = useStore();
   const { host } = useSettingsState();
   const [running, setRunning] = useState<AppUpdateAction | null>(null);
   const state = host?.app_update;
+  // The card arrives with the host's lists: after a blank first paint it fades in (shared/loadFade.ts).
+  const fade = useLoadFade(Boolean(state));
   if (!state) return null;
   const run = async (action: AppUpdateAction) => {
     setRunning(action);
@@ -20,12 +24,13 @@ export function AppUpdateCard() {
   };
   const progress = state.progress;
   return (
-    <section className="group" data-card="app-update" data-phase={state.phase}>
+    <section className={fade ? `group ${LOAD_FADE_CLASS}` : "group"} data-card="app-update" data-phase={state.phase}>
       <h3 className="group-title">{state.title}</h3>
       <div className="rows">
         <ActionRow title={state.status} help={state.detail ?? ""}>
           {state.actions.map((action) => (
-            <button
+            <Button
+              variant={action.prominent ? "solid" : "subtle"}
               key={action.id}
               type="button"
               className={action.prominent ? "button app-update-prominent" : "button"}
@@ -34,7 +39,7 @@ export function AppUpdateCard() {
               onClick={() => void run(action.id)}
             >
               {action.title}
-            </button>
+            </Button>
           ))}
         </ActionRow>
         {progress !== undefined && (

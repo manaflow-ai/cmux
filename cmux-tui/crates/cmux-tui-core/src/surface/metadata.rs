@@ -27,6 +27,18 @@ impl Surface {
         }
     }
 
+    /// The newest finished shell command this terminal's tracker kept
+    /// (`shell_history::Recording`), if any.
+    pub(crate) fn last_finished_command(&self) -> Option<crate::shell_history::FinishedCommand> {
+        self.as_pty().and_then(|pty| pty.last_finished_command())
+    }
+
+    /// The command a park keeps for the freed shell: the one that runs now
+    /// (it ends with the shell), else the newest finished one.
+    pub(crate) fn kept_command(&self) -> Option<crate::shell_history::FinishedCommand> {
+        self.as_pty().and_then(|pty| pty.kept_command())
+    }
+
     pub fn pwd(&self) -> Option<String> {
         self.as_pty().and_then(|pty| pty.pwd.lock().unwrap().clone())
     }
@@ -68,6 +80,16 @@ impl Surface {
                 .and_then(platform::spawn_cwd_to_local_path)
                 .map(|path| path.to_string_lossy().into_owned())
         })
+    }
+
+    /// Sets the title the terminal shows, as its reader does when the program sets one. A surface with no terminal
+    /// has no title to set; the caller checks the title it reads back.
+    #[cfg(test)]
+    pub(crate) fn set_test_title(&self, title: &str) {
+        if let Some(pty) = self.as_pty() {
+            *pty.title.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                title.to_string();
+        }
     }
 
     #[cfg(test)]

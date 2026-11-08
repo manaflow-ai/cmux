@@ -19,11 +19,10 @@ What runs, per area touched by the change:
   check:text-focus on the CmuxNext sources it reads (385cb09a747 went red on feat-cmux-next that way), not
   the whole webviews check, and installs nothing. A check that cannot fail (one that only warns, such as
   check:system-blue and check:attachment-caps) declares no INPUTS: running it alone could only cost time.
-* The trust boundary: the hook never runs code that the push changes. A push that changes a file a package's
-  check executes (its configs, its scripts, scripts/cmux-next/) is not linted with that package's check; the
-  sandboxed CI job is the check for it. When every such file is under scripts/cmux-next/, the hook holds a
-  reviewed copy of that folder (--trusted-scripts-dir, refreshed from feat-cmux-next), so it still runs the
-  declared source checks the change's files feed, from that copy, on the pushed tree (trusted_check_argv()):
+* A package whose check code the push changes is not linted with that check (the trust boundary, below). When
+  every reason is a change under scripts/cmux-next/, the hook holds a reviewed copy of that folder
+  (--trusted-scripts-dir, refreshed from feat-cmux-next), so it still runs the declared source checks the
+  change's files feed, from that copy, on the pushed tree (trusted_pieces(), trusted_check_argv()):
   c0230efd501 changed scripts/cmux-next/media/states/*.json and a CmuxNext Swift file, and its push now
   runs check:text-focus. A piece whose own script the push changes is never run there: the copy would judge
   the push by the rules it replaces.
@@ -33,6 +32,21 @@ What runs, per area touched by the change:
   build. Without it the check printed a TS2307 "cannot find module" for every import.
 * web/: ESLint, errors only, on the changed files, with a cache. web/ as a whole
   is not lint-clean, so only the files a change touches are held to it.
+
+The trust boundary (docs/contributor-verification.md): the hook runs only check code the push did not change; a
+push that changes it is not linted here, and CI's sandboxed `web lint` job is the check for it. "Changed" is
+measured from where the pushed commit meets a reviewed branch (feat-cmux-next, else the remote's HEAD) of a reviewed
+remote (manaflow-ai/cmux, or one cmux.reviewedRemote names), never from the branch's last pushed head nor from the
+pushed remote's own branches, so an earlier push of the same branch that changed check code keeps every
+later push of it out too (trust_base()). It counts deletes and type changes, and a change to a parent folder of
+check code (a folder turned into a symlink). Check code may hold no symlink in the pushed commit, at its paths or
+any parent folder (executed_symlinks()). A file directly in a folder above a package, or in a node_modules there,
+is check code too: tools search upward for their config (above_package()); and so is a node_modules anywhere, whose
+programs and modules tools run (in_node_modules()), and a build or lint tool's config module found by name anywhere in
+a package, which the tool may run though nothing imports it (tool_config_in()), and a lint tool's config found by name
+anywhere in a package, src/ included, which the tool may load code from (lint_config_in()), whatever the tools' own
+lookup rules are. Before anything runs, every executed folder and every script a check names must resolve, symlinks
+followed, to that same path in the tree being linted (escaping_paths()).
 
 Which files: a push's own range (scripts/cmux-next/push_range.py, the definition the
 cmux-next gate, guardrails and arch ratchet share), so a branch rebased onto
@@ -86,6 +100,8 @@ import hashlib
 import json
 import os
 import posixpath
+import re
+import unicodedata
 import shlex
 import shutil
 import subprocess
@@ -160,7 +176,9 @@ TUI_BINDINGS = LocalBuild(
     directory="cmux-tui/bindings/typescript",
     name="cmux",
     # bun.lock / bun.lockb: the bun fallback installs from one when it is there.
-    inputs=("package.json", "package-lock.json", "bun.lock", "bun.lockb", "tsconfig.json", "src/", "test/", "e2e/"),
+    # .npmrc and bunfig.toml: npm and bun read them when they install and build the package.
+    inputs=("package.json", "package-lock.json", "bun.lock", "bun.lockb", ".npmrc", "bunfig.toml", "tsconfig.json",
+            "src/", "test/", "e2e/"),
 )
 BUILD_STAMP = ".web-lint-build"
 # In a dependent package: node_modules/<INSTALLED_STAMPS>/<build name> holds the digest of the build its
@@ -186,11 +204,16 @@ SCRIPT_PACKAGES = (
 ESLINT_PACKAGES = (
     EslintPackage(
         directory="web",
-        executed=("web/eslint.config.mjs", "web/package.json", "web/bun.lock"),
+        # ESLint takes the first eslint.config.{js,mjs,cjs,ts,mts,cts} it finds, Babel (through the Next parser) its
+        # own configs, and bun and npm the package's bunfig.toml and .npmrc: all code or settings the lint runs.
+        executed=("web/package.json", "web/bun.lock", "web/bunfig.toml", "web/.npmrc",
+                  *(f"web/eslint.config.{ext}" for ext in ("js", "mjs", "cjs", "ts", "mts", "cts")),
+                  *(f"web/babel.config.{ext}" for ext in ("js", "mjs", "cjs", "json", "ts", "mts", "cts")),
+                  *(f"web/.babelrc{ext}" for ext in ("", ".js", ".mjs", ".cjs", ".json"))),
     ),
 )
-# Source directories of a script package: their files are type-checked and
-# linted, never executed by the check, so changing them is safe in the hook.
+# Source directories of a script package: their files are type-checked and linted, not executed by the check, so
+# changing them is safe in the hook; except the ones check code imports, which are check code (executed_sources()).
 SOURCE_DIRS = ("src/", "test/", "tests/")
 
 
@@ -277,13 +300,406 @@ def under(path: str, prefixes: tuple[str, ...]) -> bool:
     return any(path == p.rstrip("/") or path.startswith(p) for p in prefixes)
 
 
+def fold(path: str) -> str:
+    """PATH as a case-insensitive, normalization-insensitive file system (macOS) sees it: two paths with one fold
+    are one file there, so the trust checks compare folds."""
+    normal = unicodedata.normalize("NFC", path)
+    # HFS+ ignores some format characters (U+200C, U+FEFF ...) in names: drop every one of that category.
+    return "".join(char for char in normal if unicodedata.category(char) != "Cf").casefold()
+
+
+def folded(prefixes: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(fold(p) for p in prefixes)
+
+
+def above(path: str, prefixes: tuple[str, ...]) -> bool:
+    """PATH is a parent folder of one of PREFIXES: changing it (a folder turned into a symlink) changes them."""
+    return any(p.startswith(f"{path.rstrip('/')}/") and p.rstrip("/") != path.rstrip("/") for p in prefixes)
+
+
+def folders_above(directories: tuple[str, ...]) -> tuple[str, ...]:
+    """The folders above each of DIRECTORIES, up to the repository root ("")."""
+    found = []
+    for directory in directories:
+        parts = directory.strip("/").split("/")
+        found += ["/".join(parts[:n]) for n in range(len(parts))]
+    return tuple(dict.fromkeys(found))
+
+
+def above_package(path: str, directories: tuple[str, ...]) -> bool:
+    """PATH lies directly in a folder above one of DIRECTORIES, or in a node_modules there. Tools search upward from
+    a package for what they load: Vite a PostCSS config up to the workspace root (which a root package.json or
+    pnpm-workspace.yaml moves), TypeScript and bun their configs, Node node_modules. So every such file is check
+    code; no push to these folders' own files is common (2 in 410 web pushes, both .gitignore)."""
+    path = fold(path)
+    for folder in folded(folders_above(directories)):
+        inside = path[len(folder) + 1:] if folder else path
+        if folder and not path.startswith(f"{folder}/"):
+            continue
+        if "/" not in inside or inside.startswith("node_modules/"):
+            return True
+    return False
+
+
+def in_node_modules(path: str) -> bool:
+    """PATH, folded, has a node_modules folder in it: whatever it holds, tools run (a package's .bin/eslint, a module a
+    bare import finds walking up), so a node_modules a push carries is check code wherever it is."""
+    return "node_modules" in fold(path).split("/")[:-1] or fold(path).split("/")[-1] == "node_modules"
+
+
+# Config modules the build and lint tools find by name in any folder of a package, and run as code: vite-plus 1.3's
+# `vp lint` runs a nested vite.config.ts it finds under src/, though nothing imports it. Every vite, vitest, vite-plus
+# and prettier config, wherever it sits in a package, is check code (tool_config_in()).
+TOOL_CONFIG = re.compile(r"^(?:(?:vite|vitest|vite-plus|prettier)\.config\..+|\.prettierrc(?:\..*)?)$")
+
+
+# Config files the lint tools find by name in any folder they lint, and load code from (oxlint's jsPlugins, an
+# eslint.config.* module): oxlint and oxfmt rc files and config modules, and ESLint's flat and legacy configs. vite-plus
+# 1.3's `vp lint` ignores a nested .oxlintrc.json, but plain oxlint loads one; the hook does not rely on the tool.
+LINT_CONFIG = re.compile(r"^(?:\.?(?:oxlintrc|oxfmtrc)(?:\..*)?|(?:oxlint|oxfmt|eslint)\.config\..+|\.eslintrc(?:\..*)?)$")
+
+
+def lint_config_in(path: str, directories: tuple[str, ...]) -> bool:
+    """PATH, folded, is a lint tool's config by name (LINT_CONFIG) anywhere in one of DIRECTORIES, src/ included."""
+    folded_path = fold(path)
+    return (LINT_CONFIG.match(folded_path.rsplit("/", 1)[-1]) is not None
+            and any(folded_path.startswith(f"{fold(d)}/") for d in directories))
+
+
+def tool_config_in(path: str, directories: tuple[str, ...]) -> bool:
+    """PATH, folded, is a build or lint tool's config module by name (TOOL_CONFIG) anywhere in one of DIRECTORIES."""
+    folded_path = fold(path)
+    return (TOOL_CONFIG.match(folded_path.rsplit("/", 1)[-1]) is not None
+            and any(folded_path.startswith(f"{fold(d)}/") for d in directories))
+
+
+def is_check_code(path: str, executed: tuple[str, ...], sources: tuple[str, ...] = (),
+                  directories: tuple[str, ...] = ()) -> bool:
+    """PATH, folded, is in a node_modules (in_node_modules()), at, inside (outside SOURCES) or a parent folder of an
+    EXECUTED path, or directly in a folder above one of DIRECTORIES (the package and its local builds;
+    above_package())."""
+    if in_node_modules(path) or (directories and (above_package(path, directories)
+                                                   or tool_config_in(path, directories)
+                                                   or lint_config_in(path, directories))):
+        return True
+    path, executed, sources = fold(path), folded(executed), folded(sources)
+    return (under(path, executed) and not under(path, sources)) or above(path, executed)
+
+
+def package_directories(package) -> tuple[str, ...]:
+    """The folders a package's check runs tools in: its own and its local builds'."""
+    return (package.directory, *(build.directory for build in getattr(package, "builds", ())))
+
+
 def executed_changes(package: ScriptPackage, files: list[str]) -> list[str]:
-    hits = []
     sources = tuple(f"{package.directory}/{d}" for d in SOURCE_DIRS)
-    for path in files:
-        if under(path, package.executed) and not under(path, sources):
-            hits.append(path)
-    return hits
+    return [path for path in files if is_check_code(path, package.executed, sources, package_directories(package))]
+
+
+def eslint_executed_changes(package: EslintPackage, files: list[str]) -> list[str]:
+    executed = folded(package.executed)
+    return [f for f in files if fold(f) in executed or above(fold(f), executed) or in_node_modules(f)
+            or above_package(f, package_directories(package)) or tool_config_in(f, package_directories(package))
+            or lint_config_in(f, package_directories(package))]
+
+
+# The branches whose history is reviewed: check code that matches where a pushed commit meets one of them is
+# reviewed code. The remote's HEAD (main) counts too, for a main-based branch. Only on a reviewed remote
+# (reviewed_remotes()): a fork's feat-cmux-next is whatever its owner pushed.
+REVIEWED_BRANCHES = ("feat-cmux-next", "HEAD")
+REVIEWED_URL = re.compile(r"^(?:(?:https|ssh|git)://(?:[^@/]+@)?|[^@/:]+@)github\.com[:/]manaflow-ai/cmux(?:\.git)?/?$")
+# `git config --add cmux.reviewedRemote NAME`: a remote of this clone whose branches are reviewed though its URL is not
+# manaflow-ai/cmux's (a mirror). Local config, which no push can set.
+REVIEWED_REMOTE_CONFIG = "cmux.reviewedRemote"
+# A branch more commits than this past where it meets feat-cmux-next is not based on it (a main-based branch): the
+# remote's HEAD may then meet it nearer. Counted with a cap, so a feat-based push pays for its own commits only.
+FAR = 2000
+
+
+def reviewed_remotes(repo: Path) -> list[str]:
+    """The remotes of this clone whose branches are reviewed: those whose URL is manaflow-ai/cmux, and the ones local
+    config names (REVIEWED_REMOTE_CONFIG). Never the pushed remote for being pushed to."""
+    names = git(repo, "remote", check=False).split()
+    reviewed = [name for name in names
+                if REVIEWED_URL.search(git(repo, "remote", "get-url", name, check=False).strip())]
+    configured = git(repo, "config", "--get-all", REVIEWED_REMOTE_CONFIG, check=False).split()
+    return list(dict.fromkeys(reviewed + [name for name in configured if name in names]))
+
+
+def trust_base(repo: Path, head: str) -> str | None:
+    """Where HEAD meets a reviewed branch of a reviewed remote, or None when this clone has none (the caller then
+    fails closed). The hook measures check-code changes from here, never from the branch's own last pushed head nor
+    from the pushed remote's branches. Any such merge base holds only reviewed code, so the choice changes how much
+    the hook lints, never what it trusts: feat-cmux-next first (one cheap merge base), the remote's HEAD only for a
+    branch far past it or a clone without it."""
+    found = []
+    for branch in REVIEWED_BRANCHES:
+        for remote in reviewed_remotes(repo):
+            ref = f"refs/remotes/{remote}/{branch}"
+            if subprocess.run(["git", "-C", str(repo), "rev-parse", "-q", "--verify", f"{ref}^{{commit}}"],
+                              capture_output=True).returncode != 0:
+                continue
+            base = git(repo, "merge-base", head, ref, check=False).strip()
+            if not base:
+                continue
+            distance = len(git(repo, "rev-list", f"--max-count={FAR}", f"{base}..{head}").split())
+            if distance < FAR:
+                return base
+            found.append((distance, base))
+    return min(found)[1] if found else None
+
+
+def trust_files(repo: Path, base: str, head: str) -> list[str]:
+    """Every path that differs between BASE and HEAD: added, changed, deleted or changed in type (a file or folder
+    turned into a symlink), so no change to check code hides from executed_changes()."""
+    return sorted(set(n for n in git(repo, "diff", "--name-only", "--no-renames", base, head).splitlines() if n))
+
+
+SYMLINK_MODE = "120000"
+
+
+def executed_symlinks(repo: Path, sha: str, executed: tuple[str, ...], sources: tuple[str, ...] = (),
+                      directories: tuple[str, ...] = ()) -> list[str]:
+    """The symlinks commit SHA holds at check code: at an EXECUTED path, inside one (outside SOURCES, which the
+    check never runs), or at a parent folder of one. One `git ls-tree` over their top-level folders."""
+    links = tree_symlinks(repo, sha)
+    candidates = [path for path in links if is_check_code(path, executed, sources, directories)]
+    if not candidates:
+        return []
+    # A link at check code is safe only when it points at another file that is itself check code (inside the
+    # repository, not a link): any change to that target is then a change to check code (AGENTS.md -> CLAUDE.md).
+    names = set(links)
+    files = CommitFiles(repo, sha)
+    try:
+        found = []
+        for path in candidates:
+            target_text = (files.read(path) or b"").decode("utf-8", "surrogateescape")
+            target = posixpath.normpath(posixpath.join(posixpath.dirname(path), target_text))
+            if (target_text.startswith("/") or target.startswith("../") or target == ".." or target in names
+                    or files.read(target) is None or not is_check_code(target, executed, sources, directories)):
+                found.append(path)
+    finally:
+        files.close()
+    return sorted(found)
+
+
+_LISTINGS: dict[tuple[str, str], tuple[list[str], list[str]]] = {}
+
+
+def tree_listing(repo: Path, sha: str) -> tuple[list[str], list[str]]:
+    """(every symlink, every path in a node_modules) of commit SHA, from one `git ls-tree -r` of the whole tree kept
+    per commit: git's pathspecs can't match a folder whose case differs, so the trust checks filter the full list
+    with fold(). Raises when git fails: an empty list must mean none, never that the listing failed."""
+    key = (str(repo), sha)
+    if key not in _LISTINGS:
+        listed = subprocess.run(["git", "-C", str(repo), "ls-tree", "-r", "-z", sha], capture_output=True)
+        if listed.returncode != 0:
+            raise SystemExit(f"web-lint: git ls-tree {sha} failed: {listed.stderr.decode(errors='replace').strip()}")
+        entries = [entry for entry in listed.stdout.decode("utf-8", "surrogateescape").split("\0") if entry]
+        _LISTINGS[key] = ([entry.partition("\t")[2] for entry in entries if entry.split(" ", 1)[0] == SYMLINK_MODE],
+                          [entry.partition("\t")[2] for entry in entries if in_node_modules(entry.partition("\t")[2])])
+    return _LISTINGS[key]
+
+
+def tree_symlinks(repo: Path, sha: str) -> list[str]:
+    """Every symlink in commit SHA (tree_listing())."""
+    return tree_listing(repo, sha)[0]
+
+
+def tracked_node_modules(repo: Path, sha: str, directories: tuple[str, ...]) -> list[str]:
+    """The node_modules paths commit SHA tracks in a package folder in DIRECTORIES, under it, or in a folder above
+    it: what that package's tools would run. Always refused, whatever a reviewed branch holds (none does)."""
+    found = []
+    for path in tree_listing(repo, sha)[1]:
+        folded_path = fold(path)
+        inside = any(folded_path.startswith(f"{fold(d)}/") for d in directories)
+        if inside or above_package(path, directories):
+            found.append(path)
+    return sorted(found)
+
+
+JS_EXTENSIONS = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
+# What a module names as code it loads: an import or export from, a side-effect import, import(), require() and
+# new URL(..., import.meta.url) (a loader path handed to a tool), with a quoted literal.
+IMPORT_SPEC = re.compile(r"""(?:\bfrom|(?<![@\w.$])import|\brequire\s*\(|\bimport\s*\(|\bnew\s+URL\s*\()\s*(["'`])([^"'`\n]+)\1""")
+# import(...) or require(...) of anything but one plain string literal (a name built with + or ${} too): the module
+# it loads can't be told from the source.
+COMPUTED_IMPORT = re.compile(r"""(?<![@\w.$])(?:import|require)\s*\(\s*(?!(["'])[^"'\n]*\1\s*[,)])(?!`[^`$\n]*`\s*[,)])""")
+# A line that is all comment: an import() it mentions loads nothing.
+COMMENT_LINE = re.compile(r"^\s*(?://|/\*|\*)")
+# In a JSON config a tool reads (an Oxlint `jsPlugins` list): a relative path string names a module it loads.
+JSON_MODULE = re.compile(r'"(\.{1,2}/[^"\n]+(?:%s))"' % "|".join(re.escape(e) for e in JS_EXTENSIONS))
+LIFECYCLE_SCRIPTS = ("preinstall", "install", "postinstall", "prepare")
+MAX_CLOSURE = 5000
+
+
+class CommitFiles:
+    """The files of commit SHA, read from git objects with one `git cat-file --batch` (never a checkout)."""
+
+    def __init__(self, repo: Path, sha: str):
+        self.sha = sha
+        self.process = subprocess.Popen(["git", "-C", str(repo), "cat-file", "--batch"], stdin=subprocess.PIPE,
+                                        stdout=subprocess.PIPE)
+        self.cache: dict[str, bytes | None] = {}
+
+    def read(self, path: str) -> bytes | None:
+        """PATH's content in the commit, or None when it is no file there (through a symlinked folder neither)."""
+        if path not in self.cache:
+            self.process.stdin.write(f"{self.sha}:{path}\n".encode("utf-8", "surrogateescape"))
+            self.process.stdin.flush()
+            line = self.process.stdout.readline()
+            if not line:  # git died: never read that as "no such file"
+                raise SystemExit(f"web-lint: git cat-file stopped while reading {self.sha}; nothing was linted")
+            header = line.split()
+            if len(header) == 3 and header[1] == b"blob":
+                data = self.process.stdout.read(int(header[2]))
+                self.process.stdout.read(1)
+                self.cache[path] = data
+            else:
+                if len(header) == 3:  # a tree or commit: skip its body
+                    self.process.stdout.read(int(header[2]) + 1)
+                self.cache[path] = None
+        return self.cache[path]
+
+    def close(self) -> None:
+        self.process.stdin.close()
+        self.process.wait()
+
+
+def package_entry_points(text: str) -> list[str]:
+    """The files a folder's package.json names as what importing the folder loads (main, module, browser, exports),
+    as specifiers relative to the package.json; an unreadable one names none (its folder's index files still count)."""
+    try:
+        manifest = json.loads(text)
+    except ValueError:
+        return []
+    found = []
+
+    def walk(value):
+        if isinstance(value, str):
+            found.append(value if value.startswith(("./", "../")) else f"./{value}")
+        elif isinstance(value, dict):
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+    if isinstance(manifest, dict):
+        for key in ("main", "module", "browser", "exports"):
+            walk(manifest.get(key))
+    return found
+
+
+def module_candidates(importer: str, spec: str) -> list[str]:
+    """The repository paths a relative SPEC in IMPORTER may load: every file Node, bun, Vite or TypeScript may try
+    (a folder's package.json is read for the files it names)."""
+    path = posixpath.normpath(posixpath.join(posixpath.dirname(importer), spec.split("?", 1)[0]))
+    found = [path, *(path + ext for ext in JS_EXTENSIONS), f"{path}/package.json",
+             *(f"{path}/index{ext}" for ext in JS_EXTENSIONS)]
+    for js, typed in ((".js", (".ts", ".tsx")), (".mjs", (".mts",)), (".cjs", (".cts",)), (".jsx", (".tsx",))):
+        if path.endswith(js):
+            found += [path[:-len(js)] + ext for ext in typed]
+    return found
+
+
+def executed_sources(repo: Path, sha: str, package: ScriptPackage, scripts: dict) -> tuple[set[str], list[str]]:
+    """(the folded paths of every file the package's check code loads as a module in commit SHA, the reasons the hook
+    can't trust that set). It starts from the files the check and fix scripts and the install lifecycle scripts name,
+    and the config files the tools load from the package folder (`*.config.*`), and follows every relative import,
+    export, import(), require() and new URL() literal, and every module path a JSON config names. A computed
+    import(), a `#` import, or a module in the set that is a symlink or sits below one makes the set untrustworthy."""
+    entries = set()
+    for script in ("check", "check:fix", *LIFECYCLE_SCRIPTS):
+        entries.update(named_scripts(package, scripts, script))
+    top = git(repo, "ls-tree", "-z", "--name-only", sha, "--", f"{package.directory}/")
+    entries.update(name for name in top.split("\0") if re.search(r"\.config\.[cm]?[jt]s$", name))
+    files = CommitFiles(repo, sha)
+    reached, problems, unresolved = set(), [], set()
+    todo = sorted(e for e in entries if e.endswith(JS_EXTENSIONS + (".json",)))
+    try:
+        while todo and len(reached) < MAX_CLOSURE:
+            path = todo.pop()
+            if path in reached:
+                continue
+            data = files.read(path)
+            if data is None:
+                unresolved.add(path)
+                continue
+            reached.add(path)
+            text = data.decode("utf-8", "replace")
+            if path.endswith("/package.json"):
+                specs = package_entry_points(text)
+            elif path.endswith(".json"):
+                specs = JSON_MODULE.findall(text)
+            else:
+                # The raw text, comments too: a literal in a comment only adds a module, never hides one (a regex
+                # literal that looks like a comment opener can't blank code). An import() whose argument is not one
+                # literal refuses the package, unless its line is all comment.
+                specs = [match.group(2) for match in IMPORT_SPEC.finditer(text)]
+                if any(COMPUTED_IMPORT.search(line) and not COMMENT_LINE.match(line) for line in text.splitlines()):
+                    problems.append(f"{path} (loads a module whose name is computed)")
+            for spec in specs:
+                if spec.startswith("#"):
+                    problems.append(f"{path} (loads {spec}, a package import the hook does not follow)")
+                elif spec.startswith(("./", "../")):
+                    # Every candidate that exists, not only the first: resolvers try them in different orders (Vite
+                    # .mjs before .ts), so a file a push adds beside the one this walk would pick is reached too.
+                    candidates = module_candidates(path, spec)
+                    hits = [c for c in candidates if files.read(c) is not None]
+                    todo += hits
+                    if not hits:
+                        unresolved.add(candidates[0])
+        if todo:
+            problems.append(f"{package.directory} (its check code loads more than {MAX_CLOSURE} modules)")
+    finally:
+        files.close()
+    # A module that is a symlink, or a path that resolves to no file because a folder above it is one.
+    wanted = {fold(p) for p in reached | unresolved}
+    wanted |= {"/".join(p.split("/")[:n]) for p in wanted for n in range(1, p.count("/") + 1)}
+    problems += [f"{name} (a symlink check code reaches)" for name in tree_symlinks(repo, sha) if fold(name) in wanted]
+    return {fold(p) for p in reached}, problems
+
+
+def escaping_paths(tree: Path, paths: list[str]) -> list[str]:
+    """The PATHS (relative to TREE) that do not resolve, symlinks followed, to that same path in TREE: run from
+    there, they would run something other than the tree's own reviewed file. A path the tree lacks is skipped."""
+    root = Path(os.path.realpath(tree))
+    escaped = []
+    for rel in paths:
+        lexical = Path(os.path.normpath(tree / rel))
+        if not os.path.lexists(lexical):
+            continue
+        if Path(os.path.realpath(lexical)) != root / os.path.normpath(rel):
+            escaped.append(rel)
+    return escaped
+
+
+def named_scripts(package: ScriptPackage, scripts: dict, script: str = "check") -> list[str]:
+    """The repository paths of the files SCRIPT's pieces name (each `bun run NAME` resolved, as light_leaves()
+    does), for escaping_paths(): every word of a piece that names a file of the package or above it."""
+    found, seen, todo = [], set(), [script]
+    while todo:
+        name = todo.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        body = scripts.get(f"{name}:pieces") or scripts.get(name)
+        if not isinstance(body, str):
+            continue
+        for piece in (p.strip() for p in body.split("&&") if p.strip()):
+            try:
+                words = shlex.split(piece)
+            except ValueError:
+                words = piece.split()
+            if tuple(words[:2]) == SCRIPT_RUNNER and len(words) == 3:
+                todo.append(words[2])
+                continue
+            for word in words[1:]:
+                if "/" in word or word.endswith((".py", ".ts", ".mjs", ".js", ".sh", ".json")):
+                    path = posixpath.normpath(posixpath.join(package.directory, word))
+                    if not path.startswith("../") and not path.startswith("/"):
+                        found.append(path)
+    return sorted(set(found))
 
 
 def snapshot(repo: Path, sha: str | None):
@@ -403,6 +819,23 @@ def input_pieces(repo: Path, package: ScriptPackage, files: list[str], read) -> 
     return chosen
 
 
+def untrusted_check_code(repo: Path, package: ScriptPackage, trusted_files: list[str], sha: str | None,
+                         read) -> list[str]:
+    """Why PACKAGE's check code in commit SHA is not the reviewed code ([] when it is): TRUSTED_FILES (every path
+    changed since trust_base()) change it, or SHA holds a symlink or a node_modules at it, or it loads a module the
+    change touches or that can't be told (executed_sources())."""
+    risky = executed_changes(package, trusted_files)
+    if sha:
+        sources = tuple(f"{package.directory}/{d}" for d in SOURCE_DIRS)
+        risky += [f"{path} (a symlink)" for path in
+                  executed_symlinks(repo, sha, package.executed, sources, package_directories(package))]
+        risky += [f"{path} (a tracked node_modules)" for path in
+                  tracked_node_modules(repo, sha, package_directories(package)) if path not in risky]
+        loaded, problems = executed_sources(repo, sha, package, package_scripts(repo, package, read))
+        risky += [f for f in trusted_files if fold(f) in loaded and f not in risky] + problems
+    return risky
+
+
 # The folder the hook holds a reviewed copy of (--trusted-scripts-dir): the source-check scripts live here.
 TRUSTED_FOLDER = "scripts/cmux-next/"
 
@@ -429,7 +862,10 @@ def trusted_pieces(repo: Path, package: ScriptPackage, files: list[str], risky: 
     the ones left out: the push changes their script, or the copy has none). Only when every executed file the push
     changes (RISKY) is under scripts/cmux-next/, the one folder the copy holds; their INPUTS are the copy's, and
     only pieces whose script is in that folder qualify."""
-    if trusted is None or not trusted.is_dir() or not all(path.startswith(TRUSTED_FOLDER) for path in risky):
+    # Every reason a change under scripts/cmux-next/, and none a symlink: a link there could walk a reviewed check
+    # that reads that folder outside the tree.
+    if (trusted is None or not trusted.is_dir() or not all(path.startswith(TRUSTED_FOLDER) for path in risky)
+            or any(path.endswith(" (a symlink)") for path in risky)):
         return [], []
     run, skipped = [], []
     for piece in input_pieces(repo, package, files, trusted_reader(trusted, read)):
@@ -453,30 +889,48 @@ def trusted_pieces(repo: Path, package: ScriptPackage, files: list[str], risky: 
 #   names the tree or a folder in it;
 # * the `open` audit event refuses to open a code file in the tree (.py, .pyc, .so, .zip, .pth ...), which is how
 #   runpy, spec_from_file_location/exec_module and zipimport read one; `ctypes.dlopen` of a tree path is refused;
-# * subprocess, os.exec* and os.posix_spawn are refused when the program they start is in the tree (judged by the
-#   program, never its arguments: check-xcstrings-keys runs `git -C <tree>`).
+# * a check may start only the programs in TRUSTED_PROGRAMS, found outside the tree: every subprocess, os.exec*,
+#   os.spawn*, os.posix_spawn* and os.system is resolved to every file the system may run for it (for subprocess, a
+#   bare name through the PATH of the env it is given; os.exec names its final path, which a bare name reads from the
+#   folder it starts in; posix_spawn and posix_spawnp raise the same event, so both readings; an empty or relative
+#   PATH entry and a relative path from the start folder), and refused unless each of those that exists is one of
+#   them, found in a folder outside the tree and resolving, symlinks followed, outside it too. A shell (shell=True, os.system, os.popen) or an
+#   interpreter is never one, so neither a tree program nor a tree script can start. Out of reach, like exec of text
+#   a check reads: a C call that raises no audit event (ctypes calling libc's system()).
 # Out of reach for any in-process guard: a reviewed check that execs text it reads (open() and io.open_code() raise
 # the same audit event). That is a review rule: a check never executes what it reads.
 # The reviewed script is read and compiled before the guards go in: the hook's copy lives in the checkout's git
 # directory, which is inside the tree when the lint runs in place. A refusal is an ImportError that fails the check
 # loudly; a check reads data files in the tree (not files with a code suffix) as it likes.
+# The programs a reviewed check run from the hook's copy may start (check-xcstrings-keys lists files with git).
+TRUSTED_PROGRAMS = ("git",)
 TRUSTED_RUNNER = (
     "import sys\n"
     "sys.path[:] = [p for p in sys.path if p not in ('', '.')]\n"
     "import os\n"
     "sys.path[:] = [p for p in sys.path if os.path.abspath(p) != os.getcwd()]\n"
-    "import importlib.machinery\n"
+    "import importlib.machinery, shutil\n"
     "root, script, path, *args = sys.argv[1:]\n"
     "with open(script, encoding='utf-8') as handle:\n"
     "    code = compile(handle.read(), path, 'exec')\n"
     "inside = os.path.realpath(root)\n"
+    f"ALLOWED = {TRUSTED_PROGRAMS!r}\n"
     "CODE = ('.py', '.pyc', '.pyo', '.pyw', '.so', '.pyd', '.dylib', '.zip', '.egg', '.whl', '.pth')\n"
     "def in_tree(entry):\n"
     "    real = os.path.realpath(os.fsdecode(entry) or '.')\n"
     "    return real == inside or real.startswith(inside + os.sep)\n"
+    "RUNNER = os.getpid()\n"
+    "def stop(message):\n"
+    "    # In a forked child (os.spawnv forks, then execs) an exception ends only the child, and the check goes on:\n"
+    "    # the child says why and ends the runner (the check) as well, so the refusal fails the check.\n"
+    "    if os.getpid() != RUNNER:\n"
+    "        os.write(2, (message + '\\n').encode())\n"
+    "        os.kill(RUNNER, 15)\n"
+    "        os._exit(126)\n"
+    "    raise ImportError(message)\n"
     "def no(what):\n"
-    "    raise ImportError(f'web lint: {what} is in the pushed tree; the hook runs only its reviewed copy of the '\n"
-    "                      'check, so it must load no code from the tree')\n"
+    "    stop(f'web lint: {what} is in the pushed tree; the hook runs only its reviewed copy of the '\n"
+    "         'check, so it must load no code from the tree')\n"
     "class TreeFinder:\n"
     "    @staticmethod\n"
     "    def find_spec(name, search=None, target=None):\n"
@@ -493,10 +947,40 @@ TRUSTED_RUNNER = (
     "            no(name)\n"
     "    elif event == 'ctypes.dlopen' and details[0] and in_tree(details[0]):\n"
     "        no(details[0])\n"
+    "    elif event == 'os.system':\n"
+    "        stop(f'web lint: refused to start a shell ({os.fsdecode(details[0])!r}): a check run from the '\n"
+    "                          'hook\\'s reviewed copy may start only ' + ', '.join(ALLOWED) + ', from outside the tree')\n"
     "    elif event in ('subprocess.Popen', 'os.exec', 'os.posix_spawn', 'os.spawn'):\n"
-    "        program = details[0] if event != 'os.spawn' else details[1]\n"
-    "        if isinstance(program, (str, bytes, os.PathLike)) and os.sep in os.fsdecode(program) and in_tree(program):\n"
-    "            no(os.fsdecode(program))\n"
+    "        if event == 'subprocess.Popen':\n"
+    "            program, args, cwd, env = details\n"
+    "            if program is None:\n"
+    "                program = args if isinstance(args, (str, bytes, os.PathLike)) else list(args)[0]\n"
+    "        elif event == 'os.spawn':\n"
+    "            program, cwd, env = details[1], None, details[3]\n"
+    "        else:\n"
+    "            program, cwd, env = details[0], None, details[2]\n"
+    "        name = os.fsdecode(program)\n"
+    "        start = os.fsdecode(cwd) if cwd else os.getcwd()\n"
+    "        # Every file the system may run for this call; each one that exists must pass, and one must exist.\n"
+    "        # os.exec always names the final path (exec*p raises one event per joined candidate) and the kernel reads a\n"
+    "        # bare one from the current folder; posix_spawn and posix_spawnp raise the same event, so both readings.\n"
+    "        candidates = []\n"
+    "        if os.sep in name or event in ('os.exec', 'os.posix_spawn', 'os.spawn'):\n"
+    "            candidates.append(os.path.join(start, name))\n"
+    "        if os.sep not in name and event != 'os.exec':\n"
+    "            own = event in ('os.posix_spawn', 'os.spawn') or env is None\n"
+    "            path = os.environ.get('PATH') if own else env.get('PATH', env.get(b'PATH'))\n"
+    "            path = os.fsdecode(path) if path is not None else os.defpath\n"
+    "            # An empty or relative PATH entry is looked up from the folder the program starts in, as exec does.\n"
+    "            entries = [os.path.join(start, entry) for entry in path.split(os.pathsep)]\n"
+    "            candidates.append(shutil.which(name, path=os.pathsep.join(entries)))\n"
+    "        existing = [c for c in candidates if c and os.path.lexists(c)]\n"
+    "        bad = not existing or any(in_tree(os.path.realpath(c)) or in_tree(os.path.dirname(os.path.abspath(c)))\n"
+    "                                  or os.path.basename(c) not in ALLOWED for c in existing)\n"
+    "        found = existing[0] if existing else None\n"
+    "        if bad:\n"
+    "            stop(f'web lint: refused to start {name!r} (found at {found}): a check run from the '\n"
+    "                              'hook\\'s reviewed copy may start only ' + ', '.join(ALLOWED) + ', from outside the tree')\n"
     "sys.meta_path.insert(0, TreeFinder)\n"
     "sys.addaudithook(refuse)\n"
     "sys.argv = [path, *args]\n"
@@ -514,24 +998,29 @@ def trusted_check_argv(tree: Path, trusted: Path, package: ScriptPackage, piece:
             str(tree / script), *args]
 
 
-def make_plan(repo: Path, files: list[str], guard_executed: bool, exists=None, read=None,
-              trusted: Path | None = None) -> Plan:
-    """What to lint for FILES. TRUSTED: the hook's reviewed copy of scripts/cmux-next, which lets a package it
-    can't lint (the push changes code the check runs) still run its declared source checks (trusted_pieces())."""
+def make_plan(repo: Path, files: list[str], guard_executed: bool, exists=None, trusted_files: list[str] | None = None,
+              sha: str | None = None, read=None, trusted: Path | None = None) -> Plan:
+    """What to lint for FILES. With GUARD_EXECUTED (the hook), a package whose check code is not the reviewed code
+    (untrusted_check_code(): TRUSTED_FILES, default FILES, the hook passes every path changed since trust_base(),
+    change it, or commit SHA holds a symlink or a node_modules at it, or it loads such a module) is not linted: the
+    hook never runs code a push controls. TRUSTED: the hook's reviewed copy of scripts/cmux-next, which still runs
+    such a package's declared source checks, from that copy, when every reason is a change under scripts/cmux-next/
+    (trusted_pieces())."""
     exists = exists or (lambda rel: (repo / rel).is_file())
     read = read or (lambda rel: (repo / rel).read_text(encoding="utf-8"))
+    trusted_files = files if trusted_files is None else trusted_files
     plan = Plan(trusted=trusted)
     for package in SCRIPT_PACKAGES:
         if not exists(f"{package.directory}/package.json"):
             continue
-        if not any(under(f, package.triggers) for f in files):
-            # No trigger: only the pieces that declare an input the change touches. A push that changes a piece's
-            # own script changes an executed path, which is a trigger, so these never run code the push changed.
-            pieces = input_pieces(repo, package, files, read)
-            if pieces:
-                plan.script_pieces[package.directory] = pieces
+        triggered = any(under(f, package.triggers) for f in files)
+        # No trigger: only the pieces that declare an input the change touches (#34046), run alone.
+        pieces = [] if triggered else input_pieces(repo, package, files, read)
+        if not triggered and not pieces:
             continue
-        risky = executed_changes(package, files) if guard_executed else []
+        # The same trust checks hold for both: check code changed since the reviewed base (an earlier push of the
+        # branch included), reached through a symlink or a tracked node_modules, or loaded as a module.
+        risky = untrusted_check_code(repo, package, trusted_files, sha, read) if guard_executed else []
         if risky:
             plan.untrusted.append((package.directory, risky))
             run, skipped = trusted_pieces(repo, package, files, risky, trusted, read)
@@ -539,6 +1028,8 @@ def make_plan(repo: Path, files: list[str], guard_executed: bool, exists=None, r
                 plan.trusted_pieces[package.directory] = run
             if skipped:
                 plan.trusted_skipped[package.directory] = skipped
+        elif pieces:
+            plan.script_pieces[package.directory] = pieces
         else:
             plan.script_packages.append(package)
     for package in ESLINT_PACKAGES:
@@ -548,7 +1039,12 @@ def make_plan(repo: Path, files: list[str], guard_executed: bool, exists=None, r
                    and exists(f)]
         if not targets:
             continue
-        risky = [f for f in files if f in package.executed] if guard_executed else []
+        risky = eslint_executed_changes(package, trusted_files) if guard_executed else []
+        if guard_executed and sha:
+            risky += [f"{path} (a symlink)" for path in
+                      executed_symlinks(repo, sha, package.executed, (), package_directories(package))]
+            risky += [f"{path} (a tracked node_modules)" for path in
+                      tracked_node_modules(repo, sha, package_directories(package)) if path not in risky]
         if risky:
             plan.untrusted.append((package.directory, risky))
         else:
@@ -987,6 +1483,49 @@ def shown(job: tuple) -> str:
     return f"{job[0]}: {command}"
 
 
+def refuse_escapes(tree: Path, plan: Plan, mode: str, read=None) -> bool:
+    """Drop from PLAN, saying so, each package whose check code does not resolve to itself in TREE (escaping_paths():
+    its executed folders and every file its check names), and each lone source-check piece (Plan.script_pieces) whose
+    script does not. False when nothing is left to run."""
+    kept = []
+    for package in plan.script_packages:
+        scripts = package_scripts(tree, package, read)
+        escaped = escaping_paths(tree, [p.rstrip("/") for p in package.executed]
+                                 + named_scripts(package, scripts) + named_scripts(package, scripts, "check:fix"))
+        if escaped:
+            print(f"{mode}: {package.directory}: not linted here: its check code resolves outside itself in the "
+                  f"tree ({', '.join(escaped[:5])}); the hook runs only the tree's own reviewed files. The `web lint` "
+                  "CI job checks it.", file=sys.stderr)
+        else:
+            kept.append(package)
+    plan.script_packages = kept
+    for directory in list(plan.eslint_files):
+        package = next(p for p in ESLINT_PACKAGES if p.directory == directory)
+        escaped = escaping_paths(tree, list(package.executed))
+        if escaped:
+            print(f"{mode}: {directory}: not linted here: its check code resolves outside itself in the tree "
+                  f"({', '.join(escaped)}). The `web lint` CI job checks it.", file=sys.stderr)
+            del plan.eslint_files[directory]
+    packages = {package.directory: package for package in SCRIPT_PACKAGES}
+    for directory, pieces in list(plan.script_pieces.items()):
+        package = packages[directory]
+        kept_pieces = []
+        for piece in pieces:
+            script = posixpath.normpath(posixpath.join(directory, next(
+                (word for word in (light_argv(piece) or [])[1:] if not word.startswith("-")), "")))
+            escaped = escaping_paths(tree, [p.rstrip("/") for p in package.executed] + [script])
+            if escaped:
+                print(f"{mode}: {directory}: {piece}: not run here: its check code resolves outside itself in the "
+                      f"tree ({', '.join(escaped[:5])}). The `web lint` CI job checks it.", file=sys.stderr)
+            else:
+                kept_pieces.append(piece)
+        if kept_pieces:
+            plan.script_pieces[directory] = kept_pieces
+        else:
+            del plan.script_pieces[directory]
+    return bool(plan.script_packages or plan.script_pieces or plan.trusted_pieces or plan.eslint_files)
+
+
 def run_plan(repo: Path, plan: Plan, fix: bool, cache: bool = True, heavy: bool = True,
              mode: str = "web-lint") -> list[Result]:
     # With heavy checks off: no install or build (the bindings build is `npm ci` plus tsc), only the allowlist,
@@ -1034,6 +1573,11 @@ def tree_of(repo: Path, sha: str | None, directories: list[str]):
         git(repo, "-c", "core.hooksPath=/dev/null", "worktree", "add", "--quiet", "--detach", str(tree), sha)
         for directory in directories:
             if (tree / directory).is_dir() and shares_deps(repo, sha, directory):
+                if os.path.lexists(tree / directory / "node_modules"):
+                    # make_plan() refuses a package whose commit holds a node_modules (in_node_modules()); never link
+                    # over one, and never run with it.
+                    raise SystemExit(f"web-lint: {sha[:12]} holds {directory}/node_modules, which the lint would "
+                                     "run; nothing was linted. The `web lint` CI job checks this commit.")
                 (tree / directory / "node_modules").symlink_to(repo / directory / "node_modules")
         yield tree  # a package that can't share gets its own install (ensure_deps)
     finally:
@@ -1200,12 +1744,21 @@ def main(argv: list[str] | None = None) -> int:
         # Planned from the commit's objects: a full lint tree is written only when something needs linting.
         exists, read = snapshot(repo, head)
         trusted = args.trusted_scripts_dir.resolve() if args.pre_push and args.trusted_scripts_dir else None
-        plan = make_plan(repo, files, guard_executed=args.pre_push, exists=exists, read=read, trusted=trusted)
+        trusted_files = None
+        if args.pre_push and head is not None:
+            # Check code is measured from where the commit meets the reviewed branches, never from the branch's last
+            # pushed head: an earlier push that changed it keeps this one out too. No reviewed branch in the clone:
+            # every own file and, failing closed, every path the commit has.
+            base = trust_base(repo, head)
+            trusted_files = (trust_files(repo, base, head) if base else
+                             git(repo, "ls-tree", "-r", "--name-only", head).splitlines())
+        plan = make_plan(repo, files, guard_executed=args.pre_push, exists=exists, trusted_files=trusted_files,
+                         sha=head if args.pre_push else None, read=read, trusted=trusted)
         for directory, risky in plan.untrusted:
-            print(f"{mode}: {directory}: not linted here: this push changes code the lint runs "
-                  f"({', '.join(risky[:5])}{' …' if len(risky) > 5 else ''}), and the hook never runs code a push "
-                  f"changes. The `web lint` CI job checks it; run `{FIX_COMMAND}` yourself if you trust this branch.",
-                  file=sys.stderr)
+            print(f"{mode}: {directory}: not linted here: this push changes, or reaches through a symlink, code the "
+                  f"lint runs ({', '.join(risky[:5])}{' …' if len(risky) > 5 else ''}), and the hook never runs code a "
+                  f"push changes. The `web lint` CI job checks it; run `{FIX_COMMAND}` yourself if you trust this "
+                  "branch.", file=sys.stderr)
             if plan.trusted_pieces.get(directory):
                 print(f"{mode}: {directory}: still run, from the hook's reviewed copy of {TRUSTED_FOLDER} on the "
                       f"pushed files: {', '.join(plan.trusted_pieces[directory])}.", file=sys.stderr)
@@ -1233,6 +1786,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(shown(job))
             continue
         with tree_of(repo, head, directories) as tree:
+            if args.pre_push and not refuse_escapes(tree, plan, mode, read):
+                continue
             found = run_plan(tree, plan, args.fix, cache=tree == repo, heavy=heavy, mode=mode)
             if args.new_only:
                 charge_new_only(repo, args.base, plan, tree, found, heavy)

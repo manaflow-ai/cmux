@@ -1,4 +1,6 @@
+import CmuxNextCompat
 public import Foundation
+import os
 
 /// Reads and writes `~/.config/cmux/cmux-next.json`. An actor so file IO and
 /// parsing stay off the main actor and writes are serialized. Writes edit
@@ -66,6 +68,18 @@ public actor CmuxConfigFile {
         return next
     }
 
+    /// The app's settings file at launch: ``prepareDefaultURL(home:environment:fileManager:)``, or
+    /// when that fails, the reason in the log and ``defaultURL(home:environment:)``.
+    public static func launchURL() -> URL {
+        do {
+            return try prepareDefaultURL()
+        } catch {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "app")
+                .error("cmux-next config bootstrap failed: \(String(describing: error), privacy: .public)")
+            return defaultURL()
+        }
+    }
+
     /// Environment variable that replaces the settings file path.
     public static let overrideKey = "CMUX_NEXT_CONFIG_FILE"
 
@@ -96,6 +110,16 @@ public actor CmuxConfigFile {
         } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
             return ""
         }
+    }
+
+    /// Writes `text` beside the file as `<file name>.<suffix>` (the record a launch migration keeps
+    /// of what it changed, so the person can see and undo it); nothing reads it back.
+    @discardableResult
+    public func writeBeside(suffix: String, text: String) throws -> URL {
+        let url = self.url.resolvingSymlinksInPath()
+        let record = url.deletingLastPathComponent().appending(path: "\(url.lastPathComponent).\(suffix)")
+        try Data(text.utf8).blockingWrite(to: record, options: .atomic)
+        return record
     }
 
     /// The parsed document. A missing file is an empty object.

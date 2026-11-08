@@ -45,6 +45,12 @@ export interface MeshBudgets {
   readonly enrollmentCodesPerHour: number;
   /** Approved provider-free server invitations per mesh per hour. */
   readonly overlayServerCodesPerHour: number;
+  /**
+   * Longest receiving-policy lease a VM receiver gets (`checkedAt` to `expiresAt`), before owner leases narrow it.
+   * Receivers older than cmux#35467 refuse a lease over 30 s; newer ones renew ahead by their measured read time
+   * and accept up to RECEIVER_POLICY_LEASE_MAX_MS.
+   */
+  readonly receiverPolicyLeaseMs: number;
 }
 
 export const DEFAULT_MESH_BUDGETS: MeshBudgets = {
@@ -59,6 +65,21 @@ export const DEFAULT_MESH_BUDGETS: MeshBudgets = {
   addressChangeIntervalMs: 10_000,
   enrollmentCodesPerHour: 20,
   overlayServerCodesPerHour: 20,
+  receiverPolicyLeaseMs: 30_000,
+};
+
+/** The receiver's own cap (cmux-link `MAX_POLICY_LEASE_MS`). */
+export const RECEIVER_POLICY_LEASE_MAX_MS = 120_000;
+
+/**
+ * CMUX_VM_RECEIVER_POLICY_LEASE_MS: a whole number of milliseconds from 1000 to RECEIVER_POLICY_LEASE_MAX_MS.
+ * Anything else (unset included) keeps the 30 s default, which every receiver accepts.
+ */
+export const parseReceiverPolicyLease = (value: string | undefined): number => {
+  const ms = Number(value?.trim() ?? "");
+  return value !== undefined && /^\d+$/u.test(value.trim()) && ms >= 1000 && ms <= RECEIVER_POLICY_LEASE_MAX_MS
+    ? ms
+    : DEFAULT_MESH_BUDGETS.receiverPolicyLeaseMs;
 };
 
 /** How long an enrollment code stays valid (DESIGN.md section 3). */

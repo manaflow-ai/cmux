@@ -42,6 +42,8 @@ final class MacScreenChromeActions {
     var disconnect: () -> Void = {}
     var closeTab: () -> Void = {}
     var openHome: () -> Void = {}
+    /// The card's Sign In: this Mac is not signed in to cmux (``MacScreenHubRefusal/notSignedIn``).
+    var signIn: () -> Void = {}
     var selectDisplay: (Int) -> Void = { _ in }
     var setQuality: (ScreenQuality) -> Void = { _ in }
     var toggleStats: () -> Void = {}

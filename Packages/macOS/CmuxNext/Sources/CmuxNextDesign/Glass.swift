@@ -81,19 +81,21 @@ public struct Glass {
     }
 
     /// A raw glass panel that hosts `content` edge to edge (Liquid Glass,
-    /// or the same shape in `NSVisualEffectView` before macOS 26). It has
-    /// no Reduce Transparency fallback: floating overlays use
+    /// or the same shape in `NSVisualEffectView` before macOS 26), tinted at
+    /// `level` (``GlassLevel``; chrome by default, the theme's glass tint as is).
+    /// It has no Reduce Transparency fallback: floating overlays use
     /// `makeOverlayPanel` instead.
     public static func makePanel(
         content: NSView? = nil,
         style: Style = .regular,
         cornerRadius: CGFloat = Metrics.panelCornerRadius,
         interactive: Bool = false,
+        level: GlassLevel = .chrome,
         activeLook: ActiveLookScope? = nil
     ) -> GlassPanelView {
         let glass = GlassPanelView(style: style, cornerRadius: cornerRadius, interactive: interactive, activeLook: activeLook)
         glass.translatesAutoresizingMaskIntoConstraints = false
-        glass.tintColor = Palette.glassTint
+        glass.tintColor = level.tint(Palette.glassTint)
         glass.contentView = content
         return glass
     }

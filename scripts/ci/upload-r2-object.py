@@ -24,8 +24,30 @@ class _RejectRedirects(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def _open_signed_request(request: urllib.request.Request, *, timeout: int):
+def _open_signed_request(request: urllib.request.Request, *, timeout: float):
     return urllib.request.build_opener(_RejectRedirects()).open(request, timeout=timeout)
+
+
+_UPLOAD_CHUNK = 1 << 20
+
+
+def _upload_idle_seconds() -> float:
+    return float(os.environ.get("CMUX_R2_UPLOAD_IDLE_SECONDS", "30"))
+
+
+def _stream_body(request: urllib.request.Request, body: bytes) -> urllib.request.Request:
+    """Send a PUT body in 1 MiB pieces, so the socket timeout bounds each idle
+    gap, not the whole transfer. Since Python 3.5 a socket timeout bounds one
+    whole sendall(), and http.client sends a bytes body in one sendall: with
+    timeout=30 a nightly DMG that took longer than 30 s to send failed every
+    attempt with "The write operation timed out" (run 41814490749), while small
+    appcasts passed. The signature covers the body's SHA-256, not its framing."""
+    view = memoryview(body)
+    request.data = (view[offset:offset + _UPLOAD_CHUNK] for offset in range(0, len(view), _UPLOAD_CHUNK))
+    # Set after data: assigning data drops a Content-Length header. Without it
+    # urllib would send an iterable body chunked, which R2's PUT refuses.
+    request.add_unredirected_header("Content-Length", str(len(body)))
+    return request
 
 
 def _sign(key: bytes, message: str) -> bytes:
@@ -272,8 +294,10 @@ def main() -> int:
         conflict_code = args.conflict_exit_code if args.conflict_exit_code is not None else 1
         try:
             etag = _etag_of_planned_object(args, amz_date=amz_date)
-            request = _build_signed_request(args, body, amz_date, extra_headers={"if-match": etag})
-            with _open_signed_request(request, timeout=30) as response:
+            request = _stream_body(
+                _build_signed_request(args, body, amz_date, extra_headers={"if-match": etag}), body
+            )
+            with _open_signed_request(request, timeout=_upload_idle_seconds()) as response:
                 response.read()
                 print(f"Replaced s3://{args.bucket}/{args.key} (ETag {etag}, {response.status})")
                 return 0
@@ -398,13 +422,16 @@ def _upload_once(args: argparse.Namespace, body: bytes, amz_date: str, body_dige
         print(f"Already present with matching digest: s3://{args.bucket}/{args.key}")
         return 0
 
-    request = _build_signed_request(
-        args,
+    request = _stream_body(
+        _build_signed_request(
+            args,
+            body,
+            amz_date,
+            extra_headers={"if-none-match": "*"} if args.write_once else None,
+        ),
         body,
-        amz_date,
-        extra_headers={"if-none-match": "*"} if args.write_once else None,
     )
-    with _open_signed_request(request, timeout=30) as response:
+    with _open_signed_request(request, timeout=_upload_idle_seconds()) as response:
         response.read()
         print(f"Uploaded {args.file} to s3://{args.bucket}/{args.key} ({response.status})")
         return 0

@@ -13,7 +13,7 @@ final class AddDeviceCardPanel: NSPanel {
     init(model: AddDeviceModel) {
         self.model = model
         content = AddDeviceView(model: model)
-        glass = Glass.makePanel(content: content, style: .regular, cornerRadius: 14)
+        glass = Glass.makePanel(content: content, style: .regular, cornerRadius: Metrics.surfaceCornerRadius)
         super.init(contentRect: NSRect(origin: .zero, size: NSSize(width: AddDeviceView.width, height: 240)),
                    styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView], backing: .buffered, defer: true)
         ThemeScope.app.adopt(self)

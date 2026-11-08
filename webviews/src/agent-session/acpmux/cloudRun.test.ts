@@ -1,16 +1,119 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { inlineToken, promptBlocks, type ComposerAttachment } from "./attachments";
 import type { AcpmuxHostConfig } from "./direct";
 import {
+  cloudFolderGrants,
   cloudPageRefusal,
   cloudRunsHere,
   cloudStartFolder,
   cloudStartKeys,
-  cloudStartToasted,
+  cloudStartSaid,
+  grantedCloudStart,
+  makeCloudSignInRetry,
   newTabProjectPick,
   oneCloudStart,
+  resumeSignedIn,
   startCloudChat,
+  type CloudStartAnswer,
 } from "./cloudRun";
+
+test("sign-in recovery preserves the prompt and resumes it once", async () => {
+  const prompt = { task: "Fix the failing Cloud build", home: true, harness: "codex", model: "gpt-6.1-sol" };
+  let resolveSignIn!: (signedIn: boolean) => void;
+  const sends: [string, Record<string, unknown>][] = [];
+  let delivered = 0;
+  const send = oneCloudStart(async (method, params) => {
+    sends.push([method, params]);
+    if (method === "cloud.startChat" && params.signedIn) return void (delivered += 1);
+    if (method !== "cloud.signIn") throw { code: "not_signed_in" };
+    const signedIn = await new Promise<boolean>((resolve) => {
+      resolveSignIn = resolve;
+    });
+    // The host starts nothing on sign-in: it keeps the click for the page's send again.
+    throw { code: signedIn ? "cloud_signed_in" : "not_signed_in" };
+  });
+  expect(await send(prompt, "first-send")).toEqual({ ok: false, code: "not_signed_in" });
+  const signingIn = () =>
+    send(prompt, "first-send", true)?.then((answer) =>
+      resumeSignedIn(
+        answer,
+        () => true,
+        () => send({ ...prompt, signedIn: true }, "first-send"),
+      ),
+    );
+  const retry = makeCloudSignInRetry(signingIn);
+  const first = retry();
+  const second = retry();
+  expect(first).toBe(second);
+  expect(delivered).toBe(0);
+  resolveSignIn(true);
+  await expect(first).resolves.toBe(true);
+  expect(delivered).toBe(1);
+  expect(sends).toEqual([
+    ["cloud.startChat", { ...prompt, key: "first-send" }],
+    ["cloud.signIn", { ...prompt, key: "first-send" }],
+    ["cloud.startChat", { ...prompt, key: "first-send", signedIn: true }],
+  ]);
+  await expect(retry()).resolves.toBe(false);
+  expect(sends).toHaveLength(3);
+});
+
+test("a page that left Cloud after the browser signed in sends nothing again", async () => {
+  // The race: the host answered signed in, and the page withdrew before reading that answer.
+  let waiting = true;
+  const sends: string[] = [];
+  const again = () => (sends.push("again"), Promise.resolve<CloudStartAnswer>({ ok: true }));
+  const signedIn = Promise.resolve<CloudStartAnswer>({ ok: false, code: "cloud_signed_in" });
+  waiting = false;
+  const answer = await signedIn.then((reply) => resumeSignedIn(reply, () => waiting, again));
+  expect(answer).toEqual({ ok: false, code: "cloud_sign_in_cancelled" });
+  expect(sends).toEqual([]);
+  // Still waiting: the start goes again once; any other answer passes through untouched.
+  await expect(resumeSignedIn({ ok: false, code: "cloud_signed_in" }, () => true, again)).resolves.toEqual({
+    ok: true,
+  });
+  await expect(resumeSignedIn({ ok: false, code: "not_signed_in" }, () => true, again)).resolves.toEqual({
+    ok: false,
+    code: "not_signed_in",
+  });
+  expect(sends).toEqual(["again"]);
+});
+
+test("sign-in recovery can be reused after its card resets", async () => {
+  let starts = 0;
+  const retry = makeCloudSignInRetry(async () => {
+    starts += 1;
+    return { ok: true };
+  });
+  await expect(retry()).resolves.toBe(true);
+  await expect(retry()).resolves.toBe(false);
+  retry.reset();
+  await expect(retry()).resolves.toBe(true);
+  expect(starts).toBe(2);
+});
+
+test("a reset while a sign-in is out leaves the next card its own retry", async () => {
+  const pending: ((answer: { ok: true }) => void)[] = [];
+  const retry = makeCloudSignInRetry(
+    () =>
+      new Promise((resolve) => {
+        pending.push(resolve);
+      }),
+  );
+  const stale = retry();
+  retry.reset();
+  const fresh = retry();
+  expect(fresh).not.toBe(stale);
+  expect(pending).toHaveLength(2);
+  // The old card's sign-in comes back first: it counts for nothing and leaves the new one out.
+  pending[0]!({ ok: true });
+  await expect(stale).resolves.toBe(false);
+  expect(retry()).toBe(fresh);
+  pending[1]!({ ok: true });
+  await expect(fresh).resolves.toBe(true);
+});
 
 test("a Cloud start sends the prompt, folder, agent and model with a key, and answers ok", async () => {
   const calls: [string, Record<string, unknown>][] = [];
@@ -40,9 +143,10 @@ test("a refusal keeps its code and the host's words; only a start the host ran w
     { task: "t" },
   );
   expect(failed).toEqual({ ok: false, code: "cloud_start_failed", message: "Could not copy the folder." });
-  expect(cloudStartToasted(failed)).toBe(true);
+  expect(cloudStartSaid(failed)).toBe(true);
+  expect(cloudStartSaid({ ok: false, code: "cloud_plan_required" })).toBe(true);
   const off = await startCloudChat(async () => Promise.reject({ code: "not_signed_in" }), { task: "t" });
-  expect(cloudStartToasted(off)).toBe(false);
+  expect(cloudStartSaid(off)).toBe(false);
   const lost = await startCloudChat(async () => Promise.reject(new Error("bridge gone")), { task: "t" });
   expect(lost.ok).toBe(false);
 });
@@ -51,7 +155,7 @@ test("Run on This Mac from the cap card is no toasted failure: the page sends th
   const here = await startCloudChat(async () => Promise.reject({ code: "run_on_this_mac" }), { task: "t" });
   expect(here).toMatchObject({ ok: false, code: "run_on_this_mac" });
   expect(cloudRunsHere(here)).toBe(true);
-  expect(cloudStartToasted(here)).toBe(false);
+  expect(cloudStartSaid(here)).toBe(false);
   const failed = await startCloudChat(async () => Promise.reject({ code: "cloud_start_failed" }), { task: "t" });
   expect(cloudRunsHere(failed)).toBe(false);
   expect(cloudRunsHere({ ok: true })).toBe(false);
@@ -166,6 +270,27 @@ test("a second Return while a start waits on the host starts nothing; after the 
   expect(calls).toEqual(["one", "three"]);
 });
 
+test("the first message crosses the Cloud handoff exactly once while the shell waits", async () => {
+  const calls: Record<string, unknown>[] = [];
+  let finish!: (answer: { machine: string }) => void;
+  const start = oneCloudStart(async (_method, params) => {
+    calls.push(params);
+    return new Promise<{ machine: string }>((resolve) => {
+      finish = resolve;
+    });
+  });
+  const request = { task: "fix the build", cwd: "/Users/me/paint", harness: "codex" };
+  const first = start(request, "handoff-key");
+  expect(first).toBeDefined();
+  // A second Return while the origin shell is visible is held by the same serialized start;
+  // it cannot issue a second seed/send to the remote chat.
+  expect(start(request, "handoff-key")).toBeUndefined();
+  finish({ machine: "paint-dev" });
+  await expect(first).resolves.toEqual({ ok: true });
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({ task: request.task, key: "handoff-key" });
+});
+
 test("a Cloud chat copies its project; with none (or home) it starts in the machine's own folder", () => {
   expect(cloudStartFolder("/Users/me/src/paint")).toEqual({ cwd: "/Users/me/src/paint" });
   expect(cloudStartFolder("/Users/me/src/paint/")).toEqual({ cwd: "/Users/me/src/paint" });
@@ -275,6 +400,17 @@ test("the cap card's Run on This Mac ends the start; a changed prompt, folder or
   expect(keys.keyFor(start)).not.toBe(first);
 });
 
+test("a refused plan keeps the retry key until the person chooses Run Here inline", () => {
+  const keys = cloudStartKeys(memoryStore(), () => 1_000, counter());
+  const start = { task: "fix it", home: true };
+  const first = keys.keyFor(start);
+  keys.ended(start, { ok: false, code: "cloud_plan_required" });
+  expect(keys.keyFor(start)).toBe(first);
+  // The inline action must send the same explicit local-choice answer as the native cap card.
+  keys.ended(start, { ok: false, code: "run_on_this_mac" });
+  expect(keys.keyFor(start)).not.toBe(first);
+});
+
 test("a kept key expires after a day, and a store that refuses writes still dedupes this page's retries", () => {
   let now = 1_000;
   const store = memoryStore();
@@ -304,4 +440,105 @@ test("the stored entry names the start by a hash, never its prompt", () => {
   const saved = store.getItem("cmux.cloudStart.keys") ?? "";
   expect(saved).not.toContain("secret");
   expect(saved).not.toContain("paint");
+});
+
+test("a New Tab project pick hands its grant over, so a Cloud send can wait for it", async () => {
+  let release: (() => void) | undefined;
+  const native = (method: string) =>
+    method === "workspace.useFolder"
+      ? new Promise((resolve) => (release = () => resolve({ status: "ok" })))
+      : Promise.resolve({});
+  const grants: Promise<unknown>[] = [];
+  const { onProjectPicked } = newTabProjectPick(native, true, (cwd, grant) => {
+    expect(cwd).toBe("/Users/me/src/paint");
+    grants.push(grant);
+  });
+  onProjectPicked!("/Users/me/src/paint");
+  expect(grants).toHaveLength(1);
+  let settled = false;
+  void grants[0]!.then(() => (settled = true));
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  release!();
+  await grants[0];
+  expect(settled).toBe(true);
+  // Home or above is never copied: no grant to wait for.
+  onProjectPicked!("/Users/me");
+  expect(grants).toHaveLength(1);
+});
+
+/// A host whose workspace.useFolder answers only when released, and which records cloud.startChat.
+function grantingHost() {
+  const releases: (() => void)[] = [];
+  const calls: string[] = [];
+  const native = (method: string, params?: Record<string, unknown>): Promise<unknown> => {
+    calls.push(params?.cwd ? `${method} ${String(params.cwd)}` : method);
+    if (method === "workspace.useFolder")
+      return new Promise((resolve) => releases.push(() => resolve({ status: "ok", cwd: params?.cwd })));
+    return Promise.resolve({});
+  };
+  return { native, calls, releases };
+}
+
+const turns = async (count = 5) => {
+  for (let index = 0; index < count; index++) await Promise.resolve();
+};
+
+// The pane's wiring (App.tsx): the New Tab pick hands its grant to cloudFolderGrants, and the Cloud
+// start (grantedCloudStart) holds cloud.startChat until that folder's grant settles.
+test("a Cloud start holds cloud.startChat until the sent folder's grant settles", async () => {
+  const host = grantingHost();
+  const grants = cloudFolderGrants(60_000);
+  const start = grantedCloudStart(host.native, grants);
+  newTabProjectPick(host.native, true, grants.granting).onProjectPicked!("/Users/me/src/paint");
+  const answer = start({ task: "fix it", cwd: "/Users/me/src/paint" }, "key-1");
+  await turns();
+  expect(host.calls).toEqual(["workspace.useFolder /Users/me/src/paint"]);
+  host.releases[0]!();
+  expect(await answer).toEqual({ ok: true });
+  expect(host.calls).toEqual(["workspace.useFolder /Users/me/src/paint", "cloud.startChat /Users/me/src/paint"]);
+});
+
+test("a grant that never answers holds the Cloud start only until the time limit", async () => {
+  const host = grantingHost();
+  const grants = cloudFolderGrants(20);
+  const start = grantedCloudStart(host.native, grants);
+  newTabProjectPick(host.native, true, grants.granting).onProjectPicked!("/Users/me/src/paint");
+  const answer = start({ task: "fix it", cwd: "/Users/me/src/paint" }, "key-1");
+  await turns();
+  expect(host.calls).toEqual(["workspace.useFolder /Users/me/src/paint"]);
+  // Never released: the start goes anyway once the wait runs out, and the host's own refusal covers it.
+  expect(await answer).toEqual({ ok: true });
+  expect(host.calls.at(-1)).toBe("cloud.startChat /Users/me/src/paint");
+});
+
+test("a Cloud start waits only for the grant of the folder it sends", async () => {
+  const host = grantingHost();
+  const grants = cloudFolderGrants(60_000);
+  const start = grantedCloudStart(host.native, grants);
+  const pick = newTabProjectPick(host.native, true, grants.granting).onProjectPicked!;
+  pick("/Users/me/src/paint");
+  pick("/Users/me/src/other");
+  // The last pick's grant (other) is still out, but this send names paint: it waits for paint only.
+  const answer = start({ task: "fix it", cwd: "/Users/me/src/paint" }, "key-1");
+  await turns();
+  expect(host.calls.some((call) => call.startsWith("cloud.startChat"))).toBe(false);
+  host.releases[0]!();
+  expect(await answer).toEqual({ ok: true });
+  expect(host.calls.at(-1)).toBe("cloud.startChat /Users/me/src/paint");
+  // A send with no folder of its own (home) waits for nothing.
+  await turns();
+  expect(await start({ task: "hi", home: true }, "key-2")).toEqual({ ok: true });
+  expect(host.calls.at(-1)).toBe("cloud.startChat");
+});
+
+test("the pane builds its Cloud start from grantedCloudStart and hands every Cloud pick's grant to it", () => {
+  const source = readFileSync(join(import.meta.dir, "App.tsx"), "utf8");
+  expect(source).toMatch(/const \[cloudFolderGrant\] = useState\(\(\) => cloudFolderGrants\(\)\);/);
+  expect(source).toMatch(
+    /const \[startCloud\] = useState\(\(\) =>\s*grantedCloudStart\(reservedCloudCall\(callNative, cloudReservation\), cloudFolderGrant\),?\s*\);/,
+  );
+  expect(source).toMatch(/cloudFolderGrant\.granting\(\s*folder\.cwd,\s*pickFolder\(callNative, folder\.cwd/);
+  expect(source).toMatch(/newTabProjectPick\(callNative, sandboxOfferable, cloudFolderGrant\.granting\)/);
+  expect(source).not.toMatch(/oneCloudStart\(/);
 });

@@ -24,14 +24,18 @@ let package = Package(
         .package(path: "../CmuxHomeCore"),
         .package(path: "../CmuxHomeRender"),
         .package(path: "../CmuxAgentQuestion"),
+        .package(path: "../CmuxAgentBrands"),
+        .package(path: "../CmuxSpinner"),
     ],
     targets: [
         .target(
             name: "MessagesLabHome",
             dependencies: [
+                .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+                .product(name: "CmuxSpinner", package: "CmuxSpinner"),
             ],
             resources: [
                 .process("Resources/Localizable.xcstrings"),

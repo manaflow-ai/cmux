@@ -7,11 +7,13 @@ before they queue: decide and pick-nightly-sign-runner each read how long hosted
 and a wait over THRESHOLD_SECONDS sends the jobs after them to their Blacksmith Linux re-run route on
 attempt 1 too. Run 41684606067 waited 6.8 min for the pick and 9.3 min for signer-app.
 
-Outputs `hosted_slow` (true/false) and `hosted_wait_s`. A job that did not run on hosted Ubuntu, or any
-read that fails, passes INHERITED_SLOW on: it never fails the job.
+Outputs `hosted_slow` (true/false), `hosted_wait_s` and `slow_runner`: when slow, RUNNER_POOLS's linux_4
+label (the smallest Blacksmith size the light jobs fit), which decide's hosted light jobs read as their
+picker output before hosted Ubuntu; else empty. A job that did not run on hosted Ubuntu, or any read that
+fails, passes INHERITED_SLOW on: it never fails the job.
 
 Env: GH_TOKEN, GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, RUNNER_NAME, RUNNER_ENVIRONMENT,
-JOB_NAME, INHERITED_SLOW, THRESHOLD_SECONDS (default 120), GITHUB_OUTPUT.
+JOB_NAME, INHERITED_SLOW, THRESHOLD_SECONDS (default 120), RUNNER_POOLS, GITHUB_OUTPUT.
 """
 from __future__ import annotations
 
@@ -49,6 +51,17 @@ def decide(env: Mapping[str, str], jobs: Sequence[Mapping[str, Any]] | None) -> 
     return wait > threshold, wait
 
 
+def slow_runner(env: Mapping[str, str], slow: bool) -> str:
+    """The light jobs' runner off a slow hosted start: RUNNER_POOLS's linux_4 label, or empty."""
+    if not slow:
+        return ""
+    try:
+        label = json.loads(env.get("RUNNER_POOLS") or "{}").get("linux_4", "")
+    except (ValueError, AttributeError):
+        return ""
+    return label if isinstance(label, str) and label.startswith("blacksmith-") and "ubuntu" in label else ""
+
+
 def read_jobs(env: Mapping[str, str]) -> list[dict[str, Any]] | None:
     url = (f"https://api.github.com/repos/{env['GITHUB_REPOSITORY']}/actions/runs/{env['GITHUB_RUN_ID']}"
            f"/attempts/{env['GITHUB_RUN_ATTEMPT']}/jobs?per_page=100")
@@ -69,7 +82,8 @@ def main(env: Mapping[str, str] = os.environ) -> int:
     output = env.get("GITHUB_OUTPUT")
     if output:
         with open(output, "a", encoding="utf-8") as handle:
-            handle.write(f"hosted_slow={str(slow).lower()}\nhosted_wait_s={'' if wait is None else int(wait)}\n")
+            handle.write(f"hosted_slow={str(slow).lower()}\nhosted_wait_s={'' if wait is None else int(wait)}\n"
+                         f"slow_runner={slow_runner(env, slow)}\n")
     return 0
 
 

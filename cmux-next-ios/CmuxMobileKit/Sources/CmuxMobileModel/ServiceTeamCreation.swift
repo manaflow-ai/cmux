@@ -9,6 +9,8 @@ public struct ServiceTeamCreation: Sendable {
     public enum Failure: Error, Equatable, Sendable {
         /// The service can't create teams for this account (no server key for its project).
         case unavailable
+        /// The name is empty or longer than the server allows.
+        case invalidName
         case failed
     }
 
@@ -39,5 +41,34 @@ public struct ServiceTeamCreation: Sendable {
             throw Failure.failed
         }
         return AppStore.AccountTeam(id: id, name: team["name"] as? String ?? "")
+    }
+}
+
+/// Where Create Team goes for this build's account.
+///
+/// The cmux mobile service can create a team only for the Stack project it holds a server key
+/// for. The production service (`mobile-api.cmux.dev`) holds none, so it answers every
+/// production account `503 team_creation_unavailable`; the cmux team API (`POST
+/// <cmux>/api/teams`), which the Mac uses, creates the team with its creator as admin.
+public enum TeamCreationRoute: Equatable, Sendable {
+    /// `POST <base>/api/teams` (CmuxAuthRuntime `CmuxTeamsAPI`).
+    case teamAPI(URL)
+    /// `POST <base>/v1/teams` (``ServiceTeamCreation``).
+    case mobileService(URL)
+    /// Neither is configured: Create Team says the account can't create teams.
+    case unavailable
+
+    /// - Parameters:
+    ///   - productionAccount: The build signs in to the production Stack project.
+    ///   - teamAPIBase: The cmux web API origin (`https://cmux.com` for production).
+    ///   - mobileServiceBase: The cmux mobile service base, when configured.
+    public init(productionAccount: Bool, teamAPIBase: URL?, mobileServiceBase: URL?) {
+        if productionAccount, let teamAPIBase {
+            self = .teamAPI(teamAPIBase)
+        } else if let mobileServiceBase {
+            self = .mobileService(mobileServiceBase)
+        } else {
+            self = .unavailable
+        }
     }
 }

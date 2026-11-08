@@ -41,7 +41,11 @@ extension CloudAPIClient {
 
     /// Lists a guest directory through the authenticated backend wrapper.
     public func listFiles(_ id: String, path: String) async throws -> [CloudFileEntry] {
-        struct List: Decodable { var entries: [CloudFileEntry] }
+        struct List: CloudServerModel {
+            static var cloudModelKind: String { "file_entries" }
+            var entries: [CloudFileEntry]
+            init(from decoder: any Decoder) throws { entries = try [CloudFileEntry](from: decoder) }
+        }
         return try await machine("dir", id, ["path": path], timeout: .seconds(20)) {
             try await send("GET", "\(machinePath)/\(id)/fs/dir?path=\(query(path))", as: List.self)
         }.entries
@@ -121,7 +125,7 @@ extension CloudAPIClient {
         case 0: throw CloudAPIError.transport(answer.code ?? "no answer")
         case 200..<300:
             if T.self == Ignored.self, let ignored = Ignored() as? T { return ignored }
-            do { return try JSONDecoder().decode(T.self, from: answer.body) } catch { throw CloudAPIError.decoding("\(path): \(error)") }
+            return try CloudMachineRules().answer(answer.body, as: T.self, context: path)
         default:
             throw CloudAPIError.from(status: answer.status, data: answer.body, headerCode: answer.code)
         }

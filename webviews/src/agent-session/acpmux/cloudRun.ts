@@ -8,7 +8,7 @@
 /// opens on the machine.
 
 import { isAgentHome } from "./sessionList";
-import { pickFolder } from "./startFolder";
+import { pickFolder } from "./startFolderModel";
 import type { ComposerAttachment } from "./attachments";
 
 /// What the page hands the host. `home`: the chat has no project folder on this Mac, so nothing is
@@ -21,6 +21,11 @@ export type CloudStart = {
   harness?: string;
   model?: string;
   environment?: string;
+  reservationKey?: string;
+  /** A native gesture ticket reserved before waiting for a Cloud machine lease. */
+  gestureTicket?: string;
+  /** The send again after `cloud.signIn` signed in: the host's kept click authorizes it (resumeSignedIn). */
+  signedIn?: true;
 };
 
 /// Which folder a Cloud chat starts in: the chat's project on this Mac, copied to the machine, when
@@ -46,17 +51,130 @@ type Native = (method: string, params?: Record<string, unknown>) => Promise<unkn
 /// sent, and the Cloud start then failed with pathOutsideRoots. A project folder granted to a tab
 /// the check then hands to a run is harmless. Only a folder Cloud would copy (cloudStartFolder);
 /// a home or root answer asks nothing here (the local start still asks on Return).
-export function newTabProjectPick(callNative: Native, offerable: boolean): { onProjectPicked?: (cwd: string) => void } {
+/// `granted` gets the folder and its grant's promise, so a Cloud send of that folder made right
+/// after the pick waits for it instead of racing it (cloudFolderGrants).
+export function newTabProjectPick(
+  callNative: Native,
+  offerable: boolean,
+  granted?: (cwd: string, grant: Promise<unknown>) => void,
+): { onProjectPicked?: (cwd: string) => void } {
   if (!offerable) return {};
   return {
     onProjectPicked: (cwd) => {
-      if ("cwd" in cloudStartFolder(cwd)) void pickFolder(callNative, cwd, () => undefined);
+      if (!("cwd" in cloudStartFolder(cwd))) return;
+      const grant = pickFolder(callNative, cwd, () => undefined);
+      granted?.(cwd, grant);
     },
   };
 }
 
+/// How long a Cloud send waits for its folder's grant (workspace.useFolder) before it goes anyway.
+/// A grant that never answers must not hold the composer forever: past this the start goes, and a
+/// folder still not granted gets the host's worded "pick the folder" refusal (#34406), with the
+/// prompt still in the composer.
+export const CLOUD_FOLDER_GRANT_WAIT_MS = 3000;
+
+/// The folder grants the page's Cloud picks made (the composer's Cloud row, the New Tab project
+/// pick), by folder as cloudStartFolder spells it. A Cloud start waits for the grant of the folder it
+/// sends, never another pick's, and at most `waitMs`. A grant leaves once it settles.
+export function cloudFolderGrants(waitMs: number = CLOUD_FOLDER_GRANT_WAIT_MS) {
+  const grants = new Map<string, Promise<unknown>>();
+  return {
+    /// A grant of `cwd` is out. A folder Cloud never copies is never sent, so nothing waits for it.
+    granting(cwd: string, grant: Promise<unknown>): void {
+      const folder = cloudStartFolder(cwd);
+      if (!("cwd" in folder)) return;
+      grants.set(folder.cwd, grant);
+      const leave = () => {
+        if (grants.get(folder.cwd) === grant) grants.delete(folder.cwd);
+      };
+      grant.then(leave, leave);
+    },
+    /// Settles once the grant of `cwd` settles (either way), or after `waitMs`; at once with none.
+    /// The timer is cleared when the grant wins, so nothing is left running.
+    settled(cwd: string | undefined): Promise<void> {
+      const grant = cwd ? grants.get(cwd) : undefined;
+      if (!grant) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, waitMs);
+        const done = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        grant.then(done, done);
+      });
+    },
+  };
+}
+
+export type CloudFolderGrants = ReturnType<typeof cloudFolderGrants>;
+
+/// The pane's Cloud start (App.tsx `startCloud`): one at a time (oneCloudStart), and the host call
+/// goes once the grant of the folder it sends has settled or the wait ran out (cloudFolderGrants).
+export function grantedCloudStart(
+  callNative: (method: string, params?: Record<string, unknown>) => Promise<unknown>,
+  grants: CloudFolderGrants,
+): (start: CloudStart, key?: string, signingIn?: boolean) => Promise<CloudStartAnswer> | undefined {
+  return oneCloudStart((method, params) =>
+    grants.settled(typeof params.cwd === "string" ? params.cwd : undefined).then(() => callNative(method, params)),
+  );
+}
+
 /// The host's answer: ok, or a code with the host's own words when it has them.
-export type CloudStartAnswer = { ok: true } | { ok: false; code: string; message?: string };
+/// `retryable`: another try of the same start can help (the machine didn't connect, a copy timed out), so the card offers Retry.
+export type CloudStartAnswer = { ok: true } | { ok: false; code: string; message?: string; retryable?: boolean };
+
+/// Keeps the failed first-send prompt in the composer while Cloud account sign-in runs, then
+/// resumes it once. Concurrent clicks share one browser callback, and a later click after a
+/// successful callback cannot send the prompt a second time.
+export type CloudSignInRetry = (() => Promise<boolean>) & { reset: () => void };
+
+export function makeCloudSignInRetry(resume: () => Promise<CloudStartAnswer> | undefined): CloudSignInRetry {
+  let inFlight: Promise<boolean> | undefined;
+  let resumed = false;
+  // A reset (another card) makes an older retry's late answer count for nothing.
+  let epoch = 0;
+  const retry = (() => {
+    if (resumed) return Promise.resolve(false);
+    if (inFlight) return inFlight;
+    const started = resume();
+    if (!started) return Promise.resolve(false);
+    const mine = epoch;
+    const attempt = started
+      .then((answer) => {
+        if (mine !== epoch || !answer.ok || resumed) return false;
+        resumed = true;
+        return true;
+      })
+      .catch(() => false)
+      .finally(() => {
+        if (inFlight === attempt) inFlight = undefined;
+      });
+    inFlight = attempt;
+    return attempt;
+  }) as CloudSignInRetry;
+  retry.reset = () => {
+    epoch += 1;
+    inFlight = undefined;
+    resumed = false;
+  };
+  return retry;
+}
+
+/// A `cloud.signIn` that signed in starts nothing itself (`cloud_signed_in`): the host keeps the
+/// click for that exact start, and the page sends it again only while it still waits for it
+/// (`stillWaiting`). A page that left Cloud meanwhile sends nothing, so its prompt never starts behind
+/// it; its `cloud.signInCancel` drops the kept click, so a send again already out starts nothing either.
+export function resumeSignedIn(
+  answer: CloudStartAnswer,
+  stillWaiting: () => boolean,
+  again: () => Promise<CloudStartAnswer> | undefined,
+): Promise<CloudStartAnswer> {
+  if (answer.ok || answer.code !== "cloud_signed_in") return Promise.resolve(answer);
+  const withdrawn: CloudStartAnswer = { ok: false, code: "cloud_sign_in_cancelled" };
+  if (!stillWaiting()) return Promise.resolve(withdrawn);
+  return again() ?? Promise.resolve(withdrawn);
+}
 
 /// A page-side refusal before anything goes to the host: Cloud is picked but not offered now
 /// (a chat is starting here). Attachment contents go with the prompt; the native host checks them
@@ -71,6 +189,7 @@ export async function startCloudChat(
   call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
   start: CloudStart,
   key: string = crypto.randomUUID(),
+  signingIn = false,
 ): Promise<CloudStartAnswer> {
   const params: Record<string, unknown> = { task: start.task, key };
   if (start.attachments?.length) params.attachments = start.attachments;
@@ -79,20 +198,25 @@ export async function startCloudChat(
   if (start.harness) params.harness = start.harness;
   if (start.model) params.model = start.model;
   if (start.environment) params.environment = start.environment;
+  if (start.reservationKey) params.reservationKey = start.reservationKey;
+  if (start.gestureTicket) params.gestureTicket = start.gestureTicket;
+  if (start.signedIn) params.signedIn = true;
   try {
-    await call("cloud.startChat", params);
+    await call(signingIn ? "cloud.signIn" : "cloud.startChat", params);
     return { ok: true };
   } catch (error) {
-    const { code, message, userMessage } = (error ?? {}) as {
+    const { code, message, userMessage, retryable } = (error ?? {}) as {
       code?: unknown;
       message?: unknown;
       userMessage?: unknown;
+      retryable?: unknown;
     };
     const words = typeof userMessage === "string" ? userMessage : typeof message === "string" ? message : undefined;
     return {
       ok: false,
       code: typeof code === "string" && code ? code : "unavailable",
       ...(words ? { message: words } : {}),
+      ...(retryable === true ? { retryable: true } : {}),
     };
   }
 }
@@ -101,12 +225,12 @@ export async function startCloudChat(
 /// another Return starts nothing and says nothing, instead of a second start the host refuses.
 export function oneCloudStart(
   call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
-): (start: CloudStart, key?: string) => Promise<CloudStartAnswer> | undefined {
+): (start: CloudStart, key?: string, signingIn?: boolean) => Promise<CloudStartAnswer> | undefined {
   let waiting = false;
-  return (start, key) => {
+  return (start, key, signingIn) => {
     if (waiting) return undefined;
     waiting = true;
-    return startCloudChat(call, start, key).finally(() => {
+    return startCloudChat(call, start, key, signingIn).finally(() => {
       waiting = false;
     });
   };
@@ -221,9 +345,15 @@ export function cloudStartKeys(
   };
 }
 
-/// A failure the host already said in a toast (it ran the start): the page says nothing more.
-export function cloudStartToasted(answer: CloudStartAnswer): boolean {
-  return !answer.ok && answer.code === "cloud_start_failed";
+/// A failure the card already says in the host's words (with Retry when another try can help, or the
+/// sign-in's own reason), so the page says nothing more.
+export function cloudStartSaid(answer: CloudStartAnswer): boolean {
+  return (
+    !answer.ok &&
+    ["cloud_start_failed", "cloud_plan_required", "cloud_chat_already_started", "cloud_prompt_changed"].includes(
+      answer.code,
+    )
+  );
 }
 
 /// The host's card at the plan's machine cap answered Run on This Mac (CloudMachineCap.runHereCode): no machine was

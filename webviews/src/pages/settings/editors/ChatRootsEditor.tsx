@@ -1,4 +1,5 @@
 import { Fragment } from "react";
+import { Button } from "../../../ui/Button";
 import { useSettingsSelector, useStore } from "../context";
 import { Icon } from "../icons";
 import { t } from "../strings";
@@ -24,7 +25,7 @@ export function ChatRootsEditor({ row, value, disabled, labelId }: EditorProps) 
                 <Icon name="lock" />
               </span>
             ) : (
-              <button
+              <Button
                 type="button"
                 className="button"
                 disabled={disabled}
@@ -37,13 +38,13 @@ export function ChatRootsEditor({ row, value, disabled, labelId }: EditorProps) 
                 }
               >
                 {t("settingsPage.remove")}
-              </button>
+              </Button>
             )}
           </span>
           {folder.reason && <output className="row-error folder-reason">{folder.reason}</output>}
         </Fragment>
       ))}
-      <button
+      <Button
         type="button"
         className="button"
         data-add-folder=""
@@ -51,7 +52,7 @@ export function ChatRootsEditor({ row, value, disabled, labelId }: EditorProps) 
         onClick={() => void store.addFolders(row.key)}
       >
         {t("settingsPage.addFolder")}
-      </button>
+      </Button>
     </span>
   );
 }

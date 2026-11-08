@@ -104,8 +104,9 @@ public final class RowSwipeActions {
 
 /// The iOS 26 swipe action button that `List`'s `.swipeActions` draws
 /// (Workspaces, Home): a tinted capsule with a white symbol, its title
-/// under it, inset from the row's edge. Rows outside `List` (the Feed) draw
-/// theirs with ``RowSwipeActionButton`` so every list's actions look alike.
+/// under it, inset from the row's edge. A row outside a list that draws its
+/// own actions uses ``RowSwipeActionButton`` so every list's actions look alike
+/// (the Feed uses UIKit's own table swipe actions).
 /// Measured on the iOS 26.5 simulator (Home's row: 66 x 50 pt capsules
 /// 12 pt apart, 10 pt from the trailing edge, the title 7 pt below).
 public struct RowSwipeActionStyle: Equatable, Sendable {

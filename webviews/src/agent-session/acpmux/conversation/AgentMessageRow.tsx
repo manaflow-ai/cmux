@@ -9,22 +9,11 @@
 // whether it is open, so each direction keeps that across the virtualized transcript its own way.
 import { useId, type ReactNode } from "react";
 import { ChevronRight } from "./icons";
-import { clipMessagePreview } from "./clipMessagePreview";
+
 import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "./headerToggle";
 import { AgentTag } from "./AgentTag";
 import { useMessageLineLook } from "./messageLineLook";
 import "./AgentMessageRow.css";
-
-/// The message's first line of text as it reads, its spaces collapsed and its Markdown marks (a
-/// heading's or quote's or list item's lead, emphasis, code ticks) dropped: the closed line's
-/// preview. The same reading as incomingMessage.ts gives a received message (#23727).
-export function messagePreview(text: string): string {
-  const line = text.split("\n").find((part) => part.trim()) ?? "";
-  return clipMessagePreview(
-    line.replace(/^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+(?:\[[ xX]\]\s+)?)/, "").replace(/(\*\*|__|`)/g, ""),
-  );
-}
-
 export function AgentMessageRow({
   direction,
   icon,
@@ -82,7 +71,8 @@ export function AgentMessageRow({
 }) {
   const bodyId = useId();
   const [before = "", after = ""] = sentence.split("\u0000");
-  // Stacked (the default, messageLineLook.ts): the first line under the row, on its own line.
+  // Single (the default, messageLineLook.ts): the first line on the row, after the name; the
+  // stacked gallery version puts it under the row, on its own line.
   const look = useMessageLineLook();
   const inline = look === "single" && !open ? preview : "";
   const below = look === "stacked" && !open ? preview : "";
@@ -141,7 +131,7 @@ export function AgentMessageRow({
         </span>
         {meta && <span className="cv-tool__trail">{meta}</span>}
         <span className="cv-tool__chevron cv-agentmsg__chevron" aria-hidden>
-          <ChevronRight size={14} strokeWidth={1.2} className={`cv-rotor${open ? " is-open" : ""}`} />
+          <ChevronRight size={14} className={`cv-rotor${open ? " is-open" : ""}`} />
         </span>
       </div>
       {below && (

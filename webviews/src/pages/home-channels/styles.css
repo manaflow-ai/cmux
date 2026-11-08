@@ -294,7 +294,8 @@ body,
   padding-top: var(--grid-half-step);
 }
 .hc-msg-hover-time {
-  visibility: hidden;
+  opacity: 0;
+  transition: var(--cmux-hover-reveal-out-transition);
   font-size: var(--text-caption);
   line-height: 22px;
   color: var(--page-text-3);
@@ -303,7 +304,12 @@ body,
 }
 .hc-msg:hover .hc-msg-hover-time,
 .hc-msg:focus-within .hc-msg-hover-time {
-  visibility: visible;
+  opacity: 1;
+  transition: var(--cmux-hover-reveal-in-transition);
+}
+/* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
+.hc-msg:has(:focus-visible) .hc-msg-hover-time {
+  transition: none;
 }
 .hc-msg-head {
   display: flex;
@@ -357,22 +363,24 @@ body,
   display: contents;
 }
 /* The hover card: on the row's top edge at the end, over the row above, never in the flow. */
-/* Hidden by opacity only, so Tab still reaches it (one stop per row; the arrows move inside). */
+/* Hidden by opacity only, so Tab still reaches it (one stop per row; the arrows move inside). Its
+   fade is the shared reveal (ui/motion .ui-reveal on the card, .ui-reveal-host on the row): in over
+   micro (120 ms), out over quick (80 ms), still with motion off; here only what it can be clicked. */
 .hc-msg-actions {
   position: absolute;
   top: -14px;
   inset-inline-end: var(--ds-space-4);
   z-index: var(--layer-raised);
-  opacity: 0;
   pointer-events: none;
-  transition: opacity var(--cmux-motion-quick) ease-out;
 }
 .hc-msg:hover .hc-msg-actions,
 .hc-msg:has([data-popup-open]) .hc-msg-actions,
 .hc-msg:focus-within .hc-msg-actions,
 .hc-msg-actions.pinned {
-  opacity: 1;
   pointer-events: auto;
+}
+.hc-msg-actions.pinned {
+  opacity: 1;
 }
 /* The first rendered row has no row above to overlap: its card sits inside it. */
 .hc-timeline-row:first-child .hc-msg-actions {
@@ -507,7 +515,7 @@ body,
   border: 1px solid var(--page-separator);
   border-radius: var(--ds-radius-popup);
   background: var(--hc-fill);
-  transition: border-color 120ms ease-out;
+  transition: border-color var(--cmux-motion-micro) var(--cmux-ease-out);
 }
 .hc-composer:focus-within {
   border-color: var(--hc-line-strong);
@@ -519,7 +527,7 @@ body,
   display: flex;
   padding: var(--ds-space-1) var(--ds-space-2) 0;
   gap: 0;
-  transition: opacity 120ms ease-out;
+  transition: opacity var(--cmux-motion-micro) var(--cmux-ease-out);
 }
 .hc-composer:not(:focus-within) .hc-format {
   opacity: 0.55;
@@ -687,7 +695,7 @@ body,
 }
 @media (prefers-reduced-motion: no-preference) {
   .hc-thread {
-    animation: hc-thread-in var(--cmux-motion-micro) ease-out;
+    animation: hc-thread-in var(--cmux-motion-micro) var(--cmux-ease-out);
   }
 }
 @keyframes hc-thread-in {
@@ -737,51 +745,6 @@ body,
 .hc-links > * {
   flex: 1;
   min-height: 0;
-}
-.hc-gate {
-  max-width: 420px;
-  margin: 15vh auto 0;
-  padding: var(--ds-space-5);
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-3);
-}
-.hc-gate h1 {
-  font-size: var(--text-heading);
-  margin: 0;
-  letter-spacing: var(--text-heading--letter-spacing);
-}
-.hc-gate label {
-  display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-2);
-}
-.hc-gate-actions {
-  display: flex;
-  gap: var(--ds-space-2);
-  margin-top: var(--ds-space-2);
-}
-.hc-gate-endpoint {
-  opacity: 0.7;
-  font-family: ui-monospace, monospace;
-  font-size: var(--text-detail);
-}
-.hc-gate-code {
-  font-size: var(--text-heading);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: var(--text-heading--letter-spacing);
-}
-.hc-gate-error {
-  color: var(--hc-danger);
-}
-/* A connect that lasted past the grace (DaemonGate.tsx): one quiet muted line, no title. */
-.hc-gate-line {
-  display: block;
-  margin: 0;
-  color: var(--page-text-2);
-  font-size: var(--text-detail);
-  letter-spacing: var(--text-detail--letter-spacing);
-  overflow-wrap: anywhere;
 }
 /* The field's right-click menu host adds no box of its own. */
 .hc-composer-field-menu {

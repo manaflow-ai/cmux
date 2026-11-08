@@ -319,14 +319,20 @@ if [ -n "$t" ] && ! has_capability "$acpmux"; then
 fi
 
 # 4. The service and the daemon. `daemon service install` writes the same
-# systemd user unit or LaunchAgent `host setup` writes; an acpmux without it
-# gets a daemon that runs until the next reboot.
+# systemd user unit or LaunchAgent `host setup` writes and says where it
+# stands (on a Mac no one is logged in to at the screen, it loads at the next
+# login there); an acpmux without it gets a daemon that runs until the next
+# reboot.
 if "$acpmux" daemon service --help >/dev/null 2>&1; then
   if [ "$os" = "Linux" ] && command -v loginctl >/dev/null 2>&1; then
     loginctl enable-linger "$(id -un)" >/dev/null 2>&1 ||
       say "warning: loginctl enable-linger was refused; the daemon stops when you log out"
   fi
-  "$acpmux" daemon service install >/dev/null || say "warning: the acpmux service did not install"
+  if svc="$("$acpmux" daemon service install 2>&1)"; then
+    [ -z "$svc" ] || say "$svc"
+  else
+    say "warning: the acpmux service did not install${svc:+: $svc}"
+  fi
 else
   say "warning: this acpmux cannot install its service yet; the daemon runs until the next reboot"
 fi
@@ -431,7 +437,10 @@ if [ -n "$t" ] || [ "$resume" = 1 ]; then
         say "already joined; nothing redeemed"
       else
         if [ "$resume" = 1 ]; then say "joined"; else say "joined as $name"; fi
-        "$acpmux" daemon restart >/dev/null 2>&1 || true
+        # The daemon reads the join (its mesh relay) when it starts: until this
+        # restart it sends no heartbeat.
+        "$acpmux" daemon restart >/dev/null 2>&1 ||
+          say "warning: the daemon did not restart onto the join, so it sends no heartbeat yet: run $acpmux daemon restart"
       fi
       ;;
     2) die 2 "the line was damaged; copy it again from cmux" ;;

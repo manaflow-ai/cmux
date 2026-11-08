@@ -39,7 +39,7 @@ enum SessionInfoMetrics {
     /// A line's highlight's right end to its trailing column's right edge.
     static let trail: CGFloat = LayoutGrid.gap
     static let rowHeight: CGFloat = LayoutGrid.row
-    static let rowRadius: CGFloat = 6
+    static var rowRadius: CGFloat { Metrics.insetCornerRadius }
     static let indent: CGFloat = LayoutGrid.sidebarDepthIndent
     static let groupGap: CGFloat = LayoutGrid.gapInner
     static let padding: CGFloat = LayoutGrid.gap
@@ -53,6 +53,7 @@ struct SessionInfoLine: Equatable {
     var symbol: String?
     var symbolColor: String?
     var harness: String?
+    var identityTone: Int?
     var working = false
     var wave: AgentPaneSessionInfoModel.Wave?
     var spins = false
@@ -133,7 +134,7 @@ extension AgentPaneSessionInfoModel {
             guard section.open || bare else { continue }
             for (index, row) in section.rows.enumerated() {
                 items.append(.line(SessionInfoLine(
-                    id: section.bare == true && index == 0 ? section.id : "row:\(section.id):\(row.id)", kind: .row, symbol: row.symbol, symbolColor: row.symbolColor, harness: row.harness,
+                    id: section.bare == true && index == 0 ? section.id : "row:\(section.id):\(row.id)", kind: .row, symbol: row.symbol, symbolColor: row.symbolColor, harness: row.harness, identityTone: row.identityTone,
                     working: row.working == true, wave: row.wave, spins: false, title: row.title,
                     titleInk: row.tone == .failed ? .danger : .primary, detail: row.detail, subtitle: row.subtitle, progress: row.progress,
                     trailing: row.trailing, trailingTone: row.tone, meter: row.meter, segments: row.segments, buttons: row.buttons ?? [],
@@ -501,6 +502,13 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     private var ink: SessionInfoInk
     private var glyph: NSView?
     private var grip: SessionInfoGripView?
+    /// The grip's box fill: lit only while the pointer is on the grip or it drags.
+    private let gripFill: CALayer = {
+        let layer = CALayer()
+        layer.cornerRadius = SessionInfoMetrics.rowRadius
+        layer.actions = ["backgroundColor": NSNull(), "bounds": NSNull(), "position": NSNull()]
+        return layer
+    }()
     private let title = ChromeLabel(labelWithString: "")
     private var detail: ChromeLabel?
     private var subtitle: ChromeLabel?
@@ -514,6 +522,8 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     private(set) var buttons: [SessionInfoButtonView] = []
     private var hovered = false { didSet { paint() } }
     private var focused = false { didSet { paint() } }
+    /// The pointer is over the grip's own box: only the grip lights, never the line under it.
+    private(set) var gripHovered = false { didSet { if gripHovered != oldValue { paint() } } }
     private(set) var isDragging = false
     private(set) var isMenuOpen = false
     private var dragStart: NSPoint?
@@ -526,6 +536,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = SessionInfoMetrics.rowRadius
+        layer?.addSublayer(gripFill)
         rebuild()
         paint()
     }
@@ -626,6 +637,8 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         isDragging = false
         dragStart = nil
         pressedGrip = false
+        // The rebuilt grip may sit elsewhere: it lights again only on the pointer's next move into it.
+        gripHovered = false
         subviews.forEach { $0.removeFromSuperview() }
         rebuild()
         updateTrackingAreas()
@@ -637,14 +650,16 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         glyph?.removeFromSuperview()
         glyph = nil
         let colors = ink.colors
+        let identity = colors.identity(line.identityTone)
         if line.working {
             let spinner = StatusIndicatorView.spinner()
+            spinner.spinnerColor = identity
             spinner.spin(true)
             glyph = spinner
         } else if let wave = line.wave {
-            glyph = SessionInfoWaveView(wave: wave, color: colors.secondary)
+            glyph = SessionInfoWaveView(wave: wave, color: identity ?? colors.secondary)
         } else if let harness = line.harness {
-            glyph = Self.image(HarnessSymbolImages.isSymbolName(harness) ? harness : "person.crop.circle", font: Typography.body, tint: colors.secondary)
+            glyph = Self.image(HarnessSymbolImages.isSymbolName(harness) ? harness : "person.crop.circle", font: Typography.body, tint: identity ?? colors.secondary)
         } else if line.symbol == "terminal.prompt" {
             let prompt = ChromeLabel(labelWithString: ">_")
             prompt.font = Typography.caption
@@ -657,7 +672,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
             glyph = spinner
         } else if let symbol = line.symbol {
             let font = line.discloses ? Typography.caption : Typography.body
-            glyph = Self.image(symbol, font: font, tint: colors.symbol(line.symbolColor, fallback: line.titleInk == .danger ? colors.danger : colors.secondary))
+            glyph = Self.image(symbol, font: font, tint: identity ?? colors.symbol(line.symbolColor, fallback: line.titleInk == .danger ? colors.danger : colors.secondary))
         }
         if let glyph { addSubview(glyph) }
     }
@@ -698,19 +713,58 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     private var lead: CGFloat { CGFloat(line.indent) * SessionInfoMetrics.indent + SessionInfoMetrics.inset - SessionInfoMetrics.edge }
     /// The title column: the same for a line with an icon and one without, so headers and rows
     /// start their titles on one line. The grip takes no room of its own (it sits at the line's
-    /// right edge).
+    /// right end).
     private var textX: CGFloat { lead + SessionInfoMetrics.iconBox + LayoutGrid.gap }
     /// The six-dot grip shows on hover and while it drags; at rest the line draws no glyph for it.
     var showsGrip: Bool { grip != nil && (hovered || isDragging) }
     /// A foldable header's chevron, after its title, shows on hover and keyboard focus.
     var showsChevron: Bool { chevron != nil && (hovered || focused) }
-    /// Where a press grabs the grip: the line's right inset, past the trailing column, full height
-    /// (the web panel's `.acpmux-session-info-section__handle`, in the body's right inset).
+    /// Where a press grabs the grip, and the box that lights under the pointer: one icon box by one
+    /// pill, its dots ending on the trailing column's right edge, where the head's count and every row's
+    /// trailing value end, so the line's left and right edges are the rows' at rest and under the pointer
+    /// (the web panel's `.acpmux-session-info-section__handle`; Leo, 2026-11-07: "the grip and the lef
+    /// tside aren't flush... simply don't highlight and have a thing you can click"). While it shows it
+    /// takes the trailing value's place. A line with a control at its right end (a switch, buttons, a
+    /// menu) keeps the grip in its right inset, past the control, so the grip never covers it.
     var gripHitRect: CGRect? {
         guard grip != nil else { return nil }
-        let right = SessionInfoMetrics.trail
-        return CGRect(x: bounds.width - right, y: 0, width: right, height: bounds.height)
+        let box = LayoutGrid.iconBox, pill = min(LayoutGrid.pill, bounds.height)
+        let dots = SessionInfoGripView.size.width
+        let dotsRight = gripCoversTrailing ? bounds.width - SessionInfoMetrics.trail : bounds.width - (SessionInfoMetrics.trail - dots) / 2
+        let midX = dotsRight - dots / 2
+        // Centred on the drawn grip, which sits on the title's line: a row whose subtitle wraps puts its
+        // title, and so its grip, above the row's middle, and the box must still hold every dot.
+        let midY = gripMidY ?? bounds.midY
+        let y = max(0, min(midY - pill / 2, bounds.height - pill))
+        return CGRect(x: midX - box / 2, y: y, width: box, height: pill)
     }
+
+    /// The drawn grip's vertical centre (its title's line), set by ``layout()``.
+    private var gripMidY: CGFloat?
+
+    /// The grip's own box is lit (the pointer is on it, or it drags).
+    var gripLit: Bool { gripFill.backgroundColor != nil }
+
+    /// What the line shows in its trailing column, past its title: the count, the marks and a header's
+    /// meter (a row's meter runs under its title, so it stays).
+    var trailingMeta: [NSView] {
+        var views: [NSView] = [trailing, marksView].compactMap { $0 }
+        if line.kind == .header { views += [meter, segmentedMeter].compactMap { $0 } }
+        return views
+    }
+
+    /// A header with a meter (Context, Progress) keeps a slot of its own for the grip at its right end,
+    /// at rest too, so its meter and count sit left of it and the grip never draws across them at any
+    /// width; the meter is never hidden.
+    var gripHasOwnSlot: Bool {
+        grip != nil && gripCoversTrailing && line.kind == .header && (meter != nil || segmentedMeter != nil)
+    }
+
+    /// The room the grip's own slot takes from the trailing column's right edge: its box past the dots.
+    private static let gripSlot: CGFloat = SessionInfoGripView.size.width + (LayoutGrid.iconBox - SessionInfoGripView.size.width) / 2
+
+    /// The grip sits over the trailing column: the line has no control at its right end.
+    private var gripCoversTrailing: Bool { buttons.isEmpty && toggle == nil && menuButton == nil }
 
     func height(forWidth width: CGFloat) -> CGFloat {
         var height = title.naturalSize.height
@@ -721,7 +775,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     }
 
     private func trailingWidth(_ width: CGFloat) -> CGFloat {
-        var used: CGFloat = 0
+        var used: CGFloat = gripHasOwnSlot ? Self.gripSlot : 0
         for button in buttons { used += button.naturalWidth + 2 }
         if let toggle { used += toggle.intrinsicContentSize.width + 6 }
         if let menuButton { used += menuButton.naturalWidth + 2 }
@@ -737,7 +791,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
     override func layout() {
         super.layout()
         let width = bounds.width, height = bounds.height
-        var x = width - SessionInfoMetrics.trail
+        var x = width - SessionInfoMetrics.trail - (gripHasOwnSlot ? Self.gripSlot : 0)
         for button in buttons.reversed() {
             let size = CGSize(width: button.naturalWidth, height: 18)
             x -= size.width
@@ -810,11 +864,13 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
             glyph.frame = CGRect(x: lead + (box - inkWidth) / 2, y: y + (titleSize.height - side) / 2, width: inkWidth, height: side)
         }
         if let grip, let hit = gripHitRect {
-            // Six dots, 6 by 14, centred in the right inset on the title's line.
+            // Six dots, 6 by 14, centred in the grip's box on the title's line.
             let size = SessionInfoGripView.size
             grip.frame = CGRect(x: hit.midX - size.width / 2, y: y + (titleSize.height - size.height) / 2,
                                 width: size.width, height: size.height)
         }
+        gripMidY = grip?.frame.midY
+        gripFill.frame = gripHitRect ?? .zero
         y += titleSize.height
         if let subtitle {
             subtitle.frame = CGRect(x: textX, y: y + 1, width: textWidth, height: subtitleHeight)
@@ -835,6 +891,7 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         if hovered != inside { hovered = inside }
         guard line.action != nil || line.reorderable || !line.menu.isEmpty else { return }
         var options: NSTrackingArea.Options = [.mouseEnteredAndExited, .activeAlways, .inVisibleRect]
+        if line.reorderable { options.insert(.mouseMoved) }
         if inside { options.insert(.assumeInside) }
         addTrackingArea(NSTrackingArea(rect: .zero, options: options, owner: self))
     }
@@ -850,8 +907,23 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         if window == nil, hovered { hovered = false }
     }
 
-    override func mouseEntered(with event: NSEvent) { hovered = true }
-    override func mouseExited(with event: NSEvent) { hovered = false }
+    override func mouseEntered(with event: NSEvent) {
+        hovered = true
+        trackGrip(event)
+    }
+    override func mouseExited(with event: NSEvent) {
+        hovered = false
+        gripHovered = false
+    }
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        trackGrip(event)
+    }
+    /// Lights the grip's box while the pointer is in it.
+    private func trackGrip(_ event: NSEvent) {
+        guard let hit = gripHitRect, window != nil else { return }
+        gripHovered = hit.contains(convert(event.locationInWindow, from: nil))
+    }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) {
         focusEnclosingSessionInfoPanel()
@@ -954,6 +1026,13 @@ final class SessionInfoLineView: NSView, NSMenuDelegate {
         layer?.backgroundColor = hovered && line.action != nil && line.kind != .header ? ink.colors.hover.cgColor : nil
         grip?.isHidden = !showsGrip
         grip?.lit = isDragging
+        // The grip takes the count's place while it shows, as the web head's meta fades under its handle;
+        // a head with a meter keeps its own slot for the grip, so its count and meter stay. Nothing moves.
+        if grip != nil, gripCoversTrailing, !gripHasOwnSlot {
+            for view in trailingMeta { view.isHidden = showsGrip }
+        }
+        // Only the grip's own box lights under the pointer (the web handle's :hover), never the head.
+        gripFill.backgroundColor = showsGrip && (gripHovered || isDragging) ? ink.colors.hover.cgColor : nil
         chevron?.isHidden = !showsChevron
         window?.invalidateCursorRects(for: self)
     }
@@ -979,6 +1058,10 @@ final class SessionInfoGripView: NSView {
     required init?(coder: NSCoder) { nil }
 
     override var isFlipped: Bool { true }
+
+    /// The grip only draws: a press or drag on its dots goes to its line, which owns the grip's box
+    /// (``SessionInfoLineView/gripHitRect``) and starts the reorder.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func draw(_ dirtyRect: NSRect) {
         (lit ? litColor : rest).setFill()
@@ -1018,7 +1101,7 @@ final class SessionInfoButtonView: NSView {
         }
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerRadius = 4
+        layer?.cornerRadius = Metrics.controlCornerRadius
         addSubview(content)
         themedToolTip = button.label
         setAccessibilityElement(true)
@@ -1062,7 +1145,7 @@ final class SessionInfoButtonView: NSView {
     override var acceptsFirstResponder: Bool { enabled }
     override var canBecomeKeyView: Bool { enabled && NSApp.isFullKeyboardAccessEnabled }
     override var focusRingMaskBounds: NSRect { bounds }
-    override func drawFocusRingMask() { NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4).fill() }
+    override func drawFocusRingMask() { NSBezierPath(roundedRect: bounds, xRadius: Metrics.controlCornerRadius, yRadius: Metrics.controlCornerRadius).fill() }
     override func keyDown(with event: NSEvent) {
         if SessionInfoKeys.presses(event), press() { return }
         super.keyDown(with: event)

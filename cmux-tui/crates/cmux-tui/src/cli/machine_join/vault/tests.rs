@@ -8,6 +8,7 @@ use super::super::tests::{
     run_with,
 };
 use super::super::{AddArgs, Hooks, RunOptions, Verb, bootstrap, run};
+use super::policy::Delivery;
 use super::*;
 
 const VALUE: &str = "sk-live-vault-value-0123456789";
@@ -50,7 +51,7 @@ fn vault_of(words: &[&str]) -> VaultVerb {
 fn vault_verbs_parse_and_a_value_never_comes_from_argv() {
     assert_eq!(
         vault_of(&["machine", "vault", "set", "OPENAI_API_KEY"]),
-        VaultVerb::Set { name: "OPENAI_API_KEY".into() }
+        VaultVerb::Set { name: "OPENAI_API_KEY".into(), policy: None }
     );
     assert_eq!(vault_of(&["machine", "vault", "ls"]), VaultVerb::Ls);
     assert_eq!(
@@ -166,16 +167,17 @@ fn ls_prints_names_revisions_and_times_only() {
         assert_eq!(ran.code, Ok(0));
         no_value(&ran.out);
         if output == OutputMode::Human {
+            // No `delivery` in the answer: an older hub, which puts the value in the env.
             assert_eq!(
                 ran.out,
-                "OPENAI_API_KEY  r3  2026-11-02T10:00:00Z\nGITHUB_TOKEN  r1  2026-11-01T09:00:00Z\n"
+                "OPENAI_API_KEY  r3  2026-11-02T10:00:00Z  env (weaker: agents can read the value)\nGITHUB_TOKEN  r1  2026-11-01T09:00:00Z  env (weaker: agents can read the value)\n"
             );
         } else {
             let value: Value = serde_json::from_str(ran.out.trim()).unwrap();
             assert_eq!(value["entries"].as_array().unwrap().len(), 2);
             assert_eq!(
                 value["entries"][0],
-                json!({"name": "OPENAI_API_KEY", "revision": 3, "updatedAt": "2026-11-02T10:00:00Z"})
+                json!({"name": "OPENAI_API_KEY", "revision": 3, "updatedAt": "2026-11-02T10:00:00Z", "delivery": "env", "allowedHosts": []})
             );
         }
     }
@@ -428,4 +430,344 @@ fn machine_adds_switches_leave_json_to_the_global_output_mode() {
             Err((error, _)) => panic!("{}", error.0),
         };
     assert_eq!(rest, words(&["cloud", "new-machine", "--bootstrap", "--json"]));
+}
+
+fn policy_of(hosts: &[&str]) -> Option<Policy> {
+    Some(Policy {
+        delivery: Delivery::Proxy,
+        allowed_hosts: hosts.iter().map(|h| (*h).to_owned()).collect(),
+    })
+}
+
+#[test]
+fn policy_flags_parse_and_refuse_what_does_not_fit() {
+    assert_eq!(
+        vault_of(&[
+            "machine",
+            "vault",
+            "set",
+            "GITHUB_TOKEN",
+            "--host",
+            "api.github.com",
+            "--host=GitHub.com",
+            "--host",
+            "api.github.com",
+        ]),
+        VaultVerb::Set {
+            name: "GITHUB_TOKEN".into(),
+            policy: policy_of(&["api.github.com", "github.com"])
+        }
+    );
+    assert_eq!(
+        vault_of(&["machine", "vault", "set", "API_KEY", "--env"]),
+        VaultVerb::Set {
+            name: "API_KEY".into(),
+            policy: Some(Policy { delivery: Delivery::Env, allowed_hosts: vec![] })
+        }
+    );
+    assert_eq!(
+        vault_of(&["machine", "vault", "policy", "API_KEY", "--no-hosts"]),
+        VaultVerb::Policy { name: "API_KEY".into(), policy: policy_of(&[]).unwrap() }
+    );
+    assert_eq!(
+        vault_of(&["machine", "vault", "policy", "API_KEY", "--host", "*.example.com:8443"]),
+        VaultVerb::Policy {
+            name: "API_KEY".into(),
+            policy: policy_of(&["*.example.com:8443"]).unwrap()
+        }
+    );
+    let error = parsed(&["machine", "vault", "set", "API_KEY", "--env", "--host", "a.example"])
+        .unwrap()
+        .unwrap_err();
+    assert!(error.0.contains("not both"), "{}", error.0);
+    let many: Vec<String> = (0..17).map(|i| format!("h{i}.example.com")).collect();
+    let mut words = vec!["machine", "vault", "policy", "API_KEY"];
+    for host in &many {
+        words.extend(["--host", host.as_str()]);
+    }
+    assert!(parsed(&words).unwrap().unwrap_err().0.contains("at most 16"));
+    for bad in [
+        vec!["machine", "vault", "policy", "API_KEY"],
+        vec!["machine", "vault", "policy", "API_KEY", "--env", "--no-hosts"],
+        vec!["machine", "vault", "policy", "API_KEY", "--host", "a.example", "--no-hosts"],
+        vec!["machine", "vault", "policy", "API_KEY", "--host"],
+        vec!["machine", "vault", "policy", "API_KEY", "--env=1"],
+        vec!["machine", "vault", "ls", "--host", "a.example"],
+        vec!["machine", "vault", "rm", "API_KEY", "--env"],
+        vec!["machine", "vault", "policy", "PATH", "--env"],
+    ] {
+        assert!(parsed(&bad).is_some_and(|r| r.is_err()), "{bad:?}");
+    }
+    for host in [
+        "https://api.github.com",
+        "api.github.com/v3",
+        "user@api.github.com",
+        "1.2.3.4",
+        "api.github.com.",
+        "example.com:0",
+        "example.com:65536",
+        "*example.com",
+        "a.*.example.com",
+        "localhost",
+        "",
+    ] {
+        let error =
+            parsed(&["machine", "vault", "set", "API_KEY", "--host", host]).unwrap().unwrap_err();
+        assert!(error.0.contains("is not a host"), "{host}: {}", error.0);
+    }
+    assert!(policy::host_ok("example.com:65535"));
+}
+
+/// The platform's allowed-host pattern, which `host_pattern_ok` checks by hand.
+const HOST_PATTERN: &str =
+    r"^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}(:[1-9][0-9]{0,4})?$";
+
+#[test]
+fn the_host_check_accepts_what_the_platform_pattern_accepts() {
+    let pattern = regex::Regex::new(HOST_PATTERN).unwrap();
+    let same = |host: &str| {
+        assert_eq!(policy::host_pattern_ok(host), pattern.is_match(host), "{host:?}");
+    };
+    let label63 = "a".repeat(63);
+    let label64 = "a".repeat(64);
+    for host in [
+        "api.github.com",
+        "*.example.com:8443",
+        "a.b",
+        "0.a",
+        "a-b.c",
+        "a.b-",
+        "a.b-c9",
+        "-a.b",
+        "a-.b",
+        "a.-b",
+        "a.0b",
+        "a.b:1",
+        "a.b:0",
+        "a.b:01",
+        "a.b:99999",
+        "a.b:999999",
+        "a.b:",
+        "a.b:1:2",
+        "a.b:1a",
+        "a..b",
+        ".a.b",
+        "a.b.",
+        "*.a",
+        "*.*.a.b",
+        "**.a.b",
+        "*a.b",
+        "A.b",
+        "a.B",
+        "a.b\n",
+        "\na.b",
+        "a.b c",
+        "é.com",
+        "a.côm",
+        "a.b:１",
+    ] {
+        same(host);
+    }
+    for host in [
+        format!("{label63}.{label63}"),
+        format!("{label64}.a"),
+        format!("a.{label64}"),
+        format!("*.{label63}.{label63}:65535"),
+    ] {
+        same(&host);
+    }
+    // Every host up to six characters from the pattern's alphabet.
+    let alphabet = ['a', '0', '1', '-', '.', '*', ':', 'Z'];
+    let mut hosts = vec![String::new()];
+    for _ in 0..6 {
+        hosts = hosts
+            .iter()
+            .flat_map(|host| {
+                alphabet.iter().map(move |c| {
+                    let mut longer = host.clone();
+                    longer.push(*c);
+                    longer
+                })
+            })
+            .collect();
+        for host in &hosts {
+            same(host);
+        }
+    }
+}
+
+/// The body of the first request, as JSON.
+fn body_of(request: &str) -> Value {
+    serde_json::from_str(request.split_once("\r\n\r\n").unwrap().1).unwrap()
+}
+
+#[test]
+fn set_with_hosts_sends_the_policy_and_set_without_flags_sends_none() {
+    let answer = |request: &str| {
+        if request.starts_with("PUT /v1/vault/env/GITHUB_TOKEN ") {
+            return (200, json!({"name": "GITHUB_TOKEN", "revision": 2}).to_string());
+        }
+        (404, "{}".to_owned())
+    };
+    let (origin, requests) = fake(Arc::new(answer));
+    let ran = run_vault(
+        &[
+            "machine",
+            "vault",
+            "set",
+            "GITHUB_TOKEN",
+            "--host",
+            "api.github.com",
+            "--host",
+            "github.com",
+        ],
+        &origin,
+        OutputMode::Human,
+        VALUE,
+    );
+    assert_eq!(ran.code, Ok(0));
+    no_value(&ran.out);
+    assert_eq!(
+        ran.out,
+        "GITHUB_TOKEN saved to your vault (revision 2).\nDelivery: proxy: api.github.com, github.com\n"
+    );
+    let body = body_of(&requests.recv().unwrap());
+    assert_eq!(body["delivery"], "proxy");
+    assert_eq!(body["allowedHosts"], json!(["api.github.com", "github.com"]));
+    assert_eq!(body["fingerprint"], fingerprint(VALUE.as_bytes()));
+    assert_eq!(body.as_object().unwrap().len(), 4, "{body}");
+
+    let (origin, requests) = fake(Arc::new(answer));
+    let ran = run_vault(
+        &["machine", "vault", "set", "GITHUB_TOKEN", "--env"],
+        &origin,
+        OutputMode::Json,
+        VALUE,
+    );
+    assert_eq!(ran.code, Ok(0));
+    assert_eq!(
+        serde_json::from_str::<Value>(ran.out.trim()).unwrap(),
+        json!({"name": "GITHUB_TOKEN", "revision": 2, "delivery": "env", "allowedHosts": []})
+    );
+    let body = body_of(&requests.recv().unwrap());
+    assert_eq!(body["delivery"], "env");
+
+    // No flag: no policy fields, so the platform keeps (or defaults) the entry's policy.
+    let (origin, requests) = fake(Arc::new(answer));
+    let ran =
+        run_vault(&["machine", "vault", "set", "GITHUB_TOKEN"], &origin, OutputMode::Human, VALUE);
+    assert_eq!(ran.code, Ok(0));
+    assert_eq!(ran.out, "GITHUB_TOKEN saved to your vault (revision 2).\n");
+    let body = body_of(&requests.recv().unwrap());
+    assert!(body.get("delivery").is_none() && body.get("allowedHosts").is_none(), "{body}");
+}
+
+#[test]
+fn policy_puts_the_policy_path_and_never_sends_a_value() {
+    for (words, sent, human) in [
+        (
+            vec!["machine", "vault", "policy", "API_KEY", "--host", "api.example.com"],
+            json!({"delivery": "proxy", "allowedHosts": ["api.example.com"]}),
+            "API_KEY: proxy: api.example.com\n",
+        ),
+        (
+            vec!["machine", "vault", "policy", "API_KEY", "--no-hosts"],
+            json!({"delivery": "proxy", "allowedHosts": []}),
+            "API_KEY: proxy: no hosts (placeholder only)\n",
+        ),
+        (
+            vec!["machine", "vault", "policy", "API_KEY", "--env"],
+            json!({"delivery": "env", "allowedHosts": []}),
+            "API_KEY: env (weaker: agents can read the value)\n",
+        ),
+    ] {
+        let (origin, requests) = fake(Arc::new(|request: &str| {
+            if request.starts_with("PUT /v1/vault/env/API_KEY/policy ") {
+                let mut answer = body_of(request);
+                answer["name"] = json!("API_KEY");
+                answer["revision"] = json!(7);
+                return (200, answer.to_string());
+            }
+            (404, "{}".to_owned())
+        }));
+        let ran = run_vault(&words, &origin, OutputMode::Human, VALUE);
+        assert_eq!(ran.code, Ok(0), "{words:?}");
+        assert_eq!(ran.out, human);
+        let request = requests.recv().unwrap();
+        assert!(request.starts_with("PUT /v1/vault/env/API_KEY/policy "), "{request}");
+        assert!(!request.contains(VALUE), "the policy call never carries a value");
+        assert_eq!(body_of(&request), sent);
+
+        let (origin, _requests) = fake(Arc::new(|request: &str| {
+            let mut answer = body_of(request);
+            answer["name"] = json!("API_KEY");
+            answer["revision"] = json!(7);
+            (200, answer.to_string())
+        }));
+        let ran = run_vault(&words, &origin, OutputMode::Json, VALUE);
+        let mut expected = sent.clone();
+        expected["name"] = json!("API_KEY");
+        expected["revision"] = json!(7);
+        assert_eq!(serde_json::from_str::<Value>(ran.out.trim()).unwrap(), expected);
+    }
+    for (code, failure) in [
+        ("vault.no_entry", "machine_vault.not_found"),
+        ("vault.invalid_hosts", "machine_vault.invalid_hosts"),
+    ] {
+        let (origin, _requests) =
+            fake(Arc::new(move |_: &str| (400, json!({"code": code}).to_string())));
+        let ran = run_vault(
+            &["machine", "vault", "policy", "API_KEY", "--env"],
+            &origin,
+            OutputMode::Human,
+            VALUE,
+        );
+        assert_eq!(ran.code.unwrap_err().code, failure);
+    }
+    // `set --host` gets the same message for hosts the platform refuses.
+    let (origin, _requests) =
+        fake(Arc::new(|_: &str| (400, json!({"code": "vault.invalid_hosts"}).to_string())));
+    let failure = run_vault(
+        &["machine", "vault", "set", "API_KEY", "--host", "a.example.com"],
+        &origin,
+        OutputMode::Human,
+        VALUE,
+    )
+    .code
+    .unwrap_err();
+    assert_eq!(failure.code, "machine_vault.invalid_hosts");
+    no_value(&failure.message);
+}
+
+#[test]
+fn ls_renders_each_delivery_and_json_carries_the_policy() {
+    let listed = json!({"entries": [
+        {"name": "GITHUB_TOKEN", "revision": 1, "delivery": "proxy", "allowedHosts": ["api.github.com", "github.com"]},
+        {"name": "OTHER_KEY", "revision": 2, "delivery": "proxy", "allowedHosts": []},
+        {"name": "LEGACY_KEY", "revision": 3, "delivery": "env", "allowedHosts": ["kept.example.com"]},
+        {"name": "ODD_KEY", "revision": 4, "delivery": "proxy", "allowedHosts": ["https://evil/x", VALUE, "ok.example.com"]},
+    ]});
+    let (origin, _requests) = {
+        let listed = listed.clone();
+        fake(Arc::new(move |_: &str| (200, listed.to_string())))
+    };
+    let ran = run_vault(&["machine", "vault", "ls"], &origin, OutputMode::Human, VALUE);
+    assert_eq!(ran.code, Ok(0));
+    no_value(&ran.out);
+    assert_eq!(
+        ran.out,
+        "GITHUB_TOKEN  r1  proxy: api.github.com, github.com\n\
+         OTHER_KEY  r2  proxy: no hosts (placeholder only)\n\
+         LEGACY_KEY  r3  env (weaker: agents can read the value)\n\
+         ODD_KEY  r4  proxy: ok.example.com\n"
+    );
+    let (origin, _requests) = fake(Arc::new(move |_: &str| (200, listed.to_string())));
+    let ran = run_vault(&["machine", "vault", "ls"], &origin, OutputMode::Json, VALUE);
+    let value: Value = serde_json::from_str(ran.out.trim()).unwrap();
+    assert_eq!(value["entries"][0]["delivery"], "proxy");
+    assert_eq!(value["entries"][0]["allowedHosts"], json!(["api.github.com", "github.com"]));
+    assert_eq!(value["entries"][1]["allowedHosts"], json!([]));
+    assert_eq!(value["entries"][2]["delivery"], "env");
+    assert_eq!(value["entries"][2]["allowedHosts"], json!(["kept.example.com"]));
+    assert_eq!(value["entries"][3]["allowedHosts"], json!(["ok.example.com"]));
 }

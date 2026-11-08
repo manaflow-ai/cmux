@@ -5,6 +5,8 @@
 // outside keeps it as the theme's edit (appearance.themeEdits), Escape reverts. The theme itself
 // never changes: its edits make "<theme> (custom)".
 import { useState } from "react";
+import { Button } from "../../../ui/Button";
+import { Input } from "../../../ui/Input";
 import { Popover } from "../../../ui/Popover";
 import type { GhosttyTheme } from "../../../theme/ghosttyTheme";
 import { THEME_EDIT_TOKENS, editsFor, type ThemeEditToken } from "../../../theme/themeEdits";
@@ -191,7 +193,7 @@ function TokenTuner({
         <div className="token-tuner-head">
           <span className="token-tuner-swatch" style={{ background: color }} />
           <span className="token-tuner-name">{tokenLabel(token)}</span>
-          <input
+          <Input
             className="field token-tuner-hex"
             aria-label={t("settingsPage.theme.edit.hex")}
             spellCheck={false}
@@ -252,24 +254,24 @@ function TokenTuner({
           <div className="token-tuner-contrast" data-contrast-low={low ? "" : undefined}>
             <span>{t("settingsPage.theme.edit.contrast", ratio.toFixed(1), floor.min.toFixed(1))}</span>
             {low && (
-              <button type="button" className="button" onClick={() => show(meetFloor(theme, token, color))}>
+              <Button type="button" className="button" onClick={() => show(meetFloor(theme, token, color))}>
                 {t("settingsPage.theme.edit.fixContrast")}
-              </button>
+              </Button>
             )}
           </div>
         )}
         <div className="token-tuner-actions">
-          <button
+          <Button
             type="button"
             className="button"
             disabled={!edited && color === tokenColor(base, token)}
             onClick={() => onDone(null)}
           >
             {t("settingsPage.theme.edit.reset")}
-          </button>
-          <button type="button" className="button button-primary" onClick={keep}>
+          </Button>
+          <Button variant="solid" type="button" className="button button-primary" onClick={keep}>
             {t("settingsPage.theme.edit.done")}
-          </button>
+          </Button>
         </div>
       </form>
     </Popover>

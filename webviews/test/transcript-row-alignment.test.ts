@@ -159,15 +159,11 @@ await requireBrowserLane("transcript-row-alignment.test.ts", async () => {
           const line = rows[index]!.querySelector(selector);
           if (!line) continue;
           const box = line.getBoundingClientRect();
-          // A message row's first line is on its own line right under the row's line
-          // (messageLineLook.ts `stacked`): the row ends under it, so the room below starts there.
-          const first = line.parentElement?.querySelector(":scope > .cv-msgline__preview")?.getBoundingClientRect();
-          const bottom = first && first.height > 0 && first.top >= box.bottom - 0.5 ? first.bottom : box.bottom;
           gaps.push({
             kind,
             label: line.textContent?.trim().slice(0, 40) ?? "",
             above: box.top - before.getBoundingClientRect().bottom,
-            below: after.getBoundingClientRect().top - bottom,
+            below: after.getBoundingClientRect().top - box.bottom,
           });
         }
       }

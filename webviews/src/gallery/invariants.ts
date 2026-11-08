@@ -133,11 +133,6 @@ function leadingIcon(row: Element): Element | null {
   return null;
 }
 
-/** The element of `row` that holds an empty icon slot before its words (`data-lead-slot`), if any. */
-function slot(row: Element): Element | null {
-  return row.matches("[data-lead-slot]") ? row : row.querySelector("[data-lead-slot]");
-}
-
 function pxTokens(element: Element): number[] {
   const style = getComputedStyle(element);
   const tokens: number[] = [];
@@ -160,6 +155,29 @@ function pxTokens(element: Element): number[] {
   }
   for (const space of [4, 8, 12, 16, 24, 32]) tokens.push(space);
   return [...new Set(tokens)];
+}
+
+/** Row spacing is layout geometry. A fold's compositor translate can be held halfway by a
+ * gallery play; its intermediate drawn gap need not be a token. The shift check still measures
+ * that motion. Read the virtualizer's subpixel placement in their shared coordinate space. */
+function transcriptGap(above: HTMLElement, below: HTMLElement): number {
+  const a = getComputedStyle(above);
+  const b = getComputedStyle(below);
+  if (
+    above.offsetParent === below.offsetParent &&
+    a.position === "absolute" &&
+    b.position === "absolute" &&
+    a.boxSizing === "border-box"
+  ) {
+    const gap =
+      Number.parseFloat(b.top) +
+      Number.parseFloat(b.marginTop) -
+      Number.parseFloat(a.top) -
+      Number.parseFloat(a.marginTop) -
+      Number.parseFloat(a.height);
+    if (Number.isFinite(gap)) return gap;
+  }
+  return below.getBoundingClientRect().top - above.getBoundingClientRect().bottom;
 }
 
 function transcriptViolations(doc: Document): Violation[] {
@@ -189,21 +207,16 @@ function transcriptViolations(doc: Document): Violation[] {
               detail: `${key}: its icon centres ${fmt(delta)} px off its first line`,
             });
         }
-      } else if (slot(row)) {
-        // A row that keeps the icon slot empty by design (the running turn's live line, Thinking.tsx
-        // `data-lead-slot`): its words start on the text column, its lead edge is its box's start.
-        leads.push({ key, edge: slot(row)!.getBoundingClientRect().left });
       } else if (text) leads.push({ key, edge: text.left });
     }
     violations.push(...offColumn(leads, "icon-column", "the lead edge"));
     const gaps: { key: string; gap: number }[] = [];
     for (let index = 1; index < rows.length; index++) {
-      const above = rows[index - 1]!.getBoundingClientRect();
-      const below = rows[index]!.getBoundingClientRect();
-      if (below.top < above.bottom - EDGE_SLACK) continue;
+      const gap = transcriptGap(rows[index - 1]! as HTMLElement, rows[index]! as HTMLElement);
+      if (gap < -EDGE_SLACK) continue;
       gaps.push({
         key: `${labelOf(rows[index - 1]!)} -> ${labelOf(rows[index]!)}`,
-        gap: half(below.top - above.bottom),
+        gap: half(gap),
       });
     }
     violations.push(...offTokenGaps(gaps, pxTokens(scroller)));

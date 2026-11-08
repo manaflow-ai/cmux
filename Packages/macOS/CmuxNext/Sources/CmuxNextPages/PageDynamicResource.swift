@@ -36,3 +36,26 @@ public nonisolated struct PageResourceRequest: Sendable, Equatable {
 public protocol PageDynamicResourceSource: AnyObject {
     func resource(for request: PageResourceRequest) async -> PageResource?
 }
+
+/// One answer to a byte-range request (video and audio): its status (200, 206 for a range, 416
+/// past the end), the headers the source sets (`Content-Range`, `Accept-Ranges`, its type), and
+/// the bytes. The source sets every header itself; the scheme handler adds none.
+public nonisolated struct PageRangedResource: Sendable, Equatable {
+    public let status: Int
+    public let headers: [String: String]
+    public let data: Data
+
+    public init(status: Int, headers: [String: String], data: Data) {
+        self.status = status
+        self.headers = headers
+        self.data = data
+    }
+}
+
+/// A page's dynamic source (``PageDynamicResourceSource``) that also answers in byte ranges (a
+/// `<video>` asks for one range at a time and needs 206 with `Content-Range`, which a whole-body 200
+/// does not give). When the page's source conforms, the WebKit scheme handler asks it with the
+/// request's `Range` header instead of ``PageDynamicResourceSource/resource(for:)``; nil is a 404.
+public protocol PageRangedResourceSource: AnyObject {
+    func rangedResource(for request: PageResourceRequest, range: String?) async -> PageRangedResource?
+}

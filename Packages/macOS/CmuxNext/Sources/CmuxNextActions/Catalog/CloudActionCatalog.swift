@@ -19,7 +19,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 // --bootstrap lane --bootstrap-script FILE` makes a lane host in one call.
                 arguments: [CatalogArgument.nameString.optional, CatalogArgument.newMachineSizeString, CatalogArgument.persistentBool,
                             CatalogArgument.bootstrapString, CatalogArgument.bootstrapScriptString, CatalogArgument.machineConfigString,
-                            CatalogArgument.repoString],
+                            CatalogArgument.repoString, CatalogArgument.environmentString],
                 cliName: "cloud new-machine", mainMenu: .file
             ),
             ActionDescriptor(
@@ -165,11 +165,6 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             ActionDescriptor(id: "cloudTunnelAttach", title: String(localized: "action.cloudTunnelAttach", defaultValue: "Attach Cloud Tunnel Network", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "tunnel", "network"], category: .cloud, symbol: "link", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud tunnel-attach"),
             ActionDescriptor(id: "cloudTunnelDetach", title: String(localized: "action.cloudTunnelDetach", defaultValue: "Detach Cloud Tunnel Network", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "tunnel", "network"], category: .cloud, symbol: "scissors", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud tunnel-detach"),
             ActionDescriptor(id: "cloudTunnelRotateKey", title: String(localized: "action.cloudTunnelRotateKey", defaultValue: "Rotate Cloud Tunnel Key", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "tunnel", "key"], category: .cloud, symbol: "key", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.publicKeyString], cliName: "cloud tunnel-rotate-key"),
-            // The opt-in Cloud Tunnel (plans/cmux-next/cloud-tunnel-DESIGN.md): a system-wide route to
-            // the person's Cloud networks for other apps; cmux itself never needs it.
-            ActionDescriptor(id: "cloudSystemTunnelOn", title: String(localized: "action.cloudSystemTunnelOn", defaultValue: "Turn On Cloud Tunnel", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "tunnel", "vpn", "wireguard", "network", "on"], category: .cloud, symbol: "network.badge.shield.half.filled", surfaces: [.palette], cliName: "cloud tunnel on"),
-            ActionDescriptor(id: "cloudSystemTunnelOff", title: String(localized: "action.cloudSystemTunnelOff", defaultValue: "Turn Off Cloud Tunnel", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "tunnel", "vpn", "wireguard", "network", "off"], category: .cloud, symbol: "network.slash", surfaces: [.palette], cliName: "cloud tunnel off"),
-            ActionDescriptor(id: "cloudSystemTunnelStatus", title: String(localized: "action.cloudSystemTunnelStatus", defaultValue: "Cloud Tunnel Status", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "tunnel", "vpn", "wireguard", "network", "status"], category: .cloud, symbol: "network", surfaces: [.palette], cliName: "cloud tunnel status"),
             ActionDescriptor(id: "cloudNetworkList", title: String(localized: "action.cloudNetworkList", defaultValue: "List Cloud Networks", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "network", "vpc"], category: .cloud, symbol: "network", surfaces: [.palette, .contextMenu], cliName: "cloud network-list"),
             ActionDescriptor(id: "cloudFirewallList", title: String(localized: "action.cloudFirewallList", defaultValue: "List Cloud Firewall Rules", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield", surfaces: [.palette, .contextMenu], cliName: "cloud firewall-list"),
             ActionDescriptor(id: "cloudFirewallGet", title: String(localized: "action.cloudFirewallGet", defaultValue: "Get Cloud Firewall Rule", table: "ActionCatalog", bundle: .module), keywords: ["cloud", "firewall", "network"], category: .cloud, symbol: "shield.checkered", surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.pathString], cliName: "cloud firewall-get"),
@@ -221,15 +216,6 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.cloudRenameMachine", defaultValue: "Rename Machine…", bundle: .module),
                 keywords: ["vm", "cloud tree"], category: .cloud, symbol: "pencil", surfaces: [.contextMenu],
                 arguments: [CatalogArgument.nameString.renamingTarget], targets: [.machine], cliName: "cloud rename-machine"
-            ),
-            // Share Machine…: who besides its creator starts app chats on a team machine (chat grants).
-            ActionDescriptor(
-                id: "cloudShareMachine",
-                title: String(localized: "action.cloudShareMachine", defaultValue: "Share Machine…", bundle: .module),
-                keywords: ["vm", "cloud tree", "share", "teammate", "team", "chat", "grant", "access"], category: .cloud,
-                symbol: "person.2", surfaces: [.contextMenu],
-                arguments: [CatalogArgument.teammateString, CatalogArgument.revokeBool], targets: [.machine],
-                cliName: "cloud share-machine"
             ),
             ActionDescriptor(
                 id: "cloudKillMachine",
@@ -363,7 +349,6 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             "cloudFilesList", "cloudFileRead", "cloudFileWrite", "cloudFileMkdir",
             "cloudFileRemove", "cloudFileStat", "cloudPrepareSCP",
             "cloudTunnelAttach", "cloudTunnelDetach", "cloudTunnelRotateKey", "cloudNetworkList",
-            "cloudSystemTunnelOn", "cloudSystemTunnelOff", "cloudSystemTunnelStatus",
             "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete",
             "cloudDomainList", "cloudPublicationList", "cloudListMachines",
             "cloudProvisionAPI", "cloudAPIKeyList", "cloudAPIKeyRevoke",
@@ -376,7 +361,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             "cloudSetupGitHub", "cloudEnrollMachine",
             // Each answers its machine's id (and the workspace's) once the server is done, so a CLI
             // caller hears a failure instead of OK, and can name the result in the next command.
-            "palette.cloud.fork", "palette.cloud.restore", "newCloudWorkspace", "cloudRenameMachine", "cloudShareMachine", "cloudKillMachine",
+            "palette.cloud.fork", "palette.cloud.restore", "newCloudWorkspace", "cloudRenameMachine", "cloudKillMachine",
             "cloudResizeMachine", "cloudApplyMachineConfig", "cloudDeliverSecrets",
             // The stored policy's mode and whether the server applied it (a PUT can take a while).
             "cloudSetNetworkAccess",

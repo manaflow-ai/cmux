@@ -29,6 +29,10 @@ export interface UpdateHighlightMedia {
 export interface UpdateHighlights {
   /** The staged (popover) or installed (card) display version. */
   version: string;
+  /** How the installed update (the Updated card) arrived: `background`, an automatic install that
+   *  relaunched cmux while it was not in front (nobody clicked Restart to Update), so the card says
+   *  so instead of looking like it came from nowhere (Leo 2026-11-03); absent, a restart he clicked. */
+  delivery?: "background";
   build: string;
   fromVersion: string;
   fromBuild: string;

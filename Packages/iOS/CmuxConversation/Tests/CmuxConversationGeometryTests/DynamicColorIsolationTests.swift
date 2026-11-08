@@ -24,7 +24,9 @@ import Testing
         for file in files {
             let lines = try String(contentsOf: file, encoding: .utf8).components(separatedBy: "\n")
             for (index, line) in lines.enumerated() {
-                let bare = line.contains("UIColor {") && !line.contains("-> UIColor {") && !line.contains("extension UIColor {")
+                // `-> UIColor {`, `: UIColor {` (a computed property) and an extension are not providers.
+                let bare = line.contains("UIColor {") && !line.contains("-> UIColor {") && !line.contains(": UIColor {")
+                    && !line.contains("extension UIColor {")
                 if bare || line.contains("UIColor(dynamicProvider:") && !line.contains("provider)") {
                     offenders.append("\(file.lastPathComponent):\(index + 1)")
                 }

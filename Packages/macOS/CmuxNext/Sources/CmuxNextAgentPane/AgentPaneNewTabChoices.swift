@@ -17,8 +17,17 @@ public nonisolated struct AgentPaneOpenTab: Equatable, Sendable {
     public var run: Bool
     /// The page stays open beside the new tab (the Harnesses page's Sign In and Install…).
     public var keep: Bool
+    /// Browser: the profile the page's Open in Profile… or Open in New Profile row named; nil opens
+    /// in the profile a new tab of the workspace gets.
+    public var profile: AgentPaneOpenTabProfile?
+    /// The page's New terminal and New browser tab buttons: the new tab takes the page's place in its
+    /// pane, never the pane on the right or a new split (`newTab.picksFollowLinks` is for picks).
+    public var inPlace: Bool
 
-    public init(kind: AgentPaneTabKind, text: String, cwd: String? = nil, search: Bool = false, run: Bool = true, keep: Bool = false) {
+    public init(kind: AgentPaneTabKind, text: String, cwd: String? = nil, search: Bool = false, run: Bool = true, keep: Bool = false,
+                profile: AgentPaneOpenTabProfile? = nil, inPlace: Bool = false) {
+        self.profile = profile
+        self.inPlace = inPlace
         self.kind = kind
         self.text = text
         self.cwd = cwd

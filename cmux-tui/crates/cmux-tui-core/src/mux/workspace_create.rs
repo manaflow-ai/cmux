@@ -236,10 +236,8 @@ impl Mux {
                     replayed: true,
                 });
             }
-            let resource_revision = project_resource
-                .then(|| registry.snapshot())
-                .transpose()?
-                .map(|snapshot| snapshot.resource_revision);
+            let resource_revision =
+                project_resource.then(|| registry.resource_revision()).transpose()?;
             if reloads_presentation {
                 self.reload_presentation(&registry)?;
                 notifications.presentation = self.presentation_snapshot();

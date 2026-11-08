@@ -15,10 +15,6 @@ public struct CloudTunnelEnrollment: Sendable, Hashable, Decodable {
         public var osVersion: String
         public var architecture: String
         public var appVersion: String
-        /// `terminal`: the userspace hub's peer. `browser`: the opt-in Cloud Tunnel system
-        /// extension's peer. The server keeps one of each per device, so neither rotates the
-        /// other's key.
-        public var tunnelPurpose = "terminal"
 
         var body: [String: any Sendable] {
             [
@@ -27,7 +23,7 @@ public struct CloudTunnelEnrollment: Sendable, Hashable, Decodable {
                 // and the fingerprint the server keys the peer by.
                 "deviceFingerprint": deviceID,
                 "deviceId": deviceID,
-                "tunnelPurpose": tunnelPurpose,
+                "tunnelPurpose": "terminal",
                 "deviceName": deviceName,
                 "osVersion": osVersion,
                 "architecture": architecture,

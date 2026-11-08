@@ -48,7 +48,7 @@ const host = dom.window.document.getElementById("root")!;
 let root: Root | undefined;
 
 const { createRoot } = await import("react-dom/client");
-const { renderInline } = await import("../src/agent-session/acpmux/conversation/Markdown");
+const { renderInline } = await import("../src/agent-session/acpmux/conversation/inlineMarkdown");
 const { SubsessionContext, SubsessionStore } = await import("../src/agent-session/acpmux/subagents/subsessions");
 const refs = await import("../src/agent-session/acpmux/conversation/sessionRefs");
 const { mockResolvable, SESSION_LINK_REFS } = await import("../src/agent-session/acpmux/mockFixture");

@@ -21,12 +21,15 @@ struct ChromiumNewTabNow {
         var configuration = BrowserTabConfiguration(id: BrowserTabID(rawValue: key), profile: cache.browserProfile?(key) ?? .default, initialURL: url)
         guard requests.proxiedTabs.plan(for: key, url: url, base: configuration) == .notProxied else { return nil }
         if let remote = requests.services?.remoteLocalhost {
-            guard case .profile(let navigationGuard) = RemoteLocalhostStorePlan.plan(route: remote.route(for: tab, engine: .cef), url: url) else { return nil }
+            guard case .profile(let navigationGuard) = remote.storePlan(for: tab, url: url) else { return nil }
             configuration.navigationGuard = navigationGuard
         }
         // Last: a reopened tab's closed history is claimed only by the page made here; every
-        // bail-out above leaves it for the asynchronous path's page.
-        configuration = requests.closedHistories.restoring(configuration, url: url, local: cache.browserTabs.daemon(for: tab).isLocal, tab: key)
+        // bail-out above leaves it for the asynchronous path's page. A person's new tab (a stand-in)
+        // is never a reopen: it opens blank, with no closed tab's history (#37384).
+        if !ProvisionalTab.isProvisional(surface: tab.surface) {
+            configuration = requests.closedHistories.restoring(configuration, url: url, local: cache.browserTabs.daemon(for: tab).isLocal, tab: key)
+        }
         return cache.chromiumNow.make(configuration)
     }
 }
