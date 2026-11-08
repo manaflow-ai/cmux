@@ -8988,7 +8988,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Triage (needsYou/triage.ts): what Ctrl-Cmd-Y does to this chat's ask, said on the strip above it.
   const triage = triageMove(
     snapshot.permission?.pending ? snapshot.permission : undefined,
-    needsYou.items,
+    needsYou.waiting,
     snapshot.sessionId,
     snapshot.permissionGroups,
   );
@@ -10167,8 +10167,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       {triage && (
         <TriageStrip
           move={triage}
-          others={othersWaiting(needsYou.items, snapshot.sessionId)}
-          at={askedAt(snapshot.permission, needsYou.items)}
+          others={othersWaiting(needsYou.waiting, snapshot.sessionId)}
+          at={askedAt(snapshot.permission, needsYou.waiting)}
         />
       )}
       {hasPermissionGroups && snapshot.permissionGroups && (

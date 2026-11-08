@@ -2,6 +2,7 @@
 // the chat), a question takes its first one-click choice, a typed question is only skipped, and
 // the strip counts each other waiting chat once.
 import { describe, expect, test } from "bun:test";
+import type { AcpmuxPermission } from "../model";
 import type { NeedsYouItem } from "./model";
 import { askedAt, othersWaiting, triageMove } from "./triage";
 
@@ -15,15 +16,37 @@ const item = (id: string, sessionId: string, extra: Partial<NeedsYouItem> = {}):
   ...extra,
 });
 
-const question = { id: "q", items: [] } as unknown as NonNullable<Parameters<typeof triageMove>[0]>["question"];
+const once: AcpmuxPermission["options"] = [{ id: "a", name: "Allow", kind: "allow_once", allow: true }];
+
+const question = { id: "q", items: [] } as unknown as NonNullable<
+  Parameters<typeof triageMove>[0]
+>["question"];
 
 describe("triageMove", () => {
   test("nothing waiting: no move", () => {
     expect(triageMove(undefined, [])).toBeUndefined();
   });
   test("a tool permission is allowed once, a plan approved", () => {
-    expect(triageMove({ permissionId: "p" }, [])).toEqual({ kind: "allow", plan: false });
-    expect(triageMove({ permissionId: "p", plan: "1. Do it" }, [])).toEqual({ kind: "allow", plan: true });
+    expect(triageMove({ permissionId: "p", options: once }, [])).toEqual({
+      kind: "allow",
+      plan: false,
+    });
+    expect(triageMove({ permissionId: "p", plan: "1. Do it", options: once }, [])).toEqual({
+      kind: "allow",
+      plan: true,
+    });
+  });
+  test("an ask that offers no Allow once is only skipped", () => {
+    expect(triageMove({ permissionId: "p", options: [] }, [])).toEqual({ kind: "skip" });
+    expect(
+      triageMove(
+        {
+          permissionId: "p",
+          options: [{ id: "r", name: "Reject", kind: "reject_once", allow: false }],
+        },
+        [],
+      ),
+    ).toEqual({ kind: "skip" });
   });
   test("a question takes its first one-click choice", () => {
     const asked = item("acpmux:p", "s", {
@@ -40,7 +63,9 @@ describe("triageMove", () => {
     });
   });
   test("a question with no one-click answer is only skipped", () => {
-    expect(triageMove({ permissionId: "p", question }, [item("acpmux:p", "s", { kind: "decision" })])).toEqual({
+    expect(
+      triageMove({ permissionId: "p", question }, [item("acpmux:p", "s", { kind: "decision" })]),
+    ).toEqual({
       kind: "skip",
     });
     expect(triageMove({ permissionId: "p", question }, [])).toEqual({ kind: "skip" });
@@ -67,19 +92,29 @@ describe("triageMove follow-ups (#38526 review)", () => {
     expect(move?.kind).toBe("choice");
     if (move?.kind !== "choice") return;
     expect(move.answer).toEqual({ id: "a", label: "Staging", tone: "choice" });
-    expect(move.item).toMatchObject({ sessionId: "s", permissionId: "p", question: choiceQuestion });
+    expect(move.item).toMatchObject({
+      sessionId: "s",
+      permissionId: "p",
+      question: choiceQuestion,
+    });
   });
   test("F1: a pending permission group is allowed once through its panel", () => {
     const group = (state: string, decisions: string[]) => ({ state, decisions }) as never;
     expect(
-      triageMove(undefined, [], "s", { supported: true, groups: [group("pending", ["allow_once", "deny"])] }),
+      triageMove(undefined, [], "s", {
+        supported: true,
+        groups: [group("pending", ["allow_once", "deny"])],
+      }),
     ).toEqual({
       kind: "allow",
       plan: false,
     });
     // Nothing a key may allow: a group still collecting, one acpmux refuses allows for, or none.
     expect(
-      triageMove(undefined, [], "s", { supported: true, groups: [group("collecting", ["allow_once"])] }),
+      triageMove(undefined, [], "s", {
+        supported: true,
+        groups: [group("collecting", ["allow_once"])],
+      }),
     ).toBeUndefined();
     expect(
       triageMove(undefined, [], "s", {
