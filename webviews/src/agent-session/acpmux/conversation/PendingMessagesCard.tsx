@@ -15,7 +15,8 @@ import { FindReveal } from "./chatFind";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import { bySender } from "./pendingMessages";
 import { SenderName } from "./IncomingMessageCard";
-import { groupSender, MessageGroupHead } from "./MessageGroupHead";
+import { MessageGroupHead } from "./MessageGroupHead";
+import { groupSender } from "./messageGroupHeadModel";
 import "./PendingMessagesCard.css";
 
 export function PendingMessagesCard({

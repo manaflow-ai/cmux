@@ -49,6 +49,7 @@ import {
   UNKNOWN_AUTH,
 } from "./sessionAuth";
 import { hasNativeHost, postNative } from "./native";
+import { reportToastAvoidance, resendToastAvoidance } from "./toastAvoidance";
 import { OpenAppCard, afterLatestFooter } from "./OpenAppCard";
 import { setCloudPreviewContext, useCloudPreviewPorts } from "./cloudPreviewPorts";
 import { CloudEnvironmentEditor } from "./CloudEnvironmentEditor";
@@ -520,7 +521,7 @@ import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
 import { isCurrentMenuCommand, parseMenuCommand } from "./header/menuCommands";
 import { errorRecovery, lastFailedTurn } from "./conversation/errorRecovery";
-import { NewestSteerContext, takeBackSteer, takesSteersBack } from "./conversation/PendingSteer";
+import { NewestSteerContext, takeBackSteer, takesSteersBack } from "./conversation/pendingSteerModel";
 import { type WorkingCounts, WorkingCountsContext } from "./conversation/WorkingFor";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { useTranscriptView, type TranscriptView } from "./conversation/transcriptView";
@@ -608,7 +609,7 @@ import { chiefDock } from "./chiefDock.experiment";
 import { contextAttachment, floatingStatus, type QuickFloating } from "./FloatingChat";
 import { designSelectionChips, designSelectionRemovals } from "./designSelection";
 import { setFloatingState, useFloatingState } from "./floatingState";
-import { FailedSendsContext, type FailedSends } from "./conversation/PromptDelivery";
+import { FailedSendsContext, type FailedSends } from "./conversation/promptDeliveryModel";
 import { failedRuns, failedSendText, type FailedRun } from "./sendFailure";
 import { clientWaiter, lostPrompt, resentAfterLoss } from "./lostPrompt";
 import { ReplayScreen } from "./replay/ReplayScreen";
@@ -2992,6 +2993,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [shell, setShell] = useState<HTMLElement | null>(null);
   /// The chat's bottom stack (bottomStack.css): the transcript runs under it and keeps its end above it.
   const [dock, setDock] = useState<HTMLElement | null>(null);
+  // The app's toasts lift above this stack; they never move it (toastAvoidance.ts).
+  useEffect(() => (dock ? reportToastAvoidance(dock) : undefined), [dock]);
   // A chat whose agent started others has something to show too: their rows under Subagents.
   const summaryCard = useSummaryCard(
     // The side panel and Background tasks take the right column: the Summary stays a popover then.
@@ -6614,6 +6617,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       rowCount: () => rowsRef.current.length,
       rowIds: () => rowsRef.current.map((row) => row.id),
       sessionId: () => directClient.current?.selectedSession,
+      toast: (text) => notices.transient(text),
       automation: {
         snapshot: () => automationView.current!.snapshot,
         // The chat's own actions only, once it connects: never the native host (automation.ts pageAction).
@@ -6738,7 +6742,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           sandboxState?: unknown;
           /// The tab this page is (AgentPaneHandshake `tab`); an older app sends none.
           tab?: unknown;
-        }>("ready", reconnect ? { reconnect } : {});
+        }>("ready", reconnect ? { reconnect } : {})
+          // The host cleared its toast box for this handshake: it hears the mounted composer's again.
+          .finally(resendToastAvoidance);
         if (cancelled) return;
         // Before anything draws the chat: its Session Info is this tab's, not another tab's of the chat.
         if (typeof host.tab === "string" && host.tab) setSessionInfoTab(host.tab);
@@ -9615,6 +9621,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                               !childRows && opened.cold ? opened.open : undefined
                                                             }
                                                             onColdOpenShown={coldOpenShown}
+                                                            // Still reading the chat: what lands after a blank or partly blank
+                                                            // first paint fades in rather than popping (shared/loadFade.ts).
+                                                            loading={
+                                                              !childRows &&
+                                                              snapshot.sessionId !== undefined &&
+                                                              snapshot.chatRead !== true
+                                                            }
                                                             afterLatest={
                                                               childRows
                                                                 ? undefined

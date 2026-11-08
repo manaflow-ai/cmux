@@ -29,3 +29,15 @@ public nonisolated struct InstalledImportBrowsers: Sendable {
         }
     }
 }
+
+/// A browser on this Mac that cmux can import from, with its app icon
+/// (``InstalledImportBrowsers`` finds them).
+public struct InstalledImportBrowser {
+    public let browser: ImportBrowser
+    public let icon: NSImage
+
+    public init(browser: ImportBrowser, icon: NSImage) {
+        self.browser = browser
+        self.icon = icon
+    }
+}

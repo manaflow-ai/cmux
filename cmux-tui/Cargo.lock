@@ -1599,6 +1599,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-palette-eval"
+version = "0.1.0"
+dependencies = [
+ "cmux-palette-ranker",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-palette-ranker"
 version = "0.1.0"
 dependencies = [

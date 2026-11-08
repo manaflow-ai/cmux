@@ -234,6 +234,9 @@ struct IntentLog {
 
     func replacement(ofStandIn id: String) -> SurfaceID? { replacedStandIns.last { $0.standIn == id }?.surface }
 
+    /// Whether daemon surface `surface` took a recently created stand-in's place.
+    func replacedAStandIn(_ surface: SurfaceID) -> Bool { replacedStandIns.contains { $0.surface == surface } }
+
     /// False when `transaction` is not pending.
     mutating func markCloseWhenCreated(_ transaction: ClientTransactionID) -> Bool {
         guard entries.modifyFirst(where: { $0.transaction == transaction }, { $0.closeWhenCreated = true }) else { return false }
@@ -279,8 +282,9 @@ struct IntentLog {
             if confirmed { $0.createdConfirmed = true }
         }
         guard confirmed else { return }
-        if case .createTab(_, let provisional)? = entries.first(where: { $0.transaction == transaction })?.kind,
-           let standIn = provisional.tabResourceID?.rawValue {
+        // A closed stand-in became nothing the person sees: its daemon tab is hidden and closed (``CancelledCreation``).
+        if let entry = entries.first(where: { $0.transaction == transaction }), !entry.closeWhenCreated, !entry.standInClosed,
+           let standIn = entry.kind.standInTab?.tabResourceID?.rawValue {
             replacedStandIns.removeAll { $0.standIn == standIn }
             replacedStandIns.append((standIn, surface))
             if replacedStandIns.count > Self.replacedStandInLimit { replacedStandIns.removeFirst(replacedStandIns.count - Self.replacedStandInLimit) }
