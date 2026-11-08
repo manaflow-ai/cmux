@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42487055840",
+  "recorded_at": "2026-11-08T14:00:45Z",
+  "reason": "cmux-tui 375ff57816fc changes the image's cmux-tui (pinned 187814acdf20)",
+  "dry_run": false,
+  "cmux_tui": "375ff57816fc30bc70b545298c62edb363e36572",
+  "fixes": [
+    {
+      "sha": "375ff57816fc30bc70b545298c62edb363e36572",
+      "mergedAt": "2026-11-08T05:37:12-08:00",
+      "subject": "cmux-host, cmux-remote: the relay Register reads a ticket kept ahead and registers at once after a resume (#38329)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T14:00:45Z",
+    "snapshot_id": "sh-459a2714fd534d429c1d900c25c64696",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42487055840): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "887d74bceec22329beb27199ff1ca36589a5dd69",
+    "image": "cloud-native-auto-375ff578-42487055840-1",
+    "revision": "ci-42487055840-1",
+    "at": "2026-11-08T14:00:45Z"
+  },
+  "rolled_back": false
+}
