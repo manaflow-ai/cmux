@@ -37,7 +37,7 @@ import { inputFields, opensToFields } from "./toolInputFields";
 import { WriteLabel } from "./WriteLabel";
 import { writeCall } from "./writeLabelModel";
 import { WebSources } from "./WebSources";
-import { webSources, withoutLinks } from "./webSourceList";
+import { fetchedPage, webSources, withoutLinks } from "./webSourceList";
 import { ToolLabel } from "./ToolVerb";
 import { callOutput, rowFailed, toolFailure } from "./toolFailure";
 import { RepoRecoveryCard } from "./RepoRecoveryCard";
@@ -122,6 +122,8 @@ export const ToolRow = memo(function ToolRow({
   // A hook's block shows the hook's words, without the harness's "PreToolUse:… hook error:" envelope.
   // A web search's links show in its sources chip (WebSources.tsx), not again in its body.
   const sources = useMemo(() => webSources(tool), [tool]);
+  // A fetch read one page: its card names that page instead of a sources list.
+  const fetched = useMemo(() => fetchedPage(tool), [tool]);
   const output = callOutput(tool, failure);
   const source = output && withoutLinks(tool, output);
   const result = useMemo(() => {
@@ -230,7 +232,7 @@ export const ToolRow = memo(function ToolRow({
         )}
       </ToolVisualRow>
       <WrittenArtifactButtons tools={[tool]} />
-      <WebSources sources={sources} />
+      <WebSources sources={sources} fetched={fetched} />
       {recovery && <RepoRecoveryCard recovery={recovery} />}
       <ToolFailureCause failure={failure} />
       {images.length > 0 && <ToolImages sources={images} />}

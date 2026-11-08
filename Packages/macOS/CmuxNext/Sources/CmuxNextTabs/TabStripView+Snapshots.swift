@@ -6,6 +6,7 @@ extension TabStripView {
     struct TokenSnapshot: Equatable, Sendable {
         var metrics: TabStripMetrics
         var titleFont: CGFloat
+        var trailingButtons: TabTrailingButtons
     }
 
     /// Model fields whose change triggers a sync. Equal arrays that share

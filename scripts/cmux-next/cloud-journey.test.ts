@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { claudeLoginPrograms, loginBearer, loginPrograms, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
-import { carrierDial, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, guestTimeline, hopSpans, hopTimes, machineIds, newMachineIds, opRetryable } from "./cloud-journey";
 
 describe("cloud journey", () => {
   test("--sign-in oidc trades the job's OIDC token for the API's session and keeps both out of the output", async () => {
@@ -200,7 +200,7 @@ echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=relay ms=30
 echo 'cloud.connect route=carrier machine=vm_x phase=connect outcome=ok ms=640' >&2
 read -r line; echo '{"id":1,"ok":true,"data":{"app":"cmux-tui"}}'; cat >/dev/null`);
     const d = await carrierDial(bin, api, "vm_abcdefghij0123456789", 2_000);
-    expect({ connectMs: d.connectMs, retries: d.retries }).toEqual({ connectMs: 640, retries: 1 });
+    expect({ connectMs: d.connectMs, retries: d.retries, failed: d.failed }).toEqual({ connectMs: 640, retries: 1, failed: ["relay 3001 ms"] });
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -274,5 +274,51 @@ describe("opRetryable", () => {
     expect(opRetryable({ ok: false, error: { code: "cloud.provider.unavailable", retryable: true } })).toBe(false);
     expect(opRetryable({ ok: true, value: {} })).toBe(false);
     expect(opRetryable("vm_unavailable")).toBe(false);
+  });
+});
+
+describe("guest carrier timeline", () => {
+  test("each guest time is ms after create's answer, corrected by the guest's clock offset", () => {
+    // The guest's clock runs 1000 ms ahead: guest_now 21_500 against the exec's midpoint 20_500.
+    const out = ["guest_now 21500", "bind.json 11000", "carrier.json 12500", "session_host_start 27000",
+      "journal 26900 cmux-host[7]: cmux-host: session host 40 exited after 900 ms", "noise line"].join("\n");
+    expect(guestTimeline(out, 10_000, 20_000, 21_000)).toBe(
+      'after create\'s answer (guest clock +1000 ms, ±500 ms): bind.json +0 ms; carrier.json +1500 ms; session_host_start +16000 ms; '
+      + 'journal "cmux-host[7]: cmux-host: session host 40 exited after 900 ms" +15900 ms');
+  });
+
+  test("says so when the guest showed nothing", () => {
+    expect(guestTimeline("", 10_000, 20_000, 20_100)).toBe("after create's answer (guest clock +0 ms, ±50 ms): nothing read");
+  });
+});
+
+describe("cloud journey: carrier ticket without a cmux binary", () => {
+  const key = Buffer.alloc(32, 7).toString("base64url");
+  const whole = { relay: "relay+do://cmux-remote-relay-production.debussy.workers.dev", slot: "s_1-x", ticket: "t.t", grant: "g.g.g", daemon_key: key, expires_at: 2_000 };
+  const answer = (patch: Record<string, unknown>) => ({ ok: true, value: { ...whole, ...patch } });
+  test("an answer the dial takes passes", () => {
+    expect(carrierTicketProblem(200, answer({}), 1_000)).toBeNull();
+  });
+  test("a refusal names its status", () => {
+    expect(carrierTicketProblem(503, { ok: false, error: { code: "owner.unreachable" } }, 1_000)).toContain("HTTP 503");
+  });
+  test("the dial's relay rule: a bare relay+do:// with a host", () => {
+    for (const relay of ["relay+do://", "wss://x", "relay+do://h/path", "relay+do://h?q=1", "relay+do://u@h", undefined])
+      expect(carrierTicketProblem(200, answer({ relay }), 1_000)).toMatch(/relay/);
+    expect(carrierTicketProblem(200, answer({ relay: "relay+do://h/" }), 1_000)).toBeNull();
+  });
+  test("the dial's slot, ticket and grant rules", () => {
+    for (const slot of ["", " ", "a b", "x".repeat(129), 3]) expect(carrierTicketProblem(200, answer({ slot }), 1_000)).toContain("slot");
+    for (const ticket of ["", "a b", undefined]) expect(carrierTicketProblem(200, answer({ ticket }), 1_000)).toContain("ticket");
+    for (const grant of ["", " ", undefined]) expect(carrierTicketProblem(200, answer({ grant }), 1_000)).toContain("grant");
+    expect(carrierTicketProblem(200, answer({}), 3_000)).toContain("not live");
+  });
+  test("the daemon key the dial pins is canonical 32-byte base64url", () => {
+    expect(canonicalKey(key)).toBe(true);
+    const lastChar = key.at(-1)!;
+    const noncanonical = key.slice(0, -1) + (lastChar === "c" ? "d" : "c"); // same 32 bytes, other trailing bits
+    expect(Buffer.from(noncanonical, "base64url").length).toBe(32);
+    for (const daemon_key of [undefined, "k", `${key}=`, noncanonical, key.replace(/.$/, "+")])
+      expect(carrierTicketProblem(200, answer({ daemon_key }), 1_000)).toContain("daemon_key");
   });
 });
