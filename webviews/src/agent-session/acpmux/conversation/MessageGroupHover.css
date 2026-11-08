@@ -1,0 +1,65 @@
+/* A folded group's hover (MessageGroupHover.tsx): the messages, newest first, each its sender's mark
+   and short name, then the first line or two of what it said, in the hover card's glass. */
+.ui-card.cv-group-hover__popup {
+  max-width: min(360px, calc(100vw - 24px));
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border-radius: var(--ds-radius-popup);
+}
+.cv-group-hover {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+.cv-group-hover[data-look="lines"],
+.cv-group-hover[data-look="names"] {
+  gap: var(--ds-space-1);
+}
+.cv-group-hover__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-half-step);
+  min-width: 0;
+}
+.cv-group-hover__who {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  white-space: nowrap;
+}
+.cv-group-hover__mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+}
+.cv-group-hover__mark span:not(.cv-chief-text-avatar) {
+  display: inline-flex;
+  align-items: center;
+}
+.cv-group-hover__name {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: var(--weight-emphasis);
+}
+.cv-group-hover__line {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--cmux-text-secondary, var(--cv-text-muted));
+}
+/* Two lines of the message, cut with an ellipsis. */
+.cv-group-hover__text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  color: var(--cmux-text-secondary, var(--cv-text-muted));
+}
+.cv-group-hover__more {
+  color: var(--cmux-text-secondary, var(--cv-text-muted));
+}

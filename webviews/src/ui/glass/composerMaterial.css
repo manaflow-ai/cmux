@@ -18,8 +18,10 @@
   );
   /* The card's glass on an opaque window: the popover level's share of the surface. */
   --composer-material-tint: color-mix(in srgb, var(--composer-material-solid) var(--ds-glass-popover-tint, 70%), transparent);
-  /* The edge (--acpmux-composer-edge): the text at 18%, one device pixel, all four sides. */
-  --composer-material-edge: color-mix(in srgb, var(--cmux-text, CanvasText) 18%, transparent);
+  /* The edge (--acpmux-composer-edge): the text at 18% over the page under it, one device pixel,
+     all four sides. Mixed toward the page (opaque on an opaque window, clear on a see-through one),
+     never toward transparent, so on an opaque theme it is the composer's line, not a fainter one. */
+  --composer-material-edge: color-mix(in srgb, var(--cmux-text, CanvasText) 18%, var(--agent-page-bg, var(--cmux-surface-background, transparent)));
   --composer-material-ring: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--composer-material-edge);
   /* The top-lit rim inside the edge (--acpmux-composer-rim). */
   --composer-material-rim:
@@ -31,6 +33,8 @@
       color-mix(in srgb, var(--cmux-tone-light, #fff) calc(35% * var(--glass-rim, 1)), transparent),
       color-mix(in srgb, var(--cmux-tone-light, #fff) calc(8% * var(--glass-rim, 1)), transparent)
     );
+  /* The composer's shadow: none here; the glass material's depth where the composer wears it (below). */
+  --composer-material-depth: 0 0 transparent;
   /* The one-line composer's box and corner (grid.md 5.1). */
   --composer-material-height: var(--grid-composer-box, 48px);
   --composer-material-radius: var(--grid-composer-radius, 12px);
@@ -41,4 +45,20 @@
 }
 :where(:root[data-borders="none"], :root[data-borders="none"] [data-composer-material]) {
   --composer-material-edge: transparent;
+}
+/* Where the composer wears the shared glass material (glass.css "GLASS MATERIAL", composerStates.css),
+   its rim and depth stand in for the top-lit rim above, and the card beside it takes them too (review
+   F1 of #37743): not under Reduce Transparency, and not over a see-through window under Lens or
+   Spectrum, which keep the lens's own rim. */
+@media not (prefers-reduced-transparency: reduce) {
+  :where(:root:not([data-reduce-transparency]), :root:not([data-reduce-transparency]) [data-composer-material]) {
+    --composer-material-depth: var(--glass-material-depth);
+  }
+  :where(
+      :root:not([data-reduce-transparency]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"])),
+      :root:not([data-reduce-transparency]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]))
+        [data-composer-material]
+    ) {
+    --composer-material-rim: var(--glass-material-rim);
+  }
 }

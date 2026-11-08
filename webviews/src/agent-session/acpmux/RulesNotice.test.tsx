@@ -7,7 +7,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
 import { Notice, NoticeSlot } from "./NoticeSlot";
-import { forumRules, RulesNotice } from "./RulesNotice";
+import { RulesNotice } from "./RulesNotice";
+import { forumRules } from "./rulesNoticeModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

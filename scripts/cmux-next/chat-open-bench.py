@@ -26,6 +26,11 @@ to the first frame the pane shows the chat's content, with every surface the pan
   click      a mouse click on the sidebar row of a chat never shown in this app's life (its workspace made in
              the background, so the click makes its pane): judged from pixels, not the page's mark
   click_again  a click back onto the row of a chat shown before and left (its page kept)
+  click_hover  a click on the row of a chat never shown, after the pointer rested on that row for --hover-ms
+             (`debug.pointer_hover`, the sidebar's hover path), as a person's pointer does before a click
+Each click case also samples the app's footprint (every process of the bundle) before its first round and
+after its last: every round leaves its chat's page kept, so the difference over the rounds is the memory one
+kept chat costs (`memory` in the JSON, and the table's last lines).
 
 The click cases read the window as the window server composited it, frame after frame, from the click
 (`debug.new_tab frame_strip` with gesture `mouse`, `above` so the Chromium page is in it: read through
@@ -111,6 +116,11 @@ parser.add_argument("--bloat", default="20 400 5", help="calls, updates per call
 parser.add_argument("--sessions", type=int, default=1500)
 parser.add_argument("--conditions", default="idle,load,load_utility,load_nice")
 parser.add_argument("--cases", default="click,click_again,sidebar,reopen,subagent,big,bloated,restore")
+parser.add_argument("--hover-ms", type=float, default=300,
+                    help="click_hover: how long the pointer rests on the row before the click")
+parser.add_argument("--trace-clicks", action="store_true",
+                    help="click cases: also arm the app's chat-open trace before each click (`trace` in the record: its marks, "
+                         "from the arm, about 120 ms before the click, and the surfaces the pane showed)")
 parser.add_argument("--strip-ms", type=float, default=2500, help="click cases: how long the frame strip records after the click")
 parser.add_argument("--strip-tolerance", type=float, default=0.001,
                     help="click cases: the share of the content area's pixels that may differ for two frames to count as one "
@@ -145,7 +155,7 @@ if opts.capture_check:
 APP = os.path.realpath(opts.app.rstrip("/"))
 CONDITIONS = [c.strip() for c in opts.conditions.split(",") if c.strip()]
 CASES = [c.strip() for c in opts.cases.split(",") if c.strip()]
-CLICK_CASES = ("click", "click_again")
+CLICK_CASES = ("click", "click_again", "click_hover")
 # The click cases go first in a condition: each makes a sidebar row, and a row below the sidebar's fold can't be clicked.
 CASES = [c for c in CASES if c in CLICK_CASES] + [c for c in CASES if c not in CLICK_CASES]
 SUBAGENTS = opts.subagents or opts.runs + 1
@@ -379,6 +389,7 @@ def seed(root):
             if "relaunched" in CASES else [],
             "click": [copy_chat(home, small, f"Click {condition} {i}") for i in range(opts.runs)],
             "click_again": [copy_chat(home, small, f"Click again {condition} {i}") for i in range(opts.runs)],
+            "click_hover": [copy_chat(home, small, f"Click hover {condition} {i}") for i in range(opts.runs)],
             "subagent": [copy_chat(home, sub, f"Subagents {condition} {i}") for i in range(opts.runs)],
             "big": [copy_chat(home, big, f"Big {condition} {i}") for i in range(opts.runs)] if big else [],
             "bloated": [copy_chat(home, bloated, f"Bloated {condition} {i}") for i in range(opts.runs)] if bloated else [],
@@ -831,7 +842,8 @@ def frame_click(run, key, label, keep=False):
 
 def measure_click(run, case, session, base, label, index=0):
     """One click case: the chat's workspace made in the background (`click`), or shown once and left
-    (`click_again`), then a click on its row from the workspace `base`, which shows no chat."""
+    (`click_again`), or made in the background and its row hovered for --hover-ms (`click_hover`), then a click on
+    its row from the workspace `base`, which shows no chat."""
     key, row, error = background_row(run, session)
     if error:
         return {"error": error, "row": row}
@@ -852,8 +864,23 @@ def measure_click(run, case, session, base, label, index=0):
         # nothing to change; cmux#33845).
         if next((r.get("selected") for r in sidebar_rows(run) if workspace_id(r) == key), False):
             return {"error": "the chat's workspace was shown before the click: the click would measure nothing", "row": row}
+        if case == "click_hover":
+            # The pointer comes onto the row and rests there, as before a person's click (`debug.pointer_hover`: real
+            # tracking-area events, so the sidebar's own hover path runs). The strip starts recording about 120 ms
+            # before its click (DebugFrameStrip's lead), so the rest before the click is --hover-ms.
+            hovered = run.rpc("debug.pointer_hover", {"row": key}) or {}
+            if not str(hovered.get("row_hovered") or "").endswith(key):
+                return {"error": f"the hover did not land on the row: {json.dumps(hovered)[:300]}", "row": row}
+            time.sleep(max(0.0, opts.hover_ms / 1000 - 0.12))  # test script: the pointer rests on the row
+    armed = run.rpc("debug.chat_open_trace", {"action": "arm"}) if opts.trace_clicks else None
     record = frame_click(run, key, label, keep=index < opts.keep_frames)
     record["workspace"] = key
+    if armed is not None:
+        trace = run.rpc("debug.chat_open_trace", {"action": "wait", "timeout_ms": 5000, "settle_ms": 100,
+                                                  "page_timing": True}, timeout=30) or {}
+        record["trace"] = {k: trace.get(k) for k in ("marks_ms", "order", "frames", "first_content_ms",
+                                                      "longest_empty_ms", "timed_out", "page_timing")}
+        record["trace"]["armed"] = armed if armed.get("error") else None
     # Back to the workspace with no chat, so the next click starts from the same picture.
     run.app.action("goToWorkspace", focus=True, workspace=base)
     time.sleep(0.5)  # test script: the switch back settles
@@ -925,6 +952,9 @@ def main():
                 if case in ("big", "bloated") and not sessions[condition][case]:
                     continue
                 records = []
+                # Each click round leaves its chat's page kept (hidden, mounted): the app's footprint before
+                # and after the case, over the rounds, is the memory one kept chat costs.
+                memory_before = bm.sample(run.pid, APP, f"{condition}-{case}-before", 0) if case in CLICK_CASES and run.pid else None
                 for index in range(opts.runs):
                     if case in CLICK_CASES:
                         record = measure_click(run, case, sessions[condition][case][index], base, f"{condition}-{case}-{index}", index) \
@@ -941,6 +971,18 @@ def main():
                     records.append(record)
                     say(f"chat-open: {condition} {case} {index}: first_content_ms={record.get('first_content_ms')} "
                         f"empty={record.get('longest_empty_ms')} flashes={record.get('flashes')}{why(record)}")
+                if memory_before:
+                    time.sleep(2)  # test script: the last round's page and the spare's refill settle
+                    after = bm.sample(run.pid, APP, f"{condition}-{case}-after", 0)
+                    kept = sum(1 for r in records if not r.get("error"))
+                    kinds = {k: round(v["footprint_mb"] - memory_before["kinds"].get(k, {}).get("footprint_mb", 0.0), 1)
+                             for k, v in after["kinds"].items()}
+                    results.setdefault("memory", {}).setdefault(condition, {})[case] = {
+                        "before_footprint_mb": memory_before["total_footprint_mb"],
+                        "after_footprint_mb": after["total_footprint_mb"], "kept_pages": kept,
+                        "per_kept_page_mb": round((after["total_footprint_mb"] - memory_before["total_footprint_mb"]) / kept, 1) if kept else None,
+                        "delta_by_kind_mb": kinds}
+                    say(f"chat-open: {condition} {case} memory: {json.dumps(results['memory'][condition][case])}")
                 results["raw"].setdefault(condition, {})[case] = records
                 results["cases"].setdefault(condition, {})[case] = (cof.summarize if case in CLICK_CASES else summarize)(records)
             if "relaunched" in CASES:
@@ -1034,6 +1076,9 @@ def markdown(results):
             cells.append(cof.cell(s) if case in CLICK_CASES else cell(s, case))
         lines.append(f"| {case} | " + " | ".join(cells) + " |")
     lines += ["", "load average per condition: " + ", ".join(f"{c} {v}" for c, v in results.get("load_avg", {}).items())]
+    for condition, cases in results.get("memory", {}).items():
+        lines.append(f"memory per kept chat page ({condition}): " + ", ".join(
+            f"{case} {m['per_kept_page_mb']} MB over {m['kept_pages']} pages" for case, m in cases.items()))
     return "\n".join(lines)
 
 

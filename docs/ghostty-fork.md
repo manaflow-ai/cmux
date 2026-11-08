@@ -12,6 +12,20 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### An update draws at once while a host size's frame waits for the embedder's present (ghostty-next)
+
+- Fork PR #86 (`fix/renderer-draws-now-for-a-waiting-host-frame`, head `538a3e2ef`, on `1740c4452`); the pin is the fix
+  release branch `release/cmux-1740c445-resize-p0-10` at `538a3e2ef` until #86 merges to fork `main`.
+- What: `src/renderer/Thread.zig` `drawsNow` gets `host_frame_waits` (`Metal.hostFrameWaits`: the embedder presents host
+  sizes, a host size is set and its frame was not taken yet, `fresh.armed`). While it holds, every frame update draws at
+  once instead of at the next display-link tick. A frame the renderer shows itself, off main, at the host size ends
+  the wait (`fresh.shown_generation`), so at rest and in the renderer's own present mode output stays paced.
+- Why: cmux RESIZE P0 10 (T render hop). In a key-resize spring the next refresh's size goes to Ghostty after each commit
+  and draws at once; the program's redraw for the grid just sent was parsed ~3 ms later but waited for the next tick
+  (the resize frame counted as drawn since the tick), raced cmux's present, and the next host size dropped it: the
+  program's grid showed 2-4 refreshes behind its pane.
+- Conflict notes: keep the `host_frame_waits` term in `drawsNow` when upstream changes the vsync pacing rule.
+
 ### A resize's prompt clear waits for the shell (ghostty-next, opt-in)
 
 - Fork PR #85 (head `e6d6eec09`, on `850bb9849`), merged to fork `main` as `1740c4452`.

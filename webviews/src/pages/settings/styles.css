@@ -2050,12 +2050,19 @@ button.menu-disclosure {
 .menu-row-actions {
   display: inline-flex;
   opacity: 0;
+  transition: var(--cmux-hover-reveal-out-transition);
 }
 
 .menu-row:hover .menu-row-actions,
 .menu-row:focus-within .menu-row-actions,
 .menu-row:has([data-popup-open]) .menu-row-actions {
   opacity: 1;
+  transition: var(--cmux-hover-reveal-in-transition);
+}
+
+/* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
+.menu-row:has(:focus-visible) .menu-row-actions {
+  transition: none;
 }
 
 .menu-separator .menu-separator-line {

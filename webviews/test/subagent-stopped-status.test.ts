@@ -2,7 +2,7 @@
 // in the agents pill and the summary card's list, while its transcript row said "Cancelled" or
 // "Disconnected". Those lists now call it stopped: its own state's label, without the failure color.
 import { expect, test } from "bun:test";
-import { subagentStatus, subagentStatusLabel } from "../src/agent-session/acpmux/summary/SubagentStatusList";
+import { subagentStatus, subagentStatusLabel } from "../src/agent-session/acpmux/summary/subagentStatusListModel";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 
 const agent = (state: string): Subagent => ({ id: state, parent: null, name: state, state, startedAt: 0, endedAt: 1 });

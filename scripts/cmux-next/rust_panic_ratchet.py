@@ -206,8 +206,18 @@ def _allow_scan(root, crates_dir):
     return bad
 
 
-def _changed_first(root, locations):
-    """Hit locations in files changed against origin/feat-cmux-next first (where a new hit is)."""
+def _changed_first(root, locations, base_locations=None):
+    """Hit locations in the files whose hit count the base run does not reach first (where a new
+    hit is), then files changed against origin/feat-cmux-next. A CI merge checkout often has no
+    origin/feat-cmux-next, so without a base run the list fell back to path order and named only
+    old hits (#37778's one new cmux-tui-core indexing_slicing hit hid behind 20 of them)."""
+    def per_file(locs):
+        return collections.Counter(loc.split(":", 1)[0] for loc in locs)
+
+    grown = set()
+    if base_locations is not None:
+        on_base = per_file(base_locations)
+        grown = {name for name, count in per_file(locations).items() if count > on_base[name]}
     try:
         import subprocess
         out = subprocess.run(["git", "-C", root, "diff", "--name-only", "origin/feat-cmux-next...HEAD"],
@@ -215,7 +225,8 @@ def _changed_first(root, locations):
     except (OSError, subprocess.SubprocessError):
         out = ""
     changed = {line.split("cmux-tui/", 1)[-1] for line in out.splitlines()}
-    return sorted(locations, key=lambda loc: (loc.split(":", 1)[0] not in changed, loc))
+    return sorted(locations, key=lambda loc: (loc.split(":", 1)[0] not in grown,
+                                              loc.split(":", 1)[0] not in changed, loc))
 
 
 def load_baseline():
@@ -286,12 +297,14 @@ def main():
         report(checked, counts, files, args.report)
     baseline = load_baseline()
     base_counts = None
+    base_hits = None
     if args.base_clippy_json:
-        base_checked, base_counts, _, base_finished, _ = read_clippy(args.base_clippy_json)
+        base_checked, base_counts, _, base_finished, base_hits = read_clippy(args.base_clippy_json)
         if not base_checked or base_finished is not True:
             print("::warning title=rust panic ratchet::the base clippy run did not finish successfully; "
                   "every count over the baseline is charged to this change", file=sys.stderr)
             base_counts = None
+            base_hits = None
     if args.init_baseline:
         write_baseline({crate: counts.get(crate, collections.Counter()) for crate in checked})
         print(f"rust-panic-ratchet: wrote {os.path.relpath(BASELINE, args.repo)} for {len(checked)} crates")
@@ -317,7 +330,8 @@ def main():
                 # Tracked lints warn only: an added `x + 1` must not block a landing.
                 (failures if lint in DENY_LINTS else warnings).append(f"{crate}: clippy::{lint} {got} > {where}")
                 if lint in DENY_LINTS:
-                    for loc in _changed_first(args.repo, hits.get((crate, lint), []))[:20]:
+                    for loc in _changed_first(args.repo, hits.get((crate, lint), []),
+                                              None if base_hits is None else base_hits.get((crate, lint), []))[:20]:
                         failures.append(f"    {loc}")
         if base is not None and any(now.get(l, 0) < base.get(l, 0) for l in LINTS):
             lowered[crate] = {l: min(now.get(l, 0), base.get(l, 0)) for l in LINTS}

@@ -26,6 +26,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-local-url",
  "cmux-mcp-connect",
  "cmux-palette-ranker",
  "cmux-panic-log",
@@ -1319,6 +1320,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cookie-sync"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "notify",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "cmux-daemon-client"
 version = "0.1.0"
 dependencies = [
@@ -1434,13 +1447,11 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-cloud-environment",
- "cmux-cloud-wire",
  "cmux-json",
  "cmux-link",
  "cmux-server",
  "cmux-server-core",
  "flate2",
- "futures-util",
  "libc",
  "proptest",
  "ring",
@@ -1450,7 +1461,6 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
- "tokio-tungstenite",
  "url",
  "x25519-dalek",
  "yaml-rust",
@@ -1528,7 +1538,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
- "zeroize",
 ]
 
 [[package]]
@@ -1538,6 +1547,13 @@ dependencies = [
  "hmac",
  "sha2 0.10.9",
  "subtle",
+]
+
+[[package]]
+name = "cmux-local-url"
+version = "0.1.0"
+dependencies = [
+ "regex",
 ]
 
 [[package]]
@@ -1584,6 +1600,15 @@ version = "0.1.0"
 dependencies = [
  "ghostty-vt",
  "libc",
+]
+
+[[package]]
+name = "cmux-palette-eval"
+version = "0.1.0"
+dependencies = [
+ "cmux-palette-ranker",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1921,6 +1946,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-terminal-prediction"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-terminal-sizing"
 version = "0.1.0"
 dependencies = [
@@ -1963,6 +1992,7 @@ dependencies = [
  "cmux-cloud-wire",
  "cmux-config",
  "cmux-conversation",
+ "cmux-focus-core",
  "cmux-git",
  "cmux-holder",
  "cmux-host",
@@ -2075,6 +2105,7 @@ dependencies = [
  "cmux-conversation",
  "cmux-feed-core",
  "cmux-flow-trace",
+ "cmux-focus-core",
  "cmux-git",
  "cmux-history",
  "cmux-holder",
@@ -2083,11 +2114,14 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-local-url",
  "cmux-palette-ranker",
  "cmux-process",
  "cmux-pty",
  "cmux-remote-protocol",
  "cmux-sdk",
+ "cmux-tasks",
+ "cmux-tasks-core",
  "cmux-terminal-iface",
  "cmux-terminal-sizing",
  "cmux-tui-cdp",
@@ -2120,6 +2154,7 @@ dependencies = [
  "subsecond",
  "tokio",
  "tokio-tungstenite",
+ "toml",
  "tungstenite",
  "uds_windows",
  "url",
@@ -7259,8 +7294,6 @@ checksum = "e8e2fb0f499abb4d162f2bedad68f5ef91a1682b5a03596ddb67efd37768d100"
 [[package]]
 name = "smoltcp"
 version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6f8b28ad56c6e35524a37dd492af5d1a47e31e1a4d175cd12f89c075f01980f"
 dependencies = [
  "bitflags 1.3.2",
  "byteorder",

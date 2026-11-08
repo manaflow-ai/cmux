@@ -8,24 +8,19 @@
 // the reader scrolled up. Output keeps each printed line on its own row by default, so a table
 // reads with its columns aligned, and its right edge fades while more lies past; Wrap lines folds
 // the long rows back under their start (blockWrap.ts).
+import { cornerAction } from "./cornerActions";
 import { memo, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import { useT } from "../i18n";
 import { useBlockWrap } from "./blockWrap";
-import {
-  lineCount,
-  Lines,
-  PreviewMore,
-  SIDEWAYS_SCROLLER,
-  usePreview,
-  useSidewaysEdge,
-  WrapButton,
-} from "./BlockParts";
+import { Lines, PreviewMore, WrapButton } from "./BlockParts";
+import { lineCount, SIDEWAYS_SCROLLER, usePreview, useSidewaysEdge } from "./blockPartsModel";
 import { commandFolder } from "./commandFolder";
 import { CopyButton } from "./CopyButton";
 import { menuPartRef } from "./menuParts";
 import { moreBelow, useMoreBelowOn } from "./moreBelow";
 import { SHELL_ROLE_COLOR, shellTokens } from "./shellHighlight";
-import { OutputMore, previewedOutput, useOutput } from "./toolOutput";
+import { OutputMore } from "./toolOutput";
+import { previewedOutput, useOutput } from "./toolOutputModel";
 
 export function ShellBlock({
   id,
@@ -91,7 +86,7 @@ export function ShellBlock({
         <span className="cv-shell__actions">
           {/* One choice for every Shell block (blockWrap.ts): shown on this block's hover or focus only,
               so Verbose's open blocks don't repeat it; the chat menu's Transcript view has it at rest. */}
-          <WrapButton kind="output" className="cv-codeblock__action cv-shell__wrap" />
+          <WrapButton kind="output" className={`${cornerAction()} cv-shell__wrap`} />
           {shown.text && <CopyButton text={shown.text} label={t("turn.copy")} />}
         </span>
       </div>

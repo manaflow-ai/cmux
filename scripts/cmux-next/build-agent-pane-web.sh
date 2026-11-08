@@ -51,7 +51,8 @@ LOADER="$(bun scripts/pages/split-strings.mjs "$SRC/acpmux/generated/strings.jso
 # Dynamic imports (shiki's grammars, KaTeX) become chunks/ beside pane.js, loaded when used.
 # --css-inputs lists the stylesheets the pane imports; the bundle drops them, so each must be
 # one of the sheets the page's <style> is written from (checked below).
-bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets"
+# --preload-list names the chunks pane.js imports statically: the page preloads them with it.
+bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/pane/pane.js" --split --css-inputs "$WORK/imported-sheets" --preload-list "$WORK/preload-chunks"
 # Code highlighting runs in a worker beside the page (conversation/highlightPool.ts): Pierre's
 # worker, bundled with the same trimmed shiki. It is the entry point itself because the package
 # marks the module side-effect free, so an import of it would be dropped. Both hosts serve it
@@ -98,7 +99,7 @@ bun scripts/agent-pane/tailwind-css.mjs "$SRC/acpmux/tailwind.css" >> "$WORK/sty
 
 # Same-origin script files only (no inline script, no eval; WebAssembly compiles for Ondine's Mermaid diagrams) and inline style. No connection of its own: the
 # host's native transport (AgentPaneTransport) carries acpmux. No remote loads. Frames show only loopback web
-# pages (a turn's preview card; URL+AgentPanePreview.swift keeps the same hosts) and the render frame
+# pages (URL+AgentPanePreview.swift keeps the same hosts) and the render frame
 # (a render card; AgentPaneRenderFrame.swift). The page host sends the same
 # script-src (PageDescriptor.agent, test/fixtures/agent-page-csp.txt).
 CSP="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'unsafe-inline'; img-src data:; media-src 'self'; font-src data:; connect-src 'none'; frame-src cmux-agent://render http://localhost:* http://127.0.0.1:* https://localhost:* https://127.0.0.1:*"
@@ -112,6 +113,9 @@ CSP="default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'unsafe
   # Fetch and parse the entry while the locale scripts and inline styles load. modulepreload
   # never evaluates it: the module below still runs after the selected language is installed.
   printf '<link rel="modulepreload" href="pane.js" />\n'
+  # The chunks pane.js imports statically too: without these the page learns of them only once
+  # pane.js has loaded and parsed, and fetches and parses them after it, one round behind.
+  while IFS= read -r chunk; do printf '<link rel="modulepreload" href="%s" />\n' "$chunk"; done < "$WORK/preload-chunks"
   printf '%s\n' "$LOADER"
   # The id names the page's sheet for the chat's drawn copy, which draws under the same rules.
   printf '<style id="cmux-pane-styles">\n'

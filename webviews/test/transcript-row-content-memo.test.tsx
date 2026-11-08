@@ -11,7 +11,8 @@ import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { ACTIVITY_LINE } from "../src/agent-session/acpmux/conversation/turns";
 import type { RowProps } from "../src/agent-session/acpmux/rows/rowProps";
-import { RowContent, sameRowFrame } from "../src/agent-session/acpmux/VirtualTranscript";
+import { RowContent } from "../src/agent-session/acpmux/VirtualTranscript";
+import { sameRowFrame } from "../src/agent-session/acpmux/virtualTranscriptModel";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"];

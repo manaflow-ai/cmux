@@ -27,6 +27,7 @@ KEYWISE_DRIVERS = {
     "pbxproj-v1": "scripts/merge-pbxproj.py",
     "cmux-baseline-v1": "scripts/merge-baseline.py",
     "cmux-capabilities-v1": "scripts/merge-daemon-capabilities.py",
+    "cmux-insertions-v1": "scripts/merge-insertions.py",
 }
 WORKFLOW = ROOT / ".github/workflows/cmux-next-generated-catch-up.yml"
 

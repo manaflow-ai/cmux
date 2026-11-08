@@ -145,7 +145,7 @@ pub(super) fn parse(args: &[&str]) -> Result<WaitRequest, UsageError> {
     // The daemon's terminal.wait compiles it with the same crate and limits;
     // a pattern it would refuse never starts a wait.
     if regex && let Some(pattern) = &text {
-        regex::Regex::new(pattern)
+        cmux_tui_core::wait_pattern::compile(pattern)
             .map_err(|error| usage(format!("--text is not a valid regular expression: {error}")))?;
     }
     let timeout = match timeout {

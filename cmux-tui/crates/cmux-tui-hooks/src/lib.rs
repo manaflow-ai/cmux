@@ -656,6 +656,18 @@ fn run_with_context(plan: &Plan, context: &Context) -> RunResult {
                     "state":state,
                     "changed":changed,
                 })),
+                // A read-only status reports one provider's unreadable
+                // config on that provider's row (the `unavailable` /
+                // `unreadable` shape of status_conflict.rs, which the app's
+                // Settings card already reads); the others still answer.
+                Err(error) if plan.action == Action::Status => results.push(json!({
+                    "provider":provider.id,
+                    "path":path,
+                    "state":"unavailable",
+                    "reason":"unreadable",
+                    "detail":format!("{error:#}"),
+                    "changed":false,
+                })),
                 Err(error) => errors.push(format!("{}: {error:#}", provider.id)),
             }
         }
@@ -2062,9 +2074,12 @@ fn codex_contextual_hook_command(
     terminal: &str,
     launcher: &Path,
 ) -> String {
+    // SessionStart prints the session context (cmux-tui-hook
+    // session_context.rs) for this launch's hooks only, so only these
+    // commands let the helper answer it.
     let reply = if sync_barrier_event(event) {
         "||exit 2"
-    } else if delivers_messages("codex", event) {
+    } else if delivers_messages("codex", event) || event == "SessionStart" {
         "||echo {}"
     } else {
         "||:;echo {}"
@@ -3257,6 +3272,29 @@ mod tests {
             .expect("config.toml must contain a hooks.state table")
     }
 
+    /// One provider's unreadable config made the whole read-only `agent hook
+    /// status` fail (bench round 3: `~/.copilot/config.json is not valid
+    /// JSON`). It is that provider's row now; the others still answer.
+    #[test]
+    fn w4j_status_reports_an_unreadable_config_on_its_own_row() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let copilot = context.home.join(".copilot/config.json");
+        fs::create_dir_all(copilot.parent().unwrap()).unwrap();
+        fs::write(&copilot, b"{ not json").unwrap();
+        let plan =
+            Plan { action: Action::Status, providers: vec!["copilot".into(), "claude".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(!result.failed, "{}", result.value);
+        let rows = result.value["providers"].as_array().unwrap();
+        let row = |id: &str| rows.iter().find(|row| row["provider"] == id).unwrap();
+        assert_eq!(row("copilot")["state"], "unavailable", "{}", result.value);
+        assert_eq!(row("copilot")["reason"], "unreadable", "{}", result.value);
+        assert!(row("copilot")["detail"].as_str().is_some_and(|detail| !detail.is_empty()));
+        assert_ne!(row("claude")["state"], "unavailable", "{}", result.value);
+        assert_eq!(result.value["errors"], json!([]));
+    }
+
     #[test]
     fn codex_install_writes_matching_trust_state_into_config_toml() {
         let root = tempfile::tempdir().unwrap();
@@ -4015,6 +4053,38 @@ mod tests {
                 .unwrap();
         let hook = &root["hooks"]["PreToolUse"][0]["hooks"][0];
         assert_eq!(hook.get("async").and_then(Value::as_bool), None, "{hook}");
+    }
+
+    /// The Codex wrapper's SessionStart hook prints the helper's session
+    /// context alone on success and the empty object when the helper fails:
+    /// one JSON object either way.
+    #[cfg(unix)]
+    #[test]
+    fn codex_launch_session_context_prints_one_json_object() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let helper = root.path().join("hook");
+        let command = codex_contextual_hook_command(
+            "SessionStart",
+            Path::new("/unused"),
+            "term_test",
+            &helper,
+        );
+        for (script, expected) in [
+            (
+                "#!/bin/sh\necho '{\"hookSpecificOutput\":{\"additionalContext\":\"cmux\"}}'\n",
+                json!({"hookSpecificOutput": {"additionalContext": "cmux"}}),
+            ),
+            ("#!/bin/sh\nexit 1\n", json!({})),
+        ] {
+            fs::write(&helper, script).unwrap();
+            fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
+            let result = std::process::Command::new("sh").arg("-c").arg(&command).output().unwrap();
+            assert_eq!(result.status.code(), Some(0), "{command}");
+            let value: Value = serde_json::from_slice(&result.stdout)
+                .unwrap_or_else(|error| panic!("{error}: {:?}", result.stdout));
+            assert_eq!(value, expected, "{command}");
+        }
     }
 
     #[cfg(unix)]

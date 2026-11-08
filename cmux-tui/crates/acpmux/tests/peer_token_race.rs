@@ -111,18 +111,33 @@ enum Reads {
     AfterHandshake,
     /// Never a token: a remote too old to make one.
     Never,
+    /// The real token at every read: a remote that keeps running.
+    Always,
 }
 
 /// A stand-in `ssh` for one remote daemon at `remote`: `-W 127.0.0.1:PORT`
 /// carries stdio to that port; any other call is the token read, answered
 /// with the remote's config and a token as `reads` says. Each read is
-/// counted in `dir/reads`.
+/// counted in `dir/reads`, each tunnel in `dir/tunnels`; the newest tunnel's
+/// pid is in `dir/tunnel.pid`, and a `dir/refuse` file makes the next tunnel
+/// answer its upgrade with a 401 (and removes the file), as a remote whose
+/// dashboard token changed does.
 fn fake_ssh(dir: &Path, remote: &Path, reads: Reads) {
     let script = format!(
         r#"#!/usr/bin/env python3
 import os, socket, sys, threading
 args = sys.argv[1:]
 if "-W" in args:
+    tunnels = os.path.join({dir}, "tunnels")
+    t = int(open(tunnels).read()) if os.path.exists(tunnels) else 0
+    open(tunnels, "w").write(str(t + 1))
+    open(os.path.join({dir}, "tunnel.pid"), "w").write(str(os.getpid()))
+    refuse = os.path.join({dir}, "refuse")
+    if os.path.exists(refuse):
+        os.remove(refuse)
+        os.read(0, 65536)
+        os.write(1, b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\n\r\n")
+        sys.exit(0)
     host, port = args[args.index("-W") + 1].rsplit(":", 1)
     s = socket.create_connection((host, int(port)))
     def up():
@@ -162,6 +177,7 @@ os.write(1, out)
             Reads::Gap => "\"gap\"",
             Reads::AfterHandshake => "\"after\"",
             Reads::Never => "\"never\"",
+            Reads::Always => "\"always\"",
         },
     );
     let path = dir.join("ssh");
@@ -206,10 +222,33 @@ impl Pair {
     }
 
     fn reads(&self) -> u32 {
-        std::fs::read_to_string(self.dir.join("reads"))
+        self.count("reads")
+    }
+
+    fn count(&self, file: &str) -> u32 {
+        std::fs::read_to_string(self.dir.join(file))
             .ok()
             .and_then(|n| n.trim().parse().ok())
             .unwrap_or(0)
+    }
+
+    /// Ends the current tunnel's ssh, as a dropped network does, and waits until the peer is
+    /// connected again over a new tunnel; panics after 60 s.
+    fn drop_tunnel_and_wait(&self) -> Value {
+        let tunnels = self.count("tunnels");
+        let pid = std::fs::read_to_string(self.dir.join("tunnel.pid")).unwrap();
+        let killed = std::process::Command::new("kill").arg(pid.trim()).status().unwrap();
+        assert!(killed.success(), "kill the tunnel");
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let mut last = Value::Null;
+        while Instant::now() < deadline {
+            last = self.peer();
+            if self.count("tunnels") > tunnels && last["state"] == json!("connected") {
+                return last;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        panic!("the peer did not reconnect: {last}");
     }
 
     /// The peer's summary once it is connected and its sessions arrived,
@@ -265,6 +304,35 @@ fn a_remote_with_no_token_stays_remote_after_a_bounded_number_of_reads() {
     assert_eq!(later["state"], json!("connected"), "{later}");
     assert_eq!(later["attempts"], first["attempts"], "the link did not reconnect: {later}");
     assert_eq!(pair.reads(), 8, "reads of a remote with no token");
+}
+
+/// A redial after the link dropped is one ssh login: the tunnel's. The tokens read at the
+/// first connect still work, so it does not log in a second time to read them again
+/// (`peer_tokens.rs`); that read was about 400 ms of every reconnect at a 40 ms RTT.
+#[test]
+fn a_redial_reuses_the_tokens_it_read() {
+    let pair = Pair::start("redial", Reads::Always);
+    pair.wait_served_as("peer");
+    assert_eq!(pair.reads(), 1, "the first connect reads the tokens");
+    for _ in 0..2 {
+        let peer = pair.drop_tunnel_and_wait();
+        assert_eq!(peer["servedAs"], json!("peer"), "{peer}");
+    }
+    assert_eq!(pair.reads(), 1, "a redial reads no tokens");
+}
+
+/// A remote that refuses the kept tokens (its dashboard token changed) is read again once,
+/// and the same connect attempt goes on with what that read found.
+#[test]
+fn a_refused_kept_token_is_read_again_and_the_redial_connects() {
+    let pair = Pair::start("refused", Reads::Always);
+    pair.wait_served_as("peer");
+    let tunnels = pair.count("tunnels");
+    std::fs::write(pair.dir.join("refuse"), "").unwrap();
+    let peer = pair.drop_tunnel_and_wait();
+    assert_eq!(peer["servedAs"], json!("peer"), "{peer}");
+    assert_eq!(pair.reads(), 2, "one read after the refusal");
+    assert_eq!(pair.count("tunnels"), tunnels + 2, "the refused tunnel and the one that connected");
 }
 
 /// Both the config read and a configured-token tunnel preserve the SSH failure class.

@@ -20,12 +20,18 @@
 //!   client bridges to its local socket). The process exits 0 when it ends.
 //! - Every connect attempt, and every resume attempt of the session after it,
 //!   writes one route line on stderr after the reply line:
-//!   `cloud.connect route=carrier machine=<vm_id> phase=<connect|reconnect|resume> outcome=<ok|error_code> ms=<n>`.
+//!   `cloud.connect route=carrier machine=<vm_id> phase=<connect|reconnect|resume> outcome=<ok|error_code> ms=<n>`,
+//!   and for a failed attempt ` detail=<code>` after `ms` (a short
+//!   `[a-z0-9_]` code, [`contract::detail_code`]).
 //!   The same line is appended to `<workspace state dir>/carrier/connect.log`
 //!   (macOS `~/Library/Application Support/cmux-tui/sessions/carrier/connect.log`,
 //!   `CMUX_TUI_STATE_DIR` overrides the state dir), a file only the dial
 //!   writes and nothing empties ([`route_log`]). A resume happens inside the
 //!   same process, so its lines follow the connect's.
+//! - Each connect attempt also appends one `carrier.phases` line to that
+//!   file (never to stderr): how long the attempt spent on the ticket, the
+//!   relay, the park, the handshake and the mux open
+//!   ([`contract::phases_line`]).
 //! - `--service desktop` carries the machine's desktop instead: raw
 //!   `cmux.rd/1` bytes on stdin and stdout, through cmux-remote's
 //!   `local-socket` to `/run/cmux-rd/desktop.sock`. The daemon opens it only
@@ -50,15 +56,52 @@
 //! person's role on the machine as the carrier grant's `vmk` claim says
 //! it; a grant without one leaves the field out.
 //!
+//! `--answer-fd N` hands over the first attempt's answer: the descriptor's
+//! first line is `{"carrier_answer":{relay, slot, ticket, expires_at, grant,
+//! daemon_key?}}`, the `carrier` a create or spare claim answered with
+//! (cmux-platform #946). With 0 it is stdin's first line, and the stream
+//! follows it. The first attempt then dials at once without asking the
+//! platform. If the answer has no `daemon_key` (a fresh create, whose bind
+//! stores the key later), the dial asks the platform for the key while the
+//! relay holds the connect, and asks once more when the daemon registers if
+//! the first ask came too early. The handshake waits for the key and never
+//! runs unpinned. An answer whose ticket is about to expire is dropped and
+//! the attempt asks as usual; later attempts always ask. A line that is
+//! not such an answer (or no line) is `bad_request`, exit 64.
+//!
+//! `cmux carrier key --public` prints this device's carrier Noise static
+//! public key on stdout as one line of unpadded base64url (32 bytes, 43
+//! characters), the `carrier.noise_key` a create request carries, and exits
+//! 0. The key is the one dial and serve use: on a Mac the login Keychain
+//! item `com.cmuxterm.app.next.carrier-noise-key` (account `device`), made
+//! the same way when it does not exist yet. Nothing private is printed.
+//! Elsewhere no key lasts past one dial, so it prints nothing on stdout and
+//! writes dial's failure line (`handshake`, exit 5), as it does when the
+//! Keychain refuses. Any other arguments are `bad_request`, exit 64.
+//!
 //! `cmux carrier serve --machine <vm_id> --socket <path>` takes the same
-//! flags and environment and serves the same stream on a Unix socket, one
-//! dial per accepted connection ([`serve`]).
+//! flags and environment and serves the same stream on a Unix socket: one
+//! session per machine, dialed by the first accepted connection, and a mux
+//! control stream on it for each connection ([`serve`]).
+//!
+//! `cmux carrier capabilities [--json]` prints one JSON object on stdout and
+//! exits 0: the routes this build can carry a Cloud session over
+//! (`routes`), the faults a probe can inject (`faults`), and per carrier
+//! (`carriers.relay`, `carriers.ssh`) whether it is available (with a
+//! `reason` when not), can be probed, and which faults it takes
+//! ([`fault::capabilities`]). It needs no network, sign-in or app. The probe
+//! account's fault switch, `cmux cloud start-chat --carrier-fault`, is
+//! [`fault`]'s.
 
 mod answer;
 mod client;
 mod contract;
+pub(crate) mod drill;
+pub(crate) mod fault;
+mod held;
 mod noise_key;
 mod route_log;
+mod secrets;
 mod serve;
 
 use std::io::Write as _;
@@ -86,6 +129,9 @@ pub(crate) struct DialArgs {
     pub api: Option<String>,
     pub token_file: Option<PathBuf>,
     pub team: Option<String>,
+    /// `dial --answer-fd N`: the file descriptor whose first line is a
+    /// handed-over carrier answer (0: stdin, before the stream).
+    pub answer_fd: Option<i32>,
 }
 
 /// One `cmux carrier serve` invocation: a dial per connection to `socket`.
@@ -107,7 +153,7 @@ pub(crate) enum DialService {
 }
 
 /// `dial --machine vm_… [--service mux|desktop] [--deadline-ms N] [--cloud-api URL]
-/// [--cloud-token-file PATH] [--team team_…]`, each once, nothing else.
+/// [--cloud-token-file PATH] [--team team_…] [--answer-fd N]`, each once, nothing else.
 pub(crate) fn parse(args: &[String]) -> Option<DialArgs> {
     let (verb, rest) = args.split_first()?;
     if verb != "dial" {
@@ -133,6 +179,7 @@ pub(crate) fn parse_serve(args: &[String]) -> Option<ServeArgs> {
 fn flags(rest: &[String], serve: bool) -> Option<(DialArgs, Option<String>)> {
     let (mut machine, mut service, mut deadline, mut api, mut token_file, mut team, mut socket) =
         (None, None, None, None, None, None, None);
+    let mut answer_fd = None;
     let mut words = rest.iter();
     while let Some(flag) = words.next() {
         let value = words.next()?.clone();
@@ -144,6 +191,7 @@ fn flags(rest: &[String], serve: bool) -> Option<(DialArgs, Option<String>)> {
             "--cloud-token-file" => &mut token_file,
             "--team" => &mut team,
             "--socket" if serve => &mut socket,
+            "--answer-fd" if !serve => &mut answer_fd,
             _ => return None,
         };
         if slot.replace(value).is_some() {
@@ -163,6 +211,10 @@ fn flags(rest: &[String], serve: bool) -> Option<(DialArgs, Option<String>)> {
     if team.as_deref().is_some_and(|t| !contract::valid_team(t)) {
         return None;
     }
+    let answer_fd = match answer_fd {
+        Some(text) => Some(contract::parse_answer_fd(&text)?),
+        None => None,
+    };
     let dial = DialArgs {
         machine,
         service,
@@ -170,6 +222,7 @@ fn flags(rest: &[String], serve: bool) -> Option<(DialArgs, Option<String>)> {
         api,
         token_file: token_file.map(PathBuf::from),
         team,
+        answer_fd,
     };
     Some((dial, socket))
 }
@@ -262,16 +315,12 @@ async fn open_desktop(
     multiplexer: &Arc<cmux_remote::service::ServiceMultiplexer>,
     deadline: tokio::time::Instant,
 ) -> Result<Arc<cmux_remote::service::ServiceStream>, Failure> {
-    use cmux_remote::bridge::{BridgeError, CLOUD_DESKTOP_SOCKET, open_local_socket};
+    use cmux_remote::bridge::{CLOUD_DESKTOP_SOCKET, open_local_socket};
     match tokio::time::timeout_at(deadline, open_local_socket(multiplexer, CLOUD_DESKTOP_SOCKET))
         .await
     {
         Ok(Ok(stream)) => Ok(stream),
-        Ok(Err(BridgeError::Rejected(why))) => Err(Failure::fatal(contract::Step::Service, why)),
-        Ok(Err(error)) => Err(Failure::fatal(
-            contract::Step::Relay,
-            format!("the session ended before the desktop opened: {error}"),
-        )),
+        Ok(Err(error)) => Err(desktop_failure(error, multiplexer.session_unavailable())),
         Err(_) => Err(Failure::fatal(
             contract::Step::Relay,
             "the desktop did not open before the deadline",
@@ -279,19 +328,131 @@ async fn open_desktop(
     }
 }
 
+/// Why the desktop stream did not open: the daemon's refusal is the
+/// service's; a session the daemon no longer has (`session_unavailable`:
+/// the multiplexer's reader saw it, or the error itself says so) is dialed
+/// fresh; anything else ended
+/// the session, which is the carrier's.
+fn desktop_failure(error: cmux_remote::bridge::BridgeError, session_unavailable: bool) -> Failure {
+    use cmux_remote::bridge::BridgeError;
+    if let BridgeError::Rejected(why) = error {
+        return Failure::fatal(contract::Step::Service, why);
+    }
+    // The reader may not have marked the session yet when the open's own
+    // send (or a heartbeat) met its typed end first.
+    let gone = session_unavailable
+        || matches!(&error, BridgeError::Service(service) if service.is_session_unavailable());
+    let detail = format!("the session ended before the desktop opened: {error}");
+    // The session host restarted after the session's first stream opened
+    // and no longer has it: the dial opens a fresh one.
+    if gone {
+        Failure::session_gone(contract::Step::Relay, detail)
+    } else {
+        Failure::fatal(contract::Step::Relay, detail)
+    }
+}
+
+/// The handed-over answer on `fd`: its first line, at most
+/// [`contract::MAX_STDIN_LINE`] bytes. Stdin (0) is read through the
+/// process's shared stdin buffer, so the stream after the line stays for the
+/// bridge; any other descriptor is this process's to read and close.
+fn read_answer(fd: i32) -> Result<answer::CarrierAnswer, &'static str> {
+    use std::io::{BufRead as _, Read as _};
+    let mut line = Zeroizing::new(Vec::new());
+    let limit = (contract::MAX_STDIN_LINE + 1) as u64;
+    let read = if fd == 0 {
+        std::io::stdin().lock().take(limit).read_until(b'\n', &mut line)
+    } else {
+        use std::os::fd::FromRawFd as _;
+        // SAFETY: `--answer-fd` hands this descriptor to this process, which
+        // reads its one line and closes it here; nothing else uses it.
+        let file = unsafe { std::fs::File::from_raw_fd(fd) };
+        std::io::BufReader::new(file).take(limit).read_until(b'\n', &mut line)
+    };
+    match read {
+        Ok(0) | Err(_) => return Err("--answer-fd gave no answer line"),
+        Ok(_) => {}
+    }
+    if line.last() != Some(&b'\n') && line.len() > contract::MAX_STDIN_LINE {
+        return Err("the answer line is too long");
+    }
+    contract::answer_line(line.strip_suffix(b"\n").unwrap_or(line.as_slice()))
+}
+
+/// `key --public`, exactly.
+pub(crate) fn parse_key(args: &[String]) -> bool {
+    matches!(args, [verb, flag] if verb == "key" && flag == "--public")
+}
+
+/// The line `cmux carrier key --public` prints for `key`: unpadded
+/// base64url and a newline.
+pub(crate) fn public_key_line(key: &[u8; 32]) -> String {
+    format!("{}\n", answer::key_text(key))
+}
+
+/// `cmux carrier key --public`: the device's public key on stdout.
+fn key(args: &[String]) -> i32 {
+    if !parse_key(args) {
+        return usage("usage: cmux carrier key --public");
+    }
+    match noise_key::lasting_identity() {
+        Ok(identity) => {
+            let mut stdout = std::io::stdout().lock();
+            let _ = stdout.write_all(public_key_line(&identity.public_key()).as_bytes());
+            let _ = stdout.flush();
+            0
+        }
+        Err(why) => fail(&Failure::fatal(contract::Step::Handshake, why)),
+    }
+}
+
+/// `capabilities` or `capabilities --json`, exactly (the answer is JSON either way).
+pub(crate) fn parse_capabilities(args: &[String]) -> bool {
+    match args {
+        [verb] => verb == "capabilities",
+        [verb, flag] => verb == "capabilities" && flag == "--json",
+        _ => false,
+    }
+}
+
+/// `cmux carrier capabilities [--json]`: this build's carriers on stdout.
+fn capabilities(args: &[String]) -> i32 {
+    if !parse_capabilities(args) {
+        return usage("usage: cmux carrier capabilities [--json]");
+    }
+    let line = format!("{}\n", fault::capabilities(&fault::this_build()));
+    let mut stdout = std::io::stdout().lock();
+    let _ = stdout.write_all(line.as_bytes());
+    let _ = stdout.flush();
+    0
+}
+
 /// `cmux carrier …` from `main`: the exit code.
 pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().is_some_and(|verb| verb == "serve") {
         return serve::run(args);
     }
+    if args.first().is_some_and(|verb| verb == "secrets") {
+        return secrets::run(args);
+    }
+    if args.first().is_some_and(|verb| verb == "key") {
+        return key(args);
+    }
+    if args.first().is_some_and(|verb| verb == "capabilities") {
+        return capabilities(args);
+    }
     let Some(args) = parse(args) else {
         return usage(
-            "usage: cmux carrier dial --machine vm_… [--service mux|desktop] [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…]",
+            "usage: cmux carrier dial --machine vm_… [--service mux|desktop] [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…] [--answer-fd N]",
         );
     };
     let (args, source, identity) = match prepare(args) {
         Ok(prepared) => prepared,
         Err(code) => return code,
+    };
+    let prefetched = match args.answer_fd.map(read_answer).transpose() {
+        Ok(answer) => Arc::new(answer::Prefetched::new(answer)),
+        Err(why) => return usage(why),
     };
     let runtime = match runtime() {
         Ok(runtime) => runtime,
@@ -301,34 +462,49 @@ pub(crate) fn run(args: &[String]) -> i32 {
         // Route lines wait until the reply line is out, so it stays first.
         let (lines, mut queued) = tokio::sync::mpsc::unbounded_channel::<String>();
         let connect_log = route_log::default_path();
+        let phases_log = connect_log.clone();
         let plan = client::DialPlan {
             machine: args.machine.clone(),
             source,
             identity,
             deadline: tokio::time::Instant::now() + args.deadline,
+            prefetched,
             log: Arc::new(move |line| {
                 if let Some(path) = &connect_log {
                     route_log::append(path, &line);
                 }
                 let _ = lines.send(line);
             }),
+            phases: Arc::new(move |line| {
+                if let Some(path) = &phases_log {
+                    route_log::append(path, &line);
+                }
+            }),
+            fresh_sessions: contract::FreshSessions::default(),
         };
-        let dialed = client::dial(&plan, jitter).await;
         // The desktop opens its stream before the reply, so a refusal (not
         // the owner, no desktop on the machine) is the dial's answer. The
-        // open stays inside the dial's one deadline.
-        let (dialed, desktop) = match (dialed, args.service) {
-            (Ok(dialed), DialService::Desktop) => {
-                match open_desktop(&dialed.multiplexer, plan.deadline).await {
-                    Ok(stream) => (Ok(dialed), Some(stream)),
-                    Err(failure) => {
-                        dialed.multiplexer.shutdown().await;
-                        let _ = dialed.connection.close().await;
-                        (Err(failure), None)
+        // open stays inside the dial's one deadline. A session the host lost
+        // before the desktop opened is dialed fresh, from the same budget
+        // as the dial's own fresh sessions (`MAX_FRESH_SESSIONS` in all).
+        let (dialed, desktop) = loop {
+            let dialed = client::dial(&plan, jitter).await;
+            match (dialed, args.service) {
+                (Ok(dialed), DialService::Desktop) => {
+                    match open_desktop(&dialed.multiplexer, plan.deadline).await {
+                        Ok(stream) => break (Ok(dialed), Some(stream)),
+                        Err(failure) => {
+                            dialed.multiplexer.shutdown().await;
+                            let _ = dialed.connection.close().await;
+                            if failure.fresh_session && plan.fresh_sessions.take() {
+                                continue;
+                            }
+                            break (Err(failure), None);
+                        }
                     }
                 }
+                (dialed, _) => break (dialed, None),
             }
-            (dialed, _) => (dialed, None),
         };
         let code = match &dialed {
             Ok(dialed) => {
@@ -369,5 +545,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
     code
 }
 
+#[cfg(test)]
+mod argv_contract_tests;
 #[cfg(test)]
 mod tests;

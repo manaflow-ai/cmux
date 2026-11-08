@@ -44,7 +44,12 @@ impl Hub {
             self.store_deferred(session),
             "could not store the chat's newest tool output"
         );
-        let meta = session.meta();
+        let mut meta = session.meta();
+        // A fork by reference names a chat the other machine does not have: the log below
+        // holds that history itself (`store/fork_view.rs` scans through it), under its seqs.
+        if let Some(r) = meta.history_from.take() {
+            meta.history_kept_through = Some(r.through_seq);
+        }
         let dir = dest.join(&meta.id);
         std::fs::create_dir_all(dir.join("events"))?;
         std::fs::write(dir.join("session.json"), serde_json::to_string_pretty(&meta)?)?;
@@ -143,12 +148,19 @@ impl Hub {
         meta.parent_id = None;
         meta.fork_seq = None;
         meta.fork_before = None;
+        // Nor a fork's reference to a chat of the machine it came from: its log holds that
+        // history (`export`).
+        meta.history_from = None;
         meta.fork_requests.clear();
         meta.fork_parent_verified = Some(false);
         // A store comes from this machine's chat index, never from a bundle.
         meta.chat_store = None;
         // Nor the VM boundary: only a caller's peer link asks for it (`vm_boundary.rs`).
         meta.vm_boundary = false;
+        // Nor a wait on its harness at every start (`SessionMeta::wait_start`): only a local
+        // creator that is no agent's, lane's or remote connection gets that (`server/requests.rs`
+        // `asks_to_wait_on_its_harness`); a bundle's own flag would hand it to any importer.
+        meta.wait_start = false;
         // Nor is a mode cmux set here, which only this daemon records (`SessionMeta::mode_set_by_cmux`).
         meta.mode_set_by_cmux = None;
         super::bookmarks::capped(&mut meta.bookmarks);
@@ -206,10 +218,33 @@ impl Hub {
         meta.status = SessionStatus::Idle;
         // It lives here now, whatever the daemon it came from had recorded.
         meta.moved_to = None;
+        // The linked-worktree record (`worktree_care/revive.rs`) is read again from the folder
+        // here. A chat moved from another machine's linked worktree into a fresh clone brought
+        // that machine's root and git dir: they never match here, and `revive_folder` refused
+        // every turn as `session.folder_missing` while its folder was there. A chat imported
+        // into the same linked worktree reads the same record back, so its folder can still be
+        // recreated if it goes. A read that is inconclusive keeps the bundle's record only for
+        // the folder it names.
+        let read = tokio::task::spawn_blocking({
+            let cwd = meta.cwd.clone();
+            move || {
+                super::worktree_care::revive::origin_of(
+                    &cwd,
+                    &crate::git_state::GitState::read(&cwd),
+                )
+            }
+        });
+        meta.worktree = match tokio::time::timeout(std::time::Duration::from_secs(2), read).await {
+            Ok(Ok(Some(found))) => found,
+            _ => meta.worktree.take().filter(|w| w.cwd == meta.cwd),
+        };
         // An approve-all an older daemon or a vmHost machine gave asks here (`policy_source.rs`).
         super::policy_source::settle_imported_grant(&mut meta);
         meta.subsession = None;
         meta.lineage = None;
+        meta.created_by = None;
+        // Nor a race's authority or its resumption: its children stayed behind (`races.rs`).
+        super::races::settle_imported(&mut meta.races);
         self.prepare_harness_state(&meta, replace_durable)
             .map_err(|e| RpcError::internal(e.to_string()))?;
         if let Err(e) = self.store.save(&meta) {
@@ -819,6 +854,9 @@ impl Hub {
     }
 }
 
+#[cfg(test)]
+#[path = "fork_reference_export_tests.rs"]
+mod fork_reference_export_tests;
 #[cfg(test)]
 #[path = "import_publish_tests.rs"]
 mod import_publish_tests;

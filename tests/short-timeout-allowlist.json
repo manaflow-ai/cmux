@@ -55,7 +55,6 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/ExternalOpenController.swift:swift-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/MarkdownShare/MarkdownGitRunning.swift:swift-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/RemoteImagePolicy.swift:swift-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
-    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Quit/QuitFactsReader.swift:swift-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Remote/JoinConsent+App.swift:swift-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Server/LocalServerSource.swift:swift-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Server/ServerReachService.swift:swift-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},

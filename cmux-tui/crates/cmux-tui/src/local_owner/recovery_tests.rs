@@ -20,6 +20,7 @@ pub(super) fn owner_spec(socket: PathBuf) -> OwnerSpec {
         chief_tools_socket: None,
         chief_brains: None,
         websocket: None,
+        carried_env: Vec::new(),
     }
 }
 

@@ -54,11 +54,10 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
 }
 
 fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) -> i32 {
-    if plan.stream && global.output == OutputMode::Json {
-        return usage_failure(
-            global.output,
-            "cmux: streams require --jsonl, --quiet, or human output",
-        );
+    if plan.stream
+        && let Some(code) = super::stream_output::refuse_json(global.output)
+    {
+        return code;
     }
     if let Err(error) = super::resolve::apply_global_route(global, &mut plan) {
         return usage_failure(global.output, &format!("cmux: {error}"));
@@ -146,7 +145,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     }
     // The caller's terminal belongs to the session its environment names; an
     // explicit route targets that session's current workspace.
-    let caller_route = global.socket.is_none() && global.session.is_none();
+    let caller_route = routes_to_caller_session(global);
     // An agent's terminal with no place goes beside its chat (beside.rs).
     #[cfg(unix)]
     match super::beside::run_cli(
@@ -199,6 +198,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
         return code;
     }
     if notify_desktop::drop_unsupported(&mut reader, &socket, &mut request)
+        | workspace_created_by::drop_unsupported(&mut reader, &socket, &mut request)
         | super::launch_credential::attach(&mut reader, &socket, &mut request)
         | list_order::apply(&mut plan, &mut request, &socket)
     {
@@ -486,6 +486,20 @@ pub(super) fn response_read_timeout(
             .map(Duration::from_millis)
             .and_then(|timeout| timeout.checked_add(Duration::from_secs(2)));
     }
+    // The user's git actions run under a 120 s deadline, and a worktree
+    // removal runs its project's teardown (at most a minute) first.
+    if matches!(
+        &plan.operation,
+        WireOperation::Typed(
+            cmux_tui_core::resource::ResourceOperation::GitCommit
+                | cmux_tui_core::resource::ResourceOperation::GitPush
+                | cmux_tui_core::resource::ResourceOperation::GitWorktreeCreate
+                | cmux_tui_core::resource::ResourceOperation::GitWorktreeApply
+                | cmux_tui_core::resource::ResourceOperation::GitWorktreeRemove
+        )
+    ) {
+        return Some(Duration::from_secs(200));
+    }
     Some(Duration::from_secs(10))
 }
 
@@ -618,6 +632,18 @@ fn run_response(
                             }
                             Err(error) => print_operation_error(&error, global.output),
                         };
+                    }
+                    // An older daemon refuses an operation it does not know
+                    // as a bare envelope error: name it and the upgrade.
+                    if let WireOperation::Typed(operation) = &plan.operation
+                        && let Some(outdated) = super::older_daemon::replace(
+                            reader,
+                            &error,
+                            operation.wire_name(),
+                            Some(daemon_socket),
+                        )
+                    {
+                        error = outdated;
                     }
                     if matches!(global.output, OutputMode::Quiet | OutputMode::Human) {
                         localize_operation_error(plan, &mut error);
@@ -849,13 +875,52 @@ pub(super) fn read_envelope(
 /// Prints a request's successful result as the command shows it; returns
 /// the exit code.
 pub(super) fn print_result(global: &GlobalArgs, plan: &RequestPlan, result: Value) -> i32 {
+    // `terminal status` prints its program status records; for a person it
+    // also names the last command the shell finished (`--json` keeps the
+    // record list; `terminal show --json` has it as `extra.last_command`).
+    let last_command = (global.output == OutputMode::Human
+        && plan.view == super::command::ResponseView::TerminalProgramStatus)
+        .then(|| result.pointer("/extra/last_command").cloned())
+        .flatten();
     let result = plan.view.project(result);
+    if global.output == OutputMode::Human
+        && plan.view == super::command::ResponseView::ScreenText
+        && let Some(text) = result.get("text").and_then(Value::as_str)
+    {
+        return print_screen_text(text);
+    }
     let shown = match global.output {
         OutputMode::Human => human_view(plan, &result),
         output => agent_roster::machine_view(plan, &result, output),
     };
     let code = print_success(&shown, global.output);
+    if let Some(last) = last_command {
+        println!("{}", last_command_line(&last));
+    }
     if code == 0 { success_exit_code(plan, &result) } else { code }
+}
+
+/// `terminal status`'s line for the last command the shell finished
+/// (OSC 133 `D`): its exit status, or that the shell reported none.
+fn last_command_line(last: &Value) -> String {
+    match last.get("exit_code").and_then(Value::as_i64) {
+        Some(code) => format!("LAST COMMAND exit {code}"),
+        None => "LAST COMMAND exit status unknown".to_owned(),
+    }
+}
+
+/// `terminal <t> screen read` as plain text: the screen's rows as they show,
+/// without trailing blank rows, then one newline.
+fn print_screen_text(text: &str) -> i32 {
+    let mut stdout = io::stdout().lock();
+    let shown = text.trim_end_matches(['\n', ' ']);
+    match writeln!(stdout, "{shown}").and_then(|()| stdout.flush()) {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("stdout error: {error}");
+            3
+        }
+    }
 }
 
 /// A printed result that exits 1: a `terminal <id> screen wait` timeout
@@ -1129,12 +1194,18 @@ mod notify_desktop;
 mod retry;
 mod sanitize;
 mod socket;
+mod workspace_created_by;
 pub(super) use agent_roster::across as agent_roster_across;
+pub(super) use agent_roster::{NOTIFICATION_LIMIT, daemon_state_for_status};
+// terminal_talk (unix-only) reads unread notifications the same way.
+#[cfg(unix)]
+pub(super) use agent_roster::unseen_terminals;
 pub(super) use hints::connect_failure;
 #[cfg(test)]
 use human::human_text;
 use human::{append_table_row, human_cell, write_human};
 use sanitize::{sanitize_human_block, sanitize_human_cell};
+pub(super) use workspace_created_by::drop_unsupported as drop_unsupported_created_by;
 
 /// Remote-supplied error text made safe for a terminal (cx-8mla8: the chief
 /// CLI shows a daemon's own words).
@@ -1146,6 +1217,9 @@ pub(super) use socket::resolve_failure_message;
 #[cfg(test)]
 pub(super) use socket::resolve_socket_with_env;
 pub(super) use socket::resolve_socket_with_origin;
+pub(super) use socket::routes_to_caller_session;
+#[cfg(test)]
+pub(super) use socket::routes_to_caller_session_with;
 pub(super) use socket::{RESOLVE_FAILURE_EXIT, resolve_failure, resolve_socket_or_report};
 
 #[cfg(test)]

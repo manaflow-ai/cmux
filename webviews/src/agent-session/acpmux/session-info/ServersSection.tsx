@@ -10,8 +10,9 @@ import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { useNow } from "../subagents/SubagentGroup";
-import type { SessionInfoServer } from "./processes";
+import { useNow } from "../subagents/subagentGroupModel";
+import { previewAddress } from "../conversation/previewChipModel";
+import { serverUrl, type SessionInfoServer } from "./processes";
 import { StopButton } from "./TasksSection";
 
 const ROW_ICON = rowIconSize(12);
@@ -34,8 +35,8 @@ export function ServersSection({
         .sort((a, b) => b.startedAt - a.startedAt)
         .map((server) => {
           const port = server.ports[0];
-          const address = port === undefined ? undefined : `localhost:${port}`;
-          const url = address && `http://${address}`;
+          const url = port === undefined ? undefined : serverUrl(server, port);
+          const address = url && previewAddress(url);
           const open = url && onOpenUrl ? () => onOpenUrl(url) : undefined;
           return (
             <li

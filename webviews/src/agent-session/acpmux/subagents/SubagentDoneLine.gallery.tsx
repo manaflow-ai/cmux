@@ -55,8 +55,11 @@ const REPORT = `Found the drift: the settings schema generator reads \`defaults.
 
 Fixed the read order in \`gen-schema.ts\`, regenerated the golden files and the docs page, and added a test that compares the generator's output with the app's defaults. All 214 settings tests pass.`;
 
+// A line with a report is the one message row (AgentMessageRow.tsx): its line opens the report.
+const REPORT_TOGGLE = ".cv-subagent-report-row .cv-agentmsg__toggle";
+
 const openReport: Play = async (ctx) => {
-  await ctx.click({ selector: ".cv-subagent-done__disclose" });
+  await ctx.click({ selector: REPORT_TOGGLE });
   await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-done__report") !== null);
 };
 
@@ -115,15 +118,15 @@ export default componentEntry<Props>({
       {
         name: "Open the report",
         run: async (ctx) => {
-          if (ctx.document.querySelector(".cv-subagent-done__disclose"))
-            await ctx.click({ selector: ".cv-subagent-done__disclose" });
+          if (ctx.document.querySelector(REPORT_TOGGLE)) await ctx.click({ selector: REPORT_TOGGLE });
         },
       },
     ],
   },
   load: async () => {
-    const { SubagentDoneLine, DoneReportLookContext } = await import("./SubagentDoneLine");
-    const { SubagentNavContext } = await import("./SubagentGroup");
+    const { SubagentDoneLine } = await import("./SubagentDoneLine");
+    const { DoneReportLookContext } = await import("./subagentDoneLineModel");
+    const { SubagentNavContext } = await import("./subagentGroupModel");
     const { SubsessionContext, SubsessionStore } = await import("./subsessions");
     // The sub-session's own chat, titled, as the session list has it.
     const store = new SubsessionStore();

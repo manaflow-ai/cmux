@@ -19,6 +19,8 @@ run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', in
 # signin_pubkey: no proof; the signin job mints the agent account's staging session, encrypts it to
 # that RSA public key (base64 PEM) and uploads only the ciphertext for a day, for the Mac holding the
 # private key (leo-workspace tools/dev-build-try) to seed its NEXT DEV app with. No password leaves.
+# signin_account: guest mints the second staging account's session instead (cmux-cloud-capture-guest@manaflow.dev,
+# CMUX_DOGFOOD_GUEST_STACK_*, cloud-capture-provision.yml journey-guest), for the guest side of a two-account test.
 on:
   workflow_dispatch:
     inputs:
@@ -44,6 +46,12 @@ on:
         required: false
         default: ""
         type: string
+      signin_account:
+        description: "With signin_pubkey: whose session to mint. owner: the agent test account. guest: the second staging account (chat-share guest)"
+        required: false
+        default: owner
+        type: choice
+        options: [owner, guest]
       request_id:
         description: Names the sign-in run (its run-name), so the requester finds it
         required: false
@@ -79,10 +87,24 @@ jobs:
       - name: Mint and encrypt the session
         env:
           PUBKEY_B64: ${{ inputs.signin_pubkey }}
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          SIGNIN_ACCOUNT: ${{ inputs.signin_account || 'owner' }}
+          OWNER_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          OWNER_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          GUEST_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_GUEST_STACK_EMAIL }}
+          GUEST_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_GUEST_STACK_PASSWORD }}
         run: |
           set -euo pipefail
+          # Each account's pair by its own name; a missing guest pair fails rather than minting the owner's session.
+          case "$SIGNIN_ACCOUNT" in
+            owner) CMUX_DOGFOOD_STACK_EMAIL="$OWNER_STACK_EMAIL"; CMUX_DOGFOOD_STACK_PASSWORD="$OWNER_STACK_PASSWORD" ;;
+            guest) CMUX_DOGFOOD_STACK_EMAIL="$GUEST_STACK_EMAIL"; CMUX_DOGFOOD_STACK_PASSWORD="$GUEST_STACK_PASSWORD" ;;
+            *) echo "::error::signin_account must be owner or guest"; exit 1 ;;
+          esac
+          if [ -z "$CMUX_DOGFOOD_STACK_EMAIL" ] || [ -z "$CMUX_DOGFOOD_STACK_PASSWORD" ]; then
+            echo "::error::no Stack pair for the $SIGNIN_ACCOUNT account in this environment"; exit 1
+          fi
+          export CMUX_DOGFOOD_STACK_EMAIL CMUX_DOGFOOD_STACK_PASSWORD
+          unset OWNER_STACK_PASSWORD GUEST_STACK_PASSWORD
           case "$PUBKEY_B64" in *[!A-Za-z0-9+/=]*) echo "::error::signin_pubkey is not base64"; exit 1;; esac
           printf '%s' "$PUBKEY_B64" | base64 -d > "$RUNNER_TEMP/pub.pem"
           openssl rsa -pubin -in "$RUNNER_TEMP/pub.pem" -noout

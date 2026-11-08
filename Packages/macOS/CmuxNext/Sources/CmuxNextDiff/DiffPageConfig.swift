@@ -81,10 +81,11 @@ public nonisolated struct DiffTurn: Sendable, Hashable {
 
 /// What `cmux.diff.config` answers (webviews/src/diff/page.ts): the viewer
 /// config the classic CLI embedded as `<script id="cmux-diff-viewer-config">`,
-/// plus `ops`, the optional ops this host serves. Comments, viewed files and
-/// prefs arrive with S5, so `ops` lists none and the page keeps comments hidden.
+/// plus `ops`, the optional ops this host serves. The provider adds the ops of
+/// what the tab has: prefs and viewed marks (`withStores`), git, and review
+/// comments (`withComments`, `cmux.diff.comments`).
 nonisolated enum DiffPageConfig {
-    /// The optional ops served (`cmux.diff.comments` is S5).
+    /// The optional ops every config serves.
     static let ops: [String] = []
     /// The sidecar session options the page may use, by their handshake capability names
     /// (Native/DiffSidecar/src/protocol.rs). The bundled sidecar is built with the app, so its

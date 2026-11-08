@@ -17,7 +17,7 @@
    "cmux-mux2": 42,
    "cmux-remote": 39,
    "cmux-terminal-client": 1,
-   "cmux-tui": 76,
+   "cmux-tui": 75,
    "cmux-tui-core": 190,
    "cmux-tui-hooks": 11,
    "cmux-tui-platform": 1,
@@ -33,7 +33,7 @@
    "cmux-tui-core": 24
   },
   "unwrap": {
-   "acpmux": 132,
+   "acpmux": 130,
    "chatmux-relay": 7,
    "cmux-remote": 4,
    "cmux-terminal-client": 30,
@@ -101,7 +101,7 @@
    "CmuxNextServerHelper": 5,
    "CmuxNextSettings": 1,
    "CmuxNextTabs": 5,
-   "CmuxNextTerminal": 7,
+   "CmuxNextTerminal": 6,
    "CmuxUpdater": 1,
    "MessagesLabHome": 14,
    "MessagesLabSidebar": 2
@@ -120,7 +120,7 @@
     "cmux-layout-reducer": 4,
     "cmux-local-auth": 2,
     "cmux-terminal-sizing": 6,
-    "cmux-tui-core": 11,
+    "cmux-tui-core": 10,
     "cmux-unix-socket": 1
    },
    "panic_macro": {
@@ -137,10 +137,10 @@
   "swift": {
    "dynamic_dispatch": {
     "CmuxNextAgentPane": 2,
-    "CmuxNextBrowser": 14,
+    "CmuxNextBrowser": 16,
     "CmuxNextBrowserAutomation": 5,
     "CmuxNextDesign": 6,
-    "CmuxNextPages": 3,
+    "CmuxNextPages": 4,
     "CmuxNextPhone": 1,
     "CmuxNextPopups": 2,
     "CmuxNextResources": 2,
@@ -175,7 +175,6 @@
     "CmuxNextSidebar": 2,
     "CmuxNextSignposts": 1,
     "CmuxNextTabs": 1,
-    "CmuxNextTasks": 1,
     "CmuxNextVSCodeServer": 2,
     "CmuxVNC": 3,
     "CmuxVNCDemoServer": 3,

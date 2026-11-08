@@ -248,10 +248,15 @@ export function readRevision(root = repoRoot): Revision {
   }
 }
 
-function agentPaneCSS(): string {
+/**
+ * The pane's combined stylesheet. `skip` leaves out sheets a page already loads another way (the
+ * guest page's first frame, vite.config.guest-page.mjs), so no rule loads twice.
+ */
+export function agentPaneCSS(skip: ReadonlySet<string> = new Set()): string {
   // As the script: a sheet's own @import never loads in the page (the walk already lists an imported
   // local sheet before its importer); Tailwind's entry keeps its import and gets the pane's sources.
   return agentPaneStylesheets()
+    .filter((file) => !skip.has(file))
     .map((file) => {
       const css = fs.readFileSync(file, "utf8");
       const body =

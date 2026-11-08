@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "c0611406fae1749b0130bc670080615ef3ef71364e2e3fa380716a5a7f0df8f3",
+  "catalog_sha256": "154a7c364bd86de362350a59cedc5c9409f419b62b27631210e856399d1b3b3d",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -223,9 +223,6 @@
     "cloud.runs.wait": {
       "class": "read"
     },
-    "cloud.vm.delete_snapshot": {
-      "class": "mutation"
-    },
     "cloud.vm.domains": {
       "class": "read"
     },
@@ -241,9 +238,6 @@
     "cloud.vm.firewall_list": {
       "class": "read"
     },
-    "cloud.vm.fork": {
-      "class": "mutation"
-    },
     "cloud.vm.networks": {
       "class": "read"
     },
@@ -256,23 +250,11 @@
     "cloud.vm.publications": {
       "class": "read"
     },
-    "cloud.vm.resize": {
-      "class": "mutation"
-    },
-    "cloud.vm.restore": {
-      "class": "mutation"
-    },
     "cloud.vm.revoke_publication_api_key": {
       "class": "mutation"
     },
     "cloud.vm.scp_endpoint": {
       "class": "mutation"
-    },
-    "cloud.vm.snapshot": {
-      "class": "mutation"
-    },
-    "cloud.vm.snapshots": {
-      "class": "read"
     },
     "cloud.vm.tunnel_attach": {
       "class": "mutation"
@@ -331,6 +313,15 @@
     "credential.verify": {
       "class": "read"
     },
+    "diff.comments.delete": {
+      "class": "mutation"
+    },
+    "diff.comments.list": {
+      "class": "read"
+    },
+    "diff.comments.save": {
+      "class": "mutation"
+    },
     "frontend_projection.get": {
       "class": "read"
     },
@@ -384,6 +375,9 @@
     },
     "git.worktree.remove": {
       "class": "mutation"
+    },
+    "git.worktree.setup": {
+      "class": "read"
     },
     "history.backups.purge": {
       "class": "mutation"

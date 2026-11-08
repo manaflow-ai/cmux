@@ -57,9 +57,29 @@ impl std::fmt::Debug for MachineSecrets {
     }
 }
 
+/// Every code a `secret-refused` error's message starts with: the only
+/// daemon words a device passes on. A device shows any other message as a
+/// bare refusal.
+pub const REFUSAL_CODES: &[&str] = &[
+    "bad-encapsulation",
+    "bad-name",
+    "bad-nonce",
+    "bad-value",
+    "busy",
+    "duplicate",
+    "open-failed",
+    "random",
+    "replay",
+    "seal-failed",
+    "stale",
+    "too-large",
+    "write",
+];
+
 /// A refusal: a fixed code and the item's name, never a value. `busy` (the
 /// replay window is full) is the one a caller may retry.
 fn refused(code: &str, name: &str) -> RpcError {
+    debug_assert!(REFUSAL_CODES.contains(&code), "{code} is not in REFUSAL_CODES");
     let mut error = RpcError::new("secret-refused", format!("{code}: {name}"));
     error.retryable = code == "busy";
     error

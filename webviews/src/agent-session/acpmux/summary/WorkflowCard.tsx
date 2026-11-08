@@ -9,35 +9,20 @@ import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { useNow } from "../subagents/SubagentGroup";
+import { useNow } from "../subagents/subagentGroupModel";
 import type { Subagent } from "../subagents/subagentFold";
 import type { WorkflowAgent } from "./workflow";
 import { modelName, tally, workflowOf } from "./foldWorkflows";
 import { cardCount, cardLine, listNames, runningPhases, workflowModel } from "./workflowView";
 import "./WorkflowCard.css";
 import "./workflowDots.css";
-
-type WorkflowCardOpener = (id: string, opener?: HTMLElement) => void;
-let opener: WorkflowCardOpener | undefined;
-let sideTabOpener: WorkflowCardOpener | undefined;
-const listeners = new Set<() => void>();
-export function configureWorkflowCardOpen(open: WorkflowCardOpener | undefined): void {
-  if (open === opener) return;
-  opener = open;
-  for (const listener of listeners) listener();
-}
+import { opener, sideTabOpener, listeners } from "./workflowCardModel";
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => void listeners.delete(listener);
 };
 const current = () => opener;
 
-/// Opens the same workflow in the chat's full-height side tab; absent when the Labs surface is off.
-export function configureWorkflowCardSideTab(open: WorkflowCardOpener | undefined): void {
-  if (open === sideTabOpener) return;
-  sideTabOpener = open;
-  for (const listener of listeners) listener();
-}
 const currentSideTab = () => sideTabOpener;
 
 export type WorkflowCardPresentation = "selected" | "compact" | "phases";

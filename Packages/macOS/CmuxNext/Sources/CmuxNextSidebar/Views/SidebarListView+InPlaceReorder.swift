@@ -27,6 +27,13 @@ extension SidebarListViewComponents {
         guard let drag, drag.pinTarget == nil, drag.tileSource == nil, let position = shownPosition else {
             return SidebarLayout.make(sections: listSections, metrics: metrics, options: options(includeGap: true))
         }
+        let o = SidebarDragLook.shown(options(includeGap: false), leaving: leaving)
+        // A workspace drag splices its look from the drag's base (`SidebarDragLook`): only the slot's group, or the
+        // dragged rows among a section's rows, are laid out again. A state the splice does not lay out falls back here.
+        if case .workspaces = drag.payload, let base = drag.base, base.key == dragBaseKey(drag), let look = base.look, look.options == o,
+           let layout = look.layout(to: position, metrics: metrics) {
+            return layout
+        }
         var sections = listSections
         switch drag.payload {
         // A group's index counts member rows. A group the drag empties keeps its header: it is still a drop target.
@@ -34,10 +41,6 @@ extension SidebarListViewComponents {
         case .group: break // drawn by its plan, above
         case let .item(item): Self.move(item, to: position, in: &sections)
         }
-        var o = options(includeGap: false)
-        o.excludedWorkspaces = leaving
-        o.excludedGroup = nil
-        o.excludedItem = nil
         var layout = SidebarLayout.make(sections: sections, metrics: metrics, options: o)
         // The slot is where DropResolver maps display y back to base y
         // (the rows without the dragged ones).

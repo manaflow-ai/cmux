@@ -221,7 +221,7 @@ await requireBrowserLane("running-strip.test.ts", async () => {
   });
 
   test("an open command's time, state and Open in terminal share one line on the command's left edge", async () => {
-    // Leo, 2026-11-07, on the open command's last line ("33s", "Running", "Open in terminal" each at
+    // Leo, 2026-11-07, on the open command's last line ("33s", "No output yet", "Open in terminal" each at
     // their own height): "also for the hat wow this is wildly misaligned at the bottom".
     const page = await browser!.newPage({ viewport: { width: 760, height: 400 } });
     try {
@@ -248,9 +248,9 @@ await requireBrowserLane("running-strip.test.ts", async () => {
           [...tail.querySelectorAll<HTMLElement>("*")].find(
             (element) => element.childElementCount === 0 && element.textContent?.trim() === text,
           ) ?? [...tail.querySelectorAll<HTMLElement>("*")].find((element) => element.textContent?.trim() === text)!;
-        const command = tail.querySelector(".acpmux-running-tray__command")!;
+        const command = tail.querySelector(".acpmux-bg-card__command")!;
         const time = tail.querySelector(".acpmux-running-tray__meta")!;
-        const state = leaf("Running");
+        const state = leaf("No output yet");
         const button = tail.querySelector("button")!;
         const label = [...button.childNodes].find((node) => node.nodeType === Node.TEXT_NODE)!;
         const labelRange = document.createRange();
@@ -278,6 +278,190 @@ await requireBrowserLane("running-strip.test.ts", async () => {
       await page.close();
     }
   });
+
+  // Leo, 2026-11-07, on the hat's rows: "instead of the done on the left, you can just put like a check
+  // mark right where this stop square would be", the title "glaeda-gh wait file ~..." cut well short of its
+  // time, and "me clicking this, the entire box, it just feels like, okay, I would be expanding this. I
+  // don't expect myself to be going to the exact place".
+  async function rows(width = 720): Promise<Page> {
+    const page = await browser!.newPage({ viewport: { width: width + 40, height: 600 } });
+    const { port } = vite!.httpServer!.address() as { port: number };
+    await page.goto(`http://127.0.0.1:${port}/test/browser/running-strip.html`);
+    await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
+    await page.evaluate((w) => (window as unknown as { __showRows: (w: number) => void }).__showRows(w), width);
+    await page.waitForSelector(".acpmux-running-tray");
+    await openRunningTray(page);
+    await page.mouse.move(0, 0);
+    return page;
+  }
+  const settle = (page: Page) =>
+    page.evaluate(() => {
+      for (const animation of document.getAnimations())
+        if (Number.isFinite(animation.effect?.getComputedTiming().endTime as number)) animation.finish();
+    });
+  const lineOf = (page: Page, name: string) =>
+    page.locator(".acpmux-running-tray .acpmux-agent-line__button", {
+      has: page.locator(".acpmux-summary-agent__name", { hasText: name }),
+    });
+
+  test("a finished line's check sits in the Stop square's slot, after its time, never a Done on the left", async () => {
+    const page = await rows();
+    try {
+      const marks = await page.evaluate(() => {
+        const lines = [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line")];
+        const done = lines.find((line) => line.dataset.status === "done")!;
+        const running = lines.find(
+          (line) => line.dataset.status === "running" && line.querySelector(".cv-subagent__stop"),
+        )!;
+        const check = done.querySelector<HTMLElement>("[data-done-check]");
+        const stop = running.querySelector<HTMLElement>(".cv-subagent__stop")!.getBoundingClientRect();
+        const time = done.querySelector<HTMLElement>(".acpmux-agent-line__time")!.getBoundingClientRect();
+        const box = check?.getBoundingClientRect();
+        const visibleWords = [...done.querySelectorAll<HTMLElement>(".acpmux-agent-line__meta *")]
+          .filter((node) => node.childElementCount === 0 && !node.closest(".acpmux-agent-line__sr"))
+          .map((node) => node.textContent?.trim())
+          .filter(Boolean);
+        return {
+          icon: Boolean(check?.querySelector('svg[data-icon="status.check"]')),
+          centreDelta: box ? Math.abs(box.left + box.width / 2 - (stop.left + stop.width / 2)) : Number.NaN,
+          afterTime: box ? box.left >= time.right : false,
+          visibleWords,
+        };
+      });
+      expect(marks.icon).toBe(true);
+      expect(marks.centreDelta).toBeLessThan(1);
+      expect(marks.afterTime).toBe(true);
+      expect(marks.visibleWords).toEqual([]);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("a line's title runs up to its time, cut only where it truly overflows", async () => {
+    const page = await rows();
+    try {
+      const fit = await page.evaluate(() => {
+        const line = (name: string) =>
+          [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line")].find(
+            (each) => each.querySelector(".acpmux-summary-agent__name")?.textContent === name,
+          )!;
+        const measure = (each: HTMLElement) => {
+          const text = each.querySelector<HTMLElement>(".acpmux-summary-text")!;
+          const time = each.querySelector<HTMLElement>(".acpmux-agent-line__time")!;
+          return {
+            gap: time.getBoundingClientRect().left - text.getBoundingClientRect().right,
+            cut: text.scrollWidth > text.clientWidth,
+          };
+        };
+        const command = [...document.querySelectorAll<HTMLElement>(".acpmux-running-tray .acpmux-agent-line")].find(
+          (each) => each.querySelector(".acpmux-agent-line__latest-inline.is-code, .acpmux-agent-line__latest.is-code"),
+        )!;
+        return {
+          long: measure(
+            line(
+              "Audit every background task row in the composer hat for clipped titles and misaligned trailing columns",
+            ),
+          ),
+          command: measure(command),
+          latest: command.querySelector(".is-code")!.textContent,
+        };
+      });
+      // The title's box ends one column gap before the time, not a status column away.
+      expect(fit.long.cut).toBe(true);
+      expect(fit.long.gap).toBeLessThan(12);
+      expect(fit.command.gap).toBeLessThan(12);
+      // The shell line is whole in the DOM; the row's CSS ellipsis cuts it, never a character cap.
+      expect(fit.latest).toBe(
+        "glaeda-gh wait file ~/Projects/checkouts/cmux/composer-hat-row-check/.done --timeout 3600",
+      );
+    } finally {
+      await page.close();
+    }
+  });
+
+  for (const name of [
+    "Audit every background task row in the composer hat for clipped titles and misaligned trailing columns",
+    "Run the tray tests",
+  ]) {
+    test(`a click on a line expands it in place, never navigating (${name.slice(0, 16)})`, async () => {
+      const page = await rows();
+      try {
+        const opened = () => page.evaluate(() => [...(window as unknown as { __opened: string[] }).__opened]);
+        await lineOf(page, name).click();
+        await settle(page);
+        expect(await opened()).toEqual([]);
+        expect(await lineOf(page, name).getAttribute("aria-expanded")).toBe("true");
+        const detail = page.locator(".acpmux-running-tray [data-line-detail]");
+        await detail.waitFor();
+        await page.waitForFunction(() => {
+          const node = document.querySelector<HTMLElement>(".acpmux-running-tray [data-line-detail]");
+          return !!node && node.getBoundingClientRect().height > 10 && node.style.overflow === "";
+        });
+        expect(await detail.textContent()).toContain(name);
+        // The way to the subagent is an explicit button in the detail.
+        await page.click(".acpmux-running-tray [data-line-detail] button");
+        expect(await opened()).toEqual([`agent:${name === "Run the tray tests" ? "done" : "long"}`]);
+        // A second click folds it, on the same fold.
+        await lineOf(page, name).click();
+        await settle(page);
+        await page.waitForFunction(() => !document.querySelector(".acpmux-running-tray [data-line-detail]"));
+        expect(await lineOf(page, name).getAttribute("aria-expanded")).toBe("false");
+      } finally {
+        await page.close();
+      }
+    });
+  }
+
+  test("a command's line expands to its tail in place; its terminal is the tail's button", async () => {
+    const page = await rows();
+    try {
+      const opened = () => page.evaluate(() => [...(window as unknown as { __opened: string[] }).__opened]);
+      const command = ".acpmux-running-tray .acpmux-agent-line:has(.is-code) .acpmux-agent-line__button";
+      await page.click(command);
+      await settle(page);
+      expect(await opened()).toEqual([]);
+      await page.waitForSelector(".acpmux-running-tray [data-line-detail] .acpmux-running-tray__tail button");
+      await page.click(".acpmux-running-tray [data-line-detail] .acpmux-running-tray__tail button");
+      expect(await opened()).toEqual(["command:w/1"]);
+    } finally {
+      await page.close();
+    }
+  });
+
+  for (const terminal of [true, false])
+    test(`a click on a subagent's command title expands it; Open chat is the way to the subagent (terminal ${terminal})`, async () => {
+      const page = await browser!.newPage({ viewport: { width: 760, height: 600 } });
+      const { port } = vite!.httpServer!.address() as { port: number };
+      await page.goto(`http://127.0.0.1:${port}/test/browser/running-strip.html`);
+      await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
+      await page.evaluate(
+        (value) => (window as unknown as { __showOwnedCommand: (t: boolean) => void }).__showOwnedCommand(value),
+        terminal,
+      );
+      await page.waitForSelector(".acpmux-running-tray");
+      await openRunningTray(page);
+      await page.mouse.move(0, 0);
+      try {
+        const opened = () => page.evaluate(() => [...(window as unknown as { __opened: string[] }).__opened]);
+        const line = page.locator(".acpmux-running-tray .acpmux-agent-line__button", {
+          has: page.locator(".is-code"),
+        });
+        // The title, which names the subagent, is part of the line's toggle: no link of its own.
+        await line.locator(".acpmux-summary-agent__name").click();
+        await settle(page);
+        expect(await opened()).toEqual([]);
+        expect(await line.getAttribute("aria-expanded")).toBe("true");
+        const foot = page.locator(".acpmux-running-tray [data-line-detail] .acpmux-running-tray__tail-foot");
+        await foot.waitFor();
+        const labels = await foot.locator("button").evaluateAll((buttons) => buttons.map((b) => b.textContent));
+        expect(labels.some((text) => text?.includes("Open chat"))).toBe(true);
+        expect(labels.some((text) => text?.includes("Open in terminal"))).toBe(terminal);
+        await foot.locator("button", { hasText: "Open chat" }).click();
+        expect(await opened()).toEqual(["agent:owner"]);
+      } finally {
+        await page.close();
+      }
+    });
 
   test("a line with nothing to open has no hover and no hand", async () => {
     const page = await open(false);

@@ -13,7 +13,7 @@
 //
 // It is computed when the tray's lists change (an event), never per clock tick.
 import type { Translate } from "../i18n";
-import { subagentStatus } from "../summary/SubagentStatusList";
+import { subagentStatus } from "../summary/subagentStatusListModel";
 import { sessionRetry } from "./retryState";
 import { harnessFamily } from "./agentRuns";
 import { commandStatus, type TrayItem } from "./runningTray";

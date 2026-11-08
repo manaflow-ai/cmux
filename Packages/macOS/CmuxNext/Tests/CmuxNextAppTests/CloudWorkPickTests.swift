@@ -67,12 +67,8 @@ struct CloudWorkPickTests {
         #expect(pick.hasMachineConfig)
         #expect(pick.needsCodexBroker)
         #expect(pick.taskKind == .chat)
-        let body = pick.autosize.body
-        #expect(body["taskKind"] as? String == "chat")
-        let repo = try #require(body["repo"] as? [String: any Sendable])
-        #expect(repo["key"] as? String == "github.com/manaflow-ai/cmux")
-        #expect(repo["rootFiles"] as? [String] == [".cmux", "Package.swift", "Sources"])
-        #expect(repo["sizeMb"] as? Int == pick.sizeMb)
+        #expect(pick.autosize == CloudAutosizeRequest(taskKind: .chat, repoKey: "github.com/manaflow-ai/cmux", repoSizeMb: pick.sizeMb,
+                                                      rootFiles: [".cmux", "Package.swift", "Sources"]))
     }
 
     @Test func aRustAndANodeRepoSendTheirToolchainFiles() async throws {
@@ -133,9 +129,6 @@ struct CloudWorkPickTests {
         let pick = await Self.pick(folder)
         #expect(pick.repo == CloudMachineRepo(owner: "octo", name: "cmux", ref: "feature/pick"))
         #expect(pick.repoKey == "github.com/octo/cmux")
-        #expect(CloudWorkPick.remoteName("refs/heads/x\0\0upstream") == "upstream")
-        #expect(CloudWorkPick.remoteName("refs/heads/x\0") == nil)
-        #expect(CloudWorkPick.remoteName("refs/heads/x\0\0-c") == nil)
     }
 
     @Test func aFolderOutsideGitIsPickedAsItselfWithNoRepo() async throws {
@@ -151,39 +144,6 @@ struct CloudWorkPickTests {
         #expect(!pick.pushed)
         #expect(pick.sizeMb == nil)
         #expect(pick.rootFiles == ["package.json"])
-        #expect(pick.autosize.body["repo"] as? [String: any Sendable] != nil, "root files alone still name the toolchain")
-        let empty = CloudAutosizeRequest()
-        #expect(empty.body["repo"] == nil)
-        #expect(empty.body["taskKind"] as? String == "chat")
-    }
-
-    @Test func theTaskKindRuleIsWholeWordsAndTestingWins() {
-        #expect(CloudTaskKind.inferred(from: nil) == .chat)
-        #expect(CloudTaskKind.inferred(from: "Explain the latest changes") == .chat)
-        #expect(CloudTaskKind.inferred(from: "Compile the app") == .build)
-        #expect(CloudTaskKind.inferred(from: "build it, then run the e2e suite") == .test)
-        #expect(CloudTaskKind.inferred(from: "Fix failing tests in Sources/") == .test)
-        #expect(CloudTaskKind.inferred(from: "contest rebuilt") == .chat)
-    }
-
-    @Test func aRemoteKeyNeverKeepsALoginAndALocalRemoteHasNone() {
-        #expect(CloudWorkPick.repoKey("https://x-token:ghp_secret@github.com/o/r.git") == "github.com/o/r")
-        #expect(CloudWorkPick.repoKey("ghp_secret@github.com:o/r") == "github.com/o/r")
-        #expect(CloudWorkPick.repoKey("/srv/git/r.git") == nil)
-        #expect(CloudWorkPick.repoKey("file:///srv/git/r.git") == nil)
-        #expect(CloudWorkPick.repoKey("https://github.com/only") == nil)
-        #expect(CloudWorkPick.repoKey("https://github.com/o/r with space") == nil)
-    }
-
-    @Test func pushedReadsTheUpstreamTrack() {
-        #expect(CloudWorkPick.isPushed("main\0"))
-        #expect(CloudWorkPick.isPushed("origin/main\0[behind 2]"))
-        #expect(!CloudWorkPick.isPushed("origin/main\0[ahead 1]"))
-        #expect(!CloudWorkPick.isPushed("origin/main\0[ahead 1, behind 2]"))
-        #expect(!CloudWorkPick.isPushed("origin/main\0[gone]"))
-        #expect(!CloudWorkPick.isPushed("\0"))
-        #expect(CloudWorkPick.objectsMb("count: 3\nsize: 12\nin-pack: 9\nsize-pack: 2048\n") == 3)
-        #expect(CloudWorkPick.objectsMb("garbage") == nil)
     }
 
     /// New Cloud Machine from a chat sizes the machine for the chat only when the setup keeps

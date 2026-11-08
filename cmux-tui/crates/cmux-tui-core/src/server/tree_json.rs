@@ -250,6 +250,13 @@ pub(super) fn pane_json(
                     .map(|status| status.wire()),
                 // Why a dead terminal ended (R41, terminal-state-v1).
                 "end": end,
+                // `tab-attention-v1`: an agent needs the person in this tab.
+                "attention": state
+                    .resource_indexes
+                    .tab_ids
+                    .get(sid)
+                    .and_then(|tab| notifications.presentation.tab_attention.get(tab.as_str()))
+                    .map(|mark| json!({"reason": mark.reason, "at_ms": mark.at_ms})),
             });
             raw_tab::merge_surface_fields(&mut tab, surface, frontend_browser, conversation);
             // `app-screens-v1`: the app (and route) an app tab shows.

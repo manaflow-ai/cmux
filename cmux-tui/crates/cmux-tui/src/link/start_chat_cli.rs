@@ -51,6 +51,7 @@ mod ledger;
 mod pick;
 mod project;
 mod reservations;
+mod spare_warm;
 #[cfg(test)]
 mod tests;
 mod trust;
@@ -72,7 +73,7 @@ cmux link start-chat create-refused --key KEY --account ACCOUNT --create-key CRE
 cmux link start-chat target-pane --key KEY --account ACCOUNT --machine ID --pane PANE\n       \
 cmux link start-chat ensure --workspace ID --key KEY [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_ID] [--platform URL] (the cmux credential on stdin)\n       \
 cmux link start-chat import --entries JSON\n       \
-cmux link start-chat reserve|release --request JSON (the session credential on stdin)\n       \
+cmux link start-chat reserve|release|warm-spare --request JSON (the session credential, then the install token, on stdin), wait-copy --machine ID --provider P\n       \
 cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--store PLATFORM|default] (with --store, the cmux credential on stdin)";
 
 /// The error code a work root the machine's user cannot write answers with:
@@ -160,6 +161,7 @@ pub(super) fn run(args: &[String]) -> i32 {
         "release" => {
             reservations::run(&flags, reservations::Action::Release, &mut std::io::stdin().lock())
         }
+        "warm-spare" | "wait-copy" => spare_warm::cli(action, &flags, &ledger),
         _ => None,
     };
     let Some(answer) = answer else {
@@ -290,8 +292,6 @@ struct PlanRequest {
     reservation_key: Option<String>,
     #[serde(default)]
     platform: Option<String>,
-    #[serde(default)]
-    team: Option<String>,
 }
 
 /// How `plan` asks the cmux platform for a workspace's machine: `ensure` with a credential.
@@ -393,13 +393,13 @@ fn plan_with_calls(
         None
     };
     // Read the credential once: project ensure and reservation bind use the same human session.
-    let mut credential = String::new();
+    let (mut credential, mut install) = (String::new(), String::new());
     if request.credential_on_stdin
         && (request.reservation_key.is_some() || ensures(&request, project_key.as_deref()))
     {
-        let _ = stdin.read_line(&mut credential);
+        let _ = stdin.read_line(&mut credential).and_then(|_| stdin.read_line(&mut install));
     }
-    let credential = credential.trim();
+    let credential = (credential.trim(), install.as_str()); // the bind's team: the install token's
     let mut line = keys.json();
     let fields = match planned {
         Ok(Destination::Machine(id)) => {
@@ -425,10 +425,10 @@ fn plan_with_calls(
                     .as_ref()
                     .map(|_| request.key.to_lowercase()),
             };
-            let answer = if credential.is_empty() {
+            let answer = if credential.0.is_empty() {
                 Err(crate::cli::PlatformCallError::Status { status: 401, code: "" })
             } else {
-                ensure(&ask, credential.trim())
+                ensure(&ask, credential.0)
             };
             match answer {
                 Ok(body) => {
@@ -483,7 +483,7 @@ fn reservation_destination(
     request: &PlanRequest,
     send: &Send,
     workspace: Option<&str>,
-    credential: &str,
+    (credential, install): (&str, &str),
     transport: reservations::Transport<'_>,
 ) -> Value {
     let cold = || {
@@ -501,7 +501,7 @@ fn reservation_destination(
             send_key: Some(request.key.to_lowercase()),
             environment: request.environment.clone(),
             platform: request.platform.clone(),
-            team: request.team.clone(),
+            team: spare_warm::install_team(install),
         },
         credential,
     );

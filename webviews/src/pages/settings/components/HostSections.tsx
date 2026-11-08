@@ -10,6 +10,7 @@ import type { BrowserProfile, DevicesHostState, HostListRow, HostLists, WireErro
 import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
 import { graphemePrefix } from "../../../ui/initials";
+import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
 
 const ASSET_ICON = /^(image|svg):sha256-[0-9a-f]{64}$/;
 
@@ -70,9 +71,11 @@ function ListRows({
 /** Spaces (General): the active window's spaces, or why the host has none. */
 export function SpacesSection() {
   const { host } = useSettingsState();
+  // The card arrives with the host's lists: after a blank first paint it fades in (shared/loadFade.ts).
+  const fade = useLoadFade(Boolean(host));
   if (!host) return null;
   return (
-    <section className="group" data-card="rooms">
+    <section className={fade ? `group ${LOAD_FADE_CLASS}` : "group"} data-card="rooms">
       <h3 className="group-title">{t("settingsPage.group.spaces")}</h3>
       <div className="rows">
         {host.rooms ? (
@@ -105,11 +108,13 @@ export function MachinesSection({ title, reveal = false }: { title: string; reve
   useLayoutEffect(() => {
     if (drawn && reveal) card.current?.scrollIntoView?.({ block: "start" });
   }, [drawn, reveal]);
+  // The card arrives with the host's lists: after a blank first paint it fades in (shared/loadFade.ts).
+  const fade = useLoadFade(Boolean(host));
   if (!host) return null;
   const picks = stringMap(colors.value);
   return (
     <>
-      <section className="group" data-card="machines" ref={card}>
+      <section className={fade ? `group ${LOAD_FADE_CLASS}` : "group"} data-card="machines" ref={card}>
         <h3 className="group-title">{title}</h3>
         <div className="rows" data-row-key={MACHINE_COLORS_KEY}>
           <ListRows

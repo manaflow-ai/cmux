@@ -3,8 +3,8 @@
 // pull request the page has left is dropped; Open on GitHub and View diff go to the host's ops.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
-import { mockDetails, mockPullRequest, MOCK_URL } from "./mockProvider";
-import { GitHubStore, REFRESH_MS, WAIT_MS } from "./store";
+import { mockChecks, mockChecksPassed, mockDetails, mockPullRequest, MOCK_URL } from "./mockProvider";
+import { CHECKS_MS, GitHubStore, REFRESH_MS, WAIT_MS } from "./store";
 import { GitHubOps, routedPullRequest, type PullRequestReply } from "./types";
 
 const route = (url: string) => `#/pull?url=${encodeURIComponent(url)}`;
@@ -28,7 +28,8 @@ class Host implements PageClient {
 }
 
 /** The calls a test is about: the page's details read rides along with every first answer. */
-const asked = (host: Host) => host.calls.filter((call) => call.op !== GitHubOps.details);
+const asked = (host: Host) =>
+  host.calls.filter((call) => call.op !== GitHubOps.details && call.op !== GitHubOps.checks);
 
 const timers: { ms: number; run: () => void }[] = [];
 const realSetTimeout = globalThis.setTimeout;
@@ -238,4 +239,170 @@ test("no merge without the details' head commit", async () => {
   await settle();
   await store.merge();
   expect(store.getSnapshot().merge).toEqual({ phase: "idle" });
+});
+
+test("checks are asked while a job runs, then stop once every job is done", async () => {
+  const host = new RichHost();
+  let settled = false;
+  const call = host.call.bind(host);
+  host.call = <R>(op: string, params: unknown): Promise<R> => {
+    if (op !== GitHubOps.checks) return call<R>(op, params);
+    host.calls.push({ op, params });
+    return Promise.resolve({ checks: settled ? mockChecksPassed : mockChecks, reading: false } as R);
+  };
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  expect(store.getSnapshot().checks?.jobs.length).toBe(mockChecks.jobs.length);
+  const checksTimer = [...timers].reverse().find((timer) => timer.ms === CHECKS_MS);
+  expect(checksTimer).toBeDefined();
+  settled = true;
+  const before = timers.length;
+  checksTimer!.run();
+  await settle();
+  expect(store.getSnapshot().checks?.settled).toBe(true);
+  // Settled: no checks timer armed after this answer.
+  expect(timers.slice(before).some((timer) => timer.ms === CHECKS_MS)).toBe(false);
+});
+
+test("Re-run failed names the runs with a failed job", async () => {
+  const host = new RichHost();
+  const call = host.call.bind(host);
+  host.call = <R>(op: string, params: unknown): Promise<R> => {
+    if (op === GitHubOps.checks) return Promise.resolve({ checks: mockChecks } as R);
+    if (op === GitHubOps.rerun) {
+      host.calls.push({ op, params });
+      return Promise.resolve({ rerun: 1 } as R);
+    }
+    return call<R>(op, params);
+  };
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  await store.rerunFailed();
+  expect(host.calls.find((each) => each.op === GitHubOps.rerun)?.params).toEqual({ url: MOCK_URL, runs: [9001] });
+  expect(store.getSnapshot().rerun).toEqual({ phase: "started" });
+});
+
+test("a failed details refresh asks again with the next answer", async () => {
+  const host = new RichHost();
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  host.detailsReplies.push({ details: null });
+  host.replies.push({ pullRequest: { ...mockPullRequest, updatedAt: "2026-11-06T00:00:00Z" }, fetchedAt: 2 });
+  await store.ask();
+  await settle();
+  // The old details stay on screen, and the next answer asks for them again.
+  expect(store.getSnapshot().details?.body).toBe(mockDetails.body);
+  host.replies.push({ pullRequest: { ...mockPullRequest, updatedAt: "2026-11-06T00:00:00Z" }, fetchedAt: 3 });
+  await store.ask();
+  await settle();
+  expect(host.calls.filter((call) => call.op === GitHubOps.details).length).toBe(3);
+});
+
+test("an older head's patch never replaces the newer one's", async () => {
+  const host = new RichHost();
+  const releases: ((reply: unknown) => void)[] = [];
+  const call = host.call.bind(host);
+  host.call = <R>(op: string, params: unknown): Promise<R> =>
+    op === GitHubOps.diffFile
+      ? new Promise<R>((resolve) => releases.push(resolve as (reply: unknown) => void))
+      : call<R>(op, params);
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  store.toggleFile("docs/sidebar.md");
+  host.replies.push({ pullRequest: { ...mockPullRequest, updatedAt: "2026-11-06T00:00:00Z" }, fetchedAt: 2 });
+  await store.ask();
+  await settle();
+  expect(releases.length).toBe(2);
+  releases[1]!({ patch: "new head" });
+  await settle();
+  releases[0]!({ patch: "old head" });
+  await settle();
+  expect(store.getSnapshot().patches["docs/sidebar.md"]).toEqual({ state: "ready", patch: "new head" });
+});
+
+test("checks keep being asked while the host reads, even with settled checks kept", async () => {
+  const host = new RichHost();
+  let reading = true;
+  const call = host.call.bind(host);
+  host.call = <R>(op: string, params: unknown): Promise<R> => {
+    if (op !== GitHubOps.checks) return call<R>(op, params);
+    host.calls.push({ op, params });
+    return Promise.resolve({ checks: mockChecksPassed, reading } as R);
+  };
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  // Settled checks kept while the host reads again (a re-run just started): the page asks again.
+  const checksTimer = [...timers].reverse().find((timer) => timer.ms === CHECKS_MS);
+  expect(checksTimer).toBeDefined();
+  reading = false;
+  const before = timers.length;
+  checksTimer!.run();
+  await settle();
+  expect(timers.slice(before).some((timer) => timer.ms === CHECKS_MS)).toBe(false);
+});
+
+test("a new head never shows the old head's checks", async () => {
+  const host = new RichHost();
+  let answer = mockChecks;
+  const call = host.call.bind(host);
+  host.call = <R>(op: string, params: unknown): Promise<R> => {
+    if (op !== GitHubOps.checks) return call<R>(op, params);
+    host.calls.push({ op, params });
+    return Promise.resolve({ checks: answer, reading: false } as R);
+  };
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  expect(store.getSnapshot().checks?.head).toBe(mockChecks.head);
+  // A push: the details carry the new head, so the old head's checks go and the new head's are asked for.
+  const pushed = "b".repeat(40);
+  host.detailsReplies.push({ details: { ...mockDetails, headCommit: pushed } });
+  host.replies.push({ pullRequest: { ...mockPullRequest, updatedAt: "2026-11-06T00:00:00Z" }, fetchedAt: 2 });
+  await store.ask();
+  await settle();
+  await settle();
+  expect(store.getSnapshot().details?.headCommit).toBe(pushed);
+  expect(store.getSnapshot().checks).toBeUndefined();
+  const last = host.calls.filter((each) => each.op === GitHubOps.checks).at(-1);
+  expect(last?.params).toEqual({ url: MOCK_URL, head: pushed });
+  // The host still answers the old head: not drawn, and asked again shortly.
+  const before = timers.length;
+  await store.loadChecks();
+  expect(store.getSnapshot().checks).toBeUndefined();
+  expect(timers.slice(before).some((timer) => timer.ms === CHECKS_MS)).toBe(true);
+  answer = { ...mockChecks, head: pushed };
+  await store.loadChecks();
+  expect(store.getSnapshot().checks?.head).toBe(pushed);
+});
+
+test("another pull request's checks are asked while the last one's ask is still out", async () => {
+  const host = new RichHost();
+  const pending: { url: string; resolve: (reply: unknown) => void }[] = [];
+  const call = host.call.bind(host);
+  host.call = <R>(op: string, params: unknown): Promise<R> => {
+    if (op !== GitHubOps.checks) return call<R>(op, params);
+    const url = (params as { url: string }).url;
+    return new Promise<R>((resolve) => pending.push({ url, resolve: resolve as (reply: unknown) => void }));
+  };
+  const other = "https://github.com/example/app/pull/483";
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  expect(pending.map((ask) => ask.url)).toEqual([MOCK_URL]);
+  host.replies.push({ pullRequest: { ...mockPullRequest, number: 483, url: other }, fetchedAt: 2 });
+  await store.route(route(other));
+  await settle();
+  // The new pull request's ask goes out at once, not after the old one's answer.
+  expect(pending.map((ask) => ask.url)).toEqual([MOCK_URL, other]);
+  pending[0]!.resolve({ checks: mockChecks, reading: false });
+  await settle();
+  expect(store.getSnapshot().checks).toBeUndefined();
+  pending[1]!.resolve({ checks: { ...mockChecks, head: mockChecks.head }, reading: false });
+  await settle();
+  expect(store.getSnapshot().checks?.jobs.length).toBe(mockChecks.jobs.length);
 });

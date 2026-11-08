@@ -57,6 +57,8 @@
 .acpmux-chat-menu-image{flex:none;display:block;width:14px;aspect-ratio:1;border-radius:50%;object-fit:cover}
 .ui-menu-item.acpmux-chat-menu-item[data-highlighted],.ui-menu-item.acpmux-chat-menu-item[data-popup-open]{background:var(--acpmux-menu-hover);outline:none}
 .ui-menu-item.acpmux-chat-menu-item[data-disabled]{color:var(--agent-muted);opacity:1}
+/* Delete Machine… and a paused machine's near delete date: the danger colour, its glyph too, even on a row no click runs. */
+.ui-menu-item.acpmux-chat-menu-item.ui-menu-item-destructive,.ui-menu-item.acpmux-chat-menu-item.ui-menu-item-destructive>svg{color:var(--cmux-app-danger,var(--agent-danger,var(--agent-text)))}
 .acpmux-chat-menu-label{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .acpmux-chat-menu-key{flex:none;color:var(--agent-muted);font-family:var(--font-ui);font-size:var(--text-detail);line-height:18px;letter-spacing:var(--text-detail--letter-spacing)}
 .ui-popup.acpmux-chat-menu-popover .ui-separator{height:.5px;margin:4px 8px;background:var(--agent-border)}
@@ -76,11 +78,10 @@
 .acpmux-header-status-content{display:flex;align-items:center;gap:4px;min-width:0;height:var(--acpmux-header-control-height)}
 /* The chat's name (ThreadTitle.tsx): plain text with no fill in any state, not a menu button. */
 .acpmux-thread-title{display:block;min-width:0;max-width:44vw;padding:0 4px;color:var(--agent-text);font-size:var(--text-control);font-weight:var(--weight-emphasis);line-height:var(--acpmux-header-control-height,26px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default;user-select:none}
-.acpmux-delete-dialog{max-width:360px;padding:var(--ui-popup-padding);color:var(--agent-text)}
+.acpmux-delete-dialog{max-width:360px;padding:var(--ds-space-4);color:var(--agent-text)}
 .acpmux-delete-dialog h2{margin:0;color:inherit;font-size:var(--text-control);font-weight:var(--weight-emphasis)}
 .acpmux-delete-dialog p{margin:8px 0 16px;color:var(--agent-muted);font-size:var(--text-detail)}
 .acpmux-delete-dialog-actions{display:flex;justify-content:flex-end;gap:8px}
-.acpmux-delete-dialog-confirm{background:var(--agent-status-failure);color:var(--agent-on-accent,var(--acpmux-base))}
 .acpmux-header-status-content>.acpmux-env-line{position:static;inset:auto;flex:0 1 auto;min-width:0;max-width:min(42vw,360px);height:var(--acpmux-header-control-height)}
 .acpmux-status{position:absolute;inset:0;display:flex;align-items:center;gap:5px;color:var(--agent-muted);font-size:var(--text-detail);overflow:hidden;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-status>svg{flex:none}
@@ -195,6 +196,28 @@
 :root[data-reduce-transparency] .acpmux-stage[data-solo-tab]>.acpmux-header[data-tab-row]::before{content:none}
 
 .acpmux-worktree-apply>output{font-variant-numeric:tabular-nums}
+/* The three controls (headerTrio.ts, Debug agentChat.headerControls): "...", the panel toggle and New. Three
+   fixed controls never fold or wrap: the title gives way first, at any pane width. */
+.acpmux-header-tools[data-header-controls=trio]{flex:none;flex-wrap:nowrap}
+/* New is one split control: the face makes the last kind again, the narrow chevron lists them all. */
+.acpmux-header-new{flex:none;display:inline-flex;align-items:center}
+.acpmux-header-tools .acpmux-header-new .acpmux-header-new-face{border-start-end-radius:0;border-end-end-radius:0}
+.acpmux-header-tools .acpmux-header-new .acpmux-header-new-more{width:14px;border-start-start-radius:0;border-end-start-radius:0}
+/* The menu's preview of where the kind under the pointer opens: the chat, and the new tab right of it. */
+.acpmux-header-new-popover{min-width:220px}
+.acpmux-header-new-preview{margin:4px 4px 8px;padding:8px;border-radius:var(--ds-radius-md,6px);background:color-mix(in srgb,var(--agent-text) 5%,transparent);font-size:var(--text-caption);line-height:1.3}
+.acpmux-header-new-preview-pane{display:grid;grid-template-columns:1fr 1fr;gap:4px;aspect-ratio:5/2;margin-bottom:8px}
+.acpmux-header-new-preview-chat,.acpmux-header-new-preview-tab{border-radius:4px}
+.acpmux-header-new-preview-chat{display:flex;flex-direction:column;justify-content:flex-end;gap:4px;padding:8px;background:color-mix(in srgb,var(--agent-text) 6%,transparent)}
+.acpmux-header-new-preview-chat>i{display:block;border-top:3px solid color-mix(in srgb,var(--agent-text) 18%,transparent);border-radius:4px}
+.acpmux-header-new-preview-chat>i:nth-child(2){width:70%}
+.acpmux-header-new-preview-tab{display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 14%,transparent);color:var(--agent-lit-glyph,var(--agent-accent,var(--agent-text)))}
+.acpmux-header-new-preview-text{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.acpmux-header-new-preview-name{font-weight:var(--weight-emphasis);color:var(--agent-text)}
+.acpmux-header-new-preview-detail{display:grid;margin-top:4px;color:var(--agent-muted)}
+.acpmux-header-new-preview-detail>span{grid-area:1/1}
+.acpmux-header-new-preview-detail>span:not([data-shown]){visibility:hidden}
+
 
 /* ---------- Header icon motion (headerMotion.ts, Debug Settings agentChat.headerMotion) ----------
    Only with a style other than `still` (the shipped header sets no data-header-motion). Transform and

@@ -88,6 +88,10 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_HANDOFF_DISCARD,
     "_acpmux/peers",
     "_acpmux/peer_status",
+    // This daemon's own queue and audit trail (`hub/review_queue.rs`, `hub/audit_log.rs`).
+    method::MUX_REVIEW_QUEUE,
+    method::MUX_REVIEW_VERDICT,
+    method::MUX_AUDIT,
     // Names a peer machine, never a session (`vm_host.rs`).
     "_acpmux/vm_host",
     // Every live chat on this daemon (`host_notice.rs`).
@@ -380,6 +384,10 @@ async fn forward_inner(
             object.remove("peer");
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut forwarded);
+        super::remote_guard::attest_person(
+            &mut forwarded,
+            super::requests::person_admitted(conn, params),
+        );
         let mut result = peer.request(m, forwarded).await?;
         if let Some(object) = result.as_object_mut() {
             object.insert("peer".into(), Value::String(peer.name.clone()));
@@ -400,6 +408,10 @@ async fn forward_inner(
             object.insert("sessionId".into(), Value::String(id));
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut forwarded);
+        super::remote_guard::attest_person(
+            &mut forwarded,
+            super::requests::person_admitted(conn, params),
+        );
         let mut result = peer.request(m, forwarded).await?;
         if let Some(object) = result.as_object_mut() {
             object.insert("peer".into(), Value::String(peer.name.clone()));
@@ -454,6 +466,10 @@ async fn forward_inner(
             {
                 let mut header = json!({"sessionId": id});
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut header);
+                super::remote_guard::attest_person(
+                    &mut header,
+                    super::requests::person_admitted(conn, params),
+                );
                 let mut result =
                     crate::hub::file_uploads::forward_put(&peer, header, params).await?;
                 result.set("peer", json!(peer.name));
@@ -562,8 +578,15 @@ async fn forward_inner(
             }
             return Err(crate::hub::presence::peer_unsupported());
         }
+        // A read the session list's row answers (`ROW_WILL_DO`), while the link's rows are
+        // current: its notices keep the row as current as the peer's answer would be, one round
+        // trip sooner.
+        if m == method::MUX_INFO && row_will_do(params) && peer.rows_current() {
+            return Ok(Some(from_row(&row, &peer.name)));
+        }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
         if let Some(obj) = p.as_object_mut() {
+            obj.remove(ROW_WILL_DO);
             obj.remove("session");
             obj.remove("name");
             obj.insert("sessionId".into(), Value::String(id.clone()));
@@ -573,7 +596,7 @@ async fn forward_inner(
             conn.auth,
             params,
             &mut p,
-            conn.is_person(),
+            super::requests::person_admitted(conn, params),
         );
         // A held prompt names its hold to the peer: a link guest's waits with `approval` left
         // off here, which a peer that reads only `approval` would run unapproved.
@@ -587,6 +610,7 @@ async fn forward_inner(
             super::requests::person_stop::mark(conn, params, &peer, &mut p);
         }
         bound_page(m, params, &mut p);
+        drop_local_kinds(&mut p);
         // This connection's own reopen hears the chat's messages again; the replay comes over
         // the link every viewer here shares (`MessageNotices`).
         if matches!(m, method::SESSION_LOAD | method::SESSION_RESUME) {
@@ -917,6 +941,14 @@ async fn forward_inner(
         if purge {
             hub.forget_remote((&peer.name, peer.generation), &id, asked);
         }
+        // Qualify race references only for the local viewer, after saving the raw peer page.
+        if conn.origin != Origin::Peer
+            && let Some(events) = result.get_mut("events").and_then(Value::as_array_mut)
+        {
+            for event in events {
+                super::races::peer::qualify_event(&peer.name, event);
+            }
+        }
         if let Some(obj) = result.as_object_mut() {
             obj.insert("peer".into(), Value::String(peer.name.clone()));
         }
@@ -989,6 +1021,30 @@ pub(crate) fn strip_asks(hub: &Hub, peer: &str, id: &str, m: &str, result: &mut 
     }
 }
 
+/// An `_acpmux/info`'s flag: the session list's row will do for its answer. For a peer's chat
+/// whose link's rows are current ([`crate::peer::Peer::rows_current`]), this daemon answers from
+/// its mirrored row instead of asking the peer (`acpmux send` saves a round trip over the link).
+/// The answer says `row: true`. Never sent on to the peer.
+///
+/// A send's `_acpmux/attach` still goes to the peer: attaches from several clients here share
+/// the link's one subscription at the peer and are applied there in no fixed order, so this
+/// daemon cannot know which `kinds` filter that subscription has.
+pub const ROW_WILL_DO: &str = "row";
+
+fn row_will_do(params: &Value) -> bool {
+    params.get(ROW_WILL_DO).and_then(Value::as_bool) == Some(true)
+}
+
+/// A peer chat's mirrored row as a read's answer, marked so (`ROW_WILL_DO`).
+fn from_row(row: &Value, peer: &str) -> Value {
+    let mut reply = row.clone();
+    if let Some(obj) = reply.as_object_mut() {
+        obj.insert("peer".into(), json!(peer));
+        obj.insert(ROW_WILL_DO.into(), json!(true));
+    }
+    reply
+}
+
 /// `_meta.acpmux` field of a forwarded `permission_respond`: how many
 /// daemons forwarded it so far.
 pub const PEER_HOPS_FIELD: &str = "peerHops";
@@ -996,6 +1052,15 @@ pub const PEER_HOPS_FIELD: &str = "peerHops";
 /// daemons that each list the session as the other's cannot pass an
 /// answer back and forth without end.
 pub const MAX_PEER_HOPS: u64 = 4;
+
+/// The sudo card's record kinds (`hub/elevation.rs`) stay off a forwarded read: a peer chat never
+/// has one (elevation is this daemon's own chats only), and a peer on an older build refuses an
+/// attach or read naming more than 8 kinds, which a phone asking for them would then hit.
+fn drop_local_kinds(forwarded: &mut Value) {
+    if let Some(kinds) = forwarded.get_mut("kinds").and_then(Value::as_array_mut) {
+        kinds.retain(|k| !matches!(k.as_str(), Some("elevation_request" | "elevation_decision")));
+    }
+}
 
 /// A history read (`attach`, `events`) goes to the peer with the byte limit this daemon would
 /// page to: a peer on an older build has no limit of its own and answers in one reply however
@@ -1046,6 +1111,29 @@ pub(super) fn strip_new_meta(p: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A phone's read of a peer chat keeps within the kinds an older peer takes: the sudo card's
+    /// kinds, which a peer chat never has, are dropped (review F1 of cc3c3cf).
+    #[test]
+    fn a_forwarded_read_leaves_the_sudo_card_kinds_here() {
+        let kinds = [
+            "transcript",
+            "queue_updated",
+            "queue_order",
+            "queue_paused",
+            "queue_resumed",
+            "claude.system.api_retry",
+            "bookmarks",
+            "elevation_request",
+            "elevation_decision",
+        ];
+        let mut p = json!({"sessionId": "s", "kinds": kinds});
+        drop_local_kinds(&mut p);
+        assert_eq!(p["kinds"], json!(&kinds[..7]));
+        let mut none = json!({"sessionId": "s"});
+        drop_local_kinds(&mut none);
+        assert_eq!(none, json!({"sessionId": "s"}));
+    }
 
     /// An explicit peer removal must release *every* upload waiting for the
     /// reconnect. The old waiter listened only to completed connection attempts,
@@ -1242,3 +1330,7 @@ mod message_identity_tests {
         assert_eq!(forwarded_message_id(&with(json!({"promptId": "p"}))), "p");
     }
 }
+
+#[cfg(test)]
+#[path = "row_read_tests.rs"]
+mod row_read_tests;

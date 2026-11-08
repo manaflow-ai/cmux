@@ -192,3 +192,27 @@ test("a change counts one interval, however many changes one frame draws", () =>
   expect(summaries.map((stats) => stats.n)).toEqual([2]);
   expect(summaries[0]!.max).toBe(16);
 });
+
+// Chromium refuses a `setTimeout` called with another receiver ("Illegal invocation"). The log's
+// default timer is called as its own method, so it must not be the bare function: in Chromium the
+// first record threw, and the transcript's mount record then broke the pane's first draw.
+test("the default timer runs with the global receiver, as Chromium requires", () => {
+  const real = globalThis.setTimeout;
+  const receivers: unknown[] = [];
+  const strict = function (this: unknown, run: () => void, ms?: number) {
+    receivers.push(this);
+    if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation");
+    return real(run, ms);
+  };
+  globalThis.setTimeout = strict as unknown as typeof setTimeout;
+  try {
+    const sent: FlickerEvent[][] = [];
+    const log = new FlickerLog((events) => sent.push(events));
+    expect(() => log.transcriptMounted()).not.toThrow();
+    log.flush();
+    expect(sent).toHaveLength(1);
+    expect(receivers).toHaveLength(1);
+  } finally {
+    globalThis.setTimeout = real;
+  }
+});

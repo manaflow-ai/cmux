@@ -131,6 +131,41 @@ await requireBrowserLane("newtab-machine-menu.test.ts", async () => {
     }
   });
 
+  // #37858: a leaving row's whole box collapses, padding included, so its last frame is 0 tall and
+  // its removal moves nothing (Leo, 2026-11-07: "some sort of nice, comfortable transition").
+  test("a leaving row's last frame is 0 tall, padding included", async () => {
+    const page = await open("where", 760);
+    try {
+      const m = await page.evaluate(() => {
+        const item = document.querySelector<HTMLElement>('.acpmux-env-popover [role="option"]')!;
+        const before = item.getBoundingClientRect().height;
+        item.querySelector<HTMLElement>(".acpmux-env-row")!.dataset.rowMotion = "leave";
+        const animations = item.getAnimations();
+        for (const animation of animations) {
+          animation.pause();
+          const end = animation.effect?.getComputedTiming().endTime;
+          animation.currentTime = typeof end === "number" ? end : 0;
+        }
+        const style = getComputedStyle(item);
+        return {
+          before,
+          animations: animations.length,
+          last: item.getBoundingClientRect().height,
+          paddingTop: style.paddingTop,
+          paddingBottom: style.paddingBottom,
+        };
+      });
+      log.push(["leave-last-frame", JSON.stringify(m)].join("\t"));
+      expect(m.before).toBeGreaterThan(0);
+      expect(m.animations).toBeGreaterThan(0);
+      expect(m.last).toBe(0);
+      expect(m.paddingTop).toBe("0px");
+      expect(m.paddingBottom).toBe("0px");
+    } finally {
+      await page.close();
+    }
+  });
+
   test("a pointer click on the permission button opens its menu", async () => {
     const page = await open("closed", 760);
     try {
@@ -209,8 +244,8 @@ await requireBrowserLane("newtab-machine-menu.test.ts", async () => {
           "\t",
         ),
       );
-      expect(first).toEqual(["This Mac", "Cloud", "Another machine"]);
-      expect(settled).toEqual(["This Mac", "Sign in for Cloud", "Another machine"]);
+      expect(first).toEqual(["This Mac", "Cloud", "Remote"]);
+      expect(settled).toEqual(["This Mac", "Sign in for Cloud", "Remote"]);
       expect(await height()).toBe(before);
     } finally {
       await page.close();

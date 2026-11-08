@@ -235,7 +235,7 @@
    "yeah chatgpt codex has nicer ways to deal with stuff"). A chip without its name keeps its icon,
    its tooltip and its accessible name. test/composer-location-strip.test.ts holds each step.
    Without a branch (a new chat with no project, as on a fresh home):
-   - Another machine (Where "Another machine", Machine "gpu-box" and its dot): all named from 396 px,
+   - Remote (Where "Remote", Machine "gpu-box" and its dot): all named from 396 px,
      Where named from 340 px.
    - This Mac and Cloud (no Machine chip beside Where since cmux NEXT's Cloud is one pick), and the
      one combined control (a started chat's, the combined and cloud-toggle arms): named from 238 px.
@@ -601,25 +601,15 @@
    plainFooter): Claude Code desktop's footer, text at rest. Neither look draws a pill at rest
    (styles.css); a chip draws no fill or ring until it is hovered, keyboard-focused, pressed or
    open. The model's name
-   (any form of it) is muted like effort and the mode, the model's brand mark is hidden (chevrons
-   stay), and Plan when on is accent text only. The mode keeps its symbol beside its label, as
-   Codex's "(!) Full access" (Leo 2026-10-21: "symbol plus its label"). Hover, keyboard focus and an
-   open menu draw the row's wash. Once the row's fit steps (composerRowFit.ts: the composer's
-   container queries, or data-fit-model / data-fit-access when a label is too long for its step)
-   take the model's name or the mode's label away, its mark or symbol alone shows, so neither chip
-   is ever a bare chevron. The widths are COMPOSER_FIT_STEPS modelMark (370) and
-   accessLabelHidden (420); the quiet row (the plain look) has no width steps (below), so there only
-   data-fit-model brings the model's mark back (the mode's symbol always shows). With the plain footer
-   off the row draws the mark as the one row always did. test/composer-footer-plain.test.ts measures it. */
+   (any form of it) is muted like effort and the mode, and Plan when on is accent text only. The
+   model keeps its provider's logo left of its name (cmux#38053: Claude's for Claude models, OpenAI's
+   for Codex and GPT) in its brand colors, as the model menu draws it, and the mode keeps its symbol
+   beside its label, Codex's "(!) Full access" (Leo 2026-10-21: "symbol plus its label"). Hover,
+   keyboard focus and an open menu draw the row's wash. Once the row's fit steps (composerRowFit.ts:
+   the composer's container queries, or data-fit-model / data-fit-access when a label is too long for
+   its step) take the model's name or the mode's label away, its mark or symbol alone shows, so
+   neither chip is ever a bare chevron. test/composer-footer-plain.test.ts measures it. */
 :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] :is(.acpmux-model-name, .acpmux-model-short) { color: inherit; }
-@container composer (width > 370px) {
-  :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"]:not([data-fit-model="icon"]) .acpmux-model .acpmux-picker-button .agent-mark {
-    display: none;
-  }
-}
-.acpmux-composer-foot[data-footer-look="plain"]:not([data-fit-model="icon"]) .acpmux-model .acpmux-picker-button .agent-mark {
-  display: none;
-}
 :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] .acpmux-picker-button:focus-visible,
 :is(.acpmux-composer-bar, .nt-pickers)[data-footer-look="plain"] .acpmux-plan:not([aria-pressed="true"]):focus-visible {
   background: var(--acpmux-row-hover);
@@ -1517,8 +1507,10 @@
    "Where should this chat run?" (Leo, 2026-10-31): This Mac and Cloud; every machine is a list of
    its own (Machines…). No section headers and no second lines; each of the first nine machines ends
    with its ⌥⌘ digit, then the current one's check. */
-/* Its floor beats the folder popover's own rules, whose classes it carries. */
-.acpmux-menu.acpmux-location-menu.acpmux-env-popover { min-width: 220px; }
+/* Its floor beats the folder popover's own rules, whose classes it carries: the location menus'
+   200 px, so This Mac, Cloud and Remote (its longest row now This Mac with its ⌥⌘ digit) are no
+   wider than their fullest row needs (gallery invariants.ts `menu-fit`). */
+.acpmux-menu.acpmux-location-menu.acpmux-env-popover { min-width: 200px; }
 /* Its rows as the model picker's and every other menu's (design/menus.md, popupSurface.css): the
    neutral menu wash (--acpmux-menu-hover, as .acpmux-quick-item), no accent tint and no focus bar,
    inset 5 from the popup's edges at radius 5, the icon at the shared 15 leading. The highlight is
@@ -1718,13 +1710,17 @@
    some sort of nice, comfortable transition"). The list opens with its final rows, so this runs
    only for a real change; Reduce Motion and the app's motion switch drop it (the row is there or
    gone in one frame). A leaving row is disabled while it goes. */
+/* The row's whole box moves: its vertical padding goes with its height (the row is border-box,
+   so a max-height of 0 alone left its 5 px above and below, and the row's removal after the
+   motion was a 10 px jump; #37858). Its last frame is 0 tall, padding included, so removing it
+   moves nothing (test/newtab-machine-menu.test.ts). */
 @keyframes acpmux-env-row-in {
-  from { min-height: 0; max-height: 0; opacity: 0; }
+  from { min-height: 0; max-height: 0; padding-block: 0; opacity: 0; }
   to { max-height: var(--ui-row-height); opacity: 1; }
 }
 @keyframes acpmux-env-row-out {
   from { max-height: var(--ui-row-height); opacity: 1; }
-  to { min-height: 0; max-height: 0; opacity: 0; }
+  to { min-height: 0; max-height: 0; padding-block: 0; opacity: 0; }
 }
 .acpmux-env-popover .acpmux-menu-item:has(> [data-row-motion="leave"]) { pointer-events: none; }
 @media (prefers-reduced-motion: no-preference) {

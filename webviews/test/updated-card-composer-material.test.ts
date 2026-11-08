@@ -36,6 +36,17 @@ test("the shared edge is the composer's edge share, one hairline on every side",
   expect(declaration(material, "--composer-material-ring")).toContain("inset 0 0 0 var(--cmux-hairline");
 });
 
+/** What a `color-mix(in srgb, A N%, B)` value mixes toward: its last argument, B. */
+const mixTarget = (value: string) => /,\s*([^,]+(?:\([^()]*(?:\([^()]*\))?[^()]*\))?)\s*\)$/.exec(value)?.[1]?.trim();
+
+test("the shared edge mixes toward the page under it, as the composer's does, so an opaque theme draws the same line", () => {
+  const composer = mixTarget(declaration(composerStyles, "--acpmux-composer-edge"));
+  const shared = mixTarget(declaration(material, "--composer-material-edge"));
+  expect(composer).toStartWith("var(--agent-page-bg");
+  expect(shared).toStartWith("var(--agent-page-bg");
+  expect(shared).not.toBe("transparent");
+});
+
 test("the shared rim is the composer's top-lit rim", () => {
   expect(shares(declaration(material, "--composer-material-rim"))).toEqual(
     shares(declaration(composerStates, "--acpmux-composer-rim")),
@@ -83,4 +94,22 @@ test("the doodle-decorated card wears the same material", () => {
   const doodle = /<section[^>]*data-decoration="doodle"[^>]*>/s.exec(tsx)?.[0] ?? "";
   expect(doodle).toContain('data-composer-material=""');
   expect(doodle).not.toContain("ui-glass");
+});
+
+// Review F1 of #37743: the composer wears the shared glass material (glass.css "GLASS MATERIAL":
+// its specular rim and two-step depth), so the card beside it reads the same rim and depth, under the
+// same conditions: not under Reduce Transparency, and not the lens's own rim over a see-through window.
+test("where the composer wears the glass material, the card's rim and depth are that material's", () => {
+  const override = /@media not \(prefers-reduced-transparency: reduce\) \{([\s\S]*?)\n\}/.exec(material)?.[1] ?? "";
+  expect(override).toContain("--composer-material-rim: var(--glass-material-rim)");
+  expect(override).toContain("--composer-material-depth: var(--glass-material-depth)");
+  expect(override).toContain("data-reduce-transparency");
+  expect(override).toMatch(/data-cmux-see-through[^{]*data-glass="lens"/);
+  expect(declaration(material, "--composer-material-depth")).toBe("0 0 transparent");
+  for (const selector of ["\\.wn-card\\.wn-updated", '\\.wn-card\\[data-decoration="doodle"\\]']) {
+    const surface = new RegExp(`${selector} \\{([^}]*)\\}`).exec(card)?.[1] ?? "";
+    expect(surface).toContain(
+      "box-shadow: var(--composer-material-ring), var(--composer-material-rim), var(--composer-material-depth)",
+    );
+  }
 });

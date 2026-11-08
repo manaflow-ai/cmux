@@ -35,12 +35,13 @@ import { waveProps } from "../../../ui/wave";
 import { Spinner } from "../conversation/icons";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import type { SubagentStatus } from "../summary/SubagentStatusList";
+import type { SubagentStatus } from "../summary/subagentStatusListModel";
 import type { Subagent } from "./subagentFold";
 import { TonedIcon } from "./TonedIcon";
+import { SenderIcon } from "./SenderIcon";
 import { useAgentProgress } from "./agentProgressStore";
 import { Tick } from "./trayMotion";
-import { DoneMark, type DoneLook } from "./DoneMark";
+import { DoneCheck, DoneMark, type DoneLook } from "./DoneMark";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -76,7 +77,6 @@ export function AgentLine({
   latestAt = "below",
   latestCode = false,
   via,
-  nameLink,
   lean = false,
   doneLook = "words",
 }: {
@@ -143,8 +143,6 @@ export function AgentLine({
   latestCode?: boolean;
   /// The parent title for nested work.
   via?: string;
-  /// A separate link for the visible name when the row itself opens a command.
-  nameLink?: { href: string; open: () => void };
   /// Session Info's Subagents: its glyph, its name and its time, nothing else. The state is a word on
   /// the line only where it asks for a look (waiting, failed, stopped) or no time shows; screen readers
   /// always hear it (Lucas, 2026-11-05, Session Info lab: "remove the green spinning circle").
@@ -190,6 +188,9 @@ export function AgentLine({
       >
         {working && !timed ? (
           <Spinner size={iconSize} loading />
+        ) : tone !== undefined ? (
+          // An agent or a chat: its sender icon, its family's mark with its badge in its tone.
+          <SenderIcon harness={mark} tone={tone} size={iconSize} fallback={icon} />
         ) : brand ? (
           <AgentMark agent={brand} size={iconSize} fallback={glyph} />
         ) : (
@@ -204,32 +205,7 @@ export function AgentLine({
         ) : (
           kind && <span className="acpmux-agent-line__kind">{kind}</span>
         )}
-        {nameLink ? (
-          <span
-            // It sits inside the row's toggle button, where an anchor or a nested button would be
-            // invalid; the deeplink opens through the pane navigation callback.
-            className="acpmux-summary-agent__name acpmux-agent-line__name-link"
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- nested inside the row toggle
-            role="link"
-            tabIndex={0}
-            data-deeplink={nameLink.href}
-            onClick={(event) => {
-              event.stopPropagation();
-              nameLink.open();
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                event.stopPropagation();
-                nameLink.open();
-              }
-            }}
-          >
-            {name}
-          </span>
-        ) : (
-          <span className="acpmux-summary-agent__name">{name}</span>
-        )}
+        <span className="acpmux-summary-agent__name">{name}</span>
         {detail && detail !== name && <span className="acpmux-summary-agent__kind">{detail}</span>}
         {/* What it does now hands over as a status line does: the old step slides up and out as the
             new one slides in (Leo, 2026-11-07: "the thinking transitions to the tool call ... That
@@ -262,8 +238,9 @@ export function AgentLine({
                 <span className="acpmux-agent-line__sr">{state}</span>
               ) : status === "done" && doneLook !== "words" ? (
                 // A finished line's done mark (DoneMark.tsx) in place of the word and its dot; the
-                // line's own time follows in its column, as every line's does.
-                <DoneMark state={state} look={doneLook} />
+                // line's own time follows in its column, as every line's does, and the check sits in
+                // Stop's slot after it.
+                <DoneMark state={state} look={doneLook} checkInSlot />
               ) : (
                 <>
                   <Tick className="acpmux-summary-agent__state" text={state} />
@@ -281,7 +258,12 @@ export function AgentLine({
           </span>
           {/* Stop's track (the stop slot, outside this button, lies over it), then the chevron's,
               last at the line's end: the column the header's chevron ends in. */}
-          <span className="acpmux-agent-line__stop-track" aria-hidden="true" />
+          {/* A finished line's check takes the Stop square's place, same size and column, so nothing
+              moves when the line ends (Leo, 2026-11-07: "instead of the done on the left, you can just
+              put like a check mark right where this stop square would be"). */}
+          <span className="acpmux-agent-line__stop-track" aria-hidden="true">
+            {status === "done" && doneLook === "check" && <DoneCheck />}
+          </span>
           {chevron && onOpen ? (
             <span className="acpmux-agent-line__chevron" aria-hidden="true">
               <Icon name="disclosure.collapsed" size={ROW_ICON} row />

@@ -12,6 +12,7 @@
 // Gallery files import types only (and pure data helpers), so a test can import every one of them
 // without a DOM (test/gallery-coverage.test.ts). A component host loads its component lazily.
 import type { ComponentType } from "react";
+import type { DiffCommentRecord } from "../comments/types";
 import type { AcpmuxSnapshot } from "../agent-session/acpmux/model";
 import type { AppDetail, Grants, InstalledApp } from "../pages/apps/types";
 import type { CloudMachine, CloudSnapshot } from "../pages/cloud/ops";
@@ -20,7 +21,7 @@ import type { ReleaseNotes } from "../pages/changelog/types";
 import type { PickerSession } from "../pages/icon-picker/host";
 import type { EditorFile, ReadOnlyReason } from "../pages/editor/host";
 import type { HistoryFilter, HistoryGrouping } from "../pages/history/model";
-import type { HistoryEntry } from "../pages/history/types";
+import type { CookieBackup, HistoryEntry } from "../pages/history/types";
 import type { Binding } from "../pages/keybindings/types";
 import type { WidthName } from "./env";
 import { checkReasons, type Play, type PlayChecks, type PlayTarget } from "./play";
@@ -39,6 +40,7 @@ import type {
   HostLists,
   IntegrationsState,
   SharesState,
+  TailnetState,
 } from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
@@ -60,6 +62,8 @@ export type SettingsPageVariant = VariantBase & {
   environments?: CloudEnvironmentsState;
   /** Settings > Privacy and Security > Shared Links fixture state; default the mock's shares. */
   sharedLinks?: SharesState;
+  /** Settings > Server > This Mac on Your Tailnet fixture state (null: no tailnet); default signed out. */
+  tailnet?: TailnetState | null;
   /** Settings > Agents over the mock's harness list (`manages: false`: an older acpmux). */
   agents?: Partial<AgentsState>;
   /** Settings > Agents > Harnesses; default the mock's four. */
@@ -174,7 +178,7 @@ export type AgentPaneVariant = VariantBase & {
   /** Fields of the `ready` answer the app sends (newTab, draft, newSession, machineName, ...). */
   ready?: Record<string, unknown>;
   /** Fields over the theme the app pushes (`applyTheme`, AgentPaneTheme.swift), such as a Debug
-   *  Settings value it carries (`chatWidth`). */
+   *  Settings value it carries (`codexToolRuns`). */
   theme?: Record<string, unknown>;
   /** The snapshot the bridge delivers after `ready`. */
   snapshot: AcpmuxSnapshot;
@@ -206,7 +210,8 @@ export type AgentPaneVariant = VariantBase & {
     login?: { kind: "terminal" | "route"; command?: string; host?: string | null; routeId?: string | null };
   };
   /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null.
-   * `{ nativeError: {code, userMessage?} }` answers as the app refusing the call. */
+   * `{ nativeError: {code, userMessage?} }` answers as the app refusing the call. A function is
+   * called with the call's params for its answer (one too large to write out, made when asked). */
   native?: Record<string, unknown>;
   /** Gallery-only answers for the reply chips and preview card's host calls. */
   chipHost?: ChipHostFixture;
@@ -268,6 +273,10 @@ export type DiffPageVariant = VariantBase & {
   sourceOptions?: SourceOption[];
   /** A machine error while the loaded diff remains visible. */
   fingerprintError?: { code: string; message: string };
+  /** Saved review comments the in-page host lists (`comments.list`). */
+  comments?: DiffCommentRecord[];
+  /** The host sends comments to the diff's chat (Send to agent). */
+  commentsSend?: boolean;
 };
 
 /** The App Store page on an in-page cmuxPage host serving its supervisor projection. */
@@ -356,6 +365,8 @@ export type EditorPageVariant = VariantBase & {
 /** The history page (src/pages/history) on a cmuxPage host with timeline entries. */
 export type HistoryPageVariant = VariantBase & {
   entries?: HistoryEntry[];
+  /** The app's cookie backups (the Cookie Backups panel). */
+  cookieBackups?: CookieBackup[];
   loading?: boolean;
   error?: "network" | "permission" | "not-found";
   query?: {
@@ -364,6 +375,8 @@ export type HistoryPageVariant = VariantBase & {
     grouping?: HistoryGrouping;
     selectIndex?: number;
     menuIndex?: number;
+    /** Opens the Cookie Backups panel. */
+    cookieBackups?: boolean;
   };
 };
 

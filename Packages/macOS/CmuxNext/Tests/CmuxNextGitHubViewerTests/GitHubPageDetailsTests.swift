@@ -63,6 +63,80 @@ struct GitHubPageDetailsTests {
         #expect(GitHubPullRequestDetails.parse(Data(#"{"data": {"repository": null}}"#.utf8)) == nil)
     }
 
+    /// GitHub's own rendering of each body goes to the page beside its Markdown (Leo, 2026-11-07: "is it
+    /// possible to, like, just add the rendering for the links"), whole or not at all.
+    @Test func eachBodyCarriesGitHubsRenderingWholeOrNotAtAll() throws {
+        #expect(GitHubPullRequestDetails.query.contains("body bodyHTML headRefOid"))
+        #expect(GitHubPullRequestDetails.query.components(separatedBy: "bodyHTML").count - 1 == 4)
+        let long = String(repeating: "x", count: GitHubPullRequestDetails.maximumHTML + 1)
+        let answer = #"""
+            {"data": {"repository": {"pullRequest": {"body": "Hi", "bodyHTML": "<p>Hi</p>", "headRefOid": "",
+              "comments": {"totalCount": 1, "nodes": [{"author": {"login": "bot"}, "body": "b", "bodyHTML": "\#(long)", "createdAt": "2026-11-07T01:00:00Z"}]},
+              "reviews": {"totalCount": 1, "nodes": [{"author": {"login": "rabbit"}, "state": "COMMENTED", "body": "r",
+                "bodyHTML": "<details><summary>More</summary><p>r</p></details>", "submittedAt": "2026-11-07T02:00:00Z",
+                "comments": {"nodes": [{"path": "a.yml", "line": 3, "body": "c", "bodyHTML": "<p><sup>c</sup></p>"}]}}]}
+            }}}}
+            """#
+        let details = try #require(GitHubPullRequestDetails.parse(Data(answer.utf8)))
+        #expect(details.html == "<p>Hi</p>")
+        #expect(details.conversation.map(\.html) == ["", "<details><summary>More</summary><p>r</p></details>"])
+        #expect(details.conversation[1].comments.first?.html == "<p><sup>c</sup></p>")
+        let json = details.json
+        #expect(json["html"]?.stringValue == "<p>Hi</p>")
+        guard case .array(let entries)? = json["conversation"], entries.count == 2,
+              case .array(let inline)? = entries[1]["comments"], let first = inline.first else {
+            Issue.record("the conversation's JSON lost its shape")
+            return
+        }
+        #expect(first["html"]?.stringValue == "<p><sup>c</sup></p>")
+    }
+
+    /// The conversation's filters: "Mine" needs the signed-in login, "Unresolved" each review comment's thread.
+    @Test func theReadCarriesTheViewerAndEachThreadsState() throws {
+        #expect(GitHubPullRequestDetails.query.contains("viewer { login }"))
+        #expect(GitHubPullRequestDetails.query.contains("reviewThreads(last: 100) { nodes { isResolved"))
+        let open = "https://github.com/manaflow-ai/cmux/pull/1#discussion_r1"
+        let done = "https://github.com/manaflow-ai/cmux/pull/1#discussion_r2"
+        let answer = #"""
+            {"data": {"viewer": {"login": "teamleaderleo"}, "repository": {"pullRequest": {"body": "", "headRefOid": "",
+              "reviews": {"totalCount": 1, "nodes": [{"author": {"login": "rabbit"}, "state": "COMMENTED", "body": "",
+                "submittedAt": "2026-11-07T02:00:00Z", "comments": {"nodes": [
+                  {"path": "a.yml", "line": 3, "body": "open", "url": "\#(open)"},
+                  {"path": "a.yml", "line": 9, "body": "done", "url": "\#(done)"},
+                  {"path": "b.yml", "line": 1, "body": "unknown", "url": null}]}}]},
+              "reviewThreads": {"nodes": [
+                {"isResolved": false, "comments": {"nodes": [{"url": "\#(open)"}]}},
+                {"isResolved": true, "comments": {"nodes": [{"url": "\#(done)"}]}}]}
+            }}}}
+            """#
+        let details = try #require(GitHubPullRequestDetails.parse(Data(answer.utf8)))
+        #expect(details.viewer == "teamleaderleo")
+        #expect(details.conversation.first?.comments.map(\.resolved) == [false, true, nil])
+        #expect(details.json["viewer"]?.stringValue == "teamleaderleo")
+    }
+
+    @Test func oneReadSendsAtMostItsHTMLBudgetTheDescriptionAndNewestFirst() throws {
+        // Each body fits its own cap; together they pass the read's budget.
+        let size = GitHubPullRequestDetails.maximumHTML - 10
+        let each = GitHubPullRequestDetails.maximumTotalHTML / size + 2
+        let big = String(repeating: "x", count: size)
+        let comments = (0..<each).map { index in
+            #"{"author": {"login": "bot"}, "body": "b", "bodyHTML": "\#(big)", "createdAt": "2026-11-07T\#(String(format: "%02d", index)):00:00Z"}"#
+        }.joined(separator: ",")
+        let answer = #"""
+            {"data": {"repository": {"pullRequest": {"body": "Hi", "bodyHTML": "\#(big)", "headRefOid": "",
+              "comments": {"totalCount": \#(each), "nodes": [\#(comments)]}}}}}
+            """#
+        let details = try #require(GitHubPullRequestDetails.parse(Data(answer.utf8)))
+        #expect(details.html == big)
+        let sent = details.html.utf8.count + details.conversation.reduce(0) { $0 + $1.html.utf8.count }
+        #expect(sent <= GitHubPullRequestDetails.maximumTotalHTML)
+        // The newest keep theirs; the oldest draw their Markdown.
+        #expect(details.conversation.last?.html == big)
+        #expect(details.conversation.first?.html == "")
+        #expect(details.conversation.count == each)
+    }
+
     @Test func theDetailsAreReadOncePerPullRequestHoweverOftenThePageAsks() async throws {
         let calls = Calls()
         let provider = GitHubPageProvider(cache: Self.cache(), diffReader: { _ in nil }, detailsReader: { _ in
@@ -74,6 +148,22 @@ struct GitHubPageDetailsTests {
             #expect(reply["details"]?["headCommit"]?.stringValue == Self.head)
         }
         #expect(calls.reads == 1)
+    }
+
+    @Test func aNewUpdatedAtReadsTheDetailsAgainAtOnce() async throws {
+        let calls = Calls(), cache = Self.cache()
+        let provider = GitHubPageProvider(cache: cache, diffReader: { _ in nil }, detailsReader: { _ in
+            await MainActor.run { calls.reads += 1 }
+            return GitHubPullRequestDetails.parse(Data(Self.answer.utf8))
+        }, openWeb: { _, _ in false }, openDiff: { _, _, _, _ in false })
+        let params: JSONValue = ["url": .string(Self.pull.absoluteString)]
+        _ = try await provider.call("cmux.github.pr.details", params: params, context: Self.page)
+        // A comment lands: the cache's updatedAt moves, so the next ask reads, inside the minute.
+        let view = #"{"url": "\#(Self.pull.absoluteString)", "number": 36002, "updatedAt": "2026-11-07T09:00:00Z"}"#
+        cache.seed(try #require(AgentPanePullRequest(ghView: Data(view.utf8))), for: Self.pull)
+        _ = try await provider.call("cmux.github.pr.details", params: params, context: Self.page)
+        _ = try await provider.call("cmux.github.pr.details", params: params, context: Self.page)
+        #expect(calls.reads == 2)
     }
 
     @Test func mergeIsPinnedToTheShownHeadAndNeedsAClick() async throws {

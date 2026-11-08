@@ -135,6 +135,11 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.groupHeader.background`: a group header's background is glass, solid, or (the default, `auto`)
     /// glass where the sidebar is see-through and solid where it is opaque. It always shows (Lawrence 2026-11-05).
     public var groupHeaderBackground: SidebarGroupBackgroundStyle = .auto
+    /// `sidebar.groupPalette` (``GroupPalette``): where group colors come from, and whether a new group takes the
+    /// palette's next color. Pure glass by default: a new group has no color until a person picks one.
+    public var groupPalette: GroupPalette = .glass
+    /// `sidebar.groupGradient` (``GroupGradient``): the gradient the ``GroupPalette/gradient`` palette steps through.
+    public var groupGradient: GroupGradient = .sunset
     /// Compact (the default), comfortable or expanded workspace rows
     /// (`sidebar.density`); minimal mode wins over expanded content.
     public var density: SidebarDensity = .compact

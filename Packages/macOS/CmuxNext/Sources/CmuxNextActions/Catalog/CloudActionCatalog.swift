@@ -19,7 +19,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 // --bootstrap lane --bootstrap-script FILE` makes a lane host in one call.
                 arguments: [CatalogArgument.nameString.optional, CatalogArgument.newMachineSizeString, CatalogArgument.persistentBool,
                             CatalogArgument.bootstrapString, CatalogArgument.bootstrapScriptString, CatalogArgument.machineConfigString,
-                            CatalogArgument.repoString],
+                            CatalogArgument.repoString, CatalogArgument.environmentString],
                 cliName: "cloud new-machine", mainMenu: .file
             ),
             ActionDescriptor(
@@ -263,16 +263,6 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 symbol: "arrow.up.left.and.arrow.down.right", surfaces: [.contextMenu],
                 arguments: [CatalogArgument.sizeChoice.optional, CatalogArgument.diskGiBInt], targets: [.machine], cliName: "cloud resize-machine"
             ),
-            // `cmux cloud enroll-machine --target machine:<id> --name lane-vm-1`: ssh from this Mac
-            // through the app's tunnel, and an acpmux peer (CloudMachineEnrollment).
-            ActionDescriptor(
-                id: "cloudEnrollMachine",
-                title: String(localized: "action.cloudEnrollMachine", defaultValue: "Enroll Machine as Agent Host", bundle: .module),
-                keywords: ["vm", "cloud", "ssh", "acpmux", "agent", "host", "peer", "lane", "enroll"], category: .cloud,
-                symbol: "key.horizontal", surfaces: [.palette, .contextMenu], requires: [.cloudWorkspace],
-                arguments: [CatalogArgument.nameString.optional, CatalogArgument.sshKeyString], targets: [.machine],
-                cliName: "cloud enroll-machine"
-            ),
             // `cmux cloud apply-machine-config --target machine:<id> [--machine-config FILE]`: env, secret
             // names and setup from `.cmux/machine.toml` (CloudMachineConfig).
             ActionDescriptor(
@@ -358,7 +348,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             "palette.cloud.snapshot", "palette.cloud.promoteTemplate", "cloudExec", "newCloudMachine", "cloudNewTerminal",
             // The new terminal tab's ids (`surface_id`), so a script can type into it next.
             "cloudSSH",
-            "cloudSetupGitHub", "cloudEnrollMachine",
+            "cloudSetupGitHub",
             // Each answers its machine's id (and the workspace's) once the server is done, so a CLI
             // caller hears a failure instead of OK, and can name the result in the next command.
             "palette.cloud.fork", "palette.cloud.restore", "newCloudWorkspace", "cloudRenameMachine", "cloudKillMachine",

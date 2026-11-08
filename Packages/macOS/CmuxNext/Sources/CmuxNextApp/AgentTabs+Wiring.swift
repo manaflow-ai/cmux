@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextChiefPetWiring
 import CmuxNextCloud
 import CmuxNextCloudCredentials
 import CmuxNextCompat
@@ -159,6 +160,7 @@ extension AgentTabStore {
             guard let services, let avatars = tabs?.agentAvatars else { return [:] }
             return await services.home.agentPageFace(of: chief, avatars: avatars)
         }
+        tabs.mini = services.chiefPetMini
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
         tabs.unsentDrafts = AgentUnsentDrafts(directory: state, files: services.agentPaneStateFiles)
         tabs.unsentDrafts.windowOfTab = { [weak services, weak tabs] key in
@@ -314,6 +316,8 @@ extension AgentTabStore {
             let height = services.paneController(for: pane).flatMap { $0.workspace?.layoutModel.newRowHeight(below: $0.layoutPaneID) } ?? 1000
             services.daemon(for: pane).placeFork(tab.surface, beside: pane, left: left, rowHeight: height) { TabMoves.toNewColumn(tab, anchor: pane, afterColumn: $0, services: services, completion: $1) }
         }
+        tabs.moveToNewWorkspace = { [weak services] key, machine, newWindow in guard let services, let (tab, _) = services.locateTab(key, onMachine: machine), TabPromotion.refusal(tab: tab, services: services) == nil else { return false }; return await TabHandlers.newWorkspaceMove(of: tab, with: [tab], newWindow: newWindow, services: services)() == nil }
+        tabs.holdOutbound = { [weak services] pane, daemon in daemon.store.pane(pane).flatMap { services?.paneController(for: $0) }.map { OutboundTab.begin(in: $0) } }
         tabs.selectInPane = { [weak services] key in
             guard let services, let (tab, pane) = services.locateTabOnAnyMachine(key) else { return }
             // Shown, and no keyboard focus moved: the chat keeps it (an unfocused subagent's tab, AgentBesidePlacement).
@@ -540,6 +544,8 @@ extension AgentTabStore {
             self?.agentAvatarChanged(session)
         }
         model.onChiefFace = { [weak self] chief in await self?.chiefFace?(chief) ?? [:] }
+        model.onMiniSubject = { [weak self] in self?.mini?.subject.chat?.session }
+        model.onShowInMini = { [weak self, weak model] session in if let model, let registry = self?.actionRegistry { self?.mini?.show(session: session, of: model, registry: registry) } }
     }
 
     /// Every agent page (tabs and standalone chats) asks for session `session`'s avatar again: a

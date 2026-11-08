@@ -7,7 +7,7 @@
 //! read), `cmux_cloud_api::Request`'s fields:
 //!
 //! ```json
-//! {"call": "vm.resize", "api": "https://cmux.com", "auth": "stack|owner|worker",
+//! {"call": "vm.domains", "api": "https://cmux.com", "auth": "stack|owner|worker",
 //!  "credential": "…", "refresh": "…", "team": "…", "app_version": "…", "local_only": false,
 //!  "args": {…}}
 //! ```

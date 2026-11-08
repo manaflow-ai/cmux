@@ -32,13 +32,13 @@
     {
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/API/CloudAPIClient.swift",
       "pattern": "route:/api/vm",
-      "count": 23,
+      "count": 14,
       "reason": "debt: the NEXT Cloud REST client's machine calls still use classic /api/vm until cmux-platform's machine API replaces them"
     },
     {
       "file": "cmux-tui/crates/cmux-cloud-api/src/classic.rs",
       "pattern": "route:/api/vm",
-      "count": 8,
+      "count": 7,
       "reason": "keep: a move from Swift to Rust: CloudAPIClient.swift's classic /api/vm machine calls, which the app moves onto through the daemon's cloud.vm.* operations (#37350); goes when cmux-platform's machine API replaces them"
     },
     {
@@ -58,12 +58,6 @@
       "pattern": "route:/api/runs",
       "count": 1,
       "reason": "debt: the sandboxed-run follower's path label names classic /api/runs"
-    },
-    {
-      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Tunnel/CloudTunnelHub.swift",
-      "pattern": "route:/api/vm",
-      "count": 1,
-      "reason": "debt: the WireGuard hub's timeout label names classic /api/vm/tunnel enrollment"
     },
     {
       "file": "cmux-tui/bindings/typescript/code-mode/cloud-relay.mjs",

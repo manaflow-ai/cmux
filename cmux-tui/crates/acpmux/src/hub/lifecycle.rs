@@ -108,6 +108,7 @@ impl Hub {
             route,
             subsession,
             lineage,
+            created_by,
             disallowed_tools,
             checked_cwd,
             additional_directories,
@@ -168,6 +169,11 @@ impl Hub {
             }
             (None, None) => defaults.policy,
         };
+        // Deny-all or review, asked for (or a preset's or profile's), promises protection with no
+        // person to ask: a harness that cannot keep it fails the creation (`policy_mode.rs`
+        // `require_enforced`).
+        let must_hold = !inherits_policy
+            && matches!(policy, Some(PermissionPolicy::DenyAll | PermissionPolicy::Review));
         // `${model}` in argv or env: the model is a spawn parameter, not a set_model call.
         let spawn_model = profile_takes_model_at_spawn(&profile)
             || defaults.env.values().any(|v| v.contains("${model}"));
@@ -278,6 +284,7 @@ impl Hub {
         meta.vm_boundary = remote && vm_boundary;
         meta.subsession = subsession;
         meta.lineage = lineage;
+        meta.created_by = created_by;
         meta.tools
             .off
             .extend(disallowed_tools.iter().map(|t| format!("{}{t}", super::tools::BUILT_IN)));
@@ -314,8 +321,9 @@ impl Hub {
             let mut sessions = self.sessions.lock().unwrap();
             // The shutdown reads the sessions after it starts: a session
             // inserted after that is never ended, so none is (shutdown.rs).
+            // Nothing is made yet: the CLI sends the create to the next daemon.
             if self.shutting_down() {
-                return Err(super::shutdown::shutting_down_error());
+                return Err(super::shutting_down_before_create());
             }
             if sessions.contains_key(&id) || self.importing.lock().unwrap().contains(&id) {
                 return Err(RpcError::invalid_params(format!(
@@ -354,9 +362,9 @@ impl Hub {
                     None => unique_name_among(&sessions, agent),
                 },
             };
+            meta.wait_start = wait_start;
             let session = self.make_session(meta);
             session.person.store(person, Ordering::SeqCst);
-            session.wait_start.store(wait_start, Ordering::SeqCst);
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
                 fork_from.clone();
             // Read before the session is published: a stop from then on ends its first start.
@@ -501,6 +509,9 @@ impl Hub {
                 .await?;
             // Every chat, eligible or not: a preset's or a pinned profile's policy holds too.
             let default = self.config.read().await.permission_policy;
+            if must_hold {
+                super::policy_mode::require_enforced(&session.meta(), default)?;
+            }
             self.note_unenforced_policy(&session, default);
             Ok(())
         })
@@ -602,8 +613,11 @@ impl Hub {
         let off = self.off_latch();
         #[cfg(test)]
         super::full_access_bound::operation_entry(self);
-        // Harness startup can itself run repository hooks and write files.
-        let _repo_ready = super::repo_sync::wait(session, session.meta().cwd, || {
+        // Harness startup can itself run repository hooks and write files. A harness that gates
+        // every tool on the sync itself starts at the repository's head (repo_sync.rs).
+        let head_ok = super::repo_sync::gates_its_tools(profile.kind);
+        let cwd = session.meta().cwd;
+        let _repo_ready = super::repo_sync::wait_for_start(session, cwd, head_ok, || {
             session.stops.load(Ordering::SeqCst) != stops
         })
         .await?;
@@ -924,8 +938,8 @@ impl Hub {
             // (`cpu_class.rs`, item 3). Each try has the whole budget: a caller waits up to twice
             // that (Chief's `SESSION_NEW_DEADLINE`).
             // A start that waits on its harness ends with None only when its harness did no work
-            // for `START_HUNG` (`StartWatch`): a fault, said apart from a missed deadline, which
-            // the Chief retries as a slow machine.
+            // for `START_HUNG` (`StartWatch`): said apart from a missed deadline, so its caller
+            // does not wait on it again; Chief starts a fresh harness (`turn::is_hung_start`).
             let hung =
                 !session.person.load(Ordering::SeqCst) && session.wait_start.load(Ordering::SeqCst);
             if let Some(state) = harness.background().filter(|_| !retried) {
@@ -1271,6 +1285,11 @@ impl Hub {
                 })
             })?
         };
+        // An agent with no host ends with this run, so no earlier run's token is its own
+        // (`caller_registry.rs`).
+        if !self.agent_hosts_enabled() {
+            self.caller_registry.forget(&session.id);
+        }
         // A direct start records the format its command was pinned to (a host's: hosts.rs).
         if let Some(format) = child.preview_format {
             self.record_preview_format(session, format);
@@ -1630,6 +1649,7 @@ impl Hub {
             }
         }
         if !list.is_empty() {
+            self.recheck_live_models(agent, &list);
             self.known_models.lock().unwrap().insert(agent.to_owned(), list);
         }
     }
@@ -1849,8 +1869,22 @@ impl Hub {
         stops: u64,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         // A live full-access harness may execute tools without permission RPCs.
-        // Wait before handing it a new prompt, including the already-live path.
-        let _repo_ready = super::repo_sync::wait(session, session.meta().cwd, || {
+        // Wait before handing it a new prompt, including the already-live path; one that gates
+        // every tool on the sync itself gets its prompt at the repository's head (repo_sync.rs).
+        // A running agent is judged by what it speaks (a reload may change the profile's harness
+        // without replacing it); one started below waits again in `ensure_child`, by its profile.
+        let live = session.child.lock().await.clone();
+        let head_ok = match live {
+            Some(child) => super::repo_sync::child_gates_its_tools(&child),
+            None => {
+                let meta = session.meta();
+                let cfg = self.config.read().await;
+                super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
+                    .is_ok_and(|p| super::repo_sync::gates_its_tools(p.kind))
+            }
+        };
+        let cwd = session.meta().cwd;
+        let _repo_ready = super::repo_sync::wait_for_start(session, cwd, head_ok, || {
             session.stops.load(Ordering::SeqCst) != stops
         })
         .await?;
@@ -2067,7 +2101,10 @@ mod fixed_id_tests {
 /// wait bounds that.
 #[derive(Default)]
 struct StartWatch {
-    last: Option<crate::cpu_class::HarnessState>,
+    /// The read the next is judged against, and when it was taken. Kept until a later read
+    /// shows work or a [`WORK_WINDOW`](crate::cpu_class::WORK_WINDOW) has passed, so a short tick
+    /// sums a launcher's runtime ticks over a whole window instead of judging each alone.
+    last: Option<(crate::cpu_class::HarnessState, std::time::Duration)>,
     idle_since: Option<std::time::Duration>,
 }
 
@@ -2079,8 +2116,16 @@ impl StartWatch {
             self.idle_since = None;
             return false;
         };
-        let worked = self.last.as_ref().is_none_or(|last| state.worked_since(last));
-        self.last = Some(state.clone());
+        let (worked, window_passed) = match &self.last {
+            None => (true, true),
+            Some((last, at)) => {
+                let between = waited.saturating_sub(*at);
+                (state.worked_since(last, between), between >= crate::cpu_class::WORK_WINDOW)
+            }
+        };
+        if worked || window_passed {
+            self.last = Some((state.clone(), waited));
+        }
         if worked {
             self.idle_since = None;
             return false;
@@ -2131,8 +2176,9 @@ impl<'a> ReplayHold<'a> {
 }
 
 /// The error of a start whose harness did no work for `START_HUNG` (`StartWatch`): it waits on
-/// something no wait cures (input, a lock, a sign-in prompt). Not retryable, and worded apart from
-/// a deadline so its creator shows it rather than waiting again.
+/// something no wait cures (input, a lock, a sign-in prompt). Not retryable on this harness (it
+/// is ended), and worded apart from a deadline so its creator does not wait on it again: Chief
+/// tries a fresh harness through its reply ledger and, if none starts, says so (#36028).
 fn start_hung(harness: &crate::cpu_class::HarnessSeen) -> RpcError {
     let mut e = RpcError::new(
         -32000,

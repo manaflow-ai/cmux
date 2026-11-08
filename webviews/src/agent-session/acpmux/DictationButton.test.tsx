@@ -40,6 +40,7 @@ function installDom(): HTMLElement {
       "dictation.start": "Dictate",
       "dictation.stop": "Stop dictation",
       "dictation.cancel": "Cancel dictation",
+      "dictation.dictateWith": "Dictate with {name}",
     },
   };
   return dom.window.document.getElementById("root")!;
@@ -141,4 +142,23 @@ test("Codex's ✕ cancels the session (drops its words), as Esc does", async () 
   expect(listening.getAttribute("aria-label")).toBe("Cancel dictation");
   await act(async () => listening.click());
   expect(cancelled).toEqual(["listening"]);
+});
+
+test("a dictation app as the source names it on the mic; cmux's own keeps Dictate", async () => {
+  const { setComposerSettings } = await import("./composerSettings");
+  const { setDictationApps } = await import("./dictationSources");
+  setDictationApps([{ id: "chatgpt", bundleId: "com.openai.codex" }]);
+  setComposerSettings({ dictationSource: "chatgpt" });
+  try {
+    const named = await render("idle");
+    expect(named.getAttribute("data-source")).toBe("chatgpt");
+    expect(named.getAttribute("aria-label")).toContain("ChatGPT");
+  } finally {
+    setComposerSettings({ dictationSource: "cmux" });
+    setDictationApps([]);
+  }
+  await resetDom();
+  const own = await render("idle");
+  expect(own.getAttribute("data-source")).toBeNull();
+  expect(own.getAttribute("aria-label")).toBe("Dictate");
 });

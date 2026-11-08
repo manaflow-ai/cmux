@@ -1,7 +1,14 @@
 // An in-memory `cmux.github.*` provider for the browser dev loop (`/github/?mock#/pull?url=…`) and
 // the gallery: one pull request shaped like the host's `pr.inspect` answer.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
-import { GitHubOps, type LinkedPullRequest, type PullRequestDetails, type PullRequestReply } from "./types";
+import {
+  GitHubOps,
+  type DashboardChecks,
+  type DashboardJob,
+  type LinkedPullRequest,
+  type PullRequestDetails,
+  type PullRequestReply,
+} from "./types";
 
 export const MOCK_URL = "https://github.com/example/app/pull/482";
 
@@ -16,7 +23,7 @@ export const mockPullRequest: LinkedPullRequest = {
   checkList: [
     { name: "build (macOS)", state: "passed" },
     { name: "unit tests", state: "failed", url: "https://github.com/example/app/actions/runs/1" },
-    { name: "lint", state: "failed", url: "https://github.com/example/app/actions/runs/2", onBase: true },
+    { name: "lint", state: "failed", url: "https://github.com/example/app/actions/runs/9001/job/21", onBase: true },
     { name: "web tests", state: "pending" },
     { name: "docs", state: "passed" },
     { name: "format", state: "passed" },
@@ -113,6 +120,80 @@ export const mockDetails: PullRequestDetails = {
   ],
 };
 
+const job = (
+  id: number,
+  name: string,
+  state: DashboardJob["state"],
+  startedAt: string,
+  completedAt: string,
+  extra: Partial<DashboardJob> = {},
+): DashboardJob => ({
+  id,
+  name,
+  workflow: "cmux-next",
+  run: 9001,
+  state,
+  startedAt,
+  completedAt,
+  url: `https://github.com/example/app/actions/runs/9001/job/${id}`,
+  ...extra,
+});
+
+/** A busy pull request's CI, like the one Leo watched: a matrix of shards, a failure, jobs running and queued. */
+export const mockChecks: DashboardChecks = {
+  head: "3f9c2a1b7e4d5c6a8b9f0e1d2c3b4a5968778695",
+  settled: false,
+  jobs: [
+    job(1, "resolve head and base", "passed", "2026-11-05T02:41:00Z", "2026-11-05T02:41:40Z"),
+    job(2, "portable light placement", "passed", "2026-11-05T02:42:00Z", "2026-11-05T02:44:10Z"),
+    job(3, "test", "failed", "2026-11-05T02:42:00Z", "2026-11-05T02:51:30Z", {
+      failure: {
+        step: "Run swift test",
+        excerpt: [
+          "Test Case 'SidebarReorderTests.testSelectionStaysVisible' started.",
+          "SidebarReorderTests.swift:88: error: XCTAssertTrue failed - selected row 41 is not visible",
+          "Test Case 'SidebarReorderTests.testSelectionStaysVisible' failed (0.412 seconds).",
+          "Executed 214 tests, with 1 failure (0 unexpected) in 38.902 seconds",
+          "Process completed with exit code 1.",
+        ].join("\n"),
+      },
+    }),
+    job(4, "journey", "running", "2026-11-05T02:52:00Z", "", { expected: 840 }),
+    ...Array.from({ length: 8 }, (_, shard) =>
+      job(
+        10 + shard,
+        `health (${shard})`,
+        shard < 5 ? "passed" : shard === 5 ? "failed" : "running",
+        "2026-11-05T02:50:00Z",
+        shard < 6 ? "2026-11-05T02:55:00Z" : "",
+        shard === 5
+          ? {
+              failure: {
+                step: "Probe the daemon",
+                excerpt: "health: daemon did not answer within 30 s\nProcess completed with exit code 2.",
+              },
+            }
+          : { expected: 600 },
+      ),
+    ),
+    job(20, "web tests", "queued", "", "", { expected: 420 }),
+    job(21, "lint", "passed", "2026-11-05T02:42:00Z", "2026-11-05T02:43:00Z"),
+    { id: 0, name: "risk evidence", workflow: "", state: "passed", startedAt: "2026-11-05T02:41:00Z", completedAt: "" },
+  ],
+};
+
+/** The same pull request once CI is done and green. */
+export const mockChecksPassed: DashboardChecks = {
+  ...mockChecks,
+  settled: true,
+  jobs: mockChecks.jobs.map((each) => ({
+    ...each,
+    state: "passed",
+    completedAt: each.completedAt || "2026-11-05T02:58:00Z",
+    failure: undefined,
+  })),
+};
+
 /** One file's patch as `diff.file` answers it. */
 export function mockPatch(path: string): string {
   return [
@@ -142,6 +223,7 @@ export class MockGitHubProvider implements PageClient {
       reading: false,
     },
     private readonly details: PullRequestDetails | null = mockDetails,
+    private readonly checks: DashboardChecks | null = mockChecks,
   ) {}
 
   async call<R>(op: string, params?: unknown): Promise<R> {
@@ -152,6 +234,8 @@ export class MockGitHubProvider implements PageClient {
       return { patch: mockPatch(file) } as R;
     }
     if (op === GitHubOps.merge) return { merged: true, queued: false } as R;
+    if (op === GitHubOps.checks) return { checks: this.checks, reading: false } as R;
+    if (op === GitHubOps.rerun) return { rerun: 1 } as R;
     if (op === GitHubOps.openIn || op === GitHubOps.openDiff) return {} as R;
     throw pageError("cmux.op.unknown", op);
   }

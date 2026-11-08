@@ -19,9 +19,9 @@
   ],
   "libintl": false,
   "pin": {
-    "ghostty_revision": "1740c44523895c3c0ec8f89203741abf3ca7efa3",
-    "sha256": "ba1abb11322710dca12ebf6d07753f66e87f7475141298417421a4cd4b4ec426",
-    "url": "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-1740c44523895c3c0ec8f89203741abf3ca7efa3-apple-v6/GhosttyNextKit.xcframework.zip"
+    "ghostty_revision": "538a3e2efafe28ef4058483f4f942fc4cb8f8aba",
+    "sha256": "15b130316e7beeb47e1017437bc3ad4d397f32d5edf16b1c0ba136d432392d5e",
+    "url": "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-538a3e2efafe28ef4058483f4f942fc4cb8f8aba-apple-v6/GhosttyNextKit.xcframework.zip"
   },
   "schema": 1,
   "slice": "macos-arm64_x86_64",

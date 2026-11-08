@@ -15,9 +15,11 @@ mod adoption;
 pub(crate) mod agent_hold;
 mod agent_pairs;
 mod away_recap;
+mod memory_inbox;
 mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
+mod asks_below;
 mod atomic_json;
 mod build;
 pub use build::{build, install_build, version_line};
@@ -40,6 +42,8 @@ pub(crate) mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
 pub(crate) use lane_reports::TAG as REPORTS_TO_TAG;
 pub(crate) use policy_mode::SetRequest;
+mod audit_entries;
+pub(crate) mod audit_log;
 mod bookmarks;
 pub(crate) mod cancel;
 mod catalog_reload;
@@ -52,14 +56,22 @@ pub(crate) mod file_uploads;
 mod gemini_plan;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 #[cfg(test)]
+mod agent_messaging_tests;
+#[cfg(test)]
 mod first_work_tests;
 mod fork;
 #[cfg(test)]
 mod host_notice_tests;
 #[cfg(test)]
+mod ledger_hub_tests;
+#[cfg(test)]
 mod peer_notice_cost_tests;
 #[cfg(test)]
 mod prompt_accept_tests;
+#[cfg(test)]
+mod review_queue_tests;
+#[cfg(test)]
+mod sender_claim_tests;
 #[cfg(test)]
 mod shutdown_scan_tests;
 #[cfg(test)]
@@ -69,6 +81,7 @@ mod startup_wait_tests;
 #[cfg(test)]
 mod transcript_seq_tests;
 pub(crate) use fork::offers_fork;
+pub mod created_by;
 mod fork_at;
 pub(crate) mod fork_before;
 pub(crate) mod fork_cancel;
@@ -128,19 +141,36 @@ mod new_request;
 pub use model_options::{
     current_effort, current_model, current_option, resolve_config_id, web_url, web_url_for_session,
 };
+pub mod ledger;
 mod model_hint;
 mod models_view;
 mod paging;
 mod personal_stats;
+mod policy_gate;
 mod policy_mode;
 mod policy_source;
 mod pool;
 pub(crate) use pool::SESSION_NEW_BUDGET;
+mod prompt_attribution;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
 mod prompt_line;
 #[cfg(test)]
 mod prompt_line_tests;
+/// Whether a prompt block is acpmux's lead mark of who wrote it (`prompt_attribution.rs`).
+pub fn prompt_attribution_lead(block: &Value) -> bool {
+    prompt_attribution::is_lead(block)
+}
+/// Adds acpmux's marks of who wrote a prompt to `params` (`prompt_attribution.rs`), for tests
+/// of the readers that pick its blocks.
+#[cfg(test)]
+pub(crate) fn prompt_attribution_mark(
+    params: &mut Value,
+    sender: Option<&str>,
+    provenance: Option<&Value>,
+) {
+    prompt_attribution::mark(params, sender, provenance);
+}
 mod prompt_sender;
 mod protected_hold;
 mod queue;
@@ -159,11 +189,14 @@ pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
+mod elevation;
 mod git_watch;
 mod github_owner;
 mod lane_report_reads;
+mod lane_report_subagents;
 mod lane_report_text;
 mod lane_reports;
+mod loop_detector;
 mod loop_goal;
 #[cfg(test)]
 mod loop_goal_tests;
@@ -185,9 +218,11 @@ mod start_retry;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
-mod shell_readonly;
+pub(crate) mod shell_readonly;
 mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
+pub(crate) use shutdown::{CREATED as REFUSED_CREATED, shutting_down_before_create};
+mod caller_registry;
 pub(crate) mod inbox;
 mod spawn;
 mod start_defaults;
@@ -244,12 +279,14 @@ pub(crate) mod questions;
 mod remote_cwd;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
+pub(crate) mod review_queue;
 mod touched;
 pub mod vm_boundary;
 pub use vm_boundary::vm_boundary_peer_approves;
 mod start_gate;
 pub mod vm_host;
 pub(crate) use start_gate::host_label;
+pub mod races;
 mod subsession_answer;
 mod subsession_guard;
 mod subsession_results;
@@ -433,6 +470,11 @@ pub struct TurnInfo {
 /// Options for `Hub::prompt_with`.
 #[derive(Default)]
 pub struct PromptOptions {
+    /// Internal guard checked after asynchronous prompt setup and immediately before acceptance.
+    /// Public only so callers outside the crate can build options with `..Default::default()`;
+    /// it can only refuse a prompt, never admit one.
+    #[doc(hidden)]
+    pub race_guard: Option<Arc<dyn Fn() -> Result<(), RpcError> + Send + Sync>>,
     /// Native-prepared Cloud turn capability; held in memory until claim/finish only.
     pub cloud_turn: Option<crate::cloud_rewind::CloudTurnEnvelope>,
     /// Client-chosen id (`_meta.acpmux.promptId`); generated when absent.
@@ -482,6 +524,10 @@ pub struct PromptOptions {
     /// Connection proof that a person authored this prompt. A `person_message` kind alone is not
     /// enough: local clients may supply that shape without the authenticated person handshake.
     pub human_authenticated: bool,
+    /// The owner's own terminal send (`server/requests.rs` `owner_terminal`): recorded as the
+    /// person's prompt, yet no connection proved the person, so it lifts no protected hold
+    /// (`protected_hold.rs`), as #37497 made it.
+    pub unproven_owner: bool,
     /// Sender identity carried across a peer link. Provenance is intentionally removed at that
     /// boundary, but the additive message event still needs the sender's stable identity.
     pub message_sender: Option<Value>,
@@ -521,6 +567,10 @@ pub struct PromptOptions {
     /// chat's inbox takes it. Every other path that prompts (reports, task cards, a paused pair's
     /// release, a peer's or the mesh relay's forward) keeps the queue.
     pub inbox: bool,
+    /// The sender waits for the reply (`_meta.acpmux.wakeOrFail`): a message the inbox would
+    /// hold in an idle chat that it does not wake is refused at once (`inbox.rs`
+    /// `not_woken`), never left waiting for a turn that does not come.
+    pub wake_or_fail: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -553,6 +603,7 @@ pub struct Hub {
     pub(crate) workflow_runs: crate::workflow_runs::Service,
     pub config: RwLock<Config>,
     pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
+    /// The daemon's store, read through each fork's referenced history (`store/fork_view.rs`).
     pub(super) store: Box<dyn Store>,
     pub(super) mailbox: Mailbox,
     /// The forum log (`forum.rs`, `hub/forum.rs`).
@@ -586,10 +637,16 @@ pub struct Hub {
     pub(crate) list_guard: list_guard::ListGuard,
     /// Each chat's spend and context as its harness recorded them (`usage_view.rs`).
     pub(crate) usage_stats: usage_view::UsageCache,
+    /// What every turn here cost, indexed by day and session (`hub/ledger`, `_acpmux/ledger`).
+    pub(crate) ledger: ledger::Ledger,
     /// `_acpmux/models` replies now asking peers for theirs
     /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
     /// daemon's own catalog, so mutual peers cannot ping-pong.
     pub models_fanouts: std::sync::atomic::AtomicUsize,
+    /// The sessions that may hold an ask, and those with pull requests (`review_queue.rs`).
+    pub(crate) review_index: review_queue::Index,
+    /// The approvals audit trail (`audit_log.rs`).
+    pub(crate) audit: audit_log::AuditLog,
     pub shutdown: Notify,
     /// Latched daemon restart and drain shared by TCP and embedded-tailnet listeners.
     pub(crate) ws_shutdown: crate::server::WsShutdown,
@@ -652,6 +709,9 @@ pub struct Hub {
     /// Model lists from Claude Code's and Codex's own CLIs, by profile name
     /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
     pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
+    /// The model ids Codex chats reported that each live list lacked, by profile name, each
+    /// already probed again for once (`recheck_live_models`).
+    pub(super) live_rechecks: StdMutex<HashMap<String, std::collections::HashSet<String>>>,
     /// (harness, model) pairs whose backend refused them, with its message (model_availability.rs).
     pub(super) refused_models: StdMutex<HashMap<(String, String), String>>,
     /// False while the daemon finishes startup work (login environment,
@@ -750,6 +810,8 @@ pub struct Hub {
     pub(super) recap_wake: Arc<Notify>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
+    /// The caller tokens earlier daemon runs gave out, by session (`caller_registry.rs`).
+    pub(super) caller_registry: caller_registry::CallerRegistry,
     /// Held by each `sessions.allowFullAccess` push through its teardown (`apply_full_access_push`).
     pub(super) full_access_pushes: tokio::sync::Mutex<()>,
     /// Held (read) by a family message or an ancestor's answer from its last check until it is
@@ -836,6 +898,7 @@ pub struct Hub {
     lane_report_reads: lane_report_reads::LaneReportReads,
     /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
     pub(super) subsessions: subsessions::Index,
+    pub(super) races_running: StdMutex<std::collections::HashSet<String>>,
     /// Creates admitted and still starting (`admission.rs`).
     pub(super) admitting: admission::Admitting,
     /// Run slots of each session's sub-sessions (`subsession_runs.rs`).
@@ -940,17 +1003,24 @@ impl Hub {
         // after a restart, before the app pushes again (`start_mode_state.rs`).
         let start_mode_state =
             start_mode_state::StartModeCell::load(start_mode_state::state_file(&config).as_deref());
+        // Loaded before the socket serves, so an agent that outlived the previous daemon is
+        // known by its caller token from the first request (`caller_registry.rs`).
+        let caller_registry =
+            caller_registry::CallerRegistry::load(caller_registry::state_file(&config));
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
+        // Beside the session store in its home; a memory store keeps it in memory only.
+        let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
+        let audit = audit_log::AuditLog::open(store.audit_dir());
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
         let hub = Arc::new(Self {
             hub_ref: std::sync::OnceLock::new(),
             config: RwLock::new(config),
             usage_limits,
             wireguard,
-            store,
+            store: Box::new(crate::store::ForkView::new(store)),
             mailbox,
             forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
@@ -967,7 +1037,10 @@ impl Hub {
             events,
             list_guard: Default::default(),
             usage_stats: Default::default(),
+            ledger,
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
+            review_index: Default::default(),
+            audit,
             shutdown: Notify::new(),
             ws_shutdown: Default::default(),
             restart_requested: std::sync::atomic::AtomicBool::new(false),
@@ -1002,6 +1075,7 @@ impl Hub {
             peer_notices_done: Arc::new(Notify::new()),
             known_models: StdMutex::new(HashMap::new()),
             live_models: StdMutex::new(HashMap::new()),
+            live_rechecks: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
             startup_work_done: tokio::sync::watch::channel(true).0,
@@ -1050,6 +1124,7 @@ impl Hub {
             recap_due: StdMutex::new(HashMap::new()),
             recap_wake: Arc::new(Notify::new()),
             start_mode_state,
+            caller_registry,
             full_access_pushes: tokio::sync::Mutex::new(()),
             family_gate: Arc::new(tokio::sync::RwLock::new(())),
             family_cut: tokio::sync::watch::channel(0).0,
@@ -1099,6 +1174,7 @@ impl Hub {
             lane_reports: Default::default(),
             lane_report_reads: Default::default(),
             subsessions: Default::default(),
+            races_running: Default::default(),
             admitting: Default::default(),
             subsession_runs: Default::default(),
             open_waits: Default::default(),
@@ -1238,6 +1314,13 @@ impl Hub {
         // An older daemon's approve-all that could be vmHost's asks now (`policy_source.rs`).
         self.settle_legacy_grants(&mut metas);
         self.store_load.total.store(metas.len(), Ordering::SeqCst);
+        // A first start with no ledger file: each session's running totals (`hub/ledger`).
+        if self.ledger.wants_seed() {
+            // Forks' own turns are read first, so the ledger's lock waits on no log read.
+            let seeds: Vec<_> =
+                metas.iter().map(|m| ledger::Seed::of(m, self.fork_own_turns(m))).collect();
+            self.ledger.seed(seeds);
+        }
         for meta in metas {
             let hosted = hosted.contains(&meta.id);
             self.install_stored_session(meta, deferred, hosted);
@@ -1249,6 +1332,7 @@ impl Hub {
         if deferred {
             self.logs_ready.send_replace(false);
         }
+        self.resume_races();
     }
 
     pub(super) fn install_stored_session(&self, meta: SessionMeta, deferred: bool, hosted: bool) {
@@ -1391,6 +1475,8 @@ impl Hub {
         // A chat that moved away stays frozen after a restart: every prompt, queue, draft and
         // policy change refuses it as while it moved (`queue::moving_error`).
         let moving = meta.moved_to.as_ref().map(|_| transfer_out::MOVED_AWAY.to_owned());
+        // Every start of a session whose creator asked waits on its harness (`SessionMeta::wait_start`).
+        let wait_start = meta.wait_start;
         let session = Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
@@ -1443,6 +1529,7 @@ impl Hub {
             permission_epoch: AtomicU64::new(0),
             input_since: AtomicU64::new(0),
             work_below_since: StdMutex::new(0),
+            asks_below: StdMutex::new((0, 0)),
             unread_after_work: AtomicBool::new(false),
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
@@ -1461,7 +1548,7 @@ impl Hub {
             steering: AtomicBool::new(steering),
             backgrounds_work: AtomicBool::new(backgrounds_work),
             person: AtomicBool::new(false),
-            wait_start: AtomicBool::new(false),
+            wait_start: AtomicBool::new(wait_start),
             steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
@@ -1502,6 +1589,7 @@ impl Hub {
             heard_at: std::sync::atomic::AtomicI64::new(0),
             stalled_recheck: AtomicU64::new(0),
             open_tools: StdMutex::new(Default::default()),
+            loop_detector: StdMutex::new(Default::default()),
             stalled_counted: StdMutex::new(None),
             stalled_gen: AtomicU64::new(0),
             sign_in_refused_turn: StdMutex::new(None),
@@ -1527,6 +1615,8 @@ impl Hub {
         });
         // Found by its tags from now on (`permissions/display.rs`).
         self.child_tags.note(&session);
+        // Its pull requests wait for a review verdict (`review_queue.rs`).
+        self.note_session_prs(&session);
         session
     }
 
@@ -2097,6 +2187,8 @@ impl Hub {
         };
         if stored {
             session.note_transfer_event(&record);
+            // The review queue's index and the audit trail: O(1), never blocking on a write.
+            self.observe_for_review(session, &record);
         }
         // A closed session's log is not held open: its last records (`status`,
         // then the agent's `stopped`) each close it again (`store.rs` Writers).
@@ -2118,6 +2210,8 @@ impl Hub {
                 m.harness_failures.observe(&record.msg, record.seq, record.at);
             }
         }
+        // The cost ledger's index: O(1), no IO (its writer thread writes the file).
+        self.ledger.observe(session, &record);
         if matches!(
             kind,
             "status"
@@ -2132,7 +2226,10 @@ impl Hub {
                 | "turn_error"
                 | "stopping"
                 | "unstuck"
+                | "loop_detected"
+                | "loop_cleared"
                 | work_below::RECORD_KIND
+                | asks_below::RECORD_KIND
                 | "queued"
                 | "dequeued"
                 | "queue_removed"
@@ -2454,6 +2551,8 @@ impl Hub {
             self.care_status(status);
             // A sub-session that starts or ends a turn, or closes, changes its parent's work.
             self.refresh_parent_work_below(session);
+            // One that starts or stops waiting on the person changes its parent's asks below.
+            self.refresh_parent_asks_below(session);
             if status == SessionStatus::Closed {
                 self.retention_wake();
             }

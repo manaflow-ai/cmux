@@ -298,12 +298,14 @@ final class GroupHeaderRowView: SidebarRowView {
         needsLayout = true
     }
 
-    /// The Debug Settings look (`sidebar.groupHeader`, `sidebar.groupColors`, cx-7yywz) and line layout (its joined
-    /// corner, `sidebar.groupLineLayout`); a change lays the header out and paints it again.
-    private var look: (style: SidebarGroupHeaderStyle, themed: Bool) {
+    /// The Debug Settings look (`sidebar.groupHeader`, cx-7yywz), the group palette (`sidebar.groupPalette`, and the
+    /// Wallpaper palette's color) and line
+    /// layout (its joined corner, `sidebar.groupLineLayout`); a change lays the header out and paints it again.
+    private var look: (style: SidebarGroupHeaderStyle, palette: GroupPalette) {
         let read = {
-            _ = (SidebarStyle.groupLineLayout, SidebarGroupGlass.tunable.value)
-            return (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme)
+            // The Wallpaper palette's color too: a new desktop picture repaints the header (`DesignSettings.groupWallpaperTint`).
+            _ = (SidebarStyle.groupLineLayout, SidebarGroupGlass.tunable.value, DesignSettings.shared.groupWallpaperTint)
+            return (SidebarGroupHeaderStyle.tunable.value, DesignSettings.shared.sidebarSections.groupPalette)
         }
         guard !observesLook else { return read() }
         observesLook = true
@@ -370,14 +372,14 @@ final class GroupHeaderRowView: SidebarRowView {
     /// specular rim (`GlassRimView`). The name is the theme's ink, held readable over the pane. Under Reduce
     /// Transparency the role's opaque fallback: the same pane composited over the sidebar's opaque background, a hairline.
     /// Hover and a drop step over the pane, as on the solid bar.
-    private func paintGlass(_ tokens: ThemeTokens, _ look: (style: SidebarGroupHeaderStyle, themed: Bool), _ glass: SidebarGroupGlass) {
+    private func paintGlass(_ tokens: ThemeTokens, _ look: (style: SidebarGroupHeaderStyle, palette: GroupPalette), _ glass: SidebarGroupGlass) {
         let opaque = ReduceTransparency.shared.isEnabled
         let role = FloatingGlassStyle.group.look(isDark: tokens.isDark)
         var steps: [ThemeRGB] = []
         if isHovered { steps.append(tokens.hoverFill) }
         if isDropTarget { steps.append(tokens.pressedFill) }
         // Leo's pane, held visible (Lawrence 2026-11-05), the one paint its members' line takes too.
-        let paint = GroupGlassPaint(tint: tint, themed: look.themed, glass: glass, tokens: tokens, steps: steps, opaque: opaque)
+        let paint = GroupGlassPaint(tint: tint, palette: look.palette, glass: glass, tokens: tokens, steps: steps, opaque: opaque)
         let fill = paint.fill
         let ink = paint.ink.nsColor.withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
         name.textColor = ink
@@ -409,8 +411,8 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The quieter headers (cx-7yywz): the name in primary ink (`tinted`: in the group's color) with
     /// the group's color as the dot where its line starts; `wash` adds a faint tint behind the name.
     /// Hover and a drop take the row's own fill; the open editor lights its more button only.
-    private func paintQuiet(_ tokens: ThemeTokens, _ look: (style: SidebarGroupHeaderStyle, themed: Bool)) {
-        let line = tint.lineRGB(themed: look.themed)
+    private func paintQuiet(_ tokens: ThemeTokens, _ look: (style: SidebarGroupHeaderStyle, palette: GroupPalette)) {
+        let line = tint.lineRGB(palette: look.palette)
         // Every look keeps a visible background (Lawrence 2026-11-05): a faint wash of the group's color, neutral
         // for a group with no color; the name reads on it.
         let background = groupBackground(.wash, tokens, look)
@@ -445,9 +447,9 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The header's background in `look`. The quieter looks (`wash`, `line`, `tinted`) stay a solid wash unless
     /// `sidebar.groupHeader.background` is Glass: Leo's glass (#36225) is the band's.
     private func groupBackground(_ strength: GroupBackground.Strength, _ tokens: ThemeTokens,
-                                 _ look: (style: SidebarGroupHeaderStyle, themed: Bool), glass: Bool? = nil) -> GroupBackground {
+                                 _ look: (style: SidebarGroupHeaderStyle, palette: GroupPalette), glass: Bool? = nil) -> GroupBackground {
         GroupBackground(tint: tint, strength: strength, glass: glass ?? (backgroundStyle == .glass),
-                        themed: look.themed, tokens: tokens)
+                        palette: look.palette, wallpaper: DesignSettings.shared.groupWallpaperTint, tokens: tokens)
     }
 
     /// Paints `background` on the bar, with its hover and drop steps over it and glass's rim.
@@ -459,7 +461,7 @@ final class GroupHeaderRowView: SidebarRowView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         pill.borderColor = background.rim?.nsColor.cgColor
-        pill.borderWidth = background.rim == nil ? 0 : Metrics.dividerThickness
+        pill.borderWidth = background.rim == nil ? 0 : Metrics.lineWidth(Metrics.dividerThickness)
         CATransaction.commit()
     }
 

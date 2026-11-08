@@ -3,7 +3,7 @@ import { QUESTION_RECORD } from "../question/record";
 import { PERMISSION_RECORD } from "../permissions/record";
 import { TASK_LINE } from "../conversation/taskLineKind";
 import { BACKGROUND_TURN } from "../conversation/backgroundTurns";
-import { ACTIVITY_LINE, DATE, NEXT_STEP, PREVIEW, RENDER, THINKING, WORKED, WORKING } from "../conversation/turns";
+import { ACTIVITY_LINE, DATE, NEXT_STEP, RENDER, THINKING, WORKED, WORKING } from "../conversation/turns";
 import { SHELL_ROW } from "../shell/shellRuns";
 import { SUBAGENTS } from "../subagents/subagentFold";
 import { SubagentEmptyRow } from "../subagents/SubagentEmptyRow";
@@ -26,7 +26,6 @@ import { WorkingRow } from "./WorkingRow";
 import { ActivityLineRow } from "./ActivityLineRow";
 import { NextStepRow } from "./NextStepRow";
 import { ReadOnlyNextStepRow } from "./ReadOnlyNextStepRow";
-import { PreviewRow } from "./PreviewRow";
 import { RenderRow } from "./RenderRow";
 import { SummaryRow } from "./SummaryRow";
 import { PlanRow } from "./PlanRow";
@@ -34,6 +33,8 @@ import { BackgroundTaskRow } from "./BackgroundTaskRow";
 import { CompactionRow } from "./CompactionRow";
 import { FailoverRow } from "./FailoverRow";
 import { ReadOnlyRecapRow, RecapRow } from "./RecapRow";
+import { MemoryOfferRow } from "./MemoryOfferRow";
+import { MEMORY_OFFER } from "../conversation/memoryInbox";
 import { PolicyUnenforcedRow } from "./PolicyUnenforcedRow";
 import { AgentPairRow } from "./AgentPairRow";
 import { SessionStartRow } from "./SessionStartRow";
@@ -72,7 +73,6 @@ export const defaultRegistry: NativeRegistry = {
   [THINKING]: ThinkingRow,
   [WORKING]: WorkingRow,
   [ACTIVITY_LINE]: ActivityLineRow,
-  [PREVIEW]: PreviewRow,
   [NEXT_STEP]: NextStepRow,
   [RENDER]: RenderRow,
   editedFiles: EditedFilesRow,
@@ -83,6 +83,7 @@ export const defaultRegistry: NativeRegistry = {
   compaction: CompactionRow,
   failover: FailoverRow,
   recap: RecapRow,
+  [MEMORY_OFFER]: MemoryOfferRow,
   policyUnenforced: PolicyUnenforcedRow,
   agentPair: AgentPairRow,
   sessionStart: SessionStartRow,
@@ -119,11 +120,12 @@ export const readOnlyRegistry: NativeRegistry = {
   [QUEUED_MESSAGE]: ReadOnlyQueuedMessageRow,
   agentPair: ReadOnlyAgentPairRow,
   recap: ReadOnlyRecapRow,
+  // An offer to write the owner's instructions file is the owner's own.
+  [MEMORY_OFFER]: NoRow,
   sessionOffer: NoRow,
   [OFFER_RESULT]: NoRow,
   [STARTED_SESSIONS]: NoRow,
   [TASK_LINE]: NoRow,
-  [PREVIEW]: NoRow,
   [NEXT_STEP]: ReadOnlyNextStepRow,
   [RENDER]: NoRow,
 };

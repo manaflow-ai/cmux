@@ -9,7 +9,15 @@ import nightlySpan from "./fixtures/nightly-3913596493801-span.json";
 import table from "./generated/strings.json";
 import type { ReleaseNotes } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
-import { UpdatedCard, UpdateReadyHighlights, type BriefLayout, type WhatsNewPlacement } from "./UpdateSurfaces";
+import {
+  UpdatedCard,
+  UpdateReadyHighlights,
+  type BriefLayout,
+  type PreviewLayout,
+  type ReadyLayout,
+  type WhatsNewPlacement,
+} from "./UpdateSurfaces";
+import { UpdatedNotes, type NotesLook } from "./UpdatedNotes";
 
 const base: UpdateHighlights = {
   version: "1.0.0-nightly.3845050428001",
@@ -46,7 +54,7 @@ const base: UpdateHighlights = {
 };
 
 type Props = {
-  surface: "card" | "popover";
+  surface: "card" | "popover" | "notes";
   data: UpdateHighlights;
   /** The notes of every build the update spans, as the card loads them from the host. */
   span?: ReleaseNotes[];
@@ -57,6 +65,8 @@ type Props = {
   theme?: keyof typeof themes;
   /** Where the popover with no change list puts See release notes. */
   briefLayout?: BriefLayout;
+  /** How the popover with a change list lays out a change. */
+  layout?: ReadyLayout;
   /** The decoration in the card's slot (ThemeDecorations `updated-card`): "doodle", else none. */
   decoration?: string | null;
   /** The doodle draws on (false: drawn from the start). */
@@ -67,8 +77,16 @@ type Props = {
   placement?: WhatsNewPlacement;
   /** The card's hover preview held open (the still of a pointer resting on the card). */
   previewOpen?: boolean;
+  /** How the open preview is laid out (Lawrence 2026-11-07); `header` ships. */
+  previewLayout?: PreviewLayout;
   /** A one-line composer box beside the card, its edges lined up, as in the window. */
   besideComposer?: boolean;
+  /** Sidebar rows under the card, as its open preview stands over them in the sidebar: frosted by the
+   *  card's glass (`glass`, what the host's native glass draws), seen through the page's tint alone
+   *  (`tint`, no frost), or hidden under the solid surface the card painted before (`solid`). */
+  overRows?: "glass" | "tint" | "solid";
+  /** How the Updated card's changes beside the sidebar stand (UpdatedNotes); `sections` ships. */
+  notesLook?: NotesLook;
 };
 
 // Three themes as WebTheme sends them (the page's --page-* and the glass's surface), each over its
@@ -101,6 +119,27 @@ function themeStyle(name: keyof typeof themes): Record<string, string> {
 // Ten real nightly-next builds (2026-10-18), newest first, and what the host sent for the newest
 // one alone: its one summary line, which the card used to show as its whole headline.
 const span = nightlySpan as ReleaseNotes[];
+const lawrenceShot: UpdateHighlights = {
+  version: "1.0.0-nightly.4241815985601",
+  build: "4241815985601",
+  fromVersion: "1.0.0-nightly.4230000000001",
+  fromBuild: "4230000000001",
+  source: "whatsNew",
+  language: "en",
+  items: [
+    { id: "dictation", title: "Show when another app is dictating into a chat", summary: null, category: "new" },
+    {
+      id: "new-tab",
+      title: "New Browser Tab always opens a blank page beside the current one",
+      summary: null,
+      category: "improved",
+    },
+    { id: "tool-calls", title: "Show grouped tool calls as an iOS-style stack", summary: null, category: "improved" },
+    { id: "pins", title: "Pinned rows line up under Home's icon", summary: null, category: "fixed" },
+  ],
+  moreCount: 0,
+  changelog: { from: "1.0.0-nightly.4230000000001", to: "1.0.0-nightly.4241815985601" },
+};
 const spanData: UpdateHighlights = {
   ...base,
   version: span[0]!.shortVersion,
@@ -198,6 +237,56 @@ const longNotes: UpdateHighlights = {
   })),
 };
 
+// Leo's screenshot (2026-11-05, nightly 4210546 to 4212118: "this is too big ... i can't even
+// scroll through the changes from that preview!"): the staged build's one change with its long
+// paragraph, and the changes of the nightlies the update skips, which the popover now lists too.
+const rollbackLine =
+  "What's New lists the recent builds of your channel. Pick one and cmux downloads it, checks its signature the same way it checks an update, installs it and restarts, keeping your windows, tabs and running agents.";
+const leoData: UpdateHighlights = {
+  ...base,
+  version: "1.0.0-nightly.4212118000001",
+  build: "4212118000001",
+  fromVersion: "1.0.0-nightly.4210546000001",
+  fromBuild: "4210546000001",
+  source: "whatsNew",
+  items: [
+    { id: "rollback", title: "Go back to any recent version from What's New", summary: rollbackLine, category: "new" },
+  ],
+  rest: [],
+  moreCount: 0,
+  changelog: { from: "1.0.0-nightly.4210546000001", to: "1.0.0-nightly.4212118000001" },
+};
+const skipped: [string, string, "new" | "improved" | "fixed"][] = [
+  ["Session Info sections drag to a new order", "The order stays per window.", "new"],
+  ["The model menu shows each model's effort", "", "improved"],
+  ["Workspace rows keep their color while dragged", "", "improved"],
+  ["Onboarding steps share one edge", "Text, icons and controls line up.", "improved"],
+  ["The agent chat's live line names the tool it runs", "", "improved"],
+  ["Terminal tabs reopen where they were", "Closing the last tab of a pane keeps the pane.", "fixed"],
+  ["Find in the browser pane scrolls to the match", "", "fixed"],
+  ["Restart to Update keeps a pinned hover card", "", "fixed"],
+  ["Pasting a screenshot into the composer keeps its name", "", "fixed"],
+  ["A paused cloud machine resumes on its first keystroke", "", "fixed"],
+  ["The command palette lists recent settings first", "", "improved"],
+  ["Notifications mark a session read when you open it", "", "fixed"],
+];
+const leoSpan: ReleaseNotes[] = [
+  {
+    build: "4212118000001",
+    shortVersion: leoData.version,
+    date: "2026-11-05",
+    highlights: [{ id: "rollback", title: leoData.items[0]!.title, body: rollbackLine, category: "new" }],
+    changes: [],
+  },
+  {
+    build: "4211300000001",
+    shortVersion: "1.0.0-nightly.4211300000001",
+    date: "2026-11-05",
+    highlights: skipped.map(([title, body, category], index) => ({ id: `skipped-${index}`, title, body, category })),
+    changes: [],
+  },
+];
+
 /** The doodle's face has loaded (doodleFont.ts): a still shows the handwriting, not its fallback. */
 function doodleFontLoaded(doc: Document): boolean {
   let loaded = false;
@@ -237,6 +326,59 @@ function ComposerStandIn() {
   );
 }
 
+/** The sidebar's workspace rows the open preview stands over, in the stage behind the card. */
+function RowsStandIn() {
+  const rows = [
+    "cmux-next",
+    "web: what's new",
+    "fleet build",
+    "release notes",
+    "sidebar polish",
+    "agent chat",
+    "docs",
+    "nightly",
+  ];
+  return (
+    <div
+      aria-hidden="true"
+      style={{
+        position: "absolute",
+        inset: "calc(var(--grid-base, 4px) * 3) calc(var(--grid-base, 4px) * 3) calc(var(--grid-base, 4px) * 18)",
+        display: "grid",
+        alignContent: "end",
+        gap: "var(--grid-base, 4px)",
+      }}
+    >
+      {rows.map((name, index) => (
+        <div
+          key={name}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            height: 30,
+            padding: "0 8px",
+            borderRadius: 6,
+            background: index === 5 ? "var(--page-hover)" : undefined,
+            color: "var(--page-text)",
+            fontSize: "var(--text-content)",
+          }}
+        >
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: 4,
+              background: ["#e5534b", "#57ab5a", "#539bf5", "#c69026"][index % 4],
+            }}
+          />
+          {name}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function UpdateSurfacesGallery({
   surface,
   data,
@@ -245,12 +387,16 @@ function UpdateSurfacesGallery({
   maxHeight,
   theme,
   briefLayout,
+  layout,
   decoration = null,
   animate = false,
   width,
   placement,
   previewOpen,
+  previewLayout,
   besideComposer = false,
+  overRows,
+  notesLook,
 }: Props) {
   const [strings] = useState(() => createStrings(table));
   const noop = () => undefined;
@@ -258,16 +404,52 @@ function UpdateSurfacesGallery({
     <div
       className="wn-gallery-stage"
       style={{
-        width: width ?? (surface === "card" ? 260 : 360),
+        width: width ?? (surface === "card" ? 260 : surface === "notes" ? 360 : 360),
         padding: 10,
         ...(onWallpaper ? { backgroundImage: wallpaper } : {}),
         ...(theme ? themeStyle(theme) : {}),
+        ...(overRows ? { position: "relative" as const, height: 420, display: "flex", alignItems: "flex-end" } : {}),
       }}
     >
-      {surface === "card" ? (
+      {overRows && <RowsStandIn />}
+      {surface === "notes" ? (
+        <div
+          style={{
+            // The hover card window beside the sidebar: 340 wide, at most 60% of a short window here
+            // so the list scrolls (SidebarUpdatedNotesPopover.maxHeightFraction).
+            width: 340,
+            display: "flex",
+            flexDirection: "column",
+            maxHeight: maxHeight ?? 420,
+            borderRadius: 8,
+            background: "var(--page-elevated)",
+            boxShadow: "0 0 0 1px var(--page-separator)",
+            overflow: "hidden",
+          }}
+        >
+          <UpdatedNotes
+            data={data}
+            span={notes}
+            strings={strings}
+            actions={{ openChangelog: noop, dismiss: noop }}
+            look={notesLook}
+          />
+        </div>
+      ) : surface === "card" ? (
         <div
           className="wn-gallery-card-row"
-          style={besideComposer ? { display: "flex", alignItems: "flex-end", gap: 12 } : undefined}
+          style={
+            besideComposer
+              ? { display: "flex", alignItems: "flex-end", gap: 12 }
+              : overRows
+                ? {
+                    position: "relative",
+                    width: "100%",
+                    // The card painted the solid surface over the rows before (a72c0fd5c542, f1d36c5f77e3).
+                    ...(overRows === "solid" ? { "--composer-material-tint": "var(--composer-material-solid)" } : {}),
+                  }
+                : undefined
+          }
         >
           <div style={besideComposer ? { flex: "0 0 236px" } : undefined}>
             <UpdatedCard
@@ -279,6 +461,10 @@ function UpdateSurfacesGallery({
               animate={animate}
               placement={placement}
               previewOpen={previewOpen}
+              glass={overRows ? overRows === "glass" : undefined}
+              previewLayout={previewLayout}
+              // The held-open preview stills show the in-card list (the look before the popover).
+              previewMode={previewOpen === undefined ? undefined : "above"}
             />
           </div>
           {besideComposer && <ComposerStandIn />}
@@ -291,15 +477,18 @@ function UpdateSurfacesGallery({
             borderRadius: 8,
             background: "var(--page-elevated)",
             boxShadow: "0 0 0 1px var(--page-separator)",
-            // The host's height cap (60% of the window): the popup scrolls in place.
-            ...(maxHeight ? { maxHeight, overflowY: "auto" as const, overscrollBehavior: "contain" as const } : {}),
+            overflow: "hidden",
+            // A window shorter than the hover card's cap (60% of it): the list scrolls in place.
+            ...(maxHeight ? { "--wn-pop-max": `${maxHeight}px` } : {}),
           }}
         >
           <UpdateReadyHighlights
             data={data}
+            span={notes}
             strings={strings}
             actions={{ openChangelog: noop }}
             briefLayout={briefLayout}
+            layout={layout}
           />
         </div>
       )}
@@ -314,6 +503,8 @@ export default componentEntry<Props>({
   covers: [
     "pages/changelog/UpdateSurfaces.tsx#UpdatedCard",
     "pages/changelog/UpdateSurfaces.tsx#UpdateReadyHighlights",
+    "pages/changelog/UpdatedCardPreview.tsx#UpdatedCardPreview",
+    "pages/changelog/UpdatedNotes.tsx#UpdatedNotes",
   ],
   load: async () => UpdateSurfacesGallery,
   styles: async () => {
@@ -323,6 +514,26 @@ export default componentEntry<Props>({
     await import("./updateSurfaces.css");
   },
   variants: {
+    "notes-sections": {
+      note: "Picked and shipped (Leo 2026-11-08: \"the sections should be more obvious what's what ... distinguishing which row does what is unclear ... unclear whether you can even scroll down and why\"): the Updated card's changes beside the sidebar under What's New's own area headers (glyph, name, count, in its order), each change one pill with a gap between, and a count of the changes still below while some are. A click opens What's New at that change. Chosen over hairlines because the gap separates pills without adding lines inside the glass.",
+      props: { surface: "notes", data: spanData, span, theme: "dark" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".wn-notes-area").length > 1);
+        await ctx.waitFor(() => ctx.document.querySelector(".wn-notes-more") !== null);
+      },
+    },
+    "notes-sections-light": {
+      note: "The shipped look in the light theme.",
+      props: { surface: "notes", data: spanData, span, theme: "light" },
+    },
+    "notes-divided": {
+      note: "Variant: the same headers, rows divided by hairlines instead of gaps between pills.",
+      props: { surface: "notes", data: spanData, span, theme: "dark", notesLook: "divided" },
+    },
+    "notes-flat": {
+      note: "Before: one flat list with no areas; the rows run together and nothing says the list goes on.",
+      props: { surface: "notes", data: spanData, span, theme: "dark", notesLook: "flat" },
+    },
     "popover-pr-links": {
       note: "Structured PR metadata on a leading change and a remaining change; both reuse the shared PR chip and card. Public PR titles, representative update data.",
       play: async (ctx) => {
@@ -331,6 +542,11 @@ export default componentEntry<Props>({
           const box = chip.getBoundingClientRect();
           if (!chip.textContent?.match(/#\d+/) || box.width <= 0 || box.height <= 0) {
             throw new Error("The update-ready PR chip must have a visible number and nonzero size");
+          }
+          // A long title is cut before the chip, never the chip past the row's edge.
+          const row = chip.closest(".wn-pop-text")?.getBoundingClientRect();
+          if (row && (box.left < row.left - 0.5 || box.right > row.right + 0.5)) {
+            throw new Error("The update-ready PR chip must show whole inside its row");
           }
         }
         await ctx.hover({ selector: ".wn-pop-list a.cl-pr" });
@@ -381,8 +597,24 @@ export default componentEntry<Props>({
       props: { surface: "card", data: base, theme: "light", besideComposer: true, width: 640 },
     },
     "card-hover-preview": {
-      note: "Shipped: resting on the card for the hover dwell (400 ms) opens a scrollable list of the update's changes in the card's own glass, above its two lines (Leo 2026-11-07: \"a quick access scroll through of what's new. Right in that bottom left of the sidebar area\"). The card stands on its slot, so the glass's top edge rises over the rows and nothing else moves; in the sidebar it opens over the list without moving it. A click on a row or on What's New opens the full page; Escape or leaving the card closes it.",
+      note: "Shipped (header): resting on the card for the hover dwell (400 ms) opens the update's changes in the card's own glass (Leo 2026-11-07: \"a quick access scroll through of what's new\"). Lawrence 2026-11-07, \"this ui is very bad\": the header leads, whole (Updated to Nightly with the x, the full version, What's New), then the changes, each title on up to two lines with its detail; more rows show the scrollbar, not a faded row. A click on a row or on What's New opens the full page; Escape or leaving the card closes it.",
       props: { surface: "card", data: spanData, span, theme: "dark", previewOpen: true },
+    },
+    "card-hover-preview-lawrence": {
+      note: "Lawrence's shot (2026-11-07) in the shipped header layout: the three changes whose titles were cut, at the sidebar's width.",
+      props: { surface: "card", data: lawrenceShot, theme: "dark", previewOpen: true },
+    },
+    "card-hover-preview-lawrence-light": {
+      note: "The same in a light theme.",
+      props: { surface: "card", data: lawrenceShot, theme: "light", previewOpen: true },
+    },
+    "card-hover-preview-header-bottom": {
+      note: "Variant: the same parts with the header kept at the card's resting edge, under the pointer, and the changes above it (the order before).",
+      props: { surface: "card", data: lawrenceShot, theme: "dark", previewOpen: true, previewLayout: "header-bottom" },
+    },
+    "card-hover-preview-titles": {
+      note: "Variant: the header leads and the changes are their titles alone, on up to three lines.",
+      props: { surface: "card", data: lawrenceShot, theme: "dark", previewOpen: true, previewLayout: "titles" },
     },
     "card-hover-preview-light": {
       note: "The open preview in a light theme, from the host's own items (before the span's notes load).",
@@ -391,6 +623,33 @@ export default componentEntry<Props>({
     "card-hover-preview-top-right": {
       note: "The open preview with the top-right What's New variant.",
       props: { surface: "card", data: spanData, span, theme: "dark", placement: "top-right", previewOpen: true },
+    },
+    "card-preview-over-rows": {
+      note: "Shipped (Leo 2026-11-08: \"I feel like we should be able to keep it as glass though, right?\"): the open preview over the sidebar's rows stays the card's glass. The host draws a native glass behind the page that frosts the rows, so the rows read as moving shapes, not words, and the card has the same fill open and at rest (the fill swap was the flicker). The glass follows the preview on the card's curve, cubic-bezier(0.16, 1, 0.3, 1) over 265 ms.",
+      props: { surface: "card", data: spanData, span, theme: "dark", previewOpen: true, overRows: "glass" },
+    },
+    "card-preview-over-rows-light": {
+      note: "Shipped, in a light theme.",
+      props: { surface: "card", data: spanData, span, theme: "light", previewOpen: true, overRows: "glass" },
+    },
+    "card-preview-scrolled": {
+      note: "Shipped: the open list scrolls in place, and the glass frosts the rows under it while it does.",
+      play: async (ctx) => {
+        const list = () => ctx.document.querySelector<HTMLElement>(".wn-preview-list");
+        await ctx.waitFor(() => (list()?.scrollHeight ?? 0) > (list()?.clientHeight ?? 0));
+        const scroller = list()!;
+        scroller.scrollTop = Math.round((scroller.scrollHeight - scroller.clientHeight) / 2);
+        if (scroller.scrollTop <= 0) throw new Error("The open preview's list must scroll");
+      },
+      props: { surface: "card", data: spanData, span, theme: "dark", previewOpen: true, overRows: "glass" },
+    },
+    "card-preview-over-rows-tint": {
+      note: 'Rejected: the tint alone, with no frost under it (what the page paints over native rows when the host draws no glass). Every row stays legible through the list (Lawrence 2026-11-07: "this ui transparency looks bad now").',
+      props: { surface: "card", data: spanData, span, theme: "dark", previewOpen: true, overRows: "tint" },
+    },
+    "card-preview-over-rows-solid": {
+      note: 'Before (a72c0fd5c542, f1d36c5f77e3): the open preview turned solid over the rows, so the card swapped from glass to opaque as it opened (Leo 2026-11-08: "it turns from glass when it\'s unhovered into opaque when it does get hovered").',
+      props: { surface: "card", data: spanData, span, theme: "dark", previewOpen: true, overRows: "solid" },
     },
     "card-doodle": {
       note: 'Leo 2026-11-05, on the Yab browser\'s after-update note: "They have that little line thing, which is kind of cutesy quirky." The doodle in the card\'s decoration slot (Debug Settings "Doodle on the Updated card", off by default): "you\'re on nightly 3845050!" with a check, a curved arrow from "have a look" to What\'s New with a loop around it, and "got it" (hides the card for this version, as its x does). Drawn, on a light theme.',
@@ -495,8 +754,32 @@ export default componentEntry<Props>({
         },
       },
     },
+    "popover-compact": {
+      note: "Leo 2026-11-05, on this hover card: \"this is too big / it's just oddly spaced and oddly rendered / and i can't even scroll through the changes from that preview!\" Picked: one heading line, version to version; every change of the update, the skipped nightlies too, each its title on one line and its line under it, cut to one line, the rest under New / Improved / Fixed; the list scrolls under the heading and above See all changes, both pinned; at most 360 px tall.",
+      props: { surface: "popover", data: leoData, span: leoSpan },
+    },
+    "popover-compact-one-line": {
+      note: 'Variant: each change\'s line after its title on the same line. The most changes fit, but most lines are cut to a stub ("The or…", "Closing t…"), and a long title loses its line entirely.',
+      props: { surface: "popover", data: leoData, span: leoSpan, layout: "line" },
+    },
+    "popover-compact-flat": {
+      note: "Variant: one line per change and no New / Improved / Fixed headings. The densest, but the kinds of change blur together and lines are still cut to stubs.",
+      props: { surface: "popover", data: leoData, span: leoSpan, layout: "flat" },
+    },
+    "popover-compact-dark": {
+      note: "The picked layout in a dark theme.",
+      props: { surface: "popover", data: leoData, span: leoSpan, theme: "dark" },
+    },
+    "popover-compact-short-window": {
+      note: "A window whose 60% is shorter than the cap (here 200 px): the list scrolls in less room; the heading and See all changes stay.",
+      props: { surface: "popover", data: leoData, span: leoSpan, maxHeight: 200 },
+    },
+    "popover-compact-one-change": {
+      note: "Leo's update before the skipped nightlies' notes load: its one change on one line, the card as short as its content.",
+      props: { surface: "popover", data: leoData },
+    },
     popover: {
-      note: 'Popover A, only what the Update Ready card lacks: a quiet "What\'s new in nightly 3845050" (the full build in its tooltip), the top three changes numbered in small tertiary type, +N more, See all changes once. Menu type, 340 pt wide (Leo 2026-10-19).',
+      note: "The host's three highlights with their lines, +N more and See all changes; 340 pt wide.",
       props: { surface: "popover", data: base },
     },
     "popover-wallpaper": {
@@ -504,11 +787,11 @@ export default componentEntry<Props>({
       props: { surface: "popover", data: base, wallpaper: true },
     },
     "popover-media": {
-      note: "A change with a screenshot: the picture at the popover's width, inline with the text; a click opens the notes, where it shows larger.",
+      note: "A change with a screenshot: a thumbnail at the row's end; a click opens the notes, where it shows larger.",
       props: { surface: "popover", data: withMedia },
     },
     "popover-scroll": {
-      note: "Notes taller than the cap (60% of the window, here 260 px): the popup scrolls in place with the wheel or the trackpad and stays open.",
+      note: "Notes taller than the cap (60% of the window, here 260 px): the list scrolls in place with the wheel, the trackpad or the keys, and the popup stays open.",
       props: { surface: "popover", data: longNotes, maxHeight: 260 },
     },
     "popover-titles-only": {

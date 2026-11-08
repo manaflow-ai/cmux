@@ -2,12 +2,26 @@ public import CmuxNextSettings
 public import Foundation
 import CmuxNextCompat
 
-/// First-send attachments whose contents the composer already holds. This carries page-owned
-/// bytes only: a Send gesture never authorizes reading a path supplied by page script on this Mac.
-/// Path-only files and folders still need the native pick's exact-file authorization before they
-/// can be carried. Image previews go as images, with a copy on the machine as their file link.
+/// First-send attachments: page-owned bytes, and link chips naming a file this app itself handed
+/// the page or saved. A Send gesture never authorizes reading a path supplied by page script on
+/// this Mac: a link chip is carried only when its path is one of `files`, the pane's record of
+/// the person's own drop, paste or pick and of this app's Chat Uploads
+/// (``AgentPaneModel/cloudCarriedFiles(_:)``). Folders are not carried. Image previews go as
+/// images, with a copy on the machine as their file link; a carried file goes as itself, by path.
 public nonisolated struct AgentPaneCloudAttachments: Sendable {
     private let items: [JSONValue]
+    /// Per item, the Mac file a carried link chip names, else nil.
+    private let files: [String?]
+    /// The carried files to clone into the paste folder before the upload (Chat Uploads, which the CLI never reads).
+    private let staged: Set<String>
+
+    /// The refusal's words when `items` can't go to Cloud: a folder says so; any other chip needs a local file.
+    public static func refusal(_ items: [JSONValue]) -> String {
+        let folder = items.contains { $0["kind"]?.stringValue == "link" && $0["name"]?.stringValue?.hasSuffix("/") == true }
+        return folder
+            ? "Folders can't go to Cloud with a new chat's first message yet. Run this chat on This Mac, or attach the files inside the folder."
+            : "This attachment needs a local file. Run this chat on This Mac, or paste an image or text to send it to Cloud."
+    }
 
     /// The temporary root the upload CLI resolves from this app's environment.
     public static var pastes: URL? {
@@ -26,21 +40,30 @@ public nonisolated struct AgentPaneCloudAttachments: Sendable {
         }
     }
 
-    /// Nil for a path-only attachment or a malformed chip; no native file is opened.
-    public init?(_ items: [JSONValue]) {
+    /// Nil for a path-only attachment whose path is not one of `carried`, or a malformed chip; no
+    /// native file is opened.
+    public init?(_ items: [JSONValue], files carried: Set<String> = [], staged: Set<String> = []) {
+        var files: [String?] = []
         for item in items {
             guard let id = item["id"]?.stringValue, !id.isEmpty,
                   let name = item["name"]?.stringValue, AgentPaneUpload.isFileName(name),
                   let kind = item["kind"]?.stringValue else { return nil }
+            var file: String?
             switch kind {
             case "image", "document", "audio":
                 guard let bytes = item["data"]?.stringValue, !bytes.isEmpty else { return nil }
             case "text", "pasted":
                 guard item["text"]?.stringValue != nil else { return nil }
+            case "link":
+                guard let path = item["path"]?.stringValue, carried.contains(path) else { return nil }
+                file = path
             default: return nil
             }
+            files.append(file)
         }
         self.items = items
+        self.files = files
+        self.staged = staged.intersection(carried)
     }
 
     /// Copies image previews off the main actor for their file links. Other media go inline only.
@@ -59,12 +82,18 @@ public nonisolated struct AgentPaneCloudAttachments: Sendable {
     public func remapped(_ paths: [String]) -> [JSONValue]? {
         var next = 0
         var result: [JSONValue] = []
-        for item in items {
+        for (item, file) in zip(items, files) {
             guard var chip = item.objectValue else { return nil }
             chip.removeValue(forKey: "path")
             chip.removeValue(forKey: "originalPath")
             chip.removeValue(forKey: "originalName")
-            if chip["kind"]?.stringValue == "image" {
+            if file != nil {
+                // A carried file: a saved link to its copy on the machine, as a follow-up's upload makes.
+                guard next < paths.count, paths[next].hasPrefix("/") else { return nil }
+                chip["path"] = .string(paths[next])
+                chip["saved"] = .bool(true)
+                next += 1
+            } else if chip["kind"]?.stringValue == "image" {
                 guard next < paths.count, paths[next].hasPrefix("/") else { return nil }
                 chip["originalPath"] = .string(paths[next])
                 chip["originalName"] = chip["name"]
@@ -75,19 +104,29 @@ public nonisolated struct AgentPaneCloudAttachments: Sendable {
         return next == paths.count ? result : nil
     }
 
-    /// Writes page-owned bytes privately, transfers them, then opens the chat with remote paths.
-    /// The original chips stay with the send, so a machine repick can transfer them again.
+    /// Writes page-owned bytes privately, transfers them and the carried files (each by its own
+    /// path, never read into memory, so a file of any size goes), then opens the chat with remote
+    /// paths. The original chips stay with the send, so a machine repick can transfer them again.
     @MainActor public func withUploaded<Result>(in pastes: URL,
                                                upload: @MainActor ([String]) async throws -> Delivery,
                                                open: @MainActor ([JSONValue]) async throws -> Result) async throws -> Result {
-        let files = try await uploads()
-        if files.isEmpty {
+        let images = try await uploads()
+        if images.isEmpty, !files.contains(where: { $0 != nil }) {
             guard let chips = remapped([]) else { throw CocoaError(.fileReadCorruptFile) }
             return try await open(chips)
         }
         let folder = pastes.appendingPathComponent(UUID().uuidString.lowercased(), isDirectory: true)
         defer { Task.detached(priority: .utility) { try? FileManager.checked.removeItem(at: folder) } }
-        let paths = try await Task.detached(priority: .userInitiated) { try Self.write(files, in: folder) }.value
+        let ordered = zip(items, files).compactMap { item, file in file ?? (item["kind"]?.stringValue == "image" ? "" : nil) }
+        let paths = try await Task.detached(priority: .userInitiated) { [staged] in
+            let written = images.isEmpty ? [] : try Self.write(images, in: folder)
+            // In chip order, as ``remapped(_:)`` reads the answer; "" is the next image copy.
+            var copies = written.makeIterator()
+            return try ordered.enumerated().map { index, path in
+                if path.isEmpty { return copies.next() ?? "" }
+                return staged.contains(path) ? try Self.clone(path, in: folder, index: index) : path
+            }
+        }.value
         try Task.checkCancellation()
         let delivery = try await upload(paths)
         do {
@@ -98,6 +137,21 @@ public nonisolated struct AgentPaneCloudAttachments: Sendable {
             await delivery.undo()
             throw error
         }
+    }
+
+    /// `path` cloned (APFS: no bytes copied; else a streamed copy, never held in memory) owner-only
+    /// into its own folder `staged-<index>` of `folder`.
+    static func clone(_ path: String, in folder: URL, index: Int) throws -> String {
+        let manager = FileManager.checked, owner: [FileAttributeKey: Any] = [.posixPermissions: 0o700]
+        try manager.createDirectory(at: folder.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: owner)
+        if !manager.fileExists(atPath: folder.path) { try manager.createDirectory(at: folder, withIntermediateDirectories: false, attributes: owner) }
+        let parent = folder.appendingPathComponent("staged-\(index)", isDirectory: true)
+        try manager.createDirectory(at: parent, withIntermediateDirectories: false, attributes: owner)
+        let url = parent.appendingPathComponent(URL(fileURLWithPath: path).lastPathComponent, isDirectory: false)
+        // The file a link names, never the link itself (a relative one would dangle in the copy).
+        try manager.copyItem(at: URL(fileURLWithPath: path).resolvingSymlinksInPath(), to: url)
+        try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        return url.path
     }
 
     /// Each file owner-only in its own folder, so two files may share a name. Shared with the

@@ -227,6 +227,12 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
         StatusIndicatorAppearance.shared.register(self)
     }
 
+    /// The name VoiceOver and the tooltip give the pet: the Chief, or the chat Show in Mini picked.
+    func name(_ title: String) {
+        character.setAccessibilityLabel(title)
+        themedToolTip = title
+    }
+
     /// Loops just turned off (or on): the clip stops on its first frame (or moves again).
     func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig) {
         reconcileClip()

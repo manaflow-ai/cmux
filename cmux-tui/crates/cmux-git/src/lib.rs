@@ -18,6 +18,8 @@ pub mod refs;
 mod repository;
 pub mod run;
 #[cfg(unix)]
+pub mod secrets;
+#[cfg(unix)]
 pub mod sync_barrier;
 pub mod worktree_root;
 pub mod write_run;

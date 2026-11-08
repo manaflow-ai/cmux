@@ -7,6 +7,10 @@
 //! asks for a grant naming that key as well as the Connect ticket; an empty
 //! body asks for a ticket only. A grant is single-use, so each
 //! connect attempt asks again. Tickets and grants are never logged.
+//!
+//! The first connect can skip that ask: a create's (or spare claim's) answer
+//! carries the same value as `carrier` (cmux-platform #946), handed to the
+//! dial as [`Prefetched`].
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -21,7 +25,7 @@ use zeroize::Zeroizing;
 
 use super::contract::Vmk;
 
-/// The longest ticket or grant accepted (cmux-remote's relay credential bound).
+/// The longest ticket accepted (cmux-remote's relay credential bound).
 const MAX_SECRET_BYTES: usize = 4096;
 /// One fetch's HTTP deadline (also bounded by the dial's own deadline).
 pub(super) const FETCH_TIMEOUT: Duration = Duration::from_secs(20);
@@ -89,12 +93,15 @@ fn key_bytes(text: &str) -> Option<[u8; 32]> {
 }
 
 fn secret(value: &Value, name: &str) -> Result<Zeroizing<String>, String> {
+    secret_up_to(value, name, MAX_SECRET_BYTES)
+}
+
+/// [`secret`] up to `max` bytes: a grant may be as long as the session
+/// daemon reads (`cmux_link::carrier_grant::MAX_GRANT_BYTES`).
+fn secret_up_to(value: &Value, name: &str, max: usize) -> Result<Zeroizing<String>, String> {
     let text = value.get(name).and_then(Value::as_str).ok_or(format!("{name} is missing"))?;
-    if text.is_empty()
-        || text.len() > MAX_SECRET_BYTES
-        || !text.bytes().all(|b| (0x21..=0x7e).contains(&b))
-    {
-        return Err(format!("{name} is not 1 to 4096 visible ASCII bytes"));
+    if text.is_empty() || text.len() > max || !text.bytes().all(|b| (0x21..=0x7e).contains(&b)) {
+        return Err(format!("{name} is not 1 to {max} visible ASCII bytes"));
     }
     Ok(Zeroizing::new(text.to_owned()))
 }
@@ -143,7 +150,7 @@ pub(super) fn parse_answer(value: &Value) -> Result<CarrierAnswer, String> {
         value.get("expires_at").and_then(Value::as_u64).ok_or("expires_at is missing")?;
     let grant = match value.get("grant") {
         None | Some(Value::Null) => None,
-        Some(_) => Some(secret(value, "grant")?),
+        Some(_) => Some(secret_up_to(value, "grant", cmux_link::carrier_grant::MAX_GRANT_BYTES)?),
     };
     let daemon_key = value.get("daemon_key").and_then(Value::as_str).and_then(key_bytes);
     let vmk = grant.as_deref().and_then(|g| grant_vmk(g));
@@ -244,6 +251,46 @@ impl HttpSource {
             None => self.credential.current(),
         }
     }
+
+    /// Who the current credential names, read afresh (a stdin token, else
+    /// the token file re-read now, else the environment's): `sub:<sub>` for
+    /// a JWT with a `sub` ([`token_subject`]), else `token:<sha-256 hex>` of
+    /// the whole credential, so two opaque credentials never count as one
+    /// person. `None` when there is no readable credential.
+    pub(super) fn identity(&self) -> Option<String> {
+        let token = self.current().ok()?;
+        Some(match token_subject(&token) {
+            Some(sub) => format!("sub:{sub}"),
+            None => {
+                use sha2::Digest as _;
+                let digest = sha2::Sha256::digest(token.as_bytes());
+                let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+                format!("token:{hex}")
+            }
+        })
+    }
+}
+
+/// The `sub` claim of a JWT credential, read without checking its
+/// signature (the platform checks the credential; this only tells whether a
+/// refreshed credential is the same person's). `None` for anything that is
+/// not a JWT with a string `sub`: a JWT has exactly three segments and its
+/// first is a JSON header naming an `alg`, so an opaque dotted credential
+/// whose middle segment happens to decode never borrows a `sub`.
+pub(super) fn token_subject(token: &str) -> Option<String> {
+    let mut segments = token.split('.');
+    let (Some(header), Some(payload), Some(_), None) =
+        (segments.next(), segments.next(), segments.next(), segments.next())
+    else {
+        return None;
+    };
+    let decode = |segment: &str| -> Option<Value> {
+        let bytes = Zeroizing::new(URL_SAFE_NO_PAD.decode(segment.trim_end_matches('=')).ok()?);
+        serde_json::from_slice(&bytes).ok()
+    };
+    decode(header)?.get("alg")?.as_str()?;
+    let claims = decode(payload)?;
+    claims.get("sub")?.as_str().filter(|sub| !sub.is_empty()).map(str::to_owned)
 }
 
 #[async_trait]
@@ -317,5 +364,56 @@ impl TicketCache {
         *self.held.lock().unwrap_or_else(PoisonError::into_inner) =
             Some((answer.ticket, answer.expires_at));
         Ok(ticket)
+    }
+}
+
+/// A carrier answer handed over ahead of the first connect: the `carrier` of
+/// a create's or spare claim's answer (`dial --answer-fd`, or serve's
+/// `{"carrier_answer":…}` stdin line). One connect attempt takes it; every
+/// later attempt asks the platform as before.
+///
+/// In `serve` ([`Self::for_identity`]) an answer is bound to whoever the
+/// current credential named when it arrived, and only a take while that
+/// credential is still current gets it: an answer handed over for one
+/// person is never used for another's dial.
+#[derive(Default)]
+pub(super) struct Prefetched {
+    held: Mutex<Option<(CarrierAnswer, Option<String>)>>,
+    identity: Option<Arc<dyn Fn() -> Option<String> + Send + Sync>>,
+}
+
+impl Prefetched {
+    pub(super) fn new(answer: Option<CarrierAnswer>) -> Self {
+        Self { held: Mutex::new(answer.map(|answer| (answer, None))), identity: None }
+    }
+
+    /// Answers bound to the identity `identity` reads at each put and take.
+    pub(super) fn for_identity(identity: Arc<dyn Fn() -> Option<String> + Send + Sync>) -> Self {
+        Self { held: Mutex::new(None), identity: Some(identity) }
+    }
+
+    /// Holds `answer` for the next attempt, in place of any held one.
+    pub(super) fn put(&self, answer: CarrierAnswer) {
+        let owner = self.identity.as_ref().and_then(|identity| identity());
+        *self.held.lock().unwrap_or_else(PoisonError::into_inner) = Some((answer, owner));
+    }
+
+    /// The held answer, once, while its ticket is good for at least the
+    /// ticket margin at `now` (Unix seconds) and it has a grant. A stale or
+    /// grantless one is dropped, and the attempt asks the platform. So is
+    /// one bound to an identity that is not the current one (or to none).
+    pub(super) fn take(&self, now: u64) -> Option<CarrierAnswer> {
+        let (answer, owner) = self.held.lock().unwrap_or_else(PoisonError::into_inner).take()?;
+        if let Some(identity) = &self.identity
+            && (owner.is_none() || identity() != owner)
+        {
+            return None;
+        }
+        (answer.grant.is_some() && TicketCache::usable(answer.expires_at, now)).then_some(answer)
+    }
+
+    /// [`Self::take`] at the current time.
+    pub(super) fn take_now(&self) -> Option<CarrierAnswer> {
+        self.take(now_unix())
     }
 }

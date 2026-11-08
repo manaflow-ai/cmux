@@ -12,12 +12,16 @@
 //! - `wg-tcp`: one userspace TCP connection through cmux-wg over loopback UDP
 //!   (RFB or the rd stream carrier through the Cloud tunnel).
 //! - `wg-dgram`: cmux-wg's datagram service, frames cut into datagrams with
-//!   no FEC or retransmission (the floor an rd media path could reach).
+//!   no retransmission (the floor an rd media path could reach).
+//!
+//! `CMUX_WG_ULTRA` (`dup`, `fec:8:2`, `rs:4:4`, see `cmux_wg::UltraMode`) turns on
+//! ultra mode on both ends; the note says what it sent and rebuilt.
 //!
 //! `--rtt-ms` and `--loss-pct` put the WireGuard paths' UDP through an
 //! in-process link with that round trip and that loss in each direction;
 //! kernel TCP runs on plain loopback only. `scripts/remote-stream-bench.sh`
-//! runs the matrix. Prints one JSON object.
+//! runs the matrix, `scripts/remote-stream-ultra-bench.sh` the ultra-mode one.
+//! Prints one JSON object.
 //!
 //! ```text
 //! cargo run --release -p cmux-wg --example remote_stream_bench -- \
@@ -34,7 +38,7 @@ use cmux_wg::testing::config_pair;
 use cmux_wg::{Priority, WgNet};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
-use tokio::time::{Instant, sleep_until, timeout};
+use tokio::time::{Instant, sleep_until, timeout, timeout_at};
 
 const STREAM_PORT: u16 = 5900;
 const BULK_PORT: u16 = 5901;
@@ -423,6 +427,7 @@ async fn run_wg_tcp(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Resul
     let viewer = viewer_net.connect(target).await.map_err(err)?;
     let host = listener.accept().await.ok_or_else(|| io::Error::other("no accept"))?;
     stream_session(host, viewer, args, clock, record.clone()).await;
+    lock(&record).note = ultra_note(&viewer_net, &host_net);
     viewer_net.shutdown().await;
     host_net.shutdown().await;
     // A fresh tunnel, so frames still queued from the stream cannot share it.
@@ -454,7 +459,9 @@ async fn run_wg_dgram(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Res
         tokio::spawn(async move {
             // The stream starts on the viewer's first input, as a viewer's
             // request starts one; before the handshake a datagram is lost.
-            if host.recv_from().await.is_none() {
+            // With no input by the end of the run (100 % loss, no handshake),
+            // the host sends nothing and the run still ends.
+            if !matches!(timeout_at(end, host.recv_from()).await, Ok(Some(_))) {
                 return;
             }
             let interval = Duration::from_secs(1) / args.fps.max(1);
@@ -541,12 +548,34 @@ async fn run_wg_dgram(args: &Args, clock: Arc<Clock>, record: Shared) -> io::Res
     let _ = tokio::join!(host_task, viewer_task);
     let drops = host_net.datagram_drops();
     lock(&record).note = format!(
-        "no FEC or retransmit; sender drops stale {} full {}",
-        drops.media_stale, drops.media_full
+        "no retransmit; sender drops stale {} full {}; {}",
+        drops.media_stale,
+        drops.media_full,
+        ultra_note(&viewer_net, &host_net)
     );
     viewer_net.shutdown().await;
     host_net.shutdown().await;
     Ok(())
+}
+
+/// What ultra mode (`CMUX_WG_ULTRA`) sent and rebuilt on each end of the
+/// stream run.
+fn ultra_note(viewer: &WgNet, host: &WgNet) -> String {
+    let (viewer, host) = (viewer.ultra_stats(), host.ultra_stats());
+    format!(
+        "ultra {:?}: host parity {} copies {} overhead {} B of {} B rebuilt {}, viewer parity {} copies {} overhead {} B of {} B rebuilt {}",
+        cmux_wg::UltraMode::from_env(),
+        host.parity_sent,
+        host.copies_sent,
+        host.overhead_bytes,
+        host.data_bytes,
+        host.recovered,
+        viewer.parity_sent,
+        viewer.copies_sent,
+        viewer.overhead_bytes,
+        viewer.data_bytes,
+        viewer.recovered,
+    )
 }
 
 fn percentiles(values: &mut [u64]) -> String {
