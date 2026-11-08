@@ -85,6 +85,9 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
     /// GitHub's HTML of a body is longer than its Markdown (its links, its image proxy's URLs); past
     /// this it is dropped, never cut, since a cut tag breaks the markup, and the page draws the text.
     static let maximumHTML = 160_000
+    /// All the HTML one read sends. Past it, a body's HTML is dropped (it draws its Markdown): the
+    /// description's first, then the newest entries', so one pull request's reply stays bounded.
+    static let maximumTotalHTML = 1_000_000
 
     /// GraphQL's non-null mark, spelled apart so the crash ratchet does not read it as an unwrap.
     private static let required = "!"
@@ -155,7 +158,18 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
                          url: link(node["url"]), state: state, comments: Array(inline))
         }
         // ISO 8601 in UTC sorts as text.
-        let conversation = (comments + reviews).sorted { $0.at < $1.at }
+        var budget = maximumTotalHTML
+        let description = spend(html(pull), &budget)
+        let conversation = Array((comments + reviews).sorted { $0.at < $1.at }.reversed().map { entry -> Entry in
+            var entry = entry
+            entry.html = spend(entry.html, &budget)
+            entry.comments = entry.comments.map { comment in
+                var comment = comment
+                comment.html = spend(comment.html, &budget)
+                return comment
+            }
+            return entry
+        }.reversed())
         var reviewers = nodes("latestOpinionatedReviews", pull).compactMap { node -> Reviewer? in
             let name = login(node)
             return name.isEmpty ? nil : Reviewer(name: name, state: (node["state"] as? String)?.lowercased() ?? "commented")
@@ -178,7 +192,7 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
         }
         let method = (repository["viewerDefaultMergeMethod"] as? String)?.lowercased() ?? ""
         return GitHubPullRequestDetails(
-            body: text(pull["body"], maximumBody), html: html(pull), headCommit: (pull["headRefOid"] as? String) ?? "",
+            body: text(pull["body"], maximumBody), html: description, headCommit: (pull["headRefOid"] as? String) ?? "",
             mergeState: (pull["mergeStateStatus"] as? String)?.lowercased() ?? "",
             mergeMethod: ["merge", "squash", "rebase"].contains(method) ? method : "merge",
             labels: labels, conversation: conversation, conversationTotal: total("comments") + total("reviews"),
@@ -192,6 +206,14 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
     static func html(_ value: Any?) -> String {
         guard let text = value as? String, text.utf8.count <= maximumHTML else { return "" }
         return text
+    }
+
+    /// `html` when the read's HTML budget still holds it whole (and less of the budget), else "".
+    static func spend(_ html: String, _ budget: inout Int) -> String {
+        let size = html.utf8.count
+        guard size <= budget else { return "" }
+        budget -= size
+        return html
     }
 
     /// `value` when it is a github.com https link, the only kind the page opens.

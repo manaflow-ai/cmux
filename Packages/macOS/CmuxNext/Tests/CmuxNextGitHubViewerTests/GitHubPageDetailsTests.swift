@@ -115,6 +115,28 @@ struct GitHubPageDetailsTests {
         #expect(details.json["viewer"]?.stringValue == "teamleaderleo")
     }
 
+    @Test func oneReadSendsAtMostItsHTMLBudgetTheDescriptionAndNewestFirst() throws {
+        // Each body fits its own cap; together they pass the read's budget.
+        let size = GitHubPullRequestDetails.maximumHTML - 10
+        let each = GitHubPullRequestDetails.maximumTotalHTML / size + 2
+        let big = String(repeating: "x", count: size)
+        let comments = (0..<each).map { index in
+            #"{"author": {"login": "bot"}, "body": "b", "bodyHTML": "\#(big)", "createdAt": "2026-11-07T\#(String(format: "%02d", index)):00:00Z"}"#
+        }.joined(separator: ",")
+        let answer = #"""
+            {"data": {"repository": {"pullRequest": {"body": "Hi", "bodyHTML": "\#(big)", "headRefOid": "",
+              "comments": {"totalCount": \#(each), "nodes": [\#(comments)]}}}}}
+            """#
+        let details = try #require(GitHubPullRequestDetails.parse(Data(answer.utf8)))
+        #expect(details.html == big)
+        let sent = details.html.utf8.count + details.conversation.reduce(0) { $0 + $1.html.utf8.count }
+        #expect(sent <= GitHubPullRequestDetails.maximumTotalHTML)
+        // The newest keep theirs; the oldest draw their Markdown.
+        #expect(details.conversation.last?.html == big)
+        #expect(details.conversation.first?.html == "")
+        #expect(details.conversation.count == each)
+    }
+
     @Test func theDetailsAreReadOncePerPullRequestHoweverOftenThePageAsks() async throws {
         let calls = Calls()
         let provider = GitHubPageProvider(cache: Self.cache(), diffReader: { _ in nil }, detailsReader: { _ in

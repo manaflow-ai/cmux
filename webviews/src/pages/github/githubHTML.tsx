@@ -104,6 +104,10 @@ const DROP = new Set([
 /** Parents whose whitespace text React must not draw (it is not allowed there). */
 const NO_TEXT = new Set(["table", "thead", "tbody", "tfoot", "tr", "colgroup", "ul", "ol", "dl", "picture", "details"]);
 
+/** How deep the rebuild goes; below this an element is its text, so a body of thousands of nested
+ * tags cannot run the stack out. GitHub's own bodies nest a few levels. */
+const MAX_DEPTH = 48;
+
 /** An inline image the page's `img-src data:` already allows; it fetches and runs nothing. */
 const DATA_IMAGE = /^data:image\/(png|gif|jpeg|webp|svg\+xml)[;,]/i;
 
@@ -198,26 +202,28 @@ function picture(element: Element, key: number): ReactNode {
   );
 }
 
-function children(element: Element, open: Open): ReactNode[] {
+function children(element: Element, open: Open, depth: number): ReactNode[] {
   const out: ReactNode[] = [];
   const quiet = NO_TEXT.has(element.localName);
   element.childNodes.forEach((child, index) => {
-    const drawn = node(child, index, open, quiet);
+    const drawn = node(child, index, open, quiet, depth + 1);
     if (drawn != null && drawn !== false) out.push(drawn);
   });
   return out;
 }
 
-function node(child: ChildNode, key: number, open: Open, quiet: boolean): ReactNode {
+function node(child: ChildNode, key: number, open: Open, quiet: boolean, depth: number): ReactNode {
   if (child.nodeType === 3) {
     const text = child.textContent ?? "";
     return quiet && !text.trim() ? null : text;
   }
   if (child.nodeType !== 1) return null;
-  return element(child as Element, key, open);
+  // Too deep: its text alone, read without recursion.
+  if (depth > MAX_DEPTH) return quiet ? null : (child.textContent ?? "");
+  return element(child as Element, key, open, depth);
 }
 
-function element(el: Element, key: number, open: Open): ReactNode {
+function element(el: Element, key: number, open: Open, depth: number): ReactNode {
   const name = el.localName;
   if (DROP.has(name)) return null;
   switch (name) {
@@ -225,7 +231,7 @@ function element(el: Element, key: number, open: Open): ReactNode {
       // A heading's own anchor (`a.anchor`, its octicon) is github.com chrome, not the body.
       if (el.classList.contains("anchor") && !el.textContent?.trim()) return null;
       const href = el.getAttribute("href") ?? "";
-      const inner = children(el, open);
+      const inner = children(el, open, depth);
       return openableLink(href) ? (
         <Link key={key} href={href} open={open}>
           {inner}
@@ -250,19 +256,19 @@ function element(el: Element, key: number, open: Open): ReactNode {
     case "h5":
     case "h6": {
       const Tag = headingTag(name);
-      return <Tag key={key}>{children(el, open)}</Tag>;
+      return <Tag key={key}>{children(el, open, depth)}</Tag>;
     }
     case "table":
       return (
         <div key={key} className="gh-md-table">
-          <table>{children(el, open)}</table>
+          <table>{children(el, open, depth)}</table>
         </div>
       );
     case "li": {
       const box = el.querySelector(":scope > input[type=checkbox], :scope > p > input[type=checkbox]");
       return (
         <li key={key} data-task={box ? (box.hasAttribute("checked") ? "done" : "open") : undefined}>
-          {children(el, open)}
+          {children(el, open, depth)}
         </li>
       );
     }
@@ -270,7 +276,7 @@ function element(el: Element, key: number, open: Open): ReactNode {
       const start = size(el.getAttribute("start"));
       return (
         <ol key={key} start={start}>
-          {children(el, open)}
+          {children(el, open, depth)}
         </ol>
       );
     }
@@ -289,13 +295,13 @@ function element(el: Element, key: number, open: Open): ReactNode {
           rowSpan={span("rowspan")}
           style={align === "left" || align === "center" || align === "right" ? { textAlign: align } : undefined}
         >
-          {children(el, open)}
+          {children(el, open, depth)}
         </Tag>
       );
     }
     case "details":
       // Folded at first, as a bot's long "Prompt for AI Agents" is on github.com.
-      return <details key={key}>{children(el, open)}</details>;
+      return <details key={key}>{children(el, open, depth)}</details>;
     case "br":
       return <br key={key} />;
     case "hr":
@@ -303,9 +309,9 @@ function element(el: Element, key: number, open: Open): ReactNode {
     case "col":
       return <col key={key} />;
     default: {
-      if (!KEEP.has(name)) return <Fragment key={key}>{children(el, open)}</Fragment>;
+      if (!KEEP.has(name)) return <Fragment key={key}>{children(el, open, depth)}</Fragment>;
       const Tag = name as "p";
-      return <Tag key={key}>{children(el, open)}</Tag>;
+      return <Tag key={key}>{children(el, open, depth)}</Tag>;
     }
   }
 }
@@ -314,5 +320,5 @@ function element(el: Element, key: number, open: Open): ReactNode {
 export function githubHTML(html: string, open: Open): ReactNode[] | null {
   if (typeof DOMParser === "undefined") return null;
   const doc = new DOMParser().parseFromString(`<body>${html}</body>`, "text/html");
-  return children(doc.body, open);
+  return children(doc.body, open, 0);
 }
