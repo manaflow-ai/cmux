@@ -2,8 +2,9 @@
 // A paste that reads as another agent's output, in the person's message (ask-fa4c523fa8; Leo,
 // 2026-11-06: "it should be automatically attributable, so it doesn't just pass off as one of my
 // messages"): the person pasted a Codex handoff that says "Do not merge or deploy" under their own
-// line. The card names the agent the paste reads as (agentText.ts); the person's line stays theirs.
-// Compare the arms (`pasted-agent-look`: rule, label, badge); each keeps the card's height.
+// line. The paste is the message's own text (Leo, 2026-11-08: no "Pasted text" card); the quiet line
+// under the bubble names the agent it reads as (agentText.ts `pastedAgent`), as it does for typed
+// text acpmux marks. `pasted-agent-look` now draws only a text file's card (PromptText.tsx PasteChip).
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../../gallery/play";
@@ -38,7 +39,7 @@ const typedHandoff = () =>
   ]);
 
 const drawn = async (ctx: PlayContext) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-user__paste-card, .cv-user__status"));
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-user__text"));
 };
 
 export default agentPaneEntry({
@@ -51,12 +52,12 @@ export default agentPaneEntry({
   keywords: ["paste", "pasted", "agent", "handoff", "attribution", "from another agent"],
   variants: {
     "pasted-handoff": {
-      note: "The person's line, then the Codex handoff they pasted: its card names Codex, set apart from their own words.",
+      note: "The person's line, then the Codex handoff they pasted, as the message's text: the line under the bubble says part of it reads as Codex's.",
       snapshot: pasted(MINE, HANDOFF),
       play: drawn,
     },
     "pasted-log": {
-      note: "A pasted log with no agent signal: still a pasted card, labelled Pasted text, never the person's typed words.",
+      note: "A pasted log with no agent signal: the message's own text, with no line under the bubble.",
       snapshot: pasted("Why does this fail?", LOG),
       play: drawn,
     },

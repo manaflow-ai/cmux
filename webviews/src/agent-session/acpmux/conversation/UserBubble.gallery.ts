@@ -5,8 +5,11 @@
 // its exact date and time above it on hover (the *-time-tooltip plays). Edit shows on a Claude
 // chat's prompts after its first turn, which acpmux can fork through (cx-ncc.60). The icon buttons
 // name themselves in a tooltip on hover (the *-tooltip plays). A long prompt opens on its first ten
-// lines, fading out, with Show more; a pasted block is a chip that opens in place (PromptText.tsx).
+// lines, fading out, with Show more; a pasted block is the message's own text under that same fold
+// (PromptText.tsx; Leo, 2026-11-08). The pasted-* variants compare `pasted-text-look`'s arms: plain
+// (shipped) and a quiet marker rule.
 import { agentPaneEntry } from "../../../gallery/format";
+import { pastedTextLook } from "./pastedTextLook.experiment";
 import type { PlayContext } from "../../../gallery/play";
 import { assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../model";
@@ -110,6 +113,21 @@ const pastedParagraph = () => {
     chat([
       user(text, 9, { seq: 1, pasted: [{ start: TIGHTEN.length + 1, end: text.length }] }),
       assistant("Here it is in half the words.", 8.5),
+      summary(8.5, { seq: 3, status: "completed" }),
+    ]),
+  );
+};
+
+/// The 230-character dictation Leo pasted under his own words (2026-11-08), short enough to draw whole.
+const DICTATION =
+  "In addition, actually, I feel like there's some sort of, like, fly-in animation for when the images and attachments go from the composer to the, like, message display from the user or whatever.";
+const ASKED = "One more thing:";
+const pastedShort = () => {
+  const text = `${ASKED}\n${DICTATION}`;
+  return claude(
+    chat([
+      user(text, 9, { seq: 1, pasted: [{ start: ASKED.length + 1, end: text.length }] }),
+      assistant("Noted: the attachments fly from the composer into the sent message.", 8.5),
       summary(8.5, { seq: 3, status: "completed" }),
     ]),
   );
@@ -298,28 +316,32 @@ export default agentPaneEntry({
         ]),
       ),
     },
+    "pasted-short": {
+      note: "A 230-character dictation pasted under the typed words: plain message text, drawn whole, no card and no toggle.",
+      snapshot: pastedShort(),
+    },
     "pasted-chip": {
-      note: "A pasted 2,300-line stack trace is a card under the typed question: its first three lines, the last fading, over 'Pasted text', its line count and its characters.",
+      note: "A pasted 2,300-line stack trace under the typed question: the message's own text, its first ten lines fading out over the message's Show more.",
       snapshot: pastedPrompt(),
     },
     "pasted-chip-open": {
-      note: "Play: the card opens in place, the same text growing to the whole paste, its label under it to close it, with Show less to fold the prompt again.",
+      note: "Play: Show more opens the whole message, paste and all, in place; Show less folds it back to the same place.",
       snapshot: pastedPrompt(),
       play: async (ctx) => {
-        await ctx.click({ selector: ".cv-user__paste" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__paste[aria-expanded='true']"));
+        await ctx.click({ selector: ".cv-user__more" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__more[aria-expanded='true']"));
       },
     },
     "pasted-paragraph": {
-      note: "One pasted paragraph of 1,100 words: its first three lines wrapped at the bubble's width, and its size in characters, never '1 line'.",
+      note: "One pasted paragraph of 1,100 words: wrapped at the bubble's width as the message's text, under Show more.",
       snapshot: pastedParagraph(),
     },
     "pasted-paragraph-open": {
-      note: "Play: the paragraph's card opens in place to the whole paragraph.",
+      note: "Play: Show more opens the paragraph in place.",
       snapshot: pastedParagraph(),
       play: async (ctx) => {
-        await ctx.click({ selector: ".cv-user__paste" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__paste[aria-expanded='true']"));
+        await ctx.click({ selector: ".cv-user__more" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-user__more[aria-expanded='true']"));
       },
     },
     editing: {
@@ -336,5 +358,16 @@ export default agentPaneEntry({
       snapshot: turns(claude),
       play: hoverTooltip("Edit"),
     },
+  },
+  experiment: {
+    definition: pastedTextLook,
+    script: [
+      {
+        name: "Draw a pasted message",
+        run: async (ctx: PlayContext) => {
+          await ctx.waitFor(() => ctx.document.querySelector(".cv-user__pasted"));
+        },
+      },
+    ],
   },
 });

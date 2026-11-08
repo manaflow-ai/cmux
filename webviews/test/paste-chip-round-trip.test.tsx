@@ -3,11 +3,12 @@
 // chip and sends it as its own ACP text block after the typed one, marked `_meta.cmux.pasted`
 // (#23396). acpmux records the prompt's text blocks joined with a newline as `user_message.text`
 // and each marked block's UTF-16 range in it as `user_message.pasted` (hub/session.rs
-// `prompt_text_parts`, #23407). The transcript draws each range as a card of its first lines over
-// "Pasted text · N lines · NK characters" (PromptText.tsx, #23431). This test runs the real composer, the real client and the real
+// `prompt_text_parts`, #23407). The transcript draws each range as the message's own text, in its
+// place after the typed words and under the message's own Show more, with no "Pasted text" card
+// (PromptText.tsx; Leo, 2026-11-08). This test runs the real composer, the real client and the real
 // bubble, with acpmux's side done here exactly as session.rs does it, and checks that the bubble
-// drawn at send (before acpmux answers) is the one drawn from acpmux's record: the same text,
-// the same chips, in the same order, so nothing moves when the echo replaces it.
+// drawn at send (before acpmux answers) is the one drawn from acpmux's record: the same text, in
+// the same parts and order, so nothing moves when the echo replaces it.
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -70,7 +71,6 @@ const { UserBubble } = await import("../src/agent-session/acpmux/conversation/Us
 const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
 const { noChat } = await import("../src/gallery/fixtures/acpmux");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
-const { pastedSize } = await import("../src/agent-session/acpmux/composer/textAttachmentCardModel");
 
 const CHAT = "0190a000-0000-7000-8000-0000000000f5";
 const START = Date.UTC(2026, 9, 21, 9, 0, 0);
@@ -261,8 +261,8 @@ function fakeDaemon() {
 
 // ---- The transcript: the prompt's bubble as App.tsx draws it. ----
 
-/// What a reader sees of a bubble's text, in order: each typed part, and each paste chip by its
-/// name, its line count and whether it is open; then the Show more toggle, if any.
+/// What a reader sees of a bubble's text, in order: each part's text, and whether it is a pasted
+/// block's text (`.cv-user__pasted`); any paste card the bubble drew; then the Show more toggle.
 function drawn(row: AcpmuxRow) {
   resetTranscriptDisclosure();
   transcriptRoot ??= createRoot(transcriptHost);
@@ -279,16 +279,10 @@ function drawn(row: AcpmuxRow) {
   const run = body.querySelector(":scope > .cv-user__inline-content") ?? body;
   return {
     clamped: body.classList.contains("is-clamped"),
-    parts: [...run.children].map((part): Record<string, string | null | undefined> =>
-      part.classList.contains("cv-user__typed")
-        ? { typed: part.textContent }
-        : {
-            first: part.querySelector(".cv-user__paste-text")?.textContent?.split("\n")[0],
-            name: part.querySelector(".cv-user__paste-name")?.textContent,
-            lines: part.querySelector(".cv-user__paste-lines")?.textContent,
-            open: part.querySelector(".cv-user__paste")?.getAttribute("aria-expanded"),
-          },
+    parts: [...run.children].map((part) =>
+      part.classList.contains("cv-user__pasted") ? { pasted: part.textContent } : { typed: part.textContent },
     ),
+    cards: transcriptHost.querySelectorAll(".cv-user__paste, .cv-user__paste-card, .cv-user__paste-block").length,
     more: transcriptHost.querySelector(".cv-user__more")?.textContent ?? null,
   };
 }
@@ -335,9 +329,8 @@ const TRACE = Array.from({ length: 260 }, (_, index) => `  at handler${index + 1
 /// points (or bytes) would land off by one.
 const TYPED = "why does the build fail? 🧪";
 const PASTED = translate("composer.pastedText");
-const sizeLabel = (text: string) => pastedSize(translate, "en-US", text);
 
-test("a 2,300-line paste comes back as a Pasted chip after the typed text, drawn the same before and after acpmux's echo", async () => {
+test("a 2,300-line paste comes back as the message's own text after the typed words, drawn the same before and after acpmux's echo", async () => {
   const composed = await compose(TYPED, [LOG]);
   // The paste sits in the prompt where it went, after the typed text.
   expect(withoutInlineTokens(composed.text)).toBe(TYPED);
@@ -363,21 +356,20 @@ test("a 2,300-line paste comes back as a Pasted chip after the typed text, drawn
   expect(echoed.text).toBe(record.text);
   expect(echoed.pasted).toEqual(record.pasted);
 
-  // What the reader sees: the typed words first, then one closed card of the paste's first lines.
+  // What the reader sees: the typed words first, then the paste as the message's own text, no
+  // card, the message collapsed under its own Show more.
   expect(after.parts).toHaveLength(2);
   expect(after.parts[0]!.typed?.trim()).toBe(TYPED);
-  expect(after.parts[1]).toEqual({
-    first: "error at frame 1: cannot resolve module",
-    name: PASTED,
-    lines: sizeLabel(LOG),
-    open: "false",
-  });
-  expect(transcriptHost.querySelector(".cv-user__text")!.textContent).not.toContain("error at frame 2300");
+  expect(after.parts[1]).toEqual({ pasted: LOG });
+  expect(after.cards).toBe(0);
+  expect(after.clamped).toBe(true);
+  expect(after.more).toBe(translate("message.more"));
+  expect(transcriptHost.textContent).not.toContain(PASTED);
   // And nothing moves when the echo takes the pending bubble's place.
   expect(before).toEqual(after);
 });
 
-test("two pastes with nothing typed come back as two chips in the order they were pasted, before and after the echo", async () => {
+test("two pastes with nothing typed come back as the message's text in the order they were pasted, before and after the echo", async () => {
   const composed = await compose("", [LOG, TRACE]);
   // Nothing typed: the prompt is the two pastes, in the order they went in.
   expect(withoutInlineTokens(composed.text)).toBe("");
@@ -397,11 +389,10 @@ test("two pastes with nothing typed come back as two chips in the order they wer
   expect(pending.text).toBe(record.text);
   expect(pending.pasted).toEqual(record.pasted);
 
-  // Between the two chips is the newline that joined them, which draws nothing.
-  const chips = after.parts.filter((part) => !("typed" in part) || part.typed?.trim());
-  expect(chips).toEqual([
-    { first: "error at frame 1: cannot resolve module", name: PASTED, lines: sizeLabel(LOG), open: "false" },
-    { first: "  at handler1 (server.ts:10)", name: PASTED, lines: sizeLabel(TRACE), open: "false" },
-  ]);
+  // The two pastes, in order, as the message's own text: no cards, one Show more for the message.
+  expect(after.parts).toEqual([{ pasted: LOG }, { pasted: TRACE }]);
+  expect(after.cards).toBe(0);
+  expect(after.clamped).toBe(true);
+  expect(after.more).toBe(translate("message.more"));
   expect(before).toEqual(after);
 });

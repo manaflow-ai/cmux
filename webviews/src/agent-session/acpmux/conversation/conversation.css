@@ -580,11 +580,19 @@
   margin: 0 calc(-1 * var(--cv-bubble-pad-inline)) calc(-1 * var(--cv-bubble-pad-block));
   padding: 4px var(--cv-bubble-pad-inline) var(--cv-bubble-pad-block);
 }
-/* A pasted block: one card of the paste's own text, no outline, a quiet tint of the bubble's ink.
-   Closed, its first PASTE_PREVIEW_LINES lines wrap in the prompt's font, the last fading out, over
-   the composer's label; open, the same text runs whole above that label. Closed it is
-   pasteChipHeight (promptCollapse.ts): 4px around the card, 8px and 4px inside, a 20px label 4px
-   under the lines. */
+/* A block the person pasted, in their sent message (PromptText.tsx PastedText): the message's own
+   text, inline among the typed words, so the shipped look adds nothing. The gallery's marker arm
+   (pastedTextLook) sets it off with a quiet rule down its left edge, inside its own padding. */
+.cv-user__pasted[data-look="marker"] {
+  display: block;
+  padding-left: var(--ds-space-3);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, currentColor 22%, transparent);
+}
+/* A text file's body in a sent prompt's inline parts (PromptText.tsx PasteChip): one card of its own
+   text, no outline, a quiet tint of the bubble's ink. Closed, its first PASTE_PREVIEW_LINES lines
+   wrap in the prompt's font, the last fading out, over the composer's label; open, the same text
+   runs whole above that label: 4px around the card, 8px and 4px inside, a 20px label 4px under the
+   lines. */
 .cv-user__paste-block {
   display: flex;
   flex-direction: column;

@@ -2,9 +2,10 @@
 // A sent prompt whose attachments sat inline (`inlineParts`) draws them in its bubble in order,
 // as Messages does. These pin what the legacy bands already did right: a thumbnail is the whole image
 // in its own shape, never a magnified crop (conversation.css; Leo, 2026-11-05: "I don't think we have
-// good enough looking previews for these"), a pasted block is a chip that opens to its text
-// (PromptText.tsx PasteChip), and an image's retained original (`companionOf`) is never drawn
-// again as a separate file.
+// good enough looking previews for these"), a pasted block is the message's own text among its
+// typed words (Leo, 2026-11-08: no "Pasted text" card), a text file's body is a card that opens to
+// its text (PromptText.tsx PasteChip), and an image's retained original (`companionOf`) is never
+// drawn again as a separate file.
 import { afterAll, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { JSDOM, VirtualConsole } from "jsdom";
@@ -64,6 +65,8 @@ const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/
 const { translate } = await import("../src/agent-session/acpmux/i18n");
 
 const host = dom.window.document.getElementById("root")!;
+/// A pasted block's card, which a sent message no longer draws (a text file's body still does).
+const CARD = ".cv-user__paste, .cv-user__paste-card, .cv-user__paste-block";
 const root = createRoot(host);
 type Row = Parameters<typeof UserBubble>[0]["row"];
 const prompt = (id: string, text: string, inlineParts: unknown[]): Row =>
@@ -106,7 +109,8 @@ try {
     expect(dom.window.getComputedStyle(button).cursor).toBe("zoom-in");
   });
 
-  test("an inline pasted block is a card of its first lines that opens to its text", async () => {
+  test("an inline pasted block is the message's own text, in its place among the typed words", async () => {
+    resetTranscriptDisclosure();
     const pasted = "first pasted line\nsecond pasted line\nthird pasted line";
     await render(
       prompt("inline-paste", `before\n${pasted}\nafter`, [
@@ -115,16 +119,56 @@ try {
         { kind: "text", text: " after" },
       ]),
     );
-    const chip = host.querySelector<HTMLButtonElement>("[data-inline-content] .cv-user__paste");
-    expect(chip).not.toBeNull();
-    // Closed, its lines are a preview outside Find; open, the same text is the paste, found.
-    const text = host.querySelector("[data-inline-content] .cv-user__paste-text");
-    expect(text?.closest("[data-find-skip]")).not.toBeNull();
-    expect(chip!.getAttribute("aria-expanded")).toBe("false");
-    await act(async () => chip!.click());
-    expect(chip!.getAttribute("aria-expanded")).toBe("true");
-    expect(host.querySelector("[data-inline-content] .cv-user__paste-text")?.textContent).toBe(pasted);
-    expect(host.querySelector("[data-inline-content] .cv-user__paste-text")?.closest("[data-find-skip]")).toBeNull();
+    const content = host.querySelector("[data-inline-content]")!;
+    expect(content).not.toBeNull();
+    expect(host.querySelector(CARD)).toBeNull();
+    // Its text, in order, inside the bubble's text and outside nothing Find skips.
+    const texts = [...content.querySelectorAll<HTMLElement>(":scope > .cv-user__typed")].map((node) => node.textContent);
+    expect(texts).toEqual(["before ", pasted, " after"]);
+    const paste = [...content.querySelectorAll<HTMLElement>(":scope > .cv-user__typed")][1]!;
+    expect(paste.closest(".cv-user__text")).not.toBeNull();
+    expect(paste.closest("[data-find-skip]")).toBeNull();
+  });
+
+  test("an inline sent message with pasted text renders it as plain bubble text, with no Pasted text block", async () => {
+    clearImageEntries();
+    resetTranscriptDisclosure();
+    await act(async () => setComposerSettings({ attachmentView: "inline" }));
+    const typed = "Can you tighten this paragraph?";
+    const pasted =
+      "The uploader retries a failed part three times with a fixed delay, which floods the server " +
+      "when it is already struggling; it should back off exponentially, add jitter and give up " +
+      "after a bounded total wait so the person knows why.";
+    expect(pasted.length).toBe(230);
+    await render(
+      prompt("inline-plain-paste", `${typed}\n${pasted}`, [
+        { kind: "text", text: typed },
+        { kind: "pasted", name: translate("composer.pastedText"), text: pasted, placed: true },
+      ]),
+    );
+    const body = host.querySelector(".cv-user__text")!;
+    expect(body.querySelector("[data-inline-content]")).not.toBeNull();
+    expect(body.textContent).toBe(`${typed}\n${pasted}`);
+    expect(host.querySelector(CARD)).toBeNull();
+    expect(host.textContent).not.toContain(translate("composer.pastedText"));
+    expect(host.querySelector(".cv-user__more")).toBeNull();
+    expect(body.classList.contains("is-clamped")).toBe(false);
+
+    // A 40-line paste folds the message under its own Show more.
+    resetTranscriptDisclosure();
+    const log = Array.from({ length: 40 }, (_, index) => `frame ${index + 1}`).join("\n");
+    await render(
+      prompt("inline-40-paste", `${typed}\n${log}`, [
+        { kind: "text", text: typed },
+        { kind: "pasted", name: translate("composer.pastedText"), text: log, placed: true },
+      ]),
+    );
+    const long = host.querySelector(".cv-user__text")!;
+    expect(host.querySelector(CARD)).toBeNull();
+    expect(long.textContent).toBe(`${typed}\n${log}`);
+    expect(long.classList.contains("is-clamped")).toBe(true);
+    expect(host.querySelector(".cv-user__more")?.textContent).toBe(translate("message.more"));
+    expect(host.querySelector(".cv-user__more")?.getAttribute("aria-expanded")).toBe("false");
   });
 
   test("an image's retained original is not drawn again as a file", async () => {
@@ -183,7 +227,7 @@ try {
     });
   }
 
-  test("opening a pasted block also opens its enclosing ordered prompt", async () => {
+  test("a pasted block in an ordered prompt folds with it under the prompt's Show more", async () => {
     resetTranscriptDisclosure();
     const text = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`).join("\n");
     await render(
@@ -195,9 +239,11 @@ try {
     );
     const body = host.querySelector(".cv-user__text")!;
     expect(body.classList.contains("is-clamped")).toBe(true);
-    await act(async () => host.querySelector<HTMLButtonElement>(".cv-user__paste")!.click());
+    expect(host.querySelector(CARD)).toBeNull();
+    expect(body.textContent).toContain("pasted details");
+    await act(async () => host.querySelector<HTMLButtonElement>(".cv-user__more")!.click());
     expect(body.classList.contains("is-clamped")).toBe(false);
-    expect(host.querySelector(".cv-user__paste-text")?.textContent).toBe("pasted details");
+    expect(body.textContent).toContain("pasted details");
   });
   // A prompt whose attachments the composer placed records each one `placed` (inlinePrompt.ts,
   // acpmux hub/prompt_images.rs): it draws where it was put, the last part included, never in the
@@ -207,8 +253,8 @@ try {
     [...host.querySelectorAll<HTMLElement>("[data-inline-content] > *")].map((node) =>
       node.querySelector("img")
         ? `image:${node.querySelector("img")!.getAttribute("alt")}`
-        : node.querySelector(".cv-user__paste")
-          ? "paste"
+        : node.matches(".cv-user__paste-block") || node.querySelector(".cv-user__paste")
+          ? "card"
           : node.textContent,
     );
   test("inline: a placed trailing image sits after its text inside the bubble", async () => {
@@ -255,7 +301,9 @@ try {
       images: [{ id: "after-paste", mimeType: "image/png", name: "after-paste.png" }],
     });
     expect(host.querySelector(".cv-user__images")).toBeNull();
-    expect(inlineShape()).toEqual(["paste", "image:after-paste.png"]);
+    // The paste is the message's own text, before the image.
+    expect(host.querySelector(CARD)).toBeNull();
+    expect(inlineShape()).toEqual([pasted, "image:after-paste.png"]);
   });
   test("inline: a placed prompt draws the same before and after acpmux echoes it", async () => {
     clearImageEntries();
@@ -283,7 +331,8 @@ try {
     });
     expect(host.querySelector(".cv-user__images")).toBeNull();
     const before = inlineShape();
-    expect(before).toEqual(["see this", "paste", "image:shot.png"]);
+    expect(host.querySelector(CARD)).toBeNull();
+    expect(before).toEqual(["see this", pasted, "image:shot.png"]);
     // acpmux's echo: the same parts by its own ids, each still placed.
     await render({
       ...prompt("placed-send", text, [
@@ -295,6 +344,7 @@ try {
       images: [{ id: "durable-shot", mimeType: "image/png", name: "shot.png" }],
     });
     expect(host.querySelector(".cv-user__images")).toBeNull();
+    expect(host.querySelector(CARD)).toBeNull();
     expect(inlineShape()).toEqual(before);
   });
   test("inline: an unplaced text then image keeps the legacy band above the bubble", async () => {
@@ -445,7 +495,7 @@ try {
     }
   });
 
-  test("Find in an ordered pasted block opens both the chip and its enclosing fold", async () => {
+  test("Find in an ordered pasted block opens its enclosing fold", async () => {
     resetTranscriptDisclosure();
     const text = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`).join("\n");
     await render(
@@ -456,8 +506,14 @@ try {
       ]),
       { rowId: "ordered-paste-find", card: false, needle: "unique pasted match", repaint: () => {} },
     );
-    expect(host.querySelector(".cv-user__text")!.classList.contains("is-clamped")).toBe(false);
-    expect(host.querySelector(".cv-user__paste-text")?.textContent).toBe("unique pasted match");
+    const body = host.querySelector(".cv-user__text")!;
+    expect(body.classList.contains("is-clamped")).toBe(false);
+    expect(host.querySelector(CARD)).toBeNull();
+    expect(
+      [...body.querySelectorAll("[data-inline-content] > .cv-user__typed")].some(
+        (node) => node.textContent === "unique pasted match",
+      ),
+    ).toBe(true);
   });
   for (const attachmentView of ["inline", "strip"] as const) {
     test(`${attachmentView}: a placed sent file and image keep their source's badge`, async () => {

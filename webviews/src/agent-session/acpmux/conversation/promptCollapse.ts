@@ -1,7 +1,6 @@
 // A long prompt collapses as Claude's does (Leo 2026-10-21): its first ten lines, the last one
 // fading out, with Show more / Show less under them (UserBubble.tsx). A block the composer sent as
-// a paste is a card of its first lines over the composer's label ("Pasted text · N lines · NK
-// characters"), that opens in place. model.ts estimates the row
+// a paste is the message's own text, under the same fold (Leo, 2026-11-08). model.ts estimates the row
 // from the same numbers, so a prompt that mounts moves nothing below it.
 
 import { sliceWhole } from "../../../ui/wholeChars";
@@ -10,15 +9,11 @@ import { sliceWhole } from "../../../ui/wholeChars";
 export const COLLAPSED_PROMPT_LINES = 10;
 /// The Show more line under a collapsed prompt (`.cv-user__more`: 4px above a 20px line).
 export const PROMPT_MORE_HEIGHT = 24;
-/// The lines of its text a pasted block's card shows closed.
+/// The lines of its text a text file's card shows closed (PromptText.tsx PasteChip).
 export const PASTE_PREVIEW_LINES = 3;
 /// The text a closed card draws: more than its lines hold at the bubble's widest, so a paste of a
 /// megabyte lays out no more than a short one (HUGE_PROMPT_CHARS).
 export const PASTE_PREVIEW_CHARS = 1_000;
-/// A pasted block's card as the bubble draws it closed, in prompt lines `lineHeight` tall
-/// (`.cv-user__paste-block`: 4px above and below the card, its 8px top and 4px bottom padding,
-/// and its 20px label 4px under the lines).
-export const pasteChipHeight = (lineHeight: number) => PASTE_PREVIEW_LINES * lineHeight + 44;
 /// Before the bubble is laid out (and where it never is), a prompt longer than this many
 /// characters is taken to wrap past the collapsed lines.
 const LONG_PROMPT_CHARS = 1_000;
@@ -40,16 +35,20 @@ export const HUGE_PROMPT_HEAD_CHARS = 4_000;
 
 export const isHugePrompt = (text: string) => text.length > HUGE_PROMPT_CHARS;
 
-/// Whether a prompt's typed text makes it huge: one of its typed parts is. Pasted blocks are chips
-/// whatever their length (a huge paste draws as one chip, nothing more), so they never count.
-export const hasHugeTypedPart = (parts: readonly { kind: string; text?: string }[]) =>
-  parts.some((part) => part.kind === "text" && typeof part.text === "string" && isHugePrompt(part.text));
+/// The parts of a prompt its bubble draws as text: typed text and pasted blocks (a paste is the
+/// message's own text, Leo 2026-11-08), not a text file's card or an attachment.
+export const isTextPart = (part: { kind: string }) =>
+  part.kind === "text" || part.kind === "paste" || part.kind === "pasted";
 
-/// A huge prompt's typed parts as its collapsed bubble draws them: the parts within its first `chars`
-/// characters of typed text, the last one cut short, and nothing after. A paste or an attachment is
-/// a chip whatever its length, so it counts nothing. `huge` marks a part cut from a huge one, which
-/// draws literally as its whole text does once open; a short part beside a big paste keeps its
-/// Markdown.
+/// Whether a prompt's text makes it huge: one of its typed or pasted parts is.
+export const hasHugeTextPart = (parts: readonly { kind: string; text?: string }[]) =>
+  parts.some((part) => isTextPart(part) && typeof part.text === "string" && isHugePrompt(part.text));
+
+/// A huge prompt's parts as its collapsed bubble draws them: the parts within its first `chars`
+/// characters of text (`typed`: typed and pasted), the last one cut short, and nothing after. An
+/// attachment or a text file's card is a chip whatever its length, so it counts nothing. `huge` marks
+/// a part cut from a huge one, which draws literally as its whole text does once open; a short part
+/// beside a big one keeps its Markdown.
 export function headParts<T extends { kind: string }>(
   parts: readonly T[],
   chars: number,

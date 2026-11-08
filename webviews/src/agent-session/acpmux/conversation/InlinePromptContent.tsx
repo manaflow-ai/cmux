@@ -3,11 +3,12 @@ import type { PromptContentPart, PromptImage } from "../model";
 import { FindReveal } from "./chatFind";
 import { FileAttachment, attachmentPath } from "../FileAttachment";
 import { PasteChip, PromptText, PromptTyped } from "./PromptText";
-import { HUGE_PROMPT_HEAD_CHARS, hasHugeTypedPart, headParts } from "./promptCollapse";
+import { HUGE_PROMPT_HEAD_CHARS, hasHugeTextPart, headParts, isTextPart } from "./promptCollapse";
 import { blockText } from "./inlinePromptContentModel";
 
 /** Sent prompt content in ACP order. Text and attachment runs stay in one bubble, like Messages.
- * A pasted block is the same chip a legacy prompt draws (PromptText.tsx), opening to its text. */
+ * A pasted block is the message's own text, as a legacy prompt draws it (PromptText.tsx); a text
+ * file's body is a card that opens to its text. */
 export const InlinePromptContent = memo(function InlinePromptContent({
   rowId,
   parts,
@@ -31,7 +32,7 @@ export const InlinePromptContent = memo(function InlinePromptContent({
       // what Find searches and the fold measures.
       text={parts.flatMap((part) => blockText(part) ?? []).join("\n")}
       show={show}
-      huge={hasHugeTypedPart(parts)}
+      huge={hasHugeTextPart(parts)}
     >
       {(open, head) => (
         <span className="cv-user__inline-content" data-inline-content="true">
@@ -55,9 +56,15 @@ export const InlinePromptContent = memo(function InlinePromptContent({
   );
 
   function renderPart(part: PromptContentPart, index: number, open: () => void): ReactNode {
-    if (part.kind === "text")
+    // A pasted block reads as the typed words do (Leo, 2026-11-08: no "Pasted text" card).
+    if (part.kind === "text" || (part.kind === "pasted" && part.text !== undefined))
       return (
-        <PromptTyped key={`text-${index}`} text={part.text} show={show} plain={"huge" in part && part.huge === true} />
+        <PromptTyped
+          key={`text-${index}`}
+          text={part.text ?? ""}
+          show={show}
+          plain={"huge" in part && part.huge === true}
+        />
       );
     if (part.kind === "image")
       return (
@@ -65,8 +72,8 @@ export const InlinePromptContent = memo(function InlinePromptContent({
           {renderImage(part)}
         </span>
       );
-    // A pasted block, or a text file's body (it starts with the file's name, attachments.ts
-    // `promptText`): the chip that opens to its text, which is part of the prompt's recorded text.
+    // A text file's body (it starts with the file's name, attachments.ts `promptText`): the card that
+    // opens to its text, which is part of the prompt's recorded text.
     const body = blockText(part);
     if (body)
       return (
@@ -96,5 +103,5 @@ export function PromptFile({ part }: { part: Exclude<PromptContentPart, { kind: 
   );
 }
 
-/** A typed text block's text: what a collapsed huge prompt's head counts (pastes are chips). */
-const typedText = (part: PromptContentPart) => (part.kind === "text" ? part.text : undefined);
+/** A text block's text, typed or pasted: what a collapsed huge prompt's head counts. */
+const typedText = (part: PromptContentPart) => (isTextPart(part) ? part.text : undefined);

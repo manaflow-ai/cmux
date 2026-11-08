@@ -69,6 +69,22 @@ export function holdHeader(header: HTMLElement): boolean {
   return !header.dispatchEvent(new Custom(ANCHORED_COLLAPSE_EVENT, { bubbles: true, cancelable: true }));
 }
 
+/// Asks the transcript to hold a block's line for a toggle that sits under or inside the block (Show
+/// more, a text card's label), in a way that comes back: the block's top while it is in the view,
+/// so what opens grows below it and what closes shrinks back up to it; else `control`, the line the
+/// reader clicked (Show less under a long block scrolled down to), so it stays under the pointer.
+/// An open then a close, with no scroll between, hold the same line, so the view returns to the
+/// offset it started at however often the reader toggles (Leo, 2026-11-08: "it's not an—
+/// what is it? idempotent action"). Holding the top to open and the control to close moved
+/// the view down by what opened on every round trip. foldAnchor.ts `foldHoldTarget` picks the same
+/// way for the transcript's own toggles.
+export function holdBlock(block: HTMLElement, control: HTMLElement | null): boolean {
+  const scroller = block.closest<HTMLElement>(".acpmux-scroll") ?? scrollerOf(block);
+  const top = scroller?.getBoundingClientRect().top ?? 0;
+  const inView = block.getBoundingClientRect().top >= top - 0.5;
+  return holdHeader(inView || !control ? block : control);
+}
+
 /// The nearest ancestor of `node` that scrolls.
 function scrollerOf(node: HTMLElement): HTMLElement | undefined {
   const view = node.ownerDocument.defaultView;
