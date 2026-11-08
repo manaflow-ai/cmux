@@ -85,9 +85,11 @@ export function sentVideosOf(
 /// size, composer/videoAttachments.ts): the row the pane draws the moment it sends has no frames
 /// note (its text is what the bubble reads), so without them the tile popped in only with acpmux's
 /// echo (Leo, 2026-11-07: "it just sort of needs to readjust and pop up for the video preview").
+/// A chip whose frames were left off (`withoutFrames`: an agent that takes no images, or a prompt
+/// past its budget) sent the agent only its link, so it stays the file chip its echo draws.
 function composerVideos(row: Pick<AcpmuxRow, "retryAttachments">): SentVideo[] {
   return (row.retryAttachments ?? []).flatMap((chip): SentVideo[] =>
-    chip.kind === "link" && chip.path && chip.video
+    chip.kind === "link" && chip.path && chip.video?.frames.length
       ? [
           {
             name: chip.name,

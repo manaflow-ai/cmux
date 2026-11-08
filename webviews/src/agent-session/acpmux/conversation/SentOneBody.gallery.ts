@@ -52,6 +52,23 @@ const drawn = async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-user__bubble"));
 };
 
+/// A screenshot's bytes in the row, as the pane's own send keeps them (inlinePrompt.ts keeps a
+/// `data:` src): with no acpmux behind the gallery to read an image by its id, the thumbnail draws
+/// from these.
+const SHOT = `data:image/svg+xml,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900">' +
+    '<rect width="100%" height="100%" fill="hsl(210 30% 16%)"/>' +
+    '<rect width="100%" height="7%" fill="hsl(210 30% 26%)"/>' +
+    '<rect width="22%" height="100%" fill="hsl(210 30% 24%)"/>' +
+    '<rect x="26%" y="14%" width="60%" height="4%" rx="8" fill="hsl(210 30% 34%)"/>' +
+    '<rect x="26%" y="22%" width="44%" height="4%" rx="8" fill="hsl(210 30% 30%)"/>' +
+    "</svg>",
+)}`;
+const shotDrawn = async (ctx: PlayContext) => {
+  await drawn(ctx);
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-user__bubble img"));
+};
+
 export default agentPaneEntry({
   id: "agent-pane.sent-one-body",
   title: "Sent message, one body",
@@ -86,10 +103,19 @@ export default agentPaneEntry({
       snapshot: reply([
         placed([
           paste(THIRD),
-          { kind: "image", id: "gallery-shot", mimeType: "image/png", name: "image.png", placed: true },
+          {
+            kind: "image",
+            id: "gallery-shot",
+            mimeType: "image/svg+xml",
+            name: "image.png",
+            width: 1440,
+            height: 900,
+            src: SHOT,
+            placed: true,
+          },
         ]),
       ]),
-      play: drawn,
+      play: shotDrawn,
     },
     "agent-paste": {
       note: "A pasted Codex handoff stands apart from the person's words under a quiet Pasted from Codex line, with no card.",

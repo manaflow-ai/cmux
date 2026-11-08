@@ -69,7 +69,8 @@ import {
   recordedBody,
 } from "./conversation/promptCollapse";
 import { sentPasteJoin } from "./conversation/sentPasteJoin.experiment";
-import { bubbleParts } from "./conversation/bubbleParts";
+import { bubbleLayout } from "./conversation/bubbleParts";
+import { composerSettingsSnapshot } from "./composerSettings";
 import { isPromptMarkdown } from "./conversation/promptMarkdown";
 import { SENT_IMAGE_HEIGHT, sentImageSize, sentImageWidth } from "./conversation/sentImageSize";
 import { sentVideoOf, sentVideosOf } from "./conversation/sentVideos";
@@ -2479,11 +2480,13 @@ function measuredRowHeight(
   }
   // A prompt drawn in its parts' order (conversation/InlinePromptContent.tsx) measures what its
   // bubble draws, never its recorded text: a text file's body is behind its chip, and the runs of
-  // a placed prompt join as the draft had them.
-  const inline =
+  // a placed prompt join as the draft had them. The pane's attachment view says which attachments
+  // draw in the row above the bubble instead (UserBubble.tsx: the strip view draws them all there).
+  const layout =
     row.kind === "user" && row.inlineParts && row.from !== "chief" && !chiefEnvelope(row.text)
-      ? bubbleParts(row)
+      ? bubbleLayout(row, composerSettingsSnapshot().attachmentView)
       : undefined;
+  const inline = layout?.parts;
   const plainUser =
     row.kind === "user" &&
     !inline &&
@@ -2546,7 +2549,11 @@ function measuredRowHeight(
   // Chief's draws its own bubble (ChiefPromptBubble.tsx).
   if (row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text))
     contentHeight = collapsedPromptHeight(contentHeight, metrics().lineHeight);
-  const height = messageBelow(beforeFooter) + chromeHeight(row, actions) + contentHeight;
+  const band = layout?.band.length ? attachmentBandHeight(row, layout.band, width, entry.prepared, usedPrepared) : 0;
+  // A strip prompt with nothing to read beside its attachments draws no bubble (UserBubble.tsx).
+  if (layout && !layout.parts.some((part) => part.kind !== "text" || part.text.trim()))
+    return finish(messageBelow(beforeFooter) + chromeHeight(row, actions) - userBubblePadding() + band);
+  const height = messageBelow(beforeFooter) + chromeHeight(row, actions) + band + contentHeight;
   return finish(height);
 }
 
@@ -2634,6 +2641,64 @@ function lineWidth(text: string, prepared: PreparedRow["prepared"], used: Set<st
 /// its tallest; a part drawn as Markdown, and a paste another agent wrote under its "Pasted from"
 /// line, a block of its own. A huge part is only its head. A text file is its chip alone: its body is
 /// not drawn. `parts` are bubbleParts.ts `bubbleParts`, what the bubble draws.
+/// A sent attachment's box with its margins (`.cv-user__inline-image`, `.cv-user__inline-file`), in
+/// a bubble's text or the attachment row above it, in a line `width` wide: an image's thumbnail at
+/// its own size (UserBubble.tsx `sentImageSize`), a video's tile, a file's chip as wide as its name
+/// and size.
+function attachmentBox(
+  part: Exclude<PromptContentPart, { kind: "text" }>,
+  videos: ReturnType<typeof sentVideosOf>,
+  width: number,
+  prepared: PreparedRow["prepared"],
+  used: Set<string>,
+): { width: number; height: number } {
+  const { x: marginX, y: marginY } = INLINE_ATTACHMENT_MARGIN;
+  const thumbnail = (size: { width: number; height: number }) => {
+    // `max-width: calc(100% - 8px)`: a narrow bubble scales it down whole.
+    const shown = Math.min(size.width, Math.max(1, width - 2 * marginX));
+    return { width: shown + 2 * marginX, height: (size.height * shown) / size.width + 2 * marginY };
+  };
+  if (part.kind === "image") return thumbnail(sentImageSize(part));
+  const video = part.kind === "file" ? sentVideoOf(part, videos) : undefined;
+  if (video) return thumbnail({ width: sentImageWidth(video), height: SENT_IMAGE_HEIGHT });
+  const chip = INLINE_FILE_CHIP;
+  const size = part.name.endsWith("/") ? undefined : fileSizeLabel(part.size, "en");
+  const content =
+    2 * chip.side +
+    chip.glyph +
+    chip.gap +
+    lineWidth(part.name, prepared, used) +
+    (size ? chip.gap + lineWidth(size, prepared, used) : 0);
+  return { width: Math.min(chip.maxWidth, content) + 2 * marginX, height: chip.height + 2 * marginY };
+}
+
+/// The row of attachments above a prompt's bubble (UserBubble.tsx `.cv-user__inline-strip`, a
+/// `.cv-user__files` flex row that wraps, 4px between): each attachment's box, the row `width` wide.
+const ATTACHMENT_BAND_GAP = 4;
+function attachmentBandHeight(
+  row: AcpmuxRow,
+  parts: readonly Exclude<PromptContentPart, { kind: "text" }>[],
+  width: number,
+  prepared: PreparedRow["prepared"],
+  used: Set<string>,
+): number {
+  const videos = sentVideosOf(row);
+  let height = 0;
+  let line = 0;
+  let x = 0;
+  for (const part of parts) {
+    const box = attachmentBox(part, videos, width, prepared, used);
+    if (x > 0 && x + ATTACHMENT_BAND_GAP + box.width > width) {
+      height += line + ATTACHMENT_BAND_GAP;
+      line = 0;
+      x = 0;
+    }
+    x += (x > 0 ? ATTACHMENT_BAND_GAP : 0) + box.width;
+    line = Math.max(line, box.height);
+  }
+  return height + line;
+}
+
 function inlinePromptHeight(
   row: AcpmuxRow,
   parts: readonly PromptContentPart[],
@@ -2642,7 +2707,6 @@ function inlinePromptHeight(
   used: Set<string>,
 ): number {
   const { lineHeight } = metrics();
-  const { x: marginX, y: marginY } = INLINE_ATTACHMENT_MARGIN;
   const videos = sentVideosOf(row);
   let height = 0;
   // The open line: the width taken of it and its height, 0 while none is open.
@@ -2657,11 +2721,6 @@ function inlinePromptHeight(
     if (line > 0 && x > 0 && x + box.width > width) close();
     x += box.width;
     line = Math.max(line, lineHeight, box.height);
-  };
-  const thumbnail = (size: { width: number; height: number }) => {
-    // `max-width: calc(100% - 8px)`: a narrow bubble scales it down whole.
-    const shown = Math.min(size.width, Math.max(1, width - 2 * marginX));
-    return { width: shown + 2 * marginX, height: (size.height * shown) / size.width + 2 * marginY };
   };
   const text = (value: string) =>
     value.split("\n").forEach((run, index) => {
@@ -2697,22 +2756,8 @@ function inlinePromptHeight(
       else text(part.text);
     } else if (part.kind === "pasted" && part.text) {
       block(PASTE_FROM_HEIGHT + measure(promptHead(part.text, HUGE_PROMPT_HEAD_CHARS)));
-    } else if (part.kind === "image") {
-      attachment(thumbnail(sentImageSize(part)));
     } else {
-      const video = sentVideoOf(part, videos);
-      if (video) attachment(thumbnail({ width: sentImageWidth(video), height: SENT_IMAGE_HEIGHT }));
-      else {
-        const chip = INLINE_FILE_CHIP;
-        const size = part.name.endsWith("/") ? undefined : fileSizeLabel(part.size, "en");
-        const content =
-          2 * chip.side +
-          chip.glyph +
-          chip.gap +
-          lineWidth(part.name, prepared, used) +
-          (size ? chip.gap + lineWidth(size, prepared, used) : 0);
-        attachment({ width: Math.min(chip.maxWidth, content) + 2 * marginX, height: chip.height + 2 * marginY });
-      }
+      attachment(attachmentBox(part, videos, width, prepared, used));
     }
   });
   close();

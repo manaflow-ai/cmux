@@ -28,6 +28,7 @@ import { COLLAPSED_PROMPT_LINES, PROMPT_MORE_HEIGHT } from "./conversation/promp
 import { currentChatMetrics } from "./chatDisplay";
 import { gridLength, TRANSCRIPT_FOOTER_CONTROL } from "./transcriptGrid";
 import { BUBBLE } from "./transcriptSpacing";
+import { setComposerSettings } from "./composerSettings";
 
 const reply = (id: string, text: string) => ({ id, version: 1, at: 0, kind: "assistant", text });
 // A footer carries its answer's text, for Copy (conversation/turns.ts), so the estimate never reads it.
@@ -753,4 +754,50 @@ test("placed attachments wrap to a new line only when the line is full", () => {
   const tile = 120 + 2 * y;
   expect(heightsOf([row(3)])[0]).toBeCloseTo(padding + tile, 5);
   expect(heightsOf([row(4)])[0]).toBeCloseTo(padding + 2 * tile, 5);
+});
+
+// The strip attachment view (composerSettings.ts `attachmentView`) draws a placed prompt's
+// attachments in a row above its bubble and leaves the bubble its text (UserBubble.tsx); a placed
+// prompt's unmarked attachment draws in that row in the inline view too. The estimate measures that
+// row and a bubble of the text alone, so the row does not shift when it mounts. At 1543d956 every
+// such prompt was estimated as if each attachment sat on its text's line.
+test("a strip prompt is estimated as its attachment row over a bubble of its text", () => {
+  const { y } = INLINE_ATTACHMENT_MARGIN;
+  const tile = 120 + 2 * y;
+  const image = (id: string, placed = true) => ({
+    kind: "image",
+    id,
+    mimeType: "image/png",
+    ...(placed ? { placed: true } : {}),
+  });
+  const row = (parts: unknown[]) => ({
+    id: "u",
+    version: 1,
+    at: 0,
+    kind: "user",
+    text: "look\nthen words",
+    inlineParts: parts,
+  });
+  const text = heightsOf([{ id: "t", version: 1, at: 0, kind: "user", text: "look\nthen words" }])[0]!;
+  const interleaved = row([{ kind: "text", text: "look" }, image("a"), { kind: "text", text: "then words" }]);
+  const inline = heightsOf([interleaved])[0]!;
+  setComposerSettings({ attachmentView: "strip" });
+  try {
+    expect(heightsOf([interleaved])[0]).toBeCloseTo(text + tile, 5);
+    expect(heightsOf([interleaved])[0]).not.toBeCloseTo(inline, 5);
+    // Two images share the row: it wraps only when full.
+    const two = row([{ kind: "text", text: "look" }, image("a"), image("b"), { kind: "text", text: "then words" }]);
+    expect(heightsOf([two])[0]).toBeCloseTo(text + tile, 5);
+  } finally {
+    setComposerSettings({ attachmentView: "inline" });
+  }
+  // Inline, the placed prompt's unmarked image is the row above; the placed one stays in the text.
+  const placedOnly = row([{ kind: "text", text: "look" }, image("a"), { kind: "text", text: "then words" }]);
+  const withBand = row([
+    { kind: "text", text: "look" },
+    image("a"),
+    { kind: "text", text: "then words" },
+    image("b", false),
+  ]);
+  expect(heightsOf([withBand])[0]).toBeCloseTo(heightsOf([placedOnly])[0]! + tile, 5);
 });

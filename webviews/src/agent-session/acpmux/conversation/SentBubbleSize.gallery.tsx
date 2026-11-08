@@ -76,26 +76,29 @@ function attachmentsOf(prompt: Prompt, key: number): ComposerAttachment[] {
       size: file.size,
       path: `/Users/leo/Projects/uploader/${file.name}`,
     })),
-    ...(prompt.video
-      ? [
-          {
-            id: `composer-${key}-video`,
-            kind: "link" as const,
-            name: prompt.video.name,
-            mimeType: "video/quicktime",
-            size: 18_400_000,
-            path: `/Users/leo/Movies/${prompt.video.name}`,
-            video: {
-              durationMs: prompt.video.durationMs,
-              width: prompt.video.width,
-              height: prompt.video.height,
-              poster: paint(prompt.video, "image/jpeg"),
-              frames: [],
-            },
-          },
-        ]
-      : []),
+    ...(prompt.video ? [videoChip(prompt.video, key)] : []),
   ];
+}
+
+/// A screen recording's chip as it went with its first frame: a chip whose frames were left off
+/// (`withoutFrames`) sent only its link and draws as its file chip (sentVideos.ts).
+function videoChip(video: NonNullable<Prompt["video"]>, key: number): ComposerAttachment {
+  const poster = paint(video, "image/jpeg");
+  return {
+    id: `composer-${key}-video`,
+    kind: "link",
+    name: video.name,
+    mimeType: "video/quicktime",
+    size: 18_400_000,
+    path: `/Users/leo/Movies/${video.name}`,
+    video: {
+      durationMs: video.durationMs,
+      width: video.width,
+      height: video.height,
+      poster,
+      frames: [{ atMs: 0, data: poster.slice(poster.indexOf(",") + 1) }],
+    },
+  };
 }
 
 /// The row the pane draws the moment it sends (direct.ts `send`): the composer's own bytes.

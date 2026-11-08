@@ -3,7 +3,8 @@
 import type { AcpmuxRow, PromptContentPart } from "../model";
 import { attachmentPath } from "../fileAttachmentInfo";
 import { withoutVideoFrames } from "../composer/videoPrompt";
-import { inlineBubbleParts } from "./promptCollapse";
+import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
+import type { AttachmentView } from "../composerSettings";
 
 /// The paths of the originals a prompt's images kept (an image the composer converted sends its
 /// original file after it).
@@ -27,8 +28,25 @@ export function isImageOriginal(part: PromptContentPart, originals: ReadonlySet<
 export function bubbleParts(
   row: Pick<AcpmuxRow, "text" | "images" | "inlineParts" | "pasted" | "retryAttachments">,
 ): PromptContentPart[] | undefined {
-  const parts = withoutVideoFrames(row).inlineParts;
-  if (!parts) return undefined;
+  return bubbleLayout(row, "inline")?.parts;
+}
+
+/// A prompt drawn in its parts' order as UserBubble.tsx lays it out in the pane's attachment view
+/// (composerSettings.ts `attachmentView`): `parts` in its bubble, and `band`, the attachments it
+/// draws in the row above the bubble. The strip view draws every attachment in that row and leaves
+/// the bubble its text; the others ("both" draws as "inline") leave only a placed prompt's unmarked
+/// attachments there. Undefined for a prompt that keeps the legacy bands. The row's estimate
+/// (model.ts) measures both, so a strip prompt is not estimated as an inline one.
+export function bubbleLayout(
+  row: Pick<AcpmuxRow, "text" | "images" | "inlineParts" | "pasted" | "retryAttachments">,
+  view: AttachmentView,
+): { parts: PromptContentPart[]; band: Exclude<PromptContentPart, { kind: "text" }>[] } | undefined {
+  const recorded = withoutVideoFrames(row).inlineParts;
+  if (!recorded) return undefined;
   const originals = imageOriginals(row);
-  return inlineBubbleParts(parts.filter((part) => !isImageOriginal(part, originals)));
+  const parts = recorded.filter((part) => !isImageOriginal(part, originals));
+  const inline = inlineBubbleParts(parts);
+  if (!inline) return undefined;
+  if (view === "strip") return { parts: parts.filter((part) => !isStripMedia(part)), band: parts.filter(isStripMedia) };
+  return { parts: inline, band: parts.filter(isStripMedia).filter((part) => !inline.includes(part)) };
 }

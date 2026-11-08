@@ -205,6 +205,41 @@ try {
     expect(view.files.join("")).toContain("screen-demo.mp4");
   });
 
+  // `withoutFrames` (an agent that takes no images, or a prompt past its budget) leaves the chip's
+  // video with no frames: the agent got only its link, so the pane's own row draws its file chip,
+  // as acpmux's echo will.
+  test("the pane's own row keeps a video sent without frames as its file chip", async () => {
+    const video = {
+      ...linkAttachment(PATH, false),
+      mimeType: "video/mp4",
+      size: 9,
+      video: { durationMs: 16_000, width: 1920, height: 1080, poster: "data:image/jpeg;base64,cG9zdGVy", frames: [] },
+    };
+    await render({
+      id: "user-4b",
+      version: 1,
+      at: 0,
+      kind: "user",
+      text: "look",
+      inlineParts: [
+        { kind: "text", text: "look" },
+        { kind: "file", name: "screen-demo.mp4", uri: URI },
+      ],
+      retryAttachments: [video],
+    } as AcpmuxRow);
+    const view = shown();
+    expect(view.tile).toBeNull();
+    expect(view.files.join("")).toContain("screen-demo.mp4");
+    const { sentVideosOf } = await import("../src/agent-session/acpmux/conversation/sentVideos");
+    expect(sentVideosOf({ text: "look", retryAttachments: [video] })).toEqual([]);
+    expect(
+      sentVideosOf({
+        text: "look",
+        retryAttachments: [{ ...video, video: { ...video.video, frames: [{ atMs: 2_000, data: "AA==" }] } }],
+      }),
+    ).toHaveLength(1);
+  });
+
   test("a person's own line that only reads like a note, with no frame or link, draws no tile", async () => {
     await render({ id: "user-5", version: 1, at: 0, kind: "user", text: NOTE } as AcpmuxRow);
     expect(shown().tile).toBeNull();
