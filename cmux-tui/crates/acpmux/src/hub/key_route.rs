@@ -54,7 +54,20 @@ impl Hub {
             return Ok(None);
         }
         let own = crate::pairing::machine_name();
+        let [named, cased, prefixed, short, short_cased, spaced] = self.key_candidates(key, &own);
         if let Some((host, rest)) = key.split_once('/').filter(|(_, rest)| !rest.is_empty()) {
+            // A session's whole name before a host and a name on it, as `resolve` reads it
+            // (`locate.rs`, `by_key_exact`): a local `coord/lane` is never peer `coord`'s
+            // `lane-extra`. Only a peer session's qualified id comes first.
+            let qualified = self
+                .remote_sessions
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .contains_key(key);
+            if !qualified && named.iter().any(|c| c.name == key) {
+                let whole: Vec<Candidate> = named.into_iter().filter(|c| c.name == key).collect();
+                return pick(key, &whole).map(|c| c.map(|c| c.route.clone()));
+            }
             // `HOST/NAME` with a peer's or this machine's exact name, and a qualified id: an
             // exact name or id is read as before (`own_host.rs`, `resolve_remote`); a name in
             // another case, a prefix or one without separators finds its one session there.
@@ -67,7 +80,6 @@ impl Hub {
                 return self.name_on(&Machine::Here(own), key, rest, true);
             }
         }
-        let [named, cased, prefixed, short, short_cased, spaced] = self.key_candidates(key, &own);
         let found = if let Some((host, rest)) = key.split_once('/') {
             // Any other `/` is a sub-session's whole name (`parent/child`) or a machine named
             // in another case or by a prefix (`LANE-VM/td2-a`): the whole name first, never a
