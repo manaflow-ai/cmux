@@ -15,7 +15,14 @@ const TEXT = "[P1] fix the race";
 const OWNER = { origin: { actor: "person", verified: true } };
 type Step = [dir: string, kind: string, msg: Record<string, unknown>];
 const record = (steps: Step[]) =>
-  steps.map(([dir, kind, msg], index) => ({ sessionId: CHAT, seq: index + 1, at: START + index * 1000, dir, kind, msg }));
+  steps.map(([dir, kind, msg], index) => ({
+    sessionId: CHAT,
+    seq: index + 1,
+    at: START + index * 1000,
+    dir,
+    kind,
+    msg,
+  }));
 type Rec = ReturnType<typeof record>[number];
 
 const base = { cwd: "/home/dev/x", harness: "claude", family: "claude", updatedAt: START };
@@ -44,7 +51,9 @@ function fakeDaemon(history: Rec[], chat: object = {}) {
         const message = JSON.parse(raw);
         if (message.id === undefined) return;
         queueMicrotask(() =>
-          socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }) }),
+          socket.onmessage?.({
+            data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }),
+          }),
         );
       },
       close() {},
@@ -108,7 +117,11 @@ test("a CLI record from before the owner mark, or one acpmux marks unverified, s
 
 test("a queued owner's terminal send stays the owner's queue row", async () => {
   const history = record([
-    ["mux", "user_message", { text: "Check it", client: "cmux-next#0001", promptId: "p-1", turnId: "t-1", _meta: OWNER }],
+    [
+      "mux",
+      "user_message",
+      { text: "Check it", client: "cmux-next#0001", promptId: "p-1", turnId: "t-1", _meta: OWNER },
+    ],
     ["mux", "turn_started", { promptId: "p-1", turnId: "t-1" }],
     ["mux", "queued", { text: TEXT, promptId: "p-2", client: "acpmux-cli#01a2f3@my-mac", position: 1, _meta: OWNER }],
   ]);
