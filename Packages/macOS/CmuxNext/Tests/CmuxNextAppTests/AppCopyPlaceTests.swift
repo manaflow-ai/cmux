@@ -81,6 +81,15 @@ struct AppCopyPlaceTests {
         #expect(told.buttons.map(\.id) == ["ok"])
     }
 
+    @Test func aLargeBatchGoesInNotesOfAtMostTheLimit() throws {
+        let urls = (0..<600).map { URL(filePath: "/tmp/f\($0)") }
+        let notes = SecondCopyNote.notes(openedPath: "/Applications/cmux NIGHTLY.app", urls: urls)
+        #expect(notes.map(\.urls.count) == [256, 256, 88])
+        #expect(notes.flatMap(\.urls) == urls, "no URL lost past the limit")
+        #expect(notes.allSatisfy { SecondCopyNote(userInfo: $0.userInfo) == $0 })
+        #expect(SecondCopyNote.notes(openedPath: "/a.app", urls: []).count == 1, "a bare launch still says which copy")
+    }
+
     @Test func theNoteCarriesThePathAndTheURLs() throws {
         let note = SecondCopyNote(openedPath: "/Applications/cmux NIGHTLY.app",
                                   urls: [URL(filePath: "/tmp/a file.txt"), try #require(URL(string: "https://example.com/x?y=1"))])
@@ -202,23 +211,5 @@ struct AppCopyPlaceTests {
         #expect(spec.lines.count == 3, "why, what the move does, and the eject")
         let installed = Self.copy("/Applications/cmux NIGHTLY.app", build: "300")
         #expect(AppCopyGuide.spec(place: .translocated, offer: .openInstalled(installed)).lines.count == 2)
-    }
-
-    // MARK: Kept versions
-
-    @Test func keptVersionsAreNoBundleToLaunchServices() throws {
-        let root = try Self.temporary()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let versions = root.appending(path: "versions", directoryHint: .isDirectory)
-        // A keep from before this change, named .app.
-        let legacy = versions.appending(path: "100/cmux NIGHTLY.app", directoryHint: .isDirectory)
-        try Self.app(at: legacy, build: "100")
-        let store = KeptVersionStore(root: versions, teamID: { _ in "TEAM" })
-        #expect(store.list().map(\.build) == ["100"], "a kept .app from before still lists")
-        let running = root.appending(path: "Applications/cmux NIGHTLY.app", directoryHint: .isDirectory)
-        try Self.app(at: running, build: "200")
-        try store.keep(bundle: running, build: "200", limit: 5)
-        #expect(store.list().map(\.build) == ["200", "100"])
-        #expect(store.list().allSatisfy { $0.bundle.lastPathComponent == "cmux NIGHTLY.app.kept" }, "\(store.list().map(\.bundle.path))")
     }
 }

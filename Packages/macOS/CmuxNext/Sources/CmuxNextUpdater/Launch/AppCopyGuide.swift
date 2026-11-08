@@ -3,6 +3,7 @@ public import CmuxNextDesign
 import CmuxNextCompat
 import CmuxNextWakeups
 import os
+import Security
 
 /// What the running copy tells the person about other copies of itself (Leo, 2026-11-08, on the setup flows: "HARD
 /// crit the setup flows"):
@@ -15,13 +16,18 @@ import os
     nonisolated private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "launch")
 
     private let open: @MainActor ([URL]) -> Void
+    /// Records the quit before a switch or move as one that keeps every session (the updater's relaunch hook).
+    private let relaunching: @MainActor () -> Void
     private let center: CmuxDialogCenter
     /// A second-copy dialog is up: further notes open their URLs but ask nothing more.
     private var asking = false
 
-    /// `open` routes URLs as the app's own open events do.
-    public init(open: @escaping @MainActor ([URL]) -> Void, center: CmuxDialogCenter = .shared) {
+    /// `open` routes URLs as the app's own open events do; `relaunching` runs right before this copy quits for a
+    /// switch or a move, so the quit keeps every session whatever `app.quitBehavior` says.
+    public init(open: @escaping @MainActor ([URL]) -> Void, relaunching: @escaping @MainActor () -> Void,
+                center: CmuxDialogCenter = .shared) {
         self.open = open
+        self.relaunching = relaunching
         self.center = center
     }
 
@@ -43,7 +49,7 @@ import os
         }
         guard !asking else { return }
         asking = true
-        let this = Self.thisCopy, runningURL = Bundle.main.bundleURL
+        let this = Self.thisCopy
         // task-owner: one dialog for one note; it ends with the person's answer.
         Task {
             defer { asking = false }
@@ -55,21 +61,16 @@ import os
                 guard opened.bundleIdentifier == running.bundleIdentifier else { return .none }
                 let notice = SecondCopyNotice.decide(running: running, opened: opened)
                 guard case .tell(_, _, true) = notice else { return notice }
-                let team = UpdateDropBack.signingTeam(of: runningURL)
-                let sameTeam = team != nil && team == UpdateDropBack.signingTeam(of: URL(filePath: opened.path, directoryHint: .isDirectory))
-                return .tell(running: running, opened: opened, offersSwitch: sameTeam)
+                return .tell(running: running, opened: opened, offersSwitch: Self.signedByThisTeam(opened.path))
             }.value
             guard case .tell(let running, let opened, let offersSwitch) = notice else { return }
             Self.logger.notice("launch: a second copy was opened; telling the person (switch offered: \(offersSwitch, privacy: .public))")
             let answer = await center.present(Self.spec(running: running, opened: opened, offersSwitch: offersSwitch), in: .app)
             guard answer.button == "switch" else { return }
             // The bundle at that path is checked again now: it may have been swapped while the dialog was up.
-            let stillSigned = await Task.detached(priority: .userInitiated) { () -> Bool in
-                let team = UpdateDropBack.signingTeam(of: runningURL)
-                return team != nil && team == UpdateDropBack.signingTeam(of: URL(filePath: opened.path, directoryHint: .isDirectory))
-            }.value
+            let stillSigned = await Task.detached(priority: .userInitiated) { Self.signedByThisTeam(opened.path) }.value
             guard stillSigned else { return }
-            Self.reopen(Self.reopenCommand(app: opened.path, ejecting: nil))
+            reopen(Self.reopenCommand(app: opened.path, ejecting: nil))
         }
     }
 
@@ -109,9 +110,9 @@ import os
             switch moved {
             case .success(let app):
                 if case .readOnlyVolume(let volume) = found.place {
-                    Self.reopen(Self.reopenCommand(app: app, ejecting: volume))
+                    reopen(Self.reopenCommand(app: app, ejecting: volume))
                 } else {
-                    Self.reopen(Self.reopenCommand(app: app, ejecting: nil))
+                    reopen(Self.reopenCommand(app: app, ejecting: nil))
                 }
             case .failure(let error):
                 Self.logger.error("launch: the move to Applications failed: \(String(describing: error), privacy: .public)")
@@ -148,17 +149,31 @@ import os
         AppMoveOffer.reopenCommand(pid: ProcessInfo.processInfo.processIdentifier, app: app, ejecting: volume)
     }
 
-    /// Starts the helper that reopens the other copy once this process exits, then quits through the app's own quit.
-    private static func reopen(_ command: [String]) {
+    /// Whether the bundle at `path` is signed by this running copy's team, read from the running code itself (its
+    /// bundle on disk may be gone); false when either has no team.
+    nonisolated static func signedByThisTeam(_ path: String) -> Bool {
+        var me: SecCode?
+        var information: CFDictionary?
+        guard SecCodeCopySelf([], &me) == errSecSuccess, let me,
+              SecCodeCopySigningInformation(unsafeBitCast(me, to: SecStaticCode.self), SecCSFlags(rawValue: kSecCSSigningInformation),
+                                            &information) == errSecSuccess,
+              let team = (information as? [String: Any])?[kSecCodeInfoTeamIdentifier as String] as? String else { return false }
+        return UpdateDropBack.signingTeam(of: URL(filePath: path, directoryHint: .isDirectory)) == team
+    }
+
+    /// Starts the helper that reopens the other copy once this process exits, then quits through the app's own quit,
+    /// recorded as one that keeps every session.
+    private func reopen(_ command: [String]) {
         let helper = Process()
         helper.executableURL = URL(filePath: command[0])
         helper.arguments = Array(command.dropFirst())
         // task-owner: one spawn, then the quit; ends with the app.
         Task {
             do { try await ProcessLauncher(label: "com.cmuxterm.next.reopen-copy", priority: .userBlocking).launched(helper) } catch {
-                logger.error("launch: the reopen helper did not start: \(String(describing: error), privacy: .public)")
+                Self.logger.error("launch: the reopen helper did not start: \(String(describing: error), privacy: .public)")
                 return
             }
+            self.relaunching()
             NSApplication.terminateFromRunLoop()
         }
     }

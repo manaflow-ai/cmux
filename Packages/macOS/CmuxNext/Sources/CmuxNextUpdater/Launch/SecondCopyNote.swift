@@ -19,6 +19,17 @@ public nonisolated struct SecondCopyNote: Equatable, Sendable {
         self.urls = urls
     }
 
+    /// The most URLs one note carries (a reader bounds what it takes); a larger batch goes in several notes.
+    public static let urlLimit = 256
+
+    /// The notes for `urls`, at most ``urlLimit`` each; one note with none for a bare launch.
+    public static func notes(openedPath: String, urls: [URL]) -> [SecondCopyNote] {
+        guard !urls.isEmpty else { return [SecondCopyNote(openedPath: openedPath)] }
+        return stride(from: 0, to: urls.count, by: urlLimit).map {
+            SecondCopyNote(openedPath: openedPath, urls: Array(urls[$0..<min($0 + urlLimit, urls.count)]))
+        }
+    }
+
     /// The notification's user info: plist values only.
     public var userInfo: [String: Any] {
         ["path": openedPath, "urls": urls.map { $0.isFileURL ? $0.path : $0.absoluteString }]
@@ -26,7 +37,7 @@ public nonisolated struct SecondCopyNote: Equatable, Sendable {
 
     public init?(userInfo: [AnyHashable: Any]?) {
         guard let path = userInfo?["path"] as? String, path.hasPrefix("/") else { return nil }
-        let texts = (userInfo?["urls"] as? [String] ?? []).prefix(256)
+        let texts = (userInfo?["urls"] as? [String] ?? []).prefix(Self.urlLimit)
         self.init(openedPath: path, urls: texts.compactMap { $0.hasPrefix("/") ? URL(filePath: $0) : URL(string: $0) })
     }
 

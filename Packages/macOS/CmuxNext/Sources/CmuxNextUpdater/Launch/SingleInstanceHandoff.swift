@@ -121,7 +121,9 @@ import os
                 // LaunchServices cannot reach the running copy (its bundle is gone, or its owner record never
                 // resolved): the note carries the URLs, and the running copy opens them.
                 Self.logger.notice("launch: \(batch.count, privacy: .public) URL(s) go to the running copy in the second-copy note")
-                if let bundleIdentifier { SecondCopyNote(openedPath: openedPath, urls: batch).post(bundleIdentifier: bundleIdentifier) }
+                if let bundleIdentifier {
+                    for note in SecondCopyNote.notes(openedPath: openedPath, urls: batch) { note.post(bundleIdentifier: bundleIdentifier) }
+                }
             }
             await self?.helperEnded(delivered: true, handedBefore: handedBefore)
         }
