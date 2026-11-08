@@ -19,7 +19,7 @@ import { ChatAccountsContext } from "../chatAccounts";
 import { SpeedToggleHost } from "../FastToggle";
 import { UpdateOfferContext } from "../HarnessHealthNotice";
 import { PromptFocus } from "../promptFocus";
-import { ShellActionsContext } from "../shell/ShellRow";
+import { ShellActionsContext } from "../shell/shellRowModel";
 import { SignInContext } from "../signIn";
 import { SubagentNavContext, SubagentPaneContext, SubagentStopContext } from "../subagents/subagentGroupModel";
 import { SessionHoverContext } from "../started/sessionHoverCardModel";
