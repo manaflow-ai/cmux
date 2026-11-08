@@ -7,12 +7,17 @@ import { componentEntry } from "../../gallery/format";
 import type { AppOpenWindow } from "./appLink";
 import type { OpenInAppProps } from "./OpenInApp";
 
-/** A window where the app never answers (`opening` stays) or takes the link at once (`opened`). */
+/** A window where the app never answers (`opening` stays) or takes the link at once, hiding the page (`opened`). */
 const fakeWindow = (took: boolean): AppOpenWindow => {
   const listeners = new Map<string, () => void>();
+  const document: { visibilityState: DocumentVisibilityState } = { visibilityState: "visible" };
+  const hide = () => {
+    document.visibilityState = "hidden";
+    listeners.get("visibilitychange")?.();
+  };
   return {
-    location: { assign: () => took && queueMicrotask(() => listeners.get("blur")?.()) },
-    document: { visibilityState: "visible" },
+    location: { assign: () => took && queueMicrotask(hide) },
+    document,
     addEventListener: (type, listener) => listeners.set(type, listener),
     removeEventListener: (type) => listeners.delete(type),
     setTimeout: () => 0,

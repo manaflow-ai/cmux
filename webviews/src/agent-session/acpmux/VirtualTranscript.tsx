@@ -78,6 +78,7 @@ import { type Translate, useT } from "./i18n";
 import { TRAY_GHOST } from "./subagents/trayMotionModel";
 import { noteReaderScroll } from "./summary/heldWhileScrolling";
 import { FisheyeFilters } from "../../ui/glass/Fisheye";
+import { leaveOnScreenRef } from "../../ui/tabReach";
 import {
   transcriptRepositoriesFrom,
   type RepositoryCache,
@@ -746,6 +747,10 @@ const JUMP_LATEST_DISTANCE = 80;
 /// window never changes the reader's follow choice; it only distinguishes subsequent events.
 const READER_SCROLL_MS = 1000;
 
+/// How far a followed view's offset must rise, with no input seen yet, to be the reader's own scroll:
+/// past the browser's rounding of a fractional end, never a whole trackpad step.
+const UNSEEN_READER_MOVE_PX = 1;
+
 /// How long a followed view keeps the room a queued prompt's card left, for the prompt to arrive.
 const FLOOR_HOLD_MS = 1000;
 
@@ -835,7 +840,7 @@ const JUMP_LATEST_SIZE = 32;
 /// transcript under it (Leo 2026-10-21: "I want more fisheye!"). While the agent works it stays a static arrow;
 /// the working state is already represented by the shared transcript spinner. It stays mounted while
 /// hidden (inert) so it fades out as it fades in (conversation.css).
-function JumpToLatest({
+export function JumpToLatest({
   shown,
   working,
   onJump,
@@ -859,8 +864,12 @@ function JumpToLatest({
       <FisheyeFilters size={JUMP_LATEST_SIZE} />
       <button
         type="button"
+        ref={leaveOnScreenRef}
         className="ui-glass ui-glass-fisheye acpmux-jump-latest"
         data-shown={shown ? "" : undefined}
+        // Its keyboard focus is its own wash over the glass (conversation.css), not the shared one,
+        // whose `box-shadow: none` took the glass's rim and shadow away while it was focused.
+        data-focus-ring="none"
         style={lift > 0 ? ({ "--acpmux-dock-space": `${lift}px` } as React.CSSProperties) : undefined}
         aria-label={label}
         // The arrow says nothing by itself; working state is carried by the shared spinner in the transcript.
@@ -3025,8 +3034,23 @@ function TranscriptView({
       // the stored one. A click or downward input refreshes readerAt too, but must not turn a
       // layout correction into a new reader move (the base reader intent rule).
       const inputAt = followingRef.current || readerUpPending.current ? readerAt.current : Number.NEGATIVE_INFINITY;
+      // A followed view whose offset rose with the viewport unchanged and no clamp to explain it was
+      // moved by the reader, even before any of their input reached the page. WebKit scrolls a
+      // passive-wheel scroller on its scrolling thread and hands the page the wheel later; a streamed
+      // snapshot that commits in between pinned the reader back to the bottom, gesture after gesture
+      // (Lawrence, 2026-11-07: "scrolling up is broken"). The transcript never moves its own offset up
+      // while following (no scroll anchoring, overflow-anchor: none), so only a reader or code can.
+      const viewport = previousViewport.current;
+      const unseenReaderMove =
+        followingRef.current &&
+        !clamped &&
+        jumpTarget.current === undefined &&
+        viewport.height === height &&
+        viewport.width === width &&
+        scrolledTo.current.top - live > UNSEEN_READER_MOVE_PX;
       const readerLeft =
-        !clamped && performance.now() - inputAt <= READER_SCROLL_MS && scrolledTo.current.top - live > 0;
+        !clamped &&
+        (unseenReaderMove || (performance.now() - inputAt <= READER_SCROLL_MS && scrolledTo.current.top - live > 0));
       if (readerLeft) follow(false);
       if (readerUpPending.current && readerLeft) readerUpPending.current = false;
       // A real wheel can move the live offset before its scroll event reaches React. Keep that
@@ -3755,10 +3779,17 @@ function TranscriptView({
     // also what the jsdom behavior tests dispatch without a wheel event, so do not classify every
     // programmatic-looking event as layout work.
     // A held disclosure (foldAnchor) keeps the view where it is, not at the latest row.
+    // Layout moves a followed offset up only by clamping it to the scroller's new end; a rise that
+    // stops short of the end is the reader's, its wheel still on its way to the page (WebKit's
+    // scrolling thread scrolls first, the placement pass's `unseenReaderMove`).
+    const roseShortOfEnd =
+      next < scrolledTo.current.top - UNSEEN_READER_MOVE_PX &&
+      next < node.scrollHeight - node.clientHeight - UNSEEN_READER_MOVE_PX;
     const layoutDriven =
       followingRef.current &&
       programmatic &&
       !foldAnchor.current &&
+      !roseShortOfEnd &&
       Math.abs(next - scrolledTo.current.top) <= FOLLOW_BOTTOM_DEADBAND_PX;
     if (layoutDriven) {
       const latest = Math.max(0, layout.totalHeight - node.clientHeight);
@@ -3775,7 +3806,7 @@ function TranscriptView({
     // A recent upward input is authoritative even when it moved only a pixel or two. The
     // deadband absorbs layout rounding, but must not turn a real trackpad step into bottom follow.
     const movedUp = next < was.top - 0.5;
-    const recentUp = !programmatic && movedUp;
+    const recentUp = movedUp && (!programmatic || roseShortOfEnd);
     // Only the reader's own downward scroll input brings following back at the end; the input hold
     // alone (`programmatic`) is any input of the last second, a press or a hover after a lost
     // release too, and a layout change landing at the end inside it is not the reader's.

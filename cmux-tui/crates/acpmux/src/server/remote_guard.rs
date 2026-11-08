@@ -534,6 +534,7 @@ async fn check_inner(
             | method::MUX_FILE_PUT_FINISH
             | method::MUX_FILE_PUT_CANCEL
             | method::MUX_FILE_PUT_STATUS
+            | method::MUX_UPLOADS_KEEP
     ) && control_of(origin, auth, params) == crate::hub::Control::Web
         && !crate::hub::file_uploads::web::request_shape(m, params)
     {

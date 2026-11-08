@@ -165,6 +165,10 @@ const ENTRANCES: Record<string, { count: number; what: string }> = {
   },
   "src/agent-session/acpmux/CloudResumeDesigns.tsx": { count: 1, what: "the gallery's slow-resume note designs" },
   "src/agent-session/acpmux/ComposerQueue.tsx": { count: 1, what: "the held prompt's waking line" },
+  "src/agent-session/acpmux/DictationListening.tsx": {
+    count: 1,
+    what: "the dictation waveform's pill beside the mic, from the right",
+  },
   "src/agent-session/acpmux/Inspector.tsx": { count: 1, what: "the event inspector side panel, from the right" },
   "src/agent-session/acpmux/LiveChatChoice.tsx": { count: 1, what: "a banner at the top of the chat" },
   "src/agent-session/acpmux/MissingChat.tsx": { count: 1, what: "a banner at the top of the chat" },
