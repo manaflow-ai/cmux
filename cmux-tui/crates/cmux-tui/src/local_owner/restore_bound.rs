@@ -82,6 +82,45 @@ pub(crate) fn process_work(_pid: u32) -> Option<Work> {
     None
 }
 
+/// The stall bound: [`RESTORE_DEADLINE`], or a debug build's
+/// `CMUX_TUI_DEBUG_RESTORE_STALL_MS` (behavior tests of the bound).
+fn restore_stall() -> Duration {
+    #[cfg(debug_assertions)]
+    if let Some(ms) =
+        std::env::var("CMUX_TUI_DEBUG_RESTORE_STALL_MS").ok().and_then(|value| value.parse().ok())
+    {
+        return Duration::from_millis(ms);
+    }
+    RESTORE_DEADLINE
+}
+
+/// Debug seams for behavior tests of a long restore, run by the owner after
+/// it binds its socket and before it restores: `CMUX_TUI_DEBUG_SLOW_RESTORE_MS`
+/// keeps a core busy that long (an owner that works, as one scanning a large
+/// registry does), `CMUX_TUI_DEBUG_IDLE_RESTORE_MS` sleeps that long (an owner
+/// that does no work, as a deadlocked one). Off in release builds.
+pub(crate) fn debug_slow_restore() {
+    #[cfg(debug_assertions)]
+    {
+        let ms = |name: &str| {
+            std::env::var(name)
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .map(Duration::from_millis)
+        };
+        if let Some(busy) = ms("CMUX_TUI_DEBUG_SLOW_RESTORE_MS") {
+            let started = Instant::now();
+            let mut spin = 0_u64;
+            while started.elapsed() < busy {
+                spin = std::hint::black_box(spin.wrapping_add(1));
+            }
+        }
+        if let Some(idle) = ms("CMUX_TUI_DEBUG_IDLE_RESTORE_MS") {
+            std::thread::sleep(idle);
+        }
+    }
+}
+
 /// The deadline of one ensure's wait on a restoring owner.
 pub(crate) struct RestoreBound {
     /// The bound with no work seen: the wait's start plus the stall bound,
@@ -98,7 +137,7 @@ pub(crate) struct RestoreBound {
 
 impl RestoreBound {
     pub(crate) fn new(deadline: Instant) -> Self {
-        Self::with(deadline, RESTORE_DEADLINE, process_work)
+        Self::with(deadline, restore_stall(), process_work)
     }
 
     pub(crate) fn with(deadline: Instant, stall: Duration, read: fn(u32) -> Option<Work>) -> Self {
