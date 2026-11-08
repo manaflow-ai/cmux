@@ -19,6 +19,7 @@ private let historyWritesLog = Logger(subsystem: "com.cmuxterm.app.next", catego
 /// writes wait; past it the oldest waiting visit goes. A clear or remove is never dropped (else what it
 /// removed would come back): with no visit waiting, a new visit is refused instead, and a new clear or
 /// remove still goes in, past `capacity` (each one is a person's click, so they stay few).
+/// A write that must not wait (a clear with no click-time end) goes through ``sendNow(_:_:done:)`` or not at all.
 @MainActor
 public final class HistoryWriteQueue<Client: Sendable> {
     /// Sends one write with `key`, the idempotency key every attempt of that write carries.
@@ -31,6 +32,8 @@ public final class HistoryWriteQueue<Client: Sendable> {
         let isRead: Bool
         let write: Write
         let done: (@MainActor () -> Void)?
+        /// A ``sendNow(_:_:done:)`` write: the client it goes on (never waited for) and its one attempt.
+        var now: Client?
     }
 
     public let capacity: Int
@@ -74,6 +77,19 @@ public final class HistoryWriteQueue<Client: Sendable> {
         insert(visit: visit, read: false, ahead: ahead, write, done: done)
     }
 
+    /// Sends `write` at once on `client`, the link up now, when nothing is queued or in flight (a read included): it goes
+    /// first, then the writes queued after it, so the order holds. It never waits for a client and is tried once; any
+    /// failure drops it with a log line. False, with nothing queued, when anything is ahead of it.
+    public func sendNow(_ client: Client, _ write: @escaping Write, done: (@MainActor () -> Void)? = nil) -> Bool {
+        guard items.isEmpty, draining == nil else { return false }
+        changes &+= 1
+        nextID += 1
+        items.append(Item(id: nextID, key: DaemonHistoryClient.key(), isVisit: false, isRead: false, write: write, done: done, now: client))
+        // task-owner: the queue's drain; ends when the queue is empty or the client wait is cancelled
+        draining = Task { [weak self] in await self?.drain() }
+        return true
+    }
+
     /// Queues `read` behind every earlier write and hands its answer to `use`, unless a clear or remove was
     /// queued meanwhile (``changes`` moved): then it reads again behind that one, so `use` never gets what
     /// a pending or just-queued clear removes (an omnibox seed never brings back a cleared page).
@@ -103,7 +119,8 @@ public final class HistoryWriteQueue<Client: Sendable> {
         if read { reads += 1 }
         let item = Item(id: nextID, key: DaemonHistoryClient.key(), isVisit: visit, isRead: read, write: write, done: done)
         if ahead {
-            items.insert(item, at: items.firstIndex { $0.id != sending } ?? items.endIndex)
+            // Never before a ``sendNow(_:_:done:)`` write: it was first when it went in and goes first.
+            items.insert(item, at: items.firstIndex { $0.id != sending && $0.now == nil } ?? items.endIndex)
         } else {
             items.append(item)
         }
@@ -118,12 +135,17 @@ public final class HistoryWriteQueue<Client: Sendable> {
         // The first write's failures of unknown outcome so far.
         var unknown: (id: UInt64, count: Int)?
         while !items.isEmpty {
-            // The first write is picked only once the client is up: one queued `ahead` meanwhile goes first.
-            guard let client = await client() else { return }
-            guard let item = items.first else { return }
+            // The first write is picked only once the client is up: one queued `ahead` meanwhile goes first. A
+            // ``sendNow(_:_:done:)`` write is always first and goes on its own client, with no wait.
+            let up: Client?
+            if let now = items.first?.now { up = now } else { up = await client() }
+            guard let item = items.first, let client = item.now ?? up else { return }
             sending = item.id
             do {
                 try await item.write(client, item.key)
+            } catch where item.now != nil {
+                // Sent at the click, once: a retry could land after newer activity.
+                historyWritesLog.error("history write sent at the click dropped, not retried: \(String(describing: error), privacy: .public)")
             } catch where retryable(error) {
                 // The link dropped under the write or its reply never came: it goes again (same key) on the next connect.
                 sending = nil

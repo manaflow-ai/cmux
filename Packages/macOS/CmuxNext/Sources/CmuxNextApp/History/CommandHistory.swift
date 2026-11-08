@@ -166,38 +166,35 @@ final class CommandHistory {
 
     /// Deletes the commands that started at or after `since` (nil: all) and at or before `until` (the click) in every daemon,
     /// one that is away once it connects. The rows leave the mirror now and stay out of every read until the daemon applied it.
-    /// A daemon that cannot take the click as the clear's end gets it only as ``HistoryClearGate`` allows (connected at the click).
+    /// A daemon that cannot take the click as the clear's end gets it at once or never (``HistoryWriteQueue/enqueueClear(live:_:_:done:)``).
     func delete(since: Date?, until: Date) {
-        let machines = services.machines, override = route
-        for machine in Set(machines.daemons.map(\.machineID)).union(mirrors.keys) {
-            let gate = HistoryClearGate(open: machine == MachineRegistry.localID ? services.history.daemonHistory != nil : (override?(machine) ?? Self.route(machine, in: machines)) != nil)
-            send(.started(since: since, until: until), on: machine) { try await $0.clear(since: since, until: until, gate: gate, key: $1) }
+        for machine in Set(services.machines.daemons.map(\.machineID)).union(mirrors.keys) {
+            send(.started(since: since, until: until), on: machine) { try await $0.clear(since: since, until: until, unbounded: $2, key: $1) }
         }
     }
 
     /// Deletes one command in its daemon.
     func delete(_ command: TerminalCommand) {
         let id = command.id
-        send(.ids([id]), on: command.machine) { try await $0.remove(id, key: $1) }
+        send(.ids([id]), on: command.machine) { route, key, _ in try await route.remove(id, key: key) }
     }
 
     /// Drops `deletion`'s rows from `machine`'s mirror until its daemon applied `write`, queued in that daemon's writes (the
     /// local one's are the history's one queue): ordered, retried with one key; the route is chosen once the daemon connects.
     private func send(_ deletion: TerminalCommandMirror.Deletion, on machine: String,
-                      _ write: @escaping @Sendable (CommandDeletionRoute, String) async throws -> Void) {
+                      _ write: @escaping @Sendable (CommandDeletionRoute, _ key: String, _ unbounded: Bool) async throws -> Void) {
         var mirror = mirrors[machine] ?? TerminalCommandMirror(machine: machine)
         let token = mirror.delete(deletion)
         mirrors[machine] = mirror
         suggestions.replace(mirrors.values.flatMap(\.commands))
         let settle: @MainActor () -> Void = { [weak self] in self?.mirrors[machine]?.settle(token) }
-        if machine == MachineRegistry.localID { return services.history.writes.enqueue({ try await write(.history($0), $1) }, done: settle) }
-        if queues[machine] == nil {
-            let machines = services.machines, override = route
-            queues[machine] = HistoryWriteQueue(retryable: DaemonHistoryClient.isLinkDrop) {
-                await HistoryService.firstClient { override?(machine) ?? Self.route(machine, in: machines) }
-            }
+        if machine == MachineRegistry.localID {
+            return services.history.writes.enqueueClear(live: deletion.isClear ? services.history.unboundedDaemonHistory : nil, "command clear", { try await write(.history($0), $1, $2) }, done: settle)
         }
-        queues[machine]?.enqueue(write, done: settle)
+        let machines = services.machines, override = route, current: @MainActor @Sendable () -> CommandDeletionRoute? = { override?(machine) ?? Self.route(machine, in: machines) }
+        let queue = queues[machine] ?? HistoryWriteQueue(retryable: DaemonHistoryClient.isLinkDrop) { await HistoryService.firstClient(current) }
+        queues[machine] = queue
+        queue.enqueueClear(live: deletion.isClear ? current()?.unbounded : nil, "command clear", write, done: settle)
     }
 
     /// How a deletion reaches `machine`'s daemon once it is connected; nil while it is away.

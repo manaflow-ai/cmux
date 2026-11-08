@@ -27,6 +27,9 @@ public nonisolated struct TerminalCommandMirror: Hashable, Sendable {
         /// command started after it stays).
         case started(since: Date?, until: Date)
 
+        /// A clear of a span (``started(since:until:)``), not a removal by id.
+        public var isClear: Bool { if case .started = self { true } else { false } }
+
         public func covers(_ command: TerminalCommand) -> Bool {
             switch self {
             case .ids(let ids): ids.contains(command.id)
