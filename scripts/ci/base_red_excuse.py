@@ -2178,8 +2178,11 @@ def fixed_on_base_pull(repo: str, base: str, sha: str, name: str, merge_base: st
     if pull.get("state") == "open" and (pull.get("mergeable") is False
                                          or str(pull.get("mergeable_state") or "").lower() == "dirty"):
         raise Refused(f"GitHub calls #{number} conflicting")
-    comments = github.json(f"repos/{repo}/issues/{number}/comments", paginate=True) or []
-    reviews = github.json(f"repos/{repo}/pulls/{number}/reviews", paginate=True) or []
+    # A paginated read is its list of pages ([[comment, ...], ...]); signed_off reads the items.
+    comments = [item for page in github.json(f"repos/{repo}/issues/{number}/comments", paginate=True) or []
+                for item in _evidence.gh_pages.page_items(page)]
+    reviews = [item for page in github.json(f"repos/{repo}/pulls/{number}/reviews", paginate=True) or []
+               for item in _evidence.gh_pages.page_items(page)]
     author = (pull.get("user") or {}).get("login") or ""
     if not receipt_grammar().signed_off(comments, reviews, sha, author, pull):
         raise Refused(f"#{number} has no independent SHIP at its exact head {sha[:12]}")

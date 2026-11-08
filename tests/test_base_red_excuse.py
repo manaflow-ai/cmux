@@ -3524,6 +3524,13 @@ class FixedOnBaseGitHub(FakeGitHub):
         self.reviews: list[dict] = []
         self.at_merge_base = "failure"  # the red job's conclusion at MERGE_BASE, None when it has no run there
 
+    @staticmethod
+    def pages(listed, paginate):
+        # GitHub.json(paginate=True)'s contract: the list of raw pages, one empty page for an empty list.
+        if not paginate:
+            return list(listed)
+        return [list(listed[start:start + 100]) for start in range(0, len(listed), 100)] or [[]]
+
     def json(self, route, *, paginate=False):
         if f"/compare/feat-cmux-next...{HEAD}" in route:
             self.routes.append(route)
@@ -3539,10 +3546,10 @@ class FixedOnBaseGitHub(FakeGitHub):
             return copy.deepcopy(self.pull)
         if self.pull and route.endswith(f"/issues/{self.pull['number']}/comments"):
             self.routes.append(route)
-            return list(self.comments)
+            return self.pages(self.comments, paginate)
         if self.pull and route.endswith(f"/pulls/{self.pull['number']}/reviews"):
             self.routes.append(route)
-            return list(self.reviews)
+            return self.pages(self.reviews, paginate)
         if f"/commits/{MERGE_BASE}/check-runs?check_name=" in route:
             self.routes.append(route)
             name = urllib.parse.unquote(route.split("check_name=", 1)[1].split("&", 1)[0])
@@ -3794,6 +3801,17 @@ class FixedOnBase(unittest.TestCase):
         self.assertIn(f"excused '{GUARD}': fixed on base (passes at {BASE_SHA[:12]}", text)
         self.assertIn("PR does not touch tests/test_car_guards.py, .github/, scripts/, tests/", text)
         self.assertIn(CAR_TEST, text)
+
+    def test_receipts_are_read_across_pages_as_the_real_reader_returns_them(self):
+        """GitHub.json(paginate=True) returns pages ([[comment, ...], ...]; no reviews is [[]]); a SHIP on the
+        second page still counts (cmux#38792 review)."""
+        github = FixedOnBaseGitHub()
+        filler = {"body": "noted", "created_at": "2026-11-08T17:00:00Z",
+                  "user": {"login": "someone", "type": "User"}, "author_association": "MEMBER"}
+        github.comments = [filler] * 100 + [ship_comment(HEAD)]
+        self.assertEqual(len(github.json(f"repos/{REPO}/issues/38700/comments", paginate=True)), 2)
+        self.assertEqual(github.json(f"repos/{REPO}/pulls/38700/reviews", paginate=True), [[]])
+        self.assertIn(f"#38700, SHIP at {HEAD[:12]}", self.judge(github))
 
     def test_the_pull_request_gates_of_cmuxterm_hq_7948(self):
         """A lane's land and next-autoland agree (cmuxterm-hq#7948): fixed on base also needs an independent SHIP at
