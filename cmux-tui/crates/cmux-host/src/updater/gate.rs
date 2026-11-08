@@ -114,7 +114,7 @@ impl Gate {
         let until = now_ms.saturating_add(ms(hold));
         state.held_until_ms = Some(state.held_until_ms.map_or(until, |held| held.max(until)));
         let _ = self.write(&state);
-        !state.restart_pending_until_ms.is_some_and(|pending| now_ms < pending)
+        state.restart_pending_until_ms.is_none_or(|pending| now_ms >= pending)
     }
 
     /// How much of the connect hold is left at `now_ms`, if any.
