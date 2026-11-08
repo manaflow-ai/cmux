@@ -39,6 +39,9 @@ pub const BUILD_TAG: &str = "planBuild";
 pub const KEPT_TAG: &str = "planBuildKept";
 /// The tag on each build: the branch its worktree was made from.
 pub const BASE_TAG: &str = "planBuildBase";
+/// The tag on each build: its worktree's root, from the start (the session records its worktree
+/// only later, and its folder is the started-from folder's place in the worktree).
+pub const ROOT_TAG: &str = "planBuildRoot";
 /// The tag the chat lists hide a session by (`server/requests.rs` `ARCHIVED_TAG`).
 pub(crate) const ARCHIVED_TAG: &str = "archived";
 /// Most harnesses one compare starts: the card offers two.
@@ -217,12 +220,14 @@ fn bytecount_lines(bytes: &[u8]) -> u64 {
     newlines + u64::from(bytes.last().is_some_and(|b| *b != b'\n'))
 }
 
-/// The status a build shows: working while its harness runs a turn or waits on an answer.
-fn build_status(status: SessionStatus) -> &'static str {
+/// The status a build shows: working while its harness runs a turn or waits on an answer, and
+/// before its first turn ended (its first prompt may wait for a run slot of the parent).
+pub(crate) fn build_status(status: SessionStatus, turn_ended: bool, waits_for_slot: bool) -> &'static str {
     match status {
         SessionStatus::Running | SessionStatus::Waiting => "working",
         SessionStatus::Disconnected => "failed",
         SessionStatus::Closed => "closed",
+        SessionStatus::Idle | SessionStatus::Ready if waits_for_slot || !turn_ended => "working",
         SessionStatus::Idle | SessionStatus::Ready => "done",
     }
 }
@@ -299,8 +304,10 @@ impl Hub {
                     if let Ok(child) = self.resolve(&id) {
                         let mut set = serde_json::Map::new();
                         set.insert(BUILD_TAG.into(), Value::String(build_id.to_owned()));
-                        if let Some(base) = reply.pointer("/worktree/base").and_then(Value::as_str) {
-                            set.insert(BASE_TAG.into(), Value::String(base.to_owned()));
+                        for (tag, field) in [(BASE_TAG, "/worktree/base"), (ROOT_TAG, "/worktree/root")] {
+                            if let Some(v) = reply.pointer(field).and_then(Value::as_str) {
+                                set.insert(tag.into(), Value::String(v.to_owned()));
+                            }
                         }
                         if let Err(e) = self.set_tags_answered(&child, Some(&set), &[], None) {
                             tracing::warn!(session = %id, error = %e.message, "plan build tag");
@@ -311,6 +318,9 @@ impl Hub {
                         "name": reply.get("name"),
                         "shortName": reply.get("shortName"),
                         "harness": reply.get("harness"),
+                        "branch": reply.pointer("/worktree/branch"),
+                        "root": reply.pointer("/worktree/root"),
+                        "base": reply.pointer("/worktree/base"),
                         "worktree": reply.get("worktree"),
                     }));
                 }
@@ -347,9 +357,10 @@ impl Hub {
             if m.tags.contains_key(KEPT_TAG) {
                 kept = json!(s.id);
             }
+            let tagged_root = m.tags.get(ROOT_TAG).map(|t| PathBuf::from(&t.value));
             let (root, branch) = match &m.worktree {
-                Some(w) => (w.root.clone(), w.branch.clone()),
-                None => (m.cwd.clone(), None),
+                Some(w) => (tagged_root.unwrap_or_else(|| w.root.clone()), w.branch.clone()),
+                None => (tagged_root.unwrap_or_else(|| m.cwd.clone()), None),
             };
             let base = m.tags.get(BASE_TAG).map(|t| t.value.clone());
             let mut row = json!({
@@ -357,7 +368,7 @@ impl Hub {
                 "name": m.name,
                 "shortName": m.subsession.as_ref().map(|l| l.short_name.clone()),
                 "harness": m.harness,
-                "status": build_status(m.status),
+                "status": build_status(m.status, m.last_turn.is_some(), self.waits_for_slot(&m)),
                 "archived": archived,
                 "branch": branch,
                 "base": base,

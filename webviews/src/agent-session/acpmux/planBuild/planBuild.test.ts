@@ -132,3 +132,13 @@ test("a compare that started only one build says which harness did not start", (
     { harness: "codex", error: "width limit reached" },
   ]);
 });
+
+test("a build whose chat closed stops, and the card reads its diff again", () => {
+  const rows = new Map<string, AcpmuxRow>();
+  const builds = new PlanBuildRows();
+  builds.reduce(rows, { seq: 1, at: 1 }, started);
+  builds.child(rows, { event: "closed", childSessionId: "c2" });
+  const build = rows.get(planBuildRowId("b1"))?.planBuild;
+  expect(build?.builds.map((b) => b.state)).toEqual(["running", "cancelled"]);
+  expect(build?.turnsEnded).toBe(1);
+});

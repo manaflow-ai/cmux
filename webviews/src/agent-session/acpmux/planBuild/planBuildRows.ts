@@ -80,7 +80,8 @@ export class PlanBuildRows {
   }
 
   private remember(childId: string, msg: Fields): void {
-    if (msg.event !== "turn_ended" && msg.event !== "started" && msg.event !== "reopened") return;
+    if (msg.event !== "turn_ended" && msg.event !== "closed" && msg.event !== "started" && msg.event !== "reopened")
+      return;
     const records = this.early.get(childId) ?? [];
     this.early.delete(childId);
     this.early.set(childId, [...records, msg].slice(-EARLY_RECORDS));

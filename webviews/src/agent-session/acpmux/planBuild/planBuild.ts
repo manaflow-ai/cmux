@@ -100,14 +100,21 @@ export function planBuildKept(build: PlanBuild, msg: Record<string, unknown>): P
   return { ...build, keptSessionId: kept ?? build.keptSessionId, archived };
 }
 
-/// `build` after a sub-session record of one of its builds (`subsession` `turn_ended`), or
-/// undefined when the record is not about it.
+/// `build` after a sub-session record of one of its builds (`subsession` `turn_ended`, or `closed`:
+/// the build was stopped and closed), or undefined when the record is not about it.
 export function planBuildChildEnded(build: PlanBuild, msg: Record<string, unknown>): PlanBuild | undefined {
-  if (msg.event !== "turn_ended") return undefined;
+  if (msg.event !== "turn_ended" && msg.event !== "closed") return undefined;
   const child = text(msg.childSessionId);
   const index = build.builds.findIndex((b) => b.sessionId === child);
   if (index < 0) return undefined;
-  const state: PlanBuildState = msg.state === "failed" ? "failed" : msg.state === "cancelled" ? "cancelled" : "done";
+  const state: PlanBuildState =
+    msg.event === "closed"
+      ? "cancelled"
+      : msg.state === "failed"
+        ? "failed"
+        : msg.state === "cancelled"
+          ? "cancelled"
+          : "done";
   const builds = build.builds.slice();
   builds[index] = { ...builds[index]!, state };
   return { ...build, builds, turnsEnded: build.turnsEnded + 1 };

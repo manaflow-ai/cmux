@@ -165,12 +165,15 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
     std::fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init", "-q"]);
     std::fs::write(repo.join("README.md"), "shop\n").unwrap();
+    // The chat runs in a subfolder: a build's change is still read from its worktree's root.
+    std::fs::create_dir_all(repo.join("web")).unwrap();
+    std::fs::write(repo.join("web/app.js"), "app\n").unwrap();
     git(&repo, &["add", "."]);
     git(&repo, &["commit", "-q", "-m", "first"]);
 
     let hub = hub();
     let mut app = Client::person(&hub).await;
-    let new = json!({"cwd": repo, "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}});
+    let new = json!({"cwd": repo.join("web"), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}});
     let chat = app.ok("session/new", new).await["sessionId"].as_str().unwrap().to_owned();
 
     // An ask that is no plan approval builds nothing.
@@ -210,6 +213,9 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
     let roots: Vec<String> =
         builds.iter().map(|b| b["worktree"]["root"].as_str().unwrap().to_owned()).collect();
     assert_ne!(roots[0], roots[1], "{built}");
+    for b in builds {
+        assert!(b["branch"].as_str().is_some_and(|s| !s.is_empty()), "the record names the branch: {b}");
+    }
     for r in &roots {
         assert!(r.starts_with(&*worktrees.to_string_lossy()), "{built}");
         assert!(Path::new(r).join("README.md").is_file(), "{built}");
