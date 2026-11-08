@@ -1,15 +1,23 @@
 // Owns the diff viewer's review comments: saving, deleting and submitting them through the host
-// bridge or locally.
+// bridge or locally, and posting a review worktree's drafts to its pull request.
 import type { SelectedLineRange } from "@pierre/diffs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { lineTextFor, type CommentFileDiff } from "../comments/anchor";
 import {
   deleteComment as bridgeDeleteComment,
+  postComments as bridgePostComments,
   saveComment as bridgeSaveComment,
   sendComments as bridgeSendComments,
 } from "../comments/bridge";
 import { commentSubmissionText, commentsPromptText } from "../comments/format";
-import type { CommentsSendState, DiffCommentRecord, DiffCommentSide } from "../comments/types";
+import type {
+  CommentsPostState,
+  CommentsSendState,
+  DiffCommentRecord,
+  DiffCommentSide,
+  DiffReviewPosted,
+  DiffReviewTarget,
+} from "../comments/types";
 import { fileName, type DiffItem } from "../diff-stream";
 import { type AppAction, type AppState } from "./state";
 import { useSyncedRef } from "./useSyncedRef";
@@ -20,10 +28,30 @@ import { useSyncedRef } from "./useSyncedRef";
  * carry a precomputed `submissionText`; native code pools them per workspace
  * and consumes the pool on TextBox submit. A host that sends to the diff's
  * chat (`canSend`) takes every saved comment as one prompt (`send`) and clears
- * them once the chat took it.
+ * them once the chat took it. A review worktree's (`review`, from the host's list) posts them to
+ * its pull request as one GitHub review (`post`) and clears them once GitHub took it.
  */
 /** One Send as it went out: the comments, their versions, the prompt and its id. */
 type SendBatch = { ids: string[]; versions: Record<string, string>; text: string; opid: string };
+/** One Post as it went out: the comments, their versions and its id. */
+type PostBatch = { ids: string[]; versions: Record<string, string>; opid: string };
+
+/**
+ * The batch a press sends: the repository's unfinished one while every comment in it is listed
+ * unchanged (its id then makes the host apply it once), else a fresh one of every listed comment.
+ */
+function nextBatch<Batch extends { ids: string[]; versions: Record<string, string> }>(
+  pending: Batch | undefined,
+  comments: readonly DiffCommentRecord[],
+  fresh: (ids: string[], versions: Record<string, string>) => Batch,
+): Batch {
+  const listed = new Map(comments.map((comment) => [comment.id, comment.updatedAt]));
+  if (pending != null && pending.ids.every((id) => listed.get(id) === pending.versions[id])) return pending;
+  return fresh(
+    comments.map((comment) => comment.id),
+    Object.fromEntries(comments.map((comment) => [comment.id, comment.updatedAt])),
+  );
+}
 
 export function useDiffComments({
   bridgeAvailable,
@@ -40,18 +68,34 @@ export function useDiffComments({
 }) {
   const activeRepoRoot = useSyncedRef(repoRoot);
   const [sendState, setSendState] = useState<CommentsSendState>("idle");
+  // The pull request this worktree reviews (absent for an ordinary one), and its last post.
+  const [review, setReview] = useState<DiffReviewTarget | undefined>(undefined);
+  const [postState, setPostState] = useState<CommentsPostState>("idle");
+  const [posted, setPosted] = useState<DiffReviewPosted | undefined>(undefined);
+  const [postError, setPostError] = useState<string | undefined>(undefined);
   // Each repository's last send that did not finish, as sent: the chat may have taken it before
   // the host failed to clear its comments, so the next Send there sends that same batch under the
   // same prompt id (acpmux answers a repeated id with its first delivery) while its comments are
   // listed unchanged; one added or edited since waits for the press after.
   const pendingSends = useRef(new Map<string, SendBatch>());
+  // The same for Post: a post GitHub took whose reply was lost is posted again under its opid, which
+  // the host answers with the first post's review instead of a second review on the pull request.
+  const pendingPosts = useRef(new Map<string, PostBatch>());
   // The draft save on its way, by draft and message: pressing Comment again on the same text reuses
   // its opid, so the host stores the comment once.
   const draftSave = useRef<{ draft: unknown; message: string; opid: string } | null>(null);
-  // Another repository: its Send starts idle.
-  useEffect(() => setSendState("idle"), [repoRoot]);
+  // Another repository: its Send and Post start idle.
+  useEffect(() => {
+    setSendState("idle");
+    setPostState("idle");
+    setPosted(undefined);
+    setPostError(undefined);
+  }, [repoRoot]);
   const onLoaded = useCallback(
-    (comments: DiffCommentRecord[]) => dispatch({ type: "replace-comments", comments }),
+    (comments: DiffCommentRecord[], loadedReview?: DiffReviewTarget) => {
+      dispatch({ type: "replace-comments", comments });
+      setReview(loadedReview);
+    },
     [dispatch],
   );
 
@@ -139,17 +183,12 @@ export function useDiffComments({
       return;
     }
     const targetRepoRoot = repoRoot;
-    const listed = new Map(comments.map((comment) => [comment.id, comment.updatedAt]));
-    const pending = pendingSends.current.get(targetRepoRoot);
-    const batch: SendBatch =
-      pending != null && pending.ids.every((id) => listed.get(id) === pending.versions[id])
-        ? pending
-        : {
-            ids: comments.map((comment) => comment.id),
-            versions: Object.fromEntries(comments.map((comment) => [comment.id, comment.updatedAt])),
-            text: commentsPromptText(comments),
-            opid: `diff-comments-${crypto.randomUUID()}`,
-          };
+    const batch = nextBatch(pendingSends.current.get(targetRepoRoot), comments, (ids, versions) => ({
+      ids,
+      versions,
+      text: commentsPromptText(comments),
+      opid: `diff-comments-${crypto.randomUUID()}`,
+    }));
     pendingSends.current.set(targetRepoRoot, batch);
     setSendState("sending");
     bridgeSendComments(targetRepoRoot, batch.ids, batch.versions, batch.text, batch.opid)
@@ -160,9 +199,7 @@ export function useDiffComments({
         if (activeRepoRoot.current !== targetRepoRoot) return setSendState("idle");
         // Only the comments sent and unchanged since leave, together; one saved or edited while the
         // send was on its way stays for the next send.
-        const current = new Map(latestState.current.comments.map((comment) => [comment.id, comment.updatedAt]));
-        const ids = cleared.filter((id) => current.get(id) === batch.versions[id]);
-        if (ids.length > 0) dispatch({ type: "remove-comments", ids });
+        removeUnchanged(cleared, batch.versions);
         setSendState("idle");
       })
       .catch((error) => {
@@ -171,12 +208,57 @@ export function useDiffComments({
       });
   };
 
+  const removeUnchanged = (cleared: readonly string[], versions: Record<string, string>) => {
+    const current = new Map(latestState.current.comments.map((comment) => [comment.id, comment.updatedAt]));
+    const ids = cleared.filter((id) => current.get(id) === versions[id]);
+    if (ids.length > 0) dispatch({ type: "remove-comments", ids });
+  };
+
+  /** Posts every saved comment to the worktree's pull request as one review, as `send` sends. */
+  const post = () => {
+    const comments = latestState.current.comments;
+    if (review == null || !bridgeAvailable || repoRoot == null || comments.length === 0 || postState === "posting") {
+      return;
+    }
+    const targetRepoRoot = repoRoot;
+    const batch = nextBatch(pendingPosts.current.get(targetRepoRoot), comments, (ids, versions) => ({
+      ids,
+      versions,
+      opid: `diff-review-${crypto.randomUUID()}`,
+    }));
+    pendingPosts.current.set(targetRepoRoot, batch);
+    setPostState("posting");
+    setPostError(undefined);
+    bridgePostComments(targetRepoRoot, batch.ids, batch.versions, batch.opid)
+      .then(({ cleared, ...result }) => {
+        pendingPosts.current.delete(targetRepoRoot);
+        if (activeRepoRoot.current !== targetRepoRoot) return setPostState("idle");
+        // As with a send: a draft edited while the review was on its way stays, with its edit.
+        removeUnchanged(cleared, batch.versions);
+        setPosted(result);
+        setPostState("posted");
+      })
+      .catch((error: unknown) => {
+        console.warn("cmux diff review post failed", error);
+        if (activeRepoRoot.current !== targetRepoRoot) return setPostState("idle");
+        // gh's own words say what to fix (a login, a moved head); the drafts stay for the retry.
+        setPostError(error instanceof Error && error.message !== "" ? error.message : undefined);
+        setPostState("failed");
+      });
+  };
+
   return {
+    canPost: review != null && bridgeAvailable,
     canSend: canSend && bridgeAvailable,
     editMessage,
     onGutterUtilityClick,
     onLoaded,
+    post,
+    postError,
+    posted,
+    postState,
     remove,
+    review,
     saveDraft,
     send,
     sendState,

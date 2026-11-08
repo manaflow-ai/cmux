@@ -12,7 +12,7 @@
 // Gallery files import types only (and pure data helpers), so a test can import every one of them
 // without a DOM (test/gallery-coverage.test.ts). A component host loads its component lazily.
 import type { ComponentType } from "react";
-import type { DiffCommentRecord } from "../comments/types";
+import type { DiffCommentRecord, DiffReviewTarget } from "../comments/types";
 import type { AcpmuxSnapshot } from "../agent-session/acpmux/model";
 import type { AppDetail, Grants, InstalledApp } from "../pages/apps/types";
 import type { CloudMachine, CloudSnapshot } from "../pages/cloud/ops";
@@ -274,6 +274,8 @@ export type DiffPageVariant = VariantBase & {
   comments?: DiffCommentRecord[];
   /** The host sends comments to the diff's chat (Send to agent). */
   commentsSend?: boolean;
+  /** A review worktree's pull request (`comments.list`'s `review`): the section posts to it. */
+  commentsReview?: DiffReviewTarget;
 };
 
 /** The App Store page on an in-page cmuxPage host serving its supervisor projection. */

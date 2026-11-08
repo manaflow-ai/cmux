@@ -1,7 +1,7 @@
 import { makeClientId } from "../agent-session/shared/ids";
 import { DIFF_PAGE_COMMENTS_OP } from "../diff/page";
 import { isPageError, type PageClient } from "../pages/shared/pageClient";
-import type { DiffCommentRecord, DiffCommentSaveInput } from "./types";
+import type { DiffCommentRecord, DiffCommentSaveInput, DiffReviewPosted, DiffReviewTarget } from "./types";
 
 type NativeReply<T> = { ok: true; value: T } | { ok: false; error?: { code?: string; userMessage?: string } };
 
@@ -79,8 +79,38 @@ async function callPageDiffComments<T>(
 }
 
 export async function listComments(repoRoot: string): Promise<DiffCommentRecord[]> {
-  const value = await callDiffComments<{ comments?: DiffCommentRecord[] }>("comments.list", { repoRoot });
-  return Array.isArray(value?.comments) ? value.comments : [];
+  return (await listCommentsAndReview(repoRoot)).comments;
+}
+
+/**
+ * The worktree's comments, and the pull request it reviews when it is a review worktree: the host
+ * answers `review` with the same list, so the page learns both in one read.
+ */
+export async function listCommentsAndReview(
+  repoRoot: string,
+): Promise<{ comments: DiffCommentRecord[]; review?: DiffReviewTarget }> {
+  const value = await callDiffComments<{ comments?: DiffCommentRecord[]; review?: unknown }>("comments.list", {
+    repoRoot,
+  });
+  const comments = Array.isArray(value?.comments) ? value.comments : [];
+  const review = reviewTarget(value?.review);
+  return review ? { comments, review } : { comments };
+}
+
+/** A well-formed review target, or undefined: an older or partial answer leaves the page as it was. */
+export function reviewTarget(value: unknown): DiffReviewTarget | undefined {
+  if (value == null || typeof value !== "object") return undefined;
+  const { url, repo, number, title, head, base } = value as Record<string, unknown>;
+  if (typeof url !== "string" || typeof repo !== "string" || typeof head !== "string") return undefined;
+  if (typeof number !== "number" || !Number.isInteger(number) || number <= 0) return undefined;
+  return {
+    url,
+    repo,
+    number,
+    head,
+    ...(typeof title === "string" && title !== "" ? { title } : {}),
+    ...(typeof base === "string" && base !== "" ? { base } : {}),
+  };
 }
 
 /** `opid` names the save's intent: the host stores a repeat of it (a double click, a retry) once. */
@@ -123,4 +153,30 @@ export async function sendComments(
     { opid },
   );
   return Array.isArray(value?.cleared) ? value.cleared.filter((id): id is string => typeof id === "string") : ids;
+}
+
+/**
+ * Posts the comments `ids` to the worktree's pull request as one review under the person's own gh
+ * login. The host then clears those comments, except any edited since (`versions`), and answers the
+ * review's page and the ids it cleared. `opid` keeps a resend from posting the review twice.
+ */
+export async function postComments(
+  repoRoot: string,
+  ids: string[],
+  versions: Record<string, string>,
+  opid: string,
+): Promise<DiffReviewPosted & { cleared: string[] }> {
+  // The host passes the daemon's answer through as it is: `in_body` in snake case.
+  const value = await callDiffComments<{ url?: unknown; posted?: unknown; in_body?: unknown; cleared?: unknown }>(
+    "comments.post",
+    { repoRoot, ids, versions },
+    { opid },
+  );
+  const count = (field: unknown) => (typeof field === "number" && Number.isFinite(field) ? field : 0);
+  return {
+    url: typeof value?.url === "string" ? value.url : "",
+    posted: count(value?.posted),
+    inBody: count(value?.in_body),
+    cleared: Array.isArray(value?.cleared) ? value.cleared.filter((id): id is string => typeof id === "string") : ids,
+  };
 }

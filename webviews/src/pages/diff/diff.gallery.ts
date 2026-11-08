@@ -228,6 +228,29 @@ export default diffPageEntry({
         await ctx.waitFor(() => ctx.document.querySelector("#comments-send"), { capMs: 10_000 });
       },
     },
+    "review-from-link": {
+      note: "A review worktree (cmux git review start <url>): the agent's drafts, Post to GitHub, and the pull request's line with Send to agent.",
+      files: [
+        { path: "src/net/client.ts", before, after },
+        { path: "src/net/retry.ts", after: retry },
+      ],
+      commentsSend: true,
+      commentsReview: {
+        url: "https://github.com/acme/net/pull/482",
+        repo: "acme/net",
+        number: 482,
+        title: "Retry uploads with backoff",
+        head: "4f1c2e9",
+        base: "9a0b3d1",
+      },
+      comments: [
+        reviewComment("r1", "src/net/client.ts", 3, "Three attempts is low for uploads; take it from config."),
+        reviewComment("r2", "src/net/retry.ts", 5, "Back off between attempts instead of retrying at once."),
+      ],
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector("#comments-post"), { capMs: 10_000 });
+      },
+    },
     "collapsed-files": {
       note: "Three files, the first collapsed from its header: the bar stays, its chevron turns.",
       layout: "unified",

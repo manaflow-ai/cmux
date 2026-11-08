@@ -956,6 +956,17 @@ export function App({ config, initialStatus }: ConfigProps) {
         <FilesSidebar
           commentEntries={commentEntries}
           commentLabels={commentLabels}
+          commentsReview={
+            comments.canPost && comments.review
+              ? {
+                  review: comments.review,
+                  onPost: comments.post,
+                  postState: comments.postState,
+                  posted: comments.posted,
+                  postError: comments.postError,
+                }
+              : undefined
+          }
           commentsSendState={comments.sendState}
           hasDraft={state.draft != null}
           label={label}

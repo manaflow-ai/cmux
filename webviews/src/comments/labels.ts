@@ -11,6 +11,13 @@ const DIFF_COMMENT_LABEL_FALLBACKS = {
   sendComments: "Send to agent",
   sendingComments: "Sending…",
   sendCommentsFailed: "Not sent. Your comments are kept.",
+  // A review worktree's (`cmux git review start <url>`): its drafts go to the pull request as one review.
+  postComments: "Post to GitHub",
+  postingComments: "Posting…",
+  postCommentsFailed: "Not posted. Your drafts are kept.",
+  // `{pr}` is the pull request's reference, `owner/repo#123`.
+  reviewingPullRequest: "Reviewing {pr}",
+  postedComments: "Posted to {pr}",
 } as const;
 
 export type DiffCommentLabelKey = keyof typeof DIFF_COMMENT_LABEL_FALLBACKS;
@@ -33,4 +40,9 @@ export function resolveCommentLabels(payload: LabelsPayload): DiffCommentLabels 
     labels[key] = commentLabel(payload, key, DIFF_COMMENT_LABEL_FALLBACKS[key]);
   }
   return labels;
+}
+
+/** `label` with its `{name}` placeholders filled; an unknown one stays as written. */
+export function fillCommentLabel(label: string, values: Record<string, string>): string {
+  return label.replace(/\{(\w+)\}/g, (match, name: string) => values[name] ?? match);
 }

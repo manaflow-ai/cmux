@@ -1318,6 +1318,8 @@ body[data-loading="true"] #status::before {
   max-height: 40%;
   border-top: 1px solid var(--cmux-diff-border);
   background: transparent;
+  /* The header's and the review line's leading inset, so the pull request lines up under the title. */
+  --comments-inset: 10px;
 }
 #comments-header {
   display: flex;
@@ -1325,13 +1327,14 @@ body[data-loading="true"] #status::before {
   justify-content: space-between;
   gap: 8px;
   min-height: 30px;
-  padding: 0 10px;
+  padding: 0 var(--comments-inset);
   color: var(--cmux-diff-text-muted);
   font-size: var(--cmux-diff-ui-font-size);
 }
-/* Send to agent: a compact accent button at the header's end. Both labels share one grid cell, so
-   the button keeps the wider one's width and the header never moves when it starts sending. */
-#comments-send {
+/* Send to agent and Post to GitHub: a compact accent button at the header's end. Both labels share
+   one grid cell, so the button keeps the wider one's width and the header never moves when it
+   starts sending or posting. */
+.comments-action {
   display: inline-grid;
   flex: 0 0 auto;
   height: 24px;
@@ -1339,18 +1342,59 @@ body[data-loading="true"] #status::before {
   font-size: var(--cmux-diff-ui-font-size);
   white-space: nowrap;
 }
-#comments-send > span {
+.comments-action > span {
   grid-area: 1 / 1;
   text-align: center;
 }
-#comments-send > span[aria-hidden="true"] {
+.comments-action > span[aria-hidden="true"] {
   visibility: hidden;
 }
-#comments-send-error {
+/* A review worktree's Send to agent: secondary to Post, so it is quiet until hovered. */
+.comments-action-quiet {
+  height: 20px;
+  padding: 0 4px;
+}
+/* The pull request under review (then the posted review) on one fixed-height line under the
+   header, with Send to agent at its end: the same line in every post state, so nothing moves. */
+#comments-review {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 24px;
+  margin-top: -4px;
+  padding: 0 4px 0 var(--comments-inset);
+  font-size: var(--cmux-diff-ui-font-size);
+}
+#comments-review-link {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cmux-diff-text-muted);
+  text-decoration: none;
+}
+#comments-review-link:hover {
+  color: var(--cmux-diff-accent);
+  text-decoration: underline;
+}
+#comments-review-link[data-posted] {
+  color: var(--cmux-diff-accent);
+}
+#comments-send-error,
+#comments-post-error {
   display: block;
   padding: 0 12px 8px;
   color: var(--cmux-diff-deletion-fg);
   font-size: var(--cmux-diff-ui-font-size);
+}
+/* gh's own reason, at most two lines: the list under it keeps its place for the retry. */
+.comments-error-reason {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--cmux-diff-text-muted);
 }
 #comments-list {
   min-height: 0;

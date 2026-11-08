@@ -656,6 +656,7 @@ import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
+import { pullRequestUrl, reviewPrompt } from "./prReview";
 import { flushHeldModePick, holdModePick } from "./heldModePick";
 import { type MeasurableRenderer, type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
@@ -7872,6 +7873,30 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               if (typeof code === "string" && code.startsWith("transport."))
                 notices.transient(translate("prompt.notSent", { reason: errorMessage(error) || code }));
             });
+          },
+          // Review from link: a pull request link's Review (LinkHoverCard; the composer's URL chip
+          // calls this same action, so its params stay `{url}`). A side chat right of this one gets
+          // the review prompt (prReview.ts), as `/side <prompt>` would; a chat with nothing to fork
+          // yet takes the prompt itself, as the person's own.
+          "pr.review": async ({ url }) => {
+            const pullRequest = pullRequestUrl(String(url ?? ""));
+            // l10n-allow: a caller's bug; both entries offer Review on a pull request only.
+            if (!pullRequest) throw new Error("pr.review takes a GitHub pull request URL");
+            const prompt = reviewPrompt(pullRequest);
+            const shown = snapshotRef.current;
+            const target = shown ? forkToTarget(shown) : undefined;
+            if (!target) {
+              void send(prompt).catch(() => undefined);
+              return;
+            }
+            try {
+              await callNative("chat.side", { ...target, splitRight: true, prompt });
+            } catch (error) {
+              const reason = errorMessage(error);
+              notices.transient(
+                reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"),
+              );
+            }
           },
           // An offer's Start (cx-807da): the offered chat starts beside this one, which stays shown.
           // `worktree`: the task's Options > Worktree, else the agent's ask; `harness`, `model`,
