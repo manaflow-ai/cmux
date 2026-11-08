@@ -1,0 +1,7 @@
+--- a/Tests/UploadTests.swift
++++ b/Tests/UploadTests.swift
+@@ -1,3 +1,3 @@
+ @Test func upload() {
+-    #expect(upload() == .success)
++    #expect(upload() != nil)
+ }

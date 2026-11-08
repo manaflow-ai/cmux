@@ -2107,6 +2107,7 @@ pub(crate) use vault::reply as vault_reply;
 mod races;
 mod session_auth;
 mod session_files;
+mod test_tampering_restore;
 mod stream;
 mod subsessions;
 pub(crate) mod trust_gate;
