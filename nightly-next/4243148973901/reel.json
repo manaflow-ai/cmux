@@ -1,0 +1,161 @@
+{
+  "version": 1,
+  "build": "4243148973901",
+  "notes": "notes/4243148973901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 38071,
+      "title": "cmux NEXT: a divider drag over a page keeps its catcher panel until the release",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 36919,
+      "title": "acpmux: resolve and session stop find a name in another case like send does; loose sub-session short names",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38059,
+      "title": "Toasts take the theme's tint instead of a fixed gray",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38050,
+      "title": "Remote chat resync: a chat drawn from the Mac's copy keeps its older pages when listed again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38091,
+      "title": "cmux NEXT sidebar: the Updated card's hover preview never shows a row's title twice",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38086,
+      "title": "cmux-tui: name an older daemon and its upgrade; daemon restart keeps the old owner's launch",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38082,
+      "title": "debug.agent_pane toast: a capture raises a pane toast by its text",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38103,
+      "title": "Composer: a new image attachment shows at its final size from its first frame",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38087,
+      "title": "cmux-next media: tours check again (collect, and top-alignment in three)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38098,
+      "title": "cmux-vm: journey-production gets the full journey's 30 min",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38085,
+      "title": "cmux next: Cmd-T keeps its anchor after a reopen, after any stand-in, and past unrelated arrivals",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37634,
+      "title": "Agent chat: the live line's action reads in the line's muted tone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38074,
+      "title": "cloud journey: a verdict per run, and a production journey after each cmux-vm deploy",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37259,
+      "title": "palette: one ranker (Rust); delete the TypeScript ranker's bundle, eval and tests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38064,
+      "title": "GitHub page: fill the pane, and keep a table's short words whole",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37268,
+      "title": "cmux NEXT onboarding: the tool window is one React page; its AppKit screens are deleted",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37778,
+      "title": "cmux NEXT: the importer saves each repository's worktree recipe",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37985,
+      "title": "webviews: react-apps-check base-red browser tests follow today's designs; Ctrl-B's 10 s notice is back",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38041,
+      "title": "fix(terminal): a key resize shows the program's newest frame (ghostty-next 468b2559c, T render hop)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37693,
+      "title": "cmux NEXT composer: show when another app is dictating, without getting in the way",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38055,
+      "title": "acpmux: a harness shell's send names its harness, machine and session",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38066,
+      "title": "ci: a second staging test account (Capture Guest) for two-account tests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37878,
+      "title": "cmux NEXT browser: the Import Cookies card is a React page on the design scale; a successful import ends it for good",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38047,
+      "title": "fleet-quit-persistence: second-quit and update-relaunch checks for a quit that never asks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38031,
+      "title": "agent pane: message cards, bubbles and notices export only components",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
