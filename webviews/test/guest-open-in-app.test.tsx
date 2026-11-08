@@ -166,6 +166,19 @@ test("a page opened hidden asks the app only once it is shown, so a background t
   expect(background.listeners.size).toBe(0);
 });
 
+test("a page that unmounts while it waits to be shown never asks the app later (a page restored from bfcache)", async () => {
+  const background = fakeWindow(false);
+  background.document.visibilityState = "hidden";
+  const controller = new AbortController();
+  void tryOpenApp(background.win, "cmux://share", 1500, controller.signal);
+  controller.abort();
+  expect(background.listeners.size).toBe(0);
+  background.document.visibilityState = "visible";
+  background.listeners.get("visibilitychange")?.();
+  await Promise.resolve();
+  expect(background.assigned).toEqual([]);
+});
+
 async function mount(took: boolean) {
   const fake = fakeWindow(took);
   const appUrl = appLinkUrl("cmux", "https://share.cmux.dev", { shareId: SHARE, secret: SECRET });
