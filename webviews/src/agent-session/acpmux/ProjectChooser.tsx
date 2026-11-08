@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronIcon } from "./ComposerPickers";
-import type { BrowseRequest, BrowseResult } from "./AddProjectPanel";
-import { BrowseFailure, browseFailureMessage } from "./BrowseFailure";
+import type { BrowseRequest } from "./AddProjectPanel";
+import type { BrowseResult } from "./addProjectPanelModel";
+import { BrowseFailure } from "./BrowseFailure";
+import { browseFailureMessage } from "./browseFailureModel";
 import { useT } from "./i18n";
 import { Popover } from "../../ui/Popover";
 import { Combobox } from "../../ui/Combobox";
