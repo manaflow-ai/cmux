@@ -1,9 +1,8 @@
 import Foundation
 
 /// Where the Add Server sheet is, derived from ``ServerModel`` (the draft code, the candidate the
-/// cloud found, the intents in flight and the last answer). The sheet draws one layout per step,
-/// and the buttons and keys follow from it (``AddServerButton``), so nothing in the view decides
-/// state on its own.
+/// cloud found, the intents in flight and the last answer). The card page draws one layout per
+/// step and derives its buttons and keys from it.
 public nonisolated enum AddServerStep: Equatable, Sendable {
     /// The code is empty or incomplete.
     case enterCode
