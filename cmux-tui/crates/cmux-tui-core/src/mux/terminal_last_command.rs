@@ -90,10 +90,9 @@ mod tests {
         let created =
             crate::resource_router::handle_resource_message(&mux, &request.to_string()).unwrap();
         assert_eq!(created["ok"], true, "{created}");
-        let terminal_id = crate::resource::TerminalPublicId::parse(
-            created["result"]["value"]["terminal_id"].as_str().unwrap(),
-        )
-        .unwrap();
+        let terminal_id =
+            TerminalPublicId::parse(created["result"]["value"]["terminal_id"].as_str().unwrap())
+                .unwrap();
         let surface = mux
             .resource_surface_for_terminal(&terminal_id)
             .and_then(|surface| mux.surface(surface))
