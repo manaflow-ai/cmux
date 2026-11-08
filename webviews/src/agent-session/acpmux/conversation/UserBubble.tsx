@@ -52,6 +52,7 @@ import { NO_RETRY_TARGET, retryPlacement } from "./turns";
 import { useTranscriptReadOnly } from "./readOnly";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalog } from "../slashCommands";
 import { SkillWordsContext } from "./skillWords";
+import { tourBubbleText } from "../repoTour/tourModel";
 import { SentVideoTile } from "./SentVideoTile";
 import { sentVideoOf, sentVideosOf, type SentVideo } from "./sentVideos";
 import { recordedFiles, isImageOriginal, SENT_IMAGE_HEIGHT, sentImageWidth, sentImageSize } from "./userBubbleModel";
@@ -74,8 +75,10 @@ export function UserBubble({
   const row = useMemo(() => shownSkills(withoutVideoFrames(given), skills), [given, skills]);
   // Read before the frames go: a video's note and first frame are its tile (sentVideos.ts).
   const videos = useMemo(() => sentVideosOf(given), [given]);
+  // A repo tour's prompt reads as its first line; the rest is instructions to the agent (repoTour/).
   const text = useMemo(
     () =>
+      tourBubbleText(givenText) ??
       withoutSkillDollars(
         withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length),
         skills,

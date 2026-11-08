@@ -172,6 +172,9 @@ import { openPicker } from "./pickerOpeners";
 import { startRefusalRoute } from "./startRefusal";
 import { EmptyState, type EmptyStateProjects } from "./EmptyState";
 import { isNewChat, projectName } from "./emptyStateModel";
+import { TourStartContext } from "./repoTour/TourBlock";
+import type { TourOfferActions } from "./repoTour/TourOffer";
+import { dismissTour, isTourDismissed, offersTour, TOUR_PROMPT, type TourTask } from "./repoTour/tourModel";
 import { paneKnowsNewChat } from "./locationRow";
 import { ChatUnavailableState } from "./ChatUnavailableState";
 import { useCloudChatRecovery } from "./useCloudChatRecovery";
@@ -9515,6 +9518,74 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   useEffect(() => {
     if (heroShown !== undefined) acpmuxPerf.noteStartState(heroShown);
   });
+  // The repo tour (repoTour/): a new chat in a folder no chat on this Mac has used offers it under
+  // the hero's question; Take the tour sends the tour prompt as this chat's first message, and the
+  // × closes the offer for that folder.
+  const [tourDismissals, setTourDismissals] = useState(0);
+  const tourCwd = composerSnapshot.summary?.cwd;
+  const tourOffered = useMemo(
+    () =>
+      Boolean(heroPicker) &&
+      !remoteChat &&
+      !cloudPicked &&
+      sandbox.mode !== "sandboxed" &&
+      offersTour({
+        cwd: tourCwd,
+        local: !composerSnapshot.summary?.peer && composerSnapshot.summary?.hostKind !== "cloud",
+        listed: composerSnapshot.listedSessions === true,
+        sessions: newTabSessions,
+        sessionId: snapshot.sessionId,
+        dismissed: isTourDismissed,
+      }),
+    // tourDismissals: a × reads the dismissed folders again.
+    [
+      heroPicker,
+      remoteChat,
+      cloudPicked,
+      sandbox.mode,
+      tourCwd,
+      composerSnapshot.summary?.peer,
+      composerSnapshot.summary?.hostKind,
+      composerSnapshot.listedSessions,
+      newTabSessions,
+      snapshot.sessionId,
+      tourDismissals,
+    ],
+  );
+  const tourOffer = useMemo<TourOfferActions | undefined>(
+    () =>
+      tourOffered && tourCwd
+        ? {
+            onTake: () => void callNative("chat.send", { text: TOUR_PROMPT }).catch(() => undefined),
+            onDismiss: () => {
+              dismissTour(tourCwd);
+              setTourDismissals((count) => count + 1);
+            },
+          }
+        : undefined,
+    [tourOffered, tourCwd],
+  );
+  // A tour task's Start (repoTour/TourCard.tsx): a new worktree of the chat's folder (a folder that
+  // is no repository: the folder itself), a chat there given the task, opened beside this one. A
+  // side chat that would not open still runs; it is in the sidebar.
+  const startTourTask = useCallback(async (task: TourTask) => {
+    const client = directClient.current;
+    const summary = snapshotRef.current?.summary;
+    if (!client || !summary?.cwd) throw new Error(translate("error.notOpen"));
+    let folder = summary.cwd;
+    try {
+      ({ root: folder } = await newWorktree(callNative, summary.cwd, () => undefined));
+    } catch {
+      // Not a repository, or the host made no worktree: the task starts in the chat's folder.
+    }
+    const sessionId = await client.startTask(folder, task.prompt, summary.harness);
+    // It opens as this chat's side chat (acpmux tags it, the app opens it on the right), as `/side`.
+    await client
+      .markSide(sessionId, summary.sessionId)
+      .then(() => postNative("chat.sideChat", { sessionId }))
+      .catch(() => undefined);
+    return sessionId;
+  }, []);
   // Stable: memoized transcript rows compare it.
   const toggleActivity = useCallback((id: string) => {
     const view = chatViewRef.current;
@@ -11540,13 +11611,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     {...(sandboxRetryable(sandboxView) ? { onPersistent: () => sandbox.setMode("persistent") } : {})}
                   />
                 ) : freshView ? (
-                  <EmptyState project={projectName(composerSnapshot.summary?.cwd)} picker={heroPicker} />
+                  <EmptyState project={projectName(composerSnapshot.summary?.cwd)} picker={heroPicker} tour={tourOffer} />
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>
                     <AgentNamesContext.Provider value={chatAgentNames}>
                       <AgentOpenContext.Provider value={chatAgentOpen}>
                         <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
-                          {transcript}
+                          <TourStartContext.Provider value={remoteChat ? undefined : startTourTask}>
+                            {transcript}
+                          </TourStartContext.Provider>
                         </BackgroundTaskOutputContext.Provider>
                       </AgentOpenContext.Provider>
                     </AgentNamesContext.Provider>
