@@ -110,4 +110,16 @@ struct CLIInstallPlanTests {
         #expect(live.replaceDestination == live.installDestination)
         #expect(CLIInstallReport.launchOffer(live) == nil)
     }
+
+    @Test func theInstallerNeverWritesInsideAnAppWhateverTheExtensionsCase() async throws {
+        let scratch = try Scratch()
+        let bin = scratch.root.appendingPathComponent("Applications/Other.APP/Contents/Resources/bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        #expect(CLIPathCheck.appBundle(containing: bin.path)?.hasSuffix("Other.APP") == true)
+        let entry = bin.appendingPathComponent("cmux")
+        let installer = CLIPathInstaller(destination: entry, source: scratch.source) { _ in Issue.record("no administrator prompt") }
+        await #expect(throws: CLIPathInstaller.Failure.destinationInsideApp(path: entry.path)) { try await installer.install(replacing: true) }
+        await #expect(throws: CLIPathInstaller.Failure.destinationInsideApp(path: entry.path)) { try await installer.uninstall() }
+        #expect(!FileManager.default.fileExists(atPath: entry.path))
+    }
 }

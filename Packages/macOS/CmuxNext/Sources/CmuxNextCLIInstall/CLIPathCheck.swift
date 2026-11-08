@@ -156,7 +156,7 @@ public nonisolated struct CLIPathCheck: Equatable, Sendable {
         var bundle = ""
         for component in path.split(separator: "/", omittingEmptySubsequences: true) {
             bundle += "/" + component
-            if component.hasSuffix(".app") { return bundle }
+            if component.lowercased().hasSuffix(".app") { return bundle }
         }
         return nil
     }

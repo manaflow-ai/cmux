@@ -125,6 +125,8 @@ public nonisolated enum CLIInstallReport: Equatable, Sendable {
             return format("cli.error.bundleNotInstalled", "cmux is running from its disk image (%@). Move it to Applications, open it from there, and try again.", path)
         case .destinationParentNotDirectory(let path):
             return format("cli.error.parentNotDirectory", "%@ is not a folder.", path)
+        case .destinationInsideApp(let path):
+            return format("cli.error.destinationInsideApp", "%@ is inside an app, so it was left alone.", path)
         case .destinationIsDirectory(let path):
             return format("cli.error.destinationIsDirectory", "%@ is a folder. Remove or rename it and try again.", path)
         case .installVerificationFailed(let path):
