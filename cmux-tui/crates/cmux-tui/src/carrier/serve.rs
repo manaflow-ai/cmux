@@ -30,10 +30,12 @@
 //!   No line holds the text `cloud.connect`.
 //! - stdin carries JSON lines: `{"access_token":"…"}` replaces the
 //!   credential for every later dial (and ticket refresh); sessions already
-//!   up stay up. A credential for another person (its JWT `sub` differs, or
-//!   either one has none) also retires the held session: later connections
-//!   dial a new one with the new credential, while connections already on
-//!   the old one keep it until they end. `{"carrier_answer":{relay, slot,
+//!   up stay up. A connection rides the held session only while the
+//!   current credential (a stdin token, else the token file re-read at each
+//!   connection, else the environment's) names the person who dialed it
+//!   (its JWT `sub`, else the whole credential); otherwise it dials a new
+//!   one with the current credential, while connections already on the old
+//!   one keep it until they end. `{"carrier_answer":{relay, slot,
 //!   ticket, expires_at, grant, daemon_key?}}` (a create's or spare claim's
 //!   `carrier`) is used by the next dial's first attempt instead of asking
 //!   the platform (see `dial --answer-fd`); a later one replaces one no dial
@@ -45,7 +47,7 @@
 //!   later connection opens its own mux control stream on it instead of
 //!   dialing again, within its own deadline. A session is dialed again only
 //!   once the held one is gone (the daemon no longer has it, it failed for
-//!   good, another person's credential retired it, or it carried no stream
+//!   good, the current credential names another person, or it carried no stream
 //!   for two minutes). Connected, the connection carries what a local
 //!   daemon socket does: `cmux.protocol/2` lines on its mux control stream.
 //!   A connection that gets no stream (its dial failed, or the held session
@@ -118,8 +120,12 @@ pub(super) fn run(args: &[String]) -> i32 {
         Err(code) => return code,
     };
     let connect_log = route_log::default_path();
+    let who: held::IdentityNow = {
+        let source = source.clone();
+        Arc::new(move || source.identity())
+    };
     let shared = Arc::new(Shared {
-        session: Slot::new(idle_time()),
+        session: Slot::new(idle_time(), who),
         machine: dial.machine,
         deadline: dial.deadline,
         source: source.clone(),
@@ -254,14 +260,9 @@ async fn read_stdin(shared: &Shared) {
         let text = line.strip_suffix(b"\n").unwrap_or(&line[..]);
         match contract::stdin_line(text) {
             StdinLine::Blank => {}
-            StdinLine::Token(token) => {
-                let before = shared.http.subject();
-                let after = super::answer::token_subject(&token);
-                shared.http.replace_credential(token);
-                if before.is_none() || before != after {
-                    shared.session.retire();
-                }
-            }
+            // The held session checks the new credential's identity at the
+            // next connection ([`held`]).
+            StdinLine::Token(token) => shared.http.replace_credential(token),
             StdinLine::Answer(answer) => shared.prefetched.put(*answer),
             StdinLine::Invalid(why) => reply(&contract::failure_line(BAD_REQUEST, Some(why))),
         }

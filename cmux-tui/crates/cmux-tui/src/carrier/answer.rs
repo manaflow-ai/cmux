@@ -249,9 +249,22 @@ impl HttpSource {
         }
     }
 
-    /// The person the current credential names ([`token_subject`]).
-    pub(super) fn subject(&self) -> Option<String> {
-        self.current().ok().and_then(|token| token_subject(&token))
+    /// Who the current credential names, read afresh (a stdin token, else
+    /// the token file re-read now, else the environment's): `sub:<sub>` for
+    /// a JWT with a `sub` ([`token_subject`]), else `token:<sha-256 hex>` of
+    /// the whole credential, so two opaque credentials never count as one
+    /// person. `None` when there is no readable credential.
+    pub(super) fn identity(&self) -> Option<String> {
+        let token = self.current().ok()?;
+        Some(match token_subject(&token) {
+            Some(sub) => format!("sub:{sub}"),
+            None => {
+                use sha2::Digest as _;
+                let digest = sha2::Sha256::digest(token.as_bytes());
+                let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+                format!("token:{hex}")
+            }
+        })
     }
 }
 
