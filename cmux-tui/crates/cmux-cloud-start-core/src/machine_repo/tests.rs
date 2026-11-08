@@ -795,3 +795,55 @@ fn a_symlink_at_the_history_lock_is_not_followed() {
     assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep");
     assert!(!lock.is_symlink(), "the symlink is gone");
 }
+
+#[cfg(unix)]
+/// cmuxterm-hq goals/cloud-no-network-wait.md step 5: a start on a whole checkout with nothing of
+/// its own (no ref, no script) ran `git fetch` and a fast-forward before the chat, a network round
+/// trip in front of every warm first reply. They now run behind it under `repo hold`: the hold is
+/// taken on the checkout as it was, and the update ends under it.
+#[test]
+fn a_warm_start_fetches_behind_the_hold() {
+    let Some(machine) = Machine::new(true) else { return };
+    machine.cmux(BARRIER_CMUX);
+    let (code, _) = machine.run();
+    assert_eq!(code, 0);
+    machine.settle();
+    let before = machine.git(&["rev-parse", "HEAD"]);
+    machine.commit_upstream("z.txt");
+    machine.cmux(
+        "#!/bin/sh\ncase \"$1 $2\" in\n\
+         \"repo wait\") exit 0 ;;\n\
+         \"repo hold\") [ \"$3\" = --help ] && exit 0; git -C \"$3\" rev-parse HEAD > \"$HOME/head-at-hold\"\n\
+         echo \"$5 $6\" > \"$HOME/hold-mode\"; shift 4; exec \"$@\" ;;\n\
+         esac\nexit 2\n",
+    );
+    let (code, record) = machine.run();
+    assert_eq!(
+        (code, record["status"].as_str(), record["fill"].as_str()),
+        (0, Some("updated"), Some("background")),
+        "{record}"
+    );
+    let at_hold = std::fs::read_to_string(machine.0.join("home/head-at-hold")).unwrap();
+    assert_eq!(at_hold.trim(), before, "nothing fetched or forwarded before the hold");
+    let mode = std::fs::read_to_string(machine.0.join("home/hold-mode")).unwrap();
+    assert!(mode.trim().ends_with("/repo refresh"), "the hold runs the update: {mode}");
+    assert!(machine.checkout().join("z.txt").is_file(), "forwarded under the hold");
+}
+
+#[cfg(unix)]
+/// The warm update keeps a checkout with local changes as it is, as the inline update did.
+#[test]
+fn a_warm_start_keeps_local_changes() {
+    let Some(machine) = Machine::new(true) else { return };
+    machine.cmux(BARRIER_CMUX);
+    let (code, _) = machine.run();
+    assert_eq!(code, 0);
+    machine.settle();
+    let before = machine.git(&["rev-parse", "HEAD"]);
+    std::fs::write(machine.checkout().join("AGENTS.md"), "mine").unwrap();
+    machine.commit_upstream("z.txt");
+    let (code, record) = machine.run();
+    assert_eq!((code, record["fill"].as_str()), (0, Some("background")), "{record}");
+    assert_eq!(machine.git(&["rev-parse", "HEAD"]), before, "not forwarded");
+    assert_eq!(std::fs::read_to_string(machine.checkout().join("AGENTS.md")).unwrap(), "mine");
+}

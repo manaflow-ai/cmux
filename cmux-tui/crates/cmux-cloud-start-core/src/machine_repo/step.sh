@@ -5,7 +5,7 @@ set -u
 d=$(cd "$(dirname "$0")" && pwd)
 url='@URL@'; ref='@REF@'; dir="$HOME/@DIRECTORY@"; github=@GITHUB@
 host='@HOST@'; key="credential.https://$host"
-cred=none; helper=""; status=failed; sha=""; why=""; fresh=""; tip=""; fill=none
+cred=none; helper=""; status=failed; sha=""; why=""; fresh=""; tip=""; warm=""; fill=none
 result() {
   printf '{"status":"%s","url":"%s","ref":"%s","dir":"%s","credential":"%s","sha":"%s","fill":"%s"}\n' \
     "$status" "$url" "$ref" "$dir" "$cred" "$sha" "$fill" >"$d/repo-status.json.tmp" && mv -f "$d/repo-status.json.tmp" "$d/repo-status.json"
@@ -113,12 +113,17 @@ fill_now() {
     "$d/repo" fill-now "$cred"
   fi
 }
-# The fill, in its own scope: the bootstrap's unit ends with this runner, and the hold outlives it.
-# The hold is taken before this returns, so no chat starts on the folder before it.
+# The fill (or a warm start's `refresh`), in its own scope: the bootstrap's unit ends with this
+# runner, and the hold outlives it. The hold is taken before this returns, so no chat starts on
+# the folder before it.
 fill_later() {
-  if root systemd-run --scope --quiet --collect --unit="cmux-repo-fill-$(date +%s)-$$" \
-    runuser -u "$(id -un)" -- env HOME="$HOME" PATH="$PATH" "$hx" repo hold "$dir" -- "$d/repo" fill "$cred"; then
+  mode=${1:-fill}
+  if root systemd-run --scope --quiet --collect --unit="cmux-repo-$mode-$(date +%s)-$$" \
+    runuser -u "$(id -un)" -- env HOME="$HOME" PATH="$PATH" "$hx" repo hold "$dir" -- "$d/repo" "$mode" "$cred"; then
     fill=background
+  elif [ "$mode" = refresh ]; then
+    echo "cmux repo: cannot update $dir in the background; updating it now" >&2
+    refresh || die "$why"
   else
     echo "cmux repo: cannot fill $dir in the background; filling it now" >&2
     fill_now || die "cannot check out all of $url"
@@ -161,6 +166,24 @@ forward() {
     status=kept
   fi
 }
+# A warm start's update: fetch (a failed fetch keeps the checkout as it is, as it always has),
+# then fast-forward a checkout with no local changes.
+refresh() {
+  net -C "$dir" fetch --quiet --tags origin
+  changes=$(g -C "$dir" status --porcelain) || { why="cannot read $dir"; return 1; }
+  [ -n "$changes" ] || forward
+}
+# Run by `cmux repo hold` (`fill_later refresh`): the chat starts on the checkout as it was, and
+# its tools wait at the barrier until the update ends. It holds the history lock, as a fill does.
+# An update that cannot fast-forward leaves the checkout as it was (a refused `merge --ff-only`
+# changes nothing), so the barrier opens on it instead of keeping the chat's tools waiting.
+if [ "${1:-}" = refresh ]; then
+  { [ ! -L "$history_lock" ] || rm -f "$history_lock"; } && exec 9>>"$history_lock" || exit 1
+  if command -v flock >/dev/null 2>&1; then flock 9 || exit 1; fi
+  refresh || echo "cmux repo: $why; $dir is kept as it was" >&2
+  exit 0
+fi
+sparse() { [ "$(git -C "$dir" config --bool core.sparseCheckout 2>/dev/null)" = true ] && [ -f "$dir/.git/info/sparse-checkout" ]; }
 if [ -d "$dir/.git" ]; then
   [ "$(git -C "$dir" remote get-url origin 2>/dev/null)" = "$url" ] || die "$dir holds another repository"
   # A clone cut short (no commit checked out) is cloned again.
@@ -192,15 +215,20 @@ if [ -d "$dir/.git" ]; then
     fi
     [ ! -f "$history_lock" ] || flock -w 1800 "$history_lock" true || die "$dir is still fetching its history after 30 min"
   fi
-  net -C "$dir" fetch --quiet --tags origin
   status=updated
-  # A checkout with local changes stays as it is.
-  changes=$(g -C "$dir" status --porcelain) || die "cannot read $dir"
-  if [ -n "$changes" ]; then status=kept; else switch && forward || die "$why"; fi
+  if [ -z "$ref" ] && [ "$state" = ready ] && ! sparse && holder; then
+    # A warm start on a whole checkout: no network round trip before the first reply. The fetch
+    # and fast-forward run behind the chat under the hold (`refresh`), and its tools wait for them.
+    warm=1
+  else
+    net -C "$dir" fetch --quiet --tags origin
+    # A checkout with local changes stays as it is.
+    changes=$(g -C "$dir" status --porcelain) || die "cannot read $dir"
+    if [ -n "$changes" ]; then status=kept; else switch && forward || die "$why"; fi
+  fi
   # A head-first clone whose fill did not finish (still sparse, or a barrier its fill left failed
   # after the tree was whole): fill it again, under the barrier.
-  if { [ "$(git -C "$dir" config --bool core.sparseCheckout 2>/dev/null)" = true ] && [ -f "$dir/.git/info/sparse-checkout" ]; } ||
-    [ "$state" = failed ]; then
+  if sparse || [ "$state" = failed ]; then
     if holder; then tip=1; else
       fill_now || die "cannot check out all of $url"
       fill=done
@@ -243,5 +271,5 @@ if { [ "$cred" = cmux-github ] || [ "$cred" = cmux-gitlab ]; } && ! git -C "$dir
     echo "cmux repo: cannot keep the $host path in $dir, so a push there needs credentials" >&2
 fi
 sha=$(g -C "$dir" rev-parse --verify --quiet HEAD) || die "no commit checked out in $dir"
-[ -z "$tip" ] || fill_later
+if [ -n "$tip" ]; then fill_later; elif [ -n "$warm" ]; then fill_later refresh; fi
 result
