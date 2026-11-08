@@ -3089,6 +3089,10 @@ mod browser_profile_tests;
 mod creation_burst_tests;
 
 #[cfg(test)]
+#[path = "server/run_public_ids_tests.rs"]
+mod run_public_ids_tests;
+
+#[cfg(test)]
 mod tests;
 
 mod cloud_api;
