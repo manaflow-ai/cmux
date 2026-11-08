@@ -50,10 +50,20 @@ pub(crate) fn heard_within_window(attachment: &SlotAttachment, now_ms: u64) -> b
     attachment.last_seen_ms.saturating_add(DAEMON_LIVENESS_WINDOW_MS) > now_ms
 }
 
-/// The candidate a Connect on `slot` may be allocated to at `now_ms`: the
-/// slot's current registration (`current_registration`), if it accepts
-/// Connects. Each candidate is a handle, its socket's ready state and its
-/// attachment; the candidates are all the slot's control sockets.
+/// The candidate a Connect on `slot` may be allocated to at `now_ms`. Each
+/// candidate is a handle, its socket's ready state and its attachment; the
+/// candidates are all the slot's control sockets.
+///
+/// The slot's current registration (`current_registration`) takes every
+/// Connect: while it is silent past the window the Connect parks, even if
+/// a replaced socket's daemon still speaks. When no registration is current,
+/// the only open registrations are legacy ones (number 0): two or more of
+/// them carry no order, so none is current (a numbered one, when open, is
+/// always the highest and so current). Their Connects go to the first that
+/// accepts Connects, as before registration numbers: parking them instead
+/// would leave every client waiting out its expiry until a numbered Register
+/// or a socket close. Only the Connect allocation falls back this way; a
+/// non-current registration's Ping still hands over nothing.
 pub(crate) fn live_daemon<T>(
     candidates: impl IntoIterator<Item = (T, u16, SlotAttachment)>,
     slot: &str,
@@ -64,16 +74,46 @@ pub(crate) fn live_daemon<T>(
         .iter()
         .map(|(_, ready_state, attachment)| (*ready_state, attachment.clone()))
         .collect();
-    candidates.into_iter().enumerate().find_map(|(index, (handle, ready_state, attachment))| {
-        let others = sockets
-            .iter()
-            .enumerate()
-            .filter(|(other, _)| *other != index)
-            .map(|(_, (ready_state, other))| (*ready_state, other.clone()));
-        (accepts_connects(&attachment, ready_state, slot, now_ms)
-            && current_registration(&attachment, ready_state, others))
-        .then_some(handle)
+    let current: Vec<bool> = candidates
+        .iter()
+        .enumerate()
+        .map(|(index, (_, ready_state, attachment))| {
+            let others = sockets
+                .iter()
+                .enumerate()
+                .filter(|(other, _)| *other != index)
+                .map(|(_, (ready_state, other))| (*ready_state, other.clone()));
+            current_registration(attachment, *ready_state, others)
+        })
+        .collect();
+    let any_current = current.iter().any(|current| *current);
+    candidates.into_iter().zip(current).find_map(|((handle, ready_state, attachment), current)| {
+        let eligible = if any_current { current } else { attachment.generation == 0 };
+        (eligible && accepts_connects(&attachment, ready_state, slot, now_ms)).then_some(handle)
     })
+}
+
+/// Whether a Connect allocation chosen as `chosen` (a handle and its
+/// registration number) before an await still goes to it after: the slot's
+/// choice now (`live_daemon` over `candidates`) is the same socket with the
+/// same registration number. A Register that replaced it, or a close,
+/// while the allocation waited makes this false, and the Connect parks.
+pub(crate) fn still_allocated_to<T: PartialEq>(
+    candidates: impl IntoIterator<Item = (T, u16, SlotAttachment)>,
+    slot: &str,
+    now_ms: u64,
+    chosen: &T,
+    registration: u64,
+) -> bool {
+    let candidates: Vec<_> = candidates
+        .into_iter()
+        .map(|(handle, ready_state, attachment)| {
+            let number = attachment.generation;
+            ((handle, number), ready_state, attachment)
+        })
+        .collect();
+    live_daemon(candidates, slot, now_ms)
+        .is_some_and(|(handle, number)| handle == *chosen && number == registration)
 }
 
 /// Whether a new daemon `Register` on `slot` closes this existing control
@@ -415,6 +455,34 @@ mod tests {
         let connect_ms = T + DAEMON_LIVENESS_WINDOW_MS + 500;
         let candidates = [("replaced", CLOSING, replaced), ("current", OPEN, current)];
         assert_eq!(live_daemon(candidates, SLOT, connect_ms), None);
+    }
+
+    /// A Connect chose the current registration, then waited on storage. A
+    /// Register that replaced it meanwhile (the old socket closing, a new
+    /// number on the slot) or a close means the Incoming must not be sent
+    /// to the chosen socket; the same socket and number means it may.
+    #[test]
+    fn allocation_rechecks_its_daemon_after_the_await() {
+        let chosen = registration(1, T);
+        let connect_ms = T + 1_000;
+        assert_eq!(live_daemon([("old", OPEN, chosen.clone())], SLOT, connect_ms), Some("old"));
+        assert!(still_allocated_to([("old", OPEN, chosen.clone())], SLOT, connect_ms, &"old", 1));
+
+        let replaced =
+            [("old", CLOSING, chosen.clone()), ("new", OPEN, registration(2, T + 1_500))];
+        assert!(!still_allocated_to(replaced, SLOT, connect_ms + 1_000, &"old", 1));
+
+        assert!(!still_allocated_to(
+            [("old", CLOSED, chosen.clone())],
+            SLOT,
+            connect_ms,
+            &"old",
+            1
+        ));
+
+        // The same socket registered again: a different registration.
+        let again = [("old", OPEN, registration(2, T + 1_500))];
+        assert!(!still_allocated_to(again, SLOT, connect_ms + 1_000, &"old", 1));
     }
 
     /// A legacy registration that resumed while another one was on the slot

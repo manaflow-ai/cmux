@@ -18,6 +18,12 @@
 //! 6. a Connect is allocated while any open registration on the slot accepts
 //!    Connects (is live), even when none is current because two live legacy
 //!    registrations are open.
+//!
+//! A Connect's allocation awaits storage between choosing its daemon and
+//! sending the Incoming; a Register or a close may run in between. The model
+//! runs one there, and `RelaySlot::allocate`'s re-check
+//! (`crate::daemon::still_allocated_to`) parks the Connect instead, which
+//! invariant 3 checks.
 
 use std::collections::BTreeMap;
 
@@ -29,7 +35,7 @@ use crate::abuse::{
 use crate::attachment::{SlotAttachment, SlotPhase};
 use crate::daemon::{
     accepts_connects, current_registration, live_daemon, next_registration_number, record_ping,
-    replaced_by_register,
+    replaced_by_register, still_allocated_to,
 };
 use crate::park::{
     ConnectDisposition, ParkedConnect, connect_disposition, pairing_order, parked_and_live,
@@ -90,6 +96,9 @@ struct World {
     /// Connects that arrived while two or more live legacy registrations
     /// were open (no registration current): invariant 6's case.
     two_live_legacy_connects: u64,
+    /// Connects whose daemon was replaced or closed while the allocation
+    /// awaited storage.
+    superseded_connects: u64,
 }
 
 fn pending_socket() -> SlotAttachment {
@@ -121,6 +130,7 @@ impl World {
             trace: Vec::new(),
             violations: BTreeMap::new(),
             two_live_legacy_connects: 0,
+            superseded_connects: 0,
         };
         // Circuits allocated, and Connects parked, before the upgrade wait
         // only on a slot whose daemons have gone quiet: a daemon heard from
@@ -309,13 +319,18 @@ impl World {
     }
 
     /// `RelaySlot::handle_connect`.
-    fn connect(&mut self) {
-        let candidates: Vec<_> = self
-            .sockets
+    fn candidates(&self) -> Vec<(usize, u16, SlotAttachment)> {
+        self.sockets
             .iter()
             .enumerate()
             .map(|(index, socket)| (index, socket.ready_state, socket.attachment.clone()))
-            .collect();
+            .collect()
+    }
+
+    /// `RelaySlot::handle_connect`. Returns what ran while its allocation
+    /// awaited storage, if anything did.
+    fn connect(&mut self, rng: &mut Rng) -> Option<String> {
+        let candidates = self.candidates();
         let live: Vec<usize> = candidates
             .iter()
             .filter(|(_, ready_state, attachment)| {
@@ -328,7 +343,15 @@ impl World {
         }
         match live_daemon(candidates, SLOT, self.now_ms) {
             Some(index) => {
-                self.allocate(index, "a Connect", true);
+                let number = self.sockets[index].attachment.generation;
+                let during = if rng.chance(30) { self.during_allocation(index, rng) } else { None };
+                if still_allocated_to(self.candidates(), SLOT, self.now_ms, &index, number) {
+                    self.allocate(index, "a Connect", true);
+                } else {
+                    self.superseded_connects += 1;
+                    self.park();
+                }
+                return during;
             }
             None => {
                 if let Some(first) = live.first() {
@@ -344,6 +367,29 @@ impl World {
                     self.park();
                 }
             }
+        }
+        None
+    }
+
+    /// A Register on another socket, or the chosen daemon's socket starting
+    /// to close, while a Connect's allocation to `chosen` awaits storage.
+    fn during_allocation(&mut self, chosen: usize, rng: &mut Rng) -> Option<String> {
+        let pending = (0..self.sockets.len()).find(|index| {
+            let socket = &self.sockets[*index];
+            socket.alive
+                && socket.ready_state == OPEN
+                && socket.attachment.phase == SlotPhase::Pending
+        });
+        match pending {
+            Some(index) if rng.chance(50) => {
+                self.register(index);
+                Some(format!("s{} Registers", self.sockets[index].name))
+            }
+            _ if self.sockets[chosen].ready_state == OPEN => {
+                self.sockets[chosen].ready_state = CLOSING;
+                Some(format!("s{} starts closing", self.sockets[chosen].name))
+            }
+            _ => None,
         }
     }
 
@@ -424,10 +470,10 @@ impl World {
                 }
                 _ => "no ping".into(),
             },
-            50..=61 => {
-                self.connect();
-                "a client Connects".into()
-            }
+            50..=61 => match self.connect(rng) {
+                Some(during) => format!("a client Connects; {during} before its Incoming"),
+                None => "a client Connects".into(),
+            },
             62..=71 => match pick(rng) {
                 Some(index)
                     if self.sockets[index].alive
@@ -519,6 +565,7 @@ fn register_ping_and_close_interleavings_keep_one_current_registration() {
     let mut first: BTreeMap<&'static str, (u64, String)> = BTreeMap::new();
     let mut counts: BTreeMap<&'static str, u64> = BTreeMap::new();
     let mut two_live_legacy_connects = 0;
+    let mut superseded_connects = 0;
     for seed in 0..SEEDS {
         let mut rng = Rng::new(seed);
         let mut world = World::new(&mut rng);
@@ -527,6 +574,7 @@ fn register_ping_and_close_interleavings_keep_one_current_registration() {
             world.step(&mut rng);
         }
         two_live_legacy_connects += world.two_live_legacy_connects;
+        superseded_connects += world.superseded_connects;
         for (invariant, detail) in world.violations {
             *counts.entry(invariant).or_default() += 1;
             first.entry(invariant).or_insert((seed, detail));
@@ -543,4 +591,5 @@ fn register_ping_and_close_interleavings_keep_one_current_registration() {
         two_live_legacy_connects > 0,
         "no seed sent a Connect while two live legacy registrations were open"
     );
+    assert!(superseded_connects > 0, "no Connect's daemon was replaced while it was allocated");
 }

@@ -18,6 +18,7 @@ use crate::attachment::{SlotAttachment, SlotPhase};
 use crate::auth::{DEFAULT_TICKET_ISSUER, TicketExpectation, issue_ticket, verify_ticket};
 use crate::daemon::{
     current_registration, live_daemon, next_registration_number, record_ping, replaced_by_register,
+    still_allocated_to,
 };
 use crate::park::{
     ConnectDisposition, DAEMON_OFFLINE_CODE, DAEMON_OFFLINE_MESSAGE, ParkedConnect,
@@ -41,6 +42,19 @@ const CLOSE_UNSUPPORTED: u16 = 1003;
 pub struct RelaySlot {
     state: State,
     env: Env,
+}
+
+/// What `RelaySlot::allocate` did with a Connect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Allocation {
+    /// The client was answered: allocated, refused for capacity, or closed
+    /// because its own socket failed.
+    Sent,
+    /// The daemon's socket failed and was closed, as was the client's.
+    DaemonFailed,
+    /// The daemon was replaced or closed while the allocation waited; the
+    /// circuit was released and nothing was sent. The Connect should park.
+    Superseded,
 }
 
 struct ConnectRequest {
@@ -127,6 +141,25 @@ impl RelaySlot {
                 Some(((socket, attachment.clone()), ready_state, attachment))
             });
         live_daemon(candidates, slot, now_ms)
+    }
+
+    /// Whether a Connect allocation that chose `daemon` (registration number
+    /// `registration`) before an await still goes to it
+    /// (`crate::daemon::still_allocated_to`).
+    fn still_allocates_to(
+        &self,
+        slot: &str,
+        daemon: &WebSocket,
+        registration: u64,
+        now_ms: u64,
+    ) -> bool {
+        let candidates =
+            self.state.get_websockets_with_tag(CONTROL_TAG).into_iter().filter_map(|socket| {
+                let attachment = Self::attachment(&socket).ok()?;
+                let ready_state = socket.as_ref().ready_state();
+                Some((socket, ready_state, attachment))
+            });
+        still_allocated_to(candidates, slot, now_ms, daemon, registration)
     }
 
     /// Whether `socket`, a registered daemon, is still its slot's current
@@ -328,7 +361,7 @@ impl RelaySlot {
         }
         // A failure answering a waiting client must not fail the daemon's
         // registration; that client is answered with a retryable error.
-        if let Err(error) = self.pair_parked(&slot, socket, attachment.expires_at).await {
+        if let Err(error) = self.pair_parked(&slot, socket, &attachment).await {
             worker::console_error!("RelaySlot parked pairing error: {error}");
         }
         Ok(())
@@ -403,16 +436,33 @@ impl RelaySlot {
 
         match (disposition, daemon) {
             (ConnectDisposition::Allocate, Some((daemon, daemon_attachment))) => {
-                self.allocate(
-                    socket,
-                    &request.slot,
-                    request.lane,
-                    request.generation,
-                    claims.expires_at_unix,
-                    &daemon,
-                    daemon_attachment.expires_at,
-                )
-                .await?;
+                let allocation = self
+                    .allocate(
+                        socket,
+                        &request.slot,
+                        request.lane.clone(),
+                        request.generation,
+                        claims.expires_at_unix,
+                        &daemon,
+                        &daemon_attachment,
+                    )
+                    .await?;
+                // The daemon was replaced or closed while the allocation
+                // waited: the Connect waits for the slot's next Register or
+                // current Ping, as one that found no daemon does.
+                if allocation == Allocation::Superseded {
+                    attachment.parked = Some(ParkedConnect {
+                        lane: request.lane.clone(),
+                        generation: request.generation,
+                        parked_at_ms: now_ms,
+                    });
+                    socket.serialize_attachment(&attachment)?;
+                    if let Some(notice) =
+                        parked_notice(request.accepts_parked, &request.lane, request.generation)
+                    {
+                        send_control(socket, &notice)?;
+                    }
+                }
             }
             (ConnectDisposition::Park, _) => {
                 if let Some(notice) =
@@ -451,7 +501,7 @@ impl RelaySlot {
         &self,
         slot: &str,
         daemon: &WebSocket,
-        daemon_expires_at: u64,
+        daemon_attachment: &SlotAttachment,
     ) -> Result<()> {
         let now_ms = self.now_ms();
         let waiting = self
@@ -474,16 +524,23 @@ impl RelaySlot {
                 .allocate(
                     &client,
                     slot,
-                    parked.lane,
+                    parked.lane.clone(),
                     parked.generation,
                     attachment.expires_at,
                     daemon,
-                    daemon_expires_at,
+                    daemon_attachment,
                 )
                 .await;
             match allocation {
-                Ok(true) => {}
-                Ok(false) => break,
+                Ok(Allocation::Sent) => {}
+                Ok(Allocation::DaemonFailed) => break,
+                // The daemon was replaced or closed: this Connect, and the
+                // ones after it, wait for the slot's next current daemon.
+                Ok(Allocation::Superseded) => {
+                    attachment.parked = Some(parked);
+                    client.serialize_attachment(&attachment)?;
+                    break;
+                }
                 Err(error) => {
                     Self::capacity(&client, "internal-error", "relay could not allocate a circuit");
                     return Err(error);
@@ -503,7 +560,15 @@ impl RelaySlot {
     ) -> Result<()> {
         let now_ms = self.now_ms();
         let now = now_ms / 1_000;
-        for unjoined in self.circuits().await?.unjoined(now_ms) {
+        let ledger = self.circuits().await?;
+        // A Register that replaced `daemon` while the ledger was read owns
+        // the slot's unjoined circuits now; it was handed them itself.
+        if !Self::attachment(daemon)
+            .is_ok_and(|attachment| self.is_current_registration(daemon, &attachment))
+        {
+            return Ok(());
+        }
+        for unjoined in ledger.unjoined(now_ms) {
             let expires_at = now
                 .saturating_add(JOIN_TICKET_TTL_SECONDS)
                 .min(unjoined.deadline_ms / 1_000)
@@ -565,7 +630,8 @@ impl RelaySlot {
     }
 
     /// Reserves a circuit and sends `Allocated` to the client and `Incoming`
-    /// to the daemon. Returns false when the daemon socket failed and closed.
+    /// to the daemon (`daemon_attachment` is the daemon's registration as
+    /// read when it was chosen).
     #[allow(clippy::too_many_arguments)]
     async fn allocate(
         &self,
@@ -575,8 +641,9 @@ impl RelaySlot {
         generation: u64,
         client_expires_at: u64,
         daemon: &WebSocket,
-        daemon_expires_at: u64,
-    ) -> Result<bool> {
+        daemon_attachment: &SlotAttachment,
+    ) -> Result<Allocation> {
+        let daemon_expires_at = daemon_attachment.expires_at;
         let now_ms = self.now_ms();
         let now = now_ms / 1_000;
         let namespace = self.env.durable_object("RELAY_CIRCUITS")?;
@@ -611,7 +678,14 @@ impl RelaySlot {
                 "slot-circuit-capacity",
                 "slot circuit quota or allocation rate limit was reached",
             );
-            return Ok(true);
+            return Ok(Allocation::Sent);
+        }
+        // The awaits above let a Register replace the daemon, or its socket
+        // close: send nothing to a daemon that no longer takes the slot's
+        // Connects. The caller parks the Connect.
+        if !self.still_allocates_to(slot, daemon, daemon_attachment.generation, self.now_ms()) {
+            self.release_circuit(&circuit.0).await?;
+            return Ok(Allocation::Superseded);
         }
 
         let incoming = RelayControl::Incoming {
@@ -629,15 +703,15 @@ impl RelaySlot {
         if send_control(socket, &allocated).is_err() {
             self.release_circuit(&circuit.0).await?;
             close(socket, 1011, "circuit allocation failed");
-            return Ok(true);
+            return Ok(Allocation::Sent);
         }
         if send_control(daemon, &incoming).is_err() {
             self.release_circuit(&circuit.0).await?;
             close(daemon, 1011, "circuit allocation failed");
             close(socket, 1011, "circuit allocation failed");
-            return Ok(false);
+            return Ok(Allocation::DaemonFailed);
         }
-        Ok(true)
+        Ok(Allocation::Sent)
     }
 
     async fn handle_message(
@@ -695,7 +769,7 @@ impl RelaySlot {
                 // A Connect parked while this daemon was past the liveness
                 // window (crate::daemon) is answered now that it spoke.
                 if handover.parked
-                    && let Err(error) = self.pair_parked(&slot, socket, attachment.expires_at).await
+                    && let Err(error) = self.pair_parked(&slot, socket, &attachment).await
                 {
                     worker::console_error!("RelaySlot parked pairing error: {error}");
                 }
