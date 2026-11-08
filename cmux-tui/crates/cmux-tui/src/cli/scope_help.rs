@@ -187,7 +187,8 @@ USAGE
 pub(super) const GIT_HELP: &str = "\
 USAGE
   cmux git status [TARGET]
-  cmux git diff [TARGET] [--scope <scope>] [--patch] [--max-patch-bytes <n>]
+  cmux git diff [TARGET] [--scope <scope> | --scope commits --base <commit> --head <commit>]
+    [--patch] [--max-patch-bytes <n>]
     [--max-files <n>] [--context-lines <n>] [--after-path <path>]
     [--patch-offset <n> [--patch-revision <revision>]] [<path>...]
   cmux git branches [TARGET] [--limit <n>]
@@ -211,6 +212,9 @@ USAGE
   cmux git worktree apply [TARGET]
   cmux git worktree remove [TARGET] [--discard]
   cmux git worktree setup [TARGET] [--since <offset>]
+  cmux git comments list [--root <path>]
+  cmux git comments save [--root <path>] --comment <json-object>
+  cmux git comments delete [--root <path>] <comment-id>... [--versions-json <json-object>]
 
 TARGET
   --path <path>          A file or folder in the repository
@@ -228,6 +232,9 @@ SCOPES
   committed    HEAD against its first parent
   branch       The working tree against the merge base with the base branch,
                with untracked files
+  commits      --head against its merge base with --base (a pull request's
+               change), both full commit ids already in the repository;
+               nothing is fetched
 
 status prints the branch, upstream, how far it is ahead and behind, the base
 branch (the one a worktree create recorded for the branch, else origin's
@@ -294,6 +301,14 @@ The main checkout is never removed. Before it goes, the project's teardown runs.
 worktree setup shows the project's worktree recipe (.worktreeinclude,
 .cmux/worktree.toml and the saved one) and, in a worktree worktree create made,
 its setup: state, port and output (from byte --since).
+
+comments are the diff page's review comments, kept by the session host for a
+worktree root (--root, the current directory by default; give the worktree's
+top folder, as the diff page does). list prints them. save adds the comment
+object (filePath, side, startLine, endLine, message, ...), or replaces the
+saved one whose id it names; the session host sets createdAt and updatedAt.
+delete removes the named comments; --versions-json maps an id to the updatedAt
+you read, so a comment edited since then is kept.
 ";
 
 /// Levenshtein distance, for "did you mean" scope suggestions.

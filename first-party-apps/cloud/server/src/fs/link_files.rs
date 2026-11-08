@@ -11,9 +11,11 @@
 //! so the ops light up with no Cloud change when the daemon ships them.
 
 use super::Cancel;
+use crate::api::models::ConnectFacts as _;
 use crate::api::{CloudError, ControlPlane, codes};
 use crate::link::carrier::{Streams, end_all, end_stream, open_upstream};
 use crate::ops::Server;
+use cmux_cloud_wire::CloudMachineStatus;
 use serde_json::{Map, Value, json};
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::path::PathBuf;
@@ -331,13 +333,13 @@ pub(crate) fn target<C: ControlPlane>(
     machine: &str,
 ) -> Result<DialTarget, CloudError> {
     let info = crate::link::info::connect_info(server, machine)?;
-    if !info.daemon.has_capability(FS_CAPABILITY) {
+    if !info.daemon_has_capability(FS_CAPABILITY) {
         return Err(CloudError::new(
             codes::UNSUPPORTED,
             format!("The machine's cmux daemon has no file ops yet (needs {FS_CAPABILITY})"),
         ));
     }
-    if info.state == crate::api::models::MachineStatus::Paused {
+    if info.state == CloudMachineStatus::Paused {
         return Err(CloudError::new(
             codes::MACHINE_PAUSED,
             "The machine is paused: start it to use its files",
