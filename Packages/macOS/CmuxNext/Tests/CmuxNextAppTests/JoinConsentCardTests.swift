@@ -214,15 +214,18 @@ import Testing
 
     /// SECURITY (cmux#37286): macOS 15.4+ may capture a window with `sharingType` none, so every capture cmux
     /// makes leaves the ask out by its window id (screen sharing, `cmux rd serve`, the recorders read
-    /// ``CaptureExcludedWindows``) for as long as it shows, and lets the window number go once it hides.
+    /// ``CaptureExcludedWindows``), and showing it tells running captures at once.
     @Test func cmuxsOwnCapturesLeaveTheAskOutWhileItShows() async throws {
+        let heard = CaptureExcludedWindowsHeard()
+        let observation = CaptureExcludedWindows.observe { heard.lists.append($0) }
         let ask = try await ask()
         let panel = ask.panel!
         let id = CGWindowID(panel.windowNumber)
         #expect(panel.isVisible && id > 0)
-        #expect(CaptureExcludedWindows.shared.windowIDs.contains(id), "shown: left out of cmux's captures")
+        #expect(CaptureExcludedWindows.windowIDs.contains(id), "left out of cmux's captures")
+        #expect(heard.lists.contains { $0.contains(id) }, "running captures heard it when it showed")
+        withExtendedLifetime(observation) {}
         panel.orderOut(nil)
-        #expect(!CaptureExcludedWindows.shared.windowIDs.contains(id), "hidden: the number may be reused")
     }
 
     /// A page size reported after the panel showed (the first one late, after the fallback size, or one
@@ -258,6 +261,11 @@ import Testing
         }
         #expect(!(directives["img-src"] ?? []).contains { $0.hasPrefix("http") }, "no remote image")
         #expect(PageDevServer.bundledOnlyPageIDs.contains(PageDescriptor.serverCards.id))
+    }
+
+    /// The lists a capture heard (every call here runs on the main thread).
+    final class CaptureExcludedWindowsHeard: @unchecked Sendable {
+        var lists: [Set<CGWindowID>] = []
     }
 
     private static let pageRoot: URL? = {

@@ -1,31 +1,39 @@
+import AppKit
 import CmuxNextCompat
-import CoreGraphics
 import Testing
 
-/// SECURITY (cmux#37286): the list every capture cmux makes reads to leave out a window only the person
-/// may see. A capture follows it at once: each change reaches its observers, and only a change does.
-struct CaptureExcludedWindowsTests {
-    /// The changes an observer heard (every call here runs on the test's own thread).
+/// SECURITY (cmux#37286): every capture cmux makes leaves out each of the app's windows with
+/// `sharingType = .none` by id (macOS 15.4+ may capture such a window), and a running capture hears
+/// each change at once.
+@MainActor @Suite(.serialized) struct CaptureExcludedWindowsTests {
+    /// The lists an observer heard.
     final class Heard: @unchecked Sendable {
-        var count = 0
+        var lists: [Set<CGWindowID>] = []
     }
 
-    @Test func aWindowStaysOutUntilItsOwnerRemovesItAndEveryChangeIsHeard() {
-        let list = CaptureExcludedWindows()
+    @Test func aWindowThatAsksNotToBeSharedIsLeftOutAndEveryChangeIsHeard() {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 80, height: 60), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        let id = CGWindowID(window.windowNumber)
+        #expect(id > 0)
+        #expect(!CaptureExcludedWindows.windowIDs.contains(id), "a shared window stays in")
         let heard = Heard()
-        var observation: CaptureExcludedWindows.Observation? = list.observe { heard.count += 1 }
-        list.insert(42)
-        list.insert(42)
-        list.insert(0) // no window number yet: nothing to leave out
-        #expect(list.windowIDs == [42])
-        #expect(heard.count == 1, "only a change is heard")
-        list.remove(42)
-        list.remove(42)
-        #expect(list.windowIDs.isEmpty)
-        #expect(heard.count == 2)
+        var observation: CaptureExcludedWindows.Observation? = CaptureExcludedWindows.observe { heard.lists.append($0) }
+        window.sharingType = .none
+        CaptureExcludedWindows.changed()
+        #expect(CaptureExcludedWindows.windowIDs.contains(id))
+        #expect(heard.lists.count == 1 && heard.lists.last?.contains(id) == true, "heard at once, with the window")
+        window.sharingType = .readOnly
+        CaptureExcludedWindows.changed()
+        #expect(!CaptureExcludedWindows.windowIDs.contains(id))
+        #expect(heard.lists.count == 2)
         #expect(observation != nil)
         observation = nil
-        list.insert(7)
-        #expect(heard.count == 2, "a released observation hears nothing")
+        CaptureExcludedWindows.changed()
+        #expect(heard.lists.count == 2, "a released observation hears nothing")
     }
 }

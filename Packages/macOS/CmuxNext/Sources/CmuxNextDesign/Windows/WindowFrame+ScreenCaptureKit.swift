@@ -185,7 +185,7 @@ nonisolated final class ScreenFrameStream: NSObject, SCStreamOutput, SCStreamDel
         }
         // Every on-screen window of this app on that display: the Chromium page windows and the panels over the window,
         // never one only the person may see (CaptureExcludedWindows: the join consent ask, a password).
-        let excluded = CaptureExcludedWindows.shared.windowIDs
+        let excluded = await MainActor.run { CaptureExcludedWindows.windowIDs }
         let own = content.windows.filter { $0.isOnScreen && $0.frame.intersects(display.frame) && !excluded.contains($0.windowID) }
         let filter = SCContentFilter(display: display, including: own.isEmpty ? [target] : own)
         let configuration = SCStreamConfiguration()

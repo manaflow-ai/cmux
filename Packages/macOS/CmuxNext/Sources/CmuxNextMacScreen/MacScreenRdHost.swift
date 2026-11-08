@@ -44,8 +44,7 @@ nonisolated final class MacScreenRdHost: Sendable {
     private let output = Mutex<Task<Void, Never>?>(nil)
     private let handler = Mutex<(@Sendable (Event) -> Void)?>(nil)
     /// SECURITY: keeps the rd process's capture leaving out the app's windows only the person at this
-    /// Mac may see (`CaptureExcludedWindows`), from its start until the session ends. The lock also
-    /// keeps the lists in the order they were read, so the process ends on the newest one.
+    /// Mac may see (`CaptureExcludedWindows`), from its start until the session ends.
     private let processExclusions = Mutex<CaptureExcludedWindows.Observation?>(nil)
     /// The same for the WebRTC capture (`ScreenCaptureBackend.exclusionsChanged()`).
     private let webRTCExclusions = Mutex<CaptureExcludedWindows.Observation?>(nil)
@@ -195,8 +194,8 @@ nonisolated final class MacScreenRdHost: Sendable {
         // follows that list at once while this session lasts.
         let host = ScreenStreamHost(name: session.name, viewOnly: session.viewOnly, backend: { [weak self] in
             let backend = ScreenCaptureBackend(log: log)
-            backend.excludedWindowIDs = { CaptureExcludedWindows.shared.windowIDs }
-            let watch = CaptureExcludedWindows.shared.observe { [weak backend] in backend?.exclusionsChanged() }
+            backend.excludedWindowIDs = { await MainActor.run { CaptureExcludedWindows.windowIDs } }
+            let watch = CaptureExcludedWindows.observe { [weak backend] _ in backend?.exclusionsChanged() }
             self?.webRTCExclusions.withLock { $0 = watch }
             return backend
         }, log: log)
@@ -214,21 +213,17 @@ nonisolated final class MacScreenRdHost: Sendable {
         try await host.serve(signaling)
     }
 
-    /// Sends the rd process the windows its capture leaves out now (before the capture starts: it
-    /// applies the list at start), then the whole list again on every change until the session ends.
+    /// Sends the rd process the windows its capture leaves out now (it applies the list to the running
+    /// capture, or at start), then the whole list again on every change until the session ends. Every
+    /// list is read and sent on the main thread, so the process ends on the newest one.
     private func watchExclusions() {
         let process = process
-        let send: @Sendable () -> Void = {
-            process.send(ExcludeWindows(excludeWindows: CaptureExcludedWindows.shared.windowIDs.sorted()))
+        let send: @MainActor @Sendable (Set<CGWindowID>) -> Void = { ids in
+            process.send(ExcludeWindows(excludeWindows: ids.sorted()))
         }
-        processExclusions.withLock { watch in
-            // Observing first, so a change while the first list is sent is not missed; under the lock,
-            // so a change's list cannot be queued ahead of this older one.
-            watch = CaptureExcludedWindows.shared.observe { [weak self] in
-                self?.processExclusions.withLock { watch in if watch != nil { send() } }
-            }
-            send()
-        }
+        processExclusions.withLock { $0 = CaptureExcludedWindows.observe(send) }
+        // task-owner: one main-thread read of the list; ends at once
+        Task { @MainActor in send(CaptureExcludedWindows.windowIDs) }
     }
 
     /// Stop: the host stops its session (the viewer sees the link close) and exits.

@@ -1,61 +1,46 @@
-public import CoreGraphics
-import Foundation
+public import AppKit
 
-/// SECURITY: the app's windows that cmux's own screen captures leave out (screen sharing, its screen
-/// recorders): a prompt only the person at this Mac may see, such as the join consent ask or a revealed
-/// password. Such a window also sets `NSWindow.sharingType = .none`, but that only asks captures to skip
-/// it: since macOS 15.4 a ScreenCaptureKit capture may still show it, and another app's capture is not
-/// ours to control. So every capture cmux makes reads this list and leaves these windows out by id.
+/// SECURITY: the app's windows that cmux's own screen captures leave out (screen sharing, `cmux rd serve`,
+/// its screen recorders): every window of the app with `NSWindow.sharingType = .none`, such as the join
+/// consent ask or a revealed password. That property only asks captures to skip a window: since macOS
+/// 15.4 a ScreenCaptureKit capture may still show it, and another app's capture is not ours to control.
+/// So every capture cmux makes reads this list and leaves these windows out by id.
 ///
-/// Ids are window numbers (`NSWindow.windowNumber`, ScreenCaptureKit's `windowID`). The window's owner
-/// inserts it once the window has a number (after it first orders in) and removes it when it hides.
-public final class CaptureExcludedWindows: Sendable {
-    /// The app's one list.
-    public static let shared = CaptureExcludedWindows()
+/// The list is read from the windows themselves, never kept: a window is on it from the moment it has a
+/// number (it first ordered in) and sets `.none`. Whoever shows such a window, or changes a window's
+/// sharing, calls ``changed()`` so a running capture follows at once.
+public enum CaptureExcludedWindows {
+    /// Posted on the main thread by ``changed()``.
+    public static let didChange = Notification.Name("cmux.captureExcludedWindows.didChange")
 
-    private let state = Mutex<(ids: Set<CGWindowID>, observers: [UUID: @Sendable () -> Void])>(([], [:]))
-
-    public init() {}
-
-    /// The windows to leave out now.
-    public var windowIDs: Set<CGWindowID> {
-        state.withLock { $0.ids }
+    /// The windows to leave out now (window numbers, ScreenCaptureKit's `windowID`).
+    @MainActor public static var windowIDs: Set<CGWindowID> {
+        Set((NSApp?.windows ?? []).lazy.filter { $0.sharingType == .none && $0.windowNumber > 0 }.map { CGWindowID($0.windowNumber) })
     }
 
-    /// Leaves `id` out of every capture cmux makes from now on; observers hear it at once.
-    public func insert(_ id: CGWindowID) {
-        guard id > 0 else { return }
-        let observers = state.withLock { state -> [@Sendable () -> Void] in
-            guard state.ids.insert(id).inserted else { return [] }
-            return Array(state.observers.values)
-        }
-        for observer in observers { observer() }
+    /// A window that leaves captures showed, or a window's sharing changed: running captures read the list again.
+    @MainActor public static func changed() {
+        NotificationCenter.default.post(name: didChange, object: nil)
     }
 
-    /// `id` may show in captures again.
-    public func remove(_ id: CGWindowID) {
-        let observers = state.withLock { state -> [@Sendable () -> Void] in
-            guard state.ids.remove(id) != nil else { return [] }
-            return Array(state.observers.values)
-        }
-        for observer in observers { observer() }
-    }
-
-    /// Calls `changed` whenever the list changes, until the returned token is released.
-    public func observe(_ changed: @escaping @Sendable () -> Void) -> Observation {
-        let key = UUID()
-        state.withLock { $0.observers[key] = changed }
-        return Observation { [weak self] in self?.state.withLock { _ = $0.observers.removeValue(forKey: key) } }
+    /// Calls `changed` with the new list inside every ``changed()`` (on the main thread, before it returns),
+    /// until the returned token is released.
+    public static func observe(_ changed: @escaping @MainActor @Sendable (Set<CGWindowID>) -> Void) -> Observation {
+        // No queue: the center calls this on the poster's thread, the main one (``changed()`` is main-actor).
+        Observation(NotificationCenter.default.addObserver(forName: didChange, object: nil, queue: nil) { _ in
+            MainActor.assumeIsolated { changed(windowIDs) }
+        })
     }
 
     /// Ends an ``observe(_:)`` when released.
     public final class Observation: Sendable {
-        private let end: @Sendable () -> Void
+        // The center's token: only handed back to the center, which takes it from any thread.
+        private nonisolated(unsafe) let token: any NSObjectProtocol
 
-        init(_ end: @escaping @Sendable () -> Void) {
-            self.end = end
+        init(_ token: any NSObjectProtocol) {
+            self.token = token
         }
 
-        deinit { end() }
+        deinit { NotificationCenter.default.removeObserver(token) }
     }
 }

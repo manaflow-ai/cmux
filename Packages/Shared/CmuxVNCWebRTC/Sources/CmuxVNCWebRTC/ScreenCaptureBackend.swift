@@ -48,11 +48,11 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     /// is not enough: since macOS 15.4 a ScreenCaptureKit capture may still show such a window, so this
     /// capture leaves them out by id. Read when a capture starts, every 2 s and at once on
     /// ``exclusionsChanged()``. Set by the app; nil by default (nothing left out).
-    public var excludedWindowIDs: (@Sendable () -> Set<CGWindowID>)? {
+    public var excludedWindowIDs: (@Sendable () async -> Set<CGWindowID>)? {
         get { lock.withLock { excludedWindowSource } }
         set { lock.withLock { excludedWindowSource = newValue } }
     }
-    private var excludedWindowSource: (@Sendable () -> Set<CGWindowID>)?
+    private var excludedWindowSource: (@Sendable () async -> Set<CGWindowID>)?
     /// The most pixels on the captured picture's long edge (``setMaximumLongEdge(_:)``; nil: the display's size).
     private var longEdgeCap: Int?
     /// The last reconfiguration failed: the running capture may not be at
@@ -276,7 +276,7 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         }
         let configuration = configuration(for: display, frameRate: rate, cursor: cursor, cap: cap)
         let size = CGSize(width: configuration.width, height: configuration.height)
-        let exclusion = Exclusion(pids: Self.excluded(excluded, drawsCursor: cursor), windows: windows?() ?? [])
+        let exclusion = Exclusion(pids: Self.excluded(excluded, drawsCursor: cursor), windows: await windows?() ?? [])
         let (filter, applied) = await Self.filter(display: display, excluding: exclusion)
         // Not applied (the window list failed): the watcher tries again.
         lock.withLock { excludedApplied = applied ? exclusion : Exclusion() }
@@ -363,11 +363,11 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
     /// Applies the current exclusion to the running capture when it changed, or always with `force`
     /// (a window left out by id may have moved to the display since). False once the backend stopped.
     private func refreshExclusions(force: Bool) async -> Bool {
-        let state = lock.withLock { () -> (stopped: Bool, source: (@Sendable () -> [pid_t])?, windows: (@Sendable () -> Set<CGWindowID>)?, cursor: Bool, applied: Exclusion, generation: Int) in
+        let state = lock.withLock { () -> (stopped: Bool, source: (@Sendable () -> [pid_t])?, windows: (@Sendable () async -> Set<CGWindowID>)?, cursor: Bool, applied: Exclusion, generation: Int) in
             (stopped, excludedSource, excludedWindowSource, drawsCursor, excludedApplied, streamGeneration)
         }
         if state.stopped { return false }
-        let exclusion = Exclusion(pids: Self.excluded(state.source, drawsCursor: state.cursor), windows: state.windows?() ?? [])
+        let exclusion = Exclusion(pids: Self.excluded(state.source, drawsCursor: state.cursor), windows: await state.windows?() ?? [])
         guard force || exclusion != state.applied else { return true }
         let running = lock.withLock { () -> (SCStream, SCDisplay)? in
             guard streamGeneration == state.generation, let stream, let streamDisplay else { return nil }

@@ -17,9 +17,9 @@ import CmuxNextCompat
 /// agent that asked may also drive the screen (cmux Computer Use, any
 /// computer-use tool), so, as macOS's own privacy prompts and Chrome's
 /// permission prompts do:
-/// - the panel is left out of cmux's own screen sharing and recorders by id
-///   (``CaptureExcludedWindows``) and sets `sharingType = .none`, which asks
-///   every other capture to skip it (not guaranteed for another app's
+/// - the panel sets `sharingType = .none`, so cmux's own screen sharing and
+///   recorders leave it out by id (``CaptureExcludedWindows``), and every
+///   other capture is asked to skip it (not guaranteed for another app's
 ///   ScreenCaptureKit capture since macOS 15.4);
 /// - Allow answers only the person's own click, from the HID system
 ///   (``CmuxDialogPersonClick`` with the app's strict check): no
@@ -68,7 +68,7 @@ final class CookieImportConsentPanel {
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
         panel.becomesKeyOnlyIfNeeded = true
-        // Asks every capture to skip it; cmux's own leave it out by id once it shows (CaptureExcludedWindows).
+        // Asks every capture to skip it; cmux's own leave it out by id (CaptureExcludedWindows).
         panel.sharingType = .none
         panel.contentView = makeContent()
         panel.allow = { [weak self] in self?.allowButton }
@@ -218,7 +218,7 @@ final class CookieImportConsentPanel {
     private func show(on window: NSWindow) {
         parent = window
         window.addChildWindow(panel, ordered: .above)
-        CaptureExcludedWindows.shared.insert(CGWindowID(panel.windowNumber))
+        CaptureExcludedWindows.changed()
         window.themeScope.adopt(panel)
         place()
         panel.arm()
@@ -262,7 +262,6 @@ final class CookieImportConsentPanel {
         observers.removeAll()
         parent?.removeChildWindow(panel)
         panel.orderOut(nil)
-        CaptureExcludedWindows.shared.remove(CGWindowID(panel.windowNumber))
         finish(answer)
     }
 }

@@ -287,7 +287,6 @@ public final class WebCardPanel: NSPanel {
         pending = nil
         pendingTimeout.cancel()
         super.orderOut(sender)
-        CaptureExcludedWindows.shared.remove(CGWindowID(windowNumber))
         if let shown { finish(shown) }
     }
 
@@ -318,8 +317,8 @@ public final class WebCardPanel: NSPanel {
         placedIn = (parent, visible)
         setFrame(place?(size, parent, visible) ?? Self.placement(size: size, over: parent, in: visible), display: false)
         if ordersFrontRegardless { orderFrontRegardless() } else { WindowActivation.show(self, intent) }
-        // Once it has a window number: cmux's own screen captures leave a capture-excluded card out.
-        if sharingType == .none { CaptureExcludedWindows.shared.insert(CGWindowID(windowNumber)) }
+        // Now it has a window number: cmux's running captures leave a capture-excluded card out at once.
+        if sharingType == .none { CaptureExcludedWindows.changed() }
         if intent == .raise { page.focusPage() }
         placePersonControl()
         frameChanged()
