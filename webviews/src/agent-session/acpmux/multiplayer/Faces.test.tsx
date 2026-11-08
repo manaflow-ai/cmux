@@ -66,7 +66,9 @@ test("a prompt's author picture is a person's face at the author face token, not
   // Leo, 2026-11-07: "as if the user sent it, but, like, with their profile avatar picture
   // instead". The face over the bubble takes `--cv-author-face` (multiplayer.css: five grid units,
   // the header's person faces, scaling with the interface), with its initials scaled to it.
-  const host = render(<AuthorChip author={{ id: "guest:sh-1.g-1", name: "Priya Raman", avatar: "https://a.example/p.png" }} />);
+  const host = render(
+    <AuthorChip author={{ id: "guest:sh-1.g-1", name: "Priya Raman", avatar: "https://a.example/p.png" }} />,
+  );
   const face = host.querySelector<HTMLElement>(".cv-author .cv-face")!;
   expect(face.style.width).toBe("var(--cv-author-face)");
   expect(face.style.height).toBe("var(--cv-author-face)");
