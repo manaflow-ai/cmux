@@ -239,10 +239,14 @@ pub struct Peer {
     /// take it away (`attach_hidden`).
     attached: StdMutex<HashMap<String, u64>>,
     marks: AtomicU64,
-    /// The attached chats whose latest attach sent on the link named a `kinds` filter: the
-    /// peer's one subscription for this link streams only those kinds of them (each attach
-    /// sets it anew, and a prompt keeps it), so a reader that needs every kind attaches again.
-    narrowed: StdMutex<HashSet<String>>,
+    /// Per chat, what its attaches leave the peer's one subscription for this link streaming:
+    /// each attach sets it to its own `kinds` filter, and a prompt keeps it, so a reader that
+    /// needs every kind and finds it narrowed attaches again (`streams_every_kind`). A chat with
+    /// no entry streams every kind.
+    attach_filters: StdMutex<HashMap<String, AttachFilter>>,
+    /// Held while an attach goes into the link's queue and its filter is noted: the filter
+    /// noted last is that of the attach the peer applies last.
+    attach_order: Mutex<()>,
     /// Per attached chat, the greatest event sequence local clients have already received: a
     /// reconnect asks the peer for records after it instead of attaching with `limit: 0` (which
     /// silently loses the gap between links). A chat marked in `attached` with no cursor has no
@@ -402,7 +406,8 @@ impl Peer {
             admitting: AtomicBool::new(false),
             attached: StdMutex::new(HashMap::new()),
             marks: AtomicU64::new(0),
-            narrowed: StdMutex::new(HashSet::new()),
+            attach_filters: StdMutex::new(HashMap::new()),
+            attach_order: Mutex::new(()),
             cursors: StdMutex::new(HashMap::new()),
             replay_highwater: StdMutex::new(HashMap::new()),
             replay_tail: StdMutex::new(HashMap::new()),
@@ -983,23 +988,26 @@ impl Peer {
         new
     }
 
-    /// True when the latest attach of chat `id` sent on the link named no `kinds` filter: the
-    /// peer streams this daemon every kind of record of it ([`Self::note_attach_sent`]).
+    /// True when the peer streams this daemon every kind of record of chat `id`: the latest
+    /// attach of it that reached the link named no `kinds` filter, and no other attach of it is
+    /// on its way there.
     pub fn streams_every_kind(&self, id: &str) -> bool {
-        !self.narrowed.lock_or_recover().contains(id)
+        self.attach_filters.lock_or_recover().get(id).is_none_or(|f| !f.narrowed && f.coming == 0)
     }
 
-    /// An `_acpmux/attach` going out on the link sets the peer's subscription for its chat to
-    /// its own `kinds` filter: remember whether that filter narrows it.
-    fn note_attach_sent(&self, params: &Value) {
-        let Some(id) = params.get("sessionId").and_then(Value::as_str) else { return };
+    /// An `_acpmux/attach` of chat `id` on its way to the link: until it is in the queue (or
+    /// failed before), the chat may be about to stream only some kinds. Dropped, it is no longer
+    /// on its way.
+    fn attach_coming(&self, id: &str) -> AttachComing<'_> {
+        self.attach_filters.lock_or_recover().entry(id.to_owned()).or_default().coming += 1;
+        AttachComing { peer: self, id: id.to_owned() }
+    }
+
+    /// Chat `id`'s attach went into the link's queue, under `attach_order`: the peer's
+    /// subscription for it streams what its `kinds` filter lets through.
+    fn note_attach_queued(&self, id: &str, params: &Value) {
         let every = crate::hub::EventFilter::parse(params.get("kinds")).is_ok_and(|f| f.is_all());
-        let mut narrowed = self.narrowed.lock_or_recover();
-        if every {
-            narrowed.remove(id);
-        } else {
-            narrowed.insert(id.to_owned());
-        }
+        self.attach_filters.lock_or_recover().entry(id.to_owned()).or_default().narrowed = !every;
     }
 
     /// Forget the replay baseline of an attachment whose first baseline request failed. The
@@ -1156,9 +1164,10 @@ impl Peer {
         // or a full queue ahead of it) times out on the schedule of one the peer is slow to
         // answer, never later.
         let started = tokio::time::Instant::now();
-        if m == method::MUX_ATTACH {
-            self.note_attach_sent(&params);
-        }
+        let attach = (m == method::MUX_ATTACH)
+            .then(|| params.get("sessionId").and_then(Value::as_str))
+            .flatten()
+            .map(|id| (self.attach_coming(id), params.clone()));
         let turn_wait = waits_on_turn(m)
             || (m == method::MUX_DISPATCH
                 && params.get("durable").and_then(Value::as_bool) == Some(true)
@@ -1223,8 +1232,17 @@ impl Peer {
         let line = Message::request(id, m, params).bounded_line().map_err(RpcError::too_large)?;
         let tag = epoch.unwrap_or_else(|| self.link_epoch());
         let frame = Outbound { epoch: tag, key: Some(key), line };
+        // An attach goes into the queue and notes its filter under one lock, so the filter
+        // noted last is the one the peer applies last.
+        let order = if attach.is_some() { Some(self.attach_order.lock().await) } else { None };
         match tokio::time::timeout_at(deadline, self.out.send(frame)).await {
-            Ok(Ok(())) => {}
+            Ok(Ok(())) => {
+                if let Some((coming, params)) = attach {
+                    self.note_attach_queued(&coming.id, &params);
+                    drop(coming);
+                }
+                drop(order);
+            }
             Ok(Err(_)) => {
                 return Err(RpcError::internal(format!("peer {} connection closed", self.name)));
             }
@@ -2521,6 +2539,33 @@ const EARLY_TUNNEL_FOR: Duration = Duration::from_secs(3);
 /// (`Peer::remote_tokens_settled`, `Peer::stale_token`).
 const TOKEN_REREADS: [Duration; 3] =
     [Duration::from_secs(1), Duration::from_secs(2), Duration::from_secs(4)];
+
+/// What the attaches of one chat sent on the link leave the peer streaming of it.
+#[derive(Default)]
+struct AttachFilter {
+    /// The latest attach that went into the queue named a `kinds` filter.
+    narrowed: bool,
+    /// Attaches of it on their way to the queue.
+    coming: u32,
+}
+
+/// An attach on its way to the link's queue ([`Peer::attach_coming`]).
+struct AttachComing<'a> {
+    peer: &'a Peer,
+    id: String,
+}
+
+impl Drop for AttachComing<'_> {
+    fn drop(&mut self) {
+        let mut filters = self.peer.attach_filters.lock_or_recover();
+        if let Some(filter) = filters.get_mut(&self.id) {
+            filter.coming = filter.coming.saturating_sub(1);
+            if filter.coming == 0 && !filter.narrowed {
+                filters.remove(&self.id);
+            }
+        }
+    }
+}
 
 /// One frame queued for the link: the link epoch it was admitted on, and the pending key of
 /// the request it carries (None for a notification).
