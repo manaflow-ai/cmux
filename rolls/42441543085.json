@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42441543085",
+  "recorded_at": "2026-11-08T03:18:24Z",
+  "reason": "cmux-tui 77fefa72709f changes the image's cmux-tui (pinned 369dd23ee0cb)",
+  "dry_run": false,
+  "cmux_tui": "77fefa72709f676c64e4acb3567b02452209b9c4",
+  "fixes": [
+    {
+      "sha": "77fefa72709f676c64e4acb3567b02452209b9c4",
+      "mergedAt": "2026-11-07T18:53:59-08:00",
+      "subject": "New ▸ Terminal, Browser, Agent Chat or New Tab Page at any of Fork To's places (#37724)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T03:18:24Z",
+    "snapshot_id": "sh-ad07db506e8b4cb7b53c91539f65786c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42441543085): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c4a7403046b720eb7d0ab903c9591ff3c283a917",
+    "image": "cloud-native-auto-77fefa72-42441543085-1",
+    "revision": "ci-42441543085-1",
+    "at": "2026-11-08T03:18:24Z"
+  },
+  "rolled_back": false
+}
