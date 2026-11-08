@@ -13,6 +13,8 @@ pub(crate) struct AttentionMessages {
     pub blocked: &'static str,
     /// Row detail of a tab with an unread notification.
     pub unread: &'static str,
+    /// Toast when the chosen tab closed after the list opened.
+    pub gone: &'static str,
 }
 
 pub(super) const ENGLISH: AttentionMessages = AttentionMessages {
@@ -21,6 +23,7 @@ pub(super) const ENGLISH: AttentionMessages = AttentionMessages {
     filter_placeholder: "type to filter",
     blocked: "waiting on you",
     unread: "unread",
+    gone: "That tab is closed",
 };
 
 pub(super) const JAPANESE: AttentionMessages = AttentionMessages {
@@ -29,4 +32,5 @@ pub(super) const JAPANESE: AttentionMessages = AttentionMessages {
     filter_placeholder: "入力して絞り込む",
     blocked: "あなたの応答待ち",
     unread: "未読",
+    gone: "そのタブは閉じられています",
 };

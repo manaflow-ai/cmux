@@ -120,7 +120,7 @@ impl App {
     }
 
     /// Focus `surface` the way a sidebar tab click does. A tab that left
-    /// the tree since the queue was read is skipped.
+    /// the tree since the queue was read gets a toast instead.
     pub(super) fn focus_attention_surface(&mut self, surface: SurfaceId) -> anyhow::Result<()> {
         let location = self.tree.workspaces().iter().enumerate().find_map(|(w, workspace)| {
             workspace.screens.iter().enumerate().find_map(|(s, screen)| {
@@ -130,7 +130,10 @@ impl App {
                 })
             })
         });
-        let Some((workspace, screen, pane, index)) = location else { return Ok(()) };
+        let Some((workspace, screen, pane, index)) = location else {
+            self.show_toast(localization::catalog().attention.gone.to_string());
+            return Ok(());
+        };
         self.activate_sidebar_tab(&SidebarTabTarget {
             workspace,
             screen,

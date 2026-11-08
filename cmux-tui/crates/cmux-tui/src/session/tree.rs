@@ -978,6 +978,17 @@ pub(super) fn parse_tree_with_capabilities(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A remote tab's notification keeps the daemon's notification number,
+    /// which orders unread tabs oldest first in the attention queue.
+    #[test]
+    fn attention_remote_tab_notification_keeps_its_sequence() {
+        let value = serde_json::json!({"notification": 7, "unread": true, "level": "error"});
+        let marker = parse_notification(&value).unwrap();
+        assert_eq!((marker.sequence, marker.unread, marker.level), (7, true, "error"));
+        let older = serde_json::json!({"unread": true});
+        assert_eq!(parse_notification(&older).unwrap().sequence, 0, "an older server");
+    }
     use serde_json::json;
 
     #[test]

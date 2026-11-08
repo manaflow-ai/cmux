@@ -6,12 +6,12 @@
 //! 0. The person must act: an agent the roster shows `blocked` (approval,
 //!    question, plan review).
 //! 1. An unread `error` or `warning` notification.
-//! 2. Any other unread notification (a finished turn, OSC 9/777/99).
+//! 2. Any other unread notification (a finished turn, `cmux notify`).
 //!
 //! A tab with several reasons takes its strongest. "Next" is the entry after
 //! the focused tab, wrapping to the first, so repeated presses cycle through
-//! blocked agents (viewing does not clear a block) while an unread tab leaves
-//! the queue once it is seen and the next press starts again at the top.
+//! blocked agents (viewing does not clear a block) and unread tabs until
+//! their notifications are cleared.
 //!
 //! Pure: the TUI feeds it its tree and agent roster (`app/attention_jump.rs`),
 //! the CLI a daemon `session.snapshot` (`cli/attention.rs`).

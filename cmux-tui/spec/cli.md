@@ -423,6 +423,8 @@ title, kind, reason, level, since_ms}`; `kind` is `blocked` or `unread`, and
 `{target, queue_length, focused}`: `target` is the entry after the focused tab
 (or after `--after <tab_…>`), wrapping, else the first, or null when the queue
 is empty. Focus moves only with `--focus`, which sends `tab <tab> focus`.
+An entry names the tab of its terminal's `tab_id`; a terminal projected into
+several tabs is listed once, for that tab.
 
 `terminal <selector> output read` returns a bounded plain-text window of the
 terminal's journaled output stream: `{text, start_offset, next_offset,

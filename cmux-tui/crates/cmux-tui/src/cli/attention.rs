@@ -30,7 +30,7 @@ pub(super) enum AttentionPlan {
 pub(super) fn run(global: GlobalArgs, plan: AttentionPlan) -> i32 {
     let snapshot = match request(&global, &["session", "current", "snapshot"]) {
         Ok(snapshot) => snapshot,
-        Err(error) => return wire::print_local_error(&error, global.output, 3),
+        Err(error) => return wire::print_local_error(&error, global.output, exit_code(&error)),
     };
     let queue = snapshot_queue(&snapshot);
     let (after, focus) = match plan {
@@ -44,12 +44,25 @@ pub(super) fn run(global: GlobalArgs, plan: AttentionPlan) -> i32 {
     let mut focused = false;
     if focus && let Some(tab) = target.as_ref().and_then(|entry| text(entry, "tab")) {
         if let Err(error) = request(&global, &["tab", tab, "focus"]) {
-            return wire::print_local_error(&error, global.output, 1);
+            return wire::print_local_error(&error, global.output, exit_code(&error));
         }
         focused = true;
     }
     let answer = json!({"target": target, "queue_length": queue.len(), "focused": focused});
     wire::print_local_success(&answer, global.output)
+}
+
+/// The CLI exit code for a failed request: 2 for a usage error, 3 when the
+/// session could not be reached, 1 for an error the server answered.
+fn exit_code(error: &Value) -> i32 {
+    let code = text(error, "code").unwrap_or_default();
+    if code.starts_with("usage.") {
+        2
+    } else if code.starts_with("transport.") {
+        3
+    } else {
+        1
+    }
 }
 
 /// One request through the public grammar, as `cmux <words>` sends it.
@@ -317,6 +330,17 @@ mod tests {
         assert_eq!(parse(&["attention", "list"]), Ok(AttentionPlan::List));
         assert!(parse(&["attention", "list", "--focus"]).is_err());
         assert!(parse(&["attention", "next", "--after"]).is_err());
+        assert!(parse(&["attention", "next", "--after", ""]).is_err(), "an empty tab id");
+        assert!(parse(&["attention", "next", "--after", "tab_"]).is_err());
+        assert!(parse(&["attention", "next", "--after", "term_x"]).is_err(), "not a tab id");
         assert!(parse(&["attention", "request"]).is_err());
+    }
+
+    #[test]
+    fn attention_cli_exit_codes_follow_the_error_kind() {
+        assert_eq!(exit_code(&json!({"code": "usage.invalid"})), 2);
+        assert_eq!(exit_code(&json!({"code": "transport.unavailable"})), 3);
+        assert_eq!(exit_code(&json!({"code": "not_found", "message": "no such tab"})), 1);
+        assert_eq!(exit_code(&json!({})), 1);
     }
 }

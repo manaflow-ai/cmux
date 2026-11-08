@@ -95,6 +95,17 @@ fn attention_list_opens_a_searchable_menu_with_one_row_per_tab() {
     assert!(app.toast.is_some());
 }
 
+/// The list was opened, then the chosen tab closed: Enter says so.
+#[test]
+fn attention_list_row_for_a_tab_that_closed_shows_a_toast() {
+    let mux = Mux::new("attention-list-gone-test", SurfaceOptions::default());
+    let mut app = test_app(Session::Local(mux));
+    app.replace_tree(attention_tree());
+    app.toast = None;
+    app.focus_attention_surface(99).unwrap();
+    assert!(app.toast.is_some(), "a vanished tab is not a silent no-op");
+}
+
 #[test]
 fn attention_keys_default_to_prefix_a_and_shift_a() {
     let keys = Keys::default();

@@ -384,7 +384,7 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. We
 
 ## Notifications
 
-A notification in a tab (OSC 9, OSC 777 or OSC 99, or `cmux notify`) marks that tab unread. When the TUI is attached as a full client, it can also pass the notification to the terminal that hosts it, so the host shows a desktop banner for a tab you cannot see.
+A notification about a tab (`cmux notify --surface <term_…>`, or an agent hook that posts one) marks that tab unread. OSC 9 from a program in a tab is terminal progress metadata, not a notification. When the TUI is attached as a full client, it can also pass the notification to the terminal that hosts it, so the host shows a desktop banner for a tab you cannot see.
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
