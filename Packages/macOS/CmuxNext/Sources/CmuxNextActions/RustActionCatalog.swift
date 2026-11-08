@@ -261,6 +261,7 @@ nonisolated struct RustActionCatalog: Sendable {
             startsTerminal: value["startsTerminal"] as? Bool ?? false, surfacePlan: plan)
         // The init derives these from the rest; the catalog already holds the derived values.
         descriptor.surfacePlan = plan
+        descriptor.hint = value["hint"] as? String
         if let chord = value["defaultChord"] as? [String: Any], let first = shortcut(chord["first"]), let second = shortcut(chord["second"]) {
             descriptor.defaultChord = ShortcutChord(first, second)
         }
