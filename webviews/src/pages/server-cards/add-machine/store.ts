@@ -42,6 +42,9 @@ export interface AddMachineSnapshot {
   showDetails: boolean;
   /** An action the host refused (a click that came too late, a host that went away). */
   failed: boolean;
+  /** Add, Try Again or Fix was sent and the status after it is not read yet: a second press would
+   * cancel the run it just started, so those buttons wait. */
+  busy: boolean;
 }
 
 /** What the card shows, derived once per snapshot. */
@@ -63,7 +66,11 @@ const EMPTY: AddMachineSnapshot = {
   candidates: { kind: "loading" },
   showDetails: false,
   failed: false,
+  busy: false,
 };
+
+/** The buttons that start a run (the host's add or fix replaces the run in flight). */
+const STARTS_RUN: ReadonlySet<AddMachineAction> = new Set(["add", "tryAgain", "fix"]);
 
 export function viewOf(snapshot: AddMachineSnapshot): AddMachineView {
   const run = snapshot.status?.run;
@@ -77,7 +84,9 @@ export function viewOf(snapshot: AddMachineSnapshot): AddMachineView {
     mode,
     checklist,
     installing,
-    buttons: buttons(phase, mode, snapshot.parsed !== null, run?.machineID),
+    buttons: buttons(phase, mode, snapshot.parsed !== null, run?.machineID).map((each) =>
+      snapshot.busy && STARTS_RUN.has(each.action) ? { ...each, enabled: false } : each,
+    ),
     defaultName: fallback,
     runName: run?.name ?? "",
     runHost: run?.host ?? "",
@@ -185,6 +194,8 @@ export class AddMachineStore {
     const view = viewOf(this.snapshot);
     const enabled = view.buttons.find((each) => each.action === action)?.enabled ?? false;
     if (!enabled) return;
+    const starts = STARTS_RUN.has(action);
+    if (starts) this.set({ ...this.snapshot, busy: true });
     try {
       switch (action) {
         case "add":
@@ -195,6 +206,8 @@ export class AddMachineStore {
           break;
         case "changeHost":
           await this.client.call(AddMachineOps.cancel, {});
+          // The next Add enrolls the field's host; a peer picked for the failed run goes with it.
+          this.set({ ...this.snapshot, picked: undefined });
           void this.loadCandidates();
           break;
         case "fix":
@@ -218,10 +231,11 @@ export class AddMachineStore {
           return;
       }
     } catch {
-      this.set({ ...this.snapshot, failed: true });
+      this.set({ ...this.snapshot, failed: true, busy: false });
       return;
     }
     await this.refresh();
+    if (starts) this.set({ ...this.snapshot, busy: false });
   }
 
   /** The button Escape presses (Cancel or Done; the panel's Escape too); with none, the card closes. */
