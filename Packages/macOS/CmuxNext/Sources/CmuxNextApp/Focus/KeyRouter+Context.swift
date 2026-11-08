@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextFocus
 import CmuxNextSidebar
@@ -145,7 +146,7 @@ extension KeyRouter {
                      omnibarListOpen: focusedAddressBar(in: controller)?.isShowingSuggestions == true,
                      internalPage: focusedInternalPage(in: controller),
                      showsPageHistory: services?.locationTrail.pageHistory(in: controller) != nil,
-                     topPage: controller.shownTopPage == .home ? "home" : nil,
+                     topPage: controller.shownTopPage == .home ? "home" : controller.shownTopPage == .page(.importHistory) ? KeyBindingDefaults.historyImportTopPage : nil,
                      pageKeySequencePending: editor.map { services?.viewers.editorPages.keySequencePending(on: $0) ?? false } ?? false,
                      textBoxFocused: window.firstResponder is TextBoxTextView,
                      sidebarMultiSelection: controller.sidebar.model.selection.count > 1,
@@ -189,7 +190,7 @@ extension KeyRouter {
     private func focusedAddressBar(in controller: WindowController) -> AddressBarView? {
         guard case .addressBar = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
               case .browser(let entry)? = controller.content?.paneController(key: pane)?.currentContent else { return nil }
-        return entry.chrome.addressBar
+        return entry.chrome?.addressBar
     }
 
     /// The React page the focused pane's selected tab shows, if any.
@@ -197,8 +198,7 @@ extension KeyRouter {
         // A top page (TopPages: Settings, App Store, ...) fills the content area with no pane:
         // its page has the keyboard when the window's first responder is inside it.
         if let route = controller.shownTopPage, case .page = route,
-           let view = controller.topPages.views[route] as? InternalPageView,
-           let responder = controller.window?.firstResponder as? NSView, responder.isDescendant(of: view) {
+           let view = controller.topPages.views[route] as? InternalPageView, view.holdsKeyboard {
             return view.content as? PageWebView
         }
         var modelPage: PageWebView?

@@ -11,6 +11,7 @@ import { chromium, webkit, type Browser, type BrowserType, type Page } from "pla
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { COMPACT_MODEL_MENU, OTHER_MODEL_ROW, finishModelClick } from "./support/compactModelMenu";
 
 await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -143,7 +144,7 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
     });
     for (const [name, selector, popup] of [
       // The model button's menu (Leo 2026-10-20: one model button; its menu holds Effort and Fast mode).
-      ["Model", chip("Model"), ".ui-popup.ui-menu"],
+      ["Model", chip("Model"), COMPACT_MODEL_MENU],
       // The environment chip's searchable destination popover (#25316: a dialog with a search field;
       // not behind Labs since Leo's 2026-10-30 order).
       ["Environment", 'button[aria-label^="Environment"]', ".ui-popup.acpmux-location-menu"],
@@ -165,8 +166,10 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
       const page = await open(engine);
       await page.locator(".nt-field").click();
       await press(page, chip("Model"));
-      await page.locator(".acpmux-quick-menu").first().waitFor();
-      await press(page, ".acpmux-quick-menu [role=menuitemradio]:not([aria-checked=true]):not([data-disabled])");
+      await page.locator(COMPACT_MODEL_MENU).first().waitFor();
+      await press(page, OTHER_MODEL_ROW);
+      await finishModelClick(page);
+      await settled(page);
       expect(await ring(page)).toEqual({ ring: "", focused: "nt-field" });
       await page.close();
     });
@@ -183,7 +186,7 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
         expanded: [...document.querySelectorAll("button[aria-haspopup][aria-expanded=true]")].map((button) =>
           button.getAttribute("aria-label"),
         ),
-        inPopup: !!document.activeElement?.closest(".acpmux-quick-menu"),
+        inPopup: !!document.activeElement?.closest(":is(.acpmux-cols, .acpmux-quick-menu)"),
       }));
       expect(state).toEqual({ expanded: ["Model"], inPopup: true });
       await page.close();
@@ -192,9 +195,9 @@ await requireBrowserLane("menu-pointer-close-focus.test.ts", async () => {
     test(`${engine}: Escape still puts the keyboard back on the chip, with its ring`, async () => {
       const page = await open(engine);
       await press(page, chip("Model"));
-      await page.locator(".acpmux-quick-menu").first().waitFor();
+      await page.locator(COMPACT_MODEL_MENU).first().waitFor();
       await page.keyboard.press("Escape");
-      await page.locator(".acpmux-quick-menu").first().waitFor({ state: "detached" });
+      await page.locator(COMPACT_MODEL_MENU).first().waitFor({ state: "detached" });
       await settled(page);
       const after = await page.evaluate(
         (selector) =>

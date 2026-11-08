@@ -93,7 +93,11 @@ struct ChatNativeWidgets {
         // SwiftUI's height: n lines 4 pt apart (TextKit also counts the spacing under the last line).
         let lines = Layout.lineCount(attributed, width: maxText)
         let lineHeight = (styles.font(.body).lineHeight * 3).rounded(.up) / 3
-        let textHeight = CGFloat(lines) * lineHeight + CGFloat(lines - 1) * 4
+        // A line taller than the body font's (emoji, CJK and other fallback fonts in a pasted
+        // log) makes the text taller than n body lines: the bubble and the row take the drawn
+        // height, or the label drew past both, over the rows below.
+        // (`measured` counts the 4 pt under the last line too.)
+        let textHeight = max(CGFloat(lines) * lineHeight + CGFloat(lines - 1) * 4, measured.height - 4)
         let bubble = CGSize(width: min(measured.width, maxText) + 32, height: textHeight + 22)
         let x = width - bubble.width
         var drawn = Drawn()
@@ -187,9 +191,10 @@ struct ChatNativeWidgets {
         let summary = text(wording.summary(calls), font, .secondaryLabel, lineBreak: .byWordWrapping)
         let chevron = chevronSymbol()
         var duration: NSAttributedString?
-        if let start = calls.compactMap(\.startedAt).min(), let end = calls.compactMap(\.endedAt).max() {
+        if let start = calls.compactMap(\.startedAt).min(), let end = calls.compactMap(\.endedAt).max(),
+           let seconds = wording.shown(end.timeIntervalSince(start)) {
             let digits = UIFont.monospacedDigitSystemFont(ofSize: styles.font(.footnote).pointSize, weight: .regular)
-            duration = text(wording.duration(end.timeIntervalSince(start)), digits, .tertiaryLabel)
+            duration = text(wording.duration(seconds), digits, .tertiaryLabel)
         }
         let durationWidth = duration.map { size($0).width + 8 } ?? 0
         let avail = width - 26 - 4 - 8 - chevron.frame.width - durationWidth
@@ -365,7 +370,7 @@ struct ChatNativeWidgets {
         }
         placeSymbol(&drawn, "ellipsis", glyphFont, .secondaryLabel, x: x, width: target, midY: target / 2)
         drawn.menuButton = CGRect(x: x, y: 0, width: target, height: target)
-        if let duration = turn.duration {
+        if let duration = wording.shown(turn.duration) {
             let digits = UIFont.monospacedDigitSystemFont(ofSize: styles.font(.footnote).pointSize, weight: .regular)
             let label = text(wording.duration(duration), digits, .tertiaryLabel)
             let labelSize = size(label)

@@ -29,6 +29,7 @@ import { WebUpdatesCard } from "./WebUpdatesCard";
 import { VoiceInputCard } from "./VoiceInputCard";
 import { ContextMenusCard } from "./ContextMenusCard";
 import { ServerCard } from "./ServerCard";
+import { SharedLinksCard } from "./SharedLinksCard";
 import { SectionActions } from "./SectionActions";
 import {
   ACCENT_KEY,
@@ -36,6 +37,7 @@ import {
   HIGHLIGHT_COLOR_KEY,
   ROTATE_FAVORITES_KEY,
   THEME_EDITS_KEY,
+  THEME_FILE_KEY,
   THEME_KEY,
   ThemeStudio,
 } from "./ThemeStudio";
@@ -44,8 +46,8 @@ import { FAVORITE_THEMES_KEY } from "./ThemePicker";
 const machinesTitle = () => text(sections.find((section) => section.id === "machines")?.title);
 
 /** Each card; `focus` is the route's focused key (a card may open a panel it names), `workspace`
- * the workspace the page was opened for. */
-const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | null) => ReactNode> = {
+ * the workspace the page was opened for, `reveal` whether the route opens the page on this card. */
+const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | null, reveal: boolean) => ReactNode> = {
   themeStudio: (focus) => <ThemeStudio focus={focus} />,
   terminalInfo: () => <TerminalInfo />,
   ghosttyDiagnostics: () => <GhosttyDiagnostics />,
@@ -53,7 +55,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   harnesses: () => <HarnessesCard />,
   spaces: () => <SpacesSection />,
   browserProfiles: () => <BrowserProfiles />,
-  machines: () => <MachinesSection title={machinesTitle()} />,
+  machines: (_focus, _workspace, reveal) => <MachinesSection title={machinesTitle()} reveal={reveal} />,
   accounts: () => <AccountsSection />,
   agentHarnesses: (focus) => <AgentHarnesses focus={focus} />,
   agentIntegrations: (focus) => <AgentIntegrations focus={focus} />,
@@ -73,6 +75,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   notices: () => <NoticesCard />,
   server: () => <ServerCard />,
   cloudEnvironments: () => <CloudEnvironmentsCard />,
+  sharedLinks: (_focus, _workspace, reveal) => <SharedLinksCard reveal={reveal} />,
   contextMenus: (focus) => <ContextMenusCard focus={focus} />,
 };
 
@@ -81,18 +84,21 @@ export function SectionView({
   section,
   focus,
   workspace = null,
+  reveal = null,
 }: {
   section: string;
   focus: string | null;
   workspace?: string | null;
+  /** The card the route opens the page on (`#/settings/machines`), else null. */
+  reveal?: CategoryCard | null;
 }) {
   const category = categoryById(section);
   // The theme studio draws appearance.theme, appearance.appTheme, appearance.accent,
-  // appearance.highlightColor and appearance.rotateFavoriteThemes itself; the schema's group for
-  // them would draw each a second time (a second "App Theme" card).
+  // appearance.highlightColor, appearance.rotateFavoriteThemes and appearance.themeFile itself; the
+  // schema's group for them would draw each a second time (a second "App Theme" card).
   const studio = category.lead.includes("themeStudio");
   const drawn = new Set(
-    studio ? [THEME_KEY, APP_THEME_KEY, ACCENT_KEY, HIGHLIGHT_COLOR_KEY, ROTATE_FAVORITES_KEY] : [],
+    studio ? [THEME_KEY, APP_THEME_KEY, ACCENT_KEY, HIGHLIGHT_COLOR_KEY, ROTATE_FAVORITES_KEY, THEME_FILE_KEY] : [],
   );
   // The background picker draws appearance.background and its Opacity while it shows.
   const picker = useBackdropsShown() && [...category.lead, ...category.trail].includes("backdrops");
@@ -129,11 +135,11 @@ export function SectionView({
     <div className="section" data-section={category.id}>
       <h1 className="section-title">{text(category.title)}</h1>
       {category.lead.map((card) => (
-        <CardSlot key={card} card={card} focus={focus} workspace={workspace} />
+        <CardSlot key={card} card={card} focus={focus} workspace={workspace} reveal={reveal === card} />
       ))}
       {groups.length > 0 && <GroupList groups={groups} focus={focus} pageTitle={text(category.title)} />}
       {category.trail.map((card) => (
-        <CardSlot key={card} card={card} focus={focus} workspace={workspace} />
+        <CardSlot key={card} card={card} focus={focus} workspace={workspace} reveal={reveal === card} />
       ))}
       {category.actions.map((id) => (
         <SectionActions key={id} section={id} />
@@ -143,6 +149,16 @@ export function SectionView({
   );
 }
 
-function CardSlot({ card, focus, workspace }: { card: CategoryCard; focus: string | null; workspace: string | null }) {
-  return CARDS[card](focus, workspace);
+function CardSlot({
+  card,
+  focus,
+  workspace,
+  reveal,
+}: {
+  card: CategoryCard;
+  focus: string | null;
+  workspace: string | null;
+  reveal: boolean;
+}) {
+  return CARDS[card](focus, workspace, reveal);
 }

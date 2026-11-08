@@ -10,8 +10,8 @@ private let feedChurnLog = Logger(subsystem: "dev.cmux.mobile", category: "feed-
 #endif
 
 /// One Feed event: something an agent did or needs, from any workspace and tab.
-public struct FeedItem: Identifiable, Hashable, Sendable {
-    public enum Kind: Hashable, Sendable {
+public struct FeedItem: Identifiable, Hashable, Sendable, Codable {
+    public enum Kind: Hashable, Sendable, Codable {
         /// A normal agent reply; Reply sends a new prompt into that tab.
         case response
         case question(AgentQuestion)
@@ -25,8 +25,8 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     }
 
     /// The message this event answers, shown as an iMessage-style quote bubble.
-    public struct Quote: Hashable, Sendable {
-        public enum Author: Hashable, Sendable { case you, agent }
+    public struct Quote: Hashable, Sendable, Codable {
+        public enum Author: Hashable, Sendable, Codable { case you, agent }
         public var text: String
         public var author: Author
 
@@ -58,7 +58,7 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     public var error: String?
     /// Bumps with each inline answer, so a late refusal never reverts a newer answer.
     public var attempt = 0
-    /// An answer on its way that is not decided yet ("Waiting for Face ID…"):
+    /// An answer on its way that is not decided yet ("Sending…"):
     /// the card shows it instead of its buttons, and never claims "Allowed"
     /// before the signed answer went out (review m10).
     public var pending: String?
@@ -223,6 +223,28 @@ public final class FeedStore {
     }
     @ObservationIgnored private var evictedDoneSet: Set<String> = []
 
+    /// The window now: `memoryLimit`, raised while the person reads rows brought back from the
+    /// spill (`loadOlder`), back to `memoryLimit` when they return to the top (`restoreWindow`).
+    @ObservationIgnored private var windowLimit = FeedStore.memoryLimit
+    /// How many events a filtered Feed holds at most while it reads older ones from disk.
+    public static let filteredReachLimit = 2000
+    /// What a memory warning trims the Feed to (`relieveMemoryPressure`).
+    public static let pressureLimit = 100
+    /// Where events that leave the window go, while the app runs: scrolling to the end brings
+    /// them back a page at a time (`loadOlder`). Nil keeps the old behavior: they are dropped.
+    @ObservationIgnored private var spill: RowSpill<FeedItem>?
+    /// Events in the spill (an estimate once the spill's own cap dropped pages): a Feed with
+    /// some has more below its last row.
+    public private(set) var olderOnDisk = 0
+    /// Ids in the spill: the Mac re-reports its ledger on every tree change, and an event the
+    /// window already spilled is not written again.
+    @ObservationIgnored private var spilledIDs: Set<String> = []
+    /// Spilled events the source withdrew (`remove`): they do not come back.
+    @ObservationIgnored private var removedWhileSpilled: Set<String> = []
+    /// Mark All as Read covered every event up to then, the spilled ones too.
+    @ObservationIgnored private var allReadThrough: Date?
+    public private(set) var isLoadingOlder = false
+
     /// An older event the window keeps: an open ask, one with an answer on its way or a refusal
     /// to show, and the one Undo can still bring back.
     private func keepsOutsideWindow(_ item: FeedItem) -> Bool {
@@ -232,16 +254,25 @@ public final class FeedStore {
     /// The newest `memoryLimit` events in Feed order, and every older event `keepsOutsideWindow`.
     /// Applied only where events arrive (`insert`, `mergeHistory`, `replaceAll`), never in the
     /// write of something the person did to one (an answer, a read, Done).
-    private func windowed(_ all: [FeedItem]) -> [FeedItem] {
+    private func windowed(_ all: [FeedItem], limit: Int? = nil) -> [FeedItem] {
+        let limit = limit ?? windowLimit
         var kept: [FeedItem] = []
-        kept.reserveCapacity(Self.memoryLimit)
+        kept.reserveCapacity(min(all.count, limit))
         var evictedDone: [String] = []
+        var spilled: [FeedItem] = []
         for (offset, item) in all.enumerated() {
-            if offset < Self.memoryLimit || keepsOutsideWindow(item) {
+            if offset < limit || keepsOutsideWindow(item) {
                 kept.append(item)
             } else if item.isDone {
                 evictedDone.append(item.id)
+            } else if spill != nil, !spilledIDs.contains(item.id) {
+                spilled.append(item)
             }
+        }
+        if let spill, !spilled.isEmpty {
+            spilledIDs.formUnion(spilled.map(\.id))
+            spill.push(spilled)
+            olderOnDisk += spilled.count
         }
         if !evictedDone.isEmpty {
             let known = evictedDoneSet
@@ -268,7 +299,81 @@ public final class FeedStore {
                 next[index].isDone = true
             }
         }
-        if next.count > Self.memoryLimit { next = windowed(next) }
+        if next.count > windowLimit { next = windowed(next) }
+        if next != items { items = next }
+    }
+
+    // MARK: Spill
+
+    /// Spills events that leave the window to `spill` (the account's, in Caches), starting
+    /// empty: the spill only lives as long as this run of the Feed. Nil stops spilling.
+    public func useSpill(_ spill: RowSpill<FeedItem>?) {
+        self.spill?.reset()
+        spill?.reset()
+        self.spill = spill
+        olderOnDisk = 0
+        spilledIDs = []
+        removedWhileSpilled = []
+        allReadThrough = nil
+    }
+
+    /// The person reached the end of the Feed: the newest page of spilled events comes back
+    /// from disk, read off the main thread, and the window grows to hold it.
+    public func loadOlder() {
+        guard spill != nil, olderOnDisk > 0, !isLoadingOlder else { return }
+        Task { @MainActor in await loadOlderPage() }
+    }
+
+    /// `loadOlder`, returning once the page is in the Feed (tests).
+    func loadOlderPage() async {
+        guard let spill, olderOnDisk > 0, !isLoadingOlder else { return }
+        // A filter with few matches reaches its end at once: it reads at most this far back.
+        guard filter == .all || items.count < Self.filteredReachLimit else { return }
+        isLoadingOlder = true
+        defer { isLoadingOlder = false }
+        while olderOnDisk > 0 {
+            let page = await spill.pop()
+            // Another account's spill (sign-out, then sign-in) never takes this page.
+            guard self.spill?.directory == spill.directory else { return }
+            guard !page.isEmpty else {
+                olderOnDisk = 0
+                spilledIDs = []
+                return
+            }
+            olderOnDisk = max(0, olderOnDisk - page.count)
+            spilledIDs.subtract(page.map(\.id))
+            // A newer copy already in memory (the Mac re-reported it) wins; one the source
+            // withdrew stays gone; what the person read while it was on disk comes back read.
+            let back = page.filter { itemIndex[$0.id] == nil && !removedWhileSpilled.contains($0.id) }.map { item in
+                var item = item
+                if readSet.contains(item.id) || allReadThrough.map({ item.createdAt <= $0 }) == true { item.isRead = true }
+                return item
+            }
+            guard !back.isEmpty else { continue }
+            windowLimit = max(windowLimit, items.count + back.count)
+            // Below the rows shown, in the order they left: the rows on screen do not move.
+            var next = items
+            next.append(contentsOf: back)
+            setItems(next)
+            return
+        }
+    }
+
+    /// The person is back at the top: the rows brought back for scrolling go back to disk.
+    public func restoreWindow() {
+        // A filtered Feed is short: its top and its end are the same rows, and the window grows
+        // while a filter looks for older matches. It goes back once the whole Feed shows.
+        guard windowLimit != Self.memoryLimit, filter == .all else { return }
+        windowLimit = Self.memoryLimit
+        setItems(items)
+    }
+
+    /// A memory warning: the Feed keeps its newest `pressureLimit` events (and every open ask);
+    /// the rest go to the spill when there is one, or are dropped as the window drops them.
+    public func relieveMemoryPressure() {
+        windowLimit = Self.memoryLimit
+        guard items.count > Self.pressureLimit else { return }
+        let next = windowed(items, limit: Self.pressureLimit)
         if next != items { items = next }
     }
 
@@ -294,7 +399,7 @@ public final class FeedStore {
     /// Whether the Feed knows the ask with acpmux permission `permissionID` from `mac` closed:
     /// answered here, on the Mac or on another device, or marked done. Nil `mac` (a push from an
     /// older Worker) matches the ask on any Mac. False for an ask the Feed has not read yet (a
-    /// reconnect that has not reloaded it); an Allow still waiting for Face ID has no resolution
+    /// reconnect that has not reloaded it); an Allow still on its way has no resolution
     /// yet, so it stays open.
     public func isClosedAsk(permissionID: String, mac: String?) -> Bool {
         guard let item = item(id: "ask-\(permissionID)") else { return false }
@@ -359,7 +464,8 @@ public final class FeedStore {
     public private(set) var unseenNewIDs: [String] = []
     private var liveIndex = 0
 
-    public init(items: [FeedItem], answersLocally: Bool = false, readMarks: FeedReadMarks? = nil) {
+    public init(items: [FeedItem], answersLocally: Bool = false, readMarks: FeedReadMarks? = nil,
+                memoryPressure: MemoryPressure = .shared) {
         self.readMarks = readMarks
         let readIDs = readMarks?.load() ?? []
         self.readIDs = readIDs
@@ -373,6 +479,7 @@ public final class FeedStore {
         self.answersLocally = answersLocally
         reindex()
         refreshDerived()
+        memoryPressure.register(self) { [weak self] in self?.relieveMemoryPressure() }
     }
 
     /// Pull to refresh: re-reads the Mac's sessions and open asks through
@@ -440,6 +547,11 @@ public final class FeedStore {
         var next = items
         var changed = false
         for id in ids {
+            if itemIndex[id] == nil, spilledIDs.contains(id), !readSet.contains(id) {
+                // On disk: it comes back read (`loadOlderPage`), and stays read on a relaunch.
+                readIDs.append(id)
+                readMarks?.save(readIDs)
+            }
             guard let index = itemIndex[id], !next[index].isRead else { continue }
             next[index].isRead = true
             changed = true
@@ -449,6 +561,7 @@ public final class FeedStore {
 
     /// Mark All Notifications as Read: every event in the Feed, in one write.
     public func markAllRead() {
+        if olderOnDisk > 0 { allReadThrough = Date() }
         guard items.contains(where: { !$0.isRead }) else { return }
         items = items.map { item in
             var item = item
@@ -498,6 +611,7 @@ public final class FeedStore {
         onItemsChange = nil
         actions = nil
         replaceAll([])
+        useSpill(nil)
         evictedDoneIDs = []
         useReadMarks(nil)
     }
@@ -551,6 +665,7 @@ public final class FeedStore {
 
     /// Drops an item the source withdrew (a duplicate of another event).
     public func remove(_ id: String) {
+        if spilledIDs.contains(id) { removedWhileSpilled.insert(id) }
         if items.contains(where: { $0.id == id }) { items.removeAll { $0.id == id } }
         if unseenNewIDs.contains(id) { unseenNewIDs.removeAll { $0 == id } }
     }
@@ -649,18 +764,18 @@ public final class FeedStore {
         }
     }
 
-    /// Shown on a permission card while its Allow waits for Face ID and the Mac.
-    public static let waitingForFaceID = "Waiting for Face ID…"
+    /// Shown on a permission card while its Allow is signed and sent to the Mac.
+    public static let sendingAllow = "Sending…"
 
     public func respond(_ id: String, option: ACPPermissionOption) {
         if let actions, let item = item(id: id), case .permission(let request) = item.kind {
             guard item.pending == nil else { return }
             let attempt = item.attempt + 1
             mutate(id) { $0.error = nil; $0.attempt = attempt }
-            // An Allow is signed after Face ID: it says "Allowed" only once it went
-            // out. A Deny needs no Face ID and shows at once.
+            // An Allow is signed and says "Allowed" only once it went
+            // out. A Deny is not signed and shows at once.
             if option.isAllow {
-                mutate(id) { $0.pending = Self.waitingForFaceID }
+                mutate(id) { $0.pending = Self.sendingAllow }
             } else {
                 applyRespond(id, option: option)
             }
@@ -687,10 +802,10 @@ public final class FeedStore {
             return
         }
         guard answersLocally else { return failUnsent(id) }
-        let delay = DeveloperOptions.mockFaceIDDelay
+        let delay = DeveloperOptions.mockApprovalDelay
         if option.isAllow, delay > .zero {
             guard item(id: id)?.pending == nil else { return }
-            mutate(id) { $0.pending = Self.waitingForFaceID }
+            mutate(id) { $0.pending = Self.sendingAllow }
             Task {
                 try? await Task.sleep(for: delay)
                 mutate(id) { $0.pending = nil }

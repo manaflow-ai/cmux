@@ -89,6 +89,20 @@ class TranscriptTests(unittest.TestCase):
         # A watch asked before the click counts from the click.
         self.assertEqual(cof.transcript_ms({"frames": 80, "first_content_ms": 20, "first_rows": 6}, -50, 2500), 20)
 
+    def test_a_watch_that_reached_the_page_late_counts_from_when_it_began(self):
+        # Asked 200 ms after the click, the call waited for the Chromium page until 3000 ms, and rows showed
+        # 100 ms into the watch: the transcript came at 3100 ms, outside the strip, never at 300 (cmux#34151 review).
+        clicked, clicked_wall = 100.0, 1_000_000.0
+        watch = {"frames": 80, "first_content_ms": 100, "first_rows": 6, "started_wall_ms": clicked_wall * 1000 + 3000}
+        started = cof.watch_started_ms(watch, clicked + 0.2, clicked, clicked_wall)
+        self.assertEqual(started, 3000)
+        self.assertIsNone(cof.transcript_ms(watch, started, 2500))
+        # A page that reports no start keeps the ask's time.
+        older = {k: v for k, v in watch.items() if k != "started_wall_ms"}
+        self.assertEqual(cof.watch_started_ms(older, clicked + 0.2, clicked, clicked_wall), 200)
+        self.assertEqual(cof.transcript_ms(older, 200, 2500), 300)
+        self.assertIsNone(cof.watch_started_ms(None, clicked + 0.2, clicked, clicked_wall))
+
     def test_a_blank_frame_breaks_first_is_final(self):
         rows = strip((0.4, 0.4, 0.999), *[(0.3, 0)] * 12)
         rows[2]["blank"] = True

@@ -75,3 +75,9 @@ public final class OverlayHostPanel: NSPanel {
         if let onCancel { onCancel() } else { super.cancelOperation(sender) }
     }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+extension OverlayHostPanel: LayoutPassRoleNaming {
+    public var layoutPassRole: String { "overlay panel" }
+}
+#endif

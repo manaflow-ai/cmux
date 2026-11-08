@@ -90,14 +90,15 @@ const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
 const { SubagentTray } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
-const { Tick, TRAY_ENTER_ATTR, TRAY_GHOST } = await import("../src/agent-session/acpmux/subagents/trayMotion");
+const { Tick } = await import("../src/agent-session/acpmux/subagents/trayMotion");
+const { TRAY_ENTER_ATTR, TRAY_GHOST } = await import("../src/agent-session/acpmux/subagents/trayMotionModel");
 const { rememberTrayOpen, resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
 type TrayItem = import("../src/agent-session/acpmux/subagents/runningTray").TrayItem;
 setPaneLanguage("en");
 
 /// Turns Web Animations on (the tray checks `animate` before it moves anything) or off.
 const motion = (on: boolean) => {
-  if (on) proto.animate = () => ({});
+  if (on) proto.animate = () => ({ cancel() {} });
   else delete proto.animate;
 };
 
@@ -216,19 +217,87 @@ describe("subagent tray motion", () => {
     await act(async () => root.unmount());
   });
 
-  test("steady counts: a count ticking over swaps in place; new words still tick", async () => {
-    // Leo, 2026-10-31: "I hate how this keeps jolting every time there's a new subagent or command".
+  test("steady counts: only the numbers that changed roll, the words stay; new words still tick", async () => {
+    // Leo, 2026-10-31: "I hate how this keeps jolting every time there's a new subagent or command";
+    // 2026-11-07, on a new command or subagent joining the hat: "I think it could look really pretty".
     motion(true);
     const { element, root } = mount();
     const tick = (text: string) => createElement(Tick, { text, steadyCounts: true });
     await act(async () => root.render(tick("Running in background · 9 subagents · 13 commands")));
     await act(async () => root.render(tick("Running in background · 10 subagents · 14 commands")));
+    // The words never leave: no whole-text exit or entrance, only the two numbers roll.
     expect(element.querySelector(".acpmux-tick__out, .acpmux-tick__in")).toBeNull();
+    const rolls = [...element.querySelectorAll(".acpmux-tick__roll")];
+    expect(rolls.map((roll) => roll.querySelector(".acpmux-tick__roll-out")!.textContent)).toEqual(["9", "13"]);
+    expect(rolls.map((roll) => roll.querySelector(".acpmux-tick__roll-in")!.textContent)).toEqual(["10", "14"]);
+    expect(rolls.every((roll) => roll.querySelector(".acpmux-tick__roll-out")!.getAttribute("aria-hidden"))).toBe(true);
+    await act(async () => ended(element.querySelector(".acpmux-tick__roll-in")!));
+    expect(element.querySelector(".acpmux-tick__roll")).toBeNull();
     expect(element.textContent).toBe("Running in background · 10 subagents · 14 commands");
-    await act(async () => root.render(tick("10 subagents running · 14 commands")));
+    // With no motion a count swaps at once.
+    motion(false);
+    await act(async () => root.render(tick("Running in background · 11 subagents · 14 commands")));
+    expect(element.querySelector(".acpmux-tick__roll")).toBeNull();
+    expect(element.textContent).toBe("Running in background · 11 subagents · 14 commands");
+    motion(true);
+    await act(async () => root.render(tick("11 subagents running · 14 commands")));
     expect(element.querySelector(".acpmux-tick__out")!.textContent).toBe(
-      "Running in background · 10 subagents · 14 commands",
+      "Running in background · 11 subagents · 14 commands",
     );
+    await act(async () => root.unmount());
+    motion(false);
+  });
+
+  test("slide: the old words slide out as the new slide in, and the cell's width eases between them", async () => {
+    // Leo, 2026-11-07, on the hat's line handing over from thinking to a tool call: "That animation, I
+    // like that".
+    motion(true);
+    const widths: Keyframe[][] = [];
+    const animate = proto.animate;
+    proto.animate = function (keyframes: Keyframe[]) {
+      widths.push(keyframes);
+      return { cancel() {} };
+    };
+    const { element, root } = mount();
+    await act(async () => root.render(createElement(Tick, { text: "Thinking", slide: true })));
+    const cell = element.querySelector<HTMLElement>(".acpmux-tick")!;
+    expect(cell.hasAttribute("data-slide")).toBe(true);
+    await act(async () => root.render(createElement(Tick, { text: "Bash", slide: true })));
+    expect(element.querySelector(".acpmux-tick__out")!.textContent).toBe("Thinking");
+    expect(element.querySelector(".acpmux-tick__in")!.textContent).toBe("Bash");
+    // One width animation on the cell, from the old words' drawn width.
+    expect(widths.length).toBe(1);
+    expect(widths[0]![0]).toEqual({ width: `${cardBox.width}px` });
+    proto.animate = animate;
+    // With no motion the words swap at once and nothing animates.
+    motion(false);
+    await act(async () => root.render(createElement(Tick, { text: "Read", slide: true })));
+    expect(element.querySelector(".acpmux-tick__out")).toBeNull();
+    expect(element.textContent).toBe("Read");
+    await act(async () => root.unmount());
+  });
+
+  test("a count rolling mid-slide keeps the sliding words: the slide plays on, never starting over", async () => {
+    // Review of #37671 (F1): a subagent joining while the header's words slide must not remount them.
+    motion(true);
+    const animate = proto.animate;
+    proto.animate = () => ({ cancel() {} });
+    const { element, root } = mount();
+    const tick = (text: string) => createElement(Tick, { text, steadyCounts: true, slide: true });
+    await act(async () => root.render(tick("Thinking · 3 waits")));
+    await act(async () => root.render(tick("Bash · 3 waits")));
+    const out = element.querySelector<HTMLElement>(".acpmux-tick__out")!;
+    const rising = element.querySelector<HTMLElement>(".acpmux-tick__in")!;
+    await act(async () => root.render(tick("Bash · 4 waits")));
+    expect(element.querySelector(".acpmux-tick__out")).toBe(out);
+    expect(element.querySelector(".acpmux-tick__in")).toBe(rising);
+    expect(rising.querySelector(".acpmux-tick__roll-in")!.textContent).toBe("4");
+    // The slide still settles on its own ends.
+    await act(async () => ended(out));
+    expect(element.querySelector(".acpmux-tick__out")).toBeNull();
+    await act(async () => ended(rising));
+    expect(element.querySelector(".acpmux-tick__in")).toBeNull();
+    proto.animate = animate;
     await act(async () => root.unmount());
     motion(false);
   });

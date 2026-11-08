@@ -51,6 +51,19 @@ public struct CloudAskDialog: Sendable, Equatable {
         return word
     }
 
+    /// A reply to the ask once cmux-cloud-start-core ruled on it: `choice` (`start` or `notNow`; nil
+    /// when the selection named neither) and whether the caller may give it (`allowed`). Refusals in
+    /// order: `invalid_params` (unknown choice), `person_required` (not the caller's), `not_found`
+    /// (`take` found the ask gone); else the ask is answered (`take(start)`) and its reply returned.
+    public func reply(choice: String?, allowed: Bool, take: (_ start: Bool) -> Bool,
+                      unknown: String, personRequired: String, gone: String) throws -> JSONValue {
+        let request: JSONValue = ["request_id": .string(id)]
+        guard let choice else { throw ControlError.invalidParams(unknown, data: request) }
+        guard allowed else { throw ControlError(code: "person_required", message: personRequired, data: request) }
+        guard take(choice == "start") else { throw ControlError(code: "not_found", message: gone, data: request) }
+        return answered(choice: choice, start: choice == "start")
+    }
+
     /// A taken answer's reply.
     public func answered(choice: String, start: Bool) -> JSONValue {
         .object(["request_id": .string(id), "status": .string(start ? "answered" : "denied"), "choice": .string(choice)])

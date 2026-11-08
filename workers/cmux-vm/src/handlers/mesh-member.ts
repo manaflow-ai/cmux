@@ -19,7 +19,7 @@ const addressInMesh = (address: string, cidr: string): boolean => {
     && !(ip[2] === base[2] && ip[3] === 0) && !(ip[2] === base[2]! + 15 && ip[3] === 255);
 };
 
-/** Called under the mesh writer lease; only this exact live attachment is refreshed. */
+/** Takes no writer lock: only this exact live attachment is refreshed, by a compare-and-set on its recorded address. */
 export const readMeshMember = <C, M, V>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, vm: Named<V, VmId>,
   proofs: { readonly ownsMesh: TenantOwnsResource<C, M>; readonly meshScope: KeyHasScope<C, "mesh:read">; readonly vmScope: KeyHasScope<C, "vm:read"> }) =>
   Effect.gen(function* () {
@@ -32,7 +32,7 @@ export const readMeshMember = <C, M, V>(caller: Named<C, Principal>, mesh: Named
     ], { concurrency: "unbounded" });
     if (ownsVm === null) return yield* Effect.fail(vmNotFound());
     if (Option.isNone(current) || current.value.meshId !== mesh.value) return yield* Effect.fail(vmNotFound());
-    const { ipv4 } = yield* upstream.readVmAddress(mesh, vm, { ...proofs, ownsVm }).pipe(Effect.mapError(() => unavailable()));
+    const { ipv4 } = yield* upstream.readVmAddress(mesh, vm, { ...proofs, ownsVm }).pipe(Effect.mapError(unavailable));
     if (Option.isNone(cidr) || (ipv4 !== null && !addressInMesh(ipv4, cidr.value))) return yield* Effect.fail(unavailable());
     // The ownership fence after the provider read, both halves in one round trip.
     const [liveVm, liveMesh] = yield* Effect.all([

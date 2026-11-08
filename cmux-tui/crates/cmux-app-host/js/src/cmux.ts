@@ -50,7 +50,7 @@ export interface CallOptions {
 }
 
 /** Ops the host always provides, whatever the catalog lists. */
-const HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request", "clipboard.write"])
+const HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request", "clipboard.write", "toast.show"])
 
 export interface CallResult<T = unknown> {
   value: T
@@ -250,6 +250,29 @@ export interface FetchResponse {
   json<T = unknown>(): T
 }
 
+/**
+ * The tone names every color prop accepts (`tint`, `tone`, `color`, `fill`, ...). The host draws each
+ * one with the current theme and follows a theme change live, so a script that uses these never
+ * hard-codes a color. `accent` is the emphasis cmux chrome uses (its primary ink, never system blue).
+ */
+export const theme = Object.freeze({
+  accent: "accent",
+  text: Object.freeze({ primary: "primary", secondary: "secondary", tertiary: "tertiary" }),
+  success: "success",
+  warning: "warning",
+  danger: "danger",
+  separator: "separator",
+  hover: "hover",
+  selected: "selected"
+})
+
+export interface ToastOptions {
+  title: string
+  message?: string
+  /** `success`, `warning` or `danger`; omitted is a plain notice. */
+  tone?: string
+}
+
 /** Members other modules add to every `cmux` object (`palette`, `act`); set once by index.ts. */
 export const sharedMembers: Record<string, unknown> = {}
 
@@ -328,6 +351,15 @@ export function createCmux(gesture: () => string | undefined): Record<string, un
         set: (values: Record<string, unknown>) => c("app.settings.set", { values })
       }),
       context: () => state.context ?? {}
+    },
+    theme,
+    /** A short notice at the bottom of the window, drawn by the app's own toast presenter. One slot per app: a new toast replaces the app's last. */
+    toast: (options: ToastOptions | string) => {
+      const o = typeof options === "string" ? { title: options } : options
+      const params: Record<string, unknown> = { title: String(o?.title ?? "") }
+      if (o?.message) params.message = String(o.message)
+      if (o?.tone) params.tone = String(o.tone)
+      return c("toast.show", params)
     },
     /** The current user-gesture token: on a command's `ctx.cmux`, the invocation's token while the command runs; otherwise the event token of a user event handler running synchronously; else null. */
     gesture: () => gesture() ?? state.gesture,

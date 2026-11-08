@@ -1,4 +1,4 @@
-//! The durable outbox (mux/host rules): ops in order, one at a time. Untried
+//! The durable outbox (mux/host rules): ops in conversation order, one at a time. Untried
 //! messages to one conversation go as one send, the next agent message waits
 //! out the owner's gap, and an `agent_rate` reject is retried under the same
 //! key with a growing backoff and never dropped (G11, crate::pacing). Any other
@@ -6,6 +6,7 @@
 //! `actor_mismatch` (the app replaced the token) keeps the entry and
 //! reconnects, which binds again.
 
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use cmux_conversation::Op;
@@ -29,14 +30,20 @@ impl Brain {
                 return;
             }
             pacing::coalesce(&mut self.state.outbox);
-            let Some(entry) = self.state.outbox.first() else {
+            // An original may take arbitrarily long to upload. Keep its
+            // conversation in order while other conversations can send.
+            let mut uploading = HashSet::new();
+            let next = self.state.outbox.iter().position(|entry| {
+                if !entry.attempted && !entry.pending_media.is_empty() {
+                    uploading.insert(entry.conversation.as_str());
+                }
+                !uploading.contains(entry.conversation.as_str())
+            });
+            let Some(at) = next else {
                 self.outbox_timer = None;
                 return;
             };
-            if !entry.attempted && !entry.pending_media.is_empty() {
-                self.outbox_timer = None;
-                return;
-            }
+            let entry = &self.state.outbox[at];
             let (is_message, not_before, attempted, previews_until) = (
                 matches!(entry.op, Op::MessageSend { .. }),
                 entry.not_before,
@@ -74,7 +81,7 @@ impl Brain {
                 return;
             }
             if !attempted {
-                self.state.outbox[0].attempted = true;
+                self.state.outbox[at].attempted = true;
                 self.save();
             }
             let Some(daemon) = self.daemon.as_mut() else {
@@ -107,7 +114,7 @@ impl Brain {
                 }
                 Err(OpError::Rejected(reason)) if reason.contains("agent_rate") => {
                     // Never dropped (G11): the same key again after a growing backoff.
-                    let head = &mut self.state.outbox[0];
+                    let head = &mut self.state.outbox[at];
                     head.rate_retried = true;
                     head.rate_attempts += 1;
                     let wait = pacing::backoff(self.settings.agent_gap, head.rate_attempts);
@@ -129,12 +136,12 @@ impl Brain {
                     ))
                 }
                 Err(OpError::Rejected(reason))
-                    if self.state.outbox[0].plain_text.is_some() && has_cards(&op) =>
+                    if self.state.outbox[at].plain_text.is_some() && has_cards(&op) =>
                 {
                     // The owner refused the link cards (an older or stricter
                     // owner): retry its text and original attachments under
                     // a new key, since the refused key is spent.
-                    let head = &mut self.state.outbox[0];
+                    let head = &mut self.state.outbox[at];
                     let text = head.plain_text.take().unwrap_or_default();
                     let mut fallback = super::reply_entry(
                         head.conversation.clone(),
@@ -174,7 +181,7 @@ impl Brain {
                     // goes at the top level under a new key (the refused key
                     // is spent), never dropped.
                     let top = super::replies::unthreaded(&op, &reason).expect("checked above");
-                    let head = &mut self.state.outbox[0];
+                    let head = &mut self.state.outbox[at];
                     let new_key = format!("{key}:top");
                     head.idempotency_key = new_key.clone();
                     head.attempted = false;
@@ -210,7 +217,7 @@ impl Brain {
                     return;
                 }
             }
-            self.state.outbox.remove(0);
+            self.state.outbox.remove(at);
             self.save();
         }
     }

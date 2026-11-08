@@ -1,0 +1,118 @@
+#!/bin/sh
+# gh, named in the job log: one `gh-call` line (scripts/ci/gh_call_log.py), then the real gh with the
+# same argv, stdin, stdout and stderr (see env.sh). The line holds only the subcommand words, or
+# for `gh api` the method and the endpoint path with ids folded and no query string. Never a flag
+# value, a field, a header or a token. The rate-limit columns are `-`: gh shows response headers
+# only through --include or GH_DEBUG, and both change what the step sees.
+set -f
+self=$(cd "$(dirname "$0")" 2>/dev/null && pwd)
+# Another gh wrapper (scripts/ci/gh_budget_wait.sh, gh_app_token.sh) may have recorded this shim
+# as its "real" gh and so call back in here: the wrapper is this shim's own process (it was
+# exec'd) or its direct child. Such a call back skips every gh this shim already handed over to
+# (API_CALL_LOG_GH_SEEN), logs nothing (the first pass did), and goes on to the next gh on PATH,
+# so the two wrappers never call each other in a loop. Any other gh under it (gh's own children)
+# is a fresh call.
+reentry=""
+if [ -n "${API_CALL_LOG_GH_SEEN:-}" ]; then
+  if [ "${API_CALL_LOG_GH_PID:-}" = "$$" ] || [ "${API_CALL_LOG_GH_PID:-}" = "$PPID" ]; then
+    reentry=1
+  else
+    API_CALL_LOG_GH_SEEN=""
+  fi
+fi
+real=""
+old_ifs=$IFS
+IFS=:
+for d in $PATH; do
+  [ -n "$d" ] || continue
+  [ "$d" = "$self" ] && continue
+  [ "$d/gh" -ef "$0" ] && continue
+  case ":${API_CALL_LOG_GH_SEEN:-}:" in *":$d/gh:"*) continue ;; esac
+  if [ -x "$d/gh" ] && [ ! -d "$d/gh" ]; then
+    real="$d/gh"
+    break
+  fi
+done
+IFS=$old_ifs
+# A call back with every gh on PATH already seen (gh's own child, such as a git credential
+# helper running `gh auth git-credential`) goes to the last gh this shim handed over to.
+if [ -z "$real" ] && [ -n "$reentry" ]; then
+  last=${API_CALL_LOG_GH_SEEN##*:}
+  [ -x "$last" ] && real=$last
+fi
+if [ -z "$real" ]; then
+  echo "gh: command not found" >&2
+  exit 127
+fi
+
+if [ -n "$reentry" ]; then
+  export API_CALL_LOG_GH_SEEN="$API_CALL_LOG_GH_SEEN:$real"
+  set +f
+  exec "$real" "$@"
+fi
+export API_CALL_LOG_GH_SEEN="$real" API_CALL_LOG_GH_PID="$$"
+
+word() { case $1 in *[!a-z-]* | "") echo "?" ;; *) echo "$1" ;; esac; }
+
+{
+  cmd="" sub="" ep="" meth="" fields="" n=0 skip="" take=""
+  for a in "$@"; do
+    if [ -n "$skip" ]; then
+      [ "$take" = method ] && meth=$a
+      skip="" take=""
+      continue
+    fi
+    case $a in
+      -X | --method) skip=1 take=method; continue ;;
+      --method=*) meth=${a#--method=}; continue ;;
+      -f | -F | --field | --raw-field | --input) skip=1 fields=1; continue ;;
+      --field=* | --raw-field=* | --input=*) fields=1; continue ;;
+      -H | --header | -q | --jq | -t | --template | --hostname | --cache | -p | --preview | -R | --repo) skip=1; continue ;;
+      -*) continue ;;
+    esac
+    n=$((n + 1))
+    if [ $n = 1 ]; then
+      cmd=$a
+    elif [ $n = 2 ]; then
+      if [ "$cmd" = api ]; then ep=$a; else sub=$a; fi
+    fi
+  done
+  cmd=$(word "$cmd")
+  if [ "$cmd" = api ]; then
+    ep=${ep%%\?*}
+    ep=/${ep#/}
+    case $ep in
+      *gh[pousr]_* | *github_pat_* | *[!A-Za-z0-9_./{}:-]*) ep="/{x}" ;;
+    esac
+    ep=$(printf '%s' "$ep" | sed -E 's#/[0-9a-f]{40}(/|$)#/{sha}\1#g; s#/[0-9]+(/|$)#/{n}\1#g; s#/[0-9]+(/|$)#/{n}\1#g')
+    if [ -n "$meth" ]; then
+      meth=$(printf '%s' "$meth" | tr '[:lower:]' '[:upper:]')
+      case $meth in *[!A-Z]* | "") meth="?" ;; esac
+    elif [ -n "$fields" ]; then
+      meth=POST
+    else
+      meth=GET
+    fi
+    [ "$ep" = /graphql ] && meth="GRAPHQL"
+    req="$meth $ep [gh]"
+  else
+    req="GH $cmd $(word "$sub") [gh]"
+  fi
+  clean() { printf '%s' "$1" | tr '\t\r\n' '   '; }
+  stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  out=$(printf 'gh-call\t%s\t%s\t%s\t-\t-\t-\t-\t%s' "$stamp" "$(clean "${GITHUB_WORKFLOW:-}")" "$(clean "${GITHUB_JOB:-}")" "$req")
+  sink=${API_CALL_LOG_SINK:-}
+  if [ -n "$sink" ]; then
+    case $sink in
+      /proc/*)
+        if [ "$(readlink "$sink" 2>/dev/null)" != "${API_CALL_LOG_PIPE:-}" ]; then
+          sink="${API_CALL_LOG_DIR:-/nonexistent}/pending.log"
+        fi
+        ;;
+    esac
+    printf '%s\n' "$out" >>"$sink" 2>/dev/null || printf '%s\n' "$out" >>"${API_CALL_LOG_DIR:-/nonexistent}/pending.log" 2>/dev/null
+  fi
+} >/dev/null 2>&1 </dev/null
+
+set +f
+exec "$real" "$@"

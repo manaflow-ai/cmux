@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useState, type RefObject } from "react";
 import { useChatDisplay, useChatMinimap } from "../chatDisplay";
-import { MINIMAP_EDGE, MINIMAP_WIDTH } from "../chatMinimap/paint";
+import { MINIMAP_EDGE, minimapWidth } from "../chatMinimap/paint";
 import { CHAT_LAYOUT_EVENT, chatColumnOf, useChatSizing } from "../chatWidth";
 import { transcriptColumn } from "../model";
 import { experimentArm } from "../../../experiments/experiment";
@@ -11,8 +11,10 @@ import type { RailSide } from "./railSide";
 /// What the pane edge holds outside the rail: on the right, the VS Code minimap (ChatMinimap.tsx) when it
 /// is on and has its room, so the right rail sits on its inner side instead of under it. The same gutter
 /// test as ChatMinimap's.
-export const railEdgeReserve = (side: RailSide, chatMinimap: boolean, textInset: number): number =>
-  side === "right" && chatMinimap && textInset >= MINIMAP_WIDTH + 2 * MINIMAP_EDGE ? MINIMAP_WIDTH + MINIMAP_EDGE : 0;
+export function railEdgeReserve(side: RailSide, chatMinimap: boolean, textInset: number): number {
+  const width = side === "right" && chatMinimap ? minimapWidth(textInset) : 0;
+  return width ? width + MINIMAP_EDGE : 0;
+}
 
 /// The pane edge owns x; the actual remaining text gutter only controls compression and occlusion.
 /// Reuses VirtualTranscript's resize measurements and Session Info's layout event. No observer or
@@ -27,7 +29,7 @@ export function useRailPlacement(
 ) {
   const display = useChatDisplay();
   const chatMinimap = useChatMinimap();
-  const { width: chatWidth, scale } = useChatSizing();
+  const { scale } = useChatSizing();
   /// How the rail fits a narrow gutter (gutter.experiment.ts), read once per pane: `tight` lets its
   /// inset shrink to the smallest spacing step before it overlaps any text.
   const [gutterArm] = useState(() => experimentArm(threadMinimapGutter));
@@ -43,9 +45,19 @@ export function useRailPlacement(
       const style = node.ownerDocument.defaultView?.getComputedStyle(node);
       const token = (name: string, fallback: number) =>
         Number.parseFloat(style?.getPropertyValue(name) ?? "") || fallback;
-      // Session Info never moves the chat's column (session-info/SessionInfo.tsx), so its inset is the
-      // column's own.
-      const inset = transcriptColumn(columnWidth, chatColumnOf(chatWidth, display, scale)).inset;
+      // The column's own inset, unless Session Info pushes: the chat keeps its width and the column,
+      // pinned at its whole-pane width, centers in what the panel leaves (session-info/sessionInfo.css
+      // --acpmux-session-info-room and --acpmux-session-info-column, set on the shell before its
+      // CHAT_LAYOUT_EVENT), so the gutter on the rail's side is that centered column's.
+      const column = chatColumnOf(display, scale);
+      const own = transcriptColumn(columnWidth, column);
+      let inset = own.inset;
+      if (shell?.dataset.sessionInfoChatPlacement === "push") {
+        const room = Number.parseFloat(shell.style.getPropertyValue("--acpmux-session-info-room")) || 0;
+        const pinned = Number.parseFloat(shell.style.getPropertyValue("--acpmux-session-info-column")) || own.width;
+        const start = Math.max(transcriptColumn(0, column).inset, (columnWidth - room - pinned) / 2);
+        inset = side === "left" ? start : Math.max(0, columnWidth - start - pinned);
+      }
       const reserve = railEdgeReserve(side, chatMinimap, inset);
       const next = {
         ...railPlacement(paneWidth, inset - reserve, {
@@ -69,7 +81,7 @@ export function useRailPlacement(
     };
     update();
     return { shell, update };
-  }, [scroller, paneWidth, columnWidth, chatWidth, display, scale, side, chatMinimap, gutterArm]);
+  }, [scroller, paneWidth, columnWidth, display, scale, side, chatMinimap, gutterArm]);
   useLayoutEffect(() => {
     measure();
   }, [measure]);

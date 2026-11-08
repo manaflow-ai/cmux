@@ -7,11 +7,13 @@
 // running build stays until that channel passes it. Every other build (older or newer, kept or
 // not, never the pulled ones) has a Switch, shown while the pointer is on its row: one restart into
 // it, downloaded first unless kept (Leo: "be able to hot swap your dev build for any other dev build").
+import { Button } from "../../../ui/Button";
 import { useEffect, useRef, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useSettingsState, useStore } from "../context";
 import { channelsQuery } from "../sectionQueries";
 import type { ChannelBuild, ChannelMachines, ChannelSwitch, ChannelTrack, ChannelsState } from "../ops";
+import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
 
 function BuildRow({ build, labels }: { build: ChannelBuild; labels: ChannelsState["labels"] }) {
   const store = useStore();
@@ -63,7 +65,7 @@ function BuildRow({ build, labels }: { build: ChannelBuild; labels: ChannelsStat
           {/* First, so the badges keep the card's control edge while it is hidden (it keeps its
               place, transparent) and nothing moves when it shows. */}
           {build.switch && labels.switch && (
-            <button
+            <Button
               type="button"
               className="button channel-switch"
               data-channel-switch-build={build.build}
@@ -72,7 +74,7 @@ function BuildRow({ build, labels }: { build: ChannelBuild; labels: ChannelsStat
               onClick={switchTo}
             >
               {labels.switch}
-            </button>
+            </Button>
           )}
           {build.installed && (
             <span className="badge" data-channel-here="">
@@ -152,7 +154,7 @@ function SwitchRow({ way }: { way: ChannelSwitch }) {
           </div>
           {way.build && way.action && (
             <div className="row-control">
-              <button
+              <Button
                 type="button"
                 className="button"
                 data-channel-go-back={way.build}
@@ -160,7 +162,7 @@ function SwitchRow({ way }: { way: ChannelSwitch }) {
                 onClick={() => way.build && goBack(way.build)}
               >
                 {way.action}
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -205,7 +207,7 @@ function MachinesRow({ machines }: { machines: ChannelMachines }) {
               </div>
               {id && machines.updateLabel && (
                 <div className="row-control">
-                  <button
+                  <Button
                     type="button"
                     className="button"
                     data-channel-update-machine={id}
@@ -213,7 +215,7 @@ function MachinesRow({ machines }: { machines: ChannelMachines }) {
                     onClick={() => update(id)}
                   >
                     {machines.updateLabel}
-                  </button>
+                  </Button>
                 </div>
               )}
             </div>
@@ -245,9 +247,11 @@ export function ChannelsCard({ focus = null }: { focus?: string | null }) {
   useEffect(() => {
     if (drawn && revealsCard(focus)) card.current?.scrollIntoView?.({ block: "start" });
   }, [drawn, focus]);
+  // The card arrives with the host's lists: after a blank first paint it fades in (shared/loadFade.ts).
+  const fade = useLoadFade(Boolean(state));
   if (!state) return null;
   return (
-    <section className="group" data-card="channels" ref={card}>
+    <section className={fade ? `group ${LOAD_FADE_CLASS}` : "group"} data-card="channels" ref={card}>
       <h3 className="group-title">{state.title}</h3>
       <div className="row-help">{state.installed}</div>
       {/* The app's acpmux daemon: its build, and whether it is up to date or restarting. */}

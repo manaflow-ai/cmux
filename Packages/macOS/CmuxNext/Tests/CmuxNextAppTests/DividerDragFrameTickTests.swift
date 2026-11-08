@@ -5,7 +5,7 @@ import CmuxNextTestSupport
 import Observation
 import Testing
 
-/// FRAME OWNER REFACTOR S2 (timing): with `motion.frameOwner.timing` on, a divider, column-edge or row-edge drag lays
+/// FRAME OWNER REFACTOR S2 (timing): a divider, column-edge or row-edge drag lays
 /// the layout out once per display frame, in the window's frame tick, at the newest pointer (Chrome aligns input to
 /// the begin-frame: one input batch per frame). Each drag event wrote the model in its own turn and the layout synced
 /// it in the next turn (the observation hop); a row edge reconciled in the event's turn. In a real HID drag (film
@@ -87,11 +87,9 @@ struct DividerDragFrameTickTests {
         for _ in 0..<6 { await Task.yield() }
     }
 
-    /// A probe whose layout runs with `motion.frameOwner.timing` on, pinned on its own root (`frameTimingOverride`):
-    /// the process-wide switch would leak into tests that run while this async test is suspended.
+    /// A probe of `layout` (`rows`: with row heights the daemon serves).
     static func probe(_ layout: ScreenLayout, rows: Bool = false) -> LayoutWorkProbe {
         let probe = LayoutWorkProbe(layout, focused: "p1")
-        probe.root.context.frameTimingOverride = true
         if rows {
             // Row heights are resizable only where the daemon serves rows-v1.
             probe.model.acceptsRowOps = true

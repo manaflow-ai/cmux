@@ -48,6 +48,7 @@ import {
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type SharesState,
   type DevicesRun,
   type DevicesRunResult,
   type DevicesState,
@@ -372,8 +373,10 @@ export class SettingsStore {
     return reply.ok && reply.value.accepts;
   }
 
-  /** The section's action buttons; empty when the host has none. */
-  async sectionActions(section: string): Promise<Array<{ id: string; title: string; enabled: boolean }>> {
+  /** The section's action buttons; empty when the host has none. `hint` says what one does. */
+  async sectionActions(
+    section: string,
+  ): Promise<Array<{ id: string; title: string; enabled: boolean; hint?: string | null }>> {
     const reply = await this.request("cmux.settings.section.actions", { section });
     return reply.ok ? reply.value : [];
   }
@@ -698,6 +701,25 @@ export class SettingsStore {
     const state = await this.environments();
     if (!reply.ok) return { state, error: reply.error.message };
     return { state, error: reply.value?.error ?? null };
+  }
+
+  /** Settings > Privacy and Security > Shared Links: this Mac's chat shares; null when the host has
+   * no shares part or the read failed. */
+  async shares(): Promise<SharesState | null> {
+    const reply = await this.request("cmux.settings.shares.list", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Revokes each share in `ids` in turn (one for Revoke, every live one for Revoke All); the first
+   * refusal's text, else null. Every id is tried even after a refusal, so one stuck share never
+   * keeps the rest open. */
+  async revokeShares(ids: readonly string[]): Promise<string | null> {
+    let error: string | null = null;
+    for (const id of ids) {
+      const reply = await this.request("cmux.settings.shares.revoke", { share_id: id });
+      if (!reply.ok) error ??= reply.error.message;
+    }
+    return error;
   }
 
   /** One Devices gesture, then a fresh read of the part; answers the host's result (a refusal

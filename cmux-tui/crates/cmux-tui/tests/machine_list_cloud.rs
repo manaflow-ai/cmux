@@ -9,7 +9,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -22,10 +22,15 @@ fn local_row() -> Value {
            "connectable": true, "deleted": false, "recoverable": false})
 }
 
+/// A new, empty directory for one test. Tests run in parallel in one process
+/// and two can read the same clock value, so a counter keeps each name unique
+/// and `create_dir` (not `create_dir_all`) refuses to share one.
 fn temp_dir(label: &str) -> PathBuf {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    let dir = Path::new("/tmp").join(format!("cmux-{label}-{}-{stamp}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
+    let dir = Path::new("/tmp").join(format!("cmux-{label}-{}-{stamp}-{n}", std::process::id()));
+    std::fs::create_dir(&dir).unwrap();
     dir
 }
 

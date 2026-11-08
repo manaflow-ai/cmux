@@ -3,13 +3,14 @@ import CoreGraphics
 
 /// Parses the pane chrome keys under `layout` in cmux.json:
 /// `layout.panePadding` (points, 0 allowed), `layout.paneCornerRadius`
-/// (points, 0 allowed), `layout.paneSeparation` ("none", "dividers",
+/// (points, 0 allowed; panes and tabs), `layout.cornerPadding` (points, 0 to 12), `layout.paneSeparation` ("none", "dividers",
 /// "borders" or "cards"; unset follows the legacy `layout.paneBorder`),
 /// `layout.paneBorder` ("subtle" or "none"),
 /// `layout.paneBorderColor` ("#RRGGBB" or "#RRGGBBAA"; unset follows the
 /// Ghostty theme) and `layout.paneBorderWidth` (points, 0.5 to 4; unset is
 /// one device pixel). A bad value is skipped with a diagnostic and falls
-/// back to the default.
+/// back to the default. The ranges and paths are generated from
+/// schemas/settings/source/appearance.json.
 enum PaneChromeConfigParser {
     static func parse(_ root: JSONValue) -> (overrides: PaneChromeOverrides, diagnostics: [SettingsDiagnostic]) {
         var overrides = PaneChromeOverrides()
@@ -20,9 +21,11 @@ enum PaneChromeConfigParser {
             return (overrides, diagnostics)
         }
         overrides.padding = points(members["panePadding"], path: "layout.panePadding",
-                                   range: PaneChromeOverrides.paddingRange, diagnostics: &diagnostics)
+                                   range: panePaddingRange, diagnostics: &diagnostics)
         overrides.cornerRadius = points(members["paneCornerRadius"], path: "layout.paneCornerRadius",
-                                        range: PaneChromeOverrides.cornerRadiusRange, diagnostics: &diagnostics)
+                                        range: paneCornerRadiusRange, diagnostics: &diagnostics)
+        overrides.cornerPadding = points(members["cornerPadding"], path: "layout.cornerPadding",
+                                         range: cornerPaddingRange, diagnostics: &diagnostics)
         if let value = members["paneBorder"] {
             if let text = value.stringValue, let style = PaneBorderStyle(rawValue: text) {
                 overrides.border = style
@@ -40,7 +43,7 @@ enum PaneChromeConfigParser {
             }
         }
         overrides.borderWidth = points(members["paneBorderWidth"], path: "layout.paneBorderWidth",
-                                       range: PaneChromeOverrides.borderWidthRange, diagnostics: &diagnostics)
+                                       range: paneBorderWidthRange, diagnostics: &diagnostics)
         if let value = members["paneBorderColor"] {
             if let color = value.stringValue.flatMap(color(hex:)) {
                 overrides.borderColor = color
@@ -60,20 +63,19 @@ enum PaneChromeConfigParser {
         return ThemeRGB(hex: value >> 8, alpha: Double(value & 0xFF) / 255)
     }
 
-    private static func points(_ value: JSONValue?, path: String, range: ClosedRange<CGFloat>,
+    private static func points(_ value: JSONValue?, path: String, range: ClosedRange<Double>,
                                diagnostics: inout [SettingsDiagnostic]) -> CGFloat? {
         guard let value else { return nil }
         guard let number = value.doubleValue, number.isFinite else {
             diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path, message: "expected a number of points"))
             return nil
         }
-        let points = CGFloat(number)
-        if !range.contains(points) {
+        if !range.contains(number) {
             diagnostics.append(SettingsDiagnostic(
                 kind: .invalidValue, path: path,
                 message: "clamped to \(Int(range.lowerBound))...\(Int(range.upperBound)) points"
             ))
         }
-        return min(max(points, range.lowerBound), range.upperBound)
+        return CGFloat(min(max(number, range.lowerBound), range.upperBound))
     }
 }

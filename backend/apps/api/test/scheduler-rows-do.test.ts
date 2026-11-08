@@ -198,7 +198,8 @@ describe("SchedulerDO dispatch after an await (g1 review)", { timeout: 120_000 }
       const sql = state.storage.sql
       const realEnv = instance.env
       const created: Array<string> = []
-      const principal = { identity: "session:x", kind: "session", user: "user_dddddddddddddddddddd", team }
+      // The team's owner (the Worker sets team_role): deleting another member's automation needs it.
+      const principal = { identity: "session:x", kind: "session", user: "user_dddddddddddddddddddd", team, team_role: "owner" }
       instance.env = {
         ...realEnv,
         AUTOMATION_RUN: {

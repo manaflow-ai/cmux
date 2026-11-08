@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR bba25ef6c17ba6206fa161713567d0d998a15d4a2e1103681b3c5badc91feb87. */
+/* cmux-tui mux protocol 12, IR 7cf0bbe1fdc7bd30769aabb11f653fbba0df0bb42dd01b16153d07d320ec1d16. */
 
 
 import type * as T from "./types.js";
@@ -277,6 +277,7 @@ export type ConversationTypingEvent = { event: "conversation-typing" } & {
 
 /** Protocol v12; emission: emitted; streams: control. */
 export type DaemonShutdownEvent = { event: "daemon-shutdown" } & {
+  "restart"?: boolean;
 };
 
 /** Protocol v5; emission: emitted; streams: attach-byte, attach-render, attach-browser. */
@@ -524,6 +525,11 @@ export type SizeStateEvent = { event: "size-state" } & {
   "surface": T.Id;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type StashChangedEvent = { event: "stash-changed" } & {
+  "revision": bigint;
+};
+
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type StatusEvent = { event: "status" } & {
   "message": string;
@@ -654,6 +660,7 @@ export type VtStateEvent = { event: "vt-state" } & {
   "colors"?: T.TerminalColors;
   "cols": number;
   "data": T.Base64;
+  "history_rows_omitted"?: bigint;
   "kitty_graphics_state"?: T.KittyGraphicsState;
   "kitty_image_aliases"?: Array<T.KittyImageAlias>;
   "rows": number;
@@ -802,6 +809,7 @@ export type KnownCmuxEvent =
   | SelectionChangedEvent
   | SettingsChangedEvent
   | SizeStateEvent
+  | StashChangedEvent
   | StatusEvent
   | SurfaceExitedEvent
   | SurfaceOutputEvent
@@ -886,6 +894,7 @@ export type KnownSubscribeEvent =
   | SelectionChangedEvent
   | SettingsChangedEvent
   | SizeStateEvent
+  | StashChangedEvent
   | StatusEvent
   | SurfaceExitedEvent
   | SurfaceOutputEvent

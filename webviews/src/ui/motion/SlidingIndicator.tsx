@@ -15,7 +15,8 @@
 // Stop conditions: no timer and no frame loop. The slide is one finite Web Animation (at most
 // --cmux-motion-large, 240 ms) that ends on its own; the next change and unmount cancel it. One
 // ResizeObserver on the host and its items re-places the highlight when a size changes (a label, a
-// font load); it is disconnected on unmount.
+// font load); it is disconnected on unmount. A size change during a slide is held until the slide
+// finishes, then re-placed with no motion, so the highlight never ends off its item.
 import { type CSSProperties, type RefObject, useLayoutEffect, useRef } from "react";
 import { MOTION_EASE_OUT, MOTION_MS, MOTION_SPRING, MOTION_SPRING_STEP } from "../../motion/scale.generated";
 import { cx } from "../cx";
@@ -73,6 +74,8 @@ export function useSlidingIndicator(
 ) {
   const rest = useRef<Box | null>(null);
   const slide = useRef<Animation | null>(null);
+  // Re-places it on the selected item with no motion, if its box changed; set while mounted.
+  const settle = useRef<(() => void) | null>(null);
 
   // Place it on every selection change, sliding from where it is drawn.
   // perf-hot: one read and one write per selection change; no per-frame work.
@@ -117,6 +120,7 @@ export function useSlidingIndicator(
     );
     slide.current.onfinish = () => {
       slide.current = null;
+      settle.current?.();
     };
   }, [mark, selected, travel, selector]);
 
@@ -125,19 +129,27 @@ export function useSlidingIndicator(
     const element = mark.current;
     const parent = element?.parentElement;
     if (!parent || !element || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => {
+    const place = () => {
       const item = parent.querySelector<HTMLElement>(selector);
-      if (!item || slide.current) return;
+      if (!item) return;
       const target = boxIn(parent, item);
       if (rest.current && same(rest.current, target)) return;
       rest.current = target;
       element.style.width = `${target.w}px`;
       element.style.height = `${target.h}px`;
       element.style.transform = `translate(${target.x}px, ${target.y}px)`;
+    };
+    settle.current = place;
+    // During a slide the box is read again when it finishes (onfinish calls settle).
+    const observer = new ResizeObserver(() => {
+      if (!slide.current) place();
     });
     observer.observe(parent);
     for (const child of parent.children) if (child !== element) observer.observe(child);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      settle.current = null;
+    };
   }, [mark, selector]);
 
   useLayoutEffect(

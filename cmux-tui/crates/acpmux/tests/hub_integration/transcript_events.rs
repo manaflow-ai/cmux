@@ -203,6 +203,16 @@ async fn codex_retry_records_message_superseded_before_the_redelivery() {
         .find(|e| e.msg.pointer("/params/update/messageId") == Some(&json!("m2")))
         .unwrap();
     assert!(sup[0].seq < redelivered.seq);
+    // The retry says so (`turn_retrying`), and the redelivered answer is the model heard again.
+    let retrying = find(&events, "turn_retrying");
+    assert_eq!(retrying.len(), 1, "{:?}", events.iter().map(|e| &e.kind).collect::<Vec<_>>());
+    assert_eq!(retrying[0].msg["turnId"], turn.msg["turnId"]);
+    assert_eq!(retrying[0].msg["source"], "codex");
+    assert_eq!(retrying[0].msg["error"], "stream disconnected");
+    assert_eq!(retrying[0].msg["attempt"], 1);
+    let heard = find(&events, "turn_heard");
+    assert_eq!(heard.len(), 1);
+    assert!(retrying[0].seq < heard[0].seq && heard[0].seq < redelivered.seq);
     // A willRetry error that the harness recovers from leaves the turn completed.
     let result = find(&events, "turn_result")[0];
     assert_eq!(result.msg["status"], "completed");

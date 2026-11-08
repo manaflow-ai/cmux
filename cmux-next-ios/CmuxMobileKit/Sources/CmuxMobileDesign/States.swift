@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxSpinner
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -261,7 +262,7 @@ public struct ConnectionBanner: View {
     public var body: some View {
         HStack(spacing: 8) {
             if state.showsSpinner {
-                ProgressView().controlSize(.small)
+                CmuxSpinner().controlSize(.small)
             } else if let symbol = state.symbol {
                 Image(systemName: symbol)
             }

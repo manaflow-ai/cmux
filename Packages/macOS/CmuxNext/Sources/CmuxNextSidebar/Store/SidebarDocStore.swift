@@ -39,7 +39,7 @@ public final class SidebarDocStore {
     /// `show`, a hop later.
     @ObservationIgnored public internal(set) var shownVersion: UInt64 = 0
 
-    @ObservationIgnored private let mirror: SidebarMirror?
+    @ObservationIgnored private let mirror: SidebarMirror
     @ObservationIgnored private let remote: (any SidebarDocRemote)?
     /// A refusal or failure to show (the refusal HUD).
     @ObservationIgnored public var onRefused: @MainActor (String) -> Void = { _ in }
@@ -115,17 +115,21 @@ public final class SidebarDocStore {
     /// Those the daemon answered, by key, with the revision that holds each: a load at that revision or later holds
     /// the change, though the mirror may replay it without dropping it (an undo's put over the same record).
     @ObservationIgnored var answeredChief: [String: UInt64] = [:]
+    /// The changes the daemon answered whose echo has not come, with the revision that holds each: a load at that
+    /// revision or later holds the change, and the mirror stops replaying it there (an echo sent to a closed
+    /// connection never comes).
+    @ObservationIgnored var answeredKeys: [String: UInt64] = [:]
 
     /// The records of the document while the sidebar draws it; nil on the older path.
     public var activeRecords: SidebarDocRecords? { isActive && shown != nil ? records : nil }
 
-    public init(remote: (any SidebarDocRemote)?, mirror: SidebarMirror? = SidebarMirror.make()) {
+    public init(remote: (any SidebarDocRemote)?, mirror: SidebarMirror = SidebarMirror()) {
         self.remote = remote
         self.mirror = mirror
     }
 
-    /// Whether this build and the daemon can use the document at all.
-    public var isSupported: Bool { mirror != nil && (remote?.isAvailable ?? false) }
+    /// Whether the daemon can use the document at all.
+    public var isSupported: Bool { remote?.isAvailable ?? false }
 
     /// The document shown is the launch snapshot's (`loadProvisional`), not yet the daemon's: the first
     /// `sidebar.get` replaces it.
@@ -138,7 +142,7 @@ public final class SidebarDocStore {
     /// (the remote is not available). False when not used.
     @discardableResult
     public func loadProvisional(_ data: Data) -> Bool {
-        guard !isActive, !loading, let mirror, let records = try? SidebarDocRecords(document: data), mirror.load(data) != nil else { return false }
+        guard !isActive, !loading, let records = try? SidebarDocRecords(document: data), mirror.load(data) != nil else { return false }
         self.records = records
         groupFolds = records.items.compactMapValues(\.body.groupCollapsed)
         isProvisional = true
@@ -163,7 +167,7 @@ public final class SidebarDocStore {
     /// snapshot, a revision gap).
     public func refresh() {
         if loading { refetchAgain = true; return }
-        guard isSupported, let remote, let mirror else {
+        guard isSupported, let remote else {
             // The launch snapshot's document stays until the daemon is up (`dropProvisional` if it never serves one).
             if isActive, !isSupported, !isProvisional { isActive = false; shown = nil; bump() }
             return
@@ -194,8 +198,12 @@ public final class SidebarDocStore {
             }
             self.failedLoads = 0
             // The document has each unanswered change or never will: it shows as loaded (no replay on top).
-            // So does each answered Chief change at the load's revision or before it: it stops replaying too.
-            let settled = answering.union(self.answeredChief.filter { $0.value <= records.revision }.keys)
+            // So does each answered change at the load's revision or before it (its echo may never come; the sidebar
+            // draws names from the mirror, so a replayed rename would hide a later one), the Chief's too: they stop
+            // replaying. A load older than the answer keeps the change pending.
+            let caughtUp = Set(self.answeredKeys.filter { $0.value <= records.revision }.keys)
+            self.answeredKeys = self.answeredKeys.filter { $0.value > records.revision }
+            let settled = answering.union(caughtUp).union(self.answeredChief.filter { $0.value <= records.revision }.keys)
             let rejected = settled.flatMap { mirror.reject($0) }
             // A Chief change the load holds or the mirror dropped (it no longer applies, on the load or behind a
             // change put back) is settled; one it replays stays pending.
@@ -219,7 +227,7 @@ public final class SidebarDocStore {
     /// One `session.events` batch of document changes (JSON, with its
     /// revision and idempotency key).
     public func receive(batch data: Data) {
-        if loading, mirror != nil {
+        if loading {
             if earlyBatches.count < 512 { earlyBatches.append(data) }
             else { refetchAgain = true } // A fresh snapshot recovers the tail we could not retain.
         }
@@ -228,9 +236,11 @@ public final class SidebarDocStore {
 
     private func applyReceived(batch data: Data) {
         // The launch snapshot's document is not the chain a batch extends: batches wait for the first load.
-        guard isActive, !isProvisional, let mirror else { return }
+        guard isActive, !isProvisional else { return }
         // The mirror drops the pending intent with the batch's key in every case: so do its record writes.
-        let settled = !pendingRecords.isEmpty && SidebarDocWire.Batch.key(of: data).map { pendingRecords.remove($0) } == true
+        let key = SidebarDocWire.Batch.key(of: data)
+        if let key { answeredKeys[key] = nil }
+        let settled = !pendingRecords.isEmpty && key.map { pendingRecords.remove($0) } == true
         // The reducer judges the revision chain: a skipped one refetches. While a Chief change waits, the mirror also
         // names the intents the batch settled or dropped.
         let outcome: SidebarMirror.BatchOutcome
@@ -278,7 +288,18 @@ public final class SidebarDocStore {
 
     /// The rows to draw, in order (one FFI call; only on a structural rebuild).
     public func rows(_ request: SidebarViewRequest) -> [SidebarDocRow]? {
-        isActive ? mirror?.rows(request) : nil
+        isActive ? mirror.rows(request) : nil
+    }
+
+    /// The sections the rows of `request` draw, regrouped by the reducer (one FFI call; only on a structural rebuild).
+    func projected(_ request: SidebarViewRequest) -> SidebarDocWire.Projection? {
+        isActive ? mirror.projection(request) : nil
+    }
+
+    /// The ops the reducer plans for `request` on the document as shown (`SidebarMirror.plan`); a refusal while the
+    /// document is not shown.
+    func plan(_ request: [String: Any]) -> Result<[[String: Any]], SidebarMirror.Refusal> {
+        isActive ? mirror.plan(request) : .failure(SidebarMirror.Refusal(code: "unavailable"))
     }
 
     /// Group item `item` sits in Pinned as the sidebar draws it, pending changes included, so a second
@@ -293,7 +314,7 @@ public final class SidebarDocStore {
     /// What a drop of `items` may do beside each row (one FFI call per drag).
     /// Pinned takes only what is pinned already (`SidebarDocRecords.keepingPinned`).
     public func acceptance(dragging items: [String]) -> [String: SidebarDocAcceptance] {
-        isActive ? records.keepingPinned(mirror?.acceptance(dragging: items) ?? [:], dragging: items) : [:]
+        isActive ? records.keepingPinned(mirror.acceptance(dragging: items), dragging: items) : [:]
     }
 
     nonisolated public static let pinnedSection = "sec_pinned"
@@ -412,7 +433,7 @@ public final class SidebarDocStore {
             NotificationCenter.default.post(name: Self.refusedNotification, object: self, userInfo: ["key": intent.idempotencyKey])
             return SidebarDocSendRefusal(message: message)
         }
-        guard isActive, let mirror, let remote else { throw refused(SidebarDocStrings.unavailable) }
+        guard isActive, let remote else { throw refused(SidebarDocStrings.unavailable) }
         let stamped: Data?
         do {
             stamped = try mirror.apply(intent: intent)
@@ -443,6 +464,7 @@ public final class SidebarDocStore {
                     if asked > 1 { self.settleByLoad(key) }
                     self.foldRefusals[key] = nil
                     self.pendingRecords.noteReplied(key)
+                    if reply.hasInverse, let revision = reply.revision { self.answeredKeys[key] = revision }
                     if reply.hasInverse, let revision = reply.revision, self.pendingChief.contains(where: { $0.key == key }) {
                         self.answeredChief[key] = revision
                     }
@@ -497,7 +519,7 @@ public final class SidebarDocStore {
     }
 
     private func drop(_ key: String, redraws: Bool = true) {
-        let dropped = Set(mirror?.reject(key) ?? []).union([key])
+        let dropped = Set(mirror.reject(key)).union([key])
         settlePendingChief(dropped)
         if dropped.reduce(false, { pendingRecords.remove($1) || $0 }) || redraws { bump() }
     }

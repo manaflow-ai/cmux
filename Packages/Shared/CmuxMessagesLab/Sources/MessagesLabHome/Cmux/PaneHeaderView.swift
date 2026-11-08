@@ -4,8 +4,8 @@ import AppKit
 /// Blocker: HeaderBar installs an NSToolbar and a titlebar accessory on the
 /// window, and a Home tab shares the cmux-next window. The same controls sit
 /// in the pane over `HeaderBackdropView` (the blurred, darkened transcript),
-/// at HeaderBar's measured places: the 40 pt avatar centered 8 pt from the
-/// top (the toolbar item), and the glass capsule name pill centered 58 pt
+/// near HeaderBar's measured places: the avatar (36 pt from 4 pt, clear of the
+/// pill) at the top, and the glass capsule name pill centered 58 pt
 /// from the top (`HeaderBar.pillWidth`, bold 13 pt, the dim chevron). No
 /// band, no edge line, no video button (Home has no calls).
 final class PaneHeaderView: NSView {
@@ -39,6 +39,17 @@ final class PaneHeaderView: NSView {
             needsLayout = true
         }
     }
+    /// cmux: a small control right after the name pill, on its line (Home's Chief location chip). It
+    /// takes its own clicks; sized by its `intrinsicContentSize`; hidden with the pill and in a pane
+    /// too narrow to keep it clear of the trailing accessory. Nil: none.
+    var pillAccessory: NSView? {
+        didSet {
+            guard pillAccessory !== oldValue else { return }
+            oldValue?.removeFromSuperview()
+            if let pillAccessory { addSubview(pillAccessory) }
+            needsLayout = true
+        }
+    }
     /// cmux: who else has the conversation open (chat multiplayer), beside the name pill; empty
     /// shows none. `facesLabel` is what VoiceOver reads for them (the host's localized words).
     let facesView = PaneHeaderFacesView()
@@ -56,8 +67,12 @@ final class PaneHeaderView: NSView {
     var bare = false { didSet { if bare != oldValue { applyTitle() } } }
     static let bareAccessoryTop: CGFloat = 8
 
-    static let avatarSize: CGFloat = 40
-    static let avatarTop: CGFloat = 8
+    /// cmux (user 2026-11-05, msg 23140: the avatar crowded the "Chief" pill): 36 pt from 4 pt, so it ends
+    /// ``avatarPillGap`` above the pill instead of running 4 pt under it as Messages' 40 pt one from 8 pt did.
+    static let avatarSize: CGFloat = 36
+    static let avatarTop: CGFloat = 4
+    /// The clear space between the avatar's bottom and the name pill's top.
+    static let avatarPillGap: CGFloat = pillCenterY - pillHeight / 2 - avatarTop - avatarSize
     /// HeaderBar: Messages' pill center, 58 pt from the window top.
     static let pillCenterY: CGFloat = 58
     static let pillHeight: CGFloat = 28
@@ -105,6 +120,9 @@ final class PaneHeaderView: NSView {
         guard !isHidden else { return nil }
         let p = convert(point, from: superview)
         if pill.frame.contains(p) && !pill.isHidden { return pill }
+        if let accessory = pillAccessory, !accessory.isHidden, accessory.frame.contains(p) {
+            return accessory.hitTest(p) ?? accessory
+        }
         if let accessory = trailingAccessory, !accessory.isHidden, accessory.frame.contains(p),
            let hit = accessory.hitTest(p), hit !== accessory { return hit }
         return bounds.contains(p) && !bare ? self : nil
@@ -140,7 +158,23 @@ final class PaneHeaderView: NSView {
         pillGlass?.frame = pillBacking.bounds
         pillGlass?.cornerRadius = h / 2
         layoutTrailingAccessory()
+        layoutPillAccessory()
         layoutFaces()
+    }
+
+    /// The trailing edge the pill's line may reach: the trailing accessory's start, else the inset.
+    private var pillLineLimit: CGFloat {
+        trailingAccessory.flatMap { $0.isHidden ? nil : $0.frame.minX - 8 } ?? bounds.width - PaneHeaderView.trailingInset
+    }
+
+    /// The pill accessory right after the name pill, centered on its line.
+    private func layoutPillAccessory() {
+        guard let accessory = pillAccessory else { return }
+        let size = accessory.intrinsicContentSize
+        let frame = CGRect(x: pill.frame.maxX + PaneHeaderView.facesGap, y: (PaneHeaderView.pillCenterY - size.height / 2).rounded(),
+                           width: size.width, height: size.height)
+        if accessory.frame != frame { accessory.frame = frame }
+        accessory.isHidden = pill.isHidden || frame.maxX > pillLineLimit
     }
 
     /// The accessory at its intrinsic size (else its own frame size), centered on the avatar's line at the trailing edge;
@@ -164,11 +198,11 @@ final class PaneHeaderView: NSView {
     /// here, or in a pane too narrow to keep them clear of the trailing accessory.
     private func layoutFaces() {
         let size = facesView.intrinsicContentSize
-        let frame = CGRect(x: pill.frame.maxX + PaneHeaderView.facesGap, y: PaneHeaderView.pillCenterY - size.height / 2,
+        let start = pillAccessory.flatMap { $0.isHidden ? nil : $0.frame.maxX } ?? pill.frame.maxX
+        let frame = CGRect(x: start + PaneHeaderView.facesGap, y: PaneHeaderView.pillCenterY - size.height / 2,
                            width: size.width, height: size.height)
         if facesView.frame != frame { facesView.frame = frame }
-        let limit = trailingAccessory.flatMap { $0.isHidden ? nil : $0.frame.minX - 8 } ?? bounds.width - PaneHeaderView.trailingInset
-        facesView.isHidden = pill.isHidden || faces.isEmpty || frame.maxX > limit
+        facesView.isHidden = pill.isHidden || faces.isEmpty || frame.maxX > pillLineLimit
     }
 
     private func applyTitle() {

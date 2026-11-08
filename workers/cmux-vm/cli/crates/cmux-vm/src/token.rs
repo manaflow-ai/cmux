@@ -33,10 +33,12 @@ const ACCOUNT: &str = "default";
 #[cfg(not(target_os = "macos"))]
 const FILE_NAME: &str = "vm-token.json";
 
-pub const DEFAULT_TTL_SECONDS: u64 = 8 * 3600;
-pub const MAX_TTL_SECONDS: u64 = 24 * 3600;
-pub const DEFAULT_MAX_VMS: u32 = 3;
-pub const DEFAULT_MAX_USD_PER_HOUR: f64 = 2.0;
+// The mint's rules are shared with the cmux app's `vm.agent_key.create`
+// (cmux-tui/crates/cmux-cloud-config `agent_key`), so both paths ask for the same key.
+pub use cmux_cloud_config::agent_key::{
+    DEFAULT_MAX_USD_PER_HOUR, DEFAULT_MAX_VMS, DEFAULT_TTL_SECONDS,
+};
+pub const MAX_TTL_SECONDS: u64 = *cmux_cloud_config::agent_key::TTL_SECONDS.end();
 
 /// A stored token. `key` is the secret; nothing prints it.
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
@@ -415,13 +417,16 @@ pub fn create_body(args: &TokenCreateArgs) -> Result<Value, CliError> {
             "--max-usd-per-hour must be above 0 and at most 50",
         ));
     }
-    Ok(json!({
-        "name": args.name,
-        "scopes": ["vm:read", "vm:write", "vm:exec"],
-        "ttlSeconds": ttl,
-        "maxVms": args.max_vms,
-        "maxUsdPerHour": args.max_usd_per_hour,
-    }))
+    let params: serde_json::Map<String, Value> = [
+        ("name", json!(args.name)),
+        ("ttlSeconds", json!(ttl)),
+        ("maxVms", json!(args.max_vms)),
+        ("maxUsdPerHour", json!(args.max_usd_per_hour)),
+    ]
+    .into_iter()
+    .map(|(key, value)| (key.to_owned(), value))
+    .collect();
+    cmux_cloud_config::agent_key::body(&params).map_err(|refusal| CliError::usage(refusal.message))
 }
 
 /// Where `token create` and `revoke` serialize this user's changes to the
@@ -827,6 +832,26 @@ mod tests {
         let body = create_body(&args).unwrap();
         assert_eq!(body["scopes"], json!(["vm:read", "vm:write", "vm:exec"]));
         assert_eq!(body["ttlSeconds"], json!(DEFAULT_TTL_SECONDS));
+    }
+
+    #[test]
+    fn the_request_is_the_one_the_app_asks_for() {
+        // The app's vm.agent_key.create and this command share cmux-cloud-config's body.
+        let args = TokenCreateArgs {
+            name: String::new(),
+            ttl: Some("1h".into()),
+            max_vms: 2,
+            max_usd_per_hour: 1.5,
+        };
+        let mut params = serde_json::Map::new();
+        params.insert("ttlSeconds".into(), json!(3600));
+        params.insert("maxVms".into(), json!(2));
+        params.insert("maxUsdPerHour".into(), json!(1.5));
+        assert_eq!(
+            create_body(&args).unwrap(),
+            cmux_cloud_config::agent_key::body(&params).unwrap()
+        );
+        assert_eq!(create_body(&args).unwrap()["name"], "cmux vm token");
     }
 
     #[test]

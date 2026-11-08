@@ -31,20 +31,15 @@ extension SidebarBridge {
         // drop there pins, a pinned workspace dropped on its own machine
         // unpins. Pinned order follows the sidebar, so a drop of workspaces
         // that are all pinned already only snaps back.
+        // (`SidebarBridgeRules.reorderPins`; a custom section lists only on the sidebar document, which took the intent above.)
         if case .reorder(let ids, let position) = intent {
-            switch position.section {
-            case .pinned, .custom: // a custom section lists only on the sidebar document, which took the intent above
-                let unpinned = ids.filter { services.machines.workspace(id: $0.rawValue)?.0.pinned != true }
-                guard !unpinned.isEmpty else { return resync() }
-                return sendPinned(unpinned, true, edit: rows.edits.add(intent), for: intent)
-            case .machine(let machine):
-                let target = services.machines.daemon(machine: machine.rawValue)
-                let leaving = ids.filter { id in
-                    guard let (workspace, daemon) = services.machines.workspace(id: id.rawValue) else { return false }
-                    return workspace.pinned && daemon === target
-                }
-                // The reorder's own pending edit (below) shows the rows leaving Pinned.
+            let machine = if case .machine(let machine) = position.section { services.machines.daemon(machine: machine.rawValue) } else { DaemonService?.none }
+            switch SidebarBridgeRules().reorderPins(into: position.section, daemon: machine, ids.map { services.machines.workspace(id: $0.rawValue) }.map { ($0?.0.pinned == true, $0?.1) }) {
+            case .pin(let unpinned): return sendPinned(SidebarBridgeRules().pick(unpinned, from: ids), true, edit: rows.edits.add(intent), for: intent)
+            case .reorder(let unpin): // the reorder's own pending edit (below) shows the rows leaving Pinned
+                let leaving = SidebarBridgeRules().pick(unpin, from: ids)
                 if !leaving.isEmpty { sendPinned(leaving, false, edit: nil, for: .setPinned(leaving, false)) }
+            case .snapBack, nil: return resync()
             }
         }
         if usesPersonalOrganization, PersonalGroupPin(bridge: self).handle(intent) || handlePersonal(intent) { return }
@@ -55,7 +50,7 @@ extension SidebarBridge {
             model.apply(intent)
             // A pick in this window's sidebar shows here, also a workspace another window lists.
             services.windows.show(workspaceID: id.rawValue, in: state, from: .thisWindow)
-        case let .selectTab(_, tab): _ = services.revealTab(tab.rawValue)
+        case let .selectTab(_, tab): revealPinnedTab(tab.rawValue) // shown in this window (cmux#37371)
         // The tab strip's close for that tab, on whichever machine holds it (the palette's Close Tab).
         case let .closeTab(_, tab): PaletteSourcesBridge.TabSource(services: services).closeTab(id: tab.rawValue)
         case .reorder(let ids, let position):
@@ -71,17 +66,19 @@ extension SidebarBridge {
             if ids.count > 1 { return WorkspaceSelectionClose.close(ids.map(\.rawValue), in: state, services) }
             for id in ids { services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: id.rawValue)) }
         case .newWorkspace(let machine, let group):
-            // The plain "+" in a local window: the person's New Workspace, as Cmd-N (the Cloud toggle applies).
-            if machine == nil, group == nil, state.machineID == MachineRegistry.localID {
+            // The plain "+" in a local window is the person's New Workspace, as Cmd-N (the Cloud toggle applies); a machine turned
+            // off by policy (DisabledFeatures) gets nothing, not a local stand-in (`SidebarBridgeRules.newWorkspace`).
+            let named = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }, own = services.machines.daemon(machine: state.machineID)
+            let plan = SidebarBridgeRules().newWorkspace(machine: machine.map { _ in named != nil }, group: group != nil,
+                                                         localWindow: state.machineID == MachineRegistry.localID, windowDaemon: own != nil)
+            if plan == .newTab {
                 services.registry.perform("newTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .window, id: state.id), origin: .user))
                 return
             }
+            guard let plan, plan != .nothing else { return }
             // A double-click in a group's empty part, or its "+": that group, where `workspaces.newPlacement` puts a
-            // new workspace in it (its top under the default `top`).
-            let daemon = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }
-                ?? services.machines.daemon(machine: state.machineID)
-            // A machine turned off by policy (DisabledFeatures) gets nothing, not a local stand-in.
-            if machine != nil || state.machineID != MachineRegistry.localID, daemon == nil { return }
+            // new workspace in it (under the default `afterCurrent`: below its shown member, else its end).
+            let daemon = plan == .onMachine ? named : plan == .onWindow ? own : nil
             let rule = NewWorkspacePlacements.rule(for: state.id, in: services.windows)
             let slot = group.map { rule.slot(inGroup: $0, members: model.group($0)?.workspaces.map(\.id.rawValue) ?? []) }
             services.windows.newWorkspace(in: state, on: daemon, at: slot)
@@ -149,12 +146,12 @@ extension SidebarBridge {
     /// pin, #26382) holds until every daemon's store has it, or a failure takes it back and says why. A daemon without
     /// `workspace-pin-v1` gets nothing and says so: its rows go back where they were when the edit settles.
     private func sendPinned(_ ids: [SidebarWorkspaceID], _ pinned: Bool, edit: SidebarPendingEdits.Token?, for intent: SidebarIntent) {
-        let owners = keys(ids), failed = saveFailed(intent)
-        let commands = owners.filter { $0.0.supports(DaemonCapabilities.workspacePin) }.map { daemon, key in
+        let owners = keys(ids), failed = saveFailed(intent), plan = SidebarBridgeRules().pinCommands(supports: owners.map { $0.0.supports(DaemonCapabilities.workspacePin) })
+        let commands = SidebarBridgeRules().pick(plan?.send, from: owners).map { daemon, key in
             (label: "set-workspace-metadata", daemon: daemon, body: { c in _ = try await c.setWorkspaceMetadata(key, pinned: pinned) } as DaemonCommandBody)
         }
-        if commands.count < owners.count { failed(ActionWorkFailure(RefusalStrings.needsDaemonCapability(DaemonCapabilities.workspacePin))) }
-        guard !commands.isEmpty else {
+        if plan?.refused == true { failed(ActionWorkFailure(RefusalStrings.needsDaemonCapability(DaemonCapabilities.workspacePin))) }
+        guard plan?.snapBack == false else {
             rows.edits.settle(edit)
             return resync()
         }
@@ -172,7 +169,7 @@ extension SidebarBridge {
     /// The one daemon owning every workspace in `ids`, or nil when they span machines.
     func sameMachine(_ ids: [SidebarWorkspaceID]) -> (DaemonService, [WorkspaceKey])? {
         let pairs = keys(ids)
-        guard let daemon = pairs.first?.0, pairs.allSatisfy({ $0.0 === daemon }) else { return nil }
+        guard let daemon = pairs.first?.0, SidebarBridgeRules().sameOwner(pairs.map(\.0)) else { return nil }
         return (daemon, pairs.map(\.1))
     }
 
@@ -199,7 +196,7 @@ extension SidebarBridge {
         model.ungroupedFirst = !services.sidebarDoc.isActive && !usesMixedOrder
         let shownAt = services.sidebarDoc.store?.shownChanges
         var sections = Self.sections(services.machines, doc: services.sidebarDoc, members: services.windows.registry.members(of: state.id), profile: state.profileID,
-                                     hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
+                                     hidesHome: services.sidebarLayout.document.hidesHome, selection: state.selection,
                                      newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store), muted: services.notifications.preferences.mutedWorkspaces,
                                      harnessIcons: { [weak services] in services?.harnessIconLookup ?? .none })
         sections = WorkspaceGroupConfigLook(config: services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig(), machines: services.machines)

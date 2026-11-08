@@ -41,6 +41,15 @@ beforeAll(() => {
     setTimeout(() => callback(Date.now()), 0) as unknown as number;
   scope.cancelAnimationFrame = (handle: number) => clearTimeout(handle);
   dom.window.HTMLElement.prototype.scrollIntoView = () => undefined;
+  // jsdom has no modal dialogs: record the calls and keep `open` as the browser would.
+  const dialog = dom.window.HTMLDialogElement.prototype as HTMLDialogElement & { modalCalls?: number };
+  dialog.showModal = function (this: HTMLDialogElement) {
+    (this as typeof dialog).modalCalls = ((this as typeof dialog).modalCalls ?? 0) + 1;
+    this.setAttribute("open", "");
+  };
+  dialog.close = function (this: HTMLDialogElement) {
+    this.removeAttribute("open");
+  };
 });
 
 afterEach(() => {
@@ -192,7 +201,7 @@ test("Up and Down move the selection, and Return opens the selected row in the a
   await key(list, "Enter");
   const run = provider.last(ACTION_RUN)!;
   expect(run.action).toBe("history.open");
-  expect((run.args as { new_tab: boolean }).new_tab).toBe(false);
+  expect((run.args as { newTab: boolean }).newTab).toBe(false);
 });
 
 test("an offline machine's entries are greyed, badged Offline and cannot be opened", async () => {
@@ -301,4 +310,86 @@ test("Reduce Motion: the page has no motion outside a no-preference guard", () =
     (item) => /^(transition|animation)(-|$)/.test(item.property) && !/^(none|0s?)$/.test(item.value),
   );
   expect(motion).toEqual([]);
+});
+
+test("Cookie Backups lists the app's backups and deletes one only after the app's confirmation", async () => {
+  const provider = new RecordingProvider();
+  await mount(["en"], provider);
+  await click(button("Cookie Backups…"));
+  const sheet = () => host.querySelector<HTMLElement>("dialog");
+  const sheetRows = () => [...host.querySelectorAll<HTMLElement>(".history-sheet-row")];
+  expect(sheet()).not.toBeNull();
+  expect(sheetRows().map((row) => row.querySelector(".history-row-title")?.textContent)).toEqual([
+    "accounts.example.com",
+    "Backup this Mac can no longer open",
+  ]);
+  // A row has no Delete button of its own: Delete is in its menu.
+  expect(sheetRows().every((row) => row.querySelector("button") === null)).toBe(true);
+  // The person cancels the app's dialog: nothing goes.
+  provider.confirmDelete = false;
+  await contextMenu(sheetRows()[0]!);
+  expect(menuLabels()).toEqual(["Delete"]);
+  await click(menuItem("Delete")!);
+  expect(provider.last(HistoryOps.cookieBackupsDelete)).toEqual({ ids: ["app:mock1"] });
+  expect(sheetRows().length).toBe(2);
+  // The keyboard reaches the same menu: Shift-F10 on the focused row.
+  sheetRows()[1]!.focus();
+  await act(async () => {
+    sheetRows()[1]!.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true, cancelable: true }),
+    );
+  });
+  expect(menuLabels()).toEqual(["Delete"]);
+  await click(menuItem("Delete")!);
+  expect(provider.last(HistoryOps.cookieBackupsDelete)).toEqual({ ids: ["app:mock2"] });
+  expect(sheetRows().length).toBe(2);
+  // Delete All, confirmed: the panel reads again and says so.
+  provider.confirmDelete = true;
+  await click(button("Delete All…"));
+  expect(provider.last(HistoryOps.cookieBackupsDelete)).toEqual({ ids: ["app:mock1", "app:mock2"] });
+  expect(sheetRows().length).toBe(0);
+  expect(host.querySelector(".history-sheet-empty")?.textContent).toBe("No cookie backups");
+  // Escape closes it; the timeline under it never moved.
+  await key(sheet()!, "Escape");
+  expect(sheet()).toBeNull();
+  expect(rows().length).toBeGreaterThan(0);
+});
+
+test("Cookie Backups is a modal dialog: Tab and Shift-Tab stay inside until Done closes it", async () => {
+  await mount();
+  const opener = button("Cookie Backups…");
+  opener.focus();
+  await click(opener);
+  const sheet = host.querySelector<HTMLDialogElement & { modalCalls?: number }>("dialog")!;
+  expect(sheet.modalCalls).toBe(1);
+  expect(sheet.open).toBe(true);
+  const doc = dom.window.document;
+  expect(doc.activeElement?.textContent).toBe("Done");
+  const stops = () => [
+    ...sheet.querySelectorAll<HTMLElement>(".history-sheet-row"),
+    ...sheet.querySelectorAll<HTMLElement>("button:not(:disabled)"),
+  ];
+  expect(stops().map((stop) => stop.textContent)).toEqual([
+    expect.stringContaining("accounts.example.com"),
+    expect.stringContaining("Backup this Mac can no longer open"),
+    "Delete All…",
+    "Done",
+  ]);
+  const tab = async (shiftKey: boolean) => {
+    const target = doc.activeElement as HTMLElement;
+    await act(async () => {
+      target.dispatchEvent(
+        new dom.window.KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true }),
+      );
+    });
+  };
+  // Tab past the last control (Done) wraps to the first stop; Shift-Tab before it wraps back.
+  await tab(false);
+  expect(doc.activeElement).toBe(stops()[0]!);
+  await tab(true);
+  expect(doc.activeElement).toBe(stops().at(-1)!);
+  expect(sheet.contains(doc.activeElement)).toBe(true);
+  await click(button("Done"));
+  expect(host.querySelector("dialog")).toBeNull();
+  expect(doc.activeElement).toBe(opener);
 });

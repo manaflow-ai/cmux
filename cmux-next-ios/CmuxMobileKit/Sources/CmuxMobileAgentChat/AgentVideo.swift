@@ -4,8 +4,8 @@ import Foundation
 /// link, then a note naming it with its length, size and each frame's time, then each frame
 /// as a label and a JPEG image block. An agent can't watch a video; the frames are what it
 /// looks at. The note and the frames are for the agent only: the sent bubble shows the video.
-public struct AgentVideo: Hashable, Sendable {
-    public struct Frame: Hashable, Sendable {
+public struct AgentVideo: Hashable, Sendable, Codable {
+    public struct Frame: Hashable, Sendable, Codable {
         public var atMs: Int
         /// JPEG bytes.
         public var jpeg: Data

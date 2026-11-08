@@ -11,6 +11,9 @@ import Foundation
 @MainActor
 public final class LinkHintController {
     private struct Session {
+        /// This session among all of the controller's: a page answer, a bound or a task of an ended session never acts
+        /// on a later one (review 6603845634 findings 2 and 3), whatever tab it is on.
+        let id: Int
         var keys: LinkHintSession
         weak var tab: CEFTab?
         weak var window: NSWindow?
@@ -25,12 +28,16 @@ public final class LinkHintController {
     }
 
     private var session: Session?
+    private var lastSessionID = 0
     private var replays = LinkHintReplays<NSEvent>()
     private var seen = LinkHintSeenKeys()
     /// The key-down the app dispatches now, and whether it dispatched it before (``noteKeyDown(_:)``).
     private var noted: (event: NSEvent, seen: Bool)?
     /// The pending page call (collect, draw, narrow); a newer one replaces it.
     private var work: Task<Void, Never>?
+    /// A decided pick (remove the labels, then click or open): the session has ended, so nothing cancels it, neither a
+    /// click nor a new start (review 6603845634: a click during the labels' draw dropped the pick and left the labels).
+    private var picking: Task<Void, Never>?
     /// The bound of the page's answer: a page that never answers (a hung renderer) never keeps the keys typed meanwhile.
     private let bound = DemandTimer(owner: "LinkHintController.answer")
 
@@ -52,17 +59,22 @@ public final class LinkHintController {
     public func start(_ mode: LinkHintSession.Mode, tab: CEFTab, window: NSWindow?, isFocused: @escaping () -> Bool,
                       openInSplit: @escaping (URL) -> Void, noLinks: @escaping () -> Void) {
         cancel()
-        session = Session(keys: LinkHintSession(mode: mode), tab: tab, window: window, isFocused: isFocused,
+        // The cancel gave held keys to the page, and one of them may have started a session (link hints on a chord): this
+        // start is the newer action, so that session ends too. It holds no key: every key of that send is a replay.
+        if session != nil { cancel() }
+        lastSessionID += 1
+        let id = lastSessionID
+        session = Session(id: id, keys: LinkHintSession(mode: mode), tab: tab, window: window, isFocused: isFocused,
                           openInSplit: openInSplit, noLinks: noLinks)
         work = Task { [weak self] in
             guard let self else { return }
             let editing = await focusAnswer(tab)
-            guard !Task.isCancelled else { return }
-            guard let editing, !editing else { return collected(editing.map { ($0, []) }, from: tab) }
+            guard !Task.isCancelled, session?.id == id else { return }
+            guard let editing, !editing else { return collected(editing.map { ($0, []) }, from: tab, session: id) }
             // No text field has the keyboard: the keys typed now are hint keys, the session's whatever the targets
             // take (a heavy page), and never a page's (review 6594559342: a page shortcut on a hint letter would run).
             bound.cancel()
-            guard var current = session, current.tab === tab else { return }
+            guard var current = session, current.id == id else { return }
             let early = current.pending.resolveNoField(&current.keys) // the held keys are hint keys now, handled live after
             current.noField = true
             session = current
@@ -71,9 +83,23 @@ public final class LinkHintController {
             deliver(early.page)
             let targets = await targetsAnswer(tab)
             guard !Task.isCancelled else { return }
-            collected((false, targets ?? []), from: tab)
+            collected((false, targets ?? []), from: tab, session: id)
         }
-        bound.schedule(after: answerBound) { @MainActor [weak self] in self?.answerTimedOut() }
+        let fire = boundForCurrentSession()
+        bound.schedule(after: answerBound) { @MainActor in fire() }
+    }
+
+    /// The bound of session `id`'s focus check passed. ``DemandTimer`` can run a fire it already took after ``cancel()``
+    /// and a new ``start(_:tab:window:isFocused:openInSplit:noLinks:)``: a bound ends only its own session.
+    func boundFired(session id: Int?) {
+        guard let id, session?.id == id else { return }
+        answerTimedOut()
+    }
+
+    /// What the current session's bound runs when it fires (a test fires an ended session's bound late).
+    func boundForCurrentSession() -> @MainActor @Sendable () -> Void {
+        let id = session?.id
+        return { [weak self] in self?.boundFired(session: id) }
     }
 
     /// The page did not say within the bound whether a text field has the keyboard (a hung renderer, a closed tab): the
@@ -178,8 +204,8 @@ public final class LinkHintController {
     private static func ms(_ duration: Duration) -> String { String(format: "%.1fms", Double(duration.components.attoseconds) / 1e15 + Double(duration.components.seconds) * 1000) }
 
     /// The page answered (nil: its focus check failed: the keys go to the page). With no text field, failed targets are none.
-    private func collected(_ answer: (editing: Bool, targets: [LinkHintTarget])?, from tab: CEFTab) {
-        guard var current = session, current.tab === tab, current.keys.hints == nil else { return }
+    private func collected(_ answer: (editing: Bool, targets: [LinkHintTarget])?, from tab: CEFTab, session id: Int) {
+        guard var current = session, current.id == id, current.keys.hints == nil else { return }
         bound.cancel()
         guard let answer else { tab.host.lifecycleTrace.record(tab.id, "link-hints no answer: keys go to the page"); return cancel() }
         let resolved = current.pending.resolve(&current.keys, targets: answer.targets, editing: answer.editing)
@@ -189,12 +215,18 @@ public final class LinkHintController {
         guard resolved.outcome != .passThrough, resolved.outcome != .cancel else { session = nil; return }
         let draw = LinkHintSession.drawScript(current.keys.hints ?? [])
         // A label typed in full before the labels came is picked now: the keys after it are the page's at once, never
-        // the session's while the labels draw (LinkHintControllerFuzzTests).
-        if case .pick = resolved.outcome { session = nil }
+        // the session's while the labels draw (LinkHintControllerFuzzTests), and the pick acts after the draw.
+        if case .pick(let target) = resolved.outcome {
+            session = nil
+            picking = Task { [weak self, script] in
+                _ = await script(tab, draw)
+                await self?.pick(target, of: current, in: tab)
+            }
+            return
+        }
         work = Task { [weak self, script] in
             _ = await script(tab, draw)
             guard !Task.isCancelled, let self else { return }
-            if case .pick(let target) = resolved.outcome { return await pick(target, of: current, in: tab) }
             apply(resolved.outcome, on: tab)
         }
     }
@@ -232,7 +264,8 @@ public final class LinkHintController {
         case .pick(let target):
             session = nil
             work?.cancel()
-            work = Task { [weak self] in await self?.pick(target, of: current, in: tab) }
+            work = nil
+            picking = Task { [weak self] in await self?.pick(target, of: current, in: tab) }
         }
     }
 

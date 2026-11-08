@@ -17,7 +17,24 @@ short scale, `schemas/motion-scale/motion-scale.json` (generated into
 quick 80 ms (hover and pressed fills, focus rings, anything leaving), micro
 120 ms, standard 180 ms, large 240 ms, the ceiling. Every timed fade default
 is a step or 0, and every spring ends visibly (within 0.5%,
-`perceivedDuration`) by 240 ms; entering eases out, and nothing delays input.
+`perceivedDuration`) by 240 ms; entering eases out, and nothing delays input. A web fold, Show more or panel that
+grows or shrinks to a new height rides the settle (`--cmux-ease-settle`,
+`cubic-bezier(0.16, 1, 0.3, 1)`, over `--cmux-motion-settle`, 265 ms; TypeScript
+`MOTION_SETTLE` and `MOTION_SETTLE_MS`): a strong ease-out that starts at full
+speed and decelerates into its end on a long soft tail, never past it (Leo
+2026-11-07: "they dont overshoot but they decelerate at the end. i think that
+might be the key"). split-motion-sweep measured it on a reference panel's folds:
+a first-order exponential, 1 - e^(-t/38 ms) (about 53% of the travel in the first
+frame, within 0.5 pt of rest by about 225 ms, fold and unfold alike; a critically
+damped spring fit it to 2.2-4.7% rms, the exponential to 0.1-1.1%). The
+cubic-bezier is within 1.1% of it at every point; the exact `linear()` copy is not
+the value because WebKit before Safari 17.2 (macOS 14.0 and 14.1) has no
+`linear()` easing. It is measured, so it is the one length off the step list;
+it is visibly at rest by the 240 ms ceiling. Native: the same
+CAMediaTimingFunction over 0.265 s, or for an interruptible spring an overdamped
+one (mass 1, stiffness 20800, damping 826). Reduce Motion and the pane's
+animations off make it one step. Session Info's section folds and Show more
+lists use it first.
 Off-scale fades went to the nearest step that is not longer (focus and
 crossfade, the Reduce Motion cap, 80 ms; paneDim and theme 120 ms; clickPulse,
 cursorHide, hibernateIcon, the attention swell and the agent cursor glide limit
@@ -87,8 +104,11 @@ would do it, spring curves", "proper physics". Design:
   animates"); nothing holds a final-size layout under a clip. A zoom or
   unzoom does the same on the `zoom` spring: the zooming pane is the topmost
   layer, its tab strip whole in every frame, and covers the other panes,
-  which stay opaque and still. A released divider flung onto a snap within
-  `motion.divider.releaseProjection` of its velocity lands there.
+  which stay opaque and still. A released divider stays where the pointer let go;
+  a Shift release lands it on a snap on the pane spring, a split divider's from the
+  pointer's speed, a column edge's from rest (resize-modifiers.md; the fling snap and
+  `motion.divider.releaseProjection` went 2026-11-03: no hold or jump in a drag,
+  FRAME OWNER REFACTOR KEYS).
   A split (Cmd-D, Cmd-Shift-D) moves on its own `split` spring (0.28 s, damping 0.95; Lawrence
   2026-10-19: "resize all of them while adding a new one"), and the even sizing of its chain
   shows in the key's frame with the split (`LayoutModel.showSplitSizing`), not after the

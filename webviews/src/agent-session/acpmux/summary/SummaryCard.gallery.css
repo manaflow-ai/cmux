@@ -1,0 +1,10 @@
+/* Before and alternate treatments for #34192; production uses summary.css. */
+[data-summary-header-look="before"] .acpmux-summary-card[data-placement="inline"] .acpmux-summary-card__head {
+  padding-right: calc(var(--ds-space-1) / 2);
+}
+[data-summary-header-look] .acpmux-summary-tab[data-selected] {
+  font-weight: var(--weight-regular);
+}
+[data-summary-header-look] .acpmux-summary-tab__measure {
+  display: none;
+}

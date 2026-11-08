@@ -29,8 +29,7 @@ extension SidebarBridge {
             groupFlow.move(ids, into: group, intent)
         case .createGroup(let group, let name, let color, let ids, _, let collapsed, let index):
             // `index` is the group's place among the personal groups (nil, or `Int.max`: last, the daemon's default).
-            groupFlow.create(group, name: name, color: color, ids, collapsed: collapsed, room: state.profileID,
-                             index: index.flatMap { $0 == .max ? nil : $0 }, intent)
+            groupFlow.create(group, name: name, color: color, ids, collapsed: collapsed, room: state.profileID, index: index, intent)
         case .groupEditorEnded(let group):
             groupFlow.editorEnded(WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: group.rawValue)))
         case .renameGroup(let group, let name):
@@ -60,7 +59,7 @@ extension SidebarBridge {
             // group-order index (and, mixed, the group's place among the rows).
             let place = PersonalSidebarPlanner(machines: services.machines).groupPlacement(of: group, in: model.sections)
             let v2 = statePersonal, move = place.move, top = place.topIndex
-            personal("move-personal-group", intent, edit: edit) { connection in
+            personal("move-personal-group", intent, edit: edit, until: life.personal.writes.claim(group: group.rawValue, "order")) { connection in
                 if let move {
                     if v2 {
                         try await connection.state.moveWorkspaceGroup(group.rawValue, to: move)
@@ -94,19 +93,17 @@ extension SidebarBridge {
         let report: @MainActor (ActionWorkFailure) -> Void = { [weak self] failure in
             self?.services.registry.reportFailure(of: ActionID(rawValue: action.id), title: action.title, failure)
         }
-        let home = services.machines.local, logger = home.logger
-        services.personalPlacements.enqueue(on: home, failed: settle) { [weak self] in
-            guard let connection = home.connection else {
-                report(ActionWorkFailure("set-personal-workspace", DaemonError.notConnected))
-                return .failed
-            }
+        let home = services.machines.local, logger = home.logger, queue = services.personalPlacements, claim = life.personal.writes.claim(workspaces: placements(ids).map { ($0.session, $0.key.rawValue) })
+        queue.enqueue(on: home, failed: settle) { [weak self] in
             guard let self, let state, services.windows.registry.value.window(state.id)?.isOpen == true,
                   ids.allSatisfy({ services.machines.workspace(id: $0.rawValue) != nil }),
                   let plan = PersonalSidebarPlanner(machines: services.machines).dropPlan(ids, at: position, in: sections) else { return .skipped }
             // `sections` retains this intent's neighbors. The planner now reads
             // personal order containing every successful preceding write.
-            let regroup = statePersonal ? plan.regroup : []
-            let moving = plan.steps.filter(\.moves).map(\.workspace), life = self.life
+            // A moving step joins the drop's group (or goes loose), the rest keep theirs (`SidebarBridgeRules.placements`).
+            let rules = SidebarBridgeRules(), commands = rules.placements(plan.steps.map { ($0.moves, $0.index) }, group: group?.rawValue, statePersonal: statePersonal,
+                                                                            regroup: plan.regroup.map(\.rawValue), first: plan.first)
+            let moving = rules.pick(commands?.moving, from: plan.steps).map(\.workspace), life = self.life, writes = life.personal.writes
             let ending = life.emptied(by: moving, into: group)
             let sent = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                 var finished = false
@@ -115,26 +112,27 @@ extension SidebarBridge {
                     finished = true
                     done.resume(returning: ok)
                 }
-                life.commit("set-personal-workspace", ending: ending, recheck: { ending.filter(life.isEmptyUnpinned) },
-                            failed: report, completed: { finish($0) }) { sending in
-                    guard sending === connection else { throw DaemonError.notConnected }
-                    for step in plan.steps {
-                        do {
-                            try await sending.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,
-                                                                              resource: step.workspace.resource,
-                                                                              group: step.moves ? (group.map { .set($0) } ?? .clear) : .unchanged,
-                                                                              index: step.index)
+                life.commit("set-personal-workspace", ending: ending, recheck: { ending.filter(life.isEmptyUnpinned) }, until: claim,
+                            unanswered: { await queue.releaseHeld(on: home) }, failed: report, completed: { finish($0) }) { sending in
+                    for place in commands?.places ?? [] { // a step a later move took is that move's to send (last write wins)
+                        guard let step = plan.steps.dropFirst(place.step).first,
+                              await writes.isCurrent(claim, workspace: step.workspace.session, step.workspace.key.rawValue) else { continue }; do {
+                            try await SidebarFoldPersist.resending(owner: "sidebar.placementSave", mayHaveApplied: DaemonError.missedDeadline) {
+                                try await sending.state.placePersonalWorkspace(session: step.workspace.session, key: step.workspace.key,
+                                                                                  resource: step.workspace.resource,
+                                                                                  group: place.group.update, index: place.index)
+                            }
                         } catch let error as DaemonError where error.isWorkspaceNotFound {
                             // The workspace ended after the plan read it (an agent open under load whose half-made workspace
                             // closed): nothing is left to place, and no notice says a move failed (Leo, 2026-11-03).
                             logger.info("personal placement: workspace \(step.workspace.key.rawValue, privacy: .public) is gone; its step is dropped")
                         }
                     }
-                    guard let first = plan.first else { return }
-                    for id in regroup { try await sending.state.updateWorkspaceGroup(id.rawValue, topIndex: .set(first)) }
+                    for regroup in commands?.regroups ?? [] { try await sending.state.updateWorkspaceGroup(regroup.group, topIndex: .set(regroup.topIndex)) }
                 }
             }
-            guard sent, await home.appliedThroughReply(on: connection, after: "personal placement") else { return .failed }
+            guard sent else { return .failed } // claimed at the move; unanswered or unconnected, `commit` sends it again
+            if let connection = home.connection { _ = await home.appliedThroughReply(on: connection, after: "personal placement") }
             rows.edits.settle(edit)
             return .applied
         }
@@ -155,7 +153,18 @@ extension SidebarBridge {
     /// Sends one personal-state command for `intent` to the home daemon; a failure
     /// re-syncs the sidebar and says why; a pending `edit` settles (SidebarRows.send).
     private func personal(_ label: String, _ intent: SidebarIntent, edit: SidebarPendingEdits.Token? = nil,
-                          _ body: @escaping DaemonCommandBody) {
-        rows.send(label, edit: edit, on: services.machines.local, failed: saveFailed(intent), body)
+                          until claim: PersonalWriteLedger.Claim? = nil, _ body: @escaping DaemonCommandBody) {
+        rows.send(label, edit: edit, on: services.machines.local, until: claim, failed: saveFailed(intent), body)
+    }
+}
+
+private extension SidebarBridgeRules.GroupChange {
+    /// The `workspace.place` group field.
+    var update: FieldUpdate<WorkspaceGroupID> {
+        switch self {
+        case .unchanged: .unchanged
+        case .clear: .clear
+        case .set(let id): .set(WorkspaceGroupID(rawValue: id))
+        }
     }
 }

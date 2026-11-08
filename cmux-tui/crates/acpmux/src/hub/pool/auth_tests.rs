@@ -47,6 +47,21 @@ fn pool_auth_claude_saved_api_key_rotation_and_removal_change_the_key() {
 }
 
 #[test]
+fn pool_auth_codex_api_key_rotation_changes_the_key() {
+    let home = LoginFiles::new("codex-env-key");
+    let cache = AuthCache::default();
+    let key = |value: &'static str| move |k: &str| (k == "CODEX_API_KEY").then(|| value.to_owned());
+    let first = cache.fingerprint_with("codex", &key("fixture-key-a"), &home.0);
+    let rotated = cache.fingerprint_with("codex", &key("fixture-key-b"), &home.0);
+    assert_ne!(first, rotated, "a Codex session warmed with the old CODEX_API_KEY must not match");
+    assert_ne!(
+        rotated,
+        cache.fingerprint_with("codex", &|_| None, &home.0),
+        "unsetting CODEX_API_KEY must invalidate it"
+    );
+}
+
+#[test]
 fn pool_auth_claude_saved_key_uses_the_child_home() {
     let daemon = LoginFiles::new("daemon-home");
     let child = LoginFiles::new("child-home");
@@ -174,5 +189,16 @@ fn pool_auth_codex_and_opencode_refresh_switch_and_logout_use_file_identity() {
         assert_ne!(before, after, "{family} account switch");
         std::fs::remove_file(files.0.join(path)).unwrap();
         assert_ne!(after, files.fingerprint(&cache, family), "{family} logout");
+    }
+}
+
+/// Every harness login in the fingerprint list is one an agent of another
+/// family loses (`agent/foreign_login.rs`), so the two lists cannot drift.
+#[test]
+fn every_harness_login_has_an_owner_family() {
+    let owned: Vec<_> =
+        crate::agent::foreign_login::LOGIN_ENV_OWNERS.iter().map(|login| login.key).collect();
+    for key in AUTH_ENV.iter().filter(|k| **k != "XDG_DATA_HOME") {
+        assert!(owned.contains(key), "{key} has no owner in LOGIN_ENV_OWNERS");
     }
 }

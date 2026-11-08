@@ -26,6 +26,12 @@ pub struct EnvRecord {
     /// credential is still this machine's and not revoked.
     #[serde(default)]
     pub credential: String,
+    /// How agents get it: `Some(allowed hosts)` is a placeholder the egress
+    /// proxy fills only toward those hosts; `None` is the value itself in
+    /// the env (the person's opt-out, or a hub that predates delivery). The
+    /// hub can change it without a new revision, so every pull rewrites it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy: Option<Vec<String>>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,6 +57,21 @@ pub struct State {
     /// deleted yet: never given to an agent, deleted again on every pull.
     #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
     pub pending_delete: std::collections::BTreeSet<String>,
+    /// Where `env`'s values are kept: `os` (the OS store; empty in a state
+    /// saved before this field, which only the OS store wrote) or `memory`
+    /// (the daemon's, where the OS store takes no write).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub backend: String,
+    /// Items still in the OS store from before this machine switched to
+    /// memory: never given to an agent, deleted from the OS store on every
+    /// pull and by `forget`, whichever store is active.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub os_pending: std::collections::BTreeSet<String>,
+}
+
+/// The backend of a store kind: `memory` for the daemon's memory, else `os`.
+pub fn backend_of(kind: &str) -> &'static str {
+    if kind == "memory" { "memory" } else { "os" }
 }
 
 impl State {
@@ -121,12 +142,42 @@ impl State {
         self.env.clear();
     }
 
+    /// Make `kind`'s backend the active one. Entries kept in the other one are
+    /// no longer this machine's: OS store items become `os_pending` (deleted
+    /// from the OS store whatever is active), and values in another process's
+    /// memory went with it. Back on the OS store, `os_pending` joins the
+    /// ordinary cleanup records.
+    pub fn switch_backend(&mut self, kind: &str) {
+        let to = backend_of(kind);
+        let from = if self.backend.is_empty() { "os" } else { self.backend.as_str() };
+        if from != to {
+            let names: Vec<String> =
+                self.env.keys().cloned().chain(self.pending_delete.iter().cloned()).collect();
+            self.env.clear();
+            self.pending_delete.clear();
+            if from == "os" {
+                self.os_pending.extend(names);
+            }
+        }
+        if to == "os" {
+            let left = std::mem::take(&mut self.os_pending);
+            self.pending_delete.extend(left);
+        }
+        self.backend = to.to_owned();
+    }
+
     /// Names and revisions, in order: the daemon reloads its values when this
     /// changes.
     pub fn signature(&self) -> String {
         self.env
             .iter()
-            .map(|(name, r)| format!("{name}={}:{}:{}", r.revision, r.fingerprint, r.credential))
+            .map(|(name, r)| {
+                let delivery = r
+                    .proxy
+                    .as_ref()
+                    .map_or("env".to_owned(), |h| format!("proxy[{}]", h.join(" ")));
+                format!("{name}={}:{}:{}:{delivery}", r.revision, r.fingerprint, r.credential)
+            })
             .collect::<Vec<_>>()
             .join(",")
     }
@@ -135,14 +186,15 @@ impl State {
 /// One step of a pull.
 pub enum Step {
     /// Put this value in the secret store (new, newer or changed).
-    Store { name: String, revision: u64, value: Zeroizing<String> },
+    Store { name: String, revision: u64, value: Zeroizing<String>, proxy: Option<Vec<String>> },
     /// Remove this entry: revoked, gone from the vault, or the vault is no
     /// longer shared with this machine.
     Delete { name: String },
     /// Already stored at this revision with this value, as far as the state
     /// says; the pull checks the item and stores it again when it is missing
     /// or differs (`pull::verify_kept`).
-    Keep { name: String, revision: u64, value: Zeroizing<String> },
+    /// Its delivery is recorded again: the hub changes it without a revision.
+    Keep { name: String, revision: u64, value: Zeroizing<String>, proxy: Option<Vec<String>> },
 }
 
 impl std::fmt::Debug for Step {
@@ -170,10 +222,11 @@ pub fn plan(state: &State, env: Vec<EnvItem>) -> Vec<Step> {
                     r.revision == item.revision
                         && r.fingerprint == state.fingerprint(&item.name, &value)
                 });
+                let (name, revision, proxy) = (item.name, item.revision, item.proxy);
                 if same {
-                    steps.push(Step::Keep { name: item.name, revision: item.revision, value });
+                    steps.push(Step::Keep { name, revision, value, proxy });
                 } else {
-                    steps.push(Step::Store { name: item.name, revision: item.revision, value });
+                    steps.push(Step::Store { name, revision, value, proxy });
                 }
             }
             None if state.env.contains_key(&item.name) => {
