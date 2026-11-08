@@ -47114,6 +47114,37 @@
     },
     {
       "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "apps reload",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "app.reloadCustomViews",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Reload Custom Views",
+      "title_key" : "action.app.reloadCustomViews",
+      "title_table" : "AppStoreActions"
+    },
+    {
+      "args" : [
         {
           "kind" : "string",
           "name" : "app",

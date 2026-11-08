@@ -1945,7 +1945,16 @@
           "advanced"
         ],
         "groups" : [
-
+          {
+            "key" : "settings.group.developerTools",
+            "rows" : [
+              "developerTools.appPages"
+            ],
+            "title" : {
+              "key" : "settings.group.developerTools",
+              "text" : "Developer Tools"
+            }
+          }
         ],
         "id" : "advanced",
         "lead" : [
@@ -101496,6 +101505,140 @@
       "title" : {
         "key" : "settings.diagnostics.hangReports",
         "text" : "Send Hang Reports"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.developerTools",
+        "text" : "Developer Tools"
+      },
+      "help" : {
+        "key" : "settings.developerTools.appPages.help",
+        "text" : "Inspect Element in the right-click menu and Toggle Developer Tools (⌥⌘I) work in agent chats, Home, Markdown and Settings. Browser tabs always have them."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "developerTools.appPages",
+      "keywords" : [
+        "developer",
+        "devtools",
+        "inspector",
+        "web inspector",
+        "inspect element",
+        "chrome",
+        "debug"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "developerTools",
+        "appPages"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:developerTools.appPages"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.developerTools.appPages",
+        "text" : "Developer Tools for cmux Pages"
       },
       "validation" : "portable"
     },

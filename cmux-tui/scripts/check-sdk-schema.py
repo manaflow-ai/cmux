@@ -168,6 +168,9 @@ def _parse_rust_fields(body: str, label: str) -> dict[str, RuntimeField]:
         if attribute:
             attributes.append(attribute.group(1))
             continue
+        # Lint attributes (`#[allow(...)]`, `#[expect(...)]`) do not change the wire shape.
+        if re.fullmatch(r"#\[(?:allow|expect)\(.*\)\]", line):
+            continue
         # Field visibility (pub, pub(crate), pub(super), pub(in path)) does not change the wire shape.
         field = re.fullmatch(r"(?:pub(?:\((?:crate|super|self|in [a-z_:]+)\))? )?([a-z][A-Za-z0-9_]*): (.+),", line)
         if not field:
