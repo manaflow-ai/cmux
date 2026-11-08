@@ -104,6 +104,7 @@ MARKS = [
     ("dfl.first_window_hooks", "dfl: first window hooks"),
     ("dfl.home_history", "dfl: home, bookmarks, history"),
     ("launch_snapshot_shown", "cached layout window made"),
+    ("workspace_content_shown", "workspace content shown (its panes mounted)"),
     ("dfl.windows", "dfl: windows restored"),
     ("did_finish_launching_end", "applicationDidFinishLaunching end"),
     ("first_window_frame_committed", "first window frame committed"),
@@ -611,6 +612,9 @@ STEP_STARTED_WALL = {}
 SEED_FOCUS = "agent"
 # --chat-pane: with --focus terminal, the chat's pane (first or last).
 SEED_CHAT_PANE = "last"
+# --hidden-screens: the realistic profile's shown workspace gets this many more screens, each a split of two
+# terminals, that are hidden at quit (its first screen shows). 0, the default, seeds the profile as before.
+HIDDEN_SCREENS = 0
 # --hangs: main-thread stalls over this many ms are recorded with stacks (debug.hangs).
 HANG_THRESHOLD_MS = None
 # --window-placement: "test" (the agent test window, the saved frame ignored) or "restore" (the app's own restore).
@@ -1032,6 +1036,8 @@ def seed_realistic(tag, scratch, timeout):
             if not reply.get("ok"):
                 print(f"  {tag}: the seeded agent chat could not be selected ({reply.get('error')})", file=sys.stderr)
                 agent = False
+        if HIDDEN_SCREENS:
+            seed_hidden_screens(tag, timeout)
         if agent and SEED_FOCUS == "terminal":
             # The chat stays visible in its pane; a terminal beside it has focus.
             app = app_client(tag)
@@ -1046,6 +1052,32 @@ def seed_realistic(tag, scratch, timeout):
         prime.quit()
     with open(seeded_marker(tag), "w") as out:
         out.write(f"agent focus={seed_layout()}\n" if agent else f"terminals focus={seed_layout()}\n")
+
+
+def seed_hidden_screens(tag, timeout):
+    """Adds HIDDEN_SCREENS screens to project-01, each a split of two terminals, then shows its first screen again
+    (its first tab, or the chat when the profile has one), so the added screens are hidden at quit."""
+    from bench_cli_storm import Client  # noqa: E402
+    daemon = Client(daemon_socket(tag), timeout=10)
+
+    def project():
+        listed = daemon.call("list-workspaces", cmd_key="cmd")["data"]["workspaces"]
+        return next(w for w in listed if w.get("name") == "project-01")
+
+    for _ in range(HIDDEN_SCREENS):
+        before = {screen["id"] for screen in project()["screens"]}
+        created = daemon.call("new-screen", {"workspace": project()["id"]}, cmd_key="cmd")
+        if not created.get("ok"):
+            raise SystemExit(f"tag {tag}: new-screen failed: {created.get('error')}")
+        screen = next(screen for screen in project()["screens"] if screen["id"] not in before)
+        daemon.call("split", {"pane": screen["panes"][0]["id"], "dir": "right"}, cmd_key="cmd")
+    daemon.close()
+    app = app_client(tag)
+    back = app_tab_id(app, "project-01", timeout, lambda tab: tab.get("kind") == "conversation") or app_tab_id(app, "project-01", timeout)
+    reply = app.call("action.run", {"action": "palette.goToTab", "target": {"kind": "tab", "id": back}}) if back else {}
+    app.close()
+    if not reply.get("ok"):
+        raise SystemExit(f"tag {tag}: project-01's first screen could not be shown again ({reply.get('error')})")
 
 
 def seed_stress(tag, scratch, timeout):
@@ -1097,7 +1129,8 @@ def seeded_agent(tag):
 
 
 def seed_layout():
-    return SEED_FOCUS if SEED_FOCUS == "agent" or SEED_CHAT_PANE == "last" else f"{SEED_FOCUS}-chat-{SEED_CHAT_PANE}"
+    layout = SEED_FOCUS if SEED_FOCUS == "agent" or SEED_CHAT_PANE == "last" else f"{SEED_FOCUS}-chat-{SEED_CHAT_PANE}"
+    return f"{layout}-hidden{HIDDEN_SCREENS}" if HIDDEN_SCREENS else layout
 
 
 def seeded_focus(tag):
@@ -1351,6 +1384,8 @@ def main():
                              "standard STRESS session (default: whatever state the tag has)")
     parser.add_argument("--focus", choices=["agent", "terminal"], default="agent",
                         help="realistic: the focused pane at quit, the agent chat or a terminal beside it")
+    parser.add_argument("--hidden-screens", type=int, default=0,
+                        help="realistic profile: this many more screens in the shown workspace, hidden at quit")
     parser.add_argument("--chat-pane", choices=["first", "last"], default="last",
                         help="realistic with --focus terminal: the chat's pane; first puts the focused terminal after it")
     parser.add_argument("--runs", type=int, default=5)
@@ -1378,7 +1413,7 @@ def main():
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
     args = parser.parse_args()
-    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, WINDOW_PLACEMENT, NEW_SESSION_EACH_RUN, ACTIVATION
+    global HANG_THRESHOLD_MS, SEED_FOCUS, SEED_CHAT_PANE, HIDDEN_SCREENS, WINDOW_PLACEMENT, NEW_SESSION_EACH_RUN, ACTIVATION
     HANG_THRESHOLD_MS = args.hangs
     # STRESS measures the reopen a person gets: its windows restore where they were (#32493). The STRESS seed sizes
     # its window to 1600 x 1000; under the test placement every relaunch opened at 1100 x 720 instead, so the first
@@ -1394,6 +1429,7 @@ def main():
         parser.error("--activation active needs --window-placement restore (the test placement is an agent launch)")
     SEED_FOCUS = args.focus
     SEED_CHAT_PANE = args.chat_pane
+    HIDDEN_SCREENS = max(0, args.hidden_screens)
     for path in args.app:
         APPS[app_tag(path)] = os.path.abspath(path)
         args.tag.append(app_tag(path))
