@@ -22,6 +22,8 @@ import {
   groupSkills,
   harnessTitle,
   modeTitle,
+  MAX_SKILL_DESCRIPTION,
+  oneLineDescription,
   pluginName,
   projectName,
   scopeTitle,
@@ -571,7 +573,7 @@ function NewSkillForm({
       harness,
       ...(where === "user" ? { scope: "user" as const } : { scope: "project" as const, project: where }),
       name,
-      description: text.trim(),
+      description: oneLineDescription(text),
     });
   };
   return (
@@ -639,6 +641,7 @@ function NewSkillForm({
           className="field"
           data-skills-field="description"
           value={text}
+          maxLength={MAX_SKILL_DESCRIPTION}
           placeholder={t("settingsPage.skills.descriptionHint")}
           disabled={busy}
           onChange={(event) => setText(event.currentTarget.value)}

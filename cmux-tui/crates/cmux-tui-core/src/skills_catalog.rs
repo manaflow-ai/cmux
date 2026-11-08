@@ -37,8 +37,11 @@ use serde::Serialize;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 
-/// The most entries one skills folder contributes.
+/// The most entries one skills folder contributes: the first by name.
 pub(crate) const MAX_ENTRIES_PER_FOLDER: usize = 500;
+/// The most names read from one skills folder before sorting, so the first
+/// [`MAX_ENTRIES_PER_FOLDER`] by name are the same on every read.
+pub(crate) const MAX_NAMES_PER_FOLDER: usize = 10 * MAX_ENTRIES_PER_FOLDER;
 /// The most skills one list holds.
 pub(crate) const MAX_SKILLS: usize = 2000;
 /// The most project roots one list looks in.
@@ -422,8 +425,28 @@ pub(crate) fn create(
         let _ = fs::remove_dir(&dir);
         return Err(SkillsError::WriteFailed);
     }
-    let id = skill_id(harness, &dir.join("SKILL.md"));
-    find(env, projects, &id).ok_or(SkillsError::WriteFailed)
+    let file = dir.join("SKILL.md");
+    let id = skill_id(harness, &file);
+    if let Some(skill) = find(env, projects, &id) {
+        return Ok(skill);
+    }
+    // The list stops at its bounds (a folder's first entries, the catalog's first skills), so a
+    // skill made past them is answered as the list would read it, not reported as a failed write.
+    let project = new.project.as_deref().filter(|_| new.scope == "project");
+    let scope = if project.is_some() { Scope::Project } else { Scope::User };
+    let claude;
+    let codex;
+    let base = match harness {
+        Harness::Claude => {
+            claude = Overrides::claude(env, project.map(Path::new));
+            Base::claude(scope, project, None, &claude)
+        }
+        Harness::Codex => {
+            codex = CodexRules::read(&env.codex_config());
+            Base { harness, scope, project, plugin: None, state: State::Codex(&codex) }
+        }
+    };
+    Ok(describe(&dir, &file, text.len() as u64, &base))
 }
 
 /// A new SKILL.md: `name` and `description` frontmatter, then a heading and a line to replace.
@@ -477,7 +500,7 @@ impl<'a> Base<'a> {
 fn scan_folder(folder: &Path, base: &Base<'_>, budget: usize) -> Vec<Skill> {
     let Ok(entries) = fs::read_dir(folder) else { return Vec::new() };
     let mut dirs: Vec<PathBuf> = entries
-        .take(MAX_ENTRIES_PER_FOLDER)
+        .take(MAX_NAMES_PER_FOLDER)
         .filter_map(Result::ok)
         .map(|e| e.path())
         .filter(|p| {
@@ -486,6 +509,7 @@ fn scan_folder(folder: &Path, base: &Base<'_>, budget: usize) -> Vec<Skill> {
         })
         .collect();
     dirs.sort();
+    dirs.truncate(MAX_ENTRIES_PER_FOLDER);
     let mut out = Vec::new();
     for dir in dirs {
         if out.len() >= budget {

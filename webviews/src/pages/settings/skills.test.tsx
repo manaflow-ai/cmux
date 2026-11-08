@@ -10,7 +10,15 @@ import type { Rendered } from "./testing";
 const restore = installDom();
 afterAll(() => restore());
 const { renderPage, settle, click, changeValue } = await import("./testing");
-const { filterSkills, groupSkills, skillIndex, skillsErrorText, validSkillName } = await import("./skills");
+const {
+  MAX_SKILL_DESCRIPTION,
+  filterSkills,
+  groupSkills,
+  oneLineDescription,
+  skillIndex,
+  skillsErrorText,
+  validSkillName,
+} = await import("./skills");
 const { mockSkills } = await import("./mockProvider");
 
 let page: Rendered | null = null;
@@ -136,7 +144,9 @@ test("New Skill checks the name, makes the skill and opens it", async () => {
   expect(create.disabled).toBe(true);
   expect(form.querySelector("[data-skills-rule]")!.className).toContain("field-error");
   await changeValue(name, "lint-fix");
-  await changeValue(form.querySelector<HTMLInputElement>('[data-skills-field="description"]')!, "Fix lint errors");
+  const description = form.querySelector<HTMLInputElement>('[data-skills-field="description"]')!;
+  expect(description.maxLength).toBe(MAX_SKILL_DESCRIPTION);
+  await changeValue(description, "  Fix lint\n  errors ");
   expect(create.disabled).toBe(false);
   await click(create);
   await settle();
@@ -150,6 +160,8 @@ test("New Skill checks the name, makes the skill and opens it", async () => {
 test("a daemon refusal reads in the page's words", async () => {
   expect(skillsErrorText("skills.settings_unreadable")).toContain("isn’t valid");
   expect(skillsErrorText("skills.bad_name")).toBe("Lowercase letters, digits and hyphens, up to 64 characters.");
+  expect(skillsErrorText("skills.bad_description")).toBe("A description is one line of up to 1,024 characters.");
+  expect(oneLineDescription("a\n\tb   c ")).toBe("a b c");
   await open((provider) => {
     provider.skillRefusal = "skills.exists";
   });
