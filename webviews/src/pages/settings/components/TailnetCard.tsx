@@ -170,8 +170,13 @@ export function TailnetCard() {
         await new Promise((resolve) => setTimeout(resolve, wait));
         next = await store.tailnet("state");
       }
-      // A step with no answer: acpmux may still hold the reason (its `error` state), so show that if it has one.
-      if (!next && mounted.current) next = await store.tailnet("state");
+      // A Sign In with no answer: acpmux may still hold the reason (its `error` state), so show that if it
+      // has one; any other state would hide the failure. Not after Sign Out, where a read could show the
+      // old signed-in state as if nothing had been asked.
+      if (!next && verb !== "logout" && mounted.current) {
+        const now = await store.tailnet("state");
+        if (now?.state === "error") next = now;
+      }
       if (next) client.setQueryData(TAILNET_KEY, next);
       else setFailed(true);
     } finally {

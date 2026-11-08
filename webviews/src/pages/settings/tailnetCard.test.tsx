@@ -52,10 +52,12 @@ test("Sign In starts the node and offers the sign-in page; Cancel signs out", as
     provider = p;
   });
   expect(card()!.dataset.tailnetState).toBe("signedOut");
+  // acpmux answers `starting`; the card reads the state again, which brings the sign-in page.
+  const reread = new Promise<void>((resolve) => {
+    provider.onTailnetRead = resolve;
+  });
   await click(card()!.querySelector<HTMLElement>('[data-tailnet-action="start"]')!);
-  await settle();
-  // acpmux answered `starting`; the card reads again until the sign-in page is there.
-  await new Promise((resolve) => setTimeout(resolve, 400));
+  await reread;
   await settle();
   expect(provider.tailnetSteps).toEqual(["start"]);
   expect(card()!.dataset.tailnetState).toBe("needsLogin");
@@ -113,4 +115,17 @@ test("a failed Sign In shows acpmux's own reason and Try Again", async () => {
   expect(card()!.textContent).toContain("tailnet start was superseded");
   expect(card()!.textContent).not.toContain("couldn’t reach");
   expect(card()!.querySelector('[data-tailnet-action="start"]')).not.toBeNull();
+});
+
+test("Sign Out with no answer says so instead of showing the old state", async () => {
+  let provider!: MockSettingsProvider;
+  await open((p) => {
+    provider = p;
+    p.tailnet = { state: "running", dns_name: "studio.ts.net", ips: ["100.64.0.2"] };
+  });
+  provider.tailnetRefuses = true;
+  provider.tailnet = { state: "stopped" };
+  await click(card()!.querySelector<HTMLElement>('[data-tailnet-action="logout"]')!);
+  await settle();
+  expect(card()!.textContent).toContain("cmux couldn’t reach its agent service. Try again.");
 });

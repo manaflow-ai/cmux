@@ -504,7 +504,10 @@ export class MockSettingsProvider {
       "cmux.settings.accounts.run": (params) => this.runAccounts(params as AccountsRun),
       "cmux.settings.devices.state": () => this.devices,
       "cmux.settings.devices.run": (params) => this.runDevices(params as unknown as DevicesRun),
-      "cmux.settings.tailnet.state": () => (this.tailnetRefuses ? null : this.tailnet),
+      "cmux.settings.tailnet.state": () => {
+        this.onTailnetRead?.();
+        return this.tailnet;
+      },
       "cmux.settings.tailnet.start": () => this.stepTailnet("start"),
       "cmux.settings.tailnet.login": () => this.stepTailnet("login"),
       "cmux.settings.tailnet.logout": () => this.stepTailnet("logout"),
@@ -712,8 +715,10 @@ export class MockSettingsProvider {
   /** Every tailnet step the page asked for, in order (tests). */
   tailnetSteps: string[] = [];
 
-  /** Every tailnet step answers null while true (the relay got no answer). */
+  /** Start, Login and Logout answer null while true (the relay got no answer); state still reads. */
   tailnetRefuses = false;
+  /** Called on every tailnet state read, so a test can wait for the card's next read. */
+  onTailnetRead: (() => void) | null = null;
   /** Start and Login fail with this text (acpmux keeps it in its state; the step itself answers null). */
   tailnetFails: string | null = null;
 
