@@ -420,7 +420,7 @@ fn w3h_a_tab_name_outside_the_current_pane_resolves_under_current_selectors() {
     // An explicit pane still scopes the name to that pane.
     let pinned = crate::ResourceSelectors {
         pane: pane_id(root_pane).map(|pane| pane.to_string()),
-        ..selectors.clone()
+        ..selectors
     };
     let error = mux.resolve_resource_path(crate::ResourceTarget::Tab, &pinned).unwrap_err();
     assert_eq!(error.code, "selector.not_found");
