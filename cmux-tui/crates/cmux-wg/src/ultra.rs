@@ -1424,7 +1424,12 @@ mod tests {
         inbox.extend(parities.iter().map(|p| (p.clone(), peer)));
         let authentic: Vec<_> = earlier.iter().chain(&sent).cloned().collect();
         let (mut ultra, out, wire) = receive(UltraMode::Off, Some(peer), inbox, &authentic);
-        assert_eq!(out[3..], [sent[1].clone(), sent[2].clone()], "rebuilt from the peer: {out:?}");
+        // (The earlier group's datagram was not kept, so it is rebuilt too.)
+        assert_eq!(
+            out[out.len() - 2..],
+            [sent[1].clone(), sent[2].clone()],
+            "rebuilt from the peer: {out:?}"
+        );
         assert_eq!(ultra.mode, UltraMode::Off, "the peer's mode is not adopted");
         ultra.send(&data(index, 9, 40, 0));
         ultra.flush();
