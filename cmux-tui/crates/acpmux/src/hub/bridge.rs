@@ -147,6 +147,11 @@ impl Hub {
             return None;
         }
         let agent_session_id = session.meta().agent_session_id?;
+        // Only a chat the bridge listed (`desktop_bridge.rs`) takes prompts; any other watched
+        // chat stays read-only, whatever runs its conversation.
+        if session.meta().tags.get("bridge").is_none_or(|t| t.value != "claude") {
+            return None;
+        }
         // A resend of a prompt id that went answers with its turn, whether or not the app still runs.
         if let Some(id) = opts.prompt_id.clone() {
             let kept = deliveries().of_prompt(&session.id, &id).map(|(_, p)| p.turn.subscribe());
@@ -157,9 +162,13 @@ impl Hub {
         let config = self.harness_homes.lock().unwrap_or_else(|e| e.into_inner()).claude.clone();
         let lookup = (config.clone(), agent_session_id.clone());
         let peer = tokio::task::spawn_blocking(move || {
+            // The session's own registry entry must name an entrypoint the setting lists: a tag
+            // alone is anyone's to set.
+            let listed = crate::claude_peers::listed_entrypoints();
             crate::claude_peers::enabled()
                 .then(|| crate::claude_peers::find(&lookup.0, &lookup.1))
                 .flatten()
+                .filter(|p| p.entrypoint.as_ref().is_some_and(|e| listed.contains(e)))
         })
         .await
         .ok()??;
@@ -229,7 +238,13 @@ async fn resent(
     if let Some(f) = opts.on_accepted.take() {
         f(json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true}));
     }
-    answer(prompt_id, turn_of(rx).await, None)
+    let mut answer = answer(prompt_id, turn_of(rx).await, None);
+    if let Ok(Some(meta)) = answer.as_mut().map(|v| v.pointer_mut("/_meta/acpmux")) {
+        if let Some(meta) = meta.as_object_mut() {
+            meta.insert("duplicate".to_owned(), json!(true));
+        }
+    }
+    answer
 }
 
 fn reply(

@@ -189,18 +189,19 @@ pub async fn deliver(
     use tokio::io::AsyncWriteExt;
     let socket = peer.socket.as_deref().ok_or("the session has no messaging socket")?;
     let key = key_file(config, peer.pid, socket);
-    // Claude Code drops what comes without its token: with no readable key, nothing is sent.
-    let token = tokio::fs::read(&key)
-        .await
-        .ok()
-        .filter(|bytes| bytes.len() as u64 <= MAX_FILE)
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-        .and_then(|v| v.get("peerToken").and_then(Value::as_str).map(str::to_owned))
-        .ok_or_else(|| {
-            format!("the session's inbox key {} is missing or unreadable", key.display())
-        })?;
-    let frames = frames(Some(&token), text, uuid, from);
     let send = async {
+        // Claude Code drops what comes without its token: with no readable key, nothing is sent.
+        // Only a small regular file is read (never a FIFO), within the same deadline.
+        let small_file =
+            tokio::fs::metadata(&key).await.is_ok_and(|m| m.is_file() && m.len() <= MAX_FILE);
+        let bytes = if small_file { tokio::fs::read(&key).await.ok() } else { None };
+        let token = bytes
+            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+            .and_then(|v| v.get("peerToken").and_then(Value::as_str).map(str::to_owned))
+            .ok_or_else(|| {
+                format!("the session's inbox key {} is missing or unreadable", key.display())
+            })?;
+        let frames = frames(Some(&token), text, uuid, from);
         let mut stream = tokio::net::UnixStream::connect(socket).await.map_err(|e| {
             format!("could not reach the session's inbox {}: {e}", socket.display())
         })?;
