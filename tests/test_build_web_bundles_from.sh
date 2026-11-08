@@ -29,12 +29,9 @@ git -C "$REPO" add webviews/package.json
 PANE="Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
 PAGES="Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
 ACTIVITY="Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity"
-PALETTE="Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js"
 APP="Resources/markdown-viewer/webviews-app"
 INSPECTOR="Native/OptChat/optchat-chief/inspector"
 
-# The palette ranker lands in a Resources directory that holds tracked files in a checkout.
-mkdir -p "$REPO/$(dirname "$PALETTE")"
 # The inspector page is committed (2942c2304af1: optchat-chief compiles it in with include_str!),
 # so --from must leave the checkout's copy alone, whatever the prebuilt tree holds.
 mkdir -p "$REPO/$INSPECTOR"
@@ -57,8 +54,6 @@ for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP"; do
 done
 mkdir -p "$WORK/out/$INSPECTOR"
 cp "$REPO/$INSPECTOR/index.html" "$WORK/out/$INSPECTOR/index.html"
-mkdir -p "$WORK/out/$(dirname "$PALETTE")"
-printf 'export const rank = () => 0;\n' > "$WORK/out/$PALETTE"
 
 "$SCRIPT" --from "$WORK/out" > "$WORK/log" 2>&1 || { cat "$WORK/log"; echo "FAIL: --from must install a complete prebuilt tree"; exit 1; }
 "$SCRIPT" --verify > /dev/null 2>&1 || { echo "FAIL: after --from the bundles must be current without a build"; exit 1; }
@@ -66,7 +61,6 @@ for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP"; do
   diff -r -x GENERATED.md "$WORK/out/$path" "$REPO/$path" > /dev/null || { echo "FAIL: --from did not install $path as built"; exit 1; }
 done
 grep -q "committed inspector" "$REPO/$INSPECTOR/index.html" || { echo "FAIL: --from must leave the committed inspector page alone"; exit 1; }
-cmp -s "$WORK/out/$PALETTE" "$REPO/$PALETTE" || { echo "FAIL: --from did not install $PALETTE as built"; exit 1; }
 for path in "$PANE" "$PAGES" "$ACTIVITY"; do
   grep -qx "generated: $path" "$REPO/$path/GENERATED.md" || { echo "FAIL: --from must keep the committed $path/GENERATED.md"; exit 1; }
   [ ! -e "$REPO/$path/stale.js" ] || { echo "FAIL: --from must drop build output the prebuilt tree does not hold ($path/stale.js)"; exit 1; }

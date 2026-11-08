@@ -38,10 +38,10 @@ pub static HOME_CHAT_SWITCHING: &[Binding] = &[
 pub static SCOPED_DEFAULTS: &[Binding] = &[
     Binding { keys: &[Shortcut { key: "k", modifiers: CMD }], command: "agentPane.searchChats", argument: None, arguments: &[], when: Some("surfaceKind != terminal && !codeEditorFocused"), source: "default" },
     Binding { keys: &[Shortcut { key: "r", modifiers: SHIFT | CMD }], command: "home.replyToSelection", argument: None, arguments: &[], when: Some("topPage == home || surfaceKind == home || surfaceKind == home-dock"), source: "default" },
-    Binding { keys: &[Shortcut { key: "=", modifiers: CMD }], command: "home.zoomIn", argument: None, arguments: &[], when: Some("topPage == home || surfaceKind == home || surfaceKind == home-dock"), source: "default" },
-    Binding { keys: &[Shortcut { key: "=", modifiers: SHIFT | CMD }], command: "home.zoomIn", argument: None, arguments: &[], when: Some("topPage == home || surfaceKind == home || surfaceKind == home-dock"), source: "default" },
-    Binding { keys: &[Shortcut { key: "-", modifiers: CMD }], command: "home.zoomOut", argument: None, arguments: &[], when: Some("topPage == home || surfaceKind == home || surfaceKind == home-dock"), source: "default" },
-    Binding { keys: &[Shortcut { key: "0", modifiers: CMD }], command: "home.zoomReset", argument: None, arguments: &[], when: Some("topPage == home || surfaceKind == home || surfaceKind == home-dock"), source: "default" },
+    Binding { keys: &[Shortcut { key: "=", modifiers: CMD }], command: "home.zoomIn", argument: None, arguments: &[], when: Some("topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"), source: "default" },
+    Binding { keys: &[Shortcut { key: "=", modifiers: SHIFT | CMD }], command: "home.zoomIn", argument: None, arguments: &[], when: Some("topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"), source: "default" },
+    Binding { keys: &[Shortcut { key: "-", modifiers: CMD }], command: "home.zoomOut", argument: None, arguments: &[], when: Some("topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"), source: "default" },
+    Binding { keys: &[Shortcut { key: "0", modifiers: CMD }], command: "home.zoomReset", argument: None, arguments: &[], when: Some("topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"), source: "default" },
     Binding { keys: &[Shortcut { key: "w", modifiers: CMD }], command: "closeWorkspace", argument: None, arguments: &[], when: Some("sidebar.multiSelection"), source: "default" },
 ];
 

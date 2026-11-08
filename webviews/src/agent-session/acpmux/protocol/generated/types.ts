@@ -61,6 +61,8 @@ export interface AcpmuxRequestMeta {
   requireFullAccess?: unknown;
   resend?: unknown;
   route?: unknown;
+  senderHarness?: unknown;
+  senderHarnessChecked?: unknown;
   spawnToolCallId?: unknown;
   startLater?: unknown;
   steer?: unknown;
@@ -1012,7 +1014,12 @@ export interface QueueRemoveParams {
 
 /** The person who queued a prompt in a shared chat. */
 export type QueuedAuthor = {
-  /** `tailnet:<login>` or `user_…`. */
+  /**
+   * Their profile picture (`_meta.provenance` `fromAvatar`, an `https://` URL), left out when
+   * they have none (and from an older acpmux).
+   */
+  avatar?: (string | null);
+  /** `tailnet:<login>`, `user_…` or `guest:<share>.<guest>`. */
   id: string;
   name: string;
 } & Record<string, unknown>;
@@ -1079,8 +1086,23 @@ export type QueuedPromptSummary = {
   heldByStop: boolean;
   /** The images it sends, in its order; `_acpmux/attachment` reads each by its id. */
   images: QueuedImage[];
+  /**
+   * acpmux's inbox notice of other agents' messages (`_meta.provenance` `inbox_notice`,
+   * `hub/inbox.rs`): that provenance, `{kind, noticeId, threads}`, so an app draws it as the
+   * messages it carries and never as the person's queued prompt, also when it has not read
+   * its `queued` record (a chat reopened on a recent page). Null for any other prompt, and
+   * once edited (an edit drops the provenance).
+   */
+  inboxNotice: unknown;
   prompt: string;
   promptId: string;
+  /**
+   * Its `_meta.provenance` when it names a sender that is no agent's to act on: another agent's
+   * message the person edited (`editedBy`, still that agent's words to read) or a prompt no
+   * proof attributes (`unverified`). An app draws its card from it while `fromAgent` is null.
+   * Null otherwise. Display only, never authority.
+   */
+  provenance: unknown;
   queuedAt: number;
   /** Its version for the owner's approval: 0 when queued, one more at each edit by its author. */
   revision: number;

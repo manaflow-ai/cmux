@@ -140,6 +140,7 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
         text: delivery.text,
         untyped: true,
         inboxDelivery: true,
+        inboxSource: row.id,
         ...(row.steer ? { steer: row.steer } : {}),
         ...(!thread.messages?.length
           ? {

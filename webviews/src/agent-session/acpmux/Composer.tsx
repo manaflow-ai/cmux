@@ -11,13 +11,14 @@ import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
 import { useScrollEdges } from "../../ui/scrollEdges";
 import { Listbox } from "../../ui/Listbox";
-import { ComposerListLayer, useComposerListBox } from "./backdropLayer";
+import { ComposerListLayer } from "./backdropLayer";
+import { useComposerListBox } from "./backdropLayerModel";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
   bindMarks,
+  MAX_IMAGE_BYTES,
   placeInline,
   withoutInlineTokens,
-  type AttachmentError,
   type ComposerAttachment,
   type DroppedKind,
   type LinkItem,
@@ -35,13 +36,16 @@ import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDra
 import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
 import { BuildIcon, ContextRing, PlanIcon } from "./ComposerPickers";
-import { newSlotMemory, SendSlotGlyph, type SlotMemory } from "./composer/SendSlotGlyph";
+import { type Choice } from "./composerPickerModel";
+import { SendSlotGlyph } from "./composer/SendSlotGlyph";
+import { newSlotMemory, type SlotMemory } from "./composer/sendSlotGlyphModel";
 import { isActive, type Dictation } from "./dictation";
 import { DictationStrip } from "./DictationListening";
 import { FileSearch } from "./FileSearch";
 import { PromptFocus } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
-import { markdownOffset, MentionMenu, mentionQuery, mentionResults, useMentionSearch } from "./MentionMenu";
+import { MentionMenu } from "./MentionMenu";
+import { markdownOffset, mentionQuery, mentionResults, useMentionSearch } from "./mentionMenuModel";
 import {
   hasOtherChats,
   loadRecentMentionPaths,
@@ -54,7 +58,6 @@ import {
 } from "./mentionItems";
 import type { ContextMenuItem } from "../../ui/ContextMenu";
 import { openChipMenu } from "./composerChipMenu";
-import type { Choice } from "./ComposerPickers";
 import type { FileSearchSource } from "./fileSearchModel";
 import {
   CMUX_PASS_THROUGH,
@@ -101,9 +104,10 @@ import {
   writePersistedDraft,
 } from "./composerDraft";
 import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
-import { type StringKey, useT } from "./i18n";
+import { useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
-import { UsageRingMenu, useComposerChrome } from "./composerChrome";
+import { UsageRingMenu } from "./composerChrome";
+import { useComposerChrome } from "./composerChromeModel";
 import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
@@ -113,11 +117,10 @@ import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
 import {
   appendAttachments,
-  attachmentErrorText,
   useAttachmentIntake,
   useSendWhenAttached,
   useSendWhenOriginals,
-} from "./composer/attachmentIntake";
+} from "./composer/attachmentIntakeModel";
 import { keepElsewhere, type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
@@ -148,6 +151,7 @@ import { EmojiMenu } from "./EmojiMenu";
 import { MachineLinkStatus } from "./MachineLinkStatus";
 import { peerLink, type PeerLink } from "./peerLink";
 import { noteSendOrigins } from "./conversation/sendMorph";
+import { composerHoldsDraft } from "./conversation/wakeFolds";
 import {
   emojiMatches,
   emojiTrigger,
@@ -157,6 +161,7 @@ import {
   type EmojiMatch,
   type EmojiShortcodes,
 } from "./emojiShortcodes";
+import { COMPOSER_LABELS } from "./composerModel";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -192,49 +197,6 @@ const NOT_AN_EDIT_KEY = new Set([
 ]);
 
 export type ComposerEditCommand = "cut" | "copy" | "paste" | "pasteAsPlainText";
-
-export const COMPOSER_LABELS = {
-  placeholder: "composer.placeholder",
-  placeholderQueued: "composer.placeholderQueued",
-  steerQueueTooltip: "composer.steerQueueTooltip",
-  suggestFailing: "composer.suggestFailing",
-  suggestDraft: "composer.suggestDraft",
-  suggestOpen: "composer.suggestOpen",
-  suggestionKey: "composer.suggestionKey",
-  suggestionHint: "composer.suggestionHint",
-  placeholderSteerQuick: "composer.placeholderSteerQuick",
-  add: "composer.add",
-  mention: "composer.mention",
-  attach: "composer.attach",
-  attachScreenshot: "composer.attachScreenshot",
-  attachWindow: "composer.attachWindow",
-  prompt: "composer.prompt",
-  send: "composer.send",
-  stop: "composer.stop",
-  stopping: "composer.stopping",
-  escapeAgainToStop: "composer.escapeAgainToStop",
-  commands: "composer.commands",
-  noCommands: "composer.noCommands",
-  noMatchingCommands: "composer.noMatchingCommands",
-  attachments: "composer.attachments",
-  removeAttachment: "composer.removeAttachment",
-  openAttachment: "composer.openAttachment",
-  dropFiles: "composer.dropFiles",
-  sentAsFileForCodex: "composer.sentAsFileForCodex",
-  tooLarge: "composer.tooLarge",
-  unsupported: "composer.unsupported",
-  imagesUnsupported: "composer.imagesUnsupported",
-  cut: "composer.menu.cut",
-  copy: "composer.menu.copy",
-  paste: "composer.menu.paste",
-  pasteAsPlainText: "composer.menu.pasteAsPlainText",
-  undo: "composer.menu.undo",
-  redo: "composer.menu.redo",
-  selectAll: "composer.menu.selectAll",
-  attachFiles: "composer.menu.attachFiles",
-  insertMention: "composer.menu.insertMention",
-  scrollToBottomOnSend: "composer.menu.scrollToBottomOnSend",
-} as const satisfies Record<string, StringKey>;
 
 /// What the pane can do to the composer from outside it.
 export type ComposerHandle = {
@@ -288,6 +250,8 @@ export type ComposerWake = {
   attachments?: ComposerAttachment[];
   shell?: boolean;
   shellText?: string;
+  /// Typed text or chips: only read by the host's hidden-chat release, never handed back.
+  holdsDraft?: boolean;
 };
 
 type Props = {
@@ -389,9 +353,8 @@ type Props = {
   plusExtensions?: readonly ComposerPlusExtension[];
   onPlusCommand?(id: string): void;
   /// The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host's capture of a region
-  /// or a window, attached as an image; an error for one too large to attach (shown as the
-  /// composer's note); undefined when the person cancelled the pick.
-  capture?(mode: "screen" | "window"): Promise<File | AttachmentError | undefined>;
+  /// or a window, attached as an image at any size; undefined when the person cancelled the pick.
+  capture?(mode: "screen" | "window"): Promise<File | undefined>;
   /// Saves dropped, pasted or chosen files the composer can't attach where the agent reads them (a
   /// moved chat's machine, or this Mac): each becomes a chip that sends its path. Undefined when this
   /// chat takes none.
@@ -742,6 +705,7 @@ function ComposerFrame({
     revive,
     originalFailures,
     originalUploads,
+    needsOriginal,
     attachError,
     setAttachError,
     drop,
@@ -976,11 +940,16 @@ function ComposerFrame({
           field.current?.focus();
         }
       },
-      wakeState: () => ({
-        attachments: attachmentsRef.current.filter((chip) => !chip.shellRun),
-        shell: shellRef.current.shell,
-        shellText: shellRef.current.shellText,
-      }),
+      wakeState: () => {
+        const attachments = attachmentsRef.current.filter((chip) => !chip.shellRun);
+        return {
+          attachments,
+          shell: shellRef.current.shell,
+          shellText: shellRef.current.shellText,
+          // A release agents.hiddenChats.discard alone makes keeps a page holding a draft (AgentPaneWakeState.swift).
+          holdsDraft: composerHoldsDraft(field.current?.value() ?? textRef.current, attachments),
+        };
+      },
       async settleDraft() {
         // The editor's value, not React's state: a keystroke whose effects have not run yet counts.
         let typed = field.current?.value() ?? textRef.current;
@@ -1503,9 +1472,10 @@ function ComposerFrame({
       return true;
     }
     if (owned) {
-      // Side questions carry text only; staged files stay here for the main turn.
-      // A file still being read counts too: /btw must not cancel it.
-      if (owned.action === "btw" && (attachments.length > 0 || pending.length > 0)) return false;
+      // Side questions and /side's prompt carry text only; staged files stay here for the main
+      // turn. A file still being read counts too: /btw and /side must not cancel it.
+      if ((owned.action === "btw" || owned.action === "side") && (attachments.length > 0 || pending.length > 0))
+        return false;
       if (owned.name === "import") {
         if (importSandboxed) {
           setAttachError(t("composer.cmuxImportSandbox"));
@@ -1586,7 +1556,7 @@ function ComposerFrame({
     // Too large for one message until the originals still uploading are saved: it waits for them.
     if (
       holdForOriginals(
-        awaitsOriginals(prompt, placed.attachments, (id) => originalUploads.has(id)),
+        awaitsOriginals(prompt, placed.attachments, (id) => originalUploads.has(id), {}, undefined, needsOriginal),
         (gesture) => submitNow.current(force, steer, gesture),
         kept,
       )
@@ -2712,8 +2682,11 @@ function ComposerFrame({
                   else if (action === "composer.attachScreenshot" || action === "composer.attachWindow") {
                     void capture?.(action === "composer.attachWindow" ? "window" : "screen")
                       .then(async (shot) => {
-                        if (shot instanceof File) await attach([shot]);
-                        else if (shot) setAttachError(attachmentErrorText(shot, t));
+                        // One over the image cap goes as a pasted one does: a preview, and its
+                        // original saved to the chat for the agent to read; a send waits for that
+                        // original (its preview is a reduced copy). Never refused for size.
+                        const over = Boolean(shot && shot.size > MAX_IMAGE_BYTES);
+                        if (shot) await attach([shot], over, undefined, over);
                       })
                       .finally(() => {
                         const focused = document.activeElement;
@@ -2748,6 +2721,8 @@ function ComposerFrame({
           showContextUsage && (
             <UsageRingMenu>
               <ContextRing
+                // The chat the reading is of: switching chats shows the new one's at once, uneased.
+                chat={snapshot.summary?.sessionId || sessionId}
                 used={usage?.used}
                 size={usage?.size}
                 setup={usage?.setup}
@@ -2769,7 +2744,7 @@ function ComposerFrame({
         }
         actionsLead={
           <>
-            {listening && dictation && <DictationStrip dictation={dictation} />}
+            {dictation && <DictationStrip dictation={dictation} shown={!!listening} />}
             {quietActions && sendControl}
           </>
         }

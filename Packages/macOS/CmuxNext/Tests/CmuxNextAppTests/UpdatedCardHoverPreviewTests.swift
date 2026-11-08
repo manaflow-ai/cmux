@@ -19,14 +19,15 @@ struct UpdatedCardHoverPreviewTests {
         let view = NSView()
         var contentHeight: CGFloat = 0
         var overlayHeight: CGFloat = 0
+        var previewHeight: CGFloat = 0
         var onHeightChange: (() -> Void)?
         var onAction: (() -> Void)?
         var onDismiss: (() -> Void)?
         var pointer: [Bool] = []
         func close() {}
         func setPointerInside(_ inside: Bool) { pointer.append(inside) }
-        func report(height: CGFloat, overlay: CGFloat) {
-            (contentHeight, overlayHeight) = (height, overlay)
+        func report(height: CGFloat, overlay: CGFloat, preview: CGFloat = 0) {
+            (contentHeight, overlayHeight, previewHeight) = (height, overlay, preview)
             onHeightChange?()
         }
     }
@@ -84,6 +85,60 @@ struct UpdatedCardHoverPreviewTests {
         sidebar.layoutSubtreeIfNeeded()
         #expect(host.frame == resting, "a closed preview gives the room back")
         host.configure(nil)
+    }
+
+    /// Leo 2026-11-08: "it turns from glass when it's unhovered into opaque when it does get hovered"
+    /// and "the cursor propagates to, like, the actual workspace stuff on the sidebar". The host draws
+    /// the card's glass behind the page, the card's size and its open preview's on the card's bottom
+    /// edge; the rows under that glass light nothing and open no card, and the room the view keeps
+    /// past the glass (asked for before the preview opens, or kept while it closes) passes the pointer on.
+    @Test func theOpenPreviewsGlassCoversTheRowsUnderItAndOwnsThePointer() throws {
+        UserDefaults.standard.removeObject(forKey: SidebarUpdatedCardHost.rememberedHeightKey)
+        UserDefaults.standard.removeObject(forKey: SidebarUpdatedCardHost.rememberedHeightsKey)
+        defer {
+            UserDefaults.standard.removeObject(forKey: SidebarUpdatedCardHost.rememberedHeightKey)
+            UserDefaults.standard.removeObject(forKey: SidebarUpdatedCardHost.rememberedHeightsKey)
+        }
+        let surfaces = FakeSurfaces()
+        let model = SidebarModel(sections: [])
+        model.updatedCard = Self.card
+        let sidebar = SidebarView(model: model, design: DesignSettings())
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        sidebar.updateSurfaces = surfaces
+        let host = sidebar.updatedCardView
+        host.configure(Self.card)
+        let island = try #require(surfaces.islands.first)
+        island.report(height: 48, overlay: 0)
+        sidebar.layoutSubtreeIfNeeded()
+        host.layoutSubtreeIfNeeded()
+        #expect(!host.glass.isHidden, "the resting card has its glass too: nothing swaps when the preview opens")
+        #expect(host.glass.frame == host.bounds)
+        #expect(host.glass.superview === host && host.subviews.first === host.glass, "the glass is under the page")
+
+        // The room first (the page waits for it), then the preview opens to 200 of rows.
+        island.report(height: 48, overlay: 248)
+        sidebar.layoutSubtreeIfNeeded()
+        host.layoutSubtreeIfNeeded()
+        #expect(host.glassFrame.height == 48, "the room alone grows no glass")
+        let roomTop = sidebar.convert(NSPoint(x: host.frame.midX, y: host.frame.maxY - 100), to: nil)
+        #expect(!host.covers(windowPoint: roomTop))
+        #expect(host.hitTest(host.superview!.convert(roomTop, from: nil)) == nil, "the room past the glass takes no click")
+
+        island.report(height: 48, overlay: 248, preview: 200)
+        host.layoutSubtreeIfNeeded()
+        #expect(host.glassFrame == host.bounds, "the glass is the card and its open preview")
+        #expect(host.covers(windowPoint: roomTop), "over the open preview the rows under it light nothing")
+        #expect(sidebar.list.hoverOccluded?(roomTop) == true, "the list asks the card before it lights a row")
+        let below = sidebar.convert(NSPoint(x: host.frame.midX, y: host.frame.maxY + 40), to: nil)
+        #expect(sidebar.list.hoverOccluded?(below) != true, "past the card the rows hover as before")
+
+        // The close starts: the glass goes with the page's preview, before the room goes back.
+        island.report(height: 48, overlay: 248, preview: 0)
+        host.layoutSubtreeIfNeeded()
+        #expect(host.glassFrame.height == 48)
+        #expect(!host.covers(windowPoint: roomTop))
+        host.configure(nil)
+        #expect(!host.covers(windowPoint: roomTop), "a dismissed card covers nothing")
     }
 
     /// Review F1 of #37615: builds before the composer-height card remembered its taller two-line

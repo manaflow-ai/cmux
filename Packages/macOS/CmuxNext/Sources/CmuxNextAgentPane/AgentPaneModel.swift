@@ -189,6 +189,12 @@ public final class AgentPaneModel {
     @ObservationIgnored public let tabRow = AgentPaneTabRow()
     /// Page-owned Session Info content drawn by AppKit.
     @ObservationIgnored public let sessionInfo = AgentPaneSessionInfo()
+    /// The page's bottom stack (a question, the tray, queued prompts, the composer) in its viewport,
+    /// CSS pixels: the window's toasts rest above it (AgentPaneView+ToastAvoidance.swift). Nil while
+    /// the page reports none.
+    @ObservationIgnored public internal(set) var toastAvoidance: CGRect?
+    /// Called when ``toastAvoidance`` changes: the view moves the window's toasts clear of it.
+    @ObservationIgnored var onToastAvoidance: (() -> Void)?
     /// The page's floating glass the App draws under the page.
     @ObservationIgnored public let hostGlass = AgentPaneHostGlass()
     /// Declarative native controls published by the page for the shared tab row.
@@ -197,6 +203,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onTabRowToolMenuRequested: ((String, String?) -> Void)?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
+    /// `dictation.watchMicrophone {on}`: the view starts or stops watching the microphone for the page.
+    @ObservationIgnored var onWatchMicrophone: ((Bool) -> Void)?
     /// Takes back a long recording the pane's dictation gave the page, for chat `session`
     /// (``AgentPaneDictation/takeRecording(_:session:)``); nil for any other path.
     @ObservationIgnored var onDictationRecording: ((_ path: String, _ session: String) -> AgentPaneIssuedRecording?)?
@@ -314,6 +322,8 @@ public final class AgentPaneModel {
     @ObservationIgnored var chatUploadFolders = ChatUploadFolders.standard
     /// The icons of the apps this pane said attachments came from (`attachment.sourceIcon`).
     @ObservationIgnored let sourceIcons = AttachmentSourceIcons()
+    /// The mic's hand-off to the dictation app `agentPane.dictationSource` names.
+    @ObservationIgnored var dictationHandoff = AgentPaneDictationHandoff()
     @ObservationIgnored public internal(set) var composer = AgentPaneComposerSetting.fallback
     /// The native Debug Settings baseline for the sidebar's latest-reply preview. A user's
     /// `layout.sidebarPreviewVariant` can temporarily override it in the page.
@@ -456,8 +466,8 @@ public final class AgentPaneModel {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
         case .ready, .reconnect, .uiPointerReport, .framePacing, .renderRate, .checkpointAvailability, .commandAvailability, .painted, .clientReady, .newTabInputReady, .newTabContext, .newTabWarm, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext,
-             .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .hostGlass, .projectIcon, .agentAvatar, .miniSubject, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
-             .sandboxState, .subagentShown: break
+             .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .hostGlass, .toastAvoidance, .projectIcon, .agentAvatar, .miniSubject, .chiefFace, .harnessSymbol, .attachmentSourceIcon, .environment(.list), .cloudMachine(.list), .cloudMachine(.recoveryList), .cloudMachine(.prewarm),
+             .sandboxState, .subagentShown, .dictationSources, .watchMicrophone: break
         // The composer reports whether its harness takes audio on every mount (dictation.ts), and the
         // header, project notice and New Tab project list read their state on mount: boot traffic too (HQ#5914).
         case .dictation(.recordAudio), .tabState, .projectInstructions, .listProjects: break
@@ -748,7 +758,7 @@ public final class AgentPaneModel {
             } catch {
                 return AgentPaneReply.failure(code: "btw_failed", message: "Inline side question failed")
             }
-        case .paneAction, .moveToMachine, .diffTurn, .diffPatch, .preview, .setQuickActions, .tabState, .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .hostGlass, .copyText, .sideChat, .subagentPane, .subagentShown, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
+        case .paneAction, .moveToMachine, .diffTurn, .diffPatch, .preview, .setQuickActions, .tabState, .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .hostGlass, .toastAvoidance, .copyText, .sideChat, .subagentPane, .subagentShown, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)
@@ -760,6 +770,22 @@ public final class AgentPaneModel {
             guard let onDictation else { return AgentPaneReply.failure(code: "unsupported", message: "Dictation is unavailable") }
             onDictation(command)
             return AgentPaneReply.success()
+        case .dictationHandoff:
+            // It posts keys into whichever app is in front: only for the person's own click on the mic,
+            // just now (``AgentPaneUserGestures/answerWindow``), spent once. Not the page's
+            // `userGesture` (a page counts a click another process posted too) and not the generic
+            // credit, which any key press leaves for half a minute, so page script cannot wait for
+            // unrelated typing and spend it here. A key on the mic goes through Globe-D instead.
+            guard transport.gestures.consumeAnswerClick() else { return Self.transportFailure(.gestureRequired) }
+            return dictationHandoff.reply(composer)
+        case .watchMicrophone(let on):
+            guard let onWatchMicrophone else { return Self.unsupported("dictation.watchMicrophone") }
+            onWatchMicrophone(on)
+            return AgentPaneReply.success()
+        case .dictationSources:
+            let sources = dictationHandoff.sources()
+            sourceIcons.noteDictationApps(sources.compactMap { $0["bundleId"] as? String })
+            return AgentPaneReply.success(["sources": sources])
         case .dictationRecordingUpload(let path): return await AgentPaneDictationUpload.respond(path, in: self)
         case .dictationRecordingCancel(let path): return AgentPaneDictationUpload.cancel(path, in: self)
         case .openFile(let path, let target): return await openFile(path, target: target)

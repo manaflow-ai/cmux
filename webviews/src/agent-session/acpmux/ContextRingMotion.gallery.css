@@ -1,0 +1,4 @@
+/* The ring at 4x, so the arc's travel reads in a capture. */
+.context-ring-motion-gallery { display: flex; align-items: center; gap: 24px; padding: 16px; }
+.context-ring-motion-gallery__ring { display: inline-flex; zoom: 4; }
+.context-ring-motion-gallery__next { font: inherit; }

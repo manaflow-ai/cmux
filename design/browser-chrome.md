@@ -10,12 +10,16 @@ windows.
   extension and trailing buttons, progress line), `toolbarModel.ts` (metrics, commands, layout and
   chip rules), `SuggestionDropdown.tsx` (suggestion card), `browserChrome.css`.
 - `webviews/src/browser-chrome/page-info/PageInfoBubble.tsx` (the bubble), `model.ts` (model,
-  commands, permission rules), `pageInfo.css`.
+  commands, permission rules), `pageInfo.css`; the windows the bubble opens:
+  `SiteSettingsWindow.tsx`, `SiteDataWindow.tsx`, `CertificateViewer.tsx` (with `certificate.ts`,
+  the viewer's words), `windows.ts` (their wire), `pageInfoWindows.css`.
 - Strings: `Localizable.xcstrings` next to each, copied with every locale from the native
   `CmuxNextBrowser/Resources/Localizable.xcstrings` (toolbar) and `PageInfo.xcstrings` (Page Info,
   chip); `scripts/pages/gen-strings.mjs` writes `generated/strings.json`.
-- Gallery: `browser-chrome.toolbar`, `browser-chrome.suggestions`, `browser-chrome.page-info`
-  (area Browser chrome, Experimental until the React chrome ships). Each has a Look option.
+- Gallery: `browser-chrome.toolbar`, `browser-chrome.suggestions`, `browser-chrome.page-info`,
+  `browser-chrome.page-info.site-settings`, `.site-data`, `.certificate` (area Browser chrome,
+  Experimental until the React chrome ships). Each has a Look option.
+- The Import Cookies card (its own section below): gallery `browser-chrome.cookie-import`, same area, with a Look option.
 
 The native sources these match: `UI/OmnibarStyle.swift`, `OmnibarMetrics.swift`,
 `BrowserToolbarLayout.swift`, `BrowserToolbarButton.swift`, `BrowserToolbarPolicy.swift`,
@@ -64,10 +68,11 @@ The suggestion card hangs from the bar. Page Info is a popup anchored at the chi
 | suggestion card | the bar's width, rows inset 4, 2 above each row, 4 at the end, row radius 4 | `rowSideInset`, `rowGap`, `cardBottomPadding` |
 | suggestion row | glyph 16 on the chip's center, text on the address text's column | `SuggestionRowView` |
 | Page Info card | 320 wide, padding 6, radius 8 | `bubbleWidth`, `inset / 2` |
-| Page Info row | 28 (42 with subtitle), inset 6, icon column 26, glyph 16, 2 between rows | `PageInfoStyle` |
+| Page Info row | 28 (42 with subtitle), inset 6, icon column 26, glyph 16, 2 between rows | `PageInfoStyle` (former) |
 | Page Info text | title 12 emphasized, body 12, captions 10.5 (web: the 11 caption step) | `Typography` |
-| Page Info switch | 28 x 16, the text color when on | `PageInfoToggle` |
-| header buttons | 24 square, glyph 14 | `PageInfoIconButton` |
+| Page Info switch | 28 x 16, the text color when on | `PageInfoToggle` (former) |
+| header buttons | 24 square, glyph 14 | `PageInfoIconButton` (former) |
+| Page Info windows | fixed width (site settings 460, site data 440, certificate 520), inset 18, height fits the page up to 640 | `PageInfoWebWindow` |
 
 Comfortable density (34 pt bar and buttons, 15 pt text) is not drawn yet; the numbers live in
 `TOOLBAR_METRICS` and the `--pi-*` block, so it is one change in each.
@@ -121,6 +126,61 @@ Commands are `PageInfoCommand`'s cases (`show`, `showCertificate`, `setPermissio
 `resetPermissions`, `siteSettings`, `manageSiteData`, `deleteSiteData`, `aboutThisPage`,
 `reenableCertificateWarnings`, `reload`, `close`).
 
+### Windows
+
+Site settings, On-device site data and the certificate viewer are native windows
+(`PageInfoWindows`: one per kind and pane, placed by `WindowPlacement`, in the shell window's theme
+scope) whose content is a React page each (`cmux.site-settings`, `cmux.site-data`,
+`cmux.certificate`, through `BrowserChromeWebHost`). A window opens once its page reported its
+height, at a fixed width; it follows the height up to 640 pt, then the page scrolls. The certificate
+viewer stacks its two tabs in one cell, so switching never resizes it.
+
+- **Site settings.** Usage ("Cookies from this site: N · Sites with data: N") and Delete data; every
+  permission the engine enforces with a menu of its choices (default marked); Reset permissions
+  (off while nothing differs from its default); the engine note.
+- **On-device site data.** Every site that stored data, this site first, with its details and a
+  delete button; Loading, No site data; Done (Return).
+- **Certificate viewer.** General (Issued To, Issued By, Validity Period, SHA-256 Fingerprints;
+  dates in the page's language) and Details (hierarchy, fields, Export); the engine's verification
+  failure under both. Export is the native save panel (PEM of the chosen certificate to the root).
+
+The wire (`PageInfoWindowWire`, `windows.ts`): site settings `{site, origin, usage, permissions:
+[{kind, setting, isDefault, choices}], canReset}`; site data `{entries: [{domain, cookieCount,
+hasOtherData, isThirdParty}] | null}`; certificate `{chain: [{version, serialNumber,
+signatureAlgorithm, issuer, subject, notBefore, notAfter, publicKeyAlgorithm,
+subjectAlternativeNames, sha256Fingerprint, sha1Fingerprint, publicKeySHA256, pem}], failure?}`
+with names `{commonName?, organization?, organizationalUnit?, summary}` and dates in ms. Commands
+(`PageInfoWindowCommand`): `setPermission`, `resetPermissions`, `deleteSiteData` (a domain, or the
+window's site), `exportCertificate {index}`, `close`. Escape closes every window.
+
+## Import Cookies card
+
+The card at the bottom of a browser page that offers to bring cookies over from the most used
+browser on this Mac (`webviews/src/browser-chrome/cookie-import/CookieImportCard.tsx`, page
+`pages/cookie-import`, host `CmuxNextBrowser/UI/BrowserCookieImportCard.swift`, gallery
+`browser-chrome.cookie-import`). Leo, 2026-11-07: "this looks kind of ugly, to be honest. Like
+this isn't styled well." The native card drew two labels and buttons of two different kinds,
+with Don't Show Again as loose gray text at another height.
+
+- **Surface.** The native card is the glass (the theme's tint, the dialog radius 8, the popups'
+  elevation-2 shadow, the blur of the page behind its window, opaque under Reduce Transparency);
+  the page draws only text and buttons on it. Width: the pane's, at most `promptMaxWidth`.
+- **Layout (Standard density).** Padding 12. The browser's app icon at 32, 12 to the text. Title
+  in the body step (13) at emphasis, one line, cut at its end; detail in the detail step (12) in
+  the muted ink, at most two lines. 8 below, one row of answers.
+- **Answers.** Not Now (subtle) and Import… (the theme accent), both the compact control height
+  (24) and one width, the wider label's. Don't Show Again is a ghost button of the same height in
+  the faint ink (muted on hover), its text on the title's column; all three share one baseline.
+  No key hints: the card never takes focus, so Return and Escape stay the page's.
+- **States.** It shows only once its page reported the height of its lines, fading in at that
+  height (no empty frame, no growth after it appeared); until then every click goes to the page.
+  Any answer fades it out and the chrome answers the host. After cookies came over by any path
+  (this card, File > Import from Browser, Import Cookies from Browser) it never shows again.
+- **Keep in sync.** For a Chromium browser, a checkbox under the detail, on by default
+  (`browser.import.cookieSync`, also Settings > Browser > Import). Its state goes to the host with
+  Import only. On, the sites whose cookies change in that browser come over again; it never signs
+  cmux out of a site the browser signed out of.
+
 ## Keyboard
 
 - Toolbar: every control is a button in tab order; Space or Return presses it. Shortcuts
@@ -139,6 +199,10 @@ Commands are `PageInfoCommand`'s cases (`show`, `showCertificate`, `setPermissio
 | omnibar | flat (today), outlined (hairline, no fill), capsule (fully round) | **flat** |
 | suggestions | joined (today), floating (separate glass popup), two-line (title over URL) | **joined** |
 | Page Info | parity (today), grouped (inset cards per group), dense (one-line rows) | **parity** |
+| Site settings | parity (today), grouped (inset cards), segmented (choices on the row) | **parity** |
+| On-device site data | parity (today), grouped (this site / third parties headed), compact (one line) | **parity** |
+| Certificate viewer | list (Details shows every field's value), tabs (today: pick a field), sheet (no tabs) | **list** |
+| Import Cookies card | split (link on the text column, buttons at the end), trailing (all three answers at the end), inline (one row, buttons beside the text) | **split** |
 
 - **Flat** keeps the bar a field you can find at a glance on any wallpaper or theme, and its fill
   is what the joined card continues. Outlined reads lighter but loses the bar on busy pages and
@@ -151,3 +215,15 @@ Commands are `PageInfoCommand`'s cases (`show`, `showCertificate`, `setPermissio
 - **Parity** matches the native bubble row for row, so the move to React changes nothing a user
   sees. Grouped reads well but grows the card by a third; dense hides the "Can ask to …" sentences
   that explain what a switch does.
+- **Site settings and site data stay at parity** for the same reason. Segmented choices save a
+  click but make every row three buttons wide and crowd the window's fixed width; the grouped site
+  data list only helps once many third parties stored data, and compact rows cut the domain short.
+- **List** for the certificate viewer: the native Details tab hid each value behind picking its
+  field in a short table; listing every field with its value (selectable to copy) reads the whole
+  certificate at once in the same window, and keeps General as today. The sheet loses the quick
+  General summary under a long scroll.
+- **Split** reads in order: what this is, then the quiet way out on the left and the two real
+  answers together on the right, so the eye lands on Import last. Trailing puts three
+  same-height targets side by side, which makes Don't Show Again look like a third button of
+  equal weight. Inline saves a row in wide panes but squeezes the text in the narrow ones the
+  browser pane often is.

@@ -330,6 +330,9 @@ pub(super) fn subscribe_command(
                 // Apps clients already hear it on their own sink; only a page
                 // relay (whose page names it) gets it from the event stream.
                 MuxEvent::AppsChanged(_) if page_events.is_none() => continue,
+                // Other clients hear a stash change as a `stash` resource on
+                // `session.events`; only the Stashed Tabs page's relay gets it here.
+                MuxEvent::StashChanged { .. } if page_events.is_none() => continue,
                 // Only the Tasks page hears its owner's changes.
                 MuxEvent::TasksChanged(_) if page_events.is_none() => continue,
                 _ => subscribed_event_json(&event),
@@ -524,6 +527,10 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "event": "bookmarks-changed",
             "browser_profile_id": change.browser_profile_id,
             "bookmarks_revision": change.bookmarks_revision,
+        }),
+        MuxEvent::StashChanged { revision } => json!({
+            "event": "stash-changed",
+            "revision": revision,
         }),
         MuxEvent::HistoryChanged { revision, kinds } => json!({
             "event": "history-changed",
