@@ -3,6 +3,7 @@
 // as "bash -c '"), the command clamped to its first meaningful line with the full text one click
 // away, and three answers mapped onto the options the agent offered. Leo 2026-10-21: the card
 // drew a "bash -c '" title over the whole script and two list rows ("THIS IS NOT THE CORRECT UI").
+import { composerHasDraft, composerPromptOf, composerText } from "../composerTyped";
 import type { Translate } from "../i18n";
 import type { AcpmuxPermission } from "../model";
 
@@ -182,12 +183,21 @@ type KeyLike = Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "s
   defaultPrevented?: boolean;
 };
 
-/// The card's keys, while it is the prompt waiting on the person: 1 allows once, 2 always allows,
-/// 3 denies, Return and ⌘↩ allow once and Esc denies (or closes the feedback field while it is
-/// open). They act only with nothing focused or with focus in the card itself: never while the composer,
-/// another field, a menu or a dialog has the keyboard, and a focused button keeps its own Return
-/// (never ⌘↩, which no button takes).
-/// `card` is the card's element.
+/// The answers' letters, as a terminal agent's prompt takes them: y allows once, a always allows,
+/// n denies (permissionKeys.ts names an ask's options by the same letters).
+export const PERMISSION_LETTERS: Readonly<Record<string, Exclude<PermissionKeyAction, "closeFeedback">>> = {
+  y: "allow_once",
+  a: "allow_always",
+  n: "deny",
+};
+
+/// The card's keys, while it is the prompt waiting on the person: y, 1, Return and ⌘↩ allow once,
+/// a and 2 always allow, n, 3 and Esc deny (Esc closes the feedback field while it is open). They
+/// act with nothing focused, with focus in the card itself, or with focus in an empty composer,
+/// where the keyboard sits after every answer (there the letters, Return, ⌘↩ and Esc; a digit
+/// still types). Never while the composer holds a draft (with nothing focused, a letter goes on
+/// into that draft), nor while another field, a menu or a dialog has the keyboard, and a focused
+/// button keeps its own Return (never ⌘↩, which no button takes). `card` is the card's element.
 export function permissionKeyAction(
   event: KeyLike,
   card: Element | null,
@@ -203,6 +213,16 @@ export function permissionKeyAction(
   const doc = element?.ownerDocument;
   const inCard = Boolean(element && card?.contains(element));
   const nowhere = !element || element === doc?.body || element === doc?.documentElement;
+  const letter = event.key.length === 1 ? PERMISSION_LETTERS[event.key.toLowerCase()] : undefined;
+  // The composer with nothing typed is the ask's: its Return would send nothing and its Esc would
+  // only arm Stop. One typed character and the composer keeps every key.
+  const prompt = inCard ? null : composerPromptOf(element);
+  if (prompt) {
+    if (feedbackOpen || composerText(prompt) !== "") return undefined;
+    if (event.key === "Enter") return "allow_once";
+    if (event.key === "Escape") return "deny";
+    return letter;
+  }
   if (!inCard && !nowhere) return undefined;
   if (commandReturn) return feedbackOpen || element?.closest(OWNS_KEYS) ? undefined : "allow_once";
   if (event.key === "Escape") {
@@ -214,5 +234,8 @@ export function permissionKeyAction(
   if (event.key === "2") return "allow_always";
   if (event.key === "3") return "deny";
   if (event.key === "Enter") return element?.closest(PRESSABLE) ? undefined : "allow_once";
-  return undefined;
+  if (!letter) return undefined;
+  // With nothing focused a printed key goes on into the composer's draft (composerFocus.ts).
+  const page = doc ?? globalThis.document;
+  return nowhere && page && composerHasDraft(page) ? undefined : letter;
 }

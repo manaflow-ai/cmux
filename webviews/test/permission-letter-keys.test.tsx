@@ -141,7 +141,8 @@ test("a Claude chat asks to run a command: y from the empty composer runs it, n 
 
 test("each answer shows its letter on the card, and lists it in aria-keyshortcuts", async () => {
   const { root } = await mountCard(bash("p-hints"));
-  const button = (className: string) => host.querySelector<HTMLButtonElement>(`.acpmux-permission-buttons ${className}`)!;
+  const button = (className: string) =>
+    host.querySelector<HTMLButtonElement>(`.acpmux-permission-buttons ${className}`)!;
   const keycaps = (element: Element) =>
     [...element.querySelectorAll(".acpmux-keycap")].map((keycap) => keycap.textContent);
   expect(keycaps(button(".acpmux-permission-primary"))[0]).toBe("Y");
