@@ -241,10 +241,10 @@ impl Mux {
                     .get("placement")
                     .and_then(Value::as_str)
                     .and_then(crate::user_settings::NewWorkspacePlacement::from_wire);
-                match placement {
+                crate::state::created_by::scoped_by_fields(fields, || match placement {
                     Some(placement) => placement.scoped(create),
                     None => create(),
-                }
+                })
                 .map(|created| created.path)
             }
             ResourceOperation::WorkspaceClose => {

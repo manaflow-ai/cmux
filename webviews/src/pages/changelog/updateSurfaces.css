@@ -33,12 +33,12 @@
    veil's 42%). It was the text at 13%, a gray over any theme (Leo 2026-11-02: "why is the update
    thing unthemed"). Reduce Transparency still makes it opaque (glass.css's surface): the same
    selector again, later, so it outranks the plain fill. */
-:root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .wn-card {
+:root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .wn-card:not(.wn-updated) {
   --glass-tint: color-mix(in srgb, var(--glass-surface) 42%, transparent);
   --glass-backdrop: none;
 }
 @media (prefers-reduced-transparency: reduce) {
-  :root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .wn-card {
+  :root:not([data-glass="lens"], [data-glass="spectrum"]):not([data-reduce-transparency]) .wn-card:not(.wn-updated) {
     --glass-tint: var(--glass-surface);
   }
 }
@@ -153,15 +153,31 @@
 /* The update-ready popover: the type of every cmux popover and hover card (Leo 2026-10-19: it was
    "tonka toys big"): 13 px change titles at the regular weight, 12 px secondary lines, small tertiary
    numbers, tight rows. The host makes it 340 pt wide and at most 60% of the window tall. */
+/* The update-ready hover card (Leo 2026-11-05: "this is too big ... oddly spaced and oddly
+   rendered ... i can't even scroll through the changes"): a hover card's size and rhythm, as the
+   app's other hover cards (the session and link cards): one heading line, version to version; one
+   line per change; See all changes pinned under the list. The head and the foot stay; only the
+   list scrolls (`.wn-pop-scroll`, the shared card scroller), with the wheel, the trackpad or the
+   keys. Each change is its title on one line and its line under it, cut to one line. At most --wn-pop-max tall in the gallery and in the app (surface.css), wherever the window
+   would give it more. Every gap is a step of the design scale (--ds-space-*). */
+/* Inherited, so a host or a gallery stage can give the card less room. */
+:root {
+  --wn-pop-max: 360px;
+}
 .wn-pop {
+  --wn-pop-x: var(--ds-space-3);
+  display: flex;
+  flex-direction: column;
   width: 340px;
-  padding: 10px 12px 8px;
+  max-height: var(--wn-pop-max);
   color: var(--page-text);
-  font-size: var(--text-body);
-  line-height: var(--text-body--line-height);
-  letter-spacing: var(--text-body--letter-spacing);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .wn-pop-title {
+  flex: none;
+  padding: var(--ds-space-2) var(--wn-pop-x) var(--ds-space-1);
   color: var(--page-text-2);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
@@ -169,31 +185,73 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-detail--letter-spacing);
 }
+.wn-pop-span-from { color: var(--page-text-3); }
+.wn-pop-title .wn-pop-span-to { color: var(--page-text); }
 .wn-pop-from { color: var(--page-text-3); font-size: var(--text-detail); line-height: var(--text-detail--line-height); font-variant-numeric: tabular-nums; letter-spacing: var(--text-detail--letter-spacing); }
-.wn-pop-list { list-style: none; margin: 6px 0 0; padding: 0; }
-/* Each change gets a little air (design #2 "Readable"). */
-.wn-pop-list li { display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 6px; padding: 4px 0; }
-.wn-pop-n {
-  color: var(--page-text-3);
-  font-size: var(--text-caption);
-  line-height: var(--text-body--line-height);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  letter-spacing: var(--text-caption--letter-spacing);
+.wn-pop-scroll {
+  flex: 0 1 auto;
+  min-height: 0;
+  padding: 0 var(--wn-pop-x) var(--ds-space-1);
+  outline: none;
 }
-.wn-pop-item { display: block; font-weight: var(--weight-regular); }
-.wn-pop-line { display: block; margin-top: 1px; color: var(--page-text-2); font-size: var(--text-detail); line-height: var(--text-detail--line-height); letter-spacing: var(--text-detail--letter-spacing); }
-/* A change's picture: the popover's width, inline with the text, scrolling with it; a click opens
-   the change's notes, where it shows at the page's width. */
-.wn-pop-media {
+.wn-pop-scroll:focus-visible { box-shadow: inset 0 0 0 2px var(--cmux-accent, currentColor); }
+.wn-pop-list,
+.wn-pop-rest-group ul { list-style: none; margin: 0; padding: 0; }
+/* One change: its title in the text color, then its line in the quiet color, on one line cut at
+   the edge, as the What's New sheet's rows are; the whole text is on What's New. */
+.wn-pop-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  padding: calc(var(--ds-space-1) / 2) 0;
+}
+.wn-pop-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wn-pop-item { color: var(--page-text); font-size: var(--text-body); line-height: var(--text-body--line-height); letter-spacing: var(--text-body--letter-spacing); }
+.wn-pop-line { color: var(--page-text-3); }
+/* A change with a pull request: the title link takes the cut, and its #N chip, the anchor of the
+   PR's hover card, always shows whole at the title's end. */
+.wn-pop-item:has(> .cl-pr) {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--ds-space-1);
+  max-width: 100%;
+  vertical-align: bottom;
+}
+.wn-pop-item > .cl-change-link {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wn-pop-item > .cl-pr { flex: none; }
+.wn-pop[data-layout="two-line"] .wn-pop-row { padding: var(--ds-space-1) 0; }
+.wn-pop[data-layout="two-line"] .wn-pop-text { white-space: normal; }
+.wn-pop[data-layout="two-line"] :is(.wn-pop-item, .wn-pop-line) {
   display: block;
-  width: 100%;
-  margin: 6px 0 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wn-pop[data-layout="two-line"] .wn-pop-item:has(> .cl-pr) { display: flex; }
+/* A change's picture: a thumbnail at the row's end; a click opens the change's notes, where it
+   shows at the page's width. */
+.wn-pop-media {
+  flex: none;
+  width: calc(var(--ds-control-icon) * 2);
+  height: var(--ds-control-icon);
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 4px;
   background: transparent;
   overflow: hidden;
   cursor: zoom-in;
@@ -201,24 +259,30 @@
 .wn-pop-media img {
   display: block;
   width: 100%;
-  height: auto;
-  border-radius: 6px;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 4px;
   box-shadow: inset 0 0 0 1px var(--page-separator);
 }
-/* The rest of the update's changes, after the numbered top three: one quiet line each, aligned
-   with the titles above (2026-10-20, the popover scrolls to the whole list). */
-.wn-pop-rest { margin: 2px 0 0; padding: 0 0 0 18px; }
+/* The rest of the update, by kind: a small heading over each group, rows as above. */
 .wn-pop-rest-group h4 {
-  margin: 8px 0 2px;
+  margin: var(--ds-space-2) 0 0;
   color: var(--page-text-3);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   font-weight: 600;
   letter-spacing: var(--text-caption--letter-spacing);
 }
-.wn-pop-rest-group ul { list-style: none; margin: 0; padding: 0; }
-.wn-pop-rest-group li { padding: 3px 0; color: var(--page-text-2); }
-.wn-pop-foot { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--page-separator); }
+.wn-pop[data-layout="flat"] .wn-pop-list + .wn-pop-rest { margin: 0; }
+.wn-pop-foot {
+  flex: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-2) var(--wn-pop-x);
+  border-top: 1px solid var(--page-separator);
+}
 .wn-pop-more { color: var(--page-text-3); font-size: var(--text-detail); line-height: var(--text-detail--line-height); letter-spacing: var(--text-detail--letter-spacing); }
 .wn-pop-all {
   margin-left: auto;
@@ -232,8 +296,216 @@
   cursor: default;
   letter-spacing: var(--text-detail--letter-spacing);
 }
+/* No change list (2026-11-03, "stretched out wasted space"): as wide as its lines, up to the menu
+   width, and the link with the text instead of at the far edge under a rule. */
+.wn-pop.wn-pop-brief { display: block; width: max-content; max-width: 340px; padding: 8px var(--wn-pop-x); }
+.wn-pop-brief .wn-pop-title { padding: 0; }
+.wn-pop-brief .wn-pop-head { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.wn-pop-brief .wn-pop-title { min-width: 0; }
+.wn-pop-brief > .wn-pop-all { display: block; margin: 4px 0 0; }
+.wn-pop-brief .wn-pop-from .wn-pop-all { margin: 0; }
+.wn-pop-brief .wn-pop-head .wn-pop-all { flex: none; margin: 0; }
+.wn-pop-brief .wn-pop-more { margin-top: var(--ds-space-1); }
 .wn-pop-all:hover { text-decoration: underline; text-underline-offset: 3px; }
 :is(.wn-card-close, .wn-card-primary, .wn-pop-all, .wn-pop-media):focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
 @media (prefers-reduced-transparency: reduce) {
-  .wn-card { background: var(--page-elevated); box-shadow: inset 0 0 0 1px var(--page-separator); }
+  .wn-card:not(.wn-updated) { background: var(--page-elevated); box-shadow: inset 0 0 0 1px var(--page-separator); }
+}
+
+/* The Updated card as the composer's twin (Leo 2026-11-07: "the border styles, the glass intensity
+   is different. For two, it's like the heights never match up with anything"): the composer's
+   material (ui/glass/composerMaterial.css: its fill at the popover level's share, its one-pixel
+   edge and its top-lit rim), its one-line height (grid.md 5.1, 48) and its corner. The words sit on
+   two lines inside it: "Updated to Nightly · What's New ↗", then the update's top change, each cut
+   at the card's edge (the hover preview has every change in full). Wider side room than the
+   button-row card (Leo: "a little more spacing regarding, like, the things in the side"). */
+.wn-card.wn-updated {
+  --wn-side: calc(var(--grid-base, 4px) * 3);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  border-radius: var(--composer-material-radius);
+  background: var(--composer-material-tint);
+  box-shadow: var(--composer-material-ring), var(--composer-material-rim), var(--composer-material-depth);
+}
+/* A page with content under the card (the gallery over a wallpaper) frosts it as the composer does;
+   the sidebar's card sits on the sidebar's own glass and frosts nothing. */
+.wn-card.wn-updated[data-glass] {
+  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
+  backdrop-filter: var(--ds-glass-popover-blur);
+}
+/* The card with the theme's doodle decoration wears the same material: the sidebar draws no glass
+   under the card's page (review F3 of #37615). Its own box and padding stay the doodle's. */
+.wn-card[data-decoration="doodle"] {
+  border-radius: var(--composer-material-radius);
+  background: var(--composer-material-tint);
+  box-shadow: var(--composer-material-ring), var(--composer-material-rim), var(--composer-material-depth);
+}
+.wn-card[data-decoration="doodle"][data-glass] {
+  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
+  backdrop-filter: var(--ds-glass-popover-blur);
+}
+/* Reduce Transparency: the composer's solid surface, as the composer's. */
+/* glass-opaque-allow: the Reduce Transparency fill only */
+:root[data-reduce-transparency] :is(.wn-card.wn-updated, .wn-card[data-decoration="doodle"]) {
+  background: var(--composer-material-solid);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+@media (prefers-reduced-transparency: reduce) {
+  /* glass-opaque-allow: the Reduce Transparency fill only */
+  :is(.wn-card.wn-updated, .wn-card[data-decoration="doodle"]) {
+    background: var(--composer-material-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+.wn-updated .wn-card-rest {
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--wn-gap);
+  height: var(--composer-material-height);
+  padding: 0 var(--wn-side);
+}
+/* The look before (gallery): the button under the note, as tall as its rows. */
+.wn-updated[data-placement="button"] .wn-card-rest {
+  height: auto;
+  min-height: var(--composer-material-height);
+  padding-block: var(--wn-pad-y);
+}
+.wn-updated .wn-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--grid-base, 4px);
+  min-width: 0;
+  /* Room for the host's x at the line's end. */
+  padding-right: calc(var(--wn-close) + var(--wn-gap));
+  white-space: nowrap;
+}
+.wn-updated .wn-card-title {
+  min-width: 0;
+  padding-right: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wn-updated .wn-card-sep { flex: none; color: var(--page-text-3); }
+.wn-card-link {
+  flex: none;
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: var(--weight-regular);
+  letter-spacing: inherit;
+  color: var(--page-text-2);
+  cursor: default;
+  transition: color var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
+}
+.wn-card-link:hover { color: var(--page-text); }
+.wn-updated[data-placement="top-right"] .wn-card-link { margin-left: auto; }
+.wn-updated .wn-card-note {
+  display: block;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wn-updated[data-placement="button"] .wn-card-note { margin-top: var(--wn-gap); }
+
+/* The hover preview (UpdatedCardPreview): above the card's two lines, in the same glass, with the
+   composer's hairline between them as its stack draws one between parts. Closed it is clipped to
+   nothing; open it is the list's height (at most PREVIEW_MAX_PX), and the list stands on the
+   preview's bottom, so as the glass's top edge rises the rows stay still. */
+.wn-preview {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: 0;
+  overflow: hidden;
+}
+.wn-updated[data-preview="open"] .wn-preview {
+  height: var(--wn-preview-h, 0px);
+  box-shadow: inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 var(--composer-material-edge);
+}
+/* The card over the sidebar's rows: its open preview grows over them, and a held card is dragged
+   over them. The page's glass cannot frost them (they are native views under the WebKit view,
+   outside the document a backdrop filter reads), so the sidebar draws the frost: a native glass
+   view behind the page (SidebarUpdatedCardHost), sized to the card and its open preview, follows
+   the open on the same curve. The card keeps the tint in both states, over that frost, so the rows
+   stay unreadable through it (Lawrence 2026-11-07: "this ui transparency looks bad now") while
+   their motion still shows (Leo 2026-11-08: "I feel like we should be able to keep it as glass
+   though, right?"). */
+/* The one structural move, on the card's own curve (Leo 2026-11-08: "the animation also seems like
+   it's a little bit slow"): a fast start that settles long, 265ms, the native glass's twin
+   (Motion.web.animateCard). On the shared gate (WebTheme's data-cmux-motion: "reduced" keeps
+   only fades, so the preview is simply there). */
+.wn-updated {
+  --wn-preview-motion: 265ms; /* motion-allow: Leo's card curve (2026-11-08), the native glass's fixed twin */
+  --wn-preview-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+:root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .wn-preview {
+  transition: height var(--wn-preview-motion) var(--wn-preview-ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .wn-preview { transition: none !important; }
+}
+.wn-preview-list {
+  flex: none;
+  box-sizing: border-box;
+  max-height: var(--wn-preview-max, 264px);
+  margin: 0;
+  padding: var(--grid-base, 4px);
+  list-style: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.wn-preview-row {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: var(--grid-base, 4px) calc(var(--wn-side) - var(--grid-base, 4px));
+  border: 0;
+  border-radius: var(--ds-radius-sm, 4px);
+  background: none;
+  color: var(--page-text);
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.wn-preview-row:hover { background: var(--page-hover); }
+.wn-preview-row:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: -2px; }
+.wn-preview-title,
+.wn-preview-detail {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wn-preview-title { font-size: var(--wn-title); }
+.wn-preview-detail { color: var(--page-text-2); font-size: var(--wn-note); letter-spacing: var(--text-detail--letter-spacing); }
+.wn-card-link:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
+
+/* The card's drag (updatedCardDrag.ts, Leo 2026-11-07: "drag that up to the top if you wanted
+   to"): held, it takes the grabbing cursor and its words do not select. Dropped at the top of the
+   list, the card rests on its top edge: the preview opens below its two lines, its rows standing on
+   the preview's top, with the hairline between them there. */
+:is(.wn-updated, .wn-card[data-decoration="doodle"])[data-dragging],
+:is(.wn-updated, .wn-card[data-decoration="doodle"])[data-dragging] * {
+  cursor: grabbing;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.wn-updated[data-anchor="top"] { flex-direction: column-reverse; }
+.wn-updated[data-anchor="top"] .wn-preview { justify-content: flex-start; }
+.wn-updated[data-anchor="top"][data-preview="open"] .wn-preview {
+  box-shadow: inset 0 var(--cmux-hairline, 0.5px) 0 var(--composer-material-edge);
 }

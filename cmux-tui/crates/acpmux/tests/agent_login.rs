@@ -6,8 +6,11 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
-// No agent starts here; the sign-in CLIs are the stand-ins below.
-const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+// No agent starts here; the sign-in CLIs are the stand-ins below. ACPMUX_HOT_MODULE and
+// ACPMUX_HOT_SWAP_TO pass through so crates/acpmux-hot/bench.sh can run this sign-in with the parser
+// from a dev module and swap it live (they do nothing unless the `hot-modules` feature is on).
+const HERMETIC: daemon_env::Process =
+    daemon_env::Process::deny().keep(&["ACPMUX_HOT_MODULE", "ACPMUX_HOT_SWAP_TO"]);
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -19,22 +22,43 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
-/// `claude auth login --claudeai` as Claude Code 2.1.305 prints it under a
-/// terminal (OSC-8 link), then the code on stdin: `good-code#state` signs in.
+/// `claude auth login --claudeai` as Claude Code 2.1.312 runs it: the manual
+/// link printed under a terminal (OSC-8), then the automatic link (its
+/// redirect is the CLI's own listener) handed to `$BROWSER`, then either a
+/// code on stdin (`good-code#state` signs in) or the approve reaching the
+/// listener, which `$FAKE_DIR/approve` stands for here. `$FAKE_DIR/no-listener`
+/// leaves the browser out (a CLI with no listener).
 const FAKE_CLAUDE: &str = r#"#!/bin/sh
 [ "$1 $2 $3" = "auth login --claudeai" ] || exit 64
 for v in ANTHROPIC_API_KEY ANTHROPIC_BASE_URL CLAUDE_CODE_OAUTH_TOKEN OPENAI_API_KEY DISPLAY; do
   eval "x=\${$v-}"; [ -z "$x" ] || { echo "leaked $v" >&2; exit 65; }
 done
-[ "$BROWSER" = true ] || exit 66
+[ "$BROWSER" != true ] && [ -x "$BROWSER" ] || exit 66
 [ "$CMUX_CLAUDE_AUTH" = own ] || exit 67
 url='https://claude.com/cai/oauth/authorize?code=true&client_id=x&state=abc'
+auto='https://claude.com/cai/oauth/authorize?code=true&client_id=x&redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback&state=abc'
 printf 'Opening browser to sign in\342\200\246\nIf the browser did not open, visit: \033]8;;%s\033\\%s\033]8;;\033\\\nPaste code here if prompted > ' "$url" "$url"
-read code
-[ "$code" = 'good-code#state' ] || { echo 'OAuth error: invalid code' >&2; exit 1; }
-mkdir -p "$CLAUDE_CONFIG_DIR"
-printf '{"claudeAiOauth":{"accessToken":"t"}}' > "$CLAUDE_CONFIG_DIR/.credentials.json"
-echo 'Login successful.'
+[ -f "$FAKE_DIR/no-listener" ] || "$BROWSER" "$auto" || exit 68
+signed_in() {
+  mkdir -p "$CLAUDE_CONFIG_DIR"
+  printf '{"claudeAiOauth":{"accessToken":"t"}}' > "$CLAUDE_CONFIG_DIR/.credentials.json"
+  echo 'Login successful.'
+  exit 0
+}
+exec 3<&0
+{ read code <&3; printf '%s' "$code" > ./pasted.tmp && mv ./pasted.tmp ./pasted; } &
+i=0
+while [ $i -lt 600 ]; do
+  if [ -f ./pasted ]; then
+    [ "$(cat ./pasted)" = 'good-code#state' ] && signed_in
+    echo 'OAuth error: invalid code' >&2
+    exit 1
+  fi
+  if [ -f "$FAKE_DIR/approve" ]; then rm -f "$FAKE_DIR/approve"; signed_in; fi
+  sleep 0.1
+  i=$((i+1))
+done
+exit 1
 "#;
 
 /// `codex login --device-auth` and `--with-api-key` as codex-cli 0.162.1.
@@ -76,6 +100,7 @@ fn script(path: &Path, text: &str) {
 
 /// A hub whose `claude` and `codex` harnesses are the stand-ins, keeping
 /// their sign-ins under `d`, and whose `/etc/cmux` is `d/root/etc/cmux`.
+#[cfg(unix)]
 fn hub(d: &Path) -> Arc<Hub> {
     let bin = d.join("bin");
     script(&bin.join("claude"), FAKE_CLAUDE);
@@ -85,7 +110,7 @@ fn hub(d: &Path) -> Arc<Hub> {
             "claude": {
                 "kind": "claude-stdio",
                 "argv": [bin.join("claude")],
-                "env": {"CLAUDE_CONFIG_DIR": d.join("claude-home")},
+                "env": {"CLAUDE_CONFIG_DIR": d.join("claude-home"), "FAKE_DIR": d},
             },
             "codex": {
                 "argv": [bin.join("codex"), "app-server"],
@@ -158,9 +183,12 @@ async fn agent_login_over_the_wire() {
     let e = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "gemini"})).await.unwrap_err();
     assert_eq!(reason(&e), "unsupported_agent");
 
-    // Claude: the link from the OSC-8 hyperlink; a wrong code is bad_code.
+    // Claude: the link from the OSC-8 hyperlink, and the automatic link its
+    // BROWSER got; a wrong code is bad_code.
     let s = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "claude"})).await.unwrap();
     assert_eq!(s["url"], "https://claude.com/cai/oauth/authorize?code=true&client_id=x&state=abc");
+    assert_eq!(s["autoUrl"], AUTO_URL);
+    assert_eq!(s["callbackPort"], 54545);
     assert_eq!(s["needsCode"], true);
     assert!(s.get("userCode").is_none());
     assert!(s["expiresAtMs"].as_u64().unwrap() > 0);
@@ -197,6 +225,8 @@ async fn agent_login_over_the_wire() {
     assert!(d.join("claude-home/.credentials.json").is_file());
     let home = dirs::home_dir().unwrap();
     assert!(!home.join(".config/cmux/agent-auth/claude").exists());
+
+    claude_with_no_code(&hub, &mut c, &d).await;
 
     // Cancel stops a sign-in, whatever chat it names; a second cancel is a no-op.
     let s = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "claude"})).await.unwrap();
@@ -274,5 +304,142 @@ async fn agent_login_over_the_wire() {
     let (mut web, _) = C::new(hub.clone(), Origin::Web).await;
     web.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "claude"})).await.unwrap_err();
 
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+const AUTO_URL: &str = "https://claude.com/cai/oauth/authorize?code=true&client_id=x&redirect_uri=http%3A%2F%2Flocalhost%3A54545%2Fcallback&state=abc";
+
+/// Claude signed in with no code pasted: the approve reaches the CLI's own
+/// listener and it exits; a paste still works while that finish waits; a new
+/// start is never held up by it; a CLI that gave no automatic link still
+/// needs the code.
+#[cfg(unix)]
+async fn claude_with_no_code(hub: &Arc<Hub>, c: &mut C, d: &Path) {
+    let creds = d.join("claude-home/.credentials.json");
+    let finish = |id: &Value| json!({"loginId": id.clone()});
+
+    // The approve: finish with no code ends when the CLI does.
+    let _ = std::fs::remove_file(&creds);
+    let s = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "claude"})).await.unwrap();
+    let approve = d.join("approve");
+    let approving = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        std::fs::write(approve, "").unwrap();
+    });
+    let r = c.call(method::MUX_AGENT_LOGIN_FINISH, finish(&s["loginId"])).await.unwrap();
+    approving.await.unwrap();
+    assert_eq!(r, json!({"signedIn": true, "restarted": false}));
+    assert!(creds.is_file());
+
+    // A paste while that wait runs: both finishes see the one sign-in.
+    let _ = std::fs::remove_file(&creds);
+    let s = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "claude"})).await.unwrap();
+    let (mut other, _) = C::new(hub.clone(), Origin::Local).await;
+    let params = finish(&s["loginId"]);
+    let waiting =
+        tokio::spawn(async move { other.call(method::MUX_AGENT_LOGIN_FINISH, params).await });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let r = c
+        .call(
+            method::MUX_AGENT_LOGIN_FINISH,
+            json!({"loginId": s["loginId"], "code": "good-code#state"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r["signedIn"], true);
+    assert_eq!(waiting.await.unwrap().unwrap()["signedIn"], true);
+    assert!(creds.is_file());
+
+    // Starting again while a finish waits for the approve: the old one stops.
+    let s = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "claude"})).await.unwrap();
+    let (mut other, _) = C::new(hub.clone(), Origin::Local).await;
+    let params = finish(&s["loginId"]);
+    let waiting =
+        tokio::spawn(async move { other.call(method::MUX_AGENT_LOGIN_FINISH, params).await });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let again = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "claude"})).await.unwrap();
+    assert!(waiting.await.unwrap().is_err());
+    c.call(method::MUX_AGENT_LOGIN_CANCEL, json!({"loginId": again["loginId"]})).await.unwrap();
+
+    // No automatic link (the CLI handed its BROWSER nothing): the code is needed.
+    std::fs::write(d.join("no-listener"), "").unwrap();
+    let s = c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "claude"})).await.unwrap();
+    assert!(s.get("autoUrl").is_none(), "{s}");
+    let e = c.call(method::MUX_AGENT_LOGIN_FINISH, finish(&s["loginId"])).await.unwrap_err();
+    assert_eq!(reason(&e), "bad_code");
+    c.call(method::MUX_AGENT_LOGIN_CANCEL, json!({"loginId": s["loginId"]})).await.unwrap();
+    std::fs::remove_file(d.join("no-listener")).unwrap();
+}
+
+/// A module swapped under a running daemon (crates/acpmux-hot/bench.sh, `hot-modules` feature only):
+/// the daemon reads Codex's sign-in link with the module at `ACPMUX_HOT_MODULE`, the file is replaced
+/// by `ACPMUX_HOT_SWAP_TO` (a module that never finds an offer), and the same daemon, with no
+/// restart, stops finding the link; the first module put back finds it again. Skipped unless both
+/// are set, and bench.sh runs it alone: the swap changes the process's one module for every test.
+#[cfg(all(unix, feature = "hot-modules"))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn hot_module_swaps_under_a_running_daemon() {
+    let (Some(live), Some(swap_to)) =
+        (std::env::var_os("ACPMUX_HOT_MODULE"), std::env::var_os("ACPMUX_HOT_SWAP_TO"))
+    else {
+        eprintln!("acpmux-hot: ACPMUX_HOT_MODULE and ACPMUX_HOT_SWAP_TO unset; nothing to swap");
+        return;
+    };
+    let live = PathBuf::from(live);
+    let first = std::fs::read(&live).unwrap();
+    let other = std::fs::read(&swap_to).unwrap();
+    // Replaced whole by a rename in the same folder, as a build's copy step would.
+    let put = |bytes: &[u8]| {
+        let tmp = live.with_extension("swap-tmp");
+        std::fs::write(&tmp, bytes).unwrap();
+        std::fs::rename(&tmp, &live).unwrap();
+    };
+    let d = dir("hot-swap");
+    let (mut c, _) = C::new(hub(&d), Origin::Local).await;
+    // Ok(user code) when the daemon found the offer, Err(reason) when it did not.
+    let mut codex = async || -> Result<String, String> {
+        match c.call(method::MUX_AGENT_LOGIN_START, json!({"agent": "codex"})).await {
+            Ok(s) => {
+                c.call(method::MUX_AGENT_LOGIN_CANCEL, json!({"loginId": s["loginId"]}))
+                    .await
+                    .unwrap();
+                Ok(s["userCode"].as_str().unwrap_or_default().to_owned())
+            }
+            Err(e) => Err(reason(&e).to_owned()),
+        }
+    };
+    // Each attempt runs the stand-in CLI (about 1 s when no offer is found); the watcher polls
+    // every 100 ms, so 15 s is many times what a swap takes.
+    let deadline = Duration::from_secs(15);
+
+    assert_eq!(codex().await, Ok("ABCD-EFGHI".to_owned()), "the first module finds the offer");
+
+    put(&other);
+    let swapped = std::time::Instant::now();
+    loop {
+        match codex().await {
+            Err(r) if r == "no_url" => break,
+            Ok(_) if swapped.elapsed() < deadline => {}
+            got => panic!("the swapped-in module was never asked: {got:?}"),
+        }
+    }
+    eprintln!(
+        "acpmux-hot: swap seen by the running daemon after {} ms",
+        swapped.elapsed().as_millis()
+    );
+
+    put(&first);
+    let back = std::time::Instant::now();
+    loop {
+        match codex().await {
+            Ok(code) => {
+                assert_eq!(code, "ABCD-EFGHI");
+                break;
+            }
+            Err(r) if r == "no_url" && back.elapsed() < deadline => {}
+            got => panic!("the first module never came back: {got:?}"),
+        }
+    }
+    eprintln!("acpmux-hot: swap back seen after {} ms", back.elapsed().as_millis());
     let _ = std::fs::remove_dir_all(&d);
 }

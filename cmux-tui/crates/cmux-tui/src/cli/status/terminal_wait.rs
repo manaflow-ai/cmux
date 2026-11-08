@@ -37,7 +37,7 @@ pub(super) const ANSWER_TIMEOUT: Duration = Duration::from_secs(10);
 const DEADLINE_SLACK: Duration = Duration::from_millis(50);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Until {
+pub(super) enum Until {
     Idle,
     Prompt,
 }
@@ -66,7 +66,7 @@ pub(super) fn run(global: &GlobalArgs, words: &[String]) -> Option<i32> {
     })
 }
 
-fn parse(words: &[String]) -> Result<(Until, Option<Duration>), UsageError> {
+pub(super) fn parse(words: &[String]) -> Result<(Until, Option<Duration>), UsageError> {
     let mut until = None;
     let mut timeout = None;
     let mut words = words.iter();

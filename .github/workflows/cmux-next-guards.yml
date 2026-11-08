@@ -5,8 +5,22 @@ name: cmux-next guards
 # tests there: tests/test_nightly_cmux_tui_resolve.py stayed red on the branch
 # unseen. nightly-next ships from feat-cmux-next, so run the release-notary
 # group (nightly, notarization, nightly-next guard and publication tests) for
-# its pull requests and pushes. It takes under a minute; there is no path
-# filter so a base red shows on the push that caused it.
+# its pull requests and pushes. There is no workflow path filter, so a base red
+# shows on the push that caused it.
+#
+# A push runs the group in nightly-guards, judged at its tip, so a base red
+# still fails the push that caused it. A pull request runs it inside the CI
+# guard group's head-and-base comparison instead (ci-guard-group, below), which
+# fails only on a step red on the change and not on its base, and only when the
+# change reaches what the group reads: release, notary and signing paths, the
+# workflows and CI scripts it pins, and the release notes and updater sources it
+# reads (detect_linux_guard_changes.RELEASE_NOTARY_INPUTS). On every pull request
+# it cost about 200,000 runner-minutes in 14 days, and none of its 18 PR failures
+# was the change's own (cmuxterm-hq plans/ci/baggage-2026-11-05.md). Run on its own,
+# every pull request was red while the branch was: workflow-text pins in this
+# group (nightly.yml, warm-sources.json, the step-coverage map) go red on any
+# push that edits those files without the tests, and 833 of 1656 pull request
+# runs in the 24 h to 2026-11-05 08:24Z were red with the base's reds alone.
 #
 # vt-link-graph also runs the nightly's libghostty-vt notices precondition: a
 # ghostty-next gitlink move without a regenerated vt-link-graph.json failed every
@@ -27,6 +41,8 @@ permissions:
 # freshness, the guard self-tests and the menu check still fail.
 env:
   CMUX_NEXT_STYLE_GUARDS: warn
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
 
 concurrency:
   group: cmux-next-guards-${{ github.event.pull_request.number || github.sha }}
@@ -93,7 +109,9 @@ jobs:
     with:
       # Fleet Linux or a free mini when portable-placement found one; empty keeps ci-guards.yml's own runner.
       guard_tests_runner: ${{ needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' release-notary ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' release-notary ') && needs.portable-placement.outputs.mini_runner || '' }}
-      linux_guard_tests: ${{ 'true' }}
+      # Pushes only: a pull request runs release-notary in ci-guard-group's head-and-base comparison (header),
+      # and keeps this call for the submodule forward-only guard and Guard status.
+      linux_guard_tests: ${{ github.event_name != 'pull_request' && 'true' || 'false' }}
       linux_guard_test_groups: '["release-notary"]'
       linux_guard_history: ${{ 'false' }}
       linux_guard_cli: ${{ 'false' }}
@@ -124,7 +142,7 @@ jobs:
           done
           [ "$bad" = 0 ] || exit 1
 
-  # The CI guard group's, the tooling tests' and the release-notary guards' runner.
+  # The tooling tests' and the release-notary guards' runner (the CI guard group runs on Linux only, below).
   # Jobs that need neither Linux nor Blacksmith take fleet Linux (vars.LINUX_RUNNER when it names our
   # own Linux runner), else a mini idle now with no nightly job waiting on its pool, else their
   # Blacksmith label (scripts/ci/portable_job_placement.py; Leo, 2026-10-31: "i mean the linux things
@@ -193,7 +211,7 @@ jobs:
         timeout-minutes: 2
         env:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
-          JOBS: ci-guard-group tooling-tests release-notary
+          JOBS: tooling-tests release-notary
           # Fork branch first: a fork never reads the runner variables (and its job is skipped); ubuntu-24.04 places nothing.
           FLEET_LINUX: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.LINUX_RUNNER }}
           SIDE_LABEL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || '' }}
@@ -215,18 +233,19 @@ jobs:
   # ci.yml also routes ci-guards.yml's other groups by path, again only into main, so about 70 guard tests
   # never ran for feat-cmux-next (tests/pr-lane-exemptions.json). This job runs them too: --feat-routes picks
   # the groups a pull request's paths route to (detect_linux_guard_changes.classify_feat, workflow_guard_groups.py's
-  # ownership), and every routed group on a push. The main-only release-ios group never runs here; release-notary runs in nightly-guards.
+  # ownership), and every routed group on a push. The main-only release-ios group never runs here; release-notary runs here
+  # on a pull request that reaches its inputs (compared with its base) and in nightly-guards on a push (judged at the tip).
   ci-guard-group:
     name: cmux-next CI guard group
     # 32 vCPU, a guard worker per core: the head and the base each run every routed group, on every pull request
     # and push (175-359 s on 4 vCPU with 8 workers). vars.LINUX_RUNNER names the 4 vCPU size, so it is read only
     # when it names a non-Blacksmith runner; in a Blacksmith outage CI_CLOUD_OVERFLOW_SAVED moves it to 16 vCPU
     # (tests/test_feat_ci_guard_group.py, tests/test_ci_blacksmith_linux_failover.py).
-    # Fleet Linux, then a free mini (portable-placement: the guards are Python, bash and bun, and the head and
-    # base run on the same machine, so a red of the machine's own is a base red), then Blacksmith.
-    needs: [portable-placement]
+    # Linux only: fleet Linux (vars.LINUX_RUNNER when it names our own runner), then Blacksmith. Not a portable
+    # job: on a mini 24 of its steps red (no python3.9 or node, temp-cwd scripts),
+    # so portable-placement does not place it.
     if: ${{ !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.linux_jobs, ' ci-guard-group ') && needs.portable-placement.outputs.linux_runner || needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.portable-placement.outputs.mini_jobs, ' ci-guard-group ') && needs.portable-placement.outputs.mini_runner || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 25
     permissions:
       contents: read
@@ -303,8 +322,8 @@ jobs:
         with:
           bun-version: "1.4.4"
 
-      # setup-python has no macOS arm64 build of 3.9, so a mini (portable-placement) takes the one uv installs
-      # instead. The head and the base run on the same machine, so either way they compare like for like.
+      # setup-python installs 3.9 on Linux; a runner without it takes the one uv installs, if any.
+      # The head and the base run on the same machine, so either way they compare like for like.
       - name: Set up Python 3.9 for nightly prune compatibility
         id: python39
         if: runner.os == 'Linux'
@@ -339,18 +358,38 @@ jobs:
           path: .guard-base
           persist-credentials: false
 
+      # A pull request routes release-notary by its paths like the other groups (classify_feat,
+      # RELEASE_NOTARY_INPUTS); a push leaves it out here, since nightly-guards runs it at the tip (header).
       - name: Run the ci guard group and the routed groups
         env:
           CMUX_GUARDS_BASE_SHA: ${{ steps.changes.outputs.base }}
           GUARDS_AT_TIP: ${{ steps.changes.outputs.tip }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           # The base checkout is untracked in this workspace; the workload profile refuses a dirty checkout.
           echo "/.guard-base/" >> .git/info/exclude
-          scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
-          if [ -d .guard-base ]; then
-            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --root .guard-base \
+          # The groups are literal flags so scripts/ci/pr_test_lanes.py sees what a pull request runs.
+          groups=()
+          if [ "$EVENT_NAME" = pull_request ]; then
+            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
+          else
+            groups=(--skip-group release-notary)
+            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --feat-routes "$RUNNER_TEMP/changed-files.txt" --skip-group release-notary --results "$RUNNER_TEMP/guards-head.json" || true
+          fi
+          # The base re-runs only the steps red on the head (guards_new_reds.py --red-steps): a step green on the
+          # head is never the change's, and the full base pass doubled the job once release-notary joined it.
+          steps=()
+          while IFS= read -r step; do
+            [ -n "$step" ] && steps+=(--step "$step")
+          done < <(python3 scripts/ci/guards_new_reds.py --red-steps "$RUNNER_TEMP/guards-head.json")
+          if [ -d .guard-base ] && [ "${#steps[@]}" -gt 0 ]; then
+            echo "re-running the head's $(( ${#steps[@]} / 2 )) red steps on the base"
+            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" "${groups[@]}" --feat-routes "$RUNNER_TEMP/changed-files.txt" "${steps[@]}" --root .guard-base \
               --results "$RUNNER_TEMP/guards-base.json" > "$RUNNER_TEMP/guards-base.log" 2>&1 || true
             tail -1 "$RUNNER_TEMP/guards-base.log"
+          elif [ -d .guard-base ]; then
+            echo "no red step on the head; the base is not re-run"
+            echo '{}' > "$RUNNER_TEMP/guards-base.json"
           fi
           if [ "$GUARDS_AT_TIP" = true ]; then
             python3 scripts/ci/guards_new_reds.py --tip "$RUNNER_TEMP/guards-head.json"
@@ -670,6 +709,19 @@ jobs:
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         run: scripts/ci/reset-stale-submodules.sh
 
+      # Four of these tests and the registry check read workflows with PyYAML. Fleet Linux and Blacksmith images
+      # carry it, but a mini's python3 does not (ModuleNotFoundError: yaml on cmux14, 2026-11-03), so the job
+      # puts its own copy first on PATH wherever it lands.
+      - name: Prepare tooling-test Python (PyYAML)
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/tooling-tests-venv"
+          "$RUNNER_TEMP/tooling-tests-venv/bin/python" -m pip install \
+            --disable-pip-version-check \
+            --no-input \
+            PyYAML==6.0.3
+          echo "$RUNNER_TEMP/tooling-tests-venv/bin" >> "$GITHUB_PATH"
+
       - name: nightly-next's App ID and profile through the ASC API
         run: python3 tests/test_asc_developer_id_app.py
 
@@ -722,6 +774,11 @@ jobs:
       - name: The per-file webviews test runner (scripts/ci/run-webviews-tests.sh)
         run: python3 tests/test_webviews_tests_per_file.py
 
+      # The TAP health classifier and its base-red integration stay on the same
+      # tooling-tests PR lane as the producer's published snapshot contract.
+      - name: The TAP test-health classifier and base-red evidence
+        run: python3 tests/test_tap_test_health.py
+
       # A test no feat-cmux-next pull request runs lands red unseen: a2d6b35 broke
       # tests/test_webviews_tests_per_file.py, which only main pushes and the nightly ran (#23430).
       - name: Every Python test runs on a pull request lane, or is a reviewed exemption
@@ -731,8 +788,10 @@ jobs:
       # runs needs a job that runs it (routed by the paths it tests) or an entry in
       # tests/pr-lane-exemptions.json with the reason. ci-guards.yml's copy of this check is in
       # the preflight group, which feat-cmux-next pull requests do not run. HEAD^1 is the base.
+      # A finding the base already has warns, and on a push every finding warns: only the pull
+      # request that adds an unregistered test fails (Leo, 2026-11-05).
       - name: The Python test registry, and the tests no pull request runs
-        run: python3 scripts/ci/validate_test_execution_registry.py --pr-lanes feat-cmux-next --base-sha "$(git rev-parse HEAD^1)"
+        run: python3 scripts/ci/validate_test_execution_registry.py --pr-lanes feat-cmux-next --base-sha "$(git rev-parse HEAD^1)" ${{ github.event_name == 'push' && '--warn-only' || '' }}
 
       # The web lint pre-push hook (scripts/web-lint.sh, scripts/web_lint_prepush.py) on throwaway
       # repositories with stand-in packages; cmux-next-web.yml ran it only on pushes. A stand-in
@@ -812,6 +871,17 @@ jobs:
         run: |
           python3 tests/test_ci_macos_stubs.py
           python3 tests/test_ci_macho_parity.py
+
+      - name: Set up Rust for the tailnet build-script fixture
+        if: ${{ !cancelled() }}
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: The tailnet target selection and job-local Go installer
+        if: ${{ !cancelled() }}
+        run: |
+          python3 tests/test_tailnet_build_delivery.py
+          python3 tests/test_tailnet_go.py
+          bash scripts/cmux-next/tests/rust-daemon-miss-builds.test.sh
 
       - name: The cmux-browser-host release package
         if: ${{ !cancelled() }}

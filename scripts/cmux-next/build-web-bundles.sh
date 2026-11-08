@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds every web bundle the cmux-next app ships, from the current sources:
-# the agent pane, the React pages, Agent Activity, the palette ranker, the
+# the agent pane, the React pages, Agent Activity, the
 # webviews app (diff, markdown and editor pages) and the Chief memory inspector.
 # Every app build path runs it
 # before it compiles (scripts/reload.sh, scripts/cmux-next/check-release-compile.sh,
@@ -52,7 +52,6 @@ done
 PANE="Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
 PAGES="Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
 ACTIVITY="Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity"
-PALETTE="Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources"
 APP="Resources/markdown-viewer/webviews-app"
 INSPECTOR="Native/OptChat/optchat-chief/inspector"
 STAMP="$ROOT/.web-bundles.key"
@@ -117,7 +116,7 @@ fi
 if [ "$MODE" = from ]; then
   # The inspector page stays committed (optchat-chief compiles it in with
   # include_str!, and the brain build runs no bundle step): never removed here.
-  for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP" "$PALETTE/palette-ranker.js" "$INSPECTOR/index.html"; do
+  for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP" "$INSPECTOR/index.html"; do
     [ -e "$FROM_ROOT/$path" ] || { echo "error: $FROM_ROOT has no $path; build the web bundles instead" >&2; exit 1; }
   done
   # The check an in-tree build runs (build-optchat-inspector-web.sh --check): the page the
@@ -136,7 +135,6 @@ if [ "$MODE" = from ]; then
     git -C "$ROOT" clean -fdqx -- "$path"
     cp -R "$FROM_ROOT/$path/." "$ROOT/$path/"
   done
-  cp "$FROM_ROOT/$PALETTE/palette-ranker.js" "$ROOT/$PALETTE/palette-ranker.js"
   python3 "$KEY" "$ROOT" --stamp > "$STAMP.tmp"
   mv "$STAMP.tmp" "$STAMP"
   echo "web bundles restored ($(cut -c1-12 "$STAMP"))"
@@ -177,7 +175,6 @@ rm -f "$STAMP"
 "$ROOT/scripts/cmux-next/build-agent-pane-web.sh" --out "$(out "$PANE")"
 "$ROOT/scripts/cmux-next/build-pages-web.sh" --out "$(out "$PAGES")"
 "$ROOT/scripts/cmux-next/build-agent-activity-web.sh" --out "$(out "$ACTIVITY")"
-"$ROOT/scripts/cmux-next/build-palette-ranker.sh" --out "$(out "$PALETTE")"
 "$ROOT/scripts/build-webviews-app.sh" --skip-checks --out "$(out "$APP")"
 # In-tree, the committed page was checked above.
 if [ -n "$OUT_ROOT" ]; then

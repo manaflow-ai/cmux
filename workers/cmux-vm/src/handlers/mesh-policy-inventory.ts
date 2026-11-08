@@ -12,7 +12,8 @@ export const compileMeshPolicy = (tenantId: Principal["tenantId"], meshId: strin
     const store = yield* MeshStore;
     const config = yield* MeshConfig;
     // Five independent reads of one mesh, issued together: one database round trip instead of five
-    // (each is a Worker-to-database hop). Callers hold the mesh writer lease, which is what keeps them consistent.
+    // (each is a Worker-to-database hop). Writers hold the mesh writer lease, which keeps them consistent; the
+    // receiver-policy read takes no lock and compiles twice instead, refusing any difference.
     const [gatewayDevices, servers, members, deviceIpv6, recorded] = yield* Effect.all([
       store.listDevices(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("mesh.listDevices"))),
       store.listOverlayServers(tenantId, meshId).pipe(Effect.catchAll(dependencyDown("overlay.list"))),

@@ -5,8 +5,8 @@ import CmuxNextWakeups
 import QuartzCore
 import Testing
 
-/// FRAME OWNER REFACTOR S2 (timing): with `motion.frameOwner.timing` on, every spring of a window shows in each
-/// frame the value of its curve at the time that frame shows, the display link's `targetTimestamp`. The window's
+/// FRAME OWNER REFACTOR S2 (timing): every spring of a window shows in each frame the value of its curve at the
+/// time that frame shows, the display link's `targetTimestamp`. The window's
 /// clock stepped its springs by the time between the vsyncs that started the frames (`CADisplayLink.timestamp`),
 /// clamped to 1/30 s, which is off the curve in two cases:
 /// - The refresh period changes mid-motion (ProMotion at 120 or 60 Hz, a window moved to a 60 Hz display, Low Power
@@ -46,24 +46,6 @@ struct MotionClockFrameTimeTests {
         var refresh: Double
         var refreshes: Int
         var testDescription: String { "\(Int((1 / refresh).rounded())) Hz, \(refreshes) refreshes late" }
-    }
-
-    /// The Debug Settings switch the films flip (`motion.frameOwner.timing`), on while `body` runs. It is set by its
-    /// key, as the films' override file sets it.
-    static func withTiming(_ body: () throws -> Void) throws {
-        let key = "motion.frameOwner.timing"
-        TunableStore.shared.activate(file: nil)
-        if TunableStore.shared.descriptor(for: key) == nil {
-            let section = TunableSection(id: "frameOwner", title: "Frame Owner", symbol: "timer", order: 52)
-            TunableStore.shared.register([TunableDescriptor(key: key, section: section, label: "Frame timing",
-                                                            help: "Springs at the time each frame shows; drags in the frame tick.",
-                                                            kind: .bool, defaultSource: .fixed(.bool(false)))])
-        }
-        // Synchronous from here to the restore: no other test runs while the switch is on.
-        let before = TunableStore.shared.override(key)
-        defer { TunableStore.shared.set(key, before) }
-        try #require(TunableStore.shared.set(key, .bool(true)) == .bool(true), "the switch takes the override")
-        try body()
     }
 
     /// A window that is never ordered in (a window never on screen is not judged out of sight): its scheduler ticks
@@ -112,46 +94,40 @@ struct MotionClockFrameTimeTests {
     }
 
     @Test(arguments: [[120.0, 60, 120], [60.0, 120]])
-    func everyFrameShowsTheCurveAtTheTimeItShowsAcrossARefreshChange(rates: [Double]) throws {
-        try Self.withTiming {
-            // Four frames at each rate: each change comes mid-motion.
-            let periods = rates.flatMap { Array(repeating: 1 / $0, count: 4) }
-            let misses = Self.misses(Self.backToBack(periods))
-            #expect(misses.isEmpty, "\(rates) Hz: frames off the spring's curve at the time they show:\n\(misses.joined(separator: "\n"))")
-        }
+    func everyFrameShowsTheCurveAtTheTimeItShowsAcrossARefreshChange(rates: [Double]) {
+        // Four frames at each rate: each change comes mid-motion.
+        let periods = rates.flatMap { Array(repeating: 1 / $0, count: 4) }
+        let misses = Self.misses(Self.backToBack(periods))
+        #expect(misses.isEmpty, "\(rates) Hz: frames off the spring's curve at the time they show:\n\(misses.joined(separator: "\n"))")
     }
 
     @Test(arguments: [Late(refresh: 1.0 / 60, refreshes: 3), Late(refresh: 1.0 / 120, refreshes: 5)])
-    func aLateFrameLandsOnTheCurveNotBehindIt(_ late: Late) throws {
-        try Self.withTiming {
-            // Three frames on time, one that comes `refreshes` refreshes after the frame before it (the main thread
-            // missed the refreshes between), three on time again.
-            var frames = Self.backToBack(Array(repeating: late.refresh, count: 3))
-            var vsync = (frames.last?.vsync ?? 1_000) + Double(late.refreshes) * late.refresh
-            for _ in 0..<4 {
-                frames.append((vsync: vsync, refresh: late.refresh))
-                vsync += late.refresh
-            }
-            let misses = Self.misses(frames)
-            #expect(misses.isEmpty, "\(late.testDescription): frames off the spring's curve at the time they show:\n\(misses.joined(separator: "\n"))")
+    func aLateFrameLandsOnTheCurveNotBehindIt(_ late: Late) {
+        // Three frames on time, one that comes `refreshes` refreshes after the frame before it (the main thread
+        // missed the refreshes between), three on time again.
+        var frames = Self.backToBack(Array(repeating: late.refresh, count: 3))
+        var vsync = (frames.last?.vsync ?? 1_000) + Double(late.refreshes) * late.refresh
+        for _ in 0..<4 {
+            frames.append((vsync: vsync, refresh: late.refresh))
+            vsync += late.refresh
         }
+        let misses = Self.misses(frames)
+        #expect(misses.isEmpty, "\(late.testDescription): frames off the spring's curve at the time they show:\n\(misses.joined(separator: "\n"))")
     }
 
     /// A frame after a gap longer than `FrameScheduler.catchUpLimit` (0.1 s: a main-thread hang, since a frame comes at
     /// least that often while the main thread runs) moves the motion by that limit: not the whole gap (a jump), not
     /// 1/30 s (behind). The motion pauses for the rest of the gap and goes on along its curve from there.
-    @Test func aFrameAfterAHangMovesTheMotionByTheCatchUpLimit() throws {
-        try Self.withTiming {
-            let refresh = 1.0 / 120, gap = 0.5, limit = 0.1
-            // Three frames on time, one `gap` after the frame before it, three on time again.
-            var frames = Self.backToBack(Array(repeating: refresh, count: 3))
-            var vsync = (frames.last?.vsync ?? 1_000) + gap
-            for _ in 0..<4 {
-                frames.append((vsync: vsync, refresh: refresh))
-                vsync += refresh
-            }
-            let misses = Self.misses(frames) { $0 >= 3 ? gap - limit : 0 }
-            #expect(misses.isEmpty, "a \(gap) s gap: frames off the spring's curve paused for \(gap - limit) s:\n\(misses.joined(separator: "\n"))")
+    @Test func aFrameAfterAHangMovesTheMotionByTheCatchUpLimit() {
+        let refresh = 1.0 / 120, gap = 0.5, limit = 0.1
+        // Three frames on time, one `gap` after the frame before it, three on time again.
+        var frames = Self.backToBack(Array(repeating: refresh, count: 3))
+        var vsync = (frames.last?.vsync ?? 1_000) + gap
+        for _ in 0..<4 {
+            frames.append((vsync: vsync, refresh: refresh))
+            vsync += refresh
         }
+        let misses = Self.misses(frames) { $0 >= 3 ? gap - limit : 0 }
+        #expect(misses.isEmpty, "a \(gap) s gap: frames off the spring's curve paused for \(gap - limit) s:\n\(misses.joined(separator: "\n"))")
     }
 }

@@ -113,12 +113,8 @@ import Testing
             #expect(moves.presentations <= steps, "\(name): \(moves.presentations) presentation passes over \(steps) moves")
             #expect(moves.catcherChanges == 0, "\(name): the catcher areas moved on \(moves.catcherChanges) of \(steps) moves")
             // A column edge may spring the camera to its anchor; a split divider's drag moves nothing on a spring: it
-            // asks for no frame, or with `motion.frameOwner.timing` on exactly the one frame each event's pointer is
-            // written in (here every move is a display frame of its own).
-            if case .split = kind {
-                let ticks = MotionTunables.frameOwnerTiming.value ? steps : 0
-                #expect(moves.ticks == ticks, "\(name): \(moves.ticks) frame ticks for \(steps) moves with nothing on a spring, not \(ticks)")
-            }
+            // asks for exactly the one frame each event's pointer is written in (here every move is a frame of its own).
+            if case .split = kind { #expect(moves.ticks == steps, "\(name): \(moves.ticks) frame ticks for \(steps) moves with nothing on a spring") }
             #expect(probe.window.overlayLayer.catcherAreas == probe.window.overlayLayer.dividerAreas,
                     "\(name): at rest the catchers cover the dividers")
         }

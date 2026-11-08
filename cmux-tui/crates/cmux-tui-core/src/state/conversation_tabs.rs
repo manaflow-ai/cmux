@@ -66,6 +66,10 @@ impl Mux {
         transaction: Option<&str>,
     ) -> anyhow::Result<ConversationTabOutcome> {
         record.validate()?;
+        // A new chat tab a person (or `cmux agent open`) waits on: its
+        // registry locks go next after the current holder, not behind every
+        // busy agent's write.
+        let _interactive = interactive_scope();
         let key = mutation.map(|mutation| (mutation.origin.as_str(), mutation.id.as_str()));
         // Held for the whole keyed creation, before every other lock.
         let _serial = key
@@ -203,7 +207,7 @@ impl Mux {
                 let id = state.resource_indexes.pane_ids.get(pane).context("unknown pane")?;
                 Ok(serde_json::json!({"pane": id.as_str()}))
             }
-            ConversationTabTarget::Split(TabSplit { pane, direction, pane_id, split_id }) => {
+            ConversationTabTarget::Split(TabSplit { pane, direction, pane_id, split_id, .. }) => {
                 let id = state.resource_indexes.pane_ids.get(pane).context("unknown pane")?;
                 let mut ids =
                     serde_json::json!({"pane": id.as_str(), "split": direction, "pane_id": pane_id});

@@ -97,6 +97,10 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
 
       # Before any token exists: the tip must be a feat-cmux-next commit.
       - name: Check the tip is on feat-cmux-next

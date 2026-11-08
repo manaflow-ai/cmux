@@ -3,9 +3,9 @@ import CmuxNextSettings
 import Foundation
 import Testing
 
-/// Auto-archive (plans/cmux-next/auto-archive-DESIGN.md): which idle workspaces the planner offers
-/// under each style, what always keeps a workspace, how a group's rule wins over the days, and
-/// when the next pass is due.
+/// Auto-archive (plans/cmux-next/auto-archive-DESIGN.md): the app's call into the planner's Rust
+/// rules (whose cases are tested in `cmux-layout-reducer` `auto_archive_tests.rs`), the settings
+/// parse and a group rule's wire value.
 @Suite struct AutoArchivePlannerTests {
     nonisolated static let now = Date(timeIntervalSince1970: 1_800_000_000)
     nonisolated static let day: TimeInterval = 86_400
@@ -17,75 +17,32 @@ import Testing
                                      pinned: pinned, archived: archived, shown: shown, running: running, needsAttention: attention)
     }
 
-    nonisolated static func due(_ candidates: [AutoArchivePlanner.Candidate], style: AutoArchivePolicy.Style, days: Double = 3,
-                    rules: [String: SidebarDocAutoArchiveRule] = [:], trigger: AutoArchivePlanner.Trigger = .background) -> [String] {
-        AutoArchivePlanner().plan(candidates, rules: rules, policy: AutoArchivePolicy(style: style, idleDays: days),
-                                  trigger: trigger, now: now).due.map(\.workspace)
-    }
-
-    @Test func suggestAndQuietOfferWorkspacesIdlePastTheDaysIdlestFirst() {
-        let list = [Self.ws("fresh", idleDays: 1), Self.ws("old", idleDays: 4), Self.ws("older", idleDays: 30)]
-        #expect(Self.due(list, style: .suggest) == ["older", "old"])
-        #expect(Self.due(list, style: .quiet) == ["older", "old"])
-        #expect(Self.due(list, style: .quiet, days: 10) == ["older"])
-    }
-
-    @Test func offAndManualNeverRunInTheBackgroundButTheSweepDoes() {
-        let list = [Self.ws("old", idleDays: 9)]
-        #expect(Self.due(list, style: .off).isEmpty)
-        #expect(Self.due(list, style: .manual).isEmpty)
-        #expect(Self.due(list, style: .manual, trigger: .sweep) == ["old"])
-        #expect(Self.due(list, style: .off, trigger: .sweep) == ["old"])
-    }
-
-    @Test(arguments: [
-        ("pinned", ws("w", idleDays: 40, pinned: true)),
-        ("archived", ws("w", idleDays: 40, archived: true)),
-        ("shown", ws("w", idleDays: 40, shown: true)),
-        ("running", ws("w", idleDays: 40, running: true)),
-        ("attention", ws("w", idleDays: 40, attention: true)),
-        ("never seen", ws("w", idleDays: nil)),
-    ])
-    func somethingAlwaysKeepsAWorkspace(_ reason: String, _ candidate: AutoArchivePlanner.Candidate) {
-        #expect(Self.due([candidate], style: .quiet).isEmpty, "\(reason) must keep it")
-        #expect(Self.due([candidate], style: .quiet, trigger: .sweep).isEmpty, "\(reason) must keep it from a sweep")
-    }
-
-    @Test func theNearestGroupWithARuleWins() {
-        let rules: [String: SidebarDocAutoArchiveRule] = ["g_outer": .afterHours(24), "g_keep": .never]
+    /// The rules are Rust's (`cmux-layout-reducer` `auto_archive`, with their own tests); this proves
+    /// the app's call: each field reaches Rust under its wire name and the reply maps back to the
+    /// app's candidates (due idlest first, a group rule, the ledger's sight, a first sight, the snooze).
+    @Test func thePlannerCallReachesRustAndMapsTheReplyBack() {
+        let rules: [String: SidebarDocAutoArchiveRule] = ["g_ci": .afterHours(24), "g_keep": .never]
         let list = [
-            Self.ws("inOuter", idleDays: 2, groups: ["g_inner", "g_outer"]),
-            Self.ws("kept", idleDays: 90, groups: ["g_keep", "g_outer"]),
-            Self.ws("loose", idleDays: 2),
+            Self.ws("fresh", idleDays: 1), Self.ws("ci", idleDays: 2, groups: ["g_ci"]), Self.ws("older", idleDays: 30),
+            Self.ws("kept", idleDays: 90, groups: ["g_keep"]), Self.ws("pinned", idleDays: 40, pinned: true),
+            Self.ws("shownHere", idleDays: 20), Self.ws("new", idleDays: nil),
         ]
-        #expect(Self.due(list, style: .quiet, rules: rules) == ["inOuter"])
-        // The person's sweep still honors Never.
-        #expect(Self.due(list, style: .manual, rules: rules, trigger: .sweep) == ["inOuter"])
-    }
-
-    @Test func theGroupsStyleArchivesOnlyWhereAGroupSetARule() {
-        let rules: [String: SidebarDocAutoArchiveRule] = ["g_ci": .afterHours(12)]
-        let list = [Self.ws("ci", idleDays: 1, groups: ["g_ci"]), Self.ws("loose", idleDays: 50), Self.ws("other", idleDays: 50, groups: ["g_x"])]
-        #expect(Self.due(list, style: .groups, rules: rules) == ["ci"])
-        #expect(Self.due(list, style: .groups, rules: rules, trigger: .sweep) == ["loose", "other", "ci"])
-    }
-
-    @Test func offIgnoresGroupRulesInTheBackground() {
-        let rules: [String: SidebarDocAutoArchiveRule] = ["g_ci": .afterHours(1)]
-        #expect(Self.due([Self.ws("ci", idleDays: 1, groups: ["g_ci"])], style: .off, rules: rules).isEmpty)
-    }
-
-    @Test func theNextCheckIsTheSoonestDeadlineAndNeverSoonerThanAMinute() {
-        let planner = AutoArchivePlanner()
+        let seen = ["shownHere": Self.now.addingTimeInterval(-3600)]
         let policy = AutoArchivePolicy(style: .quiet, idleDays: 3)
-        let list = [Self.ws("a", idleDays: 1), Self.ws("b", idleDays: 2.5), Self.ws("pinned", idleDays: 2.9, pinned: true)]
-        let plan = planner.plan(list, rules: [:], policy: policy, trigger: .background, now: Self.now)
-        #expect(plan.due.isEmpty)
-        #expect(plan.nextCheck == Self.now.addingTimeInterval(0.5 * Self.day))
-        let almost = [Self.ws("c", idleDays: 3 - 1 / Self.day)]
-        let soon = planner.plan(almost, rules: [:], policy: policy, trigger: .background, now: Self.now)
-        #expect(soon.nextCheck == Self.now.addingTimeInterval(AutoArchivePlanner.minimumRecheck))
-        #expect(planner.plan([], rules: [:], policy: policy, trigger: .background, now: Self.now).nextCheck == nil)
+        let plan = AutoArchivePlanner().plan(list, seen: seen, rules: rules, policy: policy, trigger: .background, now: Self.now)
+        #expect(plan.due.map(\.workspace) == ["older", "ci"])
+        #expect(plan.nextCheck == Self.now.addingTimeInterval(2 * Self.day))
+        #expect(plan.firstSight == ["new"])
+        #expect(!plan.snoozed)
+
+        let suggest = AutoArchivePolicy(style: .suggest, idleDays: 3)
+        let snoozed = AutoArchivePlanner().plan(list, rules: rules, policy: suggest, trigger: .background, now: Self.now,
+                                                snoozedUntil: Self.now.addingTimeInterval(3 * Self.day))
+        #expect(snoozed.due.isEmpty && snoozed.snoozed)
+        #expect(snoozed.nextCheck == Self.now.addingTimeInterval(3 * Self.day))
+        // The sweep runs under Off and still honors a group's Never; without the ledger's sight, shownHere is idle.
+        let sweep = AutoArchivePlanner().plan(list, rules: rules, policy: AutoArchivePolicy(style: .off), trigger: .sweep, now: Self.now)
+        #expect(sweep.due.map(\.workspace) == ["older", "shownHere", "ci"])
     }
 
     @Test func settingsParseTheStyleAndDaysAndFallBackOnBadValues() throws {
@@ -109,6 +66,5 @@ import Testing
         #expect(SidebarDocAutoArchiveRule(wire: NSNumber(value: 1.5)) == nil)
         #expect(SidebarDocAutoArchiveRule(wire: NSNumber(value: true)) == nil)
         #expect(SidebarDocAutoArchiveRule(wire: "soon") == nil)
-        #expect(SidebarDocAutoArchiveRule.afterHours(24).idleSeconds == 86_400)
     }
 }

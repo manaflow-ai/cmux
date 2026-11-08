@@ -13,6 +13,6 @@
   :root:not([data-status-indicators="static"]) .cv-spinner:not([data-working]),
   :root:not([data-status-indicators="static"]):not([data-working-look="breathe"]):not([data-working-look="shimmer"])
     .cv-spinner {
-    animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
+    animation: cmux-spin var(--cmux-spinner-period, 2000ms) linear infinite;
   }
 }

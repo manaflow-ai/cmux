@@ -1,8 +1,8 @@
 // l10n-allow-file: gallery fixtures (sample prompts, commands and outputs), not shipped UI.
 // A run of shell calls summarized as Claude Code desktop summarizes one (Leo, 2026-11-03: "hmm claude
 // code desktop's summarization of tool calls/parsing of them seem kinda good?"): a header that counts
-// what happened, "Finished 2 background tasks, ran 5 commands (2 failed)", with its chevron; one row
-// per call titled by its description, a failed one tagged "Failed" in red before its chevron; opened,
+// what happened, "Finished 2 background tasks and ran 5 commands", with its chevron; one row per call
+// titled by what its command did (commandActions.ts), and a failure draws no word (Codex parity); opened,
 // the command in its code colours, "Exit code N" in red, then the output in mono; a background
 // command's end noted as "Background command completed <command>". Our colours, glass, fonts and row
 // grid stay. Reference: cmux-design-references claude/live/transcript-tool-call-group-summary.
@@ -104,14 +104,31 @@ const notes = chat([
 
 /// Opens the run, then its failed call, to show the command, its exit code and its output.
 const openFailed = async (ctx: PlayContext) => {
-  await ctx.click({ role: "button", name: /Finished 2 background tasks/ });
-  await ctx.click({ role: "button", name: /Count the retry fixture cases/ });
+  await openRun(ctx);
+  // The first failed step is "Count the retry fixture cases", the run's second call. Trusted input
+  // lands at its on-screen point, so wait for the opening run to stop moving before clicking it.
+  const failed = { selector: ".cv-step > .cv-command:has(> .cv-command__failed)" };
+  let last = Number.NaN;
+  await ctx.waitFor(() => {
+    const row = ctx.find(failed);
+    row.scrollIntoView({ block: "nearest" });
+    const { top, left, width, height } = row.getBoundingClientRect();
+    const still = top === last;
+    last = top;
+    const hit = ctx.document.elementFromPoint(left + width / 2, top + height / 2);
+    return still && Boolean(hit && row.contains(hit));
+  });
+  await ctx.click(failed);
+  await ctx.waitFor(() => ctx.find(failed).getAttribute("aria-expanded") === "true");
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__exit")));
 };
 
+/// Opens the run's group, unless it already shows open (a run with a failed call may open on its own).
 const openRun = async (ctx: PlayContext) => {
-  await ctx.click({ role: "button", name: /Finished 2 background tasks/ });
-  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-steps")));
+  const header = { role: "button", name: /Finished 2 background tasks/ } as const;
+  if (ctx.find(header).getAttribute("aria-expanded") !== "true") await ctx.click(header);
+  await ctx.waitFor(() => ctx.find(header).getAttribute("aria-expanded") === "true");
+  await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-step > .cv-command").length === 5);
 };
 
 export default agentPaneEntry({
@@ -129,11 +146,11 @@ export default agentPaneEntry({
   keywords: ["claude", "tool", "summary", "background", "failed", "exit code", "commands"],
   variants: {
     collapsed: {
-      note: "Chosen. Mixed background and failed calls, closed: Finished 2 background tasks, ran 5 commands (2 failed).",
+      note: "Chosen. Mixed background and failed calls as the turn first draws them, under Finished 2 background tasks and ran 5 commands.",
       snapshot: finished(mixed()),
     },
     opened: {
-      note: "The same run opened: one row per call by its description, the failed ones tagged Failed.",
+      note: "The run opened (opened here if it is not already): one row per call by its command (Codex parity); a failed one draws no word.",
       snapshot: finished(mixed()),
       play: openRun,
     },
@@ -147,7 +164,7 @@ export default agentPaneEntry({
       snapshot: running,
     },
     "no-description": {
-      note: "Calls with no description fall back to Ran <command>.",
+      note: "Calls with no description read as their command too, as every call does.",
       snapshot: finished(mixed(false)),
       play: openRun,
     },

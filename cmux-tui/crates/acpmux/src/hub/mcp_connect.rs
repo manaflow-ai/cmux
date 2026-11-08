@@ -21,6 +21,7 @@
 
 use super::{Hub, Session, SessionStatus};
 use crate::rpc::RpcError;
+use cmux_json::JsonSet as _;
 use cmux_mcp_connect::registry::{AuthKind, Registry};
 use cmux_mcp_connect::resolve::{Resolved, resolve};
 use serde_json::{Value, json};
@@ -57,6 +58,11 @@ struct Answer {
 
 /// The longest key accepted, in characters.
 const MAX_KEY_CHARS: usize = 4096;
+
+/// `value[key]` without an index: `Null` for a missing key or a value that is not an object.
+fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
+    value.get(key).unwrap_or(&Value::Null)
+}
 
 fn auth_word(kind: AuthKind) -> &'static str {
     match kind {
@@ -124,14 +130,14 @@ impl Hub {
             };
             return Ok(json!({"status": "unknown", "near": near}));
         };
-        let name = card["name"].as_str().unwrap_or_default().to_owned();
+        let name = field(&card, "name").as_str().unwrap_or_default().to_owned();
         let proposed = if SCOPES.contains(&proposed_scope) { proposed_scope } else { "chat" };
         let reason: String = reason.chars().take(MAX_REASON_CHARS).collect();
         let request_id = super::person::new_nonce();
-        card["requestId"] = json!(request_id);
-        card["reason"] = json!(reason);
-        card["proposedScope"] = json!(proposed);
-        card["scopesOffered"] = json!(SCOPES);
+        card.set("requestId", json!(request_id));
+        card.set("reason", json!(reason));
+        card.set("proposedScope", json!(proposed));
+        card.set("scopesOffered", json!(SCOPES));
         let (tx, rx) = oneshot::channel();
         {
             let mut pending = self.mcp_connects.pending.lock().unwrap_or_else(|e| e.into_inner());
@@ -191,20 +197,21 @@ impl Hub {
         card: &Value,
         key: Option<&str>,
     ) -> Value {
-        let result = match card["transport"].as_str() {
+        let result = match field(card, "transport").as_str() {
             Some("remote") => {
-                let url = card["url"].as_str().unwrap_or_default();
-                let key_header = match (card["auth"].as_str(), card["keyName"].as_str(), key) {
-                    (Some("key"), Some(name), Some(value)) => {
-                        Some(super::mcp_probe::KeyHeader { name, value })
-                    }
-                    _ => None,
-                };
-                if card["auth"] == "key"
-                    && card["keyOptional"] != json!(true)
+                let url = field(card, "url").as_str().unwrap_or_default();
+                let key_header =
+                    match (field(card, "auth").as_str(), field(card, "keyName").as_str(), key) {
+                        (Some("key"), Some(name), Some(value)) => {
+                            Some(super::mcp_probe::KeyHeader { name, value })
+                        }
+                        _ => None,
+                    };
+                if *field(card, "auth") == "key"
+                    && *field(card, "keyOptional") != json!(true)
                     && key_header.is_none()
                 {
-                    json!({"connect": "keyNeeded", "keyName": card["keyName"]})
+                    json!({"connect": "keyNeeded", "keyName": field(card, "keyName")})
                 } else {
                     let keyed = key_header.is_some();
                     match super::mcp_probe::probe(url, key_header).await {
@@ -221,7 +228,7 @@ impl Hub {
                         }
                         super::mcp_probe::Probe::SignIn { resource_metadata, scopes } => json!({
                             "connect": "signInNeeded",
-                            "auth": card["auth"],
+                            "auth": field(card, "auth"),
                             "resourceMetadata": resource_metadata,
                             "challengeScopes": scopes,
                         }),
@@ -235,8 +242,8 @@ impl Hub {
             _ => json!({"connect": "notStarted", "why": "local servers start in the sandbox step"}),
         };
         let mut record = result.clone();
-        record["requestId"] = json!(request_id);
-        record["name"] = card["name"].clone();
+        record.set("requestId", json!(request_id));
+        record.set("name", field(card, "name").clone());
         self.append(session, "mux", "mcp_connect_result", record);
         result
     }

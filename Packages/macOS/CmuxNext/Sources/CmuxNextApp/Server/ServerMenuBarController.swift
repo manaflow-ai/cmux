@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextPages
 import CmuxNextServer
 import CmuxNextWakeups
 import os
@@ -19,13 +20,19 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
     /// The floating Add Server card (u3849: pairing is not a menu bar popover).
     private var card: AddServerCardPanel?
     private var model: ServerModel?
+    /// The floating web cards (Pair Another Machine), made on the first opening and kept warm.
+    private var cards: WebCardPanel?
+    /// Makes the web card panel: nil without the App's services (previews and tests).
+    private let makeCards: @MainActor () -> WebCardPanel?
     /// Makes the model's source: the cloud pairing source in the App, the
     /// mock alone in previews and tests. Nil once the App's services are gone.
     private let makeSource: @MainActor () -> (any ServerSource)?
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.server-menu")
 
-    init(makeSource: @escaping @MainActor () -> (any ServerSource)? = { MockServerSource(scenario: .healthyMac) }) {
+    init(makeSource: @escaping @MainActor () -> (any ServerSource)? = { MockServerSource(scenario: .healthyMac) },
+         makeCards: @escaping @MainActor () -> WebCardPanel? = { nil }) {
         self.makeSource = makeSource
+        self.makeCards = makeCards
         super.init()
     }
 
@@ -45,12 +52,12 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
         item = statusItem
     }
 
-    /// Removes the item and closes its popover.
+    /// Removes the item and closes its popover and cards (an open invite's session ends).
     func hide() {
         popover?.close()
         popover = nil
-        card?.orderOut(nil)
-        card = nil
+        card.take()?.orderOut(nil)
+        cards.take()?.dismiss()
         model?.stop()
         model = nil
         if let item { NSStatusBar.system.removeStatusItem(item) }
@@ -103,6 +110,18 @@ final class ServerMenuBarController: NSObject, NSPopoverDelegate {
         let card = self.card.flatMap { $0.model === model ? $0 : nil } ?? AddServerCardPanel(model: model)
         self.card = card
         card.present(over: Self.frontWindow(), takeKeys: code == nil)
+    }
+
+    /// Shows the Pair Another Machine card near the top center of the front cmux window, with the
+    /// keys, and mints a new invite (a card still showing a live one keeps it). Opened by a person
+    /// only: the palette's person-only action and Add Device's hand-off.
+    func openInvite() {
+        guard let panel = cards ?? makeCards() else {
+            Self.logger.fault("pair invite card: no card page (the App's services are gone)")
+            return
+        }
+        cards = panel
+        panel.present(card: PairInviteCardProvider.route, over: Self.frontWindow(), takeKeys: true)
     }
 
     /// The cmux window the card belongs over: the main window, else the

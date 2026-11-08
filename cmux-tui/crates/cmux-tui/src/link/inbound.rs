@@ -215,18 +215,10 @@ where
     let mut verifying = ShutdownOnCancel(Some(
         entry.as_fd().try_clone_to_owned().map_err(|_| InboundRefused::NotAnEntry)?,
     ));
-    #[cfg(test)]
-    let hold = verify_hold::take(&daemon_entry(session_socket));
-    tokio::task::spawn_blocking(move || {
-        #[cfg(test)]
-        if let Some(hold) = hold {
-            hold();
-        }
-        cmux_link::caller::verify_fd(fd.as_raw_fd())
-    })
-    .await
-    .map_err(|_| InboundRefused::NotAnEntry)?
-    .map_err(|_| InboundRefused::NotAnEntry)?;
+    tokio::task::spawn_blocking(move || cmux_link::caller::verify_fd(fd.as_raw_fd()))
+        .await
+        .map_err(|_| InboundRefused::NotAnEntry)?
+        .map_err(|_| InboundRefused::NotAnEntry)?;
     verifying.finished();
     let banner =
         read_line(&mut entry, MAX_LINE_BYTES).await.map_err(|_| InboundRefused::NotAnEntry)?;
@@ -260,32 +252,4 @@ impl Drop for ShutdownOnCancel {
 async fn write_stamp(entry: &mut tokio::net::UnixStream, stamp: &str) -> io::Result<()> {
     entry.write_all(stamp.as_bytes()).await?;
     entry.write_all(b"\n").await
-}
-
-/// Test seam: hold the entry verification of one entry socket (the macOS
-/// signature check can take seconds) until the test releases it.
-#[cfg(test)]
-pub(super) mod verify_hold {
-    use std::collections::HashMap;
-    use std::path::{Path, PathBuf};
-    use std::sync::{Mutex, OnceLock};
-
-    type Hold = Box<dyn FnOnce() + Send>;
-
-    fn holds() -> &'static Mutex<HashMap<PathBuf, Hold>> {
-        static HOLDS: OnceLock<Mutex<HashMap<PathBuf, Hold>>> = OnceLock::new();
-        HOLDS.get_or_init(Default::default)
-    }
-
-    /// Run `hold` on the verification thread of the next handoff to `entry`.
-    pub(in crate::link) fn set(entry: &Path, hold: Hold) {
-        holds()
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(entry.into(), hold);
-    }
-
-    pub(super) fn take(entry: &Path) -> Option<Hold> {
-        holds().lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(entry)
-    }
 }

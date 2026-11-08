@@ -29,7 +29,7 @@ const withOwnedServer = <A, E, R>(rawId: string, rate: "read" | "write", k: <C, 
     const parsed = parseDeviceId(rawId);
     if (Option.isNone(parsed)) return yield* Effect.fail(missing());
     return yield* name(parsed.value, (device) => Effect.gen(function* () {
-      const proof = yield* callerActsOnOverlayServer(caller, device).pipe(Effect.mapError(() => unavailable()));
+      const proof = yield* callerActsOnOverlayServer(caller, device).pipe(Effect.mapError(unavailable));
       if (proof === null) return yield* Effect.fail(missing());
       return yield* k(caller, device, proof);
     }));
@@ -41,7 +41,7 @@ const readPolicy = (principal: Principal, row: OverlayServerRow) => overlayPolic
 /** Both credential and install-signed revocation use this mutation and audit path. */
 const revoke = <C, D>(caller: Named<C, Principal>, device: Named<D, DeviceId>, proof: CallerActsOnOverlayServer<C, D>) =>
   audited("overlay_server.revoke", device.value, withMeshWriter(caller.value.tenantId, proof.row.meshId, Effect.gen(function* () {
-    const current = yield* callerActsOnOverlayServer(caller, device).pipe(Effect.mapError(() => unavailable()));
+    const current = yield* callerActsOnOverlayServer(caller, device).pipe(Effect.mapError(unavailable));
     if (current === null) return yield* Effect.fail(missing());
     yield* (yield* MeshStore).revokeOverlayServer(caller.value.tenantId, device.value, new Date(yield* Clock.currentTimeMillis)).pipe(Effect.catchAll(dependencyDown("overlay.revoke")));
   })));
@@ -64,7 +64,7 @@ const withSignedServer = <A, E, R>(rawId: string, payload: SignedDeviceRequest, 
     if (!(yield* ownerStillValid(principal.tenantId, principal.actor, true))) return yield* Effect.fail(missing());
     if (held._tag !== "held") return yield* Effect.fail(signatureRefused(held._tag));
     yield* rateLimit(principal, rate);
-    const access = yield* callerActsOnOverlayServer(caller, device).pipe(Effect.mapError(() => unavailable()));
+    const access = yield* callerActsOnOverlayServer(caller, device).pipe(Effect.mapError(unavailable));
     if (access === null) return yield* Effect.fail(missing());
     return yield* k(caller, device, access);
   })).pipe(Effect.provideService(CurrentPrincipal, principal));
@@ -88,7 +88,7 @@ export const overlayServerHandlers = HttpApiBuilder.group(CmuxVmApi, "overlaySer
     const visible = [];
     for (const row of rows) {
       const id = parseDeviceId(row.deviceId); if (Option.isNone(id)) continue;
-      const allowed = yield* name(id.value, (device) => callerActsOnOverlayServer(caller, device).pipe(Effect.map((proof) => proof !== null))).pipe(Effect.mapError(() => unavailable()));
+      const allowed = yield* name(id.value, (device) => callerActsOnOverlayServer(caller, device).pipe(Effect.map((proof) => proof !== null))).pipe(Effect.mapError(unavailable));
       if (allowed) visible.push(toServer(row));
     }
     return new OverlayServerList({ items: visible });

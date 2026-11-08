@@ -152,6 +152,8 @@ async fn a_chat_works_until_its_background_subagent_ends() {
 /// manaflow-ai/cmux#25563: a hidden chat whose turn ended while its background Claude subagent
 /// still runs is not unread yet (the task is not done); it turns unread, and its tab hears
 /// "finished", when that subagent ends.
+// The subagent waits on a FIFO gate (mkfifo is Unix-only).
+#[cfg(unix)]
 #[tokio::test]
 async fn a_hidden_chat_turns_unread_when_its_background_subagent_ends() {
     let root = std::env::temp_dir().join(format!("acpmux-bgunread-{}", uuid::Uuid::now_v7()));

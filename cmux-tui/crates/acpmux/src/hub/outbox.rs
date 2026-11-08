@@ -70,6 +70,12 @@ pub struct Delivery {
     /// The session the sender's connection proved it runs in, sent again as the caller.
     #[serde(default)]
     pub caller: Option<String>,
+    /// The session a sender's connection named with a caller token this daemon could not prove
+    /// (an agent's shell holding a stale session's token). Sent again as that unproven caller
+    /// (`server/outbox.rs` `attempt_once`), so the replay is no owner's terminal send either
+    /// (`server/requests.rs` `owner_terminal`) and stays unverified, as the send itself was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unproven_caller: Option<String>,
     pub state: State,
     #[serde(default)]
     pub attempts: u32,
@@ -128,7 +134,18 @@ impl Delivery {
             "accepted": self.accepted,
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
+            // Why it failed, for a program: the target's machine has no such session.
+            "reason": self.no_session().then_some("no_session"),
         })
+    }
+
+    /// It failed because the target's machine has no such session (`server/outbox.rs`).
+    pub fn no_session(&self) -> bool {
+        self.state == State::Failed
+            && self
+                .error
+                .as_deref()
+                .is_some_and(|e| e.starts_with(super::no_session::NO_SESSION_PREFIX))
     }
 }
 
@@ -271,6 +288,7 @@ impl Outbox {
             target: address.to_owned(),
             request: json!({"teamOrigin": true, "_meta": {"acpmux": {"promptId": key}}}),
             caller: caller.map(str::to_owned),
+            unproven_caller: None,
             state: State::Delivered,
             attempts: 0,
             never_sent: false,
@@ -502,6 +520,7 @@ mod tests {
             target: "lane".into(),
             request: json!({"sessionId": "lane", "_meta": {"acpmux": {"promptId": format!("p-{n}")}}}),
             caller: None,
+            unproven_caller: None,
             state: State::Queued,
             attempts: 0,
             never_sent: false,
@@ -738,6 +757,7 @@ mod tests {
             target: "lane".into(),
             request,
             caller: None,
+            unproven_caller: None,
             state: State::Queued,
             attempts: 0,
             never_sent: false,

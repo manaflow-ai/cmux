@@ -63,6 +63,16 @@ extension DaemonError {
     /// a retry reaches its successor, so this is a lost connection, never a refusal.
     public static let incompatibleOwnerHandedOff = DaemonError.connectionClosed(reason: "incompatible owner handed off to the bundled build")
 
+    /// The reply missed its deadline (``timedOut(_:)``): the command may still apply, and one that sets an absolute
+    /// value may be sent again quietly (`SidebarFoldPersist.resending`).
+    public var isMissedDeadline: Bool {
+        if case .timedOut = self { return true }
+        return false
+    }
+
+    /// Whether `error` is a ``DaemonError`` whose reply missed its deadline (``isMissedDeadline``).
+    public static func missedDeadline(_ error: any Error) -> Bool { (error as? DaemonError)?.isMissedDeadline == true }
+
     /// A lost or restarting connection (retry), as opposed to the daemon's own refusal.
     public var isLostConnection: Bool {
         switch self {
@@ -83,5 +93,17 @@ extension DaemonError {
     public var isWorkspaceNotFound: Bool {
         guard case .command(_, _, let code?, let details, _) = self, code == "selector.not_found" else { return false }
         return details?["scope"]?.stringValue == "workspace"
+    }
+}
+
+extension DaemonError {
+    /// The remote entry's refusal of a command it never admits on this link (`remote_denied`):
+    /// asking again gets the same answer, so callers stop instead of retrying.
+    public static let remoteDeniedCode = "remote_denied"
+
+    /// Whether the daemon refused this request as one its link never admits (``remoteDeniedCode``).
+    public var isRemoteDenied: Bool {
+        if case .command(_, _, let code, _, _) = self { return code == Self.remoteDeniedCode }
+        return false
     }
 }

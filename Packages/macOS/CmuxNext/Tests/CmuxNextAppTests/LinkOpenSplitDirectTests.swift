@@ -183,6 +183,88 @@ import Testing
         #expect(creates.made.count == 2)
     }
 
+    /// Leo 2026-11-05: "it takes EGREGIOUSLY long for me to open up a link/the pane on the right opens". The daemon's
+    /// pane, with the link's tab, arrives before the reply names the tab's surface. Until then that tab counted as
+    /// restored, not opened here: its Chromium page was made on the slow path, after reading the tab's saved history
+    /// from the daemon (another round trip, up to 1 s), instead of in the turn its pane showed (ChromiumNewTabNow).
+    @Test(.timeLimit(.minutes(1))) func theSplitsTabIsOpenedHereBeforeTheReply() async throws {
+        let (services, pane, _) = try Self.pane(capabilities: Self.served)
+        defer { pane.teardown() }
+        services.linkOpener.placement = { .splitRight }
+        let store = services.daemon.store, browserTabs = services.cache.browserTabs
+        let made = SurfaceID(rawValue: 7)
+        let url = try #require(URL(string: "https://example.com/"))
+        let (heard, hear) = AsyncStream<Bool>.makeStream()
+        browserTabs.create = { _, _, _, _, _, _, _, split in
+            // The daemon's pane-added comes first: its pane carries the split's client-minted id.
+            let split = try #require(split)
+            let source = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "~")])
+            var tab = TabSnapshot(surface: made, kind: .browser, title: url.absoluteString, url: url.absoluteString, browserRenderer: "frontend", browserEngine: "cef")
+            tab.tabResourceID = ResourceID(rawValue: "tab-made")
+            let right = PaneSnapshot(id: PaneID(rawValue: 2), resourceID: ResourceID(rawValue: split.paneID), tabs: [tab])
+            let layout = LayoutNode.split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(PaneID(rawValue: 1)), b: .leaf(PaneID(rawValue: 2)))
+            let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: layout, panes: [source, right])
+            store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: nil, name: "w1", screens: [screen])]))
+            let listed = try #require(store.tab(surface: made), "fixture: the daemon's pane lists the tab")
+            hear.yield(browserTabs.wasOpenedHere(listed))
+            return made
+        }
+        #expect(services.linkOpener.openWeb(url, from: pane, background: false))
+        var openedHere: Bool?
+        for await value in heard { openedHere = value; break }
+        #expect(openedHere == true, "the split's tab, listed before the reply, was taken for a restored tab")
+    }
+
+    /// Leo 2026-11-03: "the new tab at the top opening first in the main pane THEN in the right split ... that top
+    /// tab animation". Split Browser Right (its key, menus, link hints' `F`, an agent's browser beside it) made the
+    /// tab in the source pane and then moved it with `split {tab}`, so the strip's new-tab animation played there
+    /// first. Now the split shows with its stand-in in the action's turn and one create carries `split`.
+    @Test(.timeLimit(.minutes(1))) func splitBrowserRightIsMadeInItsSplitNeverInTheSource() async throws {
+        let (services, pane, creates) = try Self.pane(capabilities: Self.served)
+        defer { pane.teardown() }
+        let store = services.daemon.store
+
+        _ = try BrowserHandlers.splitBrowser(from: pane, direction: .right, byPerson: true, context: AppActionContext(services: services))
+
+        let intent = try #require(store.pendingIntents.first, "no split showed in the action's turn")
+        guard case .splitPane(let target, let direction, _, let provisional) = intent else {
+            Issue.record("Split Browser did not open as a split intent: \(intent)")
+            return
+        }
+        #expect(target == PaneID(rawValue: 1))
+        #expect(direction == .right)
+        #expect(provisional.tab?.kind == .browser)
+        #expect(store.pane(PaneID(rawValue: 1))?.tabs.map(\.surface) == [SurfaceID(rawValue: 1)], "the new tab showed in the source pane")
+
+        if creates.made.isEmpty { for await _ in creates.heard { break } }
+        try #require(creates.made.count == 1, "one new-frontend-browser-tab, not a create and a move")
+        #expect(creates.made[0].pane == PaneID(rawValue: 1))
+        #expect(creates.made[0].split == ConversationTabSplit(direction: .right, paneID: provisional.paneID, splitID: provisional.splitID))
+    }
+
+    /// The chat header's Browser opens the New Tab page on the chat's right through ``LinkOpener/browserSplit(_:profile:returningTo:)``
+    /// with no address: its split shows with the page's stand-in now, and its one create carries `split`.
+    @Test(.timeLimit(.minutes(1))) func theHeadersBrowserIsMadeInItsSplit() async throws {
+        let (services, pane, creates) = try Self.pane(capabilities: Self.served)
+        defer { pane.teardown() }
+        services.linkOpener.placement = { .splitRight }
+        var moved = false
+        #expect(services.linkOpener.open(from: pane, focusing: .addressBar, split: services.linkOpener.browserSplit(nil)) { _, placed in
+            moved = placed != nil
+            return true
+        })
+        #expect(!moved, "the New Tab page was made in the source pane to be moved")
+        let intent = try #require(services.daemon.store.pendingIntents.first)
+        guard case .splitPane(_, .right, _, let provisional) = intent else {
+            Issue.record("the header's Browser did not open as a split intent: \(intent)")
+            return
+        }
+        #expect(provisional.tab?.kind == .browser)
+        if creates.made.isEmpty { for await _ in creates.heard { break } }
+        try #require(creates.made.count == 1)
+        #expect(creates.made[0].split?.paneID == provisional.paneID)
+    }
+
     /// An incognito pane keeps make-and-move: its daemon record holds about:blank until the reply
     /// registers the URL, so a pane that arrived first would mount a blank page (review of #32900).
     @Test func anIncognitoPaneKeepsTheMove() throws {

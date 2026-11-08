@@ -79,6 +79,8 @@ define_named_action_definitions! {
     BROWSER_RELOAD_DEFINITION => (Action::BrowserReload, "browser-reload", "Reload browser", "ブラウザを再読み込み");
     BROWSER_EDIT_URL_DEFINITION => (Action::BrowserEditUrl, "browser-edit-url", "Edit browser URL", "ブラウザ URL を編集");
     SHOW_SHORTCUTS_DEFINITION => (Action::ShowShortcuts, "show-shortcuts", "Keyboard shortcuts", "キーボードショートカット");
+    NEXT_ATTENTION_DEFINITION => (Action::NextAttention, "next-attention", "Go to next tab that needs you", "対応が必要な次のタブへ移動");
+    ATTENTION_LIST_DEFINITION => (Action::AttentionList, "attention-list", "Tabs that need you", "対応が必要なタブ");
     DETACH_DEFINITION => (Action::Detach, "detach", "Detach", "デタッチ");
     DOCK_WORKSPACE_LEFT_DEFINITION => (Action::DockWorkspaceLeft, "dock-workspace-left", "Dock Workspace Left", "ワークスペースを左にドッキング");
     DOCK_WORKSPACE_RIGHT_DEFINITION => (Action::DockWorkspaceRight, "dock-workspace-right", "Dock Workspace Right", "ワークスペースを右にドッキング");
@@ -222,7 +224,7 @@ pub(super) static SELECT_SCREEN_DEFINITIONS: [ActionDefinition; 10] = [
 /// The canonical action catalog. Presentation surfaces derive their labels
 /// and ordering from these named definitions instead of positional offsets.
 pub fn action_definitions() -> &'static [&'static ActionDefinition] {
-    static DEFINITIONS: [&ActionDefinition; 78] = [
+    static DEFINITIONS: [&ActionDefinition; 80] = [
         &SEND_PREFIX_DEFINITION,
         &NEW_TAB_DEFINITION,
         &NEW_BROWSER_TAB_DEFINITION,
@@ -289,6 +291,8 @@ pub fn action_definitions() -> &'static [&'static ActionDefinition] {
         &BROWSER_RELOAD_DEFINITION,
         &BROWSER_EDIT_URL_DEFINITION,
         &SHOW_SHORTCUTS_DEFINITION,
+        &NEXT_ATTENTION_DEFINITION,
+        &ATTENTION_LIST_DEFINITION,
         &DETACH_DEFINITION,
         &DOCK_WORKSPACE_LEFT_DEFINITION,
         &DOCK_WORKSPACE_RIGHT_DEFINITION,
@@ -367,6 +371,8 @@ impl Action {
             Action::BrowserReload => &BROWSER_RELOAD_DEFINITION,
             Action::BrowserEditUrl => &BROWSER_EDIT_URL_DEFINITION,
             Action::ShowShortcuts => &SHOW_SHORTCUTS_DEFINITION,
+            Action::NextAttention => &NEXT_ATTENTION_DEFINITION,
+            Action::AttentionList => &ATTENTION_LIST_DEFINITION,
             Action::Detach => &DETACH_DEFINITION,
             Action::DockWorkspaceLeft => &DOCK_WORKSPACE_LEFT_DEFINITION,
             Action::DockWorkspaceRight => &DOCK_WORKSPACE_RIGHT_DEFINITION,

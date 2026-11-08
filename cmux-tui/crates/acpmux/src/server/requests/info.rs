@@ -22,6 +22,7 @@ pub(super) async fn info(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
     if let Some(obj) = detail.as_object_mut() {
         obj.insert("logsLoading".into(), json!(!hub.session_log_loaded(&s)));
         obj.insert("transferBlocked".into(), json!(s.transfer_blocked()));
+        obj.insert("ownershipEpoch".into(), json!(s.ownership_epoch()));
     }
     // The session env reaches the unix socket only: no summary or
     // event carries it, so a key added to the allowlist later never

@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -28,6 +28,7 @@ function installDom(): HTMLElement {
 }
 
 afterEach(async () => {
+  jest.useRealTimers();
   if (root) await act(async () => root!.unmount());
   root = undefined;
   dom?.window.close();
@@ -100,4 +101,63 @@ test("deleted chats remain a terminal alert without a reconnect spinner", async 
   expect(container.querySelector('[role="alert"]')).not.toBeNull();
   expect(container.querySelector(".cv-spinner")).toBeNull();
   expect(container.textContent).toContain("This chat was deleted");
+});
+
+async function renderPaused(container: HTMLElement, props: { resuming?: boolean; noteDelayMs?: number } = {}) {
+  await act(async () => {
+    root ??= createRoot(container);
+    root.render(
+      <ChatUnavailableState
+        unavailable={{ reason: "paused", machine: "remote" }}
+        machine="remote"
+        onRemove={() => undefined}
+        onReconnect={() => undefined}
+        onResumeMachine={() => undefined}
+        {...props}
+      />,
+    );
+  });
+}
+
+const wait = (ms: number) => act(async () => void jest.advanceTimersByTime(ms));
+
+test("a paused machine shows nothing until the pause has lasted past the threshold, then a calm card", async () => {
+  jest.useFakeTimers();
+  const container = installDom();
+  await renderPaused(container, { noteDelayMs: 40 });
+  // The first frames: the loading layout, empty, so a quick wake never flashes a card.
+  expect(container.querySelector('[data-unavailable="connecting"]')).not.toBeNull();
+  expect(container.textContent).toBe("");
+  await wait(39);
+  expect(container.querySelector('[data-unavailable="paused"]')).toBeNull();
+  await wait(1);
+  const card = container.querySelector('[data-unavailable="paused"]');
+  expect(card).not.toBeNull();
+  expect(card!.getAttribute("role")).toBe("status");
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(container.textContent).toContain("Resume machine");
+});
+
+test("a resume keeps its spinner's slot from the first frame and fills it only past the threshold", async () => {
+  const container = installDom();
+  await renderPaused(container, { noteDelayMs: 0 });
+  const slot = container.querySelector(".acpmux-unavailable-progress");
+  expect(slot).not.toBeNull();
+  expect(slot!.childElementCount).toBe(0);
+  // Resuming: the slot stays empty for the threshold, then the spinner fades into it.
+  await act(async () => {
+    root!.render(
+      <ChatUnavailableState
+        unavailable={{ reason: "paused", machine: "remote" }}
+        machine="remote"
+        onRemove={() => undefined}
+        onReconnect={() => undefined}
+        onResumeMachine={() => undefined}
+        resuming
+        noteDelayMs={0}
+      />,
+    );
+  });
+  expect(container.querySelector(".acpmux-unavailable-progress")).toBe(slot);
+  expect(slot!.querySelector(".cv-spinner")).not.toBeNull();
 });

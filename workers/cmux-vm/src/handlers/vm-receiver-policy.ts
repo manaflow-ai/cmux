@@ -5,6 +5,7 @@ import { MeshStore } from "../db/mesh.ts";
 import type { Principal } from "../domain/principal.ts";
 import { unavailable, vmNotFound } from "../errors.ts";
 import type { MeshId, VmId } from "../lib/ids.ts";
+import { MeshConfig } from "../mesh/config.ts";
 import { actorOf, ownerLease } from "../mesh/owner.ts";
 import { sha256Hex } from "../mesh/signed-request.ts";
 import { projectVmReceivers } from "../mesh/vm-receiver-policy.ts";
@@ -14,7 +15,14 @@ import { dependencyDown } from "./common.ts";
 import { readMeshMember } from "./mesh-member.ts";
 import { compileMeshPolicy } from "./mesh-policy-inventory.ts";
 
-/** Called under the mesh writer lock, with the same scope proofs as the member read. */
+/**
+ * Takes no writer lock, with the same scope proofs as the member read. Its consistency is its own fence: the
+ * inventory, recorded rules and ACL are read and compiled once before the owner lookups and once after, and any
+ * difference answers 503. Each table's value was then unchanged from its first read to its second, so the
+ * answer matches the committed state at one instant between the two compiles. That state can be ahead of the
+ * provider while an apply is still reconciling; the policy names its ACL version, and it only narrows what a
+ * receiver accepts (it grants nothing at the provider).
+ */
 export const readVmReceiverPolicy = <C, M, V>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, vm: Named<V, VmId>,
   proofs: { readonly ownsMesh: TenantOwnsResource<C, M>; readonly meshScope: KeyHasScope<C, "mesh:read">; readonly vmScope: KeyHasScope<C, "vm:read"> }) =>
   Effect.gen(function* () {
@@ -41,8 +49,11 @@ export const readVmReceiverPolicy = <C, M, V>(caller: Named<C, Principal>, mesh:
       return [owner, Option.isSome(actor) ? (yield* ownerLease(tenant, actor.value, true)) : Option.none<number | null>()] as const;
     }), { concurrency: 8 }));
     const peers = candidates.filter((p) => first.devices.some((d) => d.deviceId === p.deviceId && Option.isSome(leases.get(d.createdBy) ?? Option.none())));
-    const expirations = [...leases.values()].flatMap((lease) => Option.isSome(lease) && lease.value !== null ? [lease.value] : []);
-    const expiresAt = Math.min(checkedAt + 30_000, ...expirations);
+    // Only the owners of peers that stay in the policy bound it (a dropped peer's owner grants nothing).
+    const kept = new Set(first.devices.filter((d) => peers.some((p) => p.deviceId === d.deviceId)).map((d) => d.createdBy));
+    const expirations = [...leases.entries()].flatMap(([owner, lease]) => kept.has(owner) && Option.isSome(lease) && lease.value !== null ? [lease.value] : []);
+    const ownerExpiresAt = expirations.length === 0 ? null : Math.min(...expirations);
+    const expiresAt = Math.min(checkedAt + (yield* MeshConfig).budgets.receiverPolicyLeaseMs, ...expirations);
     const projection = { schemaVersion: 1 as const, tenantId: tenant, vmId: vm.value, meshId: mesh.value, ipv4: member.ipv4, aclVersion: version, peers };
     const policyDigest = yield* sha256Hex(`cmux-vm-receiver-policy-v1\n${JSON.stringify(projection)}`);
     // Fence identity rotation, deletion, attachment and ACL changes across owner lookups.
@@ -56,5 +67,5 @@ export const readVmReceiverPolicy = <C, M, V>(caller: Named<C, Principal>, mesh:
     const same = fingerprint === JSON.stringify(again) && aclFingerprint === JSON.stringify(currentAcl);
     const finished = yield* Clock.currentTimeMillis;
     if (!same || ownsVm === null || ownsMesh === null || finished < checkedAt || finished >= expiresAt || !Number.isSafeInteger(version)) return yield* Effect.fail(unavailable());
-    return yield* Schema.decodeUnknown(VmReceiverPolicy)({ ...projection, policyDigest, checkedAt, expiresAt }).pipe(Effect.mapError(() => unavailable()));
+    return yield* Schema.decodeUnknown(VmReceiverPolicy)({ ...projection, policyDigest, checkedAt, expiresAt, ownerExpiresAt }).pipe(Effect.mapError(unavailable));
   }).pipe(Effect.timeoutFail({ duration: Duration.seconds(15), onTimeout: unavailable }));

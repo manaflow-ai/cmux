@@ -19,24 +19,6 @@ import "./MessageGroupHead.css";
 
 const ROW_ICON = rowIconSize(12);
 
-/// The one sender of a group's messages, the one that best names its session and harness, or
-/// nothing when two or more sessions sent (the head then draws the messages glyph). A sender is its
-/// session when one is known, else its name, as pendingMessages.ts `bySender` groups them; two
-/// sessions that share a name are two senders, and so are two harnesses (cmux#30821).
-export function groupSender(messages: readonly (IncomingMessage | undefined)[]): IncomingMessage | undefined {
-  const known = messages.filter((message): message is IncomingMessage => Boolean(message));
-  const senders = new Set(
-    known.map((message) => (message.sessionId ? `session:${message.sessionId}` : `name:${message.name}`)),
-  );
-  if (senders.size !== 1) return undefined;
-  if (new Set(known.flatMap((message) => (message.harness ? [message.harness] : []))).size > 1) return undefined;
-  return (
-    [...known].reverse().find((message) => message.harness) ??
-    [...known].reverse().find((message) => message.sessionId) ??
-    known.at(-1)
-  );
-}
-
 export function MessageGroupHead({
   sender,
   count,
@@ -68,7 +50,8 @@ export function MessageGroupHead({
   mark?: ReactNode;
 }) {
   const look = useInboxNoticeLook();
-  // Stacked (the default, messageLineLook.ts): the senders on their own line under the count, cut
+  // Single (the default, messageLineLook.ts): the senders after the count on its line. Stacked (a
+  // gallery version): the senders on their own line under the count, cut
   // there, as a message row's first line is; `quiet` keeps them in the tooltip only.
   const lineLook = useMessageLineLook();
   const below = lineLook === "stacked" && look !== "group-count" && !open ? senders : undefined;
@@ -98,7 +81,7 @@ export function MessageGroupHead({
           {inline && <span className="cv-message-group__senders">{inline}</span>}
         </span>
         <span className="cv-tool__chevron" aria-hidden="true">
-          <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
+          <ChevronRight size={14} className={`cv-rotor${open ? " is-open" : ""}`} />
         </span>
       </button>
       {below && (

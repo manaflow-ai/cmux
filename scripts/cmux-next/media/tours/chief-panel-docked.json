@@ -1,0 +1,113 @@
+{
+  "title": "Chief panel: docked at the right, the Chief chat only, beside the workspace",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "New workspace app",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "app"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "app: a plain $ prompt and a label",
+      "cmux": [
+        "workspace",
+        "name:app",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "export PS1='$ ' PROMPT='$ '; clear; echo 'app: the workspace on the stage'\r"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Home",
+      "cmux": [
+        "action",
+        "run",
+        "home.show"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Dock Workspace Right on Home docks the Chief",
+      "cmux": [
+        "action",
+        "run",
+        "workspace.dockRight"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Open app: the Chief docked at the right, the Chief chat only",
+      "cmux": [
+        "workspace",
+        "name:app",
+        "focus"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "Cmd-Ctrl-L: focus goes into the docked Chief",
+      "cmux": [
+        "action",
+        "run",
+        "focusRight"
+      ],
+      "wait": 1,
+      "optional": "the base has no Chief pane to move into"
+    },
+    {
+      "title": "Cmd-Ctrl-H: focus goes back to the stage",
+      "cmux": [
+        "action",
+        "run",
+        "focusLeft"
+      ],
+      "wait": 1,
+      "optional": "the base has no Chief pane to move out of"
+    },
+    {
+      "title": "Dark",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "dark"
+        }
+      },
+      "wait": 2,
+      "optional": "debug.appearance is DEBUG only"
+    },
+    {
+      "title": "System",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "system"
+        }
+      },
+      "wait": 2,
+      "optional": "debug.appearance is DEBUG only",
+      "shot": false
+    }
+  ]
+}

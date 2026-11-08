@@ -16,7 +16,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Instant;
 use tungstenite::handshake::server::{ErrorResponse, Request, Response};
 
-const OWNER_TOKEN: &str = "owner-access-token";
+pub(in crate::server) const OWNER_TOKEN: &str = "owner-access-token";
 type DeleteGate = Arc<(Mutex<bool>, Condvar)>;
 
 /// What the fake room saw, in order.
@@ -73,15 +73,15 @@ struct Shared {
     hello: Mutex<Vec<Value>>,
 }
 
-struct FakeRoom {
-    url: String,
+pub(in crate::server) struct FakeRoom {
+    pub(in crate::server) url: String,
     shared: Arc<Shared>,
     seen: Receiver<Seen>,
     buffer: RefCell<VecDeque<Seen>>,
 }
 
 impl FakeRoom {
-    fn start(puts: &[u16]) -> Self {
+    pub(in crate::server) fn start(puts: &[u16]) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let shared = Arc::new(Shared::default());
@@ -145,7 +145,7 @@ impl FakeRoom {
     }
 
     /// The next `method` request: its path, bearer and body.
-    fn request(&self, method: &str) -> (String, String, Value) {
+    pub(in crate::server) fn request(&self, method: &str) -> (String, String, Value) {
         let wanted = |s: &Seen| matches!(s, Seen::Request { method: m, .. } if m == method);
         match self.take(method, wanted) {
             Seen::Request { path, bearer, body, .. } => (path, bearer, body),
@@ -400,6 +400,42 @@ fn redeem(id: &str, attempt: &str, secret: &Value) -> Value {
 }
 
 #[test]
+fn a_link_names_the_build_that_made_it_unless_it_is_the_default_app() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, mut owner) = bridged("room-app-scheme", &room);
+    // NIGHTLY (the guest page's default) and anything that is not a cmux scheme name nothing.
+    for scheme in [Some("cmux-nightly"), Some("javascript"), Some("cmux-"), None] {
+        set_link_share_app_scheme(&mux, scheme);
+        assert!(shares(&mux).bridge.app_scheme.lock().unwrap().is_none(), "{scheme:?}");
+    }
+    set_link_share_app_scheme(&mux, Some("cmux-next-dev"));
+    let reply = create(&mut owner, surface);
+    assert_eq!(reply["ok"], true, "{reply}");
+    let share = &reply["data"];
+    let (id, secret) = (share["share_id"].as_str().unwrap(), share["secret"].as_str().unwrap());
+    assert_eq!(share["url"], format!("{}/g/{id}?app=cmux-next-dev#{secret}", room.url));
+    // An invite names the build too: the listed share's invite link opens in this build.
+    assert_eq!(state(&mut owner)["invite_url"], format!("{}/i/{id}?app=cmux-next-dev", room.url));
+}
+
+#[test]
+fn every_invite_url_of_an_answer_names_the_build() {
+    let mut answer = json!({"invite_url": "https://share.cmux.dev/i/a", "shares": [
+        {"invite_url": "https://share.cmux.dev/i/b"}, {"invite_url": null}]});
+    name_app_in_invites(&mut answer, "?app=cmux-rc");
+    assert_eq!(
+        answer,
+        json!({"invite_url": "https://share.cmux.dev/i/a?app=cmux-rc", "shares": [
+        {"invite_url": "https://share.cmux.dev/i/b?app=cmux-rc"}, {"invite_url": null}]})
+    );
+    // The default build names nothing.
+    let before = json!({"invite_url": "https://share.cmux.dev/i/a"});
+    let mut after = before.clone();
+    name_app_in_invites(&mut after, "");
+    assert_eq!(after, before);
+}
+
+#[test]
 fn a_provisioned_share_answers_hello_with_its_guests_and_redeems_through_the_daemon() {
     let room = FakeRoom::start(&[]);
     let (_fake, _mux, surface, mut owner) = bridged("room-redeem", &room);
@@ -470,11 +506,11 @@ fn an_account_redeem_answers_the_invitees_role_and_nothing_else_about_the_accoun
     assert_eq!((again["guest_id"].clone(), again["role"].clone()), (guest, json!("view")));
     room.send(invited("r3", "attempt-2", "tom@example.com"));
     assert_eq!(room.frame(conn)["role"], "talk");
-    // A link guest's answer is as before: no role (the room reads none as a link guest).
+    // A guest who joins by the link alone (nobody signed in) watches only.
     room.send(redeem("r4", "attempt-3", &share["secret"]));
     let link = room.frame(conn);
     assert!(link["guest_id"].is_string(), "{link}");
-    assert!(link.get("role").is_none(), "{link}");
+    assert_eq!(link["role"], "view", "{link}");
 }
 
 #[test]
@@ -825,6 +861,8 @@ fn restart_resumes_roomless_pending_deletes_at_expiry_and_frees_capacity() {
                 pending_room_ops: vec![json!({"op": "delete"})],
                 guests: Vec::new(),
                 invitees: Vec::new(),
+                role: None,
+                signed_in_role: None,
             }));
             Ok(((), true))
         })
@@ -865,7 +903,13 @@ fn restart_resumes_roomless_pending_deletes_at_expiry_and_frees_capacity() {
                 Some(&directory),
                 SESSION.into(),
                 1,
-                ShareTerms { ttl_secs: 3600, uses: 1, create_id: None },
+                ShareTerms {
+                    ttl_secs: 3600,
+                    uses: 1,
+                    create_id: None,
+                    role: None,
+                    signed_in_role: None
+                },
                 false
             )
             .is_ok()
@@ -944,7 +988,7 @@ fn retry_exhaustion_keeps_owner_cleanup_when_revocation_cannot_be_written() {
             None,
             SESSION.into(),
             surface,
-            ShareTerms { ttl_secs: 60, uses: 1, create_id: None },
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None, signed_in_role: None },
             true,
         )
         .unwrap();
@@ -985,7 +1029,7 @@ fn revoking_before_the_put_answer_persists_cleanup_across_restart() {
             Some(&directory),
             SESSION.into(),
             1,
-            ShareTerms { ttl_secs: 60, uses: 1, create_id: None },
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None, signed_in_role: None },
             true,
         )
         .unwrap();
@@ -1022,7 +1066,7 @@ fn a_revoked_inflight_provision_is_not_evicted_before_its_late_host_token() {
             None,
             SESSION.into(),
             surface,
-            ShareTerms { ttl_secs: 60, uses: 1, create_id: None },
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None, signed_in_role: None },
             true,
         )
         .unwrap();
@@ -1034,7 +1078,13 @@ fn a_revoked_inflight_provision_is_not_evicted_before_its_late_host_token() {
                 None,
                 SESSION.into(),
                 surface,
-                ShareTerms { ttl_secs: 60, uses: 1, create_id: None },
+                ShareTerms {
+                    ttl_secs: 60,
+                    uses: 1,
+                    create_id: None,
+                    role: None,
+                    signed_in_role: None,
+                },
                 false,
             )
             .unwrap();
@@ -1044,7 +1094,7 @@ fn a_revoked_inflight_provision_is_not_evicted_before_its_late_host_token() {
             None,
             SESSION.into(),
             surface,
-            ShareTerms { ttl_secs: 60, uses: 1, create_id: None },
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None, signed_in_role: None },
             false
         ),
         Err("share.limit")
@@ -1065,7 +1115,7 @@ fn a_late_host_token_for_an_inflight_tokenless_delete_still_reaches_the_room() {
             None,
             SESSION.into(),
             surface,
-            ShareTerms { ttl_secs: 60, uses: 1, create_id: None },
+            ShareTerms { ttl_secs: 60, uses: 1, create_id: None, role: None, signed_in_role: None },
             true,
         )
         .unwrap();
@@ -1201,6 +1251,8 @@ fn a_restart_reopens_the_host_socket_of_an_active_bridged_share() {
                 pending_room_ops: Vec::new(),
                 guests: Vec::new(),
                 invitees: Vec::new(),
+                role: None,
+                signed_in_role: None,
             });
             Ok(((), true))
         })
@@ -1240,6 +1292,8 @@ fn a_kick_of_an_ended_share_holds_no_capacity_and_goes_with_its_delete() {
                 pending_room_ops: vec![json!({"op": "kick", "guest_id": "g"})],
                 guests: Vec::new(),
                 invitees: Vec::new(),
+                role: None,
+                signed_in_role: None,
             }));
             Ok(((), false))
         })
@@ -1250,7 +1304,13 @@ fn a_kick_of_an_ended_share_holds_no_capacity_and_goes_with_its_delete() {
                 None,
                 SESSION.into(),
                 surface,
-                ShareTerms { ttl_secs: 60, uses: 1, create_id: None },
+                ShareTerms {
+                    ttl_secs: 60,
+                    uses: 1,
+                    create_id: None,
+                    role: None,
+                    signed_in_role: None
+                },
                 false
             )
             .is_ok()
@@ -1323,6 +1383,57 @@ fn a_share_the_room_expired_is_expired_here() {
         assert!(Instant::now() < deadline, "the share the room expired is expired here");
         std::thread::sleep(Duration::from_millis(5));
     }
+}
+
+/// A signed-in link guest's redeem: the room's own `redeem` frame on the host socket carries the
+/// account it signed in (and its picture) beside the secret, which is the room's attestation. The
+/// daemon answers `talk` on a link with no role, and nothing about the account goes back. Frames
+/// that stand for a guest's browser (`guest_*`, whatever fields they carry) never redeem: a guest
+/// page cannot name an account. ask-2a1105b933.
+#[test]
+fn only_the_rooms_redeem_frame_signs_a_link_guest_in_and_a_guests_frames_never_do() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-signed-in-link", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    let secret = share["secret"].clone();
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    // A guest's browser frames, forged to carry what a redeem would: none redeems.
+    let forged = |t: &str| {
+        json!({"v": 1, "t": t, "guest_id": "forged", "request_id": t, "attempt_id": t,
+            "secret": secret, "account": "eve@example.com", "name": "Eve",
+            "avatar_url": "https://x.example/e.png", "client_id": "c1", "text": "hi"})
+    };
+    for t in ["guest_prompt", "guest_typing", "guest_redeem", "prompt_status", "older"] {
+        room.send(forged(t));
+    }
+    room.none(
+        "an answer to a guest's frame as a redeem",
+        |seen| matches!(seen, Seen::Frame { frame, .. } if frame["t"] == "redeemed"),
+    );
+    let shown = state(&mut owner);
+    assert_eq!(shown["uses_left"], 1, "no guest frame spent a use: {shown}");
+    assert_eq!(shown["guests"], json!([]), "{shown}");
+    // The room's own redeem, with the account it signed in: a guest who may send.
+    room.send(json!({"v": 1, "t": "redeem", "request_id": "r1", "attempt_id": "attempt-1",
+        "secret": secret, "name": "Sam Park", "account": "Sam@example.com",
+        "avatar_url": "https://lh3.example.com/a/sam.png"}));
+    let redeemed = room.frame(conn);
+    let guest = redeemed["guest_id"].clone();
+    assert!(guest.is_string(), "{redeemed}");
+    assert_eq!(
+        redeemed,
+        json!({"v": 1, "t": "redeemed", "request_id": "r1", "guest_id": guest, "role": "talk"}),
+        "nothing about the account reaches the room"
+    );
+    let shown = state(&mut owner);
+    let sam = &shown["guests"][0];
+    assert_eq!(
+        (&sam["account"], &sam["via"], &sam["avatar_url"]),
+        (&json!("sam@example.com"), &json!("link"), &json!("https://lh3.example.com/a/sam.png")),
+        "{sam}"
+    );
+    assert_eq!(shown["uses_left"], 0, "a signed-in link guest spends the use");
 }
 
 #[test]
@@ -1499,7 +1610,8 @@ fn sized(seq: u64, bytes: usize) -> Value {
         "msg": {"text": "x".repeat(bytes)}})
 }
 
-/// A share with two redeemed guests and its host socket past `guests`: (share, [guest ids], conn).
+/// A share with two redeemed guests (accounts invited with `talk`, so they may send) and its host
+/// socket past `guests`: (share, [guest ids], conn).
 fn two_guests(room: &FakeRoom, owner: &mut Client, surface: u64) -> (Value, [String; 2], u64) {
     let reply = owner.request(json!({"cmd":"agent-session-share-create", "surface":surface,
         "owner_token":OWNER_TOKEN, "uses":2}));
@@ -1508,9 +1620,14 @@ fn two_guests(room: &FakeRoom, owner: &mut Client, surface: u64) -> (Value, [Str
     assert_eq!(room.next(conn, "guests")["active"], json!([]));
     let mut guests = [String::new(), String::new()];
     for (index, name) in ["Ann", "Bob"].into_iter().enumerate() {
+        let account = format!("{}@example.com", name.to_lowercase());
+        let invite = owner.request(json!({"cmd":"agent-session-share-invite",
+            "share_id":share["share_id"], "account":account, "role":"talk"}));
+        assert_eq!(invite["ok"], true, "{invite}");
         let reply = owner.request(json!({"cmd":"agent-session-share-redeem",
-            "share_id":share["share_id"], "secret":share["secret"], "name":name,
+            "share_id":share["share_id"], "account":account, "name":name,
             "attempt_id":format!("attempt-{index}")}));
+        assert_eq!(reply["data"]["role"], "talk", "{reply}");
         guests[index] = reply["data"]["guest_id"].as_str().unwrap().to_owned();
     }
     (share, guests, conn)

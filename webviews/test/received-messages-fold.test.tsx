@@ -10,11 +10,20 @@
 // Before: inbox notices drew "N inbox threads" with every session name, and a Claude turn's
 // received steers between them folded into their own "Received 2 messages" line, so one turn drew
 // three rows for one thing. After: one "Received 7 messages" row.
-import { afterAll, afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
+
+// Claude's in-place runs (claudeTurnFold.experiment.ts arm "runs"): these tests cover that arm. The
+// default folds a Claude turn under "Worked for", as Codex does (turnFoldStyle.test.ts).
+beforeAll(() => {
+  globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = undefined;
+});
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",

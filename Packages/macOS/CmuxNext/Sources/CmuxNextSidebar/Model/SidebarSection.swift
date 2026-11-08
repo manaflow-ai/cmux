@@ -25,7 +25,8 @@ public nonisolated struct SidebarCustomSection: Hashable, Sendable {
 
 /// Machine metadata for a machine section header.
 public nonisolated struct SidebarMachine: Hashable, Sendable {
-    public nonisolated enum Kind: Hashable, Sendable {
+    /// Raw values are the `sidebar_bridge` rules' words.
+    public nonisolated enum Kind: String, Hashable, Sendable {
         case local
         case cloud
         case ssh
@@ -33,7 +34,8 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
         case server
     }
 
-    public nonisolated enum Status: Hashable, Sendable {
+    /// Raw values are the `sidebar_bridge` rules' words.
+    public nonisolated enum Status: String, Hashable, Sendable {
         case connected
         case connecting
         /// The link to the machine dropped (sleep, a network drop or
@@ -155,15 +157,6 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
             guard let rate = hourlyRateUsd, let seconds = runningSeconds(now: now) else { return nil }
             return rate * seconds / 3600
         }
-    }
-
-    /// A connected machine whose link redials reads as reconnecting
-    /// (cx-z5oif): its socket stays up, so its connection cannot tell.
-    public func redialing(_ redialing: Bool) -> SidebarMachine {
-        guard redialing, status == .connected || status == .updateAvailable else { return self }
-        var machine = self
-        machine.status = .reconnecting
-        return machine
     }
 }
 
