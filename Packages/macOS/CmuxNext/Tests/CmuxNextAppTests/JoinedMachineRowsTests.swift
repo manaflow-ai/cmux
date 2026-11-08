@@ -276,9 +276,19 @@ import CmuxNextWakeups
         var heard = 0
         var owner: NSObject? = NSObject()
         FrameScheduler.followSight(of: window, owner: owner!) { heard += 1 }
+        // A second follower on the same window that stays: the app's one observer tells every follower of a report in
+        // one delivery, so its count says the report was delivered, also when the follower under test is not told.
+        let witness = NSObject()
+        var delivered = 0
+        FrameScheduler.followSight(of: window, owner: witness) { delivered += 1 }
+        defer { FrameScheduler.unfollowSight(of: window, owner: witness) }
         func report() async throws {
+            let before = delivered
             NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window) // global-notice-allow: the app's one occlusion observer (FrameScheduler.watchSight) listens on .default and takes no center
-            try await Task.sleep(for: .milliseconds(10)) // yields the main actor so the report is delivered on the main queue
+            // The observer delivers on the main queue: yield the main actor until it has.
+            let deadline = ContinuousClock.now + .seconds(5)
+            while delivered == before, ContinuousClock.now < deadline { await Task.yield() }
+            try #require(delivered > before, "the app's occlusion observer did not deliver the report")
         }
         try await report()
         #expect(heard == 1)
