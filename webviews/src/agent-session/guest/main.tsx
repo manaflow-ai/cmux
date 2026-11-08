@@ -20,6 +20,7 @@ import {
   redeemOverFetch,
   rememberJoined,
   takeGuestLink,
+  whoamiOverFetch,
 } from "./redeem";
 import { followBrowserTheme } from "./theme";
 import { installGuestHost } from "./guestHost";
@@ -73,6 +74,7 @@ function Guest() {
       redeem={redeemOverFetch()}
       invite={link?.invite === true}
       accept={acceptOverFetch()}
+      whoami={whoamiOverFetch()}
       attempt={() => attemptId(shareId, storage)}
       onJoined={(guestId, name, role, via) => rememberJoined(shareId, guestId, storage, name, role, via)}
       socketUrl={socketUrl}

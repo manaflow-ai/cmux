@@ -296,8 +296,8 @@ public final class AgentTurnStateFeed {
         if !isMirror { turns.watching = false }
         // Titles stay: a tab keeps reading as its chat while the watch reconnects.
         turns.clearLive(source: source)
+        lanes.live = false // first: the store keeps the sessions it listed for the gap (`AgentLaneStore.beforeGap`)
         lanes.lanes = [:]
-        lanes.live = false
         logger.info("agent turn states: watch closed")
         reconnect?.cancel()
         reconnect = Task { [weak self] in

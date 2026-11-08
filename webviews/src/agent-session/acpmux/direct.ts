@@ -10,7 +10,7 @@ import { isRetryContinuation, subagentRetryNotice, type SubagentRetryNotice } fr
 import { isModelRouterKind } from "./routerKinds";
 import type { SwitchPort } from "./harnessSwitch";
 import { OlderPageDelay } from "./conversation/olderPageDelay";
-import { answeredBy, participant, promptAuthor, type Participant } from "./multiplayer/participants";
+import { answeredBy, promptAuthor, queuedAuthor, type Participant } from "./multiplayer/participants";
 import type {
   AcpmuxActivity,
   AcpmuxFileDiff,
@@ -1041,7 +1041,7 @@ export function mergeQueue(
     const heldKeepsRecord = heldRecord && hold.awaitingOwner === true;
     const author =
       entry && typeof entry === "object" && "author" in entry
-        ? participant(entry.author?.id, entry.author?.name)
+        ? queuedAuthor(entry.author)
         : authors?.has(id)
           ? (authors.get(id) ?? undefined)
           : had?.author;
@@ -3744,7 +3744,7 @@ export class AcpmuxDirectClient {
     // The queue is not drawn, but a teammate's queued prompt keeps the author its row had when the
     // tail was kept, for when acpmux's list or attach draws the queue (as `drawKeptTail` seeds it).
     for (const entry of held.queue) {
-      const author = participant(entry?.author?.id, entry?.author?.name);
+      const author = queuedAuthor(entry?.author);
       if (author && !this.queueAuthors.has(entry.id)) this.queueAuthors.set(entry.id, author);
     }
     this.earlyTail = { sessionId, generation, through };
@@ -3829,7 +3829,7 @@ export class AcpmuxDirectClient {
     // A teammate's prompt whose authored record fell out of the kept tail keeps the author its row
     // had when the tail was kept (this page's or another tab's): acpmux's list names none.
     for (const entry of kept.queue) {
-      const author = participant(entry?.author?.id, entry?.author?.name);
+      const author = queuedAuthor(entry?.author);
       if (author && !this.queueAuthors.has(entry.id)) this.queueAuthors.set(entry.id, author);
     }
     // The replayed `queued` records carry each prompt's whole text; acpmux's list gives the order.
@@ -3837,7 +3837,9 @@ export class AcpmuxDirectClient {
     // From the frame the rows are drawn, not from the attach: a live record of the chat that comes
     // before it is asked (while the chat left detaches) is held too (`copyLive`).
     if (this.lastSeq > 0) this.copyLive = new Map();
-    return this.lastSeq;
+    // A copy's rows continue from how far it covers, which may be past its newest record
+    // (`drawPeerCopy`): an attach page that starts right after that is no gap.
+    return kept.peerCopy ? Math.max(this.lastSeq, kept.peerCopy.lastSeq) : this.lastSeq;
   }
 
   /// The established socket `socket` is gone (it closed, or the pane gave up on it in
@@ -9485,17 +9487,20 @@ export class AcpmuxDirectClient {
   /// the tool calls its started row shows), the prompt adds nothing, and the attach ends with the
   /// turn (unless the pane shows it by then).
   private async promptUnseen(sessionId: string, text: string): Promise<void> {
-    await this.offerChildren
-      .prompting(sessionId, () =>
-        // The reply comes when the turn ends; the chat shows how it goes.
-        this.request("session/prompt", {
-          sessionId,
-          prompt: promptBlocks(text, []),
-          _meta: { acpmux: { promptId: crypto.randomUUID() } },
-        }),
-      )
-      // A prompt acpmux refused shows in the chat itself.
-      .catch(() => undefined);
+    // A prompt acpmux refused shows in the chat itself.
+    await this.promptSide(sessionId, text).catch(() => undefined);
+  }
+  /// `promptUnseen` that rejects as the prompt does: `/side <prompt>`'s prompt to its side chat,
+  /// whose caller says when the host refused it (a `transport.` code: it never reached acpmux).
+  /// The reply comes when the side chat's turn ends.
+  async promptSide(sessionId: string, text: string): Promise<void> {
+    await this.offerChildren.prompting(sessionId, () =>
+      this.request("session/prompt", {
+        sessionId,
+        prompt: promptBlocks(text, []),
+        _meta: { acpmux: { promptId: crypto.randomUUID() } },
+      }),
+    );
   }
   /// Reply in place to another agent's message (conversation/IncomingMessageCard.tsx): `text`
   /// goes to the chat that sent it as this chat's cmux agent message in the same thread, as
@@ -10791,17 +10796,34 @@ export class AcpmuxDirectClient {
   private takeBackFork(sessionId: string): void {
     void this.request("_acpmux/kill", { sessionId, purge: true, cancelFork: true }).catch(() => undefined);
   }
-  /// Forks the open session through `throughSeq` and stays on it: New side chat's copy, which the
-  /// host opens beside this chat. One fork at a time, as `fork`.
-  async forkAside(throughSeq: number): Promise<string | undefined> {
-    if (!this.canFork || !this.selectedSessionId || this.forking) return undefined;
+  /// Forks the open session through `throughSeq` (`live`: a working chat as it is now, its own turn
+  /// going on, as Fork Conversation does) and stays on it: New side chat's and `/side`'s copy, which
+  /// the host opens beside this chat. The fork's rows go to the app host as its tail, so the side
+  /// chat's page draws them at once (forkTail.ts). One fork at a time, as `fork`.
+  /// A fork made while the reader opened another chat is taken back: it would be tagged the side
+  /// chat of one chat and opened beside another.
+  async forkAside(throughSeq: number | "live"): Promise<string | undefined> {
+    const sessionId = this.selectedSessionId;
+    if (!this.canFork || !sessionId || this.forking) return undefined;
     this.forking = true;
+    const generation = this.selectionGeneration;
     try {
-      const result = await this.request(FORK_OP, { sessionId: this.selectedSessionId, throughSeq });
-      return result?.sessionId ? String(result.sessionId) : undefined;
+      const boundary = throughSeq === "live" ? { sessionId, live: true } : { sessionId, throughSeq };
+      const result = await this.request(FORK_OP, boundary);
+      if (!result?.sessionId) return undefined;
+      if (generation !== this.selectionGeneration) {
+        this.takeBackFork(String(result.sessionId));
+        return undefined;
+      }
+      this.handOverForkTail(sessionId, result);
+      return String(result.sessionId);
     } finally {
       this.forking = false;
     }
+  }
+  /// A side chat's fork that never opened beside its chat: its chat and conversation copy go.
+  takeBackSide(sessionId: string): void {
+    this.takeBackFork(sessionId);
   }
   /// `/btw <question>`: acpmux starts a read-only side session about the open chat, on a fast model,
   /// asks it `question` and answers with its id at once (`_acpmux/btw`). The chat is not touched,

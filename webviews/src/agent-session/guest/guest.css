@@ -14,6 +14,14 @@
 .guest-join__button{flex:none;height:32px;padding:0 16px;border:0;border-radius:8px;background:var(--agent-accent);color:var(--agent-on-accent, var(--agent-page-bg));font:inherit;font-weight:500}
 .guest-join__button:disabled{opacity:0.45}
 .guest-join__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+/* A signed-in visitor's Join: one full-width button, their picture, then "Join as <name>" cut at the end. */
+.guest-join__as{flex:1;min-width:0;display:inline-flex;align-items:center;justify-content:center;gap:var(--ds-space-2, 8px)}
+.guest-join__as-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.guest-join__face{flex:none;display:inline-flex;align-items:center}
+/* Edit name is a quiet text link under the button, never a second filled control. */
+.guest-join__edit{align-self:center;padding:0;border:0;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
+.guest-join__edit:hover{color:var(--agent-text);text-decoration:underline}
+.guest-join__edit:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 /* Open in cmux (OpenInApp.tsx): the app link as the primary button, the browser as a quiet second choice. */
 .guest-app__open{display:inline-flex;align-items:center;box-sizing:border-box;text-decoration:none}
 .guest-app__browser{flex:none;height:32px;padding:0 12px;border:1px solid var(--agent-border);border-radius:8px;background:transparent;color:var(--agent-text);font:inherit}

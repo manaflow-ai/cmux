@@ -1490,6 +1490,9 @@ function shapeTurn(
   // A notice-started turn has no prompt to send again, so it goes on too; acpmux's own retry attempt
   // (a hidden prompt row) where nothing ran stays Retry.
   const noticeStarted = user.incoming?.kind === "notice" || user.incoming?.kind === "inbox";
+  // acpmux's next attempt of a failed prompt is `P~resume-n` (hub/auto_resume.rs SUFFIX): one that
+  // failed too says so on its card (cmux#34369).
+  const failedAgain = isFailed(summary) && /~resume-\d+$/.test(user.promptId ?? "");
   const continuable =
     offers && lastSummary < 0 && isFailed(summary) && (noticeStarted || body.some((row) => row.kind !== "user"));
   // The hint is only rendered for a settled retry target. Avoid scanning the turn body on each
@@ -1508,6 +1511,7 @@ function shapeTurn(
     ...(retryable && { retryable }),
     ...(retryTarget && { retryTarget }),
     ...(continuable && { continuable }),
+    ...(failedAgain && { failedAgain: true as const }),
     ...(changedFiles && { changedFiles: true as const }),
     ...(answer && { answerId: answer.id }),
     // Retry sends the prompt as the agent got it: an incoming message with its sender. A
@@ -2230,7 +2234,7 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
     if (!file) return t(done ? "tools.wrote.unnamed" : "tools.writing.unnamed");
     return t(done ? "tools.wrote.file" : "tools.writing.file", { file });
   }
-  const label = toolLabel(tool, text, (command) => command);
+  const label = toolLabel(tool, text, (command) => command, undefined, undefined, false);
   const path = editedPaths(tool)[0];
   if (!path || tool.kind === "execute") return label;
   if (isEditTool(tool) && tool.status === "completed" && editedPaths(tool).length === 1)
