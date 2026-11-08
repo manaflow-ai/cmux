@@ -81,7 +81,7 @@ test("two wide images in an attachment-only prompt reserve two thumbnail rows", 
 test("a video-only prompt reserves its tile's thumbnail row", () => {
   const poster = "data:image/jpeg;base64,AA==";
   const video = { width: 1920, height: 1080, durationMs: 4_000, poster, frames: ["f"] };
-  const chip = { id: "v", kind: "link", name: "clip.mp4", path: "/tmp/clip.mp4", mimeType: "video/mp4", size: 1, video };
+  const chip = { id: "v", kind: "link", name: "clip.mp4", path: "/c.mp4", mimeType: "video/mp4", size: 1, video };
   const [height] = heightsOf([{ id: "video", version: 1, at: 0, kind: "user", retryAttachments: [chip] }]);
   expect(height).toBeGreaterThanOrEqual(128);
 });
