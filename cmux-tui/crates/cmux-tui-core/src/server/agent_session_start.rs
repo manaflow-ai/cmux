@@ -322,6 +322,10 @@ pub(super) fn start(
     if let Err(refusal) = super::agent_session_trust::home_rule(cwd, params.home_confirmed) {
         return refuse(writer, id, refusal);
     }
+    // A phone's start (the Cloud mobile carrier, `cloud-mobile-chat-v1`) gets the phone's floor.
+    // Read here, before the worker: a phone that leaves mid-start must not lift it.
+    let phone =
+        mux.control_clients.supports_capability(client, super::CLOUD_MOBILE_CHAT_CAPABILITY);
     let Some(slot) = AgentSessionStarts::reserve(mux, params.surface) else {
         return refuse(writer, id, Refusal::Limit);
     };
@@ -333,7 +337,7 @@ pub(super) fn start(
         .stack_size(THREAD_STACK_BYTES)
         .spawn(move || {
             let result = match keyed_gate(&socket, &params) {
-                Ok(()) => run(&worker_mux, client, socket, params).map_err(|r| (r, None)),
+                Ok(()) => run(&worker_mux, client, socket, params, phone).map_err(|r| (r, None)),
                 Err(refused) => Err(refused),
             };
             drop(slot);
@@ -442,9 +446,10 @@ fn run(
     client: u64,
     socket: PathBuf,
     params: StartParams,
+    phone: bool,
 ) -> Result<Value, Refusal> {
     let link = connect(mux, &socket)?;
-    let result = start_and_bind(mux, client, &link, &params);
+    let result = start_and_bind(mux, client, &link, &params, phone);
     link.close();
     result
 }
@@ -488,11 +493,13 @@ pub(in crate::server) fn restart_with(
     AcpmuxLink::connect(socket, |_| {}).ok()
 }
 
+/// `phone`: the caller declared `cloud-mobile-chat-v1` (read before the start's worker).
 fn start_and_bind(
     mux: &Arc<Mux>,
     client: u64,
     link: &AcpmuxLink,
     params: &StartParams,
+    phone: bool,
 ) -> Result<Value, Refusal> {
     let cwd = params.cwd.as_deref().ok_or(Refusal::BadRequest)?;
     let owner_cloud = mux
@@ -500,11 +507,9 @@ fn start_and_bind(
         .agent_sessions
         .starts
         .owner_cloud(vm_word(&params.vm_kind) == Some("owner"));
-    // A phone's start (the Cloud mobile carrier, `cloud-mobile-chat-v1`) gets the phone's
-    // floor, also on the caller's own Cloud VM: an acpmux that holds Cloud mobile prompts to it,
-    // a family the floor has a mode for, and that mode before the start answers.
-    let phone =
-        mux.control_clients.supports_capability(client, super::CLOUD_MOBILE_CHAT_CAPABILITY);
+    // A phone's start gets the phone's floor, also on the caller's own Cloud VM: an acpmux that
+    // holds Cloud mobile prompts to it, a family the floor has a mode for, and that mode before
+    // the start answers.
     let table = link.call("_acpmux/web_modes", json!({}), CALL_TIMEOUT).map_err(Refusal::of)?;
     if phone && table.get("cloudMobileStrictFloor").and_then(Value::as_u64) != Some(1) {
         return Err(Refusal::NotAsking);
@@ -515,7 +520,10 @@ fn start_and_bind(
     let catalog =
         link.call("_acpmux/harnesses", json!({"cwd": cwd}), CALL_TIMEOUT).map_err(Refusal::of)?;
     let family = catalog_family(&catalog, params.harness.as_deref()).ok_or(Refusal::NotAsking)?;
-    if (!owner_cloud || phone) && refused_family(&table, &family) {
+    // A phone's family is held to its own floor instead: acpmux refuses Codex as a Web family,
+    // but a Codex bridge session holds to the phone floor in `ask`, which only the session's
+    // `cloudMobileAsks` can tell from Codex's adapter (`settle_phone_mode`).
+    if !owner_cloud && !phone && refused_family(&table, &family) {
         return Err(Refusal::NotAsking);
     }
     if phone && phone_modes(&family).is_empty() {

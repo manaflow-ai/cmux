@@ -182,6 +182,9 @@ pub(super) struct PhoneFloor {
     pub(super) family: &'static str,
     pub(super) mode: Arc<Mutex<String>>,
     pub(super) stuck: bool,
+    /// When set, the start's first `_acpmux/web_modes` (the table, before any session) waits
+    /// for one message on it (at most [`WAIT`], or until its sender is gone).
+    pub(super) table_gate: Option<Arc<Mutex<Receiver<()>>>>,
 }
 
 impl PhoneFloor {
@@ -214,9 +217,16 @@ fn serve(
         let reply = match frame["method"].as_str().unwrap_or_default() {
             "_acpmux/web_modes" if fixture.phone.is_some() => {
                 let phone = fixture.phone.as_ref().unwrap();
+                if params.get("sessionId").is_none()
+                    && let Some(gate) = &phone.table_gate
+                {
+                    let _ = gate.lock().unwrap_or_else(|e| e.into_inner()).recv_timeout(WAIT);
+                }
+                // acpmux's own table: Codex and opencode are refused Web families, and a Codex
+                // bridge session holds to the phone floor only through `cloudMobileAsks`.
                 let mut table = json!({
-                    "families": {"claude": ["default", "acceptEdits"], "codex": ["ask"]},
-                    "refusedFamilies": [],
+                    "families": {"claude": ["default", "plan"]},
+                    "refusedFamilies": ["codex", "opencode"],
                     "session": {"family": phone.family, "mode": phone.mode.lock().unwrap().clone(),
                                 "cloudMobileAsks": phone.asks()},
                 });
