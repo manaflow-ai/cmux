@@ -18,7 +18,7 @@ you're removing; every command below uses them.
 | cmux NEXT DEV | `~/Applications/cmux NEXT DEV.app` | `com.cmuxterm.app.debug.next` | `next` |
 | NIGHTLY (nightly-next) | `/Applications/cmux NIGHTLY.app` | `com.cmuxterm.app.nightly` | `nightly` |
 | cmux NEXT (the older nightly-next identity) | `/Applications/cmux NEXT.app` | `com.cmuxterm.app.nightly.cmux-next` | `cmux-next` |
-| A tagged dev build | `cmux DEV <tag>.app` | `com.cmuxterm.app.debug.<tag>` | `<tag>` |
+| A tagged dev build | `cmux DEV <tag>.app` | `com.cmuxterm.app.debug.<tag>` | `<tag>` (see below) |
 | cmux classic (not cmux-next) | `/Applications/cmux.app` | `com.cmuxterm.app` | — |
 | cmux classic NIGHTLY (not cmux-next) | `/Applications/cmux NIGHTLY.app` | `com.cmuxterm.app.nightly` | — |
 
@@ -28,6 +28,7 @@ with the same name and bundle id. Removing NIGHTLY removes both.
 ```sh
 BUNDLE=com.cmuxterm.app.debug.next
 TAG=next
+SESSION="cmux-app-$TAG"
 APP="$HOME/Applications/cmux NEXT DEV.app"
 # Not sure where it is? List every copy of this bundle id:
 mdfind "kMDItemCFBundleIdentifier == '$BUNDLE'"
@@ -47,6 +48,11 @@ fi
 
 A tagged dev build whose bundle id holds characters outside `A-Za-z0-9._-` uses
 `<bundle>--<hash>` instead of the bundle id in these folder names; `ls ~/.acpmux/builds` shows it.
+
+A dev build tagged `nightly`, `rc`, `staging` or `cmux-next`, and the untagged
+`com.cmuxterm.app.debug`, don't use their tag: their session is `cmux-app--<hash>` and their daemon
+state is in `$BUILD_DIR/tui`, not `tags/<tag>`. Never set `TAG=nightly` for one of those, or the
+steps below stop and delete NIGHTLY's. For them, leave `TAG` empty and set `SESSION` in step 4.
 
 ## 2. Before you quit: CLI and server
 
@@ -70,10 +76,12 @@ Use the CLI inside the app, before you delete it. This ends every terminal of th
 programs running in them:
 
 ```sh
-"$APP/Contents/Resources/bin/cmux" daemon stop --session "cmux-app-$TAG" --end-terminals
+"$APP/Contents/Resources/bin/cmux" daemon stop --session "$SESSION" --end-terminals
 ```
 
-Stopping a daemon that isn't running succeeds. Quitting also leaves the Chief running (its brain,
+Stopping a daemon that isn't running succeeds. Each session's socket is named after it, so
+`ls "${TMPDIR%/}/cmux-tui-$(id -u)"` lists the running sessions (`cmux-app-<tag>.sock`, or
+`cmux-app--<hash>.sock` for the builds in step 1's note); set `SESSION` to that name without `.sock`. Quitting also leaves the Chief running (its brain,
 `optchat-chief`, holds a lock in its home so only one writer uses it). Stop it before you delete
 that home in step 7:
 
@@ -86,6 +94,11 @@ Then stop this build's acpmux and the agents it hosts:
 ```sh
 ACPMUX_HOME="$ACPMUX_DIR" "$APP/Contents/Resources/bin/acpmux" daemon shutdown --end-agents
 ```
+
+For NIGHTLY, `$ACPMUX_DIR` is `~/.acpmux`, the same home the standalone `acpmux` CLI uses, so
+`--end-agents` ends every agent in it, including ones you started outside cmux. List them first
+with `ACPMUX_HOME="$ACPMUX_DIR" "$APP/Contents/Resources/bin/acpmux" ls`. If any aren't yours to
+end, drop `--end-agents` (the agents keep running) and keep `~/.acpmux` in step 7.
 
 Check for anything still running. The session daemon (`cmux-tui`), its terminal hosts
 (`__terminal-host`), holders (`cmux-holder`) and acpmux run from copies under
@@ -132,8 +145,8 @@ ls ~/Library/LaunchAgents | grep -E 'cmux|acpmux'
 | Plist | Written by | Remove with |
 |---|---|---|
 | `com.acpmux.daemon.plist` | `acpmux daemon service install` | `acpmux daemon service uninstall` |
-| `com.cmuxterm.link.plist` | `cmux link install-agent` | removed when the app is gone; or by hand, below |
-| `com.cmuxterm.host-remote.plist` | `cmux host enable` | removed when the app is gone; or by hand, below |
+| `com.cmuxterm.link.plist` | `cmux link install-agent` | its running agent removes it once it sees the app is gone; if it's still listed, by hand, below |
+| `com.cmuxterm.host-remote.plist` | `cmux host enable` | the same |
 | `com.cmuxterm.automations.plist` | `cmux` automations | by hand, below |
 | `com.cmux.server.plist` | `cmux server` with no app | by hand, below |
 
@@ -194,8 +207,8 @@ This build's own folders:
 | `~/Library/Logs/cmux-next/$BUNDLE-updater.log` | The updater's log |
 
 ```sh
-rm -rf "$ACPMUX_DIR" "$CHIEF_DIR" ${BUILD_DIR:+"$BUILD_DIR"} "$SUPPORT/tags/$TAG" "$SUPPORT/$BUNDLE" \
-  "$SUPPORT/managed-status.$BUNDLE.json" "$SUPPORT/$TAG/debug-tunables.json" \
+rm -rf "$ACPMUX_DIR" "$CHIEF_DIR" ${BUILD_DIR:+"$BUILD_DIR"} ${TAG:+"$SUPPORT/tags/$TAG"} "$SUPPORT/$BUNDLE" \
+  "$SUPPORT/managed-status.$BUNDLE.json" ${TAG:+"$SUPPORT/$TAG/debug-tunables.json"} \
   "$HOME/Library/Application Support/cmux-next/$BUNDLE" "$HOME/Library/Application Support/$BUNDLE" \
   "$HOME/Library/WebKit/$BUNDLE" "$HOME/Library/Caches/$BUNDLE" "$HOME/Library/HTTPStorages/$BUNDLE" \
   "$HOME/Library/Saved Application State/$BUNDLE.savedState" "$HOME/Library/Logs/$BUNDLE" \
