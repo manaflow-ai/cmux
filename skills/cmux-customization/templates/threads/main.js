@@ -54,8 +54,7 @@ function statusOf(chat) {
 function age(ms) {
   if (!ms) return ""
   const s = Math.max(0, Math.round((now() - ms) / 1000))
-  if (s < 5) return "now"
-  if (s < 60) return `${s}s`
+  if (s < 60) return "now"
   if (s < 3600) return `${Math.floor(s / 60)}m`
   if (s < 86400) return `${Math.floor(s / 3600)}h`
   return `${Math.floor(s / 86400)}d`
@@ -179,10 +178,11 @@ function shelf(title, items, open, setOpen) {
 
 function renderThreads() {
   load()
-  // Chat state lives in the app: read it again every two seconds, and at once when the open
-  // workspace changes.
-  cmux.timer.every(2000, load)
+  // Chat state lives in the app, which tells the daemon when it changes (agent_chat.changed): read
+  // again then, and when the open workspace changes. No polling; only the ages tick, without a read.
+  cmux.events.on("agent_chat.changed", load)
   cmux.events.on("workspace.changed", load)
+  cmux.timer.every(30000, () => setNow(Date.now()))
   const all = computed(sections)
   return VStack({ spacing: 1 }, [
     HStack({ spacing: 6 }, [
