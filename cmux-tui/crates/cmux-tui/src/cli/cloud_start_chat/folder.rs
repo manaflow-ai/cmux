@@ -8,7 +8,8 @@ use std::path::Path;
 use super::UsageError;
 use crate::link::sync_cli::skips::{home_credential_folder, within};
 
-/// `--from-folder DIR`, checked: never with `--cwd`, an absolute folder that exists on this Mac, never
+/// `--from-folder DIR`, checked as the app checks it: never with `--cwd`, at most 4096 bytes with no
+/// control character, an absolute folder that exists on this Mac, never
 /// this Mac's home, a folder above it (the disk's root too) or one that is in or holds a credential
 /// folder of home's, as the app refuses one. Answered canonical.
 pub(super) fn local_folder(dir: &str, with_cwd: bool) -> Result<String, UsageError> {
@@ -24,6 +25,9 @@ pub(super) fn local_folder_in(
 ) -> Result<String, UsageError> {
     if with_cwd {
         return Err(UsageError::new("give --from-folder or --cwd, not both"));
+    }
+    if dir.len() > 4096 || dir.chars().any(char::is_control) {
+        return Err(UsageError::new("--from-folder: a path with no control characters"));
     }
     if !Path::new(dir).is_absolute() {
         return Err(UsageError::new(format!(

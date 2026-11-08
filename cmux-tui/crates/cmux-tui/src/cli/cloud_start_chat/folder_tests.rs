@@ -179,4 +179,7 @@ fn from_folder_refuses_home_above_it_and_credential_folders_before_any_step() {
     // A project's own `.cargo` is no folder of home's: the copy leaves it out instead.
     assert!(local_folder_in(&at("Code"), false, Some(&home)).is_ok());
     assert!(local_folder_in(&at("proj/src"), false, None).is_ok());
+    let control = format!("{}\n", at("proj"));
+    assert!(local_folder_in(&control, false, None).is_err());
+    assert!(local_folder_in(&format!("/{}", "a".repeat(4096)), false, None).is_err());
 }

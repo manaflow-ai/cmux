@@ -511,6 +511,36 @@ fn add(set: &mut LocalSet, relative: String, path: &Path) -> anyhow::Result<()> 
     Ok(())
 }
 
+/// [`add`] for the regular file `name` of the folder `handle` holds open: its
+/// identity comes from a descriptor opened there, never through `path`, so a
+/// folder above it swapped since the walk opened it lends no other file's.
+fn add_in(
+    set: &mut LocalSet,
+    relative: String,
+    path: &Path,
+    handle: &place::Dir,
+    name: &str,
+) -> anyhow::Result<()> {
+    if !holdable(&relative) {
+        return add(set, relative, path);
+    }
+    match handle.open_file(name) {
+        Ok(file) => {
+            let meta = file.metadata()?;
+            if meta.is_file() {
+                set.files.insert(relative, LocalFile::listed(path, &meta));
+            } else {
+                set.skips.note_entry(&relative, path, &meta);
+            }
+        }
+        // A symlink there since it was listed: as any entry.
+        Err(error) if swapped(&error) => add(set, relative, path)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error).with_context(|| format!("cannot read {}", path.display())),
+    }
+    Ok(())
+}
+
 /// Whether the machine's file owner can hold a file at `relative`: no name
 /// over 255 bytes or with a control character, no path over 4000 bytes.
 pub(super) fn holdable(relative: &str) -> bool {
@@ -605,12 +635,14 @@ fn walk_plain_in(
                     }
                 }
             }
-            _ => {
+            other => {
                 if let Some(why) = skips::secret(name)
                     .or_else(|| skips::credential(relative, false))
                     .filter(|_| rules == Rules::Copy)
                 {
                     set.skips.note(relative, why);
+                } else if matches!(other, place::Entry::File { .. }) {
+                    add_in(set, relative.to_string(), &path, handle, name)?;
                 } else {
                     add(set, relative.to_string(), &path)?;
                 }
