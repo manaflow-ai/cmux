@@ -92,21 +92,36 @@ final class FakeWidgets: HomeWidgetHosting {
         defer { Fixture.lightAppearance = saved }
         Fixture.lightAppearance = light
         let provider = HomeWidgetRowProvider(host: nil)
-        let part = try #require(customPart(Self.card))
-        let size = provider.measure(part, maxWidth: 400)
-        let scale = 2
-        let ctx = try #require(CGContext(data: nil, width: Int(size.width) * scale, height: Int(size.height) * scale, bitsPerComponent: 8,
-                                         bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
-        ctx.translateBy(x: 0, y: CGFloat(ctx.height))
-        ctx.scaleBy(x: CGFloat(scale), y: -CGFloat(scale))
-        provider.drawRow(part, in: ctx, rect: CGRect(origin: .zero, size: size),
-                         context: CustomRowDrawContext(outgoing: false, isDark: !light, elevated: false))
-        let image = try #require(ctx.makeImage())
-        #expect(Self.inkedPixels(image) > 500)
-        if let dir = ProcessInfo.processInfo.environment["CMUX_WIDGET_SHOTS"] {
-            try Self.png(image, to: URL(fileURLWithPath: dir).appendingPathComponent("pr-card-\(light ? "light" : "dark").png"))
+        let look = light ? "light" : "dark"
+        // Before: the fallback text bubble (no host, or the app is missing). After: the card.
+        for (name, snapshot) in [("before", nil), ("after", Self.card)] as [(String, HomeWidgetSnapshot?)] {
+            let part = try #require(customPart(snapshot))
+            let image = try #require(Self.render(provider, part, light: light))
+            #expect(Self.inkedPixels(image) > 500)
+            if let dir = ProcessInfo.processInfo.environment["CMUX_WIDGET_SHOTS"] {
+                try Self.png(image, to: URL(fileURLWithPath: dir).appendingPathComponent("pr-card-\(name)-\(look).png"))
+            }
         }
+    }
+
+    /// The row as the transcript draws it: the incoming bubble, then the provider's body, at 2x.
+    static func render(_ provider: HomeWidgetRowProvider, _ part: CustomPart, light: Bool) -> CGImage? {
+        let size = provider.measure(part, maxWidth: 400)
+        let pad: CGFloat = 16, scale: CGFloat = 2
+        let canvas = CGSize(width: size.width + 2 * pad, height: size.height + 2 * pad)
+        guard let ctx = CGContext(data: nil, width: Int(canvas.width * scale), height: Int(canvas.height * scale), bitsPerComponent: 8,
+                                  bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.translateBy(x: 0, y: CGFloat(ctx.height))
+        ctx.scaleBy(x: scale, y: -scale)
+        ctx.setFillColor(Fixture.background.cgColor)
+        ctx.fill(CGRect(origin: .zero, size: canvas))
+        let body = CGRect(x: pad, y: pad, width: size.width, height: size.height)
+        ctx.setFillColor(Fixture.incoming.cgColor)
+        ctx.addPath(CGPath(roundedRect: body, cornerWidth: Fixture.bubbleRadius, cornerHeight: Fixture.bubbleRadius, transform: nil))
+        ctx.fillPath()
+        provider.drawRow(part, in: ctx, rect: body, context: CustomRowDrawContext(outgoing: false, isDark: !light, elevated: false))
+        return ctx.makeImage()
     }
 
     private func customPart(_ snapshot: HomeWidgetSnapshot?) -> CustomPart? {
@@ -115,10 +130,14 @@ final class FakeWidgets: HomeWidgetHosting {
         return part
     }
 
+    /// Pixels that differ from the canvas corner (the background): the bubble and what is drawn on it.
     static func inkedPixels(_ image: CGImage) -> Int {
         guard let data = image.dataProvider?.data, let bytes = CFDataGetBytePtr(data) else { return 0 }
         var count = 0
-        for i in stride(from: 3, to: CFDataGetLength(data), by: 4) where bytes[i] > 0 { count += 1 }
+        for i in stride(from: 0, to: CFDataGetLength(data) - 3, by: 4)
+        where abs(Int(bytes[i]) - Int(bytes[0])) + abs(Int(bytes[i + 1]) - Int(bytes[1])) + abs(Int(bytes[i + 2]) - Int(bytes[2])) > 24 {
+            count += 1
+        }
         return count
     }
 
