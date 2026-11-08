@@ -10,40 +10,6 @@ import Testing
 /// paths the app uses (a structural set, a row patch, a fold, a selection). In every frame its header view is the same
 /// instance, shown at full opacity; its y moves one way from start to end; its bar fill, glass rim and members' rail
 /// are present at full opacity and move with the header; and no member row disappears or blinks.
-/// TEMP hang probe: after 25 s without a beat, prints the phase and the main thread's stack (SIGUSR2), three times.
-enum GrpHangProbe {
-    nonisolated(unsafe) static var beat: UInt64 = 0
-    nonisolated(unsafe) static var phase = "start"
-    nonisolated(unsafe) static var main: pthread_t?
-    nonisolated(unsafe) static var started = false
-    static func mark(_ p: String) { phase = p; beat &+= 1 }
-    static func start() {
-        guard !started else { return }
-        started = true
-        main = pthread_self()
-        signal(SIGUSR2) { _ in
-            var buffer = [UnsafeMutableRawPointer?](repeating: nil, count: 200)
-            let count = backtrace(&buffer, 200)
-            backtrace_symbols_fd(&buffer, count, 1)
-            backtrace_symbols_fd(&buffer, count, 2)
-        }
-        Thread.detachNewThread {
-            var seen = beat, quiet = 0, dumps = 0
-            while dumps < 3 {
-                Thread.sleep(forTimeInterval: 5)
-                if beat != seen { seen = beat; quiet = 0; continue }
-                quiet += 5
-                if quiet >= 25, quiet % 10 == 5, let main {
-                    dumps += 1
-                    print("GRPHANG quiet \(quiet)s phase: \(phase)")
-                    fflush(stdout)
-                    pthread_kill(main, SIGUSR2)
-                }
-            }
-        }
-    }
-}
-
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarGroupFlickerTests {
     static let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
     static let top = GroupID("g-top")
@@ -166,7 +132,7 @@ enum GrpHangProbe {
 
     // MARK: Events
 
-    enum Event: String, CaseIterable {
+    nonisolated enum Event: String, CaseIterable, Sendable {
         case insertBelow = "a: a new workspace below the top group"
         case insertAbove = "b: a new workspace above the top group"
         case memberGrows = "c: a member gains a status block"
@@ -217,23 +183,16 @@ enum GrpHangProbe {
     }
 
     static func step(_ list: SidebarListView) {
-        let p = GrpHangProbe.phase
-        GrpHangProbe.mark(p + " >layout")
         list.layoutSubtreeIfNeeded()
-        GrpHangProbe.mark(p + " >flush")
         CATransaction.flush()
-        GrpHangProbe.mark(p + " >runloop")
         RunLoop.main.run(until: Date().addingTimeInterval(1.0 / 60))
-        GrpHangProbe.mark(p)
     }
 
     // MARK: Checks
 
     /// Every frame's failures for one run of `event`.
     static func run(_ event: Event, intent: Bool, topCollapsed: Bool = false, then second: Event? = nil, log: inout [String]) -> [String] {
-        GrpHangProbe.start()
-        let t0 = Date()
-        GrpHangProbe.mark("\(event.rawValue) intent \(intent) make")
+        let started = Date()
         let (model, list, window) = make(topCollapsed: topCollapsed, lowerCollapsed: event != .topFolds,
                                          selected: event == .selectedPassesOver ? loose[1] : members[0],
                                          expanded: [.memberGrows, .looseGrows].contains(event) || [.memberGrows, .looseGrows].contains(second))
@@ -252,27 +211,20 @@ enum GrpHangProbe {
             applies += 1
             applyFrames.append((frames.count, sample(list, flipped: flipped)))
         }
-        GrpHangProbe.mark("\(label) apply")
         apply(event, model, list, intent: intent)
-        GrpHangProbe.mark("\(label) frame0 layout")
         list.layoutSubtreeIfNeeded()
-        GrpHangProbe.mark("\(label) frame0 flush")
         CATransaction.flush()
         frames.append(sample(list, flipped: flipped))
         for index in 1...30 {
-            if let second, index == 2 { GrpHangProbe.mark("\(label) second apply"); apply(second, model, list, intent: intent) }
-            GrpHangProbe.mark("\(label) frame \(index)")
+            if let second, index == 2 { apply(second, model, list, intent: intent) }
             step(list)
             frames.append(sample(list, flipped: flipped))
         }
-        GrpHangProbe.mark("\(label) settle 1s")
         RunLoop.main.run(until: Date().addingTimeInterval(1.0))
-        GrpHangProbe.mark("\(label) last step")
         step(list)
         let after = sample(list, flipped: flipped)
-        GrpHangProbe.mark("\(label) checks")
 
-        print("SidebarGroupFlicker ran \(label) in \(String(format: "%.1f", Date().timeIntervalSince(t0)))s")
+        print("SidebarGroupFlicker ran \(label) in \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
         var failures: [String] = []
         func fail(_ index: Int, _ what: String) { failures.append("\(label), frame \(index): \(what)") }
         func monotonic(_ name: String, _ ys: [CGFloat], start: CGFloat, end: CGFloat) {
@@ -352,28 +304,48 @@ enum GrpHangProbe {
         return failures
     }
 
-    @Test func theTopGroupHoldsStillInEveryFrame() throws {
+    /// One run of `theTopGroupHoldsStillInEveryFrame`: an event (and a second one 2 frames later), with or without
+    /// the user's intent, and with `ui.animations.newWorkspace` on or as configured. Each run is its own test case
+    /// (about 5 s), so the CI hang watchdog, which counts test events, sees progress between runs: as one test the
+    /// 32 runs took 140-150 s with no event, close to its 180 s stall limit, and a slower Mac crossed it.
+    nonisolated struct FlickerRun: Sendable, CustomTestStringConvertible {
+        var event: Event
+        var intent = true
+        var topCollapsed = false
+        var second: Event?
+        var newWorkspace = false
+        var testDescription: String {
+            "\(newWorkspace ? "[newWorkspace motion] " : "")\(event.rawValue)\(second.map { " + \($0.rawValue)" } ?? "")"
+                + "\(intent ? " (user intent)" : " (calm)")\(topCollapsed ? " [top collapsed]" : "")"
+        }
+
+        static var all: [FlickerRun] {
+            // `ui.animations.newWorkspace` on: a new row opens its slot on the spring, so the rows around it move.
+            var runs = Event.allCases.map { FlickerRun(event: $0, newWorkspace: true) }
+            runs.append(FlickerRun(event: .insertAbove, second: .memberGrows, newWorkspace: true))
+            runs.append(FlickerRun(event: .insertAbove, second: .insertBelow, newWorkspace: true))
+            for intent in [true, false] {
+                runs.append(FlickerRun(event: .memberGrows, intent: intent, topCollapsed: true))
+                runs += Event.allCases.map { FlickerRun(event: $0, intent: intent) }
+                // A height change while the spring of the change before it still runs.
+                runs.append(FlickerRun(event: .insertAbove, intent: intent, second: .memberGrows))
+                runs.append(FlickerRun(event: .memberGrows, intent: intent, second: .insertBelow))
+            }
+            return runs
+        }
+    }
+
+    @Test(arguments: FlickerRun.all) func theTopGroupHoldsStillInEveryFrame(_ run: FlickerRun) throws {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let kinds = DesignSettings.shared.enabledAnimations
         defer { DesignSettings.shared.enabledAnimations = kinds }
+        if run.newWorkspace { DesignSettings.shared.enabledAnimations.insert(.newWorkspace) }
         var log = ["animatesMovement \(Motion.sidebar.animatesMovement), screens \(NSScreen.screens.count)"]
-        var failures: [String] = []
-        // `ui.animations.newWorkspace` on: a new row opens its slot on the spring, so the rows around it move.
-        DesignSettings.shared.enabledAnimations.insert(.newWorkspace)
-        for event in Event.allCases { failures += Self.run(event, intent: true, log: &log).map { "[newWorkspace motion] " + $0 } }
-        failures += Self.run(.insertAbove, intent: true, then: .memberGrows, log: &log).map { "[newWorkspace motion] " + $0 }
-        failures += Self.run(.insertAbove, intent: true, then: .insertBelow, log: &log).map { "[newWorkspace motion] " + $0 }
-        DesignSettings.shared.enabledAnimations = kinds
-        for intent in [true, false] {
-            failures += Self.run(.memberGrows, intent: intent, topCollapsed: true, log: &log)
-            for event in Event.allCases { failures += Self.run(event, intent: intent, log: &log) }
-            // A height change while the spring of the change before it still runs.
-            failures += Self.run(.insertAbove, intent: intent, then: .memberGrows, log: &log)
-            failures += Self.run(.memberGrows, intent: intent, then: .insertBelow, log: &log)
-        }
+        let failures = Self.run(run.event, intent: run.intent, topCollapsed: run.topCollapsed, then: run.second, log: &log)
+            .map { (run.newWorkspace ? "[newWorkspace motion] " : "") + $0 }
         print("SidebarGroupFlicker log:\n" + log.joined(separator: "\n"))
         for failure in failures { print("GRPFAIL \(failure)") }
         #expect(failures.isEmpty, "\(failures.count) failures:\n\(failures.prefix(60).joined(separator: "\n"))")
