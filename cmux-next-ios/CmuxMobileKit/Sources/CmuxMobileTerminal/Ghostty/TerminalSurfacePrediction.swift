@@ -22,7 +22,9 @@ import UIKit
 /// threshold before it draws anything.
 @MainActor
 final class TerminalSurfacePrediction {
-    let engine: PredictionEngineRef
+    /// Sendable: the Rust engine sits behind a mutex held only for each call,
+    /// so the output queue calls it directly.
+    let engine: TerminalPrediction
     private let overlay = TerminalPredictionOverlayView()
     private weak var view: TerminalSurfaceView?
     private var expiry: Timer?
@@ -30,8 +32,8 @@ final class TerminalSurfacePrediction {
 
     init(view: TerminalSurfaceView, alternateScreen: Bool) {
         enabled = CmuxMobilePreferences.predictiveEcho()
-        engine = PredictionEngineRef(TerminalPrediction(enabled: enabled, remote: true))
-        engine.prediction.seedAlternateScreen(active: alternateScreen)
+        engine = TerminalPrediction(enabled: enabled, remote: true)
+        engine.seedAlternateScreen(active: alternateScreen)
         self.view = view
         overlay.isUserInteractionEnabled = false
         overlay.isOpaque = false
@@ -54,7 +56,7 @@ final class TerminalSurfacePrediction {
 
     /// One write Ghostty encoded for the remote (`io_write_cb`), before it goes out.
     func sent(_ bytes: Data) {
-        if engine.prediction.sent(bytes: bytes, nowUs: Self.now()) || !overlay.isHidden { refresh() }
+        if engine.sent(bytes: bytes, nowUs: Self.now()) || !overlay.isHidden { refresh() }
     }
 
     /// Output was parsed (`TerminalSurfaceView.feed`); `changed` is the
@@ -65,12 +67,12 @@ final class TerminalSurfacePrediction {
 
     /// A frame reached the screen: held confirmations retire.
     func presented() {
-        if engine.prediction.presentedFrame(nowUs: Self.now()) || !overlay.isHidden { refresh() }
+        if engine.presentedFrame(nowUs: Self.now()) || !overlay.isHidden { refresh() }
     }
 
     /// The grid or the font changed under the glyphs: start over.
     func gridChanged() {
-        _ = engine.prediction.missedOutput(nowUs: Self.now())
+        _ = engine.missedOutput(nowUs: Self.now())
         refresh()
     }
 
@@ -79,7 +81,7 @@ final class TerminalSurfacePrediction {
         let on = CmuxMobilePreferences.predictiveEcho()
         guard on != enabled else { return }
         enabled = on
-        _ = engine.prediction.set(enabled: on, remote: true)
+        _ = engine.set(enabled: on, remote: true)
         refresh()
     }
 
@@ -90,29 +92,21 @@ final class TerminalSurfacePrediction {
         expiry = nil
         // Output took away blanks the frame on screen still shows: keep the
         // overlay as it is until the next presented frame.
-        if engine.prediction.holdsLayout() { return }
+        if engine.holdsLayout() { return }
         let now = Self.now()
         guard let view, let cursor = view.predictionCursor(),
-              let layout = engine.prediction.layout(nowUs: now, cursorColumn: Int32(cursor.column), columns: Int32(cursor.columns))
+              let layout = engine.layout(nowUs: now, cursorColumn: Int32(cursor.column), columns: Int32(cursor.columns))
         else {
             overlay.hide()
             return
         }
         overlay.show(layout, cursorCell: cursor.cell, fontSize: CGFloat(CmuxMobilePreferences.terminalFontSize()))
-        guard let due = engine.prediction.nextExpiryUs() else { return }
+        guard let due = engine.nextExpiryUs() else { return }
         let delay = Double(due > now ? due - now : 0) / 1_000_000
         expiry = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
         }
     }
-}
-
-/// The engine handle for the output queue. Safe to share: the Rust engine
-/// sits behind a mutex held only for each call (cmux-mobile-link-ffi's
-/// `terminal_prediction.rs`), and the handle itself is never reassigned.
-struct PredictionEngineRef: @unchecked Sendable {
-    let prediction: TerminalPrediction
-    init(_ prediction: TerminalPrediction) { self.prediction = prediction }
 }
 
 /// The cursor row's predicted glyphs, drawn over Ghostty's cells: each cell
