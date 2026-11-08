@@ -1403,7 +1403,7 @@ fn every_step_fits_in_one_timeout_from_the_start() {
     answers.extend((0..8).map(|_| exec_out(running)));
     let mut fake = Fake::new(answers);
     fake.costs.push(("new-machine", Duration::from_secs(30)));
-    let asked = request(&["--prompt", "x", "--environment", "env_1", "--wait", "--timeout", "75"]);
+    let asked = request(&["--prompt", "x", "--environment", "env_1", "--wait", "--timeout", "80"]);
     let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
     assert_eq!((error["code"].as_str(), exit), (Some("chat.wait_timeout"), 3));
     assert_eq!(relay_calls(&fake.ran), 1);
