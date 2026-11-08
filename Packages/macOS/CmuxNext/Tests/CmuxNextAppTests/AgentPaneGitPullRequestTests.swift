@@ -278,11 +278,10 @@ struct AgentPaneGitPullRequestTests {
         let creates = { rig.calls.filter { $0.hasPrefix("pr create") } }
 
         try Self.git(rig.repo, "config", "branch.cmux/fix-login.cmuxBase", "release")
-        #expect(await AgentPaneGitPullRequest.run(request, roots: [rig.repo], gh: rig.gh, push: Self.push()) == .formOpened(url: "https://github.com/o/r/compare/rel...feature?expand=1"))
+        #expect(await AgentPaneGitPullRequest.run(request, roots: [rig.repo], gh: rig.gh, push: Self.push()) == .formOpened(url: "https://github.com/o/r/compare/rel...cmux/fix-login?expand=1"))
         #expect(creates().last == "pr create --web --base rel")
 
         // A remote branch as the base: its name on that remote.
-        try FileManager.default.removeItem(atPath: rig.gh + ".pr")
         try Self.git(rig.repo, "config", "branch.cmux/fix-login.cmuxBase", "origin/rel")
         _ = await AgentPaneGitPullRequest.run(request, roots: [rig.repo], gh: rig.gh, push: Self.push())
         #expect(creates().last == "pr create --web --base rel")
@@ -291,7 +290,6 @@ struct AgentPaneGitPullRequestTests {
         try Self.git(rig.repo, "branch", "local-only", "release")
         try Self.git(rig.repo, "remote", "set-head", "origin", "main")
         for base in [try Self.git(rig.repo, "rev-parse", "release"), "local-only", "origin/HEAD"] {
-            try FileManager.default.removeItem(atPath: rig.gh + ".pr")
             try Self.git(rig.repo, "config", "branch.cmux/fix-login.cmuxBase", base)
             _ = await AgentPaneGitPullRequest.run(request, roots: [rig.repo], gh: rig.gh, push: Self.push())
             #expect(creates().last == "pr create --web", "\(base)")
