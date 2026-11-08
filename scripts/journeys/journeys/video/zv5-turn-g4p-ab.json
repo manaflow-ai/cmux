@@ -4,7 +4,7 @@
     "title": "ZOOM VARIANTS 5 A/B: G4P zoom key turn and worst-frame main CPU, 80 + 80 real presses, no spans",
     "why": "ZOOM VARIANTS 5 step 1/2: zoom key turn, spans OFF, n=40 per direction (80 real presses), no profiler.",
     "source": "zoom-variants profile kit (ext_zvprof.py)",
-    "budget_seconds": 330,
+    "budget_seconds": 260,
     "recordings": [],
     "options": {
         "key_path": "real"
