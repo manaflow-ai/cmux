@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42502946446",
+  "recorded_at": "2026-11-08T17:13:10Z",
+  "reason": "cmux-tui 19c8d49b473f changes the image's cmux-tui (pinned 7465b1962388)",
+  "dry_run": false,
+  "cmux_tui": "19c8d49b473ff0b9306d96cc26af84d51742e03b",
+  "fixes": [
+    {
+      "sha": "19c8d49b473ff0b9306d96cc26af84d51742e03b",
+      "mergedAt": "2026-11-08T08:46:47-08:00",
+      "subject": "feat(acpmux): race models in isolated worktrees with reviewer selection (#34437)"
+    },
+    {
+      "sha": "1d561da172ae44a52fc476df338e53538b3de4e2",
+      "mergedAt": "2026-11-08T08:43:46-08:00",
+      "subject": "carry-changes: the no-index refusal names a recovery that works (#38706)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T17:13:10Z",
+    "snapshot_id": "sh-ba9b0ecaacfa416289e78625ad6f6307",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42502946446): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "cac21c78a013e909d82c1eeacf4e85b8de47e78d",
+    "image": "cloud-native-auto-19c8d49b-42502946446-1",
+    "revision": "ci-42502946446-1",
+    "at": "2026-11-08T17:13:10Z"
+  },
+  "rolled_back": false
+}
