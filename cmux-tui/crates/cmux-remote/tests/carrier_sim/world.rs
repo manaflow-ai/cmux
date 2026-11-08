@@ -148,6 +148,8 @@ struct Machine {
     tasks: Tasks,
     plan: Plan,
     restarts: u32,
+    trace: Arc<Mutex<Vec<String>>>,
+    start: Instant,
 }
 
 impl Machine {
@@ -178,10 +180,16 @@ impl Machine {
         let disk = self.disk.clone();
         let appended = self.appended.clone();
         let tasks = self.tasks.clone();
+        let (trace, start) = (self.trace.clone(), self.start);
         let serve = tokio::spawn(async move {
             while let Some(connection) = accepted.recv().await {
-                let handler =
-                    tokio::spawn(serve_connection(connection, disk.clone(), appended.clone()));
+                let handler = tokio::spawn(serve_connection(
+                    connection,
+                    disk.clone(),
+                    appended.clone(),
+                    trace.clone(),
+                    start,
+                ));
                 lock(&tasks).push(handler);
             }
         });
@@ -240,6 +248,8 @@ async fn serve_connection(
     connection: Arc<ServerConnection>,
     disk: Arc<Mutex<Disk>>,
     appended: watch::Sender<u64>,
+    trace: Arc<Mutex<Vec<String>>>,
+    start: Instant,
 ) {
     let cursor: watch::Sender<Option<u64>> = watch::channel(None).0;
     let pusher = tokio::spawn({
@@ -247,6 +257,7 @@ async fn serve_connection(
         let disk = disk.clone();
         let mut cursor = cursor.subscribe();
         let mut wake = appended.subscribe();
+        let (trace, start) = (trace.clone(), start);
         async move {
             let mut sent = loop {
                 if let Some(after) = *cursor.borrow_and_update() {
@@ -265,11 +276,11 @@ async fn serve_connection(
                     }
                     continue;
                 };
-                if connection
+                if let Err(e) = connection
                     .send(Lane::Interactive, APP_STREAM, event.encode(), FrameFlags::empty())
                     .await
-                    .is_err()
                 {
+                    lock(&trace).push(format!("{:?} daemon push ended: {e}", start.elapsed()));
                     return;
                 }
                 sent = event.seq;
@@ -279,7 +290,14 @@ async fn serve_connection(
     loop {
         let frame = match connection.receive().await {
             Ok(Some(frame)) => frame,
-            Ok(None) | Err(_) => break,
+            Ok(None) => {
+                lock(&trace).push(format!("{:?} daemon session closed", start.elapsed()));
+                break;
+            }
+            Err(e) => {
+                lock(&trace).push(format!("{:?} daemon receive ended: {e}", start.elapsed()));
+                break;
+            }
         };
         if frame.lane != Lane::Control || frame.stream != APP_STREAM {
             continue;
@@ -533,6 +551,8 @@ async fn run_world(seed: u64, faults: bool) -> Outcome {
         tasks: Arc::new(Mutex::new(Vec::new())),
         plan: plan.clone(),
         restarts: 0,
+        trace: trace.clone(),
+        start: Instant::now(),
     };
     if let Err(e) = machine.start() {
         outcome.error = Some(e);
