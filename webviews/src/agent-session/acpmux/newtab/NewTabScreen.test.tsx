@@ -399,6 +399,8 @@ test("first run: the starters show only once acpmux answered with an agent and n
   expect(showsFirstRunStarters(noChat([]), { allChats: true })).toBe(false);
   // A cached catalog can come before the chats are listed: no starters until they are.
   expect(showsFirstRunStarters(noChat([]), { allChats: false, chatsPending: true })).toBe(false);
+  // Chats the host indexed on this device show as recent chats: that Mac is not on a first run.
+  expect(showsFirstRunStarters(noChat([]), { allChats: false, deviceChats: 2 })).toBe(false);
 });
 
 test("while the chats are still being listed, New Tab draws no starters", async () => {

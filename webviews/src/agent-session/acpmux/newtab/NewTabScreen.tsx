@@ -2221,7 +2221,11 @@ export function NewTabScreen(props: Props) {
       field.current?.setCaret(field.current.plainText().length);
     });
   };
-  const starters = showsFirstRunStarters(snapshot, { allChats, chatsPending: props.chatsPending === true }) && (
+  const starters = showsFirstRunStarters(snapshot, {
+      allChats,
+      chatsPending: props.chatsPending === true,
+      deviceChats: pushed.length,
+    }) && (
     <FirstRunStarters {...(props.starterLook ? { look: props.starterLook } : {})} onPick={pickStarter} />
   );
   // The stage's widgets, in the user's order (`tabs.newTabWidgets.order`): Projects and Quick

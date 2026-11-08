@@ -19,13 +19,24 @@ export type FirstRunStarterLook = "rows" | "inline" | "card";
 /// Whether the page shows the starters: a first run is a Mac with no chats, local or on a peer, once
 /// the daemon connection has listed the chats (`chatsPending` off: before that an empty list proves
 /// nothing, and a cached catalog can arrive first) and an agent is there to ask (the catalog), on the
-/// page's own New Tab rather than All chats. Typing keeps them: they leave only with the page (a
+/// page's own New Tab rather than All chats. Chats the host indexed on this device (`deviceChats`,
+/// shown as recent chats) count too: a Mac with that history is not a first run. Typing keeps them: they leave only with the page (a
 /// chat started here) or once a chat exists, so nothing under the composer jumps while it is edited.
 export function showsFirstRunStarters(
   snapshot: Pick<AcpmuxSnapshot, "sessions" | "catalog">,
-  { allChats, chatsPending = false }: { allChats: boolean; chatsPending?: boolean },
+  {
+    allChats,
+    chatsPending = false,
+    deviceChats = 0,
+  }: { allChats: boolean; chatsPending?: boolean; deviceChats?: number },
 ): boolean {
-  return !allChats && !chatsPending && snapshot.catalog.length > 0 && snapshot.sessions.length === 0;
+  return (
+    !allChats &&
+    !chatsPending &&
+    deviceChats === 0 &&
+    snapshot.catalog.length > 0 &&
+    snapshot.sessions.length === 0
+  );
 }
 
 export function FirstRunStarters({
