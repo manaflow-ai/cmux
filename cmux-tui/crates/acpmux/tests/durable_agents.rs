@@ -11,6 +11,8 @@ mod bg_caller_restart;
 #[cfg(target_os = "linux")]
 #[path = "durable_agents/bg_replaced_binary.rs"]
 mod bg_replaced_binary;
+#[path = "durable_agents/caller_identity_restart.rs"]
+mod caller_identity_restart;
 #[path = "durable_agents/carried_restart.rs"]
 mod carried_restart;
 #[path = "support/daemon_env.rs"]
