@@ -6906,6 +6906,7 @@ export class AcpmuxDirectClient {
       const tool = String(update._meta?.claude?.tool ?? update.title ?? "").toLowerCase();
       const editing =
         update.kind === "edit" ||
+        update.kind === "fileChange" ||
         (Array.isArray(update.content) && update.content.some((item: any) => item?.type === "diff")) ||
         /(?:edit|write|patch|replace|notebook)/.test(tool);
       if (editing) rememberPlanEdit(sessionId, editPaths(update));
