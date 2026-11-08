@@ -19,7 +19,7 @@ extension DeepLink {
         // A cloud group's https form (`https://cloud-api.cmux.dev/g/grp_…`) opens here too.
         guard let link = parse(url, scheme: chiefScheme) ?? parse(url, scheme: linkScheme) ?? parseGroupWeb(url) else { return nil }
         switch link.target {
-        case .workspace, .pane, .tab, .session, .agent, .group:
+        case .workspace, .pane, .tab, .session, .agent, .group, .cloudSession:
             return link
         case .chiefSession: // any Chief home of this Mac: a named Chief writes its own (#28877)
             return link.machine == nil && chiefHost != nil ? link : nil

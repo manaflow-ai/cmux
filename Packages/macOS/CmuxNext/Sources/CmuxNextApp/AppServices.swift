@@ -11,6 +11,7 @@ import CmuxNextBrowserHistory
 import CmuxNextChiefPetWiring
 import CmuxNextChromiumWarmup
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextCompat
 public import CmuxNextComputerUse
 import CmuxNextControl
@@ -130,6 +131,8 @@ final class AppServices {
         acpmuxEnvironment: QuitAgents.environment(self), approvalHolds: cloud.approvalHolds,
         appActive: { [weak self] in self?.appActiveSource() ?? false }
     )  // first read in init (no IUO)
+    /// The team's Cloud workspaces and chats (lane D): the Team section, `cmux cloud team-*`, links and the publisher.
+    private(set) lazy var cloudTeam = CloudTeamFeature(host: self)
     var showcase = ShowcaseState()
     /// The wide Inbox page, backed by `feed.model`.
     private(set) lazy var feedPage = FeedPageService(services: self)

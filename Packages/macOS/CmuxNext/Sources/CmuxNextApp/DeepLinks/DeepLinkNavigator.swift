@@ -78,6 +78,10 @@ struct DeepLinkNavigator {
                 return
             }
             CloudGroupLink.open(id, workspace: workspace, intent: intent, services: services)
+        case .cloudSession(let team, let machine, let session, let kind):
+            // A team's Cloud chat or workspace: its record from cmux Cloud, then this Mac's tab or the
+            // shared relay's attach (CloudSessionLink).
+            services.cloudTeam.openLink(team: team, machine: machine, session: session, kind: kind, intent: intent)
         case .legacyWorkspace(let key, let fallback):
             guard let workspace = legacyWorkspace(key, fallback: fallback) else { throw Self.gone }
             try reveal(workspace: workspace.id, intent)

@@ -395,6 +395,82 @@ const GROUPS: &[Group] = &[
             ),
         ],
     },
+    // Team Cloud sessions (CloudTeamActionCatalog.swift): what the sidebar's Team section shows
+    // and does. SESSION is a `cloud:TEAM/VM/ID` key or a `cmux://cloud/…` link; without
+    // --session the action reads the targeted or focused Cloud workspace or chat.
+    Group {
+        en: "TEAM",
+        ja: "チーム",
+        verbs: &[
+            verb(
+                "team-sessions",
+                "[--scope mine|team|following] [--by USER] [--archived true] [--limit N] [--cursor CURSOR]",
+                "List the team's Cloud workspaces and chats",
+                "チームの Cloud ワークスペースとチャットを一覧表示",
+            ),
+            verb(
+                "team-session",
+                "[--session SESSION]",
+                "Show one team Cloud workspace or chat",
+                "チームの Cloud ワークスペースまたはチャットを 1 件表示",
+            ),
+            verb(
+                "copy-session-link",
+                "[--session SESSION]",
+                "Copy the link teammates open it with",
+                "チームメイトが開くためのリンクをコピー",
+            ),
+            verb(
+                "follow",
+                "[--session SESSION]",
+                "Follow a teammate's Cloud workspace or chat",
+                "チームメイトの Cloud ワークスペースまたはチャットをフォロー",
+            ),
+            verb("unfollow", "[--session SESSION]", "Stop following it", "フォローを解除"),
+            verb(
+                "reassign",
+                "[--session SESSION] --to USER",
+                "Assign it to another member of the team",
+                "チームの別のメンバーに割り当てる",
+            ),
+            verb(
+                "archive-session",
+                "[--session SESSION] [--archived false]",
+                "Archive it for the team, or bring it back",
+                "チームでアーカイブ、または元に戻す",
+            ),
+            verb(
+                "show-team-section",
+                "",
+                "Add the Team section to the sidebar",
+                "サイドバーにチームセクションを追加",
+            ),
+            verb(
+                "team-members",
+                "",
+                "List the members you can reassign to",
+                "割り当て先にできるメンバーを一覧表示",
+            ),
+            verb(
+                "group-members",
+                "--group GROUP_ID",
+                "List a cloud group's members",
+                "クラウドグループのメンバーを一覧表示",
+            ),
+            verb(
+                "group-member-set",
+                "--group GROUP_ID --user USER --role owner|edit|view",
+                "Add a member to a cloud group or change their role",
+                "クラウドグループにメンバーを追加、または役割を変更",
+            ),
+            verb(
+                "group-member-remove",
+                "--group GROUP_ID --user USER",
+                "Remove a member from a cloud group",
+                "クラウドグループからメンバーを削除",
+            ),
+        ],
+    },
     Group {
         en: "ACCOUNT",
         ja: "アカウント",
