@@ -10452,10 +10452,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       }),
                   );
                 if (!snapshot.summary?.bridged) return deliver();
-                // The app that ran the bridged session is gone: the reply takes the chat over instead.
+                // The app that ran the bridged session is gone: the chat is taken over and the message
+                // stays in the composer. It is not sent again here, since its send gesture is spent;
+                // the next Return sends it to the taken-over chat.
                 return deliver().catch(async (error: unknown) => {
-                  if (!bridgeGone(error) || !(await directClient.current?.takeOver())) throw error;
-                  return deliver();
+                  if (bridgeGone(error) && (await directClient.current?.takeOver())) {
+                    throw new Error("watch.notTakenOver");
+                  }
+                  throw error;
                 });
               };
               // The composer that holds the prompt: a refusal that comes once it is gone (the pane

@@ -15,7 +15,7 @@ export function bridgedWatch(
 }
 
 /// A bridged reply acpmux refused as read-only: the app no longer runs the session (or the bridge
-/// was turned off since the chat was listed), so the reply takes the chat over as any other does.
+/// was turned off since the chat was listed), so the chat is taken over and the reply kept for the next send.
 export function bridgeGone(error: unknown): boolean {
   return (error as { reason?: unknown } | null)?.reason === "watch.read_only";
 }

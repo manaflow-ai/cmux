@@ -168,7 +168,8 @@ impl Hub {
         let prompt_id = opts.prompt_id.clone().unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let uuid = uuid::Uuid::now_v7().to_string();
         // Claimed under one lock: two sends of one id never both go.
-        let rx = match deliveries().claim(uuid.clone(), &session.id, &prompt_id, &text) {
+        let claimed = deliveries().claim(uuid.clone(), &session.id, &prompt_id, &text);
+        let rx = match claimed {
             Ok(rx) => rx,
             Err(rx) => return Some(Ok(resent(session, &prompt_id, rx, opts).await)),
         };
