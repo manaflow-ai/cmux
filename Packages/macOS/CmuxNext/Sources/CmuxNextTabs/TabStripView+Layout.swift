@@ -178,7 +178,8 @@ extension TabStripView {
     func updateOcclusion(settle: CFTimeInterval = 0.001) {
         rowPasses.occlusion &+= 1
         let selected = model.selectedID.flatMap { dying.contains($0) ? nil : $0 }
-        occlusionEnds = TabOcclusion.update(cells: cells, selected: selected, band: scrollMapping.band, settle: settle)
+        occlusionEnds = TabOcclusion.update(cells: cells, selected: selected, band: scrollMapping.band, flying: pinFlights,
+                                              settle: settle)
     }
 
     /// `result` by tab, built once per layout.

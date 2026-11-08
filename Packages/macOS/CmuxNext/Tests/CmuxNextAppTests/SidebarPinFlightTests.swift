@@ -296,6 +296,26 @@ struct SidebarPinFlightTests {
         }
     }
 
+    /// An unpin: the item's pin glyph does not vanish on the first frame. It rides the arriving row and fades out on the
+    /// move's spring and begin (the pin's fade-in, reversed), and it is gone when the move ends (model opacity 0).
+    static func checkLeavingGlyph(_ name: String, _ row: NSView, failures: inout [String]) {
+        let move = (row.layer?.animationKeys() ?? []).compactMap { row.layer?.animation(forKey: $0) as? CASpringAnimation }
+            .first { $0.keyPath == "position" }
+        let fading = row.subviews.lazy.filter { $0 is NSImageView && !$0.isHidden }.compactMap(\.layer).compactMap { layer in
+            (layer.animationKeys() ?? []).compactMap { layer.animation(forKey: $0) as? CASpringAnimation }
+                .first { $0.keyPath == "opacity" && (($0.fromValue as? NSNumber)?.doubleValue ?? 0) > 0.99 }.map { (layer, $0) }
+        }.first
+        guard let move, let fading else {
+            return failures.append("\(name): the pin glyph vanishes on the first frame (no fade-out on the move)")
+        }
+        let (layer, fade) = fading
+        if layer.opacity > 0.001 { failures.append("\(name): the pin glyph stays after the move (opacity \(layer.opacity))") }
+        let fadeBegin = layer.convertTime(fade.beginTime, to: nil), moveBegin = row.layer.map { $0.convertTime(move.beginTime, to: nil) } ?? 0
+        if abs(fadeBegin - moveBegin) > 0.0005 || fade.stiffness != move.stiffness || fade.damping != move.damping || fade.mass != move.mass {
+            failures.append("\(name): the pin glyph fades out on another curve or begin than the move")
+        }
+    }
+
     /// Where each workspace other than `moved` is drawn at rest (row or item).
     static func rest(_ list: SidebarListView) -> [WorkspaceID: CGRect] {
         var frames: [WorkspaceID: CGRect] = [:]
@@ -327,7 +347,7 @@ struct SidebarPinFlightTests {
         var failures: [String] = []
         Self.checkBegin(pin ? "pinned d" : "unpinned d", of: arrived, turnEnd: now, failures: &failures)
         Self.checkOpaque(pin ? "pinned d" : "unpinned d", arrived, failures: &failures)
-        if pin { Self.checkGlyph("pinned d", arrived, failures: &failures) }
+        if pin { Self.checkGlyph("pinned d", arrived, failures: &failures) } else { Self.checkLeavingGlyph("unpinned d", arrived, failures: &failures) }
         Self.checkPath(pin ? "pinned d" : "unpinned d", probes: probes, now: now, start: startFrame,
                        end: list.convert(arrived.bounds, from: arrived), failures: &failures)
         // It translates, never fades: the one copy shown is opaque at every tick (a new block must not fade it in).

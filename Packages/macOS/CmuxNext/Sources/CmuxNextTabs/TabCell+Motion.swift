@@ -92,8 +92,11 @@ enum TabOcclusion {
     /// `band`: the fixed pinned band (`TabScrollMapping.band`). With one, pinned and unpinned tabs never
     /// cross (the unpinned ones scroll under the band, clipped), so a pill covers only its own region's tabs.
     /// Both regions' layers (tabsClip's, the scrolling layer) have the clip's coordinates.
-    static func crosses(_ cell: TabCell, _ id: TabID, selected: TabID, cover: TabCell, band: CGFloat) -> Bool {
-        id != selected && !cell.isLifted && (band <= 0 || cell.item.isPinned == cover.item.isPinned)
+    /// `flying`: tabs a pin or an unpin moves between the regions (`TabStripView.pinFlights`). They fly above both
+    /// regions, so a flying pill crosses the other region's tabs too (and a flying tab crosses the other region's pill).
+    static func crosses(_ cell: TabCell, _ id: TabID, selected: TabID, cover: TabCell, band: CGFloat, flying: Set<TabID> = []) -> Bool {
+        id != selected && !cell.isLifted
+            && (band <= 0 || cell.item.isPinned == cover.item.isPinned || flying.contains(selected) || flying.contains(id))
     }
 
     /// Masks every tab the selected pill covers, now and along every move in flight: a tab that
@@ -104,7 +107,8 @@ enum TabOcclusion {
     /// keyframes end (then the strip calls this again: at rest no mask is left).
     @MainActor
     /// `settle`: a path that ends within it counts as ended (the strip's move completion).
-    static func update(cells: [TabID: TabCell], selected: TabID?, band: CGFloat, settle: CFTimeInterval = 0.001) -> [TabID: CFTimeInterval] {
+    static func update(cells: [TabID: TabCell], selected: TabID?, band: CGFloat, flying: Set<TabID> = [],
+                       settle: CFTimeInterval = 0.001) -> [TabID: CFTimeInterval] {
         let now = CACurrentMediaTime()
         guard let selected, let cover = cells[selected], cover.frame.width > 0 else {
             for cell in cells.values { cell.occlude(visible: nil) }
@@ -117,7 +121,7 @@ enum TabOcclusion {
         }
         var masked: [TabID: CFTimeInterval] = [:]
         for (id, cell) in cells {
-            guard crosses(cell, id, selected: selected, cover: cover, band: band) else {
+            guard crosses(cell, id, selected: selected, cover: cover, band: band, flying: flying) else {
                 cell.occlude(visible: nil)
                 continue
             }

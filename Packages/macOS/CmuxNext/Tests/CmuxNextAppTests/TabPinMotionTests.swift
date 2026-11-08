@@ -148,6 +148,19 @@ struct TabPinMotionTests {
                 failures.append("tick \(k): two tabs overlap by \(a.maxX - b.minX) pt")
                 break
             }
+            // The moving tab is the selected one: its pill's fill is translucent, so a tab it flies over hides the part
+            // under the pill (`TabOcclusion`), or its title and icon show through the pill (the film: a doubled icon).
+            let pill = cell.metrics.pillFrame(slotWidth: frame.width, height: frame.height).offsetBy(dx: frame.minX, dy: 0)
+            for (id, other) in strip.cells where id != moved {
+                let otherFrame = shown(other, at: time)
+                var visible = otherFrame
+                if let mask = other.layer.mask {
+                    let center = MotionPath(mask, "position").value(at: time), size = MotionPath(mask, "bounds.size").value(at: time)
+                    visible = CGRect(x: otherFrame.minX + center.x - size.x / 2, y: 0, width: size.x, height: otherFrame.height)
+                }
+                let through = visible.intersection(pill).width
+                if through > 0.5 { failures.append("tick \(k): \(id.rawValue) shows \(through) pt through the moving tab's pill"); break }
+            }
             // The divider never draws over the moving tab.
             let divider = strip.pinnedDivider
             if !divider.isHidden, opacity(divider, at: time) > 0.05 {
