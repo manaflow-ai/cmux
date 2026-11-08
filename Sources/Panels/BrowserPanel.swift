@@ -10521,6 +10521,7 @@ enum BrowserDataImporter {
         destinationProfileID: UUID,
         domainFilters: [String]
     ) async -> CookieImportResult {
+        let domainFilter = BrowserImportDomainFilter(filters: domainFilters)
         let fileManager = FileManager.default
         var cookies: [HTTPCookie] = []
         var warnings: [String] = []
@@ -10543,7 +10544,7 @@ enum BrowserDataImporter {
                     let isSecure = sqliteColumnInt64(statement, index: 5) != 0
 
                     guard !name.isEmpty else { return }
-                    guard domainMatches(host: host, filters: domainFilters) else { return }
+                    guard domainFilter.matches(host: host) else { return }
 
                     var properties: [HTTPCookiePropertyKey: Any] = [
                         .domain: host,
@@ -10591,6 +10592,7 @@ enum BrowserDataImporter {
         destinationProfileID: UUID,
         domainFilters: [String]
     ) async -> CookieImportResult {
+        let domainFilter = BrowserImportDomainFilter(filters: domainFilters)
         let reader = SafariCookieStoreReader(homeDirectory: FileManager.default.homeDirectoryForCurrentUser)
         let parser = SafariBinaryCookiesParser()
         let now = Date()
@@ -10669,7 +10671,7 @@ enum BrowserDataImporter {
 
             for record in records {
                 guard !record.name.isEmpty else { continue }
-                guard domainMatches(host: record.domain, filters: domainFilters) else { continue }
+                guard domainFilter.matches(host: record.domain) else { continue }
                 if record.isExpired(at: now) {
                     expiredCount += 1
                     continue
@@ -10716,6 +10718,7 @@ enum BrowserDataImporter {
         destinationProfileID: UUID,
         domainFilters: [String]
     ) async -> CookieImportResult {
+        let domainFilter = BrowserImportDomainFilter(filters: domainFilters)
         let fileManager = FileManager.default
         var cookies: [HTTPCookie] = []
         var warnings: [String] = []
@@ -10739,7 +10742,7 @@ enum BrowserDataImporter {
                     let encryptedValue = sqliteColumnData(statement, index: 6)
 
                     guard !name.isEmpty else { return }
-                    guard domainMatches(host: host, filters: domainFilters) else { return }
+                    guard domainFilter.matches(host: host) else { return }
 
                     var usableValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
                     if usableValue.isEmpty && !encryptedValue.isEmpty {
@@ -10803,6 +10806,7 @@ enum BrowserDataImporter {
         destinationProfileID: UUID,
         domainFilters: [String]
     ) async -> HistoryImportResult {
+        let domainFilter = BrowserImportDomainFilter(filters: domainFilters)
         let fileManager = FileManager.default
         var rows: [HistoryRow] = []
         var warnings: [String] = []
@@ -10829,7 +10833,7 @@ enum BrowserDataImporter {
                     let lastVisitMicros = sqliteColumnInt64(statement, index: 3)
                     guard let parsedURL = URL(string: url),
                           let host = parsedURL.host,
-                          domainMatches(host: host, filters: domainFilters) else {
+                          domainFilter.matches(host: host) else {
                         return
                     }
                     let lastVisited = firefoxDate(fromUnixMicroseconds: lastVisitMicros) ?? .distantPast
@@ -10859,6 +10863,7 @@ enum BrowserDataImporter {
         destinationProfileID: UUID,
         domainFilters: [String]
     ) async -> HistoryImportResult {
+        let domainFilter = BrowserImportDomainFilter(filters: domainFilters)
         let fileManager = FileManager.default
         var rows: [HistoryRow] = []
         var warnings: [String] = []
@@ -10885,7 +10890,7 @@ enum BrowserDataImporter {
                     let lastVisitMicros = sqliteColumnInt64(statement, index: 3)
                     guard let parsedURL = URL(string: url),
                           let host = parsedURL.host,
-                          domainMatches(host: host, filters: domainFilters) else {
+                          domainFilter.matches(host: host) else {
                         return
                     }
                     let lastVisited = chromiumDate(fromWebKitMicroseconds: lastVisitMicros) ?? .distantPast
@@ -10916,6 +10921,7 @@ enum BrowserDataImporter {
         destinationProfileID: UUID,
         domainFilters: [String]
     ) async -> HistoryImportResult {
+        let domainFilter = BrowserImportDomainFilter(filters: domainFilters)
         let fileManager = FileManager.default
         var rows: [HistoryRow] = []
         var warnings: [String] = []
@@ -10971,7 +10977,7 @@ enum BrowserDataImporter {
                     let lastVisitReferenceSeconds = sqliteColumnDouble(statement, index: 3)
                     guard let parsedURL = URL(string: url),
                           let host = parsedURL.host,
-                          domainMatches(host: host, filters: domainFilters) else {
+                          domainFilter.matches(host: host) else {
                         return
                     }
                     let lastVisited = Date(timeIntervalSinceReferenceDate: lastVisitReferenceSeconds)
@@ -11060,20 +11066,6 @@ enum BrowserDataImporter {
             }
         }
         return Array(dedupedByKey.values)
-    }
-
-    private static func domainMatches(host: String, filters: [String]) -> Bool {
-        if filters.isEmpty { return true }
-        var normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        while normalizedHost.hasPrefix(".") {
-            normalizedHost.removeFirst()
-        }
-        guard !normalizedHost.isEmpty else { return false }
-        for filter in filters {
-            if normalizedHost == filter { return true }
-            if normalizedHost.hasSuffix(".\(filter)") { return true }
-        }
-        return false
     }
 
     private static func chromiumDate(fromWebKitMicroseconds rawValue: Int64) -> Date? {
