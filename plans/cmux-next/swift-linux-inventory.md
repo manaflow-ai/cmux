@@ -16,8 +16,8 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 
 | | linux | shims | mac | all |
 | --- | ---: | ---: | ---: | ---: |
-| targets | 40 | 25 | 261 | 326 |
-| of them test suites | 15 | 6 | 83 | 104 |
+| targets | 42 | 25 | 261 | 328 |
+| of them test suites | 16 | 6 | 83 | 105 |
 
 ## Packages and projects
 
@@ -44,6 +44,7 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | `Packages/Shared/CmuxMessagesLab` | 0 | 0 | 4 | - |
 | `Packages/Shared/CmuxScreenKit` | 0 | 0 | 3 | - |
 | `Packages/Shared/CmuxSentryTelemetry` | 2 | 0 | 2 | CI swift-packages-linux (2 of 4 targets) |
+| `Packages/Shared/CmuxSyncStore` | 2 | 0 | 0 | CI swift-packages-linux (2 of 2 targets) |
 | `Packages/Shared/CmuxTerminalClient` | 2 | 3 | 0 | CI swift-linux-packages (2 of 5 targets) |
 | `Packages/Shared/CmuxTerminalSizing` | 2 | 0 | 0 | CI swift-linux-packages (2 of 2 targets) |
 | `Packages/Shared/CmuxTerminalStream` | 2 | 0 | 0 | CI swift-linux-packages (2 of 2 targets) |
@@ -223,6 +224,13 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | CmuxSentryScrubbing | target | linux | CI swift-packages-linux | - | - |
 | CmuxSentryReportingTests | testTarget | mac | scan | imports Sentry; shim os | - |
 | CmuxSentryScrubbingTests | testTarget | linux | CI swift-packages-linux | - | - |
+
+## `Packages/Shared/CmuxSyncStore`
+
+| Target | Kind | Class | Proof | Why | Guarded |
+| --- | --- | --- | --- | --- | --- |
+| CmuxSyncStore | target | linux | CI swift-packages-linux | - | - |
+| CmuxSyncStoreTests | testTarget | linux | CI swift-packages-linux | - | - |
 
 ## `Packages/Shared/CmuxTerminalClient`
 
