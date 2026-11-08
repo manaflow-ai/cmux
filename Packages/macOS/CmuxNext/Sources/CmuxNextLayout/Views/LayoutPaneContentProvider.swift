@@ -206,7 +206,8 @@ final class LayoutViewContext {
     func retire(_ pane: PaneID, from screen: ScreenID, until: Retirement = .landing, showsGround: Bool = false) {
         guard let host = hosts.removeValue(forKey: pane) else { return }
         if showsGround { host.showClosingGround() } else { host.isHidden = true }
-        host.chrome.isHidden = true
+        // EXPERIMENT (CLOSE VARIANTS 5, E4): a closing pane's chrome stays in the tree (alpha 0), no isHidden change.
+        if showsGround { host.chrome.alphaValue = 0 } else { host.chrome.isHidden = true }
         retired[pane] = (host, screen, until)
         // A close took it out of the layout now: the provider's shown panes lose it in this update, only its teardown
         // waits. A zoom's covered pane is still in the layout (its focus topology, theme, suspend): the provider keeps it.
