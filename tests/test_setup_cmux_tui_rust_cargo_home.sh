@@ -67,6 +67,13 @@ c="$(run_as "$shared" container)"
 k="$(run_as "$shared" actions-runner-glaeda "CARGO_HOME=$TMP/job-cargo")"
 [ ! -s "$k/env" ] || fail "a job's own CARGO_HOME was replaced"
 
+# dtolnay/rust-toolchain's CARGO_HOME=$HOME/.cargo is the shared home: replaced.
+d="$(run_as "$shared" actions-runner-glaeda "CARGO_HOME=$shared/.cargo")"
+[ "$(cat "$d/env")" = "CARGO_HOME=$shared/actions-runner-glaeda/_work/.cargo-home" ] \
+  || fail "the shared \$HOME/.cargo from dtolnay/rust-toolchain was kept: $(cat "$d/env")"
+d="$(run_as "$shared" actions-runner-glaeda "CARGO_HOME=$shared/.cargo/")"
+[ -s "$d/env" ] || fail "the shared \$HOME/.cargo/ (trailing slash) was kept"
+
 # Windows runners keep theirs.
 w="$(run_as "$shared" actions-runner-glaeda RUNNER_OS=Windows)"
 [ ! -s "$w/env" ] || fail "a Windows runner got a CARGO_HOME"
