@@ -1,3 +1,5 @@
+import { useState, type ReactNode } from "react";
+import { usePresence } from "../../../ui/presence";
 import { type AcpmuxPermission } from "../model";
 import { PermissionCard } from "../PermissionCard";
 import { PermissionQuestion } from "../question/PermissionQuestion";
@@ -70,6 +72,41 @@ export function PermissionAsk({
       {waiting > 0 && <p className="acpmux-permission-waiting">{t("permission.moreWaiting", { n: waiting })}</p>}
       <PermissionQuestion permission={permission} question={permission.question} send={replyToQuestion} />
     </>
+  );
+}
+
+/// A plan approval in the bottom stack, under a still "Needs your input" pill (the question card's own,
+/// QuestionCard.tsx). It grows in when the agent asks and shrinks out once it is answered (Leo
+/// 2026-11-08, on a recording of a needs-input card: "the animation shrinking out but ofc there's the
+/// growing in part when it starts"): `usePresence` keeps the answered ask drawn, inert, while its exit
+/// plays, and styles.css moves its height and fade together on the house settle, so the transcript
+/// above moves in the same motion. Motion off, it is simply there and gone. Nothing in it pulses.
+/// `permission` is the plan ask waiting now; `children` draws it, told when it is on its way out.
+export function PlanAsk({
+  permission,
+  children,
+}: {
+  permission?: AcpmuxPermission;
+  children: (permission: AcpmuxPermission, leaving: boolean) => ReactNode;
+}) {
+  const t = useT();
+  const [last, setLast] = useState(permission);
+  if (permission && permission !== last) setLast(permission);
+  const presence = usePresence(Boolean(permission), "bottom", { appear: true });
+  const shown = permission ?? last;
+  if (!presence.present || !shown) return null;
+  return (
+    <div className="acpmux-plan-ask" {...presence.props} inert={presence.leaving}>
+      <div className="acpmux-plan-ask-body">
+        <span className="acpmux-question-status acpmux-plan-ask-status">
+          <span className="acpmux-question-status-pill">
+            <span className="acpmux-needs-you-dot" aria-hidden="true" />
+            {t("question.needsInput")}
+          </span>
+        </span>
+        {children(shown, presence.leaving)}
+      </div>
+    </div>
   );
 }
 
