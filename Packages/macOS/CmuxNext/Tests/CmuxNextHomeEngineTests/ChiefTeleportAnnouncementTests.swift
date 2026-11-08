@@ -1,5 +1,6 @@
 @testable import CmuxNextHomeEngine
 import Foundation
+import Observation
 import Testing
 
 /// The Chief chat's teleport row is an event, not a standing state (user, Nov 7: "keep seeing this on
@@ -37,6 +38,18 @@ struct ChiefTeleportAnnouncementTests {
         #expect(chief.notice() == nil)
     }
 
+    @Test func aMoveSeenHappeningShowsAndARollbackSaysSo() async throws {
+        let home = try home()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let chief = await teleportModel(home)
+        try Self.moved.write(to: home.appendingPathComponent("state/moved.json"))
+        await chief.refresh().value
+        #expect(chief.notice()?.hasPrefix("Chief moved to cmux Cloud") == true)
+        try FileManager.default.removeItem(at: home.appendingPathComponent("state/moved.json"))
+        await chief.refresh().value
+        #expect(chief.notice() == "Chief moved back to this Mac")
+    }
+
     @Test func aMoveMadeBeforeLaunchShowsNoRow() async throws {
         let home = try home()
         defer { try? FileManager.default.removeItem(at: home) }
@@ -55,8 +68,45 @@ struct ChiefTeleportAnnouncementTests {
         await chief.refresh().value
         let row = try #require(chief.notice())
         #expect(row.hasPrefix("Chief forked to cmux Cloud as “Chief fork”"))
+        // A reload reads the same fork again: still the one row, not a second.
+        await chief.refresh().value
+        #expect(chief.notice() == row)
+        // A newer message in the Chief chat ends it (Home calls dismissAnnouncement), for good.
+        chief.dismissAnnouncement()
+        await chief.refresh().value
+        #expect(chief.notice() == nil)
         // The app starts again (a relaunch) on the same home: the fork is old news.
         let relaunched = await self.teleportModel(home)
         #expect(relaunched.notice() == nil)
     }
+
+    @Test func aNewerMessageInTheChiefChatEndsTheRow() async throws {
+        let home = try home()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let chat = ChatSeq()
+        let chief = await teleportModel(home)
+        chief.endAnnouncementOnNewerMessage { chat.newest }
+        try Self.fork("agent_fork").write(to: home.appendingPathComponent("state/fork.json"))
+        await chief.refresh().value
+        #expect(chief.notice() != nil, "the row shows under the newest message")
+        // A reload with no new message keeps the one row.
+        await chief.refresh().value
+        #expect(chief.notice() != nil)
+        chat.newest = 8
+        // The Chief's watch ends the row on its own: wait for that change (no sleep, no poll).
+        while chief.announcement != nil {
+            await withCheckedContinuation { done in
+                withObservationTracking { _ = chief.announcement } onChange: { done.resume() }
+            }
+        }
+        #expect(chief.notice() == nil)
+        await chief.refresh().value
+        #expect(chief.notice() == nil, "a reload after the newer message does not bring it back")
+    }
+}
+
+/// The Chief chat's newest message seq, as Home's store gives it (an `@Observable` read).
+@Observable @MainActor
+private final class ChatSeq {
+    var newest: UInt64 = 7
 }
