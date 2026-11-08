@@ -248,7 +248,7 @@ USAGE
   cmux terminal <selector> state read
   cmux terminal <selector> history read|clear
   cmux terminal <selector> output read [--after <offset>] [--max-bytes <n>]
-  cmux terminal <selector> copy [--mode screen|selection|scrollback] [--unwrap]
+  cmux terminal <selector> copy [--mode screen|selection|scrollback] [--unwrap] [--details]
   cmux terminal <selector> process show
   cmux terminal <selector> process wait [--timeout-ms <n>]
   cmux terminal <selector> wait --until idle|prompt|ready
@@ -266,7 +266,7 @@ USAGE
   cmux terminal <term_id>|current pin-tail on|off
 
 list --cwd <path> keeps the terminals in <path> or a folder inside it.
-screen read prints the screen's text; --details (or --json) gives the whole
+screen read and copy print the text; --details (or --json) gives the whole
 record. screen read --unwrap joins rows the terminal soft-wrapped into the
 lines the program printed; --lines <n> reads the last n lines of scrollback and
 screen (logical lines with --unwrap). copy --unwrap does the same for screen and
