@@ -15,6 +15,8 @@ mod activity;
 pub(crate) mod brand;
 mod open;
 mod query;
+#[allow(dead_code)] // red: wired in the next commit
+mod resolve;
 pub mod search;
 mod settings;
 pub(crate) mod sources;
