@@ -73,8 +73,15 @@ programs running in them:
 "$APP/Contents/Resources/bin/cmux" daemon stop --session "cmux-app-$TAG" --end-terminals
 ```
 
-Stopping a daemon that isn't running succeeds. Then stop this build's acpmux and the agents it
-hosts:
+Stopping a daemon that isn't running succeeds. Quitting also leaves the Chief running (its brain,
+`optchat-chief`, holds a lock in its home so only one writer uses it). Stop it before you delete
+that home in step 7:
+
+```sh
+"$APP/Contents/Resources/bin/cmux" chief shutdown --chief-home "$CHIEF_DIR"
+```
+
+Then stop this build's acpmux and the agents it hosts:
 
 ```sh
 ACPMUX_HOME="$ACPMUX_DIR" "$APP/Contents/Resources/bin/acpmux" daemon shutdown --end-agents
@@ -85,7 +92,7 @@ Check for anything still running. The session daemon (`cmux-tui`), its terminal 
 `~/Library/Application Support/cmux-tui/host-exe/`, so the bundle path doesn't always show:
 
 ```sh
-ps -axo pid,ppid,command | grep -E '[c]mux-tui|[c]mux-holder|[a]cpmux|[h]ost-exe'
+ps -axo pid,ppid,command | grep -E '[c]mux-tui|[c]mux-holder|[a]cpmux|[o]ptchat-chief|[h]ost-exe'
 ```
 
 Every cmux-next build's processes match. Stop only the ones you recognize as this build's (the
@@ -176,6 +183,7 @@ This build's own folders:
 | `$SUPPORT/tags/$TAG` | **Loses your data.** The session daemon's saved workspaces, layout and scrollback |
 | `$SUPPORT/$BUNDLE` | **Loses your data.** SSH machine links (`ssh-next`) and Cloud tunnel state (`cloud-next`) |
 | `$SUPPORT/managed-status.$BUNDLE.json` | Managed settings status |
+| `$SUPPORT/$TAG/debug-tunables.json` | Debug Settings overrides (DEV, NIGHTLY, cmux NEXT and tagged builds; other builds keep it in `$BUILD_DIR`) |
 | `~/Library/Application Support/cmux-next/$BUNDLE` | **Loses your data.** Kept previous versions for rollback (`versions`) and the copy of classic's files read on migration (`classic-migration`) |
 | `~/Library/Application Support/$BUNDLE` | Backdrop images, table widths, and the `instance.lock` and `instance.owner` that keep one copy running |
 | `~/Library/WebKit/$BUNDLE` | **Loses your data.** Browser tabs' cookies, logins and site data |
@@ -187,7 +195,7 @@ This build's own folders:
 
 ```sh
 rm -rf "$ACPMUX_DIR" "$CHIEF_DIR" ${BUILD_DIR:+"$BUILD_DIR"} "$SUPPORT/tags/$TAG" "$SUPPORT/$BUNDLE" \
-  "$SUPPORT/managed-status.$BUNDLE.json" \
+  "$SUPPORT/managed-status.$BUNDLE.json" "$SUPPORT/$TAG/debug-tunables.json" \
   "$HOME/Library/Application Support/cmux-next/$BUNDLE" "$HOME/Library/Application Support/$BUNDLE" \
   "$HOME/Library/WebKit/$BUNDLE" "$HOME/Library/Caches/$BUNDLE" "$HOME/Library/HTTPStorages/$BUNDLE" \
   "$HOME/Library/Saved Application State/$BUNDLE.savedState" "$HOME/Library/Logs/$BUNDLE" \
