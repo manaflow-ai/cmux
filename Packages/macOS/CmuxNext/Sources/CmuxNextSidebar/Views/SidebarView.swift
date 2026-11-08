@@ -157,6 +157,7 @@ public final class SidebarView: NSView {
         profileBar = ProfileBarView(model: model)
         super.init(frame: .zero)
         buildHierarchy()
+        list.hoverOccluded = { [weak self] point in self?.updatedCardView.covers(windowPoint: point) == true }
         newButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace")
         newWorkspaceOptionsButton.setAccessibilityLabel(Strings.newWorkspaceOptions)
         newWorkspaceOptionsButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace.options")
