@@ -772,12 +772,19 @@ export function waitingAsks(view: Pick<TurnView, "nextSteps" | "rows">): readonl
     waiting.push(card);
   }
   if (!waiting.length) return NO_ASKS;
-  // The newest card counts only once a turn came after it: before that it is the chat's last row.
+  // The newest card counts only once a turn came after it: before that it is the chat's last word,
+  // which the composer hat holds (question/hatModel.ts `liveNextStep`, the same `opensLaterTurn`).
   const newest = nextSteps.at(-1)!;
-  if (waiting[0] === rows[newest.at] && !rows.slice(newest.at + 1).some((row) => row.kind === "user")) waiting.shift();
+  if (waiting[0] === rows[newest.at] && !rows.slice(newest.at + 1).some(opensLaterTurn)) waiting.shift();
   return waiting.length ? waiting.reverse() : NO_ASKS;
 }
 const NO_ASKS: readonly AcpmuxRow[] = [];
+
+/// A prompt after a card, whoever sent it (the person, another agent, the phone; sent, failed or
+/// blank): another turn came after the card, so it is no longer the chat's last word. From then on a
+/// card still waiting is pinned above the composer (`waitingAsks`), never in the hat (hatModel.ts
+/// `liveNextStep`): one place each, so its Dismiss leaves no copy behind (#38964).
+export const opensLaterTurn = (row: AcpmuxRow) => row.kind === "user";
 
 /// A turn as drawn, kept while its rows (by identity) and what shapes them stay the same: a long
 /// chat's snapshot rebuilds only the turns that changed, and an unchanged turn's derived rows stay

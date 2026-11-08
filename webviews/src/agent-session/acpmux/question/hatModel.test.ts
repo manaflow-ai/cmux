@@ -79,15 +79,16 @@ describe("the questions the composer hat holds", () => {
 
   // Leo, 2026-11-07: "what happens if they respond to it in another way, right? ... the question fade
   // from relevance is a thing that needs to be accounted for".
-  test("a tagged ask leaves the hat once the person says anything after it, or a later card settles it", () => {
+  test("a tagged ask leaves the hat once any prompt follows it, or a later card settles it", () => {
     const ask = tagged();
     expect(liveNextStep([said("go"), row("assistant"), ask])).toBe(ask);
     expect(liveNextStep([ask, said("I made the key but on the other account")])).toBeUndefined();
-    // What answers nothing leaves it: another agent's message, one received, a failed or blank send.
-    expect(liveNextStep([ask, row("user", { text: "from the chief", incoming: {} as never })])).toBe(ask);
-    expect(liveNextStep([ask, row("user", { text: "from the phone", received: {} as never })])).toBe(ask);
-    expect(liveNextStep([ask, row("user", { text: "Yes", failed: true })])).toBe(ask);
-    expect(liveNextStep([ask, row("user", { text: "" })])).toBe(ask);
+    // What answers nothing still opens a later turn: another agent's message, one received, a failed
+    // or blank send. The ask, still waiting, is pinned above the composer then (#38964, below).
+    expect(liveNextStep([ask, row("user", { text: "from the chief", incoming: {} as never })])).toBeUndefined();
+    expect(liveNextStep([ask, row("user", { text: "from the phone", received: {} as never })])).toBeUndefined();
+    expect(liveNextStep([ask, row("user", { text: "Yes", failed: true })])).toBeUndefined();
+    expect(liveNextStep([ask, row("user", { text: "" })])).toBeUndefined();
     expect(liveNextStep([tagged({ answer: "Yes" })])).toBeUndefined();
     expect(liveNextStep([tagged({ superseded: true })])).toBeUndefined();
     const [shown] = hatQuestions({ sessionId: "chat", nextStepOwner: "chat", rows: [ask], sessions: [], asks: [] });
@@ -260,7 +261,11 @@ describe("a waiting tagged ask is in the hat or pinned above the composer, never
       hat: [],
       pinned: [QUESTION],
     });
-    const ended = [...opened, line("a2", "assistant", { text: "Noted." }), line("s2", "turnSummary", { status: "completed" })];
+    const ended = [
+      ...opened,
+      line("a2", "assistant", { text: "Noted." }),
+      line("s2", "turnSummary", { status: "completed" }),
+    ];
     expect(surfaces(ended)).toEqual({ hat: [], pinned: [QUESTION] });
   });
 

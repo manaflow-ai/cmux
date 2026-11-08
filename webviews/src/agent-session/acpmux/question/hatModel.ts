@@ -10,18 +10,19 @@
 //   agent's turn, so they come first. The one the card under the hat shows stays the card's to
 //   answer (arrows, number keys, Other, Skip); the hat points to it and answers the rest in a click.
 // - the tagged ask the chat's last turn ended on (conversation/nextStepAsk.ts, `[physical] Can you
-//   ...?`): the transcript's next-step card, while no prompt of the person's followed it.
+//   ...?`): the transcript's next-step card, while no prompt followed it. Once one did, a waiting
+//   ask is pinned above the composer instead (conversation/PendingAsks.tsx), never in both.
 // - the questions of the chats this one started (needsYou/jumpPillModel.ts `pillAsks`): the pane can only
 //   answer the chat it shows, so these open their chat.
 //
 // Relevance fade (Leo: "what happens if they respond to it in another way, right? ... the question
 // fade from relevance is a thing that needs to be accounted for"): a tagged ask leaves the hat once
 // the person says anything after it (the transcript's card stays answerable, Leo 2026-11-05), or once
-// a later turn ends; the chat's own question is declined when the person types a reply instead
+// another turn starts after it (the pinned card holds it then, with its Dismiss); the chat's own question is declined when the person types a reply instead
 // (App.tsx `withdrawForTypedReply`), and its transcript record then reads "Answered in chat"
 // (direct.ts `recordQuestion`); one the agent or a Stop withdrew leaves when acpmux says so.
 import { nextStepAsk, type NextStepAsk } from "../conversation/nextStepAsk";
-import { NEXT_STEP } from "../conversation/turns";
+import { NEXT_STEP, opensLaterTurn } from "../conversation/turns";
 import { askKey } from "../conversation/waitingAskStore";
 import type { AcpmuxPermission, AcpmuxRow } from "../model";
 import { pillAsks } from "../needsYou/jumpPillModel";
@@ -116,13 +117,17 @@ function ownQuestion(permission: AcpmuxPermission | undefined, onCard = false): 
 const personSaid = (row: AcpmuxRow) =>
   row.kind === "user" && !row.incoming && !row.received && !row.failed && Boolean(row.text);
 
-/// The tagged ask the chat's last turn ended on, while nothing the person said came after it. Read
-/// from the end of the shaped rows and stopped at the first prompt of the person's or the first
-/// card, so it costs the rows since the person's last prompt, never the chat's length.
+/// The tagged ask the chat's last turn ended on, while it is still the chat's last word: no prompt
+/// came after it. Once one did (the person's, which moves it past its relevance, or another agent's,
+/// a received or failed one, which answer nothing), a turn came after it, and an ask still waiting
+/// is pinned above the composer with its Dismiss (turns.ts `waitingAsks`), not held here too: the
+/// two showed the same question one over the other, and Dismiss left the hat's copy in place
+/// (#38964). Read from the end of the shaped rows and stopped at the first prompt or the first card,
+/// so it costs the rows since the last prompt, never the chat's length.
 export function liveNextStep(rows: readonly AcpmuxRow[]): AcpmuxRow | undefined {
   for (let at = rows.length - 1; at >= 0; at -= 1) {
     const row = rows[at]!;
-    if (personSaid(row)) return undefined;
+    if (opensLaterTurn(row)) return undefined;
     if (row.kind !== NEXT_STEP) continue;
     const step = row.nextStep;
     if (!step || step.answer !== undefined || step.superseded) return undefined;
