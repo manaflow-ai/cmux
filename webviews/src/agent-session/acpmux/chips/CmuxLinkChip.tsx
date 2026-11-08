@@ -22,7 +22,7 @@ import { chatUnderHoverCard, hoverCardGlass } from "../chatUnderGlass";
 import { useHoverCard } from "./useHoverCard";
 import { useCmuxLink, type CmuxLinkInfo, type CmuxLinkKind } from "./cmuxLinkResolve";
 import { namesChat, type CmuxLinkTarget } from "../conversation/cmuxLinks";
-import { useAgentLinkClick } from "../conversation/SessionRef";
+import { useAgentLinkClick } from "../conversation/sessionRefModel";
 import { SubsessionContext } from "../subagents/subsessions";
 import { installSelectionCopy } from "../conversation/selectionCopy";
 import { cmuxLinkLook, type CmuxLinkLook } from "./cmuxLinkLook.experiment";
