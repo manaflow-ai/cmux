@@ -216,7 +216,7 @@ extension ScreenContentView {
     }
 
     /// The frame at progress `p` (past 1 on a spring's overshoot) from `a` to `b`.
-    private static func filmLerp(_ a: CGRect, _ b: CGRect, _ p: Double) -> CGRect {
+    nonisolated private static func filmLerp(_ a: CGRect, _ b: CGRect, _ p: Double) -> CGRect {
         let t = CGFloat(p)
         return CGRect(x: a.minX + (b.minX - a.minX) * t, y: a.minY + (b.minY - a.minY) * t,
                       width: a.width + (b.width - a.width) * t, height: a.height + (b.height - a.height) * t)

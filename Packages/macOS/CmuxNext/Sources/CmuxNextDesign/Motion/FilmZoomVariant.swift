@@ -47,7 +47,7 @@ public struct FilmZoomVariant: Sendable, Equatable {
             case .k4: ((0.22, 1, 0.36, 1), 0.10)
             case .k5: ((0.65, 0, 0.35, 1), 0.12)
             case .k10: ((0, 0, 1, 1), 0.10)
-            case .k6, .k7, .k8, .k9: nil
+            case .cur, .k6, .k7, .k8, .k9: nil
             }
         }
 
