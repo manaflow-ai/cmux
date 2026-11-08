@@ -119,6 +119,7 @@ static CLAIMS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<St
     std::sync::LazyLock::new(Default::default);
 
 /// A build call's hold on one plan approval ([`claim`]), released when dropped.
+#[derive(Debug)]
 pub struct PlanClaim(String);
 
 impl Drop for PlanClaim {
