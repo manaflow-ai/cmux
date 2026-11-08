@@ -154,9 +154,9 @@ export type WhatsNewPlacement = "title" | "top-right" | "button";
 
 /** How long the card waits for the host to make room for the open preview before it opens anyway. */
 const PREVIEW_ROOM_WAIT_MS = 150;
-/** How long the preview's close runs before the card hands its room back (the motion scale's
-    ceiling, `--cmux-motion-large`); with motion reduced or off, no wait. */
-const PREVIEW_CLOSE_MS = 240;
+/** How long the preview's close runs before the card hands its room back (the card's own curve,
+    `--wn-preview-motion` in updateSurfaces.css); with motion reduced or off, no wait. */
+const PREVIEW_CLOSE_MS = 265;
 
 export function UpdatedCard({
   data,
@@ -171,6 +171,7 @@ export function UpdatedCard({
   previewOpen,
   hostPointer,
   onPreviewSize,
+  onPreviewGlass,
   anchor = "bottom",
   drag,
   dragFeel = SHIPPED_DRAG_FEEL,
@@ -200,6 +201,9 @@ export function UpdatedCard({
   /** The height, CSS px, the card needs above its slot's bottom while the preview is open, 0 once
       it has closed: the host grows its view upward by it, over the list, without moving the list. */
   onPreviewSize?: (height: number) => void;
+  /** The height, CSS px, the open preview will have once its motion ends, 0 as it starts to close:
+      said as the motion starts, so the host's glass behind the page runs the same motion with it. */
+  onPreviewGlass?: (height: number) => void;
   /** Where the card rests: on the bottom slot (its preview opens upward) or at the top of the list
       (its preview opens downward). */
   anchor?: CardRow;
@@ -216,7 +220,16 @@ export function UpdatedCard({
   const name = /^[^-]+-nightly\.\d+$/.test(data.version) ? strings.t("updates.card.nightly") : data.version;
   const titleKey = data.delivery === "background" ? "updates.card.updatedBehind" : "updates.card.updatedTo";
   const [before, after] = strings.format(titleKey, "\u0000").split("\u0000");
-  const preview = useHoverPreview({ data, span, strings, previewOpen, hostPointer, onPreviewSize, enabled: !doodle });
+  const preview = useHoverPreview({
+    data,
+    span,
+    strings,
+    previewOpen,
+    hostPointer,
+    onPreviewSize,
+    onPreviewGlass,
+    enabled: !doodle,
+  });
   const openChangelog = () => {
     preview.close();
     actions.openChangelog();
@@ -399,6 +412,7 @@ function useHoverPreview({
   previewOpen,
   hostPointer,
   onPreviewSize,
+  onPreviewGlass,
   enabled,
 }: {
   data: UpdateHighlights;
@@ -407,6 +421,7 @@ function useHoverPreview({
   previewOpen?: boolean;
   hostPointer?: boolean;
   onPreviewSize?: (height: number) => void;
+  onPreviewGlass?: (height: number) => void;
   enabled: boolean;
 }) {
   const entries = enabled ? previewEntries(data, span, strings.language) : [];
@@ -495,6 +510,11 @@ function useHoverPreview({
   const open = want && shown;
   const isOpen = useRef(open);
   isOpen.current = open;
+  const glassed = useRef(onPreviewGlass);
+  glassed.current = onPreviewGlass;
+  // Said in the same commit that flips `data-preview`, so the host's glass starts with the page's.
+  const glass = open ? height : 0;
+  useLayoutEffect(() => glassed.current?.(glass), [glass]);
   useEffect(() => {
     const element = card.current;
     if (!element || !enabled) return;
