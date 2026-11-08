@@ -9,6 +9,7 @@
 //! implementing [`Feed`] (its `next` waits on the pushed records instead of asking again); the
 //! connection and the app see the same notifications either way.
 //!
+//! A connection follows at most [`MAX_PER_CONN`] chats; another opens with no live records.
 //! Every follower stops: when its connection ends or detaches the chat, when the daemon stops,
 //! when the chat is gone there, or after [`MAX_FAILURES`] reads in a row fail. One per connection
 //! and chat; a second open of the same chat nudges the one running.
@@ -27,6 +28,10 @@ const FAST: Duration = Duration::from_millis(300);
 const SLOW: Duration = Duration::from_secs(5);
 /// Reads that fail in a row before the follower gives up (the machine left, the hub is down).
 const MAX_FAILURES: u32 = 12;
+/// The most chats one connection follows at once. The app follows the one chat it shows; a
+/// connection past this opens a chat as it is, with no live records, so the hub's load stays
+/// bounded by connections, not by chats.
+const MAX_PER_CONN: usize = 8;
 /// The records one read asks for. A page past the hub's 64 KiB halves its byte budget there.
 const PAGE_LIMIT: u64 = 500;
 
@@ -95,6 +100,10 @@ pub(crate) fn follow_with(
         let mut running = RUNNING.lock_or_recover();
         if let Some(nudge) = running.get(&id) {
             nudge.notify_one();
+            return;
+        }
+        if running.keys().filter(|(conn_id, _)| *conn_id == conn.id).count() >= MAX_PER_CONN {
+            tracing::info!(session = %chat.key, "not following a hub chat: this client follows {MAX_PER_CONN}");
             return;
         }
         let nudge = Arc::new(Notify::new());

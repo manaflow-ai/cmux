@@ -732,6 +732,13 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
         params["sessionId"] = serde_json::Value::String(session.id.clone());
     }
     let session_id = params.get("sessionId").cloned();
+    // Whom the sending daemon forwarded a start for (`remote_guard::mark_forwarded`): the start
+    // runs gated by it here, and so do the prompts the hub relays to its chat (`deliver`).
+    let via = (op == "start")
+        .then(|| params.pointer("/_meta/acpmux/via").and_then(serde_json::Value::as_str))
+        .flatten()
+        .filter(|via| matches!(*via, "app" | "web" | "device"))
+        .map(str::to_owned);
     let (tx, mut rx) = relay_connection(hub);
     let initialized = rpc_call(
         &tx,
@@ -790,6 +797,9 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
         Ok(result) => {
             let detail =
                 result.get("sessionId").and_then(serde_json::Value::as_str).map(str::to_owned);
+            if let (Some(id), Some(via)) = (detail.as_deref(), via.as_deref()) {
+                hub.mark_hub_via(id, via);
+            }
             Some(Ack::delivered(&message.message_id, detail))
         }
         Err(error) => error.ack(),
@@ -952,6 +962,13 @@ pub async fn deliver(
         relay: None,
     };
     crate::hub::merge_mux_meta(&mut request, sender.mux_fields());
+    // A chat started through the hub for the sender's app or a Web client (`hub_via`): its
+    // relayed prompts are that client's, held to the folder-trust gate (`trust_gate.rs`) and the
+    // Web's rules as a peer link's marked prompt is. A sender cannot drop the mark: it is this
+    // daemon's record of the start.
+    if let Some(via) = hub.hub_via(&session) {
+        crate::hub::merge_mux_meta(&mut request, json!({"via": via}));
+    }
     // The harness the sender says it came from, for the chat's sender chip: the claim only, so
     // the record says self-reported; what the sending daemon checked never crosses the hub.
     if let Some(claim) = message.from.claim.as_ref().and_then(crate::sender_harness::sanitized)

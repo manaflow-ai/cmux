@@ -19,6 +19,16 @@
 //! (`read::may_read`). The machine checks the hub-stamped sender against its own
 //! `meshRelay.controlFrom` (`sameUser`), so a machine whose join was revoked, or another person's,
 //! refuses; the hub refuses a recipient it does not know.
+//!
+//! The start is marked as a linked peer's is (`remote_guard::mark_forwarded`): `via: app` for
+//! the pane, `web` or `device` for others, and `createdBy` as this daemon decides it. The machine
+//! gates a marked start with its folder-trust gate (a folder with no answer, or Don't trust, is
+//! refused there: `trust.pending`, `trust.untrusted`), records the mark on the chat
+//! (`SessionMeta::hub_via`), and holds every prompt the hub relays to that chat to it, so the
+//! pane cannot prompt through the hub what it could not prompt over a peer link. A full-access
+//! starter's policy goes on as over a link (`forward_starter_policy`). The VM-boundary opt-out
+//! (`hub/vm_boundary.rs`) is not sent: it is a linked peer's setting, and without it the chat
+//! keeps the platform sandbox, which fails safe.
 
 use super::*;
 use crate::mesh::{HubError, Sender};
@@ -35,17 +45,19 @@ const ANSWER_WAIT: Duration = Duration::from_secs(25);
 
 /// `session/new` on hub machine `host`, or None when this daemon has no hub, `host` is no machine
 /// its book lists, or `conn` may not use the hub; the caller then refuses it as before.
+/// `created_by` is the `_meta.acpmux` stamp of who creates it, as the peer-link start sends it.
 pub(crate) async fn new_on(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     params: &Value,
     host: &str,
+    created_by: Value,
 ) -> Option<Result<Value, RpcError>> {
     if !read::may_read(conn) || !hub.mesh_book_has_host(host) {
         return None;
     }
     let mesh = hub.mesh.get()?.clone();
-    Some(start(hub, conn, mesh, params, host).await)
+    Some(start(hub, conn, mesh, params, host, created_by).await)
 }
 
 async fn start(
@@ -54,9 +66,15 @@ async fn start(
     mesh: Arc<dyn crate::mesh::MeshHub>,
     params: &Value,
     host: &str,
+    created_by: Value,
 ) -> Result<Value, RpcError> {
     let mut start = params.clone();
     super::super::peer_forward::strip_new_meta(&mut start);
+    // As a linked peer's start is marked: whom it is for (the machine gates `app` and `web`
+    // there), a full-access starter's policy, and who creates it.
+    super::super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut start);
+    hub.forward_starter_policy(conn.caller(), &mut start);
+    crate::hub::merge_mux_meta(&mut start, created_by);
     let start = start
         .as_object()
         .cloned()
@@ -86,6 +104,12 @@ async fn start(
             "delivered" => break,
             "refused" => {
                 let why = receipt.detail.unwrap_or_else(|| "no reason given".into());
+                // The machine's folder-trust gate keeps its reason, so the pane says it as a
+                // linked peer's refusal.
+                let reason = ["trust.pending", "trust.untrusted"]
+                    .into_iter()
+                    .find(|r| why.contains(r))
+                    .unwrap_or("mesh.start_refused");
                 let said = if why == "mesh.control_not_allowed" {
                     "it takes no chats from this machine (its join was removed, or it is not this \
                      person's)"
@@ -94,7 +118,7 @@ async fn start(
                     why.clone()
                 };
                 return Err(RpcError::new(-32003, format!("{host} refused the chat: {said}"))
-                    .with_data(json!({"reason": "mesh.start_refused", "peer": host, "detail": why})));
+                    .with_data(json!({"reason": reason, "peer": host, "detail": why})));
             }
             "expired" => return Err(unanswered(host, &receipt.message_id)),
             _ => {}

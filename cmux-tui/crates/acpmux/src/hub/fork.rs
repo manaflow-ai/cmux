@@ -486,6 +486,8 @@ impl Hub {
             turn_cap_ms: None,
             turn_cap_noticed: None,
             delegator: None,
+            // A chat a pane started through the hub stays the pane's (`hub_via`).
+            hub_via: parent_meta.hub_via.clone(),
         };
         if empty && !meta.remote_origin {
             let cfg = self.config.read().await;

@@ -82,6 +82,31 @@ impl Hub {
             && self.peer_down_for(target).is_none()
     }
 
+    /// Record that session `id` was started through the hub for `via` (`app`, `web` or
+    /// `device`): the prompts the hub relays to it are held to that mark
+    /// (`SessionMeta::hub_via`). Saved before the start's ack, so no relayed prompt comes first.
+    pub(crate) fn mark_hub_via(&self, id: &str, via: &str) {
+        let Some(session) = self
+            .sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(id)
+            .cloned()
+        else {
+            return;
+        };
+        session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).hub_via =
+            Some(via.to_owned());
+        if let Err(e) = self.write_meta(&session) {
+            tracing::warn!(session = %id, "saving the hub start's mark failed: {e}");
+        }
+    }
+
+    /// The mark a prompt the hub relays to `session` takes (`SessionMeta::hub_via`).
+    pub(crate) fn hub_via(&self, session: &Session) -> Option<String> {
+        session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).hub_via.clone()
+    }
+
     /// Whether a relayed message is for this daemon: refused when it names another host, or a
     /// daemon id other than `own_daemon` (this daemon's id at the hub, once the hub has told it;
     /// with none known, any daemon id is refused). Every relayed message, control ones included,

@@ -340,3 +340,73 @@ async fn a_started_chat_is_listed_until_the_book_has_it() {
     a.set_mesh_book(Default::default(), vec![]);
     assert_eq!(a.mesh_book_host("s-2"), None);
 }
+
+/// B's folder-trust gate, with its record in `dir`: no folder has an answer until one is set.
+fn gate(b: &Arc<Hub>, dir: &std::path::Path) -> crate::trust::Paths {
+    let paths = crate::trust::Paths {
+        claude_json: dir.join("claude.json"),
+        codex_config: dir.join("config.toml"),
+        record: dir.join("trust.json"),
+        agent_home: None,
+        cmux_worktrees: None,
+    };
+    b.set_trust_gate(Some(paths.clone()));
+    paths
+}
+
+/// Review P1 of #38377: the pane's start through the hub is the pane's on B, as over a peer link.
+/// A folder with no Trust answer refuses it (`trust.pending`) and nothing starts.
+#[tokio::test]
+async fn a_pane_start_through_the_hub_waits_for_the_folders_trust_answer() {
+    let (dir, root, cwd) = project();
+    let b = machine_b(&root);
+    let gates = tempfile::tempdir().unwrap();
+    gate(&b, gates.path());
+    let a = machine_a(Arc::new(Loopback::new(&b, dir.path(), Some("person-1"))));
+    let refused = Client::app(&a)
+        .call("session/new", new_params(&cwd, "machine-b", "untrusted"), &mut Vec::new())
+        .await;
+    assert_eq!(refused["error"]["data"]["reason"], "trust.pending", "{refused}");
+    assert!(b.resolve("untrusted").is_err(), "a chat started in a folder with no answer");
+    b.shutdown_all().await;
+}
+
+/// Review P1 of #38377: in a trusted folder the pane's chat starts and its prompt runs; once the
+/// person answers Don't trust there, a prompt the hub relays to it is refused (`trust.untrusted`),
+/// though the relayed prompt itself carries no mark: B holds it to the start's (`hub_via`).
+#[tokio::test]
+async fn a_pane_chat_started_through_the_hub_keeps_the_trust_gate_for_its_prompts() {
+    let (dir, root, cwd) = project();
+    let b = machine_b(&root);
+    let gates = tempfile::tempdir().unwrap();
+    let paths = gate(&b, gates.path());
+    crate::trust::set(&paths, cwd.to_str().unwrap(), "trusted").unwrap();
+    let hub = Arc::new(Loopback::new(&b, dir.path(), Some("person-1")));
+    let a = machine_a(hub.clone());
+    let mut app = Client::app(&a);
+    let mut seen = Vec::new();
+    let started =
+        app.call("session/new", new_params(&cwd, "machine-b", "trusted"), &mut seen).await;
+    let id = started["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{started}"));
+    let id = id.to_owned();
+    let on_b = b.resolve("trusted").unwrap();
+    assert_eq!(b.hub_via(&on_b).as_deref(), Some("app"), "the start's mark is not on B's chat");
+    // Trusted: the prompt runs there and its reply reaches the app.
+    let prompt = |text: &str| json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
+    app.call(method::SESSION_PROMPT, prompt("first"), &mut seen).await;
+    app.until(&mut seen, |v| v["params"]["update"]["content"]["text"] == "echo: first").await;
+    // Don't trust: the next relayed prompt is refused on B.
+    crate::trust::set(&paths, cwd.to_str().unwrap(), "untrusted").unwrap();
+    let sent = app.call(method::SESSION_PROMPT, prompt("second"), &mut seen).await;
+    assert!(sent.get("error").is_none(), "{sent}");
+    let refusal = hub
+        .receipts
+        .lock()
+        .unwrap()
+        .values()
+        .filter(|r| r.state == "refused")
+        .find_map(|r| r.detail.clone())
+        .unwrap_or_else(|| panic!("no relayed prompt was refused"));
+    assert!(refusal.contains("trust.untrusted"), "{refusal}");
+    b.shutdown_all().await;
+}
