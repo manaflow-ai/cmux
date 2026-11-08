@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42473039345",
+  "recorded_at": "2026-11-08T10:59:03Z",
+  "reason": "cmux-tui 385c0eeccc83 changes the image's cmux-tui (pinned d1feb8bcefa8)",
+  "dry_run": false,
+  "cmux_tui": "385c0eeccc8370ab1d05428b0f83b7f7809d5582",
+  "fixes": [
+    {
+      "sha": "385c0eeccc8370ab1d05428b0f83b7f7809d5582",
+      "mergedAt": "2026-11-08T02:33:38-08:00",
+      "subject": "cmux-host: relay Register tickets on their own socket and thread (#38291)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T10:59:03Z",
+    "snapshot_id": "sh-c5b6919fa9ac4c2884e6e969d3025e52",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42473039345): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "e2c7c30cb44979361feeda2b8e370be4a24c3647",
+    "image": "cloud-native-auto-385c0eec-42473039345-1",
+    "revision": "ci-42473039345-1",
+    "at": "2026-11-08T10:59:03Z"
+  },
+  "rolled_back": false
+}
