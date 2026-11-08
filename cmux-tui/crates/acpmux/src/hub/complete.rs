@@ -132,7 +132,7 @@ impl Hub {
         let req = Request { prompt, harness: Some(name.clone()), model: None, max_tokens, timeout };
         let deadline = tokio::time::Instant::now() + timeout;
         let reply = self.complete_with(&name, &profile, recipe, &req, deadline).await?;
-        Ok(reply["text"].as_str().unwrap_or_default().to_owned())
+        Ok(reply.get("text").and_then(Value::as_str).unwrap_or_default().to_owned())
     }
 
     /// The harness's small model (`model_pick`). None: the CLI's default.
