@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42466485051",
+  "recorded_at": "2026-11-08T09:23:16Z",
+  "reason": "cmux-tui 555cb8016293 changes the image's cmux-tui (pinned 21e53973f1dd)",
+  "dry_run": false,
+  "cmux_tui": "555cb8016293a32b44bccfa7fc90b96aaa1b230b",
+  "fixes": [
+    {
+      "sha": "555cb8016293a32b44bccfa7fc90b96aaa1b230b",
+      "mergedAt": "2026-11-08T00:57:56-08:00",
+      "subject": "Titlebar Back/Forward get their own keys: Opt-Cmd-, / Opt-Cmd-."
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T09:23:16Z",
+    "snapshot_id": "sh-9d9004b0606347deb363c4dd342c6472",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42466485051): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "96be7ac21756067730d699ede8cecbbdb3154ab0",
+    "image": "cloud-native-auto-555cb801-42466485051-1",
+    "revision": "ci-42466485051-1",
+    "at": "2026-11-08T09:23:16Z"
+  },
+  "rolled_back": false
+}
