@@ -276,7 +276,8 @@ public nonisolated struct KeyBindingDefaults {
     ])
 
     /// The keys a focused text field or composer uses itself (Leo, 2026-10-20): Return sends and
-    /// its Command, Shift and Option forms steer, add a line or send another way; Esc cancels or
+    /// its Command, Shift and Option forms steer, add a line or send another way (Command-Option:
+    /// Run on several agents, the agent composer's send menu); Esc cancels or
     /// stops a turn; ↑ recalls a prompt or a queued one. A default binding on one of them steps
     /// aside while text input has the keyboard (`notTextInput`), so the field gets the key, unless
     /// its action is scoped to a surface (`requires`: the omnibar's Cmd-Return, the file explorer's
@@ -285,6 +286,7 @@ public nonisolated struct KeyBindingDefaults {
     public static let textInputKeys: Set<Shortcut> = [
         Shortcut(Shortcut.returnKey, modifiers: []), Shortcut(Shortcut.returnKey, modifiers: [.command]),
         Shortcut(Shortcut.returnKey, modifiers: [.shift]), Shortcut(Shortcut.returnKey, modifiers: [.option]),
+        Shortcut(Shortcut.returnKey, modifiers: [.command, .option]),
         Shortcut(Shortcut.escapeKey, modifiers: []), Shortcut(Shortcut.upArrowKey, modifiers: []),
     ]
 

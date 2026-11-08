@@ -157,6 +157,7 @@ pub static YIELDS_TO_TERMINAL: &[&str] = &[
 pub static YIELDS_TO_WEB_CONTENT: &[&str] = &["toggleChecklistItemComplete"];
 pub static TEXT_INPUT_KEYS: &[Shortcut] = &[
     Shortcut { key: "\r", modifiers: OPT },
+    Shortcut { key: "\r", modifiers: OPT | CMD },
     Shortcut { key: "\r", modifiers: SHIFT },
     Shortcut { key: "\u{f700}", modifiers: 0 },
     Shortcut { key: "\r", modifiers: CMD },
