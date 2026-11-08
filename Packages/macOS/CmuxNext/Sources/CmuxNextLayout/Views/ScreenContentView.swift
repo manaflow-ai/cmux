@@ -300,8 +300,11 @@ final class ScreenContentView: NSView {
         // A release seeds only the layout it made (`releasedDivider` from this gesture, not a stale one).
         if let released = releasedDivider, CACurrentMediaTime() - released.time > 0.5 { releasedDivider = nil }
         let animateFrames = animate && (!structural || carried || inFlight) && (releasedDivider == nil || splits)
-        // A structural change that snaps may show at the next tick, its terminals drawn ahead (CLOSE MOTION 3).
-        let holdsSnap = snapWaitsForFrame && structural && !animateFrames
+        // A structural change that snaps may show at the next tick, its terminals drawn ahead (CLOSE MOTION 3); so may a
+        // keyboard resize press that snaps (Reduce Motion, pane animations off), its terminals drawn ahead with their grids
+        // (RESIZE P0 13, KEY SNAP GRID).
+        let keySnap = holdsContentForKeyResize && !structural
+        let holdsSnap = snapWaitsForFrame && (structural || keySnap) && !animateFrames
         if structural, !inFlight { (arriving, newDockColumns) = (Set(arrivals.keys), PaneArrival.newDocks(arrivals, from: before, to: baseGeometry)) }
 
         // Panes. A new pane's sliver rides its neighbour's edge as it showed before this change.
@@ -462,7 +465,7 @@ final class ScreenContentView: NSView {
         // drag step, an equalize) moves only the panes whose frames changed, and every per-pane input (frame,
         // alpha, clip range, covers, divider clips) is compared in the pass (`applyPresentation`).
         if structural { forcesPresentation = true }
-        if holdsSnap, !holdsSnapForContent() { releaseSnapDeparted() }
+        if holdsSnap, !holdsSnapForContent(keyPress: keySnap) { releaseSnapDeparted() }
         if presents { applyPresentation() }
         let moving = animate && hasMotion
         if !(moving && holdsGrids) { holdsGrids = false }
