@@ -1,0 +1,107 @@
+{
+  "title": "Browser JavaScript dialogs over a page: Leave site?, confirm, alert and prompt (Lawrence 2026-11-07: weird roundness and border)",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Browser workspace",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "newBrowserWorkspace",
+          "focus": true
+        }
+      },
+      "wait": 4,
+      "shot": false
+    },
+    {
+      "title": "A busy page under the dialog",
+      "rpc": {
+        "method": "debug.omnibar_type",
+        "params": {
+          "text": "https://en.wikipedia.org/wiki/Gmail"
+        }
+      },
+      "wait": 6,
+      "shot": false
+    },
+    {
+      "title": "confirm(): the tab's dialog over the page",
+      "rpc": {
+        "method": "browser.page.eval",
+        "params": {
+          "script": "setTimeout(() => confirm('Changes that you made may not be saved.'), 50); true"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "Close the confirm",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "key": "escape"
+        }
+      },
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "prompt(): the tab's text dialog",
+      "rpc": {
+        "method": "browser.page.eval",
+        "params": {
+          "script": "setTimeout(() => prompt('Name this page', 'Gmail'), 50); true"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "Close the prompt",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "key": "escape"
+        }
+      },
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "The page asks before it unloads",
+      "rpc": {
+        "method": "browser.page.eval",
+        "params": {
+          "script": "window.addEventListener('beforeunload', (event) => { event.preventDefault(); event.returnValue = ''; }); document.body.click(); true"
+        }
+      },
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Leave site?: the tab closes over a page that asks",
+      "cmux": [
+        "tab",
+        "current",
+        "close"
+      ],
+      "optional": "Chromium shows beforeunload only after a user gesture on the page",
+      "wait": 3
+    },
+    {
+      "title": "Window confirm over the page (debug.dialog fixture)",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "open": "confirm",
+          "scope": "window"
+        }
+      },
+      "wait": 3
+    }
+  ]
+}
