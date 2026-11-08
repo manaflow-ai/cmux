@@ -37,7 +37,7 @@ type Props = ReviewActions & {
   initialComment?: string;
 };
 
-const NEAR_END = 3;
+const SHOWN_FILES = 3;
 
 const plain = (event: React.KeyboardEvent) => !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey;
 
