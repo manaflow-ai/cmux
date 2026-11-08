@@ -147,14 +147,7 @@ fn link_socket() -> Option<PathBuf> {
 /// WireGuard key, which the link adopts as this machine's one key), from the link's
 /// pairings; None when the link has no such peer.
 pub(crate) fn paired_install(wireguard_key: &str) -> Option<String> {
-    let dir = cmux_tui_platform::platform::workspace_state_dir()?;
-    // The link's state dir (`cmux-tui` `link/state.rs`): `<daemon state dir>/link/peers.json`.
-    let pairings = cmux_link::pairing::Pairings::load(&dir.join("link").join("peers.json")).ok()?;
-    pairings
-        .peers
-        .iter()
-        .find(|record| record.public_key == wireguard_key && record.is_valid())
-        .map(|record| record.install.clone())
+    crate::wireguard::paired_install_in(&crate::wireguard::link_state_dir()?, wireguard_key)
 }
 
 /// Open a stream to the `acpmux` service of paired install `host` through the link at

@@ -2257,39 +2257,44 @@ mod restart_notice_tests {
         assert!(events.try_recv().is_err(), "unchanged reconnect rows do not flap");
     }
 
-    /// Review of #38357 at 95620842: with a cmux link serving (it holds this machine's
-    /// WireGuard key lock for its whole life), acpmux's own WireGuard steps down at start, and
-    /// a paired peer dials through the link (`link.dial`) first, never over its own mesh.
-    #[tokio::test]
-    async fn with_a_link_serving_acpmux_dials_through_the_link_and_opens_no_wireguard() {
-        use crate::config::PeerConfig;
-        use crate::peer_paths::Via;
+    /// A machine with a cmux link serving (it holds the machine's WireGuard key lock in the
+    /// acpmux home for its whole life) and one WireGuard peer `b`, `linked` through the link or
+    /// not. `same_key`: the link serves this node's own key (one key); otherwise a key of its own,
+    /// as every link does before the one-key migration.
+    struct LinkServing {
+        home: tempfile::TempDir,
+        link_dir: tempfile::TempDir,
+        _lock: cmux_link::key_holder::KeyHolder,
+        cfg: crate::config::Config,
+    }
+
+    fn link_serving(same_key: bool, linked: bool) -> LinkServing {
+        use base64::Engine as _;
+        use cmux_link::key_holder::{KeyFile, KeyHolder};
         let home = tempfile::tempdir().unwrap();
-        // The serving link's hold on the key lock (`cmux link serve`, `link/key_lock.rs`).
-        let link = cmux_link::key_holder::KeyHolder::acquire(home.path()).unwrap();
-        // Occupied: a transport that went past the lock would fail to bind.
-        let occupied = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let link_dir = tempfile::tempdir().unwrap();
+        crate::cli::mesh_node_key::load_or_create_at(home.path()).unwrap();
+        let node = std::fs::read(KeyFile::Node.path_in(home.path())).unwrap();
+        let link_key = if same_key { node } else { vec![9; 32] };
+        let b64 = base64::engine::general_purpose::STANDARD;
+        std::fs::write(KeyFile::Link.path_in(link_dir.path()), b64.encode(&link_key)).unwrap();
+        let lock = KeyHolder::acquire(home.path()).unwrap();
         let mut cfg = crate::config::Config::default();
         cfg.store.mode = crate::config::StoreMode::Memory;
         cfg.transport.wireguard = true;
         cfg.transport.wireguard_static = Some(crate::wireguard::StaticConfig {
-            listen: occupied.local_addr().unwrap(),
+            listen: "127.0.0.1:0".parse().unwrap(),
             address: "10.77.0.1:4100".parse().unwrap(),
         });
-        let wireguard =
-            crate::wireguard::Transport::start(&cfg, home.path(), "127.0.0.1:1".parse().unwrap())
-                .await
-                .unwrap();
-        assert!(wireguard.is_none(), "acpmux opened its own WireGuard next to a serving link");
-        assert!(
-            !cmux_link::key_holder::KeyFile::Node.path_in(home.path()).exists(),
-            "acpmux read or created the key the link holds"
-        );
         cfg.peers.insert(
             "b".into(),
-            PeerConfig {
-                link_host: Some("inst_b".into()),
-                wireguard: None,
+            crate::config::PeerConfig {
+                link_host: linked.then(|| "inst_b".to_owned()),
+                wireguard: Some(crate::wireguard::StaticPeer {
+                    public_key: b64.encode([5; 32]),
+                    endpoint: "127.0.0.1:9".into(),
+                    address: "10.77.0.2:4100".parse().unwrap(),
+                }),
                 url: "ws://127.0.0.1:9/b".into(),
                 token: None,
                 peer_token: None,
@@ -2297,15 +2302,70 @@ mod restart_notice_tests {
                 github_broker: false,
             },
         );
-        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
-        let hub = Hub::build(cfg, store, Mailbox::memory(), false, false, wireguard);
-        let peer = hub.peers.lock().unwrap().get("b").cloned().unwrap();
-        let paths = peer.summary()["paths"].clone();
-        let vias: Vec<&str> =
-            paths.as_array().unwrap().iter().filter_map(|p| p["via"].as_str()).collect();
-        assert_eq!(vias.first(), Some(&Via::Link.as_str()), "{paths}");
-        assert!(!vias.contains(&Via::Wireguard.as_str()), "{paths}");
-        peer.stop();
-        drop(link);
+        LinkServing { home, link_dir, _lock: lock, cfg }
+    }
+
+    impl LinkServing {
+        /// acpmux starts: its WireGuard transport, and the hub's paths for `b`.
+        async fn start(
+            self,
+        ) -> (Option<Arc<crate::wireguard::Transport>>, Vec<String>, LinkServing) {
+            let wireguard = crate::wireguard::Transport::start_with_link(
+                &self.cfg,
+                self.home.path(),
+                Some(self.link_dir.path()),
+                "127.0.0.1:1".parse().unwrap(),
+            )
+            .await
+            .unwrap();
+            let store =
+                crate::store::open(&self.cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+            let hub = Hub::build(
+                self.cfg.clone(),
+                store,
+                Mailbox::memory(),
+                false,
+                false,
+                wireguard.clone(),
+            );
+            let peer = hub.peers.lock().unwrap().get("b").cloned().unwrap();
+            let paths = peer.summary()["paths"].clone();
+            let vias = paths
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(|p| p["via"].as_str().map(str::to_owned))
+                .collect();
+            peer.stop();
+            (wireguard, vias, self)
+        }
+    }
+
+    /// Review of #38357 at 506641de (F1): an upgraded config (no `linkHost`) whose link serves
+    /// a key of its own keeps acpmux's WireGuard next to the serving link, as before the upgrade.
+    #[tokio::test]
+    async fn a_link_with_its_own_key_leaves_a_wireguard_peer_on_acpmux_wireguard() {
+        let (wireguard, vias, _machine) = link_serving(false, false).start().await;
+        let wireguard = wireguard.expect("acpmux's WireGuard stepped down for another key's link");
+        assert_eq!(vias, ["wireguard", "url"]);
+        wireguard.shutdown(tokio::time::Instant::now()).await;
+    }
+
+    /// Review of #38357 at 95620842: a link that serves this node's own key holds it, so acpmux
+    /// opens no WireGuard of its own, and a peer with a link route dials through the link first.
+    #[tokio::test]
+    async fn a_link_serving_the_same_key_carries_a_linked_peer_and_acpmux_opens_no_wireguard() {
+        let (wireguard, vias, _machine) = link_serving(true, true).start().await;
+        assert!(wireguard.is_none(), "acpmux opened its own WireGuard on the link's key");
+        assert_eq!(vias, ["link", "url"]);
+    }
+
+    /// Review of #38357 at 506641de (F1): with the link on the same key, a peer it has no route
+    /// to is not stranded: it keeps its URL (or ssh) path, and the step-down names it in the log.
+    #[tokio::test]
+    async fn a_link_serving_the_same_key_leaves_an_unlinked_peer_its_url() {
+        let (wireguard, vias, _machine) = link_serving(true, false).start().await;
+        assert!(wireguard.is_none());
+        assert_eq!(vias, ["url"]);
     }
 }
