@@ -390,9 +390,9 @@ impl UltraUnderlay {
                 UltraCounters::add(&self.counters.copies_sent, extra);
                 UltraCounters::add(&self.counters.overhead_bytes, extra * datagram.len() as u64);
             }
-            UltraMode::Fec { group, parity } => match data_id(datagram) {
+            UltraMode::Fec { group, .. } => match data_id(datagram) {
                 Some((index, counter)) => {
-                    self.add_member(index, counter, datagram, priority, group, parity)
+                    self.add_member(index, counter, datagram, priority, group)
                 }
                 None => {
                     // A lost handshake costs WireGuard a 5 s retry.
@@ -416,7 +416,6 @@ impl UltraUnderlay {
         datagram: &[u8],
         priority: Option<Priority>,
         k: u8,
-        m: u8,
     ) {
         let follows = self.group.as_ref().is_some_and(|group| {
             group.index == index
