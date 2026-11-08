@@ -1694,7 +1694,8 @@ async fn serve_connection_from(
             // A read-only machine's notifications (a cancel) change nothing.
             Message::Notification { .. } if conn.auth == ConnAuth::ReadOnlyDevice => {}
             // A teammate through the carrier stops a turn, nothing else (`carrier.rs`).
-            Message::Notification { method: m, .. } if !carrier::takes_notification(&conn, &m) => {}
+            Message::Notification { method: m, params }
+                if !carrier::takes_notification(&conn, &m, params.as_ref()) => {}
             Message::Notification { method: m, params: _ } if conn.is_trigger() => {
                 tracing::debug!(conn = %conn.id, method = %m, "ignoring notification on trigger connection");
             }

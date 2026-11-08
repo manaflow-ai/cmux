@@ -14,11 +14,16 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 const WAIT: Duration = Duration::from_secs(10);
 
 fn owner() -> Attested {
-    Attested { role: Role::Owner, sub: "u_owner".into(), team: Some("t_1".into()) }
+    Attested { role: Role::Owner, sub: "u_owner".into(), team: Some("t_1".into()), chats: vec![] }
 }
 
 fn teammate() -> Attested {
-    Attested { role: Role::Team, sub: "u_mate".into(), team: Some("t_1".into()) }
+    Attested {
+        role: Role::Team,
+        sub: "u_mate".into(),
+        team: Some("t_1".into()),
+        chats: vec!["chat-a".into(), "c".into(), "chat".into()],
+    }
 }
 
 fn test_hub() -> Arc<Hub> {
@@ -63,7 +68,13 @@ const TEAM_ALLOWED: &[&str] = &[
 fn the_header_is_one_object_naming_the_role_the_person_and_the_team() {
     let ok = |v: &str| Attested::parse(&[v]);
     assert_eq!(ok(r#"{"vmk":"owner","sub":"u_owner","team":"t_1"}"#), Ok(owner()));
-    assert_eq!(ok(r#"{"vmk":"team","sub":"u_mate","team":"t_1"}"#), Ok(teammate()));
+    assert_eq!(
+        ok(r#"{"vmk":"team","sub":"u_mate","team":"t_1","chats":["chat-a","c","chat"]}"#),
+        Ok(teammate())
+    );
+    // An owner's `chats` is ignored, whatever it holds: the owner reaches every chat.
+    assert_eq!(ok(r#"{"vmk":"owner","sub":"u_owner","team":"t_1","chats":["x"]}"#), Ok(owner()));
+    assert_eq!(ok(r#"{"vmk":"owner","sub":"u_owner","team":"t_1","chats":7}"#), Ok(owner()));
     // An owner's personal VM may name no team.
     assert_eq!(ok(r#"{"vmk":"owner","sub":"u_owner","team":null}"#).map(|a| a.team), Ok(None));
     let refused: &[(&[&str], &str)] = &[
@@ -84,10 +95,21 @@ fn the_header_is_one_object_naming_the_role_the_person_and_the_team() {
         (&[r#"{"vmk":"owner","sub":"a b","team":"t"}"#], "carrier.header_malformed"),
         (&[r#"{"vmk":"owner","sub":"a\nb","team":"t"}"#], "carrier.header_malformed"),
         (&[r#"{"vmk":"owner","sub":7,"team":"t"}"#], "carrier.header_malformed"),
-        (&[r#"{"vmk":"team","sub":"a","team":null}"#], "carrier.header_malformed"),
-        (&[r#"{"vmk":"team","sub":"a","team":""}"#], "carrier.header_malformed"),
+        (&[r#"{"vmk":"team","sub":"a","team":null,"chats":["c"]}"#], "carrier.header_malformed"),
+        (&[r#"{"vmk":"team","sub":"a","team":"","chats":["c"]}"#], "carrier.header_malformed"),
+        // A teammate's grant names its chats: none, an empty list or a bad id is refused.
+        (&[r#"{"vmk":"team","sub":"a","team":"t"}"#], "carrier.header_malformed"),
+        (&[r#"{"vmk":"team","sub":"a","team":"t","chats":[]}"#], "carrier.header_malformed"),
+        (&[r#"{"vmk":"team","sub":"a","team":"t","chats":null}"#], "carrier.header_malformed"),
+        (&[r#"{"vmk":"team","sub":"a","team":"t","chats":"c"}"#], "carrier.header_malformed"),
+        (&[r#"{"vmk":"team","sub":"a","team":"t","chats":[""]}"#], "carrier.header_malformed"),
+        (&[r#"{"vmk":"team","sub":"a","team":"t","chats":["a b"]}"#], "carrier.header_malformed"),
+        (&[r#"{"vmk":"team","sub":"a","team":"t","chats":[7]}"#], "carrier.header_malformed"),
         // A field the grant does not have is never taken as more.
-        (&[r#"{"vmk":"team","sub":"a","team":"t","role":"owner"}"#], "carrier.header_malformed"),
+        (
+            &[r#"{"vmk":"team","sub":"a","team":"t","chats":["c"],"role":"owner"}"#],
+            "carrier.header_malformed",
+        ),
     ];
     for (values, reason) in refused {
         assert_eq!(Attested::parse(values), Err(*reason), "{values:?}");
@@ -106,7 +128,7 @@ fn the_owner_and_team_matrix_covers_every_method() {
             TEAM_ALLOWED.contains(&m.as_str()),
             "a teammate and {m}: the matrix in docs/carrier-roles.md"
         );
-        let admitted = admit(&teammate(), m, json!({"sessionId": "chat"}));
+        let admitted = admit(&teammate(), m, json!({"sessionId": "chat-a"}));
         assert_eq!(admitted.is_ok(), TEAM_ALLOWED.contains(&m.as_str()), "{m}");
         if let Err(e) = admitted {
             assert_eq!(e.code, NOT_A_TEAMMATE_VERB, "{m}");
@@ -279,7 +301,7 @@ async fn a_teammate_never_starts_a_session_spawns_or_changes_rules() {
         );
     }
     // An allowed verb reaches the dispatcher (no such chat here), not the carrier's refusal.
-    let attach = ask(&send, &mut recv, 99, "_acpmux/attach", json!({"sessionId": "nope"})).await;
+    let attach = ask(&send, &mut recv, 99, "_acpmux/attach", json!({"sessionId": "chat"})).await;
     assert_ne!(attach["error"]["data"]["reason"], "carrier.team_refused", "{attach}");
     drop(send);
     tokio::time::timeout(WAIT, server).await.unwrap().unwrap();
@@ -371,11 +393,14 @@ async fn upgrade(header: Option<&str>) -> Result<Value, u16> {
 
 #[tokio::test]
 async fn the_carrier_socket_admits_only_a_well_formed_header() {
-    let hello = upgrade(Some(r#"{"vmk":"team","sub":"u_mate","team":"t_1"}"#)).await.unwrap();
+    let team = r#"{"vmk":"team","sub":"u_mate","team":"t_1","chats":["chat-a"]}"#;
+    let hello = upgrade(Some(team)).await.unwrap();
     assert_eq!(hello["result"]["_meta"]["acpmux"]["auth"], "carrierTeam", "{hello}");
     let hello = upgrade(Some(r#"{"vmk":"owner","sub":"u_owner","team":null}"#)).await.unwrap();
     assert_eq!(hello["result"]["_meta"]["acpmux"]["auth"], "carrierOwner", "{hello}");
     assert_eq!(upgrade(None).await, Err(403));
+    // A teammate's header that names no chat.
+    assert_eq!(upgrade(Some(r#"{"vmk":"team","sub":"u","team":"t"}"#)).await, Err(403));
     assert_eq!(upgrade(Some("not json")).await, Err(403));
     assert_eq!(upgrade(Some(r#"{"vmk":"root","sub":"u","team":"t"}"#)).await, Err(403));
 }
@@ -410,4 +435,130 @@ async fn the_websocket_listener_refuses_the_carrier_header() {
         }
         other => panic!("the listener took the carrier header: {:?}", other.map(|_| ())),
     }
+}
+
+#[test]
+fn a_teammate_reaches_only_the_chats_its_grant_names_by_exact_id() {
+    let who = teammate();
+    for m in [
+        method::MUX_ATTACH,
+        method::MUX_INFO,
+        method::MUX_EVENTS,
+        method::MUX_ATTACHMENT,
+        method::SESSION_PROMPT,
+        method::SESSION_CANCEL,
+        method::MUX_DETACH,
+    ] {
+        assert!(admit(&who, m, json!({"sessionId": "chat-a"})).is_ok(), "{m}");
+        let refused = [
+            json!({"sessionId": "chat-b"}),
+            // A prefix or a longer id of a given chat is another chat.
+            json!({"sessionId": "chat-"}),
+            json!({"sessionId": "chat-a2"}),
+            json!({"sessionId": "CHAT-A"}),
+            json!({"sessionId": "this-mac/chat-a"}),
+            // No chat named: `_acpmux/info` with none would describe the machine's chats.
+            json!({}),
+            Value::Null,
+            json!({"sessionId": 7}),
+            // A name or another machine stands in for nothing, given chat or not.
+            json!({"session": "chat-a"}),
+            json!({"name": "chat-a"}),
+            json!({"sessionId": "chat-a", "session": "chat-b"}),
+            json!({"sessionId": "chat-a", "name": "chat-b"}),
+            json!({"sessionId": "chat-a", "host": "other"}),
+        ];
+        for params in refused {
+            let e = admit(&who, m, params.clone()).unwrap_err();
+            assert_eq!(e.data.unwrap()["reason"], "carrier.team_refused", "{m} {params}");
+        }
+    }
+}
+
+/// A memory hub with chats `chat-a`, `chat-b` (named `alias`), `chat-xyz` and `chat-n` (named
+/// `chat-named`): none spawned.
+fn hub_with_chats() -> Arc<Hub> {
+    let dir = std::env::temp_dir();
+    let cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"claude": {"kind": "claude-stdio", "argv": ["claude"]}},
+        "defaultHarness": "claude", "store": {"mode": "memory"}
+    }))
+    .unwrap();
+    let store = crate::store::open(&cfg.store, &dir).unwrap();
+    for (id, name) in [
+        ("chat-a", "chat-a"),
+        ("chat-b", "alias"),
+        ("chat-xyz", "chat-xyz"),
+        ("chat-n", "chat-named"),
+    ] {
+        let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": name,
+            "harness": "claude", "cwd": dir, "status": "idle",
+            "createdAt": 1, "updatedAt": 1, "agentSessionId": format!("s-{id}")
+        }))
+        .unwrap();
+        store.save(&meta).unwrap();
+    }
+    Hub::new(cfg, store)
+}
+
+#[tokio::test]
+async fn a_teammate_attaches_its_chat_and_hears_nothing_of_another() {
+    let hub = hub_with_chats();
+    // The grant names `chat-a`, and two ids no session has: `chat-x` (a prefix of `chat-xyz`)
+    // and `chat-named` (`chat-n`'s name). Neither may reach those sessions.
+    let who = Attested {
+        chats: vec!["chat-a".into(), "chat-x".into(), "chat-named".into()],
+        ..teammate()
+    };
+    let (send, inbound) = tokio::sync::mpsc::channel(8);
+    let (out, mut recv) = tokio::sync::mpsc::channel(256);
+    let server = tokio::spawn(serve_attested(hub.clone(), inbound, out, who));
+    ask(&send, &mut recv, 0, "initialize", json!({"protocolVersion": 1})).await;
+    let attach = ask(&send, &mut recv, 1, "_acpmux/attach", json!({"sessionId": "chat-a"})).await;
+    assert!(attach.get("result").is_some(), "{attach}");
+    let info = ask(&send, &mut recv, 2, "_acpmux/info", json!({"sessionId": "chat-a"})).await;
+    assert!(info.get("result").is_some(), "{info}");
+    let refused = [
+        ("_acpmux/attach", json!({"sessionId": "chat-b"})),
+        ("_acpmux/attach", json!({"sessionId": "alias"})),
+        ("_acpmux/attach", json!({"sessionId": "chat-x"})),
+        ("_acpmux/attach", json!({"sessionId": "chat-named"})),
+        ("_acpmux/events", json!({"sessionId": "chat-b"})),
+        ("_acpmux/events", json!({"sessionId": "chat-x"})),
+        (
+            "session/prompt",
+            json!({"sessionId": "chat-b", "prompt": [{"type": "text", "text": "hi"}]}),
+        ),
+        (
+            "session/prompt",
+            json!({"sessionId": "chat-named", "prompt": [{"type": "text", "text": "hi"}]}),
+        ),
+        ("session/cancel", json!({"sessionId": "chat-b"})),
+        ("_acpmux/info", json!({})),
+        ("_acpmux/info", json!({"sessionId": "chat-b"})),
+        ("session/list", json!({})),
+        ("_acpmux/sessions", json!({})),
+    ];
+    for (id, (m, params)) in refused.into_iter().enumerate() {
+        let reply = ask(&send, &mut recv, id as i64 + 10, m, params.clone()).await;
+        assert_eq!(
+            reply["error"]["data"]["reason"], "carrier.team_refused",
+            "{m} {params}: {reply}"
+        );
+    }
+    // A record in another chat reaches no teammate attached to its own; one in its chat does.
+    let other = hub.resolve("chat-b").unwrap();
+    hub.append(&other, "mux", "agent_hold", json!({"held": true}));
+    let own = hub.resolve("chat-a").unwrap();
+    hub.append(&own, "mux", "agent_hold", json!({"held": true}));
+    loop {
+        let line = tokio::time::timeout(WAIT, recv.recv()).await.unwrap().unwrap();
+        assert!(!line.contains("chat-b"), "a teammate of chat-a heard chat-b: {line}");
+        if line.contains("agent_hold") && line.contains("chat-a") {
+            break;
+        }
+    }
+    drop(send);
+    tokio::time::timeout(WAIT, server).await.unwrap().unwrap();
 }

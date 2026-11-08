@@ -21,16 +21,20 @@ socket**:
   written by the session host from the carrier grant the platform signed:
 
   ```
-  x-acpmux-carrier: {"vmk":"owner"|"team","sub":"<subject id>","team":"<team id>"|null}
+  x-acpmux-carrier: {"vmk":"owner"|"team","sub":"<subject id>","team":"<team id>"|null,
+                     "chats":["<session id>", ...]}
   ```
 
   `vmk` is `owner` when the VM is the person's own, `team` when the person is a teammate of
-  the VM's team. `sub` and `team` are one line of printable ASCII without spaces, 1 to 256
-  bytes; `team` is required for `vmk: team`. Any other field, a missing or repeated header,
-  a value over 1024 bytes or one that is not this JSON object is refused with HTTP 403 and a
-  reason (`carrier.header_missing`, `carrier.header_repeated`, `carrier.header_malformed`)
-  before any session or data. After the upgrade, frames are acpmux's JSON-RPC, as on the
-  WebSocket listener.
+  the VM's team. `sub`, `team` and each chat are one line of printable ASCII without spaces,
+  1 to 256 bytes. For `vmk: team`, `team` is required and `chats` is required: a list of 1 to
+  64 exact session ids, the chats the grant gives the teammate. For `vmk: owner`, `chats` is
+  ignored (absent or not, whatever it holds): the owner reaches every chat, as a peer daemon
+  does. Any other field, a missing or repeated header, a value over 16 KiB, a teammate header
+  with no, an empty or a malformed `chats`, or one that is not this JSON object is refused
+  with HTTP 403 and a reason (`carrier.header_missing`, `carrier.header_repeated`,
+  `carrier.header_malformed`) before any session or data. After the upgrade, frames are
+  acpmux's JSON-RPC, as on the WebSocket listener.
 
 The header is read on the carrier socket and nowhere else:
 
@@ -48,7 +52,12 @@ Any process of the VM's user already reaches acpmux's own unix socket, where it 
 `Origin::Local` with every right. A header it writes on the carrier socket gives it less than
 that (an owner is a peer, a teammate far less), so the carrier socket opens no new door on the
 VM. The trust in `vmk` and `sub` is the carrier grant's: the platform signs it, the carrier
-checks it, and the session host copies it. acpmux never holds a Cloud token.
+checks it, and the session host copies it. acpmux never holds a Cloud token and cannot see the
+signed grant: it trusts the header because only the daemon's user can open the socket.
+
+**Requirement on the session host (S1):** it MUST copy `vmk`, `sub`, `team` and `chats` from
+the verified, signed carrier grant, and never from anything the client sends (a query, a
+frame, a header of its own). A teammate's `chats` is exactly what the grant names.
 
 ## What a carrier connection never does
 
@@ -87,8 +96,23 @@ also checks its teammates against. acpmux maps each verb to its own methods:
 | `agent-session-observe` | `_acpmux/attach`, `_acpmux/info` | The same hidden attach, and the chat's detail. |
 | `agent-session-events` | `_acpmux/events`, `_acpmux/attachment` | Page through the log, and the images its prompts sent. |
 | `agent-session-prompt` | `session/prompt` | Carries the author acpmux stamps from the header (below); a prompt naming any other author has it replaced. |
-| `agent-session-cancel` | `session/cancel` (request or notification) | The Web's cancel rules apply. |
+| `agent-session-cancel` | `session/cancel` (request or notification) | The Web's cancel rules apply; it stops the owner's turn too (below). |
 | `agent-session-detach` | `_acpmux/detach` | |
+
+**Scope.** Every allowed method but `initialize` must name one chat by `sessionId`, and that id
+must be in the grant's `chats`, exactly. A request that names no chat (`_acpmux/info` with no
+session, which would describe the VM's chats), names it by `session`, `name` or `host`, names
+an id outside `chats`, or names an id in `chats` that resolves here to another session (by
+name, prefix or `HOST/NAME`: an id no session has) is refused with `carrier.team_refused`.
+A chat's forks, side chats and subagent children are other chats: the teammate reaches one
+only when the grant names it. The hidden attach subscribes the connection to that chat only,
+so it hears that chat's `session/update` and records and nothing of any other chat on the VM.
+There is no listing: `session/list`, `_acpmux/sessions` and `_acpmux/watch` are refused.
+
+**Cancel.** A teammate's `session/cancel` stops the running turn of a chat it was given,
+including a turn the owner started. That is the teammate verb `agent-session-cancel` as
+cmux-tui's proxy has it; whether a teammate should be able to stop the owner's turn is a
+product call, and narrowing it is a change to the shared verb list.
 
 Every other method is refused with code -32003 and `data.reason: "carrier.team_refused"`,
 including every method added later. That covers, among others: `session/new`,
@@ -96,8 +120,8 @@ including every method added later. That covers, among others: `session/new`,
 `_acpmux/watch`, every permission answer (`_acpmux/permission_respond`,
 `_acpmux/permission_group_respond`), every policy, mode, model, rule and tool change, kills,
 renames, queue edits, typing and view, mail, processes, uploads and media, peers and pairing.
-A teammate's notifications other than `session/cancel` are dropped, and so are its answers to
-requests the daemon sends a client.
+A teammate's notifications other than a `session/cancel` of a chat it was given are dropped,
+and so are its answers to requests the daemon sends a client.
 
 A teammate's `session/new` is refused whatever it carries (`mcpServers`, a `cwd`, a policy):
 it never starts a session on the VM. The test `the_owner_and_team_matrix_covers_every_method`
@@ -107,18 +131,16 @@ added to the shared list without a row here.
 
 ### Open for review
 
-- Scope: the grant names the VM, not a chat, so a teammate may attach to any chat on a team VM
-  by its id (it cannot list them). cmux-tui's proxy pins a teammate to the one shared chat; if
-  the carrier should too, the grant or the header needs a chat id.
 - `sub` becomes the author id `user_<sub>` (kept as is when it already starts with `user_`) and
   the display name, since the header carries no name. A `name` field in the header would let
   the transcript show the person's name.
 
 ## Audit
 
-- Each carrier connection, prompt, cancel and permission answer is logged at info with target
-  `acpmux::carrier_audit`: the connection, the method, `vmk`, `sub`, `team`, and the session,
-  prompt, permission and option ids it names.
+- Each carrier connection, prompt, cancel, permission answer and refusal is logged at info
+  with target `acpmux::carrier_audit`: the connection, the method, `vmk`, `sub`, `team`, the
+  session, prompt, permission and option ids it names, and for a refusal its reason
+  (`carrier.team_refused`).
 - A carrier prompt that carries a provenance records `transport: "carrier"`
   (`prompt_provenance::TRANSPORT`).
 - A teammate's prompt is recorded as a person's prompt from `user_<sub>`

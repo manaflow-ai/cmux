@@ -5,9 +5,10 @@
 //! [`socket_path`] (`ACPMUX_HOME/run/carrier.sock`, mode 0600 in a 0700
 //! directory, served on a Cloud VM only: [`wanted`]). The
 //! bridge opens a WebSocket over that socket and its upgrade request carries
-//! exactly one [`HEADER`], `{vmk, sub, team}`, taken from the carrier grant
-//! the platform signed: `vmk` is `owner` (the VM is the person's own) or
-//! `team` (the person is a teammate of the VM's team).
+//! exactly one [`HEADER`], `{vmk, sub, team, chats}`, which the session host
+//! MUST copy from the verified carrier grant the platform signed, never from
+//! the client: `vmk` is `owner` (the VM is the person's own) or `team` (the
+//! person is a teammate of the VM's team, given the chats `chats` names).
 //!
 //! - Only this socket reads the header. The daemon's unix socket speaks
 //!   JSON-RPC lines, and an HTTP request on it ends the connection
@@ -28,7 +29,7 @@
 //! - `team`: [`ConnAuth::CarrierTeam`], served as `Origin::Web`, and every
 //!   request first passes [`gate`]: only the teammate's verbs
 //!   (`cmux_agent_pane_policy::share_roles::TEAMMATE_VERBS`), as the acpmux
-//!   methods of [`TEAMMATE_METHODS`]. Notifications but `session/cancel` and
+//!   methods of [`TEAMMATE_METHODS`], each on a chat of `chats` by its exact id. Notifications but `session/cancel` and
 //!   answers to the daemon's own requests are dropped.
 //! - Audit: each prompt and permission answer logs the carrier, `vmk`, `sub`
 //!   and `team` (target `acpmux::carrier_audit`), a carrier prompt's
@@ -83,16 +84,22 @@ pub struct Attested {
     pub sub: String,
     /// The team the grant names (required for a teammate).
     pub team: Option<String>,
+    /// The chats the grant gives a teammate, by exact session id (required and non-empty for a
+    /// teammate; an owner's is ignored and kept empty). A chat's forks, side chats and subagent
+    /// children are not in it unless the grant names them.
+    pub chats: Vec<String>,
 }
 
 /// Longest `sub` or `team`, in bytes.
 const MAX_ID_BYTES: usize = 256;
 /// Longest header value, in bytes.
-const MAX_HEADER_BYTES: usize = 1024;
+const MAX_HEADER_BYTES: usize = 16 * 1024;
+/// Most chats one grant names.
+const MAX_CHATS: usize = 64;
 
 impl Attested {
     /// Parse the [`HEADER`] values of one upgrade request: exactly one, a JSON object with
-    /// `vmk` (`owner` or `team`), `sub` and `team` and nothing else. The error is a stable
+    /// `vmk` (`owner` or `team`), `sub`, `team` and `chats` and nothing else. The error is a stable
     /// reason for the refusal body; it never repeats the value.
     pub fn parse(values: &[&str]) -> Result<Self, &'static str> {
         let [value] = values else {
@@ -108,7 +115,7 @@ impl Attested {
         let Ok(Value::Object(fields)) = serde_json::from_str::<Value>(value) else {
             return Err("carrier.header_malformed");
         };
-        if fields.keys().any(|k| !matches!(k.as_str(), "vmk" | "sub" | "team")) {
+        if fields.keys().any(|k| !matches!(k.as_str(), "vmk" | "sub" | "team" | "chats")) {
             return Err("carrier.header_malformed");
         }
         let role = match fields.get("vmk").and_then(Value::as_str) {
@@ -126,10 +133,22 @@ impl Attested {
         };
         let sub = id("sub")?.ok_or("carrier.header_malformed")?;
         let team = id("team")?;
-        if role == Role::Team && team.is_none() {
+        if role == Role::Owner {
+            // The owner reaches every chat, as a peer daemon does: a list names nothing for it.
+            return Ok(Self { role, sub, team, chats: Vec::new() });
+        }
+        let chats: Vec<String> = match fields.get("chats") {
+            Some(Value::Array(list)) if (1..=MAX_CHATS).contains(&list.len()) => list
+                .iter()
+                .map(|c| c.as_str().filter(|c| valid_id(c)).map(str::to_owned))
+                .collect::<Option<_>>()
+                .ok_or("carrier.header_malformed")?,
+            _ => return Err("carrier.header_malformed"),
+        };
+        if team.is_none() {
             return Err("carrier.header_malformed");
         }
-        Ok(Self { role, sub, team })
+        Ok(Self { role, sub, team, chats })
     }
 
     /// The proof and origin a connection with this header is served with.
@@ -195,30 +214,45 @@ pub fn allows(role: Role, m: &str) -> bool {
     }
 }
 
-fn not_a_teammate_verb(m: &str) -> RpcError {
+/// The refusal of a teammate's request: `why` says what was wrong with it.
+fn team_refused(m: &str, why: &str) -> RpcError {
     RpcError::new(
         NOT_A_TEAMMATE_VERB,
-        format!("{m}: a teammate reaches this chat through the Cloud carrier to watch, prompt and stop it, nothing else"),
+        format!("{m} {why}: a teammate through the Cloud carrier watches, prompts and stops the chats its grant names, nothing else"),
     )
     .with_data(json!({"reason": "carrier.team_refused"}))
 }
 
 /// What the carrier lets `who` send as `m`: a refusal, or the params the request runs with. A
-/// teammate's request outside its verbs is refused; its attach is hidden; its prompt carries
-/// the attested author in place of any it named. An owner's goes on as it came, to the Peer
-/// origin's rules.
+/// teammate's request outside its verbs is refused, and so is one that names no chat or a chat
+/// outside the grant's `chats` (by its exact `sessionId`: no name, prefix or `HOST/NAME`). Its
+/// attach is hidden; its prompt carries the attested author in place of any it named. An
+/// owner's goes on as it came, to the Peer origin's rules.
 pub fn admit(who: &Attested, m: &str, mut params: Value) -> Result<Value, RpcError> {
     if who.role == Role::Owner {
         return Ok(params);
     }
     if !team_allows(m) {
-        return Err(not_a_teammate_verb(m));
+        return Err(team_refused(m, "is not a teammate's verb"));
     }
-    if matches!(m, method::MUX_ATTACH | method::SESSION_PROMPT) && !params.is_object() {
-        return Err(RpcError::invalid_params(format!("{m} takes an object")));
+    if m == method::INITIALIZE {
+        return Ok(params);
+    }
+    let Some(obj) = params.as_object_mut() else {
+        return Err(team_refused(m, "names no chat"));
+    };
+    // Only `sessionId` names the chat: `session`, `name` and `host` would let a name or another
+    // machine's chat stand in for it.
+    if ["session", "name", "host"].iter().any(|k| obj.get(*k).is_some_and(|v| !v.is_null())) {
+        return Err(team_refused(m, "names a chat other than by its sessionId"));
+    }
+    match obj.get("sessionId").and_then(Value::as_str) {
+        Some(id) if who.chats.iter().any(|c| c == id) => {}
+        Some(_) => return Err(team_refused(m, "names a chat this teammate was not given")),
+        None => return Err(team_refused(m, "names no chat")),
     }
     if m == method::MUX_ATTACH {
-        params.set("visible", Value::Bool(false));
+        obj.insert("visible".into(), Value::Bool(false));
     }
     if m == method::SESSION_PROMPT {
         crate::hub::merge_mux_meta(&mut params, json!({"author": who.author()}));
@@ -226,15 +260,37 @@ pub fn admit(who: &Attested, m: &str, mut params: Value) -> Result<Value, RpcErr
     Ok(params)
 }
 
-/// The carrier gate, before any dispatcher (`chats.rs`): [`admit`] for a carrier connection,
-/// and each prompt and permission answer logged with who the carrier attested.
-pub(super) fn gate(conn: &Conn, m: &str, params: Value) -> Result<Value, RpcError> {
+/// The carrier gate, before any dispatcher (`chats.rs`): [`admit`] for a carrier connection, and
+/// for a teammate the chat it names must be that very session here (an id no session has must
+/// not resolve to another by name or prefix). Each refusal, prompt, cancel and permission answer
+/// is logged with who the carrier attested.
+pub(super) fn gate(hub: &Hub, conn: &Conn, m: &str, params: Value) -> Result<Value, RpcError> {
     let Some(carrier) = conn.carrier.as_ref() else {
         return Ok(params);
     };
-    let params = admit(carrier, m, params)?;
-    audit(conn, carrier, m, &params);
-    Ok(params)
+    let admitted = admit(carrier, m, params).and_then(|params| {
+        if carrier.role == Role::Team
+            && let Some(id) = params.get("sessionId").and_then(Value::as_str)
+            && hub.resolve(id).is_ok_and(|s| s.id != id)
+        {
+            return Err(team_refused(m, "names a chat this teammate was not given"));
+        }
+        Ok(params)
+    });
+    match &admitted {
+        Ok(params) => audit(conn, carrier, m, params, None),
+        Err(e) => audit(conn, carrier, m, &Value::Null, Some(e)),
+    }
+    admitted
+}
+
+/// Whether a carrier connection's notification goes on: a teammate's only when it is a
+/// `session/cancel` of a chat it was given.
+pub(super) fn takes_notification(conn: &Conn, m: &str, params: Option<&Value>) -> bool {
+    let Some(carrier) = conn.carrier.as_ref().filter(|c| c.role == Role::Team) else {
+        return true;
+    };
+    m == method::SESSION_CANCEL && admit(carrier, m, params.cloned().unwrap_or(Value::Null)).is_ok()
 }
 
 /// How a Web or Peer connection's prompt reached this daemon (`prompt_provenance::TRANSPORT`):
@@ -247,26 +303,32 @@ pub(super) fn transport(conn: &Conn) -> &'static str {
     }
 }
 
-/// Whether a carrier connection's notification goes on: a teammate's only when it is a
-/// `session/cancel`.
-pub(super) fn takes_notification(conn: &Conn, m: &str) -> bool {
-    conn.auth != ConnAuth::CarrierTeam || m == method::SESSION_CANCEL
-}
-
-/// Log a prompt or permission answer with the person the carrier attested.
-pub(super) fn audit(conn: &Conn, carrier: &Attested, m: &str, params: &Value) {
-    if !matches!(
+/// Log a refusal, prompt, cancel or permission answer with the person the carrier attested.
+pub(super) fn audit(
+    conn: &Conn,
+    carrier: &Attested,
+    m: &str,
+    params: &Value,
+    refused: Option<&RpcError>,
+) {
+    let logged = matches!(
         m,
         method::SESSION_PROMPT
             | method::SESSION_CANCEL
             | method::MUX_PERMISSION_RESPOND
             | method::MUX_PERMISSION_GROUP_RESPOND
-    ) {
+    );
+    if !logged && refused.is_none() {
         return;
     }
     let text = |k: &str| params.get(k).and_then(Value::as_str).unwrap_or_default();
     let prompt =
         params.pointer("/_meta/acpmux/promptId").and_then(Value::as_str).unwrap_or_default();
+    let reason = refused
+        .and_then(|e| e.data.as_ref())
+        .and_then(|d| d.get("reason"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     tracing::info!(
         target: "acpmux::carrier_audit",
         conn = %conn.id,
@@ -278,6 +340,7 @@ pub(super) fn audit(conn: &Conn, carrier: &Attested, m: &str, params: &Value) {
         prompt,
         permission = text("permissionId"),
         option = text("optionId"),
+        refused = reason,
         "carrier request"
     );
 }

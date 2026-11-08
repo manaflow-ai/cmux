@@ -86,7 +86,7 @@ pub(super) async fn route(
     // A read-only paired machine reads, nothing else (`pairing.rs`), before any dispatcher.
     let params = super::pairing::gate(conn, m, params)?;
     // So does a teammate through the Cloud carrier, to its verbs (`carrier.rs`).
-    let params = super::carrier::gate(conn, m, params)?;
+    let params = super::carrier::gate(hub, conn, m, params)?;
     hub.prepare_store_request(m, &params).await;
     if let Some(reply) = super::pairing::dispatch(hub, conn, m, &params).await {
         return reply;
