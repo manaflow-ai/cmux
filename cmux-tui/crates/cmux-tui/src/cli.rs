@@ -1518,7 +1518,10 @@ USAGE
   cmux agent list [--needs-me] [--state working|blocked|done|idle|unknown|ended]
                   [--terminal <id>] [--sort needs-me|recent|none] [--limit <n>] [--counts]
                   (done: idle with an unread notification; ended: the session
-                  ended, which --state done selected before)
+                  ended, which --state done selected before; rows carry name
+                  and status, and state is a deprecated alias of status; an
+                  ended agent of a closed terminal is listed only with
+                  --state ended)
   cmux agent <agent> focus
   cmux agent report --terminal <selector> --state <value> --source <value>
   cmux agent hook install|uninstall|status [provider...]

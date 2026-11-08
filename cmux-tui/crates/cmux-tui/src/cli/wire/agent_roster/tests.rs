@@ -378,7 +378,7 @@ fn w4j_agent_list_rows_and_counts_use_the_shared_status_words() {
     assert_eq!(row("agent_idle")["status"], "idle");
     assert_eq!(row("agent_blocked")["status"], "blocked");
     assert_eq!(row("agent_ended")["status"], Value::Null);
-    assert_eq!(row("agent_ended")["state"], "done", "the older state word stays");
+    assert_eq!(row("agent_ended")["state"], "ended", "state is an alias of status (W5-Q)");
     assert_eq!(
         result["counts"],
         json!({"blocked": 1, "done": 0, "working": 0, "idle": 1, "unknown": 0, "ended": 1,
@@ -414,7 +414,7 @@ fn w4j_an_unseen_idle_agent_is_done_and_ranks_after_blocked() {
     let result = shape(rows(), &[], &unseen, AgentRosterView::default(), NOW);
     assert_eq!(ids(&result), ["agent_blocked", "agent_finished", "agent_working", "agent_seen"]);
     assert_eq!(result["agents"][1]["status"], "done");
-    assert_eq!(result["agents"][1]["state"], "idle", "the older state word stays");
+    assert_eq!(result["agents"][1]["state"], "done", "state is an alias of status (W5-Q)");
     assert_eq!(result["agents"][3]["status"], "idle");
     assert_eq!(result["counts"]["done"], 1);
     assert_eq!(result["counts"]["idle"], 1);

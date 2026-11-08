@@ -4,8 +4,11 @@
 //! one status vocabulary (`working`, `blocked`, `done`, `idle`, `unknown`;
 //! `cmux_tui_core::AgentStatus`) that `terminal list --agents` and the TUI
 //! show. `done` is a finished turn nobody has viewed (the terminal's unread
-//! notification); the daemon's own `state` keeps `done` for a session that
-//! ended, which has `status: null` and counts as `ended`.
+//! notification). The daemon's own `state` says `done` for a session that
+//! ended, which has `status: null` and counts as `ended`; the printed
+//! `state` is a deprecated alias of `status` (`ended` there), so a row has
+//! one word (W5-Q). An ended agent of a closed terminal is left out unless
+//! `--state ended` asks for it.
 
 use std::borrow::Cow;
 use std::cmp::Reverse;
@@ -302,10 +305,13 @@ fn unix_ms() -> u64 {
 }
 
 /// The printed roster: `{"agents":[...],"counts":{...}}`. Each agent keeps
-/// every daemon field and gains `status` (its terminal is in `unseen` when
+/// every daemon field but `state`, which becomes an alias of its `status`
+/// (`ended` for a session that ended), and gains `status` (its terminal is in `unseen` when
 /// it has an unread notification), `age_ms` (since its `updated_at_ms`)
 /// and, when its terminal is in `terminals`, that terminal's `title` and
-/// `cwd`. `view.status` keeps only the agents with that status word.
+/// `cwd`. `view.status` keeps only the agents with that status word;
+/// without it, an ended agent of a terminal not in `terminals` is left out
+/// (when `terminals` is not empty).
 /// `counts` (by status word) covers every listed agent, before
 /// `view.limit`.
 pub(super) fn shape(
@@ -323,10 +329,28 @@ pub(super) fn shape(
         let status = status_of(agent, unseen).map(AgentStatus::as_str);
         if let Some(object) = agent.as_object_mut() {
             object.insert("status".into(), json!(status));
+            // `state` is a deprecated alias of `status` (`ended` for a
+            // session that ended): one word per agent (W5-Q).
+            object.insert("state".into(), json!(status.unwrap_or(ENDED)));
         }
     }
     if let Some(wanted) = view.status {
         agents.retain(|agent| status_word(agent) == wanted);
+    } else if !terminals.is_empty() {
+        // An ended agent of a closed terminal is history, not an agent:
+        // `--state ended` still lists it. With no terminals read (an older
+        // daemon), nothing is left out.
+        let open: HashSet<&str> = terminals
+            .iter()
+            .filter_map(|terminal| terminal.get("id").and_then(Value::as_str))
+            .collect();
+        agents.retain(|agent| {
+            status_word(agent) != ENDED
+                || agent
+                    .get("terminal_id")
+                    .and_then(Value::as_str)
+                    .is_none_or(|terminal| open.contains(terminal))
+        });
     }
     let mut counts = Map::new();
     for status in STATUSES {
