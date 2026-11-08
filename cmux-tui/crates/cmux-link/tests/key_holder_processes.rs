@@ -72,6 +72,8 @@ fn a_second_process_is_refused_with_the_holders_pid_until_the_holder_dies() {
     // Killed, not asked: the OS releases the lock with the process.
     child.kill().unwrap();
     child.wait().unwrap();
+    // The killed holder never removed its record: the next holder replaces it.
+    assert_eq!(std::fs::read_to_string(dir.join(PID_FILE)).unwrap().trim(), pid.to_string());
     let taken = KeyHolder::acquire(&dir).expect("the lock is free once its holder died");
     assert_eq!(holder(&dir).unwrap(), Some(Some(std::process::id())));
     drop(taken);

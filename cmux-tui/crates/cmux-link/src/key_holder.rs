@@ -173,15 +173,16 @@ fn recorded_pid(dir: &Path) -> Option<u32> {
     text.lines().next()?.trim().parse().ok()
 }
 
-/// The record goes in by rename, so a reader never sees half of it.
+/// Written in place, under the lock: no other holder writes it, and a stale
+/// record left by a killed holder is overwritten on every OS (a rename onto
+/// it is not portable). The new record goes over the old one before the rest
+/// is cut, so a reader, which takes the first line, never sees an empty file.
 fn write_pid(dir: &Path, pid: u32) -> io::Result<()> {
     use std::io::Write as _;
-    let temporary = dir.join(format!("{PID_FILE}.{pid}"));
-    let _ = std::fs::remove_file(&temporary);
-    let mut file = open_private(&temporary, true)?;
-    file.write_all(format!("{pid}\n").as_bytes())?;
-    drop(file);
-    std::fs::rename(&temporary, dir.join(PID_FILE))
+    let record = format!("{pid}\n");
+    let mut file = open_private(&dir.join(PID_FILE), true)?;
+    file.write_all(record.as_bytes())?;
+    file.set_len(record.len() as u64)
 }
 
 fn open_private(path: &Path, create: bool) -> io::Result<File> {
@@ -224,6 +225,21 @@ mod tests {
         assert!(!dir.join(PID_FILE).exists(), "the record outlived its holder");
         assert_eq!(holder(&dir).unwrap(), None);
         let _again = KeyHolder::acquire(&dir).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A killed holder leaves its record behind (no `Drop`): the next holder
+    /// takes the lock and replaces the record, on every OS, also when the
+    /// stale record is longer than the new one.
+    #[test]
+    fn a_stale_pid_record_is_replaced_by_the_next_holder() {
+        let dir = tempfile_dir("stale-record");
+        create_private_dir(&dir).unwrap();
+        std::fs::write(dir.join(PID_FILE), "4294967295\nleftover\n").unwrap();
+        let holder = KeyHolder::acquire(&dir).expect("a stale record never blocks the lock");
+        let record = std::fs::read_to_string(dir.join(PID_FILE)).unwrap();
+        assert_eq!(record, format!("{}\n", std::process::id()));
+        drop(holder);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
