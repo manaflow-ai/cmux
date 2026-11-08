@@ -46,6 +46,8 @@ mod closed_pane_split;
 mod closed_relaunch_tests;
 mod closed_screen_layout;
 mod closed_tab_groups;
+#[cfg(test)]
+mod command_clear_until_tests;
 pub(crate) mod command_history_store;
 pub(crate) mod commit;
 pub(crate) mod conductor_import_router;
@@ -75,8 +77,6 @@ pub(crate) mod home;
 pub(crate) mod home_store;
 #[cfg(test)]
 mod home_tests;
-#[cfg(test)]
-mod command_clear_until_tests;
 #[cfg(test)]
 mod incognito_terminal_tests;
 pub(crate) mod kept_tab_store;
