@@ -143,18 +143,20 @@ impl TerminalOutputScanner {
     /// parse state exactly as `scan` would, but jumps over plain text.
     pub fn skim(&mut self, bytes: &[u8]) -> OutputSkim {
         let mut skim = OutputSkim::default();
-        let mut index = 0;
-        while index < bytes.len() {
+        let mut rest = bytes;
+        loop {
             if self.state == State::Ground && self.detour_bytes.is_none() && skim.touched_the_screen
             {
                 // Text, controls and newlines only touch the screen, which is
                 // already known; only an escape can switch screens.
-                match bytes[index..].iter().position(|&byte| byte == 0x1B) {
-                    Some(found) => index += found,
+                match rest.iter().position(|&byte| byte == 0x1B) {
+                    Some(found) => rest = rest.get(found..).unwrap_or_default(),
                     None => break,
                 }
             }
-            match self.next(bytes[index]) {
+            let Some((&byte, after)) = rest.split_first() else { break };
+            rest = after;
+            match self.next(byte) {
                 None | Some(OutputSignal::Ignorable) => {}
                 Some(OutputSignal::AlternateScreen(entered)) => {
                     skim.alternate_screen = Some(entered);
@@ -162,7 +164,6 @@ impl TerminalOutputScanner {
                 }
                 Some(_) => skim.touched_the_screen = true,
             }
-            index += 1;
         }
         skim
     }

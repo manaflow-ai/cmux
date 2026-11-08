@@ -265,8 +265,8 @@ impl TerminalPredictionEngine {
     /// echo landed in. Speculative glyphs start at offset 0. Entries typed
     /// before the run armed are never drawn, but still occupy their cell.
     pub fn glyphs(&self) -> Vec<PredictedGlyph> {
-        let cursor =
-            self.entries.iter().map(Entry::echoed_advance).sum::<i32>() - self.rewound.len() as i32;
+        let rewound = i32::try_from(self.rewound.len()).unwrap_or(i32::MAX);
+        let cursor = self.entries.iter().map(Entry::echoed_advance).sum::<i32>() - rewound;
         let mut cell = 0;
         let mut drawn = Vec::new();
         for entry in &self.entries {
@@ -444,11 +444,14 @@ impl TerminalPredictionEngine {
         }
         // Everything after the newest unretracted glyph is retracted glyphs and
         // their erases, which occupy no cells, so it is the one the remote erases.
-        let index = self.entries.iter().rposition(|entry| entry.is_glyph() && !entry.is_retracted);
-        let Some(index) = index.filter(|&index| {
-            self.entries[index].is_drawn()
-                && self.entries.len() < self.configuration.maximum_speculative_glyphs
-        }) else {
+        let room = self.entries.len() < self.configuration.maximum_speculative_glyphs;
+        let newest = self
+            .entries
+            .iter_mut()
+            .rev()
+            .find(|entry| entry.is_glyph() && !entry.is_retracted)
+            .filter(|entry| room && entry.is_drawn());
+        let Some(newest) = newest else {
             if self.raise_barrier_if_in_flight(now) {
                 return expired;
             }
@@ -456,8 +459,8 @@ impl TerminalPredictionEngine {
         };
         // A glyph whose echo arrived but is still held for its frame is
         // retracted the same way: until the erase, its cell is blank.
-        self.entries[index].is_retracted = true;
-        self.entries[index].confirmed_at = None;
+        newest.is_retracted = true;
+        newest.confirmed_at = None;
         self.entries.push(Entry::new(
             Keystroke::Erase(EraseProgress::AwaitingMoveLeft),
             now,
@@ -512,22 +515,22 @@ impl TerminalPredictionEngine {
         let mut changed = self.expire(now);
         let blanks_before = self.blank_count();
         let mut moved_cursor = false;
-        let mut index = 0;
-        while index < bytes.len() {
+        let mut rest = bytes;
+        while let Some((&byte, after)) = rest.split_first() {
             if self.entries.is_empty() && self.rewound.is_empty() {
                 // Nothing in flight: most output lands here (a build log, an
                 // agent's stream), and all it can do is end the run or switch
                 // screens, so skip past plain text.
-                self.skim(&bytes[index..], now);
+                self.skim(rest, now);
                 break;
             }
-            if let Some(signal) = self.scanner.next(bytes[index]) {
+            if let Some(signal) = self.scanner.next(byte) {
                 if signal != OutputSignal::Ignorable {
                     moved_cursor = true;
                 }
                 changed = self.observe(signal, now) || changed;
             }
-            index += 1;
+            rest = after;
         }
         if self.blank_count() < blanks_before && self.layout_held_since.is_none() {
             self.layout_held_since = Some(now);
@@ -661,8 +664,23 @@ impl TerminalPredictionEngine {
         self.any_on_screen()
     }
 
-    fn first_speculative(&self) -> Option<usize> {
-        self.entries.iter().position(|entry| entry.standing == Standing::Speculative)
+    /// The first entry still waiting for its echo, with its index.
+    fn first_speculative_entry(&self) -> Option<(usize, Entry)> {
+        self.entries
+            .iter()
+            .copied()
+            .enumerate()
+            .find(|(_, entry)| entry.standing == Standing::Speculative)
+    }
+
+    /// Marks entry `index` echoed; `at` is when, for a glyph held until its frame.
+    fn confirm(&mut self, index: usize, at: Option<Duration>) {
+        if let Some(entry) = self.entries.get_mut(index) {
+            entry.standing = Standing::Confirmed;
+            if at.is_some() {
+                entry.confirmed_at = at;
+            }
+        }
     }
 
     fn consume_printable(&mut self, byte: u8, now: Duration) -> bool {
@@ -675,17 +693,17 @@ impl TerminalPredictionEngine {
             self.remember(byte);
             return self.any_on_screen();
         }
-        let Some(index) = self.first_speculative() else {
+        let Some((index, entry)) = self.first_speculative_entry() else {
             // Output at the cursor nobody typed: it advances the cursor the
             // offsets are measured from, and it ends the echo run.
             return self.withdraw_all(false, now, false);
         };
-        if now < self.entries[index].typed_at {
+        if now < entry.typed_at {
             // Output stamped before the keystroke existed was already in flight
             // when it was typed, so it cannot be its echo.
             return self.withdraw_all(false, now, false);
         }
-        let expected = match self.entries[index].keystroke {
+        let expected = match entry.keystroke {
             Keystroke::Barrier => return self.resolve_barrier(now),
             // Mid-erase, the only printable a line editor sends is the space of
             // `BS SP BS`; the erase withdraws on anything else.
@@ -697,56 +715,54 @@ impl TerminalPredictionEngine {
         if expected != byte {
             return self.withdraw_all(true, now, false);
         }
-        self.record_echo_latency(now.saturating_sub(self.entries[index].typed_at));
+        self.record_echo_latency(now.saturating_sub(entry.typed_at));
         self.remember(byte);
-        if self.entries[index].is_masked {
+        if entry.is_masked {
             // Its blank now covers the echo it waited for, and stays until the
             // erase after it. It re-arms nothing: the user deleted it.
-            self.entries[index].standing = Standing::Confirmed;
+            self.confirm(index, None);
             return true;
         }
         // A `*` is what a masked password prompt echoes for any key, so it
         // proves nothing about echo.
         if byte != b'*' {
-            self.echo_streak += 1;
+            self.echo_streak = self.echo_streak.saturating_add(1);
         }
-        if self.entries[index].is_hidden {
+        if entry.is_hidden {
             self.entries.remove(index);
             return false;
         }
-        if self.entries[index].is_retracted {
+        if entry.is_retracted {
             // Its blank covers the echo until the erase arrives. Nothing is
             // held, but the cursor moved, so drawn cells are measured afresh.
-            self.entries[index].standing = Standing::Confirmed;
+            self.confirm(index, None);
             return self.any_on_screen();
         }
         // A glyph the user never saw has nothing to hold on screen for. It still
         // counts toward the cursor for any held glyph before it, so it goes when
         // they do.
-        if !self.entries[index].is_displayed {
-            if self.entries[..index].iter().any(Entry::is_drawn) {
-                self.entries[index].standing = Standing::Confirmed;
-                self.entries[index].confirmed_at = Some(now);
+        if !entry.is_displayed {
+            if self.entries.iter().take(index).any(Entry::is_drawn) {
+                self.confirm(index, Some(now));
             } else {
                 self.entries.remove(index);
             }
             return false;
         }
-        self.entries[index].standing = Standing::Confirmed;
-        self.entries[index].confirmed_at = Some(now);
+        self.confirm(index, Some(now));
         true
     }
 
     /// A cursor-left or clear from the remote, which only a pending erase
     /// expects. Anywhere else it moved the screen in a way not predicted.
     fn consume_erase(&mut self, signal: OutputSignal, now: Duration) -> bool {
-        let Some(index) = self.first_speculative() else {
+        let Some((index, entry)) = self.first_speculative_entry() else {
             return self.withdraw_all(true, now, false);
         };
-        if now < self.entries[index].typed_at {
+        if now < entry.typed_at {
             return self.withdraw_all(false, now, false);
         }
-        match self.entries[index].keystroke {
+        match entry.keystroke {
             Keystroke::Barrier => self.resolve_barrier(now),
             Keystroke::Erase(_) => self.advance_erase(index, signal, now),
             Keystroke::Glyph(_) => self.withdraw_all(true, now, false),
@@ -755,8 +771,8 @@ impl TerminalPredictionEngine {
 
     /// Whether the next echo expected is (the rest of) an erase.
     fn is_awaiting_erase(&self) -> bool {
-        self.first_speculative()
-            .is_some_and(|index| matches!(self.entries[index].keystroke, Keystroke::Erase(_)))
+        self.first_speculative_entry()
+            .is_some_and(|(_, entry)| matches!(entry.keystroke, Keystroke::Erase(_)))
     }
 
     /// Advances the erase at `index`, the next echo expected. A mismatch
@@ -764,29 +780,34 @@ impl TerminalPredictionEngine {
     /// forms than modelled here, and a shell that always uses one of those is
     /// not mispredicting.
     fn advance_erase(&mut self, index: usize, signal: OutputSignal, now: Duration) -> bool {
-        let Keystroke::Erase(progress) = self.entries[index].keystroke else {
+        let Some(Keystroke::Erase(progress)) = self.entries.get(index).map(|entry| entry.keystroke)
+        else {
             return self.withdraw_all(false, now, false);
         };
-        match (progress, signal) {
+        let next = match (progress, signal) {
             (EraseProgress::AwaitingMoveLeft, OutputSignal::CursorLeft) => {
-                self.entries[index].keystroke = Keystroke::Erase(EraseProgress::MovedLeft);
                 self.line.pop();
+                EraseProgress::MovedLeft
             }
-            (EraseProgress::MovedLeft, OutputSignal::Printable(0x20)) => {
-                self.entries[index].keystroke = Keystroke::Erase(EraseProgress::Blanked);
-            }
+            (EraseProgress::MovedLeft, OutputSignal::Printable(0x20)) => EraseProgress::Blanked,
             (EraseProgress::MovedLeft, OutputSignal::ClearAtCursor)
             | (EraseProgress::Blanked, OutputSignal::CursorLeft) => {
                 // Erased. Every inner retraction completed before this one, so
                 // the entry just before it is the glyph it took back, and the
                 // pair occupies no cells; the blank goes with it.
-                if index == 0 || !self.entries[index - 1].is_retracted {
+                let Some(glyph) = index.checked_sub(1) else {
+                    return self.withdraw_all(false, now, false);
+                };
+                if !self.entries.get(glyph).is_some_and(|entry| entry.is_retracted) {
                     return self.withdraw_all(false, now, false);
                 }
-                self.entries.drain(index - 1..=index);
+                self.entries.drain(glyph..=index);
                 return true;
             }
             _ => return self.withdraw_all(false, now, false),
+        };
+        if let Some(entry) = self.entries.get_mut(index) {
+            entry.keystroke = Keystroke::Erase(next);
         }
         self.any_on_screen()
     }
@@ -880,8 +901,8 @@ impl TerminalPredictionEngine {
 
     /// Whether the next output answers a barrier rather than a prediction.
     fn is_awaiting_barrier(&self) -> bool {
-        self.first_speculative()
-            .is_some_and(|index| self.entries[index].keystroke == Keystroke::Barrier)
+        self.first_speculative_entry()
+            .is_some_and(|(_, entry)| entry.keystroke == Keystroke::Barrier)
     }
 
     /// Puts a barrier behind the glyphs in flight, when the user can see any,
