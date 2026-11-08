@@ -83,6 +83,9 @@ final class PageFloatingOverlays {
     func add(_ view: NSView, lift: CGFloat = 0, placement: Placement = .bottomCenter, passesThroughClicks: Bool = false) {
         guard !cards.contains(where: { $0.view === view }) else { return }
         view.translatesAutoresizingMaskIntoConstraints = false
+        // A pane in front cuts the card with a mask on its own layer (`cut`): the notice pill and the link status
+        // bubble have none of their own.
+        view.wantsLayer = true
         cards.append(Card(view: view, lift: lift, placement: placement, passesThroughClicks: passesThroughClicks))
         observePages()
     }
@@ -172,17 +175,19 @@ final class PageFloatingOverlays {
         var mouseRect: NSRect?
         if shown.shows(frame) {
             if view.layer?.mask is StripClipMaskLayer { view.layer?.mask = nil }
-        } else if let layer = view.layer {
+        } else {
             let visible = view.convert(frame.intersection(shown.visible), from: nil)
-            let cutouts = shown.cutouts.map { view.convert($0, from: nil) }
-            let mask = (layer.mask as? StripClipMaskLayer) ?? StripClipMaskLayer()
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            mask.place(visible, cutouts: cutouts, scale: view.window?.backingScaleFactor ?? 2)
-            CATransaction.commit()
-            if layer.mask !== mask { layer.mask = mask }
             // A hole in the card has no one rect to click in: none while a pane cuts into its middle.
             mouseRect = shown.cutouts.contains { $0.intersects(frame) } ? .zero : visible
+            if let layer = view.layer {
+                let cutouts = shown.cutouts.map { view.convert($0, from: nil) }
+                let mask = (layer.mask as? StripClipMaskLayer) ?? StripClipMaskLayer()
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                mask.place(visible, cutouts: cutouts, scale: view.window?.backingScaleFactor ?? 2)
+                CATransaction.commit()
+                if layer.mask !== mask { layer.mask = mask }
+            }
         }
         guard cards[index].mouseRect != mouseRect else { return }
         cards[index].mouseRect = mouseRect
