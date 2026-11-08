@@ -1,5 +1,8 @@
 public import CmuxNextDaemon
 public import CmuxNextWakeups
+import os
+
+private let historyWritesLog = Logger(subsystem: "com.cmuxterm.app.next", category: "history")
 
 /// The daemon history's one ordered queue of writes: every profile's visits, titles and removals and
 /// every clear and remove, in the order they were made. A clear made while the local daemon is away
@@ -9,7 +12,10 @@ public import CmuxNextWakeups
 /// fails because the link dropped under it or its reply never came (`retryable`) stays first and goes
 /// again, after a backoff that lets the next connect land, with the same idempotency key (`key`, one per
 /// queued write), so the daemon answers a retry of a write it already committed without doing it twice.
-/// One the daemon answered and refused is done. At most `capacity`
+/// One whose outcome is unknown in another way (a malformed or undecodable reply: it may have committed)
+/// goes again with the same key up to `unknownAttempts` times in all, then is dropped with a log line (the
+/// daemon replays the first reply, so a reply that is always malformed must not loop). Only one the daemon
+/// answered and refused (`refused`) is done at once. At most `capacity`
 /// writes wait; past it the oldest waiting visit goes. A clear or remove is never dropped (else what it
 /// removed would come back): with no visit waiting, a new visit is refused instead, and a new clear or
 /// remove still goes in, past `capacity` (each one is a person's click, so they stay few).
@@ -33,13 +39,18 @@ public final class HistoryWriteQueue<Client: Sendable> {
     private var draining: Task<Void, Never>?
     private let backoff: Backoff
     private let retryable: @Sendable (any Error) -> Bool
+    private let refused: @Sendable (any Error) -> Bool
+    private let unknownAttempts: Int
     private let client: @MainActor () async -> Client?
 
     public init(capacity: Int = 4_096, backoff: Backoff = Backoff(initial: .milliseconds(200), maximum: .seconds(5)),
-                retryable: @escaping @Sendable (any Error) -> Bool, client: @escaping @MainActor () async -> Client?) {
+                retryable: @escaping @Sendable (any Error) -> Bool, refused: @escaping @Sendable (any Error) -> Bool = DaemonHistoryClient.isRefusal,
+                unknownAttempts: Int = 4, client: @escaping @MainActor () async -> Client?) {
         self.capacity = max(1, capacity)
         self.backoff = backoff
         self.retryable = retryable
+        self.refused = refused
+        self.unknownAttempts = max(1, unknownAttempts)
         self.client = client
     }
 
@@ -99,6 +110,8 @@ public final class HistoryWriteQueue<Client: Sendable> {
     private func drain() async {
         defer { draining = nil }
         var backoff = self.backoff
+        // The first write's failures of unknown outcome so far.
+        var unknown: (id: UInt64, count: Int)?
         while !items.isEmpty {
             // The first write is picked only once the client is up: one queued `ahead` meanwhile goes first.
             guard let client = await client() else { return }
@@ -112,9 +125,21 @@ public final class HistoryWriteQueue<Client: Sendable> {
                 // concurrency-allow: Backoff.wait is an async clock sleep (the task suspends, no thread blocks), once per failed send
                 do { try await backoff.wait(owner: "history.writes") } catch { return }
                 continue
+            } catch where !refused(error) {
+                // The outcome is unknown (it may have committed): again with the same key, a bounded number of times.
+                let count = (unknown.flatMap { $0.id == item.id ? $0.count : nil } ?? 0) + 1
+                unknown = (item.id, count)
+                if count < unknownAttempts {
+                    sending = nil
+                    // concurrency-allow: Backoff.wait is an async clock sleep (the task suspends, no thread blocks), at most unknownAttempts per write
+                    do { try await backoff.wait(owner: "history.writes") } catch { return }
+                    continue
+                }
+                historyWritesLog.error("history write dropped after \(count, privacy: .public) unknown outcomes: \(String(describing: error), privacy: .public)")
             } catch {
                 // The daemon answered and refused it: a retry changes nothing.
             }
+            unknown = nil
             backoff.reset()
             sending = nil
             items.removeAll { $0.id == item.id }
@@ -124,9 +149,17 @@ public final class HistoryWriteQueue<Client: Sendable> {
 }
 
 extension DaemonHistoryClient {
+    /// Whether the daemon answered and refused a write (a `cmux.protocol/2` error it does not ask to retry):
+    /// the only failure that ends a write at once. Any other failure that is not a link drop leaves the
+    /// outcome unknown (a malformed or undecodable reply may follow a commit).
+    public nonisolated static func isRefusal(_ error: any Error) -> Bool {
+        if case .command(_, _, _, _, let retryable)? = error as? DaemonError { return retryable != true }
+        return false
+    }
+
     /// Whether a write failed because the link dropped under it, its reply never came (`timedOut`: it may
     /// or may not have committed; the retry's same key makes that safe) or the daemon asks for a retry, so
-    /// it goes again on the next connect; any other answer was the daemon's own refusal.
+    /// it goes again on the next connect, with no bound.
     public nonisolated static func isLinkDrop(_ error: any Error) -> Bool {
         switch error as? DaemonError {
         case .notConnected?, .connectionClosed?, .daemonShutdown?, .connectFailed?, .timedOut?: true

@@ -52,14 +52,16 @@ import Testing
         /// The next this many keyed sends commit, then their reply is lost (`timedOut`).
         var lostReplies = 0
 
+        /// What a lost reply throws: a timeout, or a reply that does not parse.
+        var lostReply = DaemonError.timedOut("history.visit.record")
+
         func send(key: String, _ change: @Sendable (inout [String]) -> Void) throws {
             attempts += 1
             keys.append(key)
-            guard committed.insert(key).inserted else { return }
-            change(&stored)
+            if committed.insert(key).inserted { change(&stored) }
             if lostReplies > 0 {
                 lostReplies -= 1
-                throw DaemonError.timedOut("history.visit.record")
+                throw lostReply
             }
         }
 
@@ -222,6 +224,36 @@ import Testing
         #expect(daemon.attempts == 2, "a timed-out write was dropped, not sent again")
         #expect(Set(daemon.keys).count == 1, "the retry carried a new key")
         #expect(daemon.stored == ["https://a.example/"])
+    }
+
+    /// cmux#38186 review: a reply that does not parse leaves the outcome unknown (the write may have committed):
+    /// the write goes again with the same key instead of being dropped as a refusal, and counts once.
+    @Test func aMalformedReplyIsSentAgainWithItsKey() async {
+        let daemon = Daemon()
+        daemon.up = true
+        daemon.lostReplies = 1
+        daemon.lostReply = .malformedResponse("unexpected end of JSON")
+        let queue = Self.queue(daemon)
+        await Self.sent(queue, visit: true) { client, key in try await client.send(key: key) { $0.append("https://a.example/") } }
+        #expect(!DaemonHistoryClient.isRefusal(DaemonError.malformedResponse("x")))
+        #expect(daemon.attempts == 2, "a write with a malformed reply was dropped as a refusal")
+        #expect(Set(daemon.keys).count == 1)
+        #expect(daemon.stored == ["https://a.example/"])
+    }
+
+    /// A reply that is always malformed (the daemon replays the same one for the key) is tried a bounded number of
+    /// times, then dropped, so the queue moves on to the writes behind it.
+    @Test func anAlwaysMalformedReplyIsDroppedAfterBoundedAttempts() async {
+        let daemon = Daemon()
+        daemon.up = true
+        daemon.lostReplies = 100
+        daemon.lostReply = .malformedResponse("unexpected end of JSON")
+        let queue = HistoryWriteQueue<Daemon>(backoff: .init(initial: .milliseconds(5), maximum: .milliseconds(10)),
+                                              retryable: DaemonHistoryClient.isLinkDrop, unknownAttempts: 3) { await daemon.connected() }
+        await Self.sent(queue) { client, key in try await client.send(key: key) { $0.append("clear") } }
+        #expect(daemon.attempts == 3)
+        #expect(queue.count == 0)
+        #expect(daemon.stored == ["clear"])
     }
 
     /// cmux#38186 review: a legacy import the link drops under throws the drop (so ``writes`` sends it
