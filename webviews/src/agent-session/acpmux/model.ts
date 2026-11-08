@@ -60,6 +60,8 @@ import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
 import {
   pasteChipHeight,
+  PASTE_FROM_HEIGHT,
+  PASTE_ROW_HEIGHT,
   type PasteRange,
   HUGE_PROMPT_HEAD_CHARS,
   collapsedPromptHeight,
@@ -68,6 +70,8 @@ import {
   promptHead,
   promptParts,
 } from "./conversation/promptCollapse";
+import { sentPasteLook } from "./conversation/sentPasteLook.experiment";
+import { agentText } from "./agentText";
 import { mcpCall } from "./conversation/mcpCalls";
 import { hidesEveryCall, visibleToolItems } from "./conversation/mcpPresentation";
 import { subsessionCall } from "./conversation/subsessionCalls";
@@ -2543,11 +2547,24 @@ function measuredRowHeight(
       // A prompt with pasted blocks: its typed parts, each a line or more, and a chip per paste
       // however long it is (conversation/UserBubble.tsx).
       const { lineHeight } = metrics();
+      // As the bubble draws each paste (conversation/sentPasteLook.experiment.ts): its own text, a
+      // label row, or a card.
+      const look = experimentArm(sentPasteLook);
       contentHeight = 0;
       for (const part of promptParts(row.text, row.pasted!))
         contentHeight +=
           part.kind === "paste"
-            ? pasteChipHeight(lineHeight)
+            ? look === "text"
+              ? (agentText(part.text).signals.length ? PASTE_FROM_HEIGHT : 0) +
+                Math.max(
+                  lineHeight,
+                  // Folded, it draws only its head (conversation/PromptText.tsx PastedText), more
+                  // than the fold holds; the fold below caps the height.
+                  textHeight(promptHead(part.text, HUGE_PROMPT_HEAD_CHARS), contentWidth, entry.prepared, usedPrepared),
+                )
+              : look === "row"
+                ? PASTE_ROW_HEIGHT
+                : pasteChipHeight(lineHeight)
             : Math.max(
                 lineHeight,
                 // A huge typed part draws collapsed to its head (conversation/PromptText.tsx), so its

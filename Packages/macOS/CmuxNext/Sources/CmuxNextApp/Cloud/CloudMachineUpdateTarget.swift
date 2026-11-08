@@ -66,7 +66,7 @@ nonisolated struct CloudMachineUpdateTarget: DaemonUpdateTarget {
 
     /// The machine's build while its daemon is connected, whatever it serves, also one read as refused
     /// (an update to the build it names changes nothing: 2026-11-07, one per reconnect, each under a start);
-    /// nil while it is not, and while the toggles are off (``CloudTunables``): the policy then leaves it alone.
+    /// nil while no handshake is live (a dropped link's last one is not it), and while the toggles are off: left alone.
     ///
     /// Never a move back: a Cloud daemon's build string carries no date, so the policy cannot tell
     /// an older build from a newer one (another app, a newer nightly, moved the machine forward).
