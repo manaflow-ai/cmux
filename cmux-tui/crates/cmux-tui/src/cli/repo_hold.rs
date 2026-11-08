@@ -37,12 +37,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
             Some((dir, cmd)) => hold(&dir, cmd),
             None => usage(),
         },
-        Some((verb, rest)) if verb == "wait" => match rest {
-            [dir, seconds] => match seconds.parse::<u64>() {
-                Ok(seconds) => wait(Path::new(dir), std::time::Duration::from_secs(seconds)),
-                Err(_) => usage(),
-            },
-            _ => usage(),
+        Some((verb, [dir, seconds])) if verb == "wait" => match seconds.parse::<u64>() {
+            Ok(seconds) => wait(Path::new(dir), std::time::Duration::from_secs(seconds)),
+            Err(_) => usage(),
         },
         Some((verb, rest)) if verb == "hold-run" => match parse(rest) {
             Some((dir, cmd)) => hold_run(&dir, cmd, || println!("{HELD}")),
