@@ -140,6 +140,9 @@ test("an unverified sender gets the marker only: no 'self-declared' words anywhe
   expect(container.innerHTML).not.toContain("unauthenticated");
   expect(container.textContent).toContain("gcp-codex-swarm-05/cloud-start-matrix");
   expect(container.textContent).not.toContain("Received message from");
+  // Review of #37653: the marker is the one sign; the chip carries no "Unverified" word beside it.
+  expect(container.textContent).not.toMatch(/unverified/i);
+  expect(container.querySelectorAll(".cv-unverified").length).toBe(1);
 });
 
 test("an older acpmux's sender with only the suffix (no record) is marked unverified, the name bare", async () => {
