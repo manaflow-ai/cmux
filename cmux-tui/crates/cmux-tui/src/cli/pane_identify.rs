@@ -409,7 +409,7 @@ mod tests {
         );
         assert_eq!(value["session"]["name"], "main");
         let text = human(&value);
-        assert!(text.contains("runs headless"), "{text}");
+        assert!(text.contains(crate::localization::catalog().pane_cli.no_app), "{text}");
     }
 
     /// `machine.get` refuses a session parameter ("unknown parameters").
