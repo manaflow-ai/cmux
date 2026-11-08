@@ -166,7 +166,11 @@ impl LinkCell {
     /// dial then parks until a network change on `network`, a [`LinkCell::wake`], or the
     /// jittered `maximum_delay`. A network change abandons an attempt in flight and starts a new
     /// burst at once. A finite `policy.maximum_attempts` ends it after that many failures with
-    /// the last error. The caller attaches the connection it got ([`LinkCell::attach`]).
+    /// the last error, counting an attempt a network change abandoned
+    /// ([`DialStop::NetworkChanged`]), so a flapping network cannot outlast the bound. A finite
+    /// `policy.maximum_duration` ends the whole dial, an attempt in flight or a wait included, with
+    /// [`DialStop::DeadlineExceeded`]. The caller attaches the connection it got
+    /// ([`LinkCell::attach`]).
     pub async fn dial<T, E, F, Fut>(
         &self,
         policy: ReconnectPolicy,
@@ -181,49 +185,60 @@ impl LinkCell {
         let mut actions = self.actions.subscribe();
         actions.borrow_and_update();
         let mut bucket = TokenBucket::new(policy.redial_budget, tokio::time::Instant::now());
+        // The whole first dial, attempts and waits included, ends by `maximum_duration`.
+        let deadline = policy
+            .maximum_duration
+            .and_then(|bound| tokio::time::Instant::now().checked_add(bound));
+        let mut attempts = 0_u32;
         let mut failures = 0_u32;
         let mut in_burst = 0_u32;
         let mut delay = policy.initial_delay;
         let mut reason: Option<String> = None;
         loop {
+            if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
+                return Err(self.fail(DialStop::DeadlineExceeded { attempts }.into()));
+            }
             while let Err(next) = bucket.take(tokio::time::Instant::now()) {
                 self.phase.send_replace(LinkPhase::Disconnected { reason: reason.clone() });
-                tokio::time::sleep_until(next).await;
+                tokio::select! {
+                    () = tokio::time::sleep_until(next) => {}
+                    () = until(deadline) => {
+                        return Err(self.fail(DialStop::DeadlineExceeded { attempts }.into()));
+                    }
+                }
             }
+            attempts = attempts.saturating_add(1);
             in_burst = in_burst.saturating_add(1);
             self.phase.send_replace(LinkPhase::Connecting { reason: reason.clone() });
             // This attempt starts on the network as it is now; only a change while it is in
             // flight abandons it.
             network.borrow_and_update();
+            let mut network_moved = false;
             let outcome = tokio::select! {
                 biased;
-                outcome = attempt() => Some(outcome),
-                Ok(()) = network.changed() => None,
+                outcome = attempt() => outcome,
+                // A dial on the network that went away may hang until its timeout; drop it.
+                Ok(()) = network.changed() => {
+                    network_moved = true;
+                    DialOutcome::Retry(DialStop::NetworkChanged.into())
+                }
+                () = until(deadline) => {
+                    return Err(self.fail(DialStop::DeadlineExceeded { attempts }.into()));
+                }
             };
             let error = match outcome {
-                Some(DialOutcome::Ready(value)) => return Ok(value),
-                Some(DialOutcome::Fatal(error)) => {
-                    self.phase.send_replace(LinkPhase::Failed { reason: error.to_string() });
-                    return Err(error);
-                }
-                Some(DialOutcome::Retry(error)) => error,
-                None => {
-                    // A dial on the network that went away may hang until its timeout; drop it
-                    // and start a new burst on the new one.
-                    network.borrow_and_update();
-                    reason = Some(NETWORK_CHANGED.into());
-                    in_burst = 0;
-                    delay = policy.initial_delay;
-                    continue;
-                }
+                DialOutcome::Ready(value) => return Ok(value),
+                DialOutcome::Fatal(error) => return Err(self.fail(error)),
+                DialOutcome::Retry(error) => error,
             };
             reason = Some(error.to_string());
+            // Every failed attempt counts, one a network change abandoned too: a flapping
+            // network cannot outlast an attempt bound.
             failures = failures.saturating_add(1);
             if policy.maximum_attempts.is_some_and(|maximum| failures >= maximum) {
-                self.phase.send_replace(LinkPhase::Failed { reason: error.to_string() });
-                return Err(error);
+                return Err(self.fail(error));
             }
-            if network.has_changed().unwrap_or(false) {
+            if network_moved || network.has_changed().unwrap_or(false) {
                 // A new network starts a new burst at once.
                 network.borrow_and_update();
                 in_burst = 0;
@@ -250,6 +265,9 @@ impl LinkCell {
                     true
                 }
                 () = tokio::time::sleep(wait) => false,
+                () = until(deadline) => {
+                    return Err(self.fail(DialStop::DeadlineExceeded { attempts }.into()));
+                }
             };
             if parking || woken {
                 in_burst = 0;
@@ -258,5 +276,19 @@ impl LinkCell {
                 delay = delay.saturating_mul(4).min(policy.maximum_delay);
             }
         }
+    }
+
+    /// The first dial ended for good with `error`: the cell says why.
+    fn fail<E: fmt::Display>(&self, error: E) -> E {
+        self.phase.send_replace(LinkPhase::Failed { reason: error.to_string() });
+        error
+    }
+}
+
+/// Resolves at `deadline`, or never without one.
+async fn until(deadline: Option<tokio::time::Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending().await,
     }
 }
