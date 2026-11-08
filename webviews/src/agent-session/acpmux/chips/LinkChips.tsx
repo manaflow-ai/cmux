@@ -14,19 +14,20 @@ import { useContext, useLayoutEffect, useState, type FocusEvent, type PointerEve
 import { useT } from "../i18n";
 import { callChipHost } from "./host";
 import { useMessageScope } from "./messageScope";
-import { Folder, GitHubMark, Globe } from "../conversation/icons";
+import { Folder, GitHubMark, Globe, Lock } from "../conversation/icons";
 import { FileKindIcon } from "./FileKindIcon";
 import { usePathInfo, useSiteInfo } from "./linkStore";
 import { isPrivateUrl, redactUrlText } from "./linkDisplay";
-import { isDeniedPath, pathName, textLinks } from "./paths";
-import { bareFileNames, useReplyFolders } from "./replyFolders";
+import { isDeniedPath, pathName } from "./paths";
+import { useReplyFolders } from "./replyFolders";
 import { LinkHoverCard } from "./LinkHoverCard";
-import { pullRequestRef } from "./PullRequestCard";
+import { githubItemRef } from "./pullRequestCardModel";
 import { usePullRequestState } from "./pullRequestStore";
 import { useHoverCard } from "./useHoverCard";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
-import { useAgentLinkClick } from "../conversation/SessionRef";
-import { useSessionHover } from "../started/SessionHoverCard";
+import { useAgentLinkClick } from "../conversation/sessionRefModel";
+import { githubRefLabel, githubRefTitle } from "./linkChipsModel";
+import { useSessionHover } from "../started/useSessionHover";
 import { SubsessionContext } from "../subagents/subsessions";
 
 /// A path chip. `label` is the link's text, else the file name; `written` is the reply's own
@@ -152,7 +153,8 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
   const cardMark = mark ?? favicon ?? <Globe size={16} className="cv-chip__icon" />;
   const hover = useHoverCard();
   const [anchor, setAnchor] = useState<HTMLAnchorElement | null>(null);
-  const pullRequest = pullRequestRef(href);
+  // A pull request or an issue: both get the card and the state's colour (Leo 2026-11-08).
+  const pullRequest = githubItemRef(href);
   // A pull request's mark takes its state's colour once the host knows it, as GitHub draws a
   // reference and as the card's glyph does: merged purple (Leo 2026-10-23, of a merged #23835's
   // blue chip: "I feel like this should be purple"). Colour only, so the chip never reflows.
@@ -208,6 +210,7 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
         ref={setAnchor}
         className={`cv-link cv-chip is-web${ref ? " is-ref" : ""}`}
         data-pr-state={state}
+        data-pr-kind={pullRequest?.kind === "issue" ? "issue" : undefined}
         data-session-ref={agent["data-session-ref"]}
         // A link to one of the reader's chats right-clicks as that chat (menuParts.ts `session`).
         data-open-session={agent["data-open-session"]}
@@ -237,72 +240,31 @@ export function UrlChip({ href, icon, children }: { href: string; icon?: ReactNo
           hover={hover}
           mark={cardMark}
           siteTitle={site?.title}
-          pullRequest={pullRequest && { ...pullRequest, title: githubRefTitle(site?.title) }}
+          pullRequest={
+            pullRequest && {
+              repo: pullRequest.repo,
+              number: pullRequest.number,
+              title: githubRefTitle(site?.title),
+            }
+          }
         />
       )}
     </>
   );
 }
 
-/// Plain reply text with its paths and URLs as chips (D4); `key` prefixes the chips' keys.
-export function linkedText(text: string, key: string): ReactNode[] {
-  const links = textLinks(text);
-  if (!links.length) return namedText(text, key);
-  const out: ReactNode[] = [];
-  let at = 0;
-  links.forEach((link, index) => {
-    if (link.start > at) out.push(...namedText(text.slice(at, link.start), `${key}-${index}-names`));
-    out.push(
-      link.kind === "path" ? (
-        <PathChip
-          key={`${key}-${index}`}
-          path={link.path!}
-          written={link.value}
-          label={link.line ? `${pathName(link.path!)}:${link.line}` : undefined}
-        />
-      ) : (
-        <UrlChip key={`${key}-${index}`} href={link.value}>
-          {githubRefLabel(link.value) ?? link.value}
-        </UrlChip>
-      ),
-    );
-    at = link.end;
-  });
-  if (at < text.length) out.push(...namedText(text.slice(at), `${key}-names`));
-  return out;
-}
-
-/// Text between a reply's paths: each bare file name may be a file in a folder the reply names.
-function namedText(text: string, key: string): ReactNode[] {
-  const names = bareFileNames(text);
-  if (!names.length) return [text];
-  const out: ReactNode[] = [];
-  let at = 0;
-  names.forEach((name, index) => {
-    if (name.start > at) out.push(text.slice(at, name.start));
-    out.push(<SiblingFileChip key={`${key}-${index}`} name={name.name} />);
-    at = name.end;
-  });
-  if (at < text.length) out.push(text.slice(at));
-  return out;
-}
-
-const GITHUB_REF = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(?:pull|issues)\/(\d+)\/?(?:[?#].*)?$/;
-
-/// `owner/repo#N` for a GitHub pull request or issue address, else undefined.
-export function githubRefLabel(href: string): string | undefined {
-  const match = GITHUB_REF.exec(href);
-  return match ? `${match[1]}#${match[2]}` : undefined;
-}
-
-/// A pull request's or issue's own title from GitHub's page title ("Fix the thing by leo ·
-/// Pull Request #12 · owner/repo · GitHub") for its hover card, or undefined when cmux has no
-/// title for it.
-export function githubRefTitle(page: string | undefined): string | undefined {
-  if (!page) return undefined;
-  const title = page
-    .split(" · ")[0]!
-    .replace(/ by [\w-]+$/, "")
-    .trim();
-  return title && !/^(GitHub|Pull Request|Issue)\b/.test(title) ? title : undefined;
+/// A file id only its provider opens (`foreignFileIds`): its id, shortened, and a note that it
+/// cannot be opened here. Never a link, a file chip or an image (Leo, 2026-11-06: "do we not have
+/// a good path for them sending images to you?"); an agent hands over an image with
+/// `acpmux send --attach`.
+export function ForeignFileRef({ id }: { id: string }) {
+  const t = useT();
+  const shown = id.length > 20 ? `${id.slice(0, 16)}…` : id;
+  return (
+    <span className="cv-foreign-file">
+      <Lock size={12} className="cv-foreign-file__icon" />
+      <span className="cv-foreign-file__id">{shown}</span>
+      <span className="cv-foreign-file__note">{t("message.foreignFile")}</span>
+    </span>
+  );
 }

@@ -11,6 +11,8 @@ enum AgentPaneHandshakeReply {
         if request == .ready {
             model.tabRow.pageLoaded()
             model.sessionInfo.pageLoaded()
+            model.setToastAvoidance(nil)
+            model.hostGlass.pageLoaded()
             model.setTabRowTools([])
         }
         model.setCheckpointAvailable(false)

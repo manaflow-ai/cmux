@@ -24,9 +24,10 @@ import { createWorkflowAdapter } from "../summary/foldWorkflows";
 import { sessionSummary, type SummarySource, type SummaryWakeup } from "../summary/sessionSummary";
 import { parallelWorkflowProcesses, workflowFixture, type WorkflowFixtureStage } from "../summary/workflowFixture";
 import { SessionInfo, SessionInfoPanel, type SessionInfoPlacement } from "./SessionInfo";
-import { SubagentBanner, SubagentTitle, type SubagentHeaderVariant } from "./SubagentScopeHeader";
+import { SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
+import type { SubagentHeaderVariant } from "./subagentScopeHeaderModel";
 import { subagentSummary, type SubagentScope } from "./subagentScope";
-import { outputArtifacts } from "./OutputsSection";
+import { outputArtifacts } from "./outputsSectionModel";
 import { DEFAULT_SECTIONS } from "./sessionInfoState";
 import { sessionEntry, type AcpmuxSessionEntry } from "../sessionList";
 import type { SessionUsageStats } from "../usageStats";
@@ -47,11 +48,26 @@ type Props = ComponentProps<typeof SessionInfo> & {
   ceiling?: string;
   /// Gallery-only: a different edge look, for comparison with the shipped hairline (sessionInfo.css).
   edge?: string;
+  /// Gallery-only: a compared section grip (GRIP_LOOKS), for comparison with the shipped right-gutter one.
+  grip?: keyof typeof GRIP_LOOKS;
   /// Gallery-only: panel width used by narrow workflow layout states.
   panelWidth?: number;
   /// Gallery-only: the old always-drawn thin thumb, for comparison with the shipped no-scrollbar body.
   scroller?: "thumb";
 };
+
+/// Compared section grips (sessionInfo.css `__handle`), as style overrides on the shipped one.
+const GRIP_LOOKS = {
+  /// Faint at rest, as the reference panel draws it, and full on the grip.
+  rest: ".acpmux-session-info-section__handle{opacity:0.45}",
+  /// In the left gutter, beside the title, at the reference's size; only on head hover.
+  left:
+    ".acpmux-session-info__body[data-layout]{padding-right:var(--grid-sidebar-highlight-inset)}" +
+    ".acpmux-session-info-section__handle{right:auto;left:calc(-1 * (var(--grid-sidebar-highlight-inset) + var(--acpmux-session-info-grip-gutter)));" +
+    "width:calc(var(--grid-sidebar-highlight-inset) + var(--acpmux-session-info-grip-gutter) - var(--grid-base) / 2)}",
+  /// No grip until the head is hovered, and the whole head takes the grab cursor.
+  head: ".acpmux-session-info-section:has(> .acpmux-session-info-section__handle) > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger{cursor:grab}",
+} as const;
 
 const edit = (path: string, oldText: string | undefined, newText: string) =>
   tool(`Edit ${path}`, "edit", "completed", { diffs: [{ path: `${CWD}/${path}`, oldText, newText }] });
@@ -107,6 +123,7 @@ function GallerySessionInfo({
   tones,
   ceiling,
   edge,
+  grip,
   panelWidth = 320,
   scroller,
   more: moreAtFirst,
@@ -118,6 +135,7 @@ function GallerySessionInfo({
     <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
       {ceiling ? <style>{`.acpmux-session-info[data-placement]{max-height:${ceiling}}`}</style> : null}
       {edge ? <style>{`.acpmux-session-info[data-placement]{${edge}}`}</style> : null}
+      {grip ? <style>{GRIP_LOOKS[grip]}</style> : null}
       {scroller === "thumb" ? <style>{".acpmux-session-info__body{scrollbar-width:thin}"}</style> : null}
       {transcript ? <Transcript /> : null}
       <SessionInfoPanel
@@ -382,9 +400,9 @@ const chevronOnHoverAfterTitle: Play = async (ctx) => {
 };
 
 /// As native #32674: the six-dot grip draws nothing at rest, nor for a pointer over a section's other
-/// rows; it shows while its section's head is hovered, left of the title (Leo, 2026-11-03: "why dont
-/// we have the drag grabber to the left of the title"), overlapping neither the title nor the head's
-/// icon, and the title does not move when it shows.
+/// rows; it shows, faint, while its section's head is hovered, in the panel's right gutter past the
+/// head's count (Leo, 2026-11-06: "if you look at the spacing of claude code, they have theirs at the
+/// right"), at the reference's size, and neither the title nor the count moves when it shows.
 const gripOnHeadHoverOnly: Play = async (ctx) => {
   const handles = () => [...ctx.document.querySelectorAll(".acpmux-session-info-section__handle")];
   await ctx.waitFor(() => handles().length > 0);
@@ -401,22 +419,31 @@ const gripOnHeadHoverOnly: Play = async (ctx) => {
     if (style(ctx, handle).opacity !== "0") throw new Error("A body row's hover showed its section's grip");
   }
   const title = head.querySelector(".acpmux-session-info-section__title")!;
+  const meta = head.querySelector(".acpmux-session-info-section__meta");
   const before = title.getBoundingClientRect();
+  const metaBefore = meta?.getBoundingClientRect();
   await ctx.hover({
     selector: `[data-section="${section.dataset.section}"] > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger`,
   });
-  await ctx.waitFor(() => style(ctx, handle).opacity === "1");
+  await ctx.waitFor(() => Number.parseFloat(style(ctx, handle).opacity) > 0);
+  const opacity = Number.parseFloat(style(ctx, handle).opacity);
+  if (!(opacity < 1)) throw new Error(`The grip shows at ${opacity}, not faint`);
   const after = title.getBoundingClientRect();
   if (after.left !== before.left || after.width !== before.width)
     throw new Error("The title moved when the grip showed");
-  // Lucas, 2026-11-05, Session Info lab: the grip inside the pill "looks strange and poorly positioned".
-  // Two dots across and three down, in the panel's left gutter beside the head, outside its pill, on the
-  // head's middle line.
+  const metaAfter = meta?.getBoundingClientRect();
+  if (metaBefore && metaAfter && metaAfter.right !== metaBefore.right)
+    throw new Error("The count moved when the grip showed");
+  // Two dots across and three down, about 6x10, past the head's pill on the right, on its middle line,
+  // inside the panel.
   const dots = handle.querySelector("svg")!.getBoundingClientRect();
   const pill = head.getBoundingClientRect();
-  if (dots.right > after.left + 0.5) throw new Error("The grip is not left of the title");
+  const panel = ctx.find({ selector: ".acpmux-session-info__body" }).getBoundingClientRect();
   if (!(dots.height > dots.width)) throw new Error(`The grip is ${dots.width}x${dots.height}, not taller than wide`);
-  if (dots.right > pill.left + 0.5) throw new Error("The grip is not in the gutter left of its head's pill");
+  if (dots.width > 6 || dots.height > 10)
+    throw new Error(`The grip is ${dots.width}x${dots.height}, past the reference's size`);
+  if (dots.left < pill.right - 0.5) throw new Error("The grip is not in the gutter right of its head's pill");
+  if (dots.right > panel.right - 4) throw new Error("The grip crowds the panel's right edge");
   if (Math.abs(dots.top + dots.height / 2 - (pill.top + pill.height / 2)) > 0.5)
     throw new Error("The grip is not on its head's middle line");
 };
@@ -427,31 +454,20 @@ const hoverFirstHead: Play = async (ctx) => {
   await ctx.hover({ selector: FOLDABLE_HEAD });
 };
 
-/// Leo, 2026-11-03: "why dont we have the drag grabber to the left of the title". Every section's grip,
-/// icon heads (Context, Usage, Connectors) and the bare Environment rows included, ends at or before its
-/// head's first glyph (its icon, else its title) and sits far from the panel's right edge, where the
-/// scrollbar's thumb runs.
-const gripLeftOfEveryTitle: Play = async (ctx) => {
+/// Leo, 2026-11-06: "they have theirs at the right". Every section's grip, icon heads (Context, Usage,
+/// Connectors) and the bare Environment rows included, sits past its section's own pill on the right and
+/// inside the panel, so it overlaps no title, count or trailing control.
+const gripRightOfEveryHead: Play = async (ctx) => {
   const sections = () => [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-session-info-section")];
   await ctx.waitFor(() => sections().some((s) => s.querySelector(":scope > .acpmux-session-info-section__handle")));
   const body = ctx.find({ selector: ".acpmux-session-info__body" }).getBoundingClientRect();
   for (const section of sections()) {
     const handle = section.querySelector(":scope > .acpmux-session-info-section__handle");
     if (!handle || handle.getClientRects().length === 0) continue;
-    // The dots: the handle's hit box reaches over the icon box's empty margin.
     const grip = handle.querySelector("svg")!.getBoundingClientRect();
-    const first = section.querySelector(
-      ":scope > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger, :scope > .acpmux-session-info-section__head",
-    );
-    // A bare section (the Environment rows) has no head: its first row's leading icon stands in.
-    const glyph = first
-      ? first.querySelector(":scope > .acpmux-session-info-section__icon, :scope > .acpmux-session-info-section__title")
-      : section.querySelector(":scope > :not(.acpmux-session-info-section__handle) svg");
-    if (glyph && grip.right > glyph.getBoundingClientRect().left + 0.5)
-      throw new Error(`${section.dataset.section}'s grip is not left of its title`);
-    if (grip.left < body.left - 0.5) throw new Error(`${section.dataset.section}'s grip spills out of the panel`);
-    if (grip.right > body.left + body.width / 2)
-      throw new Error(`${section.dataset.section}'s grip is on the right, by the scrollbar's thumb`);
+    if (grip.left < section.getBoundingClientRect().right - 0.5)
+      throw new Error(`${section.dataset.section}'s grip is not right of its head`);
+    if (grip.right > body.right - 0.5) throw new Error(`${section.dataset.section}'s grip spills out of the panel`);
   }
 };
 
@@ -1515,6 +1531,23 @@ export default componentEntry<Props>({
         repository: undefined,
       },
     },
+    "connectors-loaded": {
+      note: 'Connector inventory variant: two MCP servers loaded by the attached harness read as "2 loaded". This deliberately does not claim provider authentication or resource authorization.',
+      props: {
+        ...full,
+        summary: {
+          ...summary,
+          mcpServers: [
+            { name: "github", status: "connected" as const },
+            { name: "linear", status: "connected" as const },
+          ],
+        },
+      },
+    },
+    "connectors-connecting": {
+      note: 'Connector inventory variant: one MCP server is still loading, so the head says "1 connecting" rather than a green connected count.',
+      props: { ...full, summary: { ...summary, mcpServers: [{ name: "github", status: "pending" as const }] } },
+    },
     "context-connectors-open": {
       note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status.",
       props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
@@ -1796,29 +1829,28 @@ export default componentEntry<Props>({
       play: chevronOnHoverAfterTitle,
     },
     "header-grip-hover": {
-      note: "A section head under the pointer: the six-dot grip, two across and three down, shows in the panel's left gutter beside the head's pill, on its middle line (Lucas, 2026-11-05, Session Info lab: inside the pill it \"looks strange and poorly positioned\"). The title does not move. At rest no grip draws, and a pointer over the section's other rows shows none.",
+      note: "Chosen. A section head under the pointer: a small, faint six-dot grip (two across and three down, 1.5px dots 4px apart, the reference's size) shows in the panel's right gutter past the head's count, on its middle line (Leo, 2026-11-06: \"if you look at the spacing of claude code, they have theirs at the right\"). Nothing in the head moves; the gutter is always kept. At rest no grip draws, and a pointer over the section's other rows shows none.",
       props: { ...full, placement: "push" },
       play: gripOnHeadHoverOnly,
     },
-    "header-grip-edge": {
-      note: 'Before, for comparison: the grip centred on the head\'s left edge, half on and half off its pill, as cmux#34269 drew it (Leo, 2026-11-04: "this is off").',
-      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-center:0px" },
+    "header-grip-rest": {
+      note: 'Compared, not chosen: the grip faint at rest as the reference panel draws it, right of the count. Six faint dots on every section head at rest read as clutter in a panel with eight heads (Leo, 2026-11-02, on an always-on grip: "THESE ARE JUST SO INSANELY STUPID LOOKING").',
+      props: { ...full, placement: "push", grip: "rest" },
+    },
+    "header-grip-left-small": {
+      note: 'Compared, not chosen: the grip on head hover in the left gutter beside the title, at the reference\'s size. It still crowds the title (Leo, 2026-11-06: "I do not like the layout and proportion of the dragger").',
+      props: { ...full, placement: "push", grip: "left" },
       play: hoverFirstHead,
     },
-    "header-grip-gutter": {
-      note: "Compared, not chosen: the wide grip wholly in the gutter left of the pill. It reads as detached from its row and runs into the panel's resize edge.",
-      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-center:calc(-1 * var(--grid-base))" },
+    "header-grip-whole-head": {
+      note: "Compared, not chosen: no grip at rest, the whole head takes the grab cursor, and the grip shows on hover. A press on a head already folds the section, so a whole-head drag would need a move threshold before every fold click; the grip alone keeps the fold click instant.",
+      props: { ...full, placement: "push", grip: "head" },
       play: hoverFirstHead,
     },
-    "header-grip-tall": {
-      note: "Before, for comparison: the grip turned upright (two across, three down), as cmux#32930 drew it.",
-      props: { ...full, placement: "push", edge: "--acpmux-session-info-grip-turn:rotate(90deg)" },
-      play: hoverFirstHead,
-    },
-    "header-grip-left": {
-      note: "Every section's grip, icon heads and the bare Environment rows included, sits left of its head's icon or title, away from the scrollbar's thumb on the right.",
+    "header-grip-right": {
+      note: "Every section's grip, icon heads and the bare Environment rows included, sits in the right gutter past its own head, inside the panel.",
       props: { ...full, placement: "push" },
-      play: gripLeftOfEveryTitle,
+      play: gripRightOfEveryHead,
     },
     "edge-hairline": {
       note: "Chosen. The panel in the gutter with no fill of its own and a hairline edge in the pane's border color (--agent-border, 0.5px) on its rounded corners (Leo, 2026-11-03: \"maybe it's ok...? to HAVE NO BACKGROUND FOR THE SESSION INFO / but i think having a border for it might be better\").",

@@ -95,7 +95,9 @@ function expectFullCard(card: HTMLElement | null) {
   expect(card!.querySelector(".acpmux-pr-card__checks .acpmux-pr-card__sr")?.textContent).toBe(
     "7 of 9 checks passed, 2 failing",
   );
-  expect(card!.querySelector(".acpmux-pr-card__failed")?.textContent).toBe("✗ 2");
+  // In words, as CI checks (Leo 2026-11-07: "The check mark, the X mark, whatever. What does that mean?").
+  expect(card!.querySelector(".acpmux-pr-card__checksName")?.textContent).toBe("Checks");
+  expect(card!.querySelector(".acpmux-pr-card__failed")?.textContent).toBe("2 failed");
 }
 
 /** The card's text as it shows: no svg titles and no screen-reader-only words. */
@@ -167,9 +169,11 @@ test("an inline link opens the same card: favicon, page title, host, the address
   expect(card.querySelector(".cv-link-preview__target")?.textContent).toBe(
     "https://docs.example.test/guide?page=2&token=•••",
   );
-  expect([...card.querySelectorAll("button")].map((button) => button.textContent)).toEqual(
-    expect.arrayContaining([expect.stringContaining("Open"), expect.stringContaining("Open in")]),
-  );
+  // One split button: Open, and its chevron named Open in (Leo 2026-11-07: "why don't we just combine both").
+  expect(card.querySelectorAll(".cv-link-preview__split")).toHaveLength(1);
+  expect(card.querySelector(".cv-link-preview__split .cv-link-preview__open")?.textContent).toContain("Open");
+  expect(card.querySelector(".cv-link-preview__split .acpmux-open-in")?.getAttribute("aria-label")).toBe("Open in");
+  expect(card.querySelector(".cv-link-preview__split .acpmux-open-in")?.textContent).toBe("");
   // No pull request, no gh read.
   expect(host.calls.some((call) => call.method === "pr.inspect")).toBe(false);
   await act(async () => root.unmount());

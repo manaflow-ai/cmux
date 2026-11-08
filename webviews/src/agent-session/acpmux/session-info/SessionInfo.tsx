@@ -53,6 +53,8 @@ import { useChatCut } from "./chatCut";
 import { chatGlass, chatUnderGlass } from "../chatUnderGlass";
 import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
+import { useCountedRender } from "../perfRender";
+import { useStableProps } from "../stableProps";
 import { CHAT_LAYOUT_EVENT, chatColumnOf, useChatSizing, type ChatColumn } from "../chatWidth";
 import { FIND_HIDE_EVENT, FIND_OPEN_EVENT } from "../conversation/chatFind";
 import { PanelToggle } from "../header/PanelToggle";
@@ -68,23 +70,26 @@ import { ContextSection } from "./ContextSection";
 import { opensProcessTerminal } from "../processTerminal";
 import { tooltipProps } from "../shortcuts";
 import { subagentsIn } from "../subagents/subagentRows";
-import { chatGallery } from "../summary/chatGallery";
+import { chatGallery, type GalleryItem } from "../summary/chatGallery";
 import { GalleryDialog } from "../summary/GalleryDialog";
 import { useScrollEdges } from "../summary/scrollEdges";
 import { sessionSummary, type SessionSummary, type SummaryBackgroundTask } from "../summary/sessionSummary";
-import { waitingSubagents } from "../summary/SubagentStatusList";
+import { waitingSubagents } from "../summary/subagentStatusListModel";
 import type { Artifact } from "../conversation/artifactPreview";
 import type { StartedSession } from "../started/startedSessions";
-import { ChangesSection, headerStatus, visibleChanges, type SessionInfoPullRequestStatus } from "./ChangesSection";
+import { ChangesSection } from "./ChangesSection";
+import { headerStatus, visibleChanges, type SessionInfoPullRequestStatus } from "./changesSectionModel";
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
+import { summarizeConnectors } from "./connectorState";
 import { useIMessage, type IMessageView } from "./imessage";
 import { EnvironmentSection, type AccessGrant, type ProjectRowLook } from "./EnvironmentSection";
 import { SessionInfoSectionList, type SessionInfoCompactLook } from "./SessionInfoGroup";
 import { sectionOrder, tuckedSections } from "./sectionOrder";
 import { SessionInfoSection } from "./SessionInfoSection";
 import { SourcesSection } from "./SourcesSection";
-import { SUBAGENT_HEADER, SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
+import { SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
+import { SUBAGENT_HEADER } from "./subagentScopeHeaderModel";
 import {
   subagentBackLabel,
   subagentProcesses,
@@ -107,23 +112,27 @@ import {
   type SessionInfoSectionId,
   type SessionInfoSections,
 } from "./sessionInfoState";
-import { OutputsSection, outputArtifacts, outputLinks, type OutputArtifact } from "./OutputsSection";
+import { OutputsSection } from "./OutputsSection";
+import { outputArtifacts, outputLinks, type OutputArtifact, type OutputLink } from "./outputsSectionModel";
 import { sessionInfoLists, type SessionInfoProcess, type ProcessRegistry } from "./processes";
 import { ServersSection } from "./ServersSection";
 import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentCountsMeta, SubagentsSection } from "./SubagentsSection";
-import { AlsoHereSection, useAlsoHere } from "./AlsoHereSection";
-import { sessionStatus } from "./ChildSessionRows";
+import { AlsoHereSection } from "./AlsoHereSection";
+import { useAlsoHere } from "./alsoHereSectionModel";
+import { sessionStatus } from "./childSessionRowsModel";
 import { useChangeCounts, type ReadChanges } from "./changeCounts";
 import { useStepAside } from "./stepAside";
-import { chatOutputs } from "./chatOutputs";
+import { chatOutputs, type OutputFile } from "./chatOutputs";
 import { tryChipHost } from "../chips/host";
 import { useMissingPaths } from "../chips/linkStore";
 import { TasksSection } from "./TasksSection";
-import { currentPlan, planDone, ProgressSection, type SessionInfoPlan } from "./ProgressSection";
+import { ProgressSection } from "./ProgressSection";
+import { currentPlan, planDone, type SessionInfoPlan } from "./progressSectionModel";
 import { attributeCommands } from "../summary/workflowView";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
-import { UsageSection, usageMeta, type UsageOwnRowLayout } from "./UsageSection";
+import { UsageSection, type UsageOwnRowLayout } from "./UsageSection";
+import { usageMeta } from "./usageSectionModel";
 import { AppPanelSection, useAppPanelSections } from "../../../apps/scene/panels";
 import type { AcpmuxSessionEntry } from "../sessionList";
 import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
@@ -132,6 +141,10 @@ import { subagentProgress } from "../subagents/subagentProgress";
 import { useUnderSessionInfo } from "./underSessionInfo";
 import { useNativeSessionInfoHost } from "./native/host";
 import { useSameValue } from "./sameValue";
+import { chatPlace, type ChatPlace } from "../chatMachine";
+import { usageEntries, type UsageEntry } from "./usageEntries";
+import { samePanelProps } from "./samePanelProps";
+import type { AlsoHere } from "./alsoHere";
 import { NativeSessionInfo } from "./native/NativeSessionInfo";
 import "./sessionInfo.css";
 
@@ -356,13 +369,17 @@ export const pushedRoom = (paneWidth: number, panel: number, column?: ChatColumn
   const end = paneWidth - panel - 2 * FLOAT_MARGIN - Math.max(0, overflow);
   if (columnEnd(paneWidth, column) <= end) return 0;
   if (paneWidth - all <= 0 || pinnedColumnEnd(paneWidth - all, pinned, edge) > end) return all;
-  // Else the least room, in steps of 8, whose column still ends by `end`. At most about 70 steps, run once
-  // per layout of the panel.
-  let room = 8;
-  while (room < all && pinnedColumnEnd(paneWidth - room, pinned, edge) > end) room += 8;
+  // Else the least room, in steps of 2, whose column still ends by `end`. The column's inset is a whole
+  // pixel (model.ts transcriptColumn), so a coarser step lets a 1 px wider panel flip between push and
+  // overlay during a drag. At most about 300 steps, run once per layout of the panel.
+  let room = 2;
+  while (room < all && pinnedColumnEnd(paneWidth - room, pinned, edge) > end) room += 2;
   // Once the chat would end under the panel itself (its page edge under the card), the whole room: the
   // chat's right edge, its scrollbar with it, is then the panel's left margin, as Push always draws it.
-  return room >= panel ? all : room;
+  // A room within the margin of the panel is the whole room too: the pinned column only clears the panel
+  // in less where it nearly fits beside the whole of it, and a chat a few pixels off center there is not
+  // the centered push (Lucas, 2026-11-06); the stage is the overlay instead, as at every narrower pane.
+  return room > panel - FLOAT_MARGIN ? all : room;
 };
 /// The chat's content Session Info must never float over: the transcript's rows and the composer.
 const CHAT_CONTENT = ".acpmux-main :is(.acpmux-row, .acpmux-composer-box)";
@@ -434,18 +451,28 @@ function nativeTop(shell: HTMLElement | null | undefined, tabRowHeight: number):
 /// box is empty and only its children have one. One ResizeObserver on the dock and its children (a
 /// MutationObserver re-observes when its children change), both disconnected when `on` goes false or
 /// the shell changes.
+/// A change the observers see is drawn in the frame the stack changed (flushSync, as VirtualTranscript
+/// follows the same stack): a scheduled render drew the panel's old foot over the grown stack for a
+/// frame or more (the running tray coming in under an expanded Session Info).
 function useDockHeight(shell: HTMLElement | null | undefined, on: boolean): number {
   const [height, setHeight] = useState(0);
   useLayoutEffect(() => {
     const dock = on ? shell?.querySelector<HTMLElement>(".acpmux-dock") : null;
     if (!shell || !dock) return;
-    const read = () => {
+    const measure = () => {
       let top = Infinity;
       for (const part of [dock, ...dock.children]) {
         const box = part.getBoundingClientRect();
         if (box.height > 0) top = Math.min(top, box.top);
       }
-      setHeight(top === Infinity ? 0 : Math.max(0, Math.round(shell.getBoundingClientRect().bottom - top)));
+      return top === Infinity ? 0 : Math.max(0, Math.round(shell.getBoundingClientRect().bottom - top));
+    };
+    let last = measure();
+    const read = () => {
+      const next = measure();
+      if (next === last) return;
+      last = next;
+      flushSync(() => setHeight(next));
     };
     const resize = new ResizeObserver(read);
     const observe = () => {
@@ -454,7 +481,7 @@ function useDockHeight(shell: HTMLElement | null | undefined, on: boolean): numb
       for (const child of dock.children) resize.observe(child);
     };
     observe();
-    read();
+    setHeight(last);
     const children = new MutationObserver(() => {
       observe();
       read();
@@ -562,6 +589,7 @@ export function useSessionInfo({
   onReconnectMcp,
   remoteControl,
   onCompact,
+  onViewPrompt,
   onOpenChat,
   onShowUsage,
   onRender,
@@ -643,6 +671,9 @@ export function useSessionInfo({
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   /// Sends the chat's agent its `/compact` (Context's and Usage's Compact); unset where it cannot reach.
   onCompact?: () => void;
+  /// Context's View Prompt: opens the Context screen (context/ContextScreen.tsx); unset for a chat
+  /// whose prompt text acpmux does not hand this pane.
+  onViewPrompt?: () => void;
   /// Opens any chat acpmux lists, this Mac's or a peer's (Usage's rows).
   onOpenChat?: (sessionId: string) => void;
   /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
@@ -694,8 +725,8 @@ export function useSessionInfo({
   // A subagent shown in this pane in place (no pane of its own opened): the panel follows it there.
   const scopeId = subagent?.agent.id;
   useEffect(() => backFromAside(), [scopeId, backFromAside]);
-  // Lucas, 2026-11-06: "With enough space: session info opens automatically on new chats. In a narrow
-  // layout: it becomes a popover and starts closed." A pane with no room for it beside a readable chat
+  // Lucas, 2026-11-06: "In a narrow layout: it becomes a popover and starts closed." (Every new chat
+  // starts closed since Leo, 2026-11-07: sessionInfoState.ts.) A pane with no room for it beside a readable chat
   // (sessionInfoFits) holds it closed until the person opens it there (`asked`); opened, it is a
   // popover (SessionInfoPresence). One already showing as the pane narrows (a split opens beside it)
   // stays, as a popover; and once the pane has room again, the chat's own open choice shows.
@@ -710,6 +741,28 @@ export function useSessionInfo({
     if (!narrow && narrowWas) setSuppressed(false);
   }
   const shown = roomyShown && !(narrow && !asked);
+  // What the panel lists of the rows, read here as the pane renders, and what else it is handed,
+  // each the same value while it holds the same things: the panel (SessionInfoPresence, memoized)
+  // renders when what it shows changed, not on every pane render (bench/delta-renders.bench.ts).
+  const lists = useSessionInfoLists({
+    drawn: shown,
+    snapshot,
+    scope: subagent,
+    repository,
+    views: subagents?.views,
+    registry,
+    showsCalls: !!onShowCall,
+  });
+  const panelSnapshot = usePanelSnapshot(snapshot, lists.rows);
+  const steadyGrants = useStableProps({ grants }).grants;
+  const openSubagent = useStableCallback(subagents?.onOpen);
+  const subagentViews = subagents?.views;
+  const subagentAsks = subagents?.asks;
+  const steadySubagents = useMemo(
+    () =>
+      subagentAsks && openSubagent ? { views: subagentViews, asks: subagentAsks, onOpen: openSubagent } : undefined,
+    [subagentViews, subagentAsks, openSubagent],
+  );
   // The section a running line's count asked for, scrolled to once drawn.
   const [revealed, setRevealed] = useState<{ section: SessionInfoSectionId; at: number }>();
   const clearRevealed = useCallback(() => setRevealed(undefined), []);
@@ -725,6 +778,7 @@ export function useSessionInfo({
   const stableOnSaveEnvironment = useStableCallback(onSaveEnvironment);
   const stableOnReconnectMcp = useStableCallback(onReconnectMcp);
   const stableOnCompact = useStableCallback(onCompact);
+  const stableOnViewPrompt = useStableCallback(onViewPrompt);
   const stableOnOpenChat = useStableCallback(onOpenChat);
   const stableOnShowUsage = useStableCallback(onShowUsage);
   const stableOnShowCall = useStableCallback(onShowCall);
@@ -816,13 +870,14 @@ export function useSessionInfo({
         key={paneSession ?? ""}
         chat={paneSession}
         shown={shown}
-        snapshot={snapshot}
+        snapshot={panelSnapshot}
+        lists={lists}
         pullRequest={pullRequest}
         machineName={machineName}
         repository={repository}
         cloudRepositoryAvailable={cloudRepositoryAvailable}
         shell={shell}
-        grants={grants}
+        grants={steadyGrants}
         beside={beside}
         wide={wide}
         openedOutputAt={openedOutputAt}
@@ -831,7 +886,7 @@ export function useSessionInfo({
         onStepAside={stepAside.step}
         onStepBack={backFromAside}
         registry={registry}
-        subagents={subagents}
+        subagents={steadySubagents}
         sessions={sessions}
         onSetRunningLimit={onSetRunningLimit}
         workflows={workflows}
@@ -851,6 +906,7 @@ export function useSessionInfo({
         onReconnectMcp={stableOnReconnectMcp}
         remoteControl={remoteControl}
         onCompact={stableOnCompact}
+        onViewPrompt={stableOnViewPrompt}
         onOpenChat={stableOnOpenChat}
         onShowUsage={stableOnShowUsage}
         onRender={onRender}
@@ -860,6 +916,195 @@ export function useSessionInfo({
       />
     ),
   };
+}
+
+/// What Session Info lists of the rows, each kept while it holds the same things (sameValue.ts).
+/// Read as the pane renders (useSessionInfo), not in the panel: a snapshot is new objects on every
+/// update, a running command's output among them, and the panel (SessionInfoPresence, memoized)
+/// then renders only when one of these changed, not once per update. Read while the panel shows
+/// (`drawn`); hidden, the last reading stands, so a panel playing out keeps what it showed.
+export type SessionInfoLists = {
+  readonly summary: AcpmuxSnapshot["summary"];
+  readonly made: SessionSummary | undefined;
+  readonly links: readonly OutputLink[];
+  readonly outputFiles: OutputFile[];
+  readonly scopedPlan: SessionInfoPlan | undefined;
+  readonly artifacts: number;
+  readonly documents: readonly OutputArtifact[];
+  readonly agents: readonly Subagent[];
+  readonly transcriptTasks: ReturnType<typeof withChatEnds> | undefined;
+  readonly processes: readonly SessionInfoProcess[] | undefined;
+  readonly toolCalls: ReadonlySet<string> | undefined;
+  /// The rows the sections read for the chat's gallery (`SessionInfoSections` `rows`).
+  readonly rows: readonly AcpmuxRow[];
+  readonly rowCount: number;
+};
+
+function useSessionInfoLists({
+  drawn,
+  snapshot,
+  scope,
+  repository,
+  views,
+  registry,
+  showsCalls,
+}: {
+  drawn: boolean;
+  snapshot: AcpmuxSnapshot;
+  scope?: SubagentScope;
+  repository?: string;
+  views: Record<string, AcpmuxRow[]> | undefined;
+  registry?: ProcessRegistry;
+  /// A task row's Show call is offered (`onShowCall`).
+  showsCalls: boolean;
+}): SessionInfoLists {
+  const rows = scope?.rows ?? snapshot.rows;
+  const scopedAgent = scope?.agent;
+  const summary = useSameValue(
+    useMemo(
+      () => (drawn && scopedAgent ? subagentSummary(snapshot.summary, scopedAgent, rows) : snapshot.summary),
+      [drawn, scopedAgent, snapshot.summary, rows],
+    ),
+  );
+  const made = useSameValue(
+    useMemo(
+      () => (drawn ? sessionSummary(rows, repository ?? null, summary?.cwd) : undefined),
+      [drawn, rows, repository, summary?.cwd],
+    ),
+  );
+  const links = useSameValue(useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]));
+  // What the chat made for the person (chatOutputs.ts), read here beside `made` and kept while it is the
+  // same files, so the sections need not read the rows for it.
+  const outputFiles = useSameValue(
+    useMemo(() => (drawn ? chatOutputs(rows, summary?.cwd) : NO_OUTPUT_FILES), [drawn, rows, summary?.cwd]),
+  );
+  const scopedWorking = scopedAgent?.state === "running";
+  const scopedPlan = useSameValue(
+    useMemo(
+      () => (drawn && scopedAgent ? currentPlan(rows, scopedWorking) : undefined),
+      [drawn, scopedAgent, rows, scopedWorking],
+    ),
+  );
+  // The chat's gallery, kept while it holds the same items (sameValue: each item's kind, key, source and
+  // render call), so a replaced image or render with the same count is a new gallery, and a streamed
+  // token that changes none of it is the same one. Its pass is over the gallery's items, not the rows'
+  // text: chatGallery keeps each unchanged row's images and calls (its WeakMaps).
+  const gallery = useSameValue(useMemo(() => (drawn ? chatGallery(rows) : NO_GALLERY), [drawn, rows]));
+  const artifacts = gallery.length;
+  const documents = useSameValue(useMemo(() => (drawn ? outputArtifacts(rows) : []), [drawn, rows]));
+  const scopedAgents = scope?.agents;
+  const agents = useSameValue(
+    useMemo(
+      () => (drawn ? (scopedAgents ?? [...subagentsIn(rows, views).values()]) : []),
+      [drawn, scopedAgents, rows, views],
+    ),
+  );
+  const chatRows = snapshot.rows;
+  const transcriptTasks = useSameValue(
+    useMemo(
+      () => (scope && made ? withChatEnds(made.backgroundTasks, chatRows) : made?.backgroundTasks),
+      [scope, made, chatRows],
+    ),
+  );
+  const allProcesses = registry?.processes;
+  const processes = useSameValue(
+    useMemo(
+      () => (drawn && scope && allProcesses ? subagentProcesses(allProcesses, rows) : allProcesses),
+      [drawn, scope, allProcesses, rows],
+    ),
+  );
+  // The tool calls the loaded transcript holds, for a task row's Show call in a chat whose terminal
+  // cannot open here, and for a wakeup or cron job, which shows the call that made it on any chat:
+  // read here, so a call added to an existing row reaches the sections, and kept while it is the same
+  // set. A chat on this Mac with nothing scheduled opens its terminals instead and reads none.
+  const readsCalls = showsCalls && (!opensProcessTerminal(summary) || (made?.scheduled?.length ?? 0) > 0);
+  const toolCalls = useSameValue(
+    useMemo(() => (drawn && readsCalls ? toolCallIds(rows) : undefined), [drawn, readsCalls, rows]),
+  );
+  // The rows the sections read for the chat's gallery (its items: `gallery`), whether it has any, and
+  // the tool calls they show where `toolCalls` is not read: the same rows until the chat has rows or
+  // none, any item of its gallery or what it made changes (a replaced image or render at the same count
+  // too: review of cmux#37907 at 6c29ca42, P1), a turn starts or ends, or the panel lists another agent.
+  // Not each streamed token's copy, and not each row added: a tool call that makes nothing the panel
+  // shows draws none of it (Outputs reads `outputFiles`, Tasks reads `toolCalls`). Another chat's
+  // rows are always new: the panel outlives a chat switch, and B must never show A's images.
+  const chat = snapshot.sessionId;
+  const listing = scope?.agent.id;
+  const working = snapshot.isWorking;
+  const any = rows.length > 0;
+  const galleryRows = useRef({ rows, chat, any, gallery, listing, working, outputFiles, toolCalls });
+  if (
+    galleryRows.current.chat !== chat ||
+    galleryRows.current.any !== any ||
+    galleryRows.current.gallery !== gallery ||
+    galleryRows.current.listing !== listing ||
+    galleryRows.current.working !== working ||
+    galleryRows.current.outputFiles !== outputFiles ||
+    galleryRows.current.toolCalls !== toolCalls
+  )
+    galleryRows.current = { rows, chat, any, gallery, listing, working, outputFiles, toolCalls };
+  const sectionRows = galleryRows.current.rows;
+  const rowCount = rows.length;
+  const lists = useMemo<SessionInfoLists>(
+    () => ({
+      summary,
+      made,
+      links,
+      outputFiles,
+      scopedPlan,
+      artifacts,
+      documents,
+      agents,
+      transcriptTasks,
+      processes,
+      toolCalls,
+      rows: sectionRows,
+      rowCount,
+    }),
+    [
+      summary,
+      made,
+      links,
+      outputFiles,
+      scopedPlan,
+      artifacts,
+      documents,
+      agents,
+      transcriptTasks,
+      processes,
+      toolCalls,
+      sectionRows,
+      rowCount,
+    ],
+  );
+  const held = useRef(lists);
+  if (drawn) held.current = lists;
+  return held.current;
+}
+
+/// The snapshot Session Info's panel reads: `rows` in place of its own (the sections' rows,
+/// useSessionInfoLists), and the one given last while every other field is the same object. The
+/// client keeps a field's object while it does not change (direct.ts), so a running command's output
+/// update, which changes only the rows, hands the panel the same snapshot.
+function usePanelSnapshot(snapshot: AcpmuxSnapshot, rows: readonly AcpmuxRow[]): AcpmuxSnapshot {
+  const held = useRef<{ source: AcpmuxSnapshot; value: AcpmuxSnapshot } | undefined>(undefined);
+  const before = held.current;
+  if (before && before.value.rows === rows && sameButRows(before.source, snapshot)) return before.value;
+  const value = rows === snapshot.rows ? snapshot : { ...snapshot, rows: rows as AcpmuxRow[] };
+  held.current = { source: snapshot, value };
+  return value;
+}
+
+/// Every own field of the two snapshots is the same object, except `rows`.
+function sameButRows(previous: AcpmuxSnapshot, next: AcpmuxSnapshot): boolean {
+  if (previous === next) return true;
+  const before = previous as unknown as Record<string, unknown>;
+  const after = next as unknown as Record<string, unknown>;
+  const keys = Object.keys(after);
+  return (
+    keys.length === Object.keys(before).length &&
+    keys.every((key) => key === "rows" || (key in before && Object.is(before[key], after[key])))
+  );
 }
 
 const SESSION_INFO_TOGGLE = "button.acpmux-session-info-toggle";
@@ -900,6 +1145,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   chat,
   shown,
   snapshot,
+  lists,
   pullRequest,
   machineName,
   repository,
@@ -933,6 +1179,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onReconnectMcp,
   remoteControl,
   onCompact,
+  onViewPrompt,
   onOpenChat,
   onShowUsage,
   onRender,
@@ -943,7 +1190,11 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   /// The chat whose width and folds it draws (sessionInfoState.ts `useSessionInfoState`).
   chat: string | undefined;
   shown: boolean;
+  /// The chat's snapshot, its rows as the sections read them (`lists.rows`): the same object while
+  /// nothing else in it changed (useSessionInfo `panelSnapshot`).
   snapshot: AcpmuxSnapshot;
+  /// What it lists of the rows (useSessionInfoLists).
+  lists: SessionInfoLists;
   /// What the App read of the chat's pull requests (header state), which the hook already follows.
   pullRequest: HeaderPullRequest | undefined;
   machineName?: string;
@@ -997,6 +1248,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   onReconnectMcp?: (server: string) => Promise<unknown>;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   onCompact?: () => void;
+  onViewPrompt?: () => void;
   onOpenChat?: (sessionId: string) => void;
   /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
   /// time the panel shows: what Usage lists is otherwise the last read's, or none at all.
@@ -1008,6 +1260,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   scope?: SubagentScope;
 }) {
   onRender?.();
+  useCountedRender("session-info:presence");
   const { width, sections } = useSessionInfoState(chat);
   const native = useNativeSessionInfoHost();
   const t = useT();
@@ -1017,7 +1270,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   // A column the display owns (its own width) or a zoomed page's is a new object on every call: kept
   // while its numbers are the same, so the placement effect below (the shell's column pin and its
   // CHAT_LAYOUT_EVENT) runs only when the column changes, never once per streamed token.
-  const column = useSameValue(chatColumnOf(sizing.width, display, sizing.scale));
+  const column = useSameValue(chatColumnOf(display, sizing.scale));
   // It slides in from the pane's right edge and back out (ui/presence.ts), keeping its sections
   // while it leaves.
   const presence = usePresence(shown && !native, "right");
@@ -1183,8 +1436,23 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   // A card under the panel (the computer use live preview) reads where it goes from the shell.
   // The web panel floats at the pane's right, pushing or not; the native one's room is in the chat's row.
   useUnderSessionInfo(shell, drawn, push && native, FLOAT_MARGIN, sessionInfoTop, push && native ? room : undefined);
-  // A subagent's panel reads its own rows only: its replies, thoughts and tool calls.
-  const rows = scope?.rows ?? snapshot.rows;
+  // What the sections list of the rows (useSessionInfoLists, read as the pane renders): a subagent's
+  // panel reads its own rows only.
+  const {
+    summary,
+    made,
+    links,
+    outputFiles,
+    scopedPlan,
+    artifacts,
+    documents,
+    agents,
+    transcriptTasks,
+    processes,
+    toolCalls,
+    rows: sectionRows,
+    rowCount,
+  } = lists;
   // Measured before paint, so a panel that would cover the chat never draws a frame over it. Again
   // as the pane, the panel or the rows change while it floats or pushes by less than its full room
   // (the chat's width is the pane less that room).
@@ -1216,81 +1484,42 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     // Only a larger reading sets it: an unchanged one would still draw the panel once (React runs the
     // component before it bails out), once per streamed row while it pushes.
     if (next > overflow) setOverflow((current) => (next > current ? next : current));
-  }, [shell, drawn, reading, wide, paneWidth, room, side, width, column, rows.length, push, overflow, native]);
-  const scopedAgent = scope?.agent;
-  // What the sections list keeps its identity while it holds the same things (sameValue.ts): a snapshot
-  // is new objects on every streamed token, and the sections (SessionInfoSections, memoized) then skip it.
-  const summary = useSameValue(
-    useMemo(
-      () => (drawn && scopedAgent ? subagentSummary(snapshot.summary, scopedAgent, rows) : snapshot.summary),
-      [drawn, scopedAgent, snapshot.summary, rows],
-    ),
-  );
+  }, [shell, drawn, reading, wide, paneWidth, room, side, width, column, rowCount, push, overflow, native]);
   // After `summary`: read before its declaration, it threw on every render (a temporal dead zone).
   const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
-  const made = useSameValue(
-    useMemo(
-      () => (drawn ? sessionSummary(rows, repository ?? null, summary?.cwd) : undefined),
-      [drawn, rows, repository, summary?.cwd],
-    ),
-  );
-  const links = useSameValue(useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]));
   // The plan the transcript's todo list draws. The chat's is the one the client publishes beside its
   // rows (snapshot.progress, liveProgress.ts): the same object until the checklist changes or its turn
   // ends, so a streamed token neither rescans the rows nor recounts the steps (carried from #34933). A
   // subagent's panel gets the parent's snapshot, so it never reads that one: its plan comes from its
-  // own live rows (not `sectionRows`, which keep their identity until a row is added), so a step ticked
-  // in place shows here at once.
+  // own live rows (useSessionInfoLists `scopedPlan`), so a step ticked in place shows here at once.
   const live = snapshot.progress;
   const livePlan = useMemo<SessionInfoPlan | undefined>(
     () => (live ? { entries: live.plan, ended: Boolean(live.ended), done: live.completed } : undefined),
     [live],
   );
-  const scopedWorking = scopedAgent?.state === "running";
-  const scopedPlan = useSameValue(
-    useMemo(
-      () => (drawn && scopedAgent ? currentPlan(rows, scopedWorking) : undefined),
-      [drawn, scopedAgent, rows, scopedWorking],
-    ),
-  );
-  const plan = scopedAgent ? scopedPlan : drawn ? livePlan : undefined;
-  const artifacts = useMemo(() => (drawn ? chatGallery(rows).length : 0), [drawn, rows]);
-  const documents = useSameValue(useMemo(() => (drawn ? outputArtifacts(rows) : []), [drawn, rows]));
+  const plan = scope?.agent ? scopedPlan : drawn ? livePlan : undefined;
   const views = subagents?.views;
   const asks = subagents?.asks;
-  const scopedAgents = scope?.agents;
-  const agents = useSameValue(
-    useMemo(
-      () => (drawn ? (scopedAgents ?? [...subagentsIn(rows, views).values()]) : []),
-      [drawn, scopedAgents, rows, views],
-    ),
-  );
   // Environment's Changes: the folder's git changes, read as the panel shows and at each turn's end.
   const edits = useChangeCounts(
     readChanges,
     drawn,
     `${snapshot.sessionId ?? ""}\u0000${snapshot.isWorking ? "working" : "idle"}`,
   );
-  const chatRows = snapshot.rows;
-  const transcriptTasks = useSameValue(
-    useMemo(
-      () => (scope && made ? withChatEnds(made.backgroundTasks, chatRows) : made?.backgroundTasks),
-      [scope, made, chatRows],
-    ),
-  );
-  const allProcesses = registry?.processes;
-  const processes = useSameValue(
-    useMemo(
-      () => (drawn && scope && allProcesses ? subagentProcesses(allProcesses, rows) : allProcesses),
-      [drawn, scope, allProcesses, rows],
-    ),
-  );
   const waiting = useSameValue(
     useMemo(() => (drawn && asks ? waitingSubagents(asks, views) : new Set<string>()), [drawn, asks, views]),
   );
   // The rest of what the sections take from the snapshot and the App, kept the same way.
-  const allSessions = useSameValue(scope ? undefined : snapshot.sessions);
+  // What the sections draw of the other chats acpmux lists, not the list itself: the list is new each
+  // time any chat anywhere changes (its status, its indicator, its time), which drew every section
+  // again, while a scroll ran too, though they show none of it. Usage's rows (usageEntries.ts) and Also
+  // working here's (useAlsoHere) keep their identity until what they draw changes.
+  const everyChat = drawn && !scope ? snapshot.sessions : undefined;
+  const usageSessions = useSameValue(useMemo(() => usageEntries(everyChat), [everyChat]));
+  const alsoHereRows = useSameValue(useAlsoHere(summary?.sessionId, everyChat));
   const peerKinds = useSameValue(snapshot.peerKinds);
+  // Where the chat runs beyond its summary (its route and listed peer), for Environment's machine row.
+  const place = useSameValue(chatPlace(snapshot));
   const startedList = useSameValue(scope ? undefined : sessions?.list);
   const workflowList = useSameValue(scope ? undefined : workflows?.list);
   // A subagent, a started chat or a workflow's agent opens beside the chat (its own pane): Session Info
@@ -1329,28 +1558,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   );
   const onStopWorkflow = useStableCallback(workflows?.onStop);
   const setRunningLimit = useStableCallback(onSetRunningLimit);
-  // The tool calls the loaded transcript holds, for a task row's Show call in a chat whose terminal
-  // cannot open here, and for a wakeup or cron job, which shows the call that made it on any chat:
-  // read here, so a call added to an existing row reaches the sections, and kept while it is the same
-  // set. A chat on this Mac with nothing scheduled opens its terminals instead and reads none.
-  const readsCalls = !!onShowCall && (!opensProcessTerminal(summary) || (made?.scheduled?.length ?? 0) > 0);
-  const toolCalls = useSameValue(
-    useMemo(() => (drawn && readsCalls ? toolCallIds(rows) : undefined), [drawn, readsCalls, rows]),
-  );
-  // The rows the sections read for the chat's gallery and Outputs: the same rows until one is added,
-  // a turn starts or ends (a reply streamed into its row is whole then), the gallery changes or the
-  // panel lists another agent, not each streamed token's copy.
-  const listing = scope?.agent.id;
-  const working = snapshot.isWorking;
-  const galleryRows = useRef({ rows, length: rows.length, artifacts, listing, working });
-  if (
-    galleryRows.current.length !== rows.length ||
-    galleryRows.current.artifacts !== artifacts ||
-    galleryRows.current.listing !== listing ||
-    galleryRows.current.working !== working
-  )
-    galleryRows.current = { rows, length: rows.length, artifacts, listing, working };
-  const sectionRows = galleryRows.current.rows;
   const banner = useMemo(
     () =>
       scope && SUBAGENT_HEADER !== "title" ? <SubagentBanner scope={scope} variant={SUBAGENT_HEADER} /> : undefined,
@@ -1439,6 +1646,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           plan={plan}
           machineName={machineName}
           peerKinds={snapshot.peerKinds}
+          place={place}
           repository={repository}
           grants={scope ? undefined : grants}
           cloudRepositoryAvailable={cloudRepositoryAvailable}
@@ -1446,7 +1654,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           links={links}
           artifacts={artifacts}
           documents={documents}
-          rows={rows}
+          rows={sectionRows}
           agents={agents}
           waiting={waiting}
           statuses={statuses}
@@ -1469,10 +1677,11 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           onOpenSourceFile={onOpenSourceFile}
           onOpenUrl={onOpenUrl}
           onOpenDocument={onOpenDocument}
-          onOpenArtifacts={rows.length > 0 ? () => setGallery(true) : undefined}
+          onOpenArtifacts={rowCount > 0 ? () => setGallery(true) : undefined}
           onReconnectMcp={onReconnectMcp}
           remoteControl={scope ? undefined : remoteControl}
           onCompact={scope ? undefined : onCompact}
+          onViewPrompt={scope ? undefined : onViewPrompt}
           onOpenFolder={openFolder}
           onShowCall={onShowCall}
           revealed={revealed}
@@ -1480,7 +1689,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         />
         {gallery && (
           <GalleryDialog
-            rows={rows}
+            rows={sectionRows}
             onClose={() => setGallery(false)}
             onOpenImage={
               onOpenImage &&
@@ -1495,7 +1704,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     );
   if (!drawn) return null;
   return (
-    <SessionInfoPanel
+    <MemoSessionInfoPanel
       title={scope && SUBAGENT_HEADER === "title" ? <SubagentTitle scope={scope} /> : undefined}
       width={panelWidth}
       placement={push ? "push" : "overlay"}
@@ -1517,12 +1726,14 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         summary={summary}
         machineName={machineName}
         peerKinds={peerKinds}
+        place={place}
         repository={repository}
         cloudRepositoryAvailable={cloudRepositoryAvailable}
         made={made}
         artifacts={artifacts}
         documents={documents}
         rows={sectionRows}
+        outputFiles={outputFiles}
         plan={plan}
         toolCalls={toolCalls}
         agents={agents}
@@ -1539,7 +1750,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         onOpenWorkflowAgent={onOpenWorkflowAgent}
         onOpenSession={onOpenSession}
         // Usage lists every chat acpmux lists; a subagent's own panel has no Usage.
-        allSessions={allSessions}
+        usageSessions={usageSessions}
+        alsoHere={alsoHereRows}
         onOpenChat={onOpenChat}
         onShowUsage={scope ? undefined : onShowUsage}
         onSetRunningLimit={setRunningLimit}
@@ -1562,10 +1774,11 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         remoteControl={scope ? undefined : remoteControl}
         // Compact ends the chat's context, not a subagent's.
         onCompact={scope ? undefined : onCompact}
+        onViewPrompt={scope ? undefined : onViewPrompt}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
       />
-    </SessionInfoPanel>
+    </MemoSessionInfoPanel>
   );
 });
 
@@ -1615,6 +1828,7 @@ export function SessionInfoPanel({
   chrome?: "title" | "close" | "compact-close";
   children: ReactNode;
 }) {
+  useCountedRender("session-info:panel");
   const t = useT();
   const frame = useRef<HTMLElement | null>(null);
   const drag = useRef<{ right: number } | undefined>(undefined);
@@ -1633,6 +1847,18 @@ export function SessionInfoPanel({
   useChatCut(frame, !presence?.leaving, `${placement}:${width}:${foot ?? ""}:${side}:${overlap}:${under ?? ""}`);
   // The foot animates only once it has been drawn at its first measure: the open draws it at once.
   const footKnown = foot !== undefined && foot > 0;
+  // Only a foot that goes down (the composer's stack shrank) glides. One that rises (the stack grew: the
+  // running tray coming in, a queued prompt, a taller draft) moves in the frame the stack moved, with it:
+  // gliding, the card's lower part lay over the grown stack for the glide, and that overlap switched
+  // its glass between the App's and the page's own (data-glass-keeps-underlay, seeThroughBlur.ts) and
+  // back, a flash each time a tool call brought the tray in or out (Leo, 2026-11-07: "im still seeing
+  // session info flash ... when im slowly scrolling down as you're doing the thinking/tool calls").
+  const [footWas, setFootWas] = useState(foot);
+  const [footRises, setFootRises] = useState(false);
+  if (foot !== footWas) {
+    setFootWas(foot);
+    setFootRises(foot !== undefined && footWas !== undefined && foot > footWas);
+  }
   const [footSettled, setFootSettled] = useState(false);
   useEffect(() => {
     if (!footKnown) {
@@ -1672,11 +1898,14 @@ export function SessionInfoPanel({
       }}
       inert={presence?.leaving}
       className={glass ? "ui-glass ui-glass-floats acpmux-session-info" : "acpmux-session-info"}
+      // Its glass is the App's own popover glass, drawn under the page (ui/glass/hostGlass.ts; Leo,
+      // 2026-11-06: "the f***ing session info. Like, wait, why the f*** is this not glass?").
+      data-host-glass={glass ? "popover" : undefined}
       data-placement={placement}
       data-chrome={title ? "title" : onClose ? chrome : "none"}
       data-over-chat={foot !== undefined ? "" : undefined}
       data-popover={onDismiss ? "" : undefined}
-      data-foot-moves={footKnown && footSettled ? "" : undefined}
+      data-foot-moves={footKnown && footSettled && !footRises ? "" : undefined}
       style={
         {
           width,
@@ -1762,14 +1991,26 @@ export function SessionInfoPanel({
 export type RailLayout = "glance" | "rules" | "groups";
 export const RAIL_LAYOUT: RailLayout = "glance";
 
+/// No files made (a stable value, so the sections' memo holds).
+const NO_OUTPUT_FILES: ReturnType<typeof chatOutputs> = [];
+/// No gallery items (a stable value, so the gallery rows hold while the panel is hidden).
+const NO_GALLERY: readonly GalleryItem[] = [];
+
 /// The tool calls in `rows`, by id.
 const toolCallIds = (rows: readonly AcpmuxRow[]): ReadonlySet<string> =>
   new Set(rows.flatMap((row) => (row.items ?? []).flatMap((item) => (item.tool?.id ? [item.tool.id] : []))));
+
+/// The panel frame for SessionInfoPresence, drawn again only when what it is handed changes
+/// (samePanelProps.ts): a snapshot that changes nothing it draws leaves the frame and its sections be.
+const MemoSessionInfoPanel = memo(function MemoSessionInfoPanel(props: Parameters<typeof SessionInfoPanel>[0]) {
+  return <SessionInfoPanel {...props} />;
+}, samePanelProps);
 
 /// The sections for one chat, drawn again only when a prop changes: SessionInfoPresence hands it the
 /// same lists while they hold the same things, so a streamed token, a tool call that makes nothing or a
 /// usage tick draws nothing here.
 const SessionInfoSections = memo(function SessionInfoSections(props: Parameters<typeof SessionInfo>[0]) {
+  useCountedRender("session-info:sections");
   return <SessionInfo {...props} />;
 });
 
@@ -1778,12 +2019,14 @@ export function SessionInfo({
   summary,
   machineName,
   peerKinds,
+  place,
   repository,
   cloudRepositoryAvailable,
   made,
   artifacts = 0,
   documents = [],
   rows = [],
+  outputFiles,
   plan,
   toolCalls,
   agents = [],
@@ -1814,12 +2057,15 @@ export function SessionInfo({
   onSaveEnvironment,
   onReconnectMcp,
   onCompact,
+  onViewPrompt,
   onOpenFolder,
   edits,
   onOpenChanges,
   onOpenOutputFile,
   onShowCall,
   allSessions,
+  usageSessions = allSessions,
+  alsoHere: shownAlsoHere,
   onOpenChat,
   onShowUsage,
   usageOwnRowLayout,
@@ -1837,6 +2083,8 @@ export function SessionInfo({
   summary?: Summary;
   machineName?: string;
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
+  /// The page's route to the chat (chatMachine.ts `chatPlace`).
+  place?: ChatPlace;
   repository?: string;
   cloudRepositoryAvailable?: boolean;
   /// What the chat produced (sessionSummary).
@@ -1848,6 +2096,8 @@ export function SessionInfo({
   onOpenDocument?: (artifact: Artifact) => void;
   /// The chat's rows, for its gallery.
   rows?: readonly AcpmuxRow[];
+  /// What the chat made for the person (chatOutputs.ts), where the caller reads it; else read from `rows`.
+  outputFiles?: ReturnType<typeof chatOutputs>;
   /// The agent's current plan (ProgressSection.tsx `currentPlan`); without one, no Progress.
   plan?: SessionInfoPlan;
   /// The tool calls the loaded transcript holds (toolCallIds), where the caller reads them; else read
@@ -1898,9 +2148,15 @@ export function SessionInfo({
   /// Sends the chat's agent its `/compact`: Context's Compact session (ContextSection), live while a
   /// turn runs (the /compact queues behind it), and Usage's next step for its context (UsageSection.tsx).
   onCompact?: () => void;
+  /// Context's View Prompt (useSessionInfo's).
+  onViewPrompt?: () => void;
   /// Every chat acpmux lists, this Mac's and its peers', for Usage (UsageSection.tsx); unset in a
   /// subagent's own panel.
   allSessions?: readonly AcpmuxSessionEntry[];
+  /// In place of `allSessions`, what the sections draw of it (SessionInfoPresence): Usage's chats
+  /// (usageEntries.ts) and the chats working here (alsoHere.ts).
+  usageSessions?: readonly UsageEntry[];
+  alsoHere?: readonly AlsoHere[];
   /// Opens one of them.
   onOpenChat?: (sessionId: string) => void;
   /// Asks acpmux for every listed chat's usage now (`_acpmux/sessions` `usage: true`), once each
@@ -2027,7 +2283,7 @@ export function SessionInfo({
   }, [onSection, light]);
   // The panel shows: Usage's numbers are read now, not left at whatever the list last carried.
   useEffect(() => onShowUsage?.(), [onShowUsage]);
-  const anyUsage = useMemo(() => !!allSessions?.some((entry) => entry.usageStats), [allSessions]);
+  const anyUsage = useMemo(() => !!usageSessions?.some((entry) => entry.usageStats), [usageSessions]);
   const scheduled = made?.scheduled ?? [];
   const pullRequests = visibleChanges(made?.pullRequests ?? [], statuses);
   const sources = made?.sources ?? [];
@@ -2035,7 +2291,7 @@ export function SessionInfo({
   // What the chat made for the person (chatOutputs.ts): the documents its replies link to and the
   // deliverables its file tools created, never its code edits (the Changes row has those).
   const cwd = summary?.cwd;
-  const madeFiles = useMemo(() => chatOutputs(rows, cwd), [rows, cwd]);
+  const madeFiles = useMemo(() => outputFiles ?? chatOutputs(rows, cwd), [outputFiles, rows, cwd]);
   // A file made and then deleted drops off, as the host answers for it (only on this Mac: another
   // machine's files are asked about nowhere).
   const missing = useMissingPaths(
@@ -2046,7 +2302,7 @@ export function SessionInfo({
     [madeFiles, missing],
   );
   const mcp = summary?.mcpServers ?? [];
-  const reconnect = mcp.filter((server) => server.status === "failed").length;
+  const connectorSummary = summarizeConnectors(mcp);
   const runningTasks = commands.filter((command) => command.state === "running").length;
   // Subagents shows only for a chat that has subagents or started chats: one that never used them
   // shows nothing.
@@ -2090,6 +2346,7 @@ export function SessionInfo({
         summary={summary}
         machineName={machineName}
         peerKinds={peerKinds}
+        place={place}
         repository={repository}
         cloudRepositoryAvailable={cloudRepositoryAvailable}
         remoteControl={remoteControl}
@@ -2124,7 +2381,13 @@ export function SessionInfo({
         </>
       }
     >
-      <ContextSection usage={usage} percent={percent} breakdown={summary?.contextBreakdown} rowsOnly />
+      <ContextSection
+        usage={usage}
+        percent={percent}
+        breakdown={summary?.contextBreakdown}
+        rowsOnly
+        onViewPrompt={onViewPrompt}
+      />
     </SessionInfoSection>
   ) : (
     progress.length > 0 && (
@@ -2140,19 +2403,20 @@ export function SessionInfo({
       title={t("rail.connectors")}
       open={hasConnectors && state.connectors}
       onOpenChange={hasConnectors ? fold("connectors") : undefined}
-      // As Claude Code desktop's: the servers to reconnect when any failed, else the connected ones.
+      // This count describes the attached harness inventory. A loaded MCP server is not proof
+      // of provider authentication or authorization, so never present it as a green connected count.
       meta={value(
         !hasConnectors
           ? t("sessionInfo.none")
-          : reconnect > 0
-            ? t("sessionInfo.connectors.reconnect", { count: reconnect })
-            : mcp.length === 0 && imessage && imessage.data.status !== "connected"
-              ? t("imessage.connect")
-              : t("rail.connected", {
-                  count:
-                    mcp.filter((server) => server.status === "connected").length +
-                    (mcp.length === 0 && imessage?.data.status === "connected" ? 1 : 0),
-                }),
+          : mcp.length === 0 && imessage
+            ? imessage.data.status === "connected"
+              ? t("rail.connected", { count: 1 })
+              : t("imessage.connect")
+            : connectorSummary.kind === "reconnect"
+              ? t("sessionInfo.connectors.reconnect", { count: connectorSummary.count })
+              : connectorSummary.kind === "connecting"
+                ? t("sessionInfo.connectors.connecting", { count: connectorSummary.count })
+                : t("sessionInfo.connectors.loaded", { count: connectorSummary.count }),
       )}
     >
       <ConnectorsSection servers={mcp} onReconnect={onReconnectMcp} imessage={imessage} />
@@ -2274,7 +2538,8 @@ export function SessionInfo({
   const { own: ownCommands, workflows: workflowCommands } = attributeCommands(commands, workflows);
   // The other chats in this chat's worktree or on its branch (alsoHere.ts), shown only when there are.
   // A chat that goes a day idle leaves the list while Session Info stays open (useAlsoHere).
-  const alsoHereRows = useAlsoHere(chatId, allSessions);
+  const ownAlsoHere = useAlsoHere(chatId, shownAlsoHere ? undefined : allSessions);
+  const alsoHereRows = shownAlsoHere ?? ownAlsoHere;
   const alsoHereSection = alsoHereRows.length > 0 && (
     <SessionInfoSection
       id="alsoHere"
@@ -2335,7 +2600,7 @@ export function SessionInfo({
       <UsageSection
         own={ownUsage}
         planLimits={planLimits}
-        sessions={allSessions ?? []}
+        sessions={usageSessions ?? []}
         chatId={chatId}
         onOpen={onOpenChat}
         onCompact={onCompact}

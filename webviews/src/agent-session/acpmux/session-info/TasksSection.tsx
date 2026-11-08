@@ -19,23 +19,16 @@ import { usePaneLanguage, useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { openCommand } from "../processTerminal";
-import { useNow } from "../subagents/SubagentGroup";
+import { useNow } from "../subagents/subagentGroupModel";
 import type { SummaryWakeup } from "../summary/sessionSummary";
 import { arrivalKey, sendLabel, splitCommands, type BackgroundCommand } from "./processes";
 import { scheduledTrailing, splitScheduled, useScheduledClock, type ScheduledEntry } from "./scheduled";
 import { SessionInfoFold } from "./SessionInfoSection";
 import { TASK_ICONS } from "./taskIcons";
+import { COMMAND_STATE } from "./tasksSectionModel";
+import { WindowedRows } from "./WindowedRows";
 
 const ROW_ICON = rowIconSize(12);
-
-/// What a command's state says (the summary card's rows say the same, summary/SummaryTasks.tsx).
-export const COMMAND_STATE: Record<BackgroundCommand["state"], StringKey> = {
-  running: "bgTask.state.running",
-  completed: "bgTask.state.completed",
-  failed: "bgTask.state.failed",
-  stopped: "bgTask.state.stopped",
-  lost: "sessionInfo.tasks.lost",
-};
 
 export function TasksSection({
   commands,
@@ -101,7 +94,7 @@ export function TasksSection({
             void openCommand(toolCallId, { local, showCall: onShowCall });
           }}
         >
-          <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row className="acpmux-row-glyph" />
+          <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
           <span className="acpmux-session-info-task__command">{sendLabel(t, command) ?? command.command}</span>
           {time !== undefined && <span className="acpmux-session-info-task__time">{time}</span>}
           {state !== undefined && <span className="acpmux-session-info-task__state">{state}</span>}
@@ -124,7 +117,7 @@ export function TasksSection({
     const shows = !!onShowCall && (calls?.has(call) ?? false);
     const body = (
       <>
-        <Icon name={TASK_ICONS[entry.item.kind].web} size={ROW_ICON} row className="acpmux-row-glyph" />
+        <Icon name={TASK_ICONS[entry.item.kind].web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
         <span className="acpmux-session-info-task__command">{entry.item.text}</span>
         {trailing !== undefined && (
           <span className={ended ? "acpmux-session-info-task__state" : "acpmux-session-info-task__time"}>
@@ -182,17 +175,21 @@ export function TasksSection({
           </SessionInfoFold>
           {showFinished && (
             <ul className="acpmux-session-info-list" data-finished="">
-              {finishedRows.map((entry) =>
-                "command" in entry
-                  ? row(
-                      entry.command,
-                      entry.command.endedAt !== undefined && entry.command.startedAt !== undefined
-                        ? formatDuration(Math.max(0, entry.command.endedAt - entry.command.startedAt))
-                        : undefined,
-                      t(COMMAND_STATE[entry.command.state]),
-                    )
-                  : scheduledRow(entry.entry),
-              )}
+              {/* However many ended, the open draws the rows that can show (WindowedRows). */}
+              <WindowedRows
+                items={finishedRows}
+                render={(entry) =>
+                  "command" in entry
+                    ? row(
+                        entry.command,
+                        entry.command.endedAt !== undefined && entry.command.startedAt !== undefined
+                          ? formatDuration(Math.max(0, entry.command.endedAt - entry.command.startedAt))
+                          : undefined,
+                        t(COMMAND_STATE[entry.command.state]),
+                      )
+                    : scheduledRow(entry.entry)
+                }
+              />
             </ul>
           )}
         </>

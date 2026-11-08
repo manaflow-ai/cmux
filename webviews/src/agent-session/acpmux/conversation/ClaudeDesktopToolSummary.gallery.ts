@@ -2,7 +2,7 @@
 // A run of shell calls summarized as Claude Code desktop summarizes one (Leo, 2026-11-03: "hmm claude
 // code desktop's summarization of tool calls/parsing of them seem kinda good?"): a header that counts
 // what happened, "Finished 2 background tasks and ran 5 commands", with its chevron; one row per call
-// titled by its command, never its description, and a failure draws no word (Codex parity); opened,
+// titled by what its command did (commandActions.ts), and a failure draws no word (Codex parity); opened,
 // the command in its code colours, "Exit code N" in red, then the output in mono; a background
 // command's end noted as "Background command completed <command>". Our colours, glass, fonts and row
 // grid stay. Reference: cmux-design-references claude/live/transcript-tool-call-group-summary.

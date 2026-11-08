@@ -9,12 +9,12 @@ import { expect, test } from "bun:test";
 import { type Context, createContext, createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import * as group from "../src/agent-session/acpmux/subagents/SubagentGroup";
+import { SubagentGroupHeader } from "../src/agent-session/acpmux/subagents/SubagentGroup";
+import * as groupModel from "../src/agent-session/acpmux/subagents/subagentGroupModel";
 
 // Read loosely so a pane without the context fails on the times, not on the import.
-const { SubagentGroupHeader } = group;
 const SubagentClockContext =
-  (group as { SubagentClockContext?: Context<number> }).SubagentClockContext ?? createContext(0);
+  (groupModel as { SubagentClockContext?: Context<number> }).SubagentClockContext ?? createContext(0);
 
 const header = (offset: number, startedAt: number) => {
   const row: AcpmuxRow = {

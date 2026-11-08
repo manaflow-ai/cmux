@@ -303,7 +303,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             (window as? ShellWindow)?.noteTrafficLights(lights)
             let local = convert(lights, from: nil)
             lightsMaxX = local.maxX
-            midY = local.midY
+            midY = WindowTitlebar.topRowLine(in: window).map { bounds.maxY - $0.centerY } ?? local.midY
         }
         let presence = toolbarBandPresence
         let bandHeight = TitlebarBandButton.side
@@ -419,6 +419,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         paintBackground()
+        applyMainPane() // the window's lit rim (`Metrics.windowEdgeInset`) depends on the window
     }
 
     /// A later subview must not cover the window's agent cursor while it

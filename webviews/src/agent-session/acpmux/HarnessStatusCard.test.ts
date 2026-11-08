@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxSnapshot } from "./model";
-import { authSourceLabel, statusCardCopyText } from "./HarnessStatusCard";
+import { authSourceLabel, statusCardCopyText } from "./harnessStatusCardModel";
 
 const summary = (agentInfo: Record<string, unknown>, authSource?: string): NonNullable<AcpmuxSnapshot["summary"]> => ({
   sessionId: "test-session",

@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxHomeCore
 @testable import CmuxNextDesign
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
 import Foundation
 @testable import MessagesLabHome
 import CmuxNextTestSupport
@@ -46,7 +47,11 @@ import Testing
     @discardableResult
     private func expectClear(_ window: NSWindow, _ view: HomeNativeTranscriptView, _ step: String,
                              sourceLocation: SourceLocation = #_sourceLocation) throws -> CGFloat {
-        let rows = view.transcript.debugRowFrames()
+        // A message part gives its drawn balloon; any other row (a receipt, a label) gives its cell's whole
+        // content, which keeps RowDraw.margin above and below the row for drawing room. Only the row draws.
+        let rows = view.transcript.debugRowFrames().map { row -> (key: String, balloon: CGRect) in
+            (row.key, row.kind == "text" || row.kind == "part" ? row.balloon : row.balloon.insetBy(dx: 0, dy: RowDraw.margin))
+        }
         let toasts = toastFrames(in: window)
         print("toast-clear \(step): toasts=\(toasts) newest=\(rows.min { $0.balloon.minY < $1.balloon.minY }.map { "\($0.key) \($0.balloon)" } ?? "none")")
         #expect(!rows.isEmpty, "\(step): no rows drawn", sourceLocation: sourceLocation)

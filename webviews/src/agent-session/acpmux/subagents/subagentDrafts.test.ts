@@ -3,7 +3,7 @@
 // fails after the composer it came from is gone reaches the one opened again, a reloaded page finds
 // the draft in storage, and one the storage refuses holds the page.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { afterFailedSend } from "./SubagentComposer";
+import { afterFailedSend } from "./subagentComposerModel";
 import { inlineToken, type ComposerAttachment } from "../attachments";
 import {
   draftMessage,

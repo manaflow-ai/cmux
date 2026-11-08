@@ -30,6 +30,8 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "prompt_retracted",
     // A steer taken back before the agent read it (`queue_edit.rs` `withdraw`).
     "steer_withdrawn",
+    // A steer the agent read (`steer_end.rs`): its row offers no take-back from then on.
+    "steer_read",
     // Another agent's steer a Stop ended the turn of before its agent read it: it starts the
     // next turn (`steer_end.rs`).
     "steer_returned",
@@ -46,6 +48,8 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "queue_approved",
     "queue_declined",
     "turn_started",
+    // Where a send says it came from, beside its prompt (`sender_harness.rs`): its row's chip.
+    "sender_claim",
     // Where a chat seeded from a Claude Code transcript's newest page has older turns
     // (`hub/native_history.rs`): the pane that pages back to it reads on from the transcript.
     "native_history",
@@ -96,6 +100,11 @@ pub struct EventFilter {
     /// A page read newest first leaves out what newer tool call updates in it make moot
     /// (`store/superseded.rs`). Pages only; a live stream ignores it.
     omit_superseded: bool,
+    /// Only one subagent's own records (`_acpmux/events` `subagent`): the updates acpmux tagged
+    /// with it (`_meta.acpmux.subagent`, its own words and calls) and those that start or change
+    /// it (`_meta.acpmux.subagents[].id`, its spawn and its end). A subagent pane reads its
+    /// subagent with it when the chat's loaded page no longer holds that subagent.
+    subagent: Option<String>,
 }
 
 impl EventFilter {
@@ -130,6 +139,12 @@ impl EventFilter {
         self
     }
 
+    /// Only subagent `id`'s own records (``subagent_owns``); `None` or a blank id keeps them all.
+    pub fn of_subagent(mut self, id: Option<&str>) -> Self {
+        self.subagent = id.filter(|id| !id.is_empty()).map(str::to_owned);
+        self
+    }
+
     pub fn is_all(&self) -> bool {
         match &self.kinds {
             None => true,
@@ -143,6 +158,10 @@ impl EventFilter {
     /// except for the kinds that never are (raw harness lines, responses, load
     /// replays and bookkeeping updates).
     pub fn surely_skips(&self, dir: &[u8], kind: &[u8]) -> bool {
+        // A subagent's records are agent updates, never mux records.
+        if self.subagent.is_some() && dir != b"in" {
+            return true;
+        }
         let Some(kinds) = &self.kinds else { return false };
         !kinds.iter().any(|k| match k.as_str() {
             "all" | "wire" => true,
@@ -163,6 +182,11 @@ impl EventFilter {
     }
 
     pub fn matches(&self, rec: &EventRecord) -> bool {
+        if let Some(id) = &self.subagent
+            && !subagent_owns(rec, id)
+        {
+            return false;
+        }
         let Some(kinds) = &self.kinds else { return true };
         kinds.iter().any(|k| match k.as_str() {
             "all" => true,
@@ -172,6 +196,19 @@ impl EventFilter {
             exact => rec.kind == exact,
         })
     }
+}
+
+/// Whether `rec` is one of subagent `id`'s own records: an agent update acpmux tagged with it, or
+/// one that starts or changes it (`subagents.rs` writes both into `_meta.acpmux`).
+fn subagent_owns(rec: &EventRecord, id: &str) -> bool {
+    if !is_agent_update(rec) {
+        return false;
+    }
+    let Some(mux) = rec.msg.pointer("/params/_meta/acpmux") else { return false };
+    mux.get("subagent").and_then(Value::as_str) == Some(id)
+        || mux.get("subagents").and_then(Value::as_array).is_some_and(|changes| {
+            changes.iter().any(|change| change.get("id").and_then(Value::as_str) == Some(id))
+        })
 }
 
 fn is_agent_update(rec: &EventRecord) -> bool {
@@ -662,5 +699,49 @@ mod transcript_kind_tests {
         let mut raw = rec.clone();
         raw.msg = json!({});
         assert!(!transcript.matches_live(&raw));
+    }
+
+    /// A subagent pane opened on a subagent the chat's page no longer holds reads that subagent's
+    /// records alone: its spawn and end (`subagents[].id`) and its own updates (`subagent`), never
+    /// the chat's own words, another subagent's, or a mux record.
+    #[test]
+    fn a_subagent_filter_keeps_only_that_subagents_records() {
+        let update = |seq: u64, mux: Value, text: &str| EventRecord {
+            seq,
+            at: 0,
+            dir: "in".into(),
+            kind: "agent_message_chunk".into(),
+            msg: json!({"method": method::SESSION_UPDATE, "params": {"sessionId": "s",
+                "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}},
+                "_meta": {"acpmux": mux}}}),
+            host_seq: None,
+        };
+        let spawn = update(
+            1,
+            json!({"subagents": [{"id": "s/t1", "parent": null, "state": "running"}]}),
+            "",
+        );
+        let own = update(2, json!({"subagent": "s/t1"}), "the child's words");
+        let other = update(3, json!({"subagent": "s/t2"}), "another child's words");
+        let chat = update(4, json!({}), "the chat's own words");
+        let end = update(
+            5,
+            json!({"subagents": [{"id": "s/t1", "parent": null, "state": "completed"}]}),
+            "",
+        );
+        let filter =
+            EventFilter::parse(Some(&json!(["transcript"]))).unwrap().of_subagent(Some("s/t1"));
+        let kept: Vec<u64> = [&spawn, &own, &other, &chat, &end]
+            .iter()
+            .filter(|r| filter.matches(r))
+            .map(|r| r.seq)
+            .collect();
+        assert_eq!(kept, [1, 2, 5]);
+        assert!(!filter.matches(&mux("turn_result")));
+        assert!(filter.surely_skips(b"mux", b"turn_result"));
+        assert!(!filter.surely_skips(b"in", b"agent_message_chunk"));
+        // No id, or a blank one, filters nothing.
+        let all = EventFilter::parse(Some(&json!(["transcript"]))).unwrap().of_subagent(Some(""));
+        assert!(all.matches(&chat));
     }
 }
