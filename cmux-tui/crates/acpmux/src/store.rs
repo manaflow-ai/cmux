@@ -445,6 +445,11 @@ pub struct SessionMeta {
     /// once each, oldest first. A fork starts with none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pull_requests: Vec<String>,
+    /// When each of `pull_requests` was opened (Unix ms), by URL: the review queue's window
+    /// counts from it (`hub/review_queue.rs`). One without a time (a meta written before this
+    /// field) counts from the session's creation. A fork starts with none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub pull_request_times: BTreeMap<String, u64>,
     /// The files this session's tool calls read and edited, by repository and path there
     /// (`touched_files.rs`, `hub/touched.rs`): at most `touched_files::MAX_FILES`, the least
     /// recently touched dropped first. A fork starts with none.
@@ -1073,6 +1078,11 @@ pub trait Store: Send + Sync {
     /// writes none ([`Store::writes_history`]).
     fn history_writer(&self, _id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
         Ok(None)
+    }
+    /// Where the approvals audit trail is kept (`hub/audit_log.rs`): `audit/` beside
+    /// `sessions/`, or none (in memory) for the memory store.
+    fn audit_dir(&self) -> Option<PathBuf> {
+        None
     }
 }
 
@@ -2039,6 +2049,10 @@ impl Store for LocalStore {
 
     fn briefs_path(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("briefs.json"))
+    }
+
+    fn audit_dir(&self) -> Option<PathBuf> {
+        self.root.parent().map(|home| home.join("audit"))
     }
 }
 
