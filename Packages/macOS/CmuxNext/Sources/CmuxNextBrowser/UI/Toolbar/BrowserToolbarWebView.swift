@@ -117,6 +117,8 @@ public final class BrowserToolbarWebView: NSView {
         popup.faviconSource = rowFavicon
         return popup
     }()
+    /// Where Paste and Go reads the text; tests pass their own.
+    var pasteboard: NSPasteboard = .general
     /// The omnibar as the page reported it last.
     public internal(set) var status = OmnibarStatus()
     /// Where the page drew its controls last.

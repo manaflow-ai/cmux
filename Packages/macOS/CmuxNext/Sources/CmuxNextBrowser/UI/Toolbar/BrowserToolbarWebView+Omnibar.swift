@@ -214,8 +214,11 @@ extension BrowserToolbarWebView {
     func editContextMenu(_ menu: NSMenu) {
         // A right-click on a resting field focuses it first (all selected), as AddressField did, so
         // its menu offers Paste and Go: the page's own focus request arrives after this menu.
-        if !isEditing, !isReadOnly, menuEventIsOnField() { giveKeys(source: "mouse") }
-        if let title = pasteAndGoTitle() {
+        // The focus given here counts at once (`focusPending`): this first menu is built before the
+        // page reports it editing, and must not wait for that report.
+        let focusedNow = !isEditing && !isReadOnly && menuEventIsOnField()
+        if focusedNow { giveKeys(source: "mouse") }
+        if let title = pasteAndGoTitle(editing: isEditing || focusedNow) {
             let item = NSMenuItem(title: title, action: #selector(pasteAndGo(_:)), keyEquivalent: "")
             item.target = self
             let paste = menu.items.firstIndex { $0.action == #selector(NSText.paste(_:)) }
@@ -246,12 +249,14 @@ extension BrowserToolbarWebView {
     }
 
     private func pastedText() -> String? {
-        let text = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = pasteboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return text?.isEmpty == false ? text : nil
     }
 
-    private func pasteAndGoTitle() -> String? {
-        guard !isReadOnly, isEditing, let text = pastedText(), let destination = suggestionEngine.resolver.destination(for: text) else { return nil }
+    /// "Paste and Go" or "Paste and Search" for the pasteboard's text, while the field edits (the
+    /// menu is the field editor's, as AddressField's was); nil otherwise.
+    func pasteAndGoTitle(editing: Bool) -> String? {
+        guard !isReadOnly, editing, let text = pastedText(), let destination = suggestionEngine.resolver.destination(for: text) else { return nil }
         if case .search = destination { return Strings.pasteAndSearch }
         return Strings.pasteAndGo
     }

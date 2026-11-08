@@ -537,6 +537,30 @@ struct BrowserToolbarReloadDraftTests {
         #expect(kept.isEmpty)
     }
 
+    @Test func theFirstRightClickOnARestingFieldOffersPasteAndGo() throws {
+        let content = RecordingContent()
+        let bar = BrowserToolbarWebView(suggestionEngine: OmniboxSuggestionEngine())
+        bar.makeWebContent = { content }
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("cmux.test.pasteAndGo.\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("https://example.com/", forType: .string)
+        bar.pasteboard = pasteboard
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 40), styleMask: [], backing: .buffered, defer: true)
+        window.contentView?.addSubview(bar)
+        bar.pushNow()
+        // At rest the field offers nothing to paste into.
+        #expect(!bar.isEditing)
+        #expect(bar.pasteAndGoTitle(editing: bar.isEditing) == nil)
+        // The right-click focuses it; the page has not reported editing yet, and the menu offers it.
+        bar.giveKeys(source: "mouse")
+        #expect(bar.isEditing)
+        #expect(bar.pasteAndGoTitle(editing: bar.isEditing) == Strings.pasteAndGo)
+        pasteboard.clearContents()
+        pasteboard.setString("cmux omnibar", forType: .string)
+        #expect(bar.pasteAndGoTitle(editing: true) == Strings.pasteAndSearch)
+    }
+
     @Test func restoringFocusGivesTheKeysBackWhileTheStatusStillSaysEditing() throws {
         let content = RecordingContent()
         let bar = BrowserToolbarWebView(suggestionEngine: OmniboxSuggestionEngine())
