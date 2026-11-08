@@ -45,7 +45,7 @@ export default componentEntry<Props>({
   area: "Browser chrome",
   height: 260,
   widths: { narrow: 360, normal: 420, wide: 520 },
-  covers: ["browser-chrome/bookmark-edit/BookmarkEditBubble.tsx"],
+  covers: ["browser-chrome/bookmark-edit/BookmarkEditBubble.tsx", "page:cmux.bookmark-edit"],
   keywords: ["bookmark", "star", "bookmark added", "edit bookmark", "folder", "remove"],
   load: async () => BookmarkEditFixture,
   options: [
