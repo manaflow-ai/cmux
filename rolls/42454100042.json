@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42454100042",
+  "recorded_at": "2026-11-08T06:24:07Z",
+  "reason": "cmux-tui 14dbaf4b3742 changes the image's cmux-tui (pinned c80039a52603)",
+  "dry_run": false,
+  "cmux_tui": "14dbaf4b3742e2e5e4203f0d425cae9114155eb4",
+  "fixes": [
+    {
+      "sha": "14dbaf4b3742e2e5e4203f0d425cae9114155eb4",
+      "mergedAt": "2026-11-08T06:01:10Z",
+      "subject": "fix(cmux-host): a bind refused after a lost answer keeps bind.json while the token lives (#38243)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T06:24:07Z",
+    "snapshot_id": "sh-667d6bd3455f492a82619e0e313455c8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42454100042): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4dbb34bbf05ffc0280919f56bed0844c9f7c34a5",
+    "image": "cloud-native-auto-14dbaf4b-42454100042-1",
+    "revision": "ci-42454100042-1",
+    "at": "2026-11-08T06:24:07Z"
+  },
+  "rolled_back": false
+}
