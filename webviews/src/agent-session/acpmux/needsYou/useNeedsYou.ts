@@ -1,7 +1,7 @@
 // The pane's Needs you wiring (App.tsx): the list from the snapshot, the header badge's actions,
 // and the transcript's Needs your input pill, which share one list and one way to answer.
 import { useMemo, useRef } from "react";
-import { answerFromHome } from "../HomeInbox";
+import { answerFromHome } from "../homeInboxModel";
 import { revealTurnWhenShown } from "../links";
 import type { AcpmuxSnapshot } from "../model";
 import { reply, replyParams, selection, type QuestionReply } from "../question/model";

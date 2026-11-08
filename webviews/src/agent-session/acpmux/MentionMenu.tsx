@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { useScrollEdges } from "../../ui/scrollEdges";
-import { useComposerListBox } from "./backdropLayer";
+import { useComposerListBox } from "./backdropLayerModel";
 import { type Run } from "./fileSearchModel";
 import { Icon } from "./icons/Icon";
 import type { MentionItem } from "./mentionItems";

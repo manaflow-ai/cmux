@@ -19,25 +19,19 @@ extension BookmarkService {
         let bar = BookmarksBarView()
         bar.source = adapter
         chromes[key] = WeakChrome(entry: entry, bar: bar, source: adapter)
-        entry.state.onPageURLChange = { [weak self, weak entry] url in
-            guard let self, let entry else { return }
-            updateStar(entry, url: url)
-        }
+        entry.state.onPageURLChange = { [weak self, weak entry] url in if let self, let entry { updateStar(entry, url: url) } }
         entry.state.onBookmarkStar = { [weak self] anchor in self?.starPressed(tab: key, anchor: anchor) }
         updateStar(entry, url: entry.tab.state.url)
-        entry.state.accessory = showsBar ? (bar, BookmarksBarView.height) : nil
         chromes = chromes.filter { $0.value.entry != nil }
+        updateBar(bar, entry: entry)
     }
 
     func refreshChromes(profiles: Set<String>) {
         for (key, chrome) in chromes {
-            guard let entry = chrome.entry else {
-                chromes[key] = nil
-                continue
-            }
+            guard let entry = chrome.entry else { chromes[key] = nil; continue }
             guard profiles.contains(profile(of: entry.tab.profileID)) else { continue }
             updateStar(entry, url: entry.tab.state.url)
-            if showsBar { chrome.bar.reload() }
+            updateBar(chrome.bar, entry: entry)
         }
     }
 
@@ -45,14 +39,17 @@ extension BookmarkService {
     func setBarShown(_ shown: Bool) {
         guard shown != showsBar else { return }
         showsBar = shown
-        for chrome in chromes.values {
-            guard let entry = chrome.entry else { continue }
-            if shown { chrome.bar.reload() }
-            entry.state.accessory = shown ? (chrome.bar, BookmarksBarView.height) : nil
-        }
+        for chrome in chromes.values { if let entry = chrome.entry { updateBar(chrome.bar, entry: entry) } }
     }
 
     var isBarShown: Bool { showsBar }
+
+    /// A tab's bar shows while the setting is on and its profile fills one (#38046); off its window it rebuilds when attached.
+    private func updateBar(_ bar: BookmarksBarView, entry: BrowserEntry) {
+        let shown = showsBar && tree(profile(of: entry.tab.profileID)).fillsBookmarksBar
+        if shown { bar.reload() }
+        if (entry.state.accessory?.view === bar) != shown { entry.state.accessory = shown ? (bar, BookmarksBarView.height) : nil }
+    }
 
     /// The bar of tab `key`, for diagnostics.
     func bar(ofTab key: String) -> BookmarksBarView? { chromes[key]?.bar }

@@ -271,10 +271,11 @@ const openRun = async (ctx: PlayContext) => {
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-steps .cv-command__failed")));
 };
 
-/// Opens the traceback's call, to show its raw output under it. A command reads as its command,
-/// never as Claude's Bash description (Codex parity).
+/// Opens the traceback's call, to show its raw output under it. The call failed, so its row never
+/// reads as what it would have done; it reads as the fixture's own description (commandActions.ts
+/// commandSaid), which no label rule rewrites.
 const openTraceback = async (ctx: PlayContext) => {
-  await ctx.click({ role: "button", name: /python3 scripts\/check_retry\.py/ });
+  await ctx.click({ role: "button", name: /Check the retry schedule/ });
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__command")));
 };
 
