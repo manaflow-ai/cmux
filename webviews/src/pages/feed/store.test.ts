@@ -133,6 +133,28 @@ describe("reads", () => {
     expect(store.getSnapshot().link).toBe("connected");
     expect(reads(provider).length).toBe(before + 1);
   });
+
+  test("opened while the daemon is away, the page subscribes again on reconnect and follows changes", async () => {
+    const { provider, store } = setup();
+    provider.offline = true;
+    provider.page.setConnected(false);
+    await store.start();
+    expect(store.getSnapshot().link).toBe("disconnected");
+    expect(provider.subscriberCount).toBe(0);
+    provider.offline = false;
+    provider.page.setConnected(true);
+    await settle();
+    await settle();
+    expect(store.getSnapshot().link).toBe("connected");
+    expect(provider.subscriberCount).toBe(2); // the view's and the Reports basket's changes
+    const before = reads(provider).length;
+    provider.post({ ...sampleFeed(NOW)[11]!, id: "fi_after", title: "After reconnect", created_at: NOW });
+    await settle();
+    expect(reads(provider)).toHaveLength(before + 1);
+    expect(store.getSnapshot().view!.groups[1]!.entries[0]!.item.id).toBe("fi_after");
+    store.stop();
+    expect(provider.subscriberCount).toBe(0);
+  });
 });
 
 describe("intents", () => {
