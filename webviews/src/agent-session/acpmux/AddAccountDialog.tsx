@@ -127,7 +127,7 @@ export function AddAccountDialog({
         if (!open && !pending) onClose();
       }}
       label={title}
-      className="acpmux-add-account"
+      className="ui-glass ui-glass-floats acpmux-add-account"
     >
       <form
         onSubmit={(event) => {

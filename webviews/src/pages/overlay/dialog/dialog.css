@@ -57,6 +57,14 @@
 .overlay-dialog-line {
   color: var(--ds-color-muted);
 }
+.overlay-dialog-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--overlay-dialog-gap);
+  max-height: calc(320px * var(--cmux-interface-scale, 1));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
 .overlay-dialog-field {
   display: grid;
   gap: var(--ds-space-1);

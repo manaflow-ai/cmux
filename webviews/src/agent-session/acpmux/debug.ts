@@ -7,7 +7,7 @@ import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import type { StreamOptions } from "./streamDebug";
 import type { LoadRunOptions, LoadTickOptions } from "./loadDebug";
-import { shownPresence } from "./multiplayer/LivePresence";
+import { shownPresence } from "./multiplayer/livePresenceModel";
 import { acpWire, type AcpWireLog } from "./wire";
 import { tickWatch } from "./tickWatch";
 import { followTrace } from "./followTrace";
@@ -54,6 +54,8 @@ export type AcpmuxDebug = {
   acpLog(options?: { limit?: number }): Record<string, unknown>;
   /** The wire log as JSON Lines. */
   acpLogExport(): string;
+  /** Shows `text` as a pane toast, as a refusal or a click's feedback does (captures drive the toasts with it). */
+  toast(text: string): Record<string, unknown>;
   /** Automation (automation.ts): the chat state a script reads, and the verbs it drives. */
   chatState(): Record<string, unknown>;
   sendPrompt(text: string): Promise<Record<string, unknown>>;
@@ -124,6 +126,8 @@ export function createAcpmuxDebug(
     /// The shown transcript's row ids (loadDebug.ts `loadTick` tells the history from the new turn).
     rowIds?(): string[];
     sessionId?(): string | undefined;
+    /// The pane's toasts (paneNotices `transient`).
+    toast?(text: string): void;
     automation?: automation.AutomationHost;
   },
   wire: AcpWireLog = acpWire,
@@ -347,6 +351,11 @@ export function createAcpmuxDebug(
 
     acpLogExport() {
       return wire.exportJsonl({ sessionId: host.sessionId?.() });
+    },
+
+    toast(text) {
+      host.toast?.(text);
+      return { shown: host.toast != null, text };
     },
 
     chatState() {
