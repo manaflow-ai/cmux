@@ -20,6 +20,12 @@ final class TerminalSelectionHint {
     weak var view: NSView?
     private var state = CmuxTerminalSelection()
     private var chip: ShortcutHintChipView?
+    /// The chip's size for ``text``, measured once, at the first drag that may show it.
+    private lazy var chipSize: NSSize = {
+        let chip = ShortcutHintChipView()
+        chip.text = Self.text
+        return chip.fittingSize
+    }()
     private let hideTimer: DemandTimer
 
     /// - Parameter clock: The hide deadline's clock; tests pass a manual clock.
@@ -46,10 +52,12 @@ final class TerminalSelectionHint {
         Self.flags(cmux_terminal_selection_following(&state, Self.keys(flags)), keeping: flags)
     }
 
-    /// A drag of the left press; the first one after a plain press the program took shows the hint.
+    /// A drag of the left press; the first one after a plain press the program took shows the hint,
+    /// in a terminal wide enough for it. A narrower one never clips it: a later drag shows it.
     func dragged() {
-        guard cmux_terminal_selection_dragged(&state) else { return }
-        show()
+        guard state.hint_armed, let view, chipSize.width + Self.bottomInset * 2 <= view.bounds.width,
+              cmux_terminal_selection_dragged(&state) else { return }
+        show(in: view)
     }
 
     /// The left button's release, after its keys went out.
@@ -57,12 +65,11 @@ final class TerminalSelectionHint {
         cmux_terminal_selection_released(&state)
     }
 
-    private func show() {
-        guard let view else { return }
+    private func show(in view: NSView) {
         let chip = ShortcutHintChipView()
         chip.text = Self.text
         chip.alphaValue = 0
-        let size = chip.fittingSize
+        let size = chipSize
         chip.frame = NSRect(x: ((view.bounds.width - size.width) / 2).rounded(), y: Self.bottomInset, width: size.width, height: size.height)
         chip.autoresizingMask = [.minXMargin, .maxXMargin, .maxYMargin]
         view.addSubview(chip)
