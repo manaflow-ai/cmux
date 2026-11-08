@@ -35,7 +35,6 @@ import Testing
         PageDescriptor.iconPicker.id: .transparentOverlay,
         PageDescriptor.serverCards.id: .transparentOverlay,
         PageDescriptor.groupEditor.id: .transparentOverlay,
-        PageDescriptor.serverCards.id: .transparentOverlay,
     ]
 
     /// A bundle with a resource folder for every shipped page, and the table Chromium gets for it.
