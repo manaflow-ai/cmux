@@ -9913,7 +9913,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         />
       )}
       {/* Outside the block below: an answered plan stays drawn while it shrinks out. */}
-      <PlanAsk permission={individualPermission?.plan ? individualPermission : undefined} onDrawn={setPlanDrawn}>
+      {/* Keyed by chat: a plan answered in one chat never shrinks out over the next one (#38410 F1). */}
+      <PlanAsk
+        key={snapshot.sessionId}
+        permission={individualPermission?.plan ? individualPermission : undefined}
+        onDrawn={setPlanDrawn}
+      >
         {(permission, leaving) => permissionAsk(permission, leaving)}
       </PlanAsk>
       {(individualPermission || secret || toolCards.length > 0) && (

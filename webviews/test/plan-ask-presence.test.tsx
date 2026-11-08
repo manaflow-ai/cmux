@@ -76,10 +76,11 @@ function mount() {
   const onDrawn = (drawn: boolean) => {
     drawnCalls.push(drawn);
   };
-  const draw = (permission: AcpmuxPermission | undefined) =>
+  // `chat` is the key App gives it: the selected chat's session id.
+  const draw = (permission: AcpmuxPermission | undefined, chat = "chat-1") =>
     act(() =>
       root.render(
-        <PlanAsk permission={permission} onDrawn={onDrawn}>
+        <PlanAsk key={chat} permission={permission} onDrawn={onDrawn}>
           {(shown, leaving) => {
             seen.push(leaving);
             return <p className="card">{shown.permissionId}</p>;
@@ -132,6 +133,17 @@ test("a new plan during the exit comes back at once, drawn as the new ask", asyn
   expect(wrap()?.hasAttribute("inert")).toBe(false);
   expect(host.querySelector(".card")?.textContent).toBe("plan-2");
   expect(seen.at(-1)).toBe(false);
+  act(() => root.unmount());
+});
+
+test("switching to a chat without a plan drops the last chat's plan at once", async () => {
+  transitionDuration = "0.265s";
+  const { host, root, drawnCalls, draw, wrap } = mount();
+  await draw(plan, "chat-1");
+  await draw(undefined, "chat-2");
+  expect(wrap()).toBeNull();
+  expect(host.querySelector(".card")).toBeNull();
+  expect(drawnCalls.at(-1)).toBe(false);
   act(() => root.unmount());
 });
 
