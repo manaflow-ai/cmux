@@ -122,7 +122,7 @@ fn a_finished_turn_stays_done_until_the_person_views_its_tab() {
     .unwrap();
     let (mut app, mut terminal) = rendered_app(&mux);
     // The host terminal is in the background: the turn is not seen.
-    app.host_focused = Some(false);
+    app.host_focused = false;
     wait_for_status(&mut app, &mut terminal, agent_tab.id, Some(cmux_tui_core::AgentStatus::Done));
     draw(&mut app, &mut terminal);
     assert_eq!(app.sidebar_status.tab(agent_tab.id), Some(cmux_tui_core::AgentStatus::Done));

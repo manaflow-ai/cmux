@@ -36,13 +36,12 @@ impl App {
     /// Done-until-seen: a turn that finished in the tab this client shows,
     /// while the host terminal has focus, was seen as it finished, so ack it
     /// and it is idle rather than done. A host that never reports focus
-    /// leaves done until the person focuses the tab or types in it. One ack
-    /// per finished turn: the daemon's `tab-changed` ends the done state.
+    /// counts as focused, as for host notifications (`host_notify.rs`). One
+    /// ack per finished turn: the daemon's `tab-changed` ends the done state.
     fn acknowledge_viewed_done_tab(&mut self) {
-        let viewed =
-            self.active_surface().filter(|_| self.host_focused == Some(true)).filter(|surface| {
-                self.sidebar_status.tab(*surface) == Some(cmux_tui_core::AgentStatus::Done)
-            });
+        let viewed = self.active_surface().filter(|_| self.host_focused).filter(|surface| {
+            self.sidebar_status.tab(*surface) == Some(cmux_tui_core::AgentStatus::Done)
+        });
         if viewed.is_none() || viewed == self.done_tab_ack_sent {
             self.done_tab_ack_sent = viewed;
             return;

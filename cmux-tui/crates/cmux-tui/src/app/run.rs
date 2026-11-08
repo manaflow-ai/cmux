@@ -460,7 +460,6 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         projection_order_cache: AgentOrderCache::default(),
         sidebar_status: crate::sidebar_status::SidebarStatus::default(),
         agent_section_scroll: 0,
-        host_focused: None,
         done_tab_ack_sent: None,
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,

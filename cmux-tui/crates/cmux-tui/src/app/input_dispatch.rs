@@ -84,10 +84,9 @@ impl App {
                 Ok(if dismissed { action.merge(RenderAction::Draw) } else { action })
             }
             TerminalInput::FocusGained => {
-                self.host_focused = true;
                 // The layout frame below acks a done agent tab the person
                 // now sees (done-until-seen).
-                self.host_focused = Some(true);
+                self.host_focused = true;
                 self.advance_pointer_focus_generation();
                 self.reassert_scoped_host_terminal_state();
                 self.reassert_visible_surface_sizes();
@@ -95,7 +94,6 @@ impl App {
             }
             TerminalInput::FocusLost => {
                 self.host_focused = false;
-                self.host_focused = Some(false);
                 let action = if self.cancel_pointer_interaction() {
                     RenderAction::Draw
                 } else {
