@@ -288,6 +288,21 @@ struct CloudMachineUpdateTargetTests {
         #expect(machine.reconnects == 1, "the waiting connect is woken")
     }
 
+    /// A daemon the app reads as refused that names the app's own build (a Cloud capture, 2026-11-07: a link
+    /// whose identify left out capabilities the app requires) is left alone: an update cannot change what it
+    /// runs, and each one dropped the link under a chat start ("started but its agent didn't (cmux-tui
+    /// connection closed: EOF)") on every reconnect.
+    @Test func anIncompatibleMachineOnTheAppsBuildIsLeftAlone() async throws {
+        let machine = FakeCloudMachine(build: Self.bundled + "0123456789abcdef0123456789ab", level: .incompatible,
+                                       answers: [CloudMoveCLI.Answer(ok: true, updated: true, build: Self.bundled)])
+        let fixture = try CloudUpdateFixture()
+        defer { fixture.remove() }
+        await fixture.run(machine)
+
+        #expect(machine.updates == 0)
+        #expect(fixture.states.isEmpty)
+    }
+
     /// A machine with no daemon answer yet (neither connected nor refused) is left alone.
     @Test func aMachineThatHasNotAnsweredIsLeftAlone() async throws {
         let machine = FakeCloudMachine(build: nil, level: .limited)
