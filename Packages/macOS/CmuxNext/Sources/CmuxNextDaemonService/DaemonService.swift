@@ -353,8 +353,14 @@ public final class DaemonService {
         // connection there is no link process yet (the machine was unreachable at launch), so the
         // network coming back wakes the first attempt here until the first connection.
         let monitor = NWPathMonitor()
+        // The first update reports the path as it is at start: no change, so no wake.
+        let reported = Mutex(false)
         monitor.pathUpdateHandler = { path in
-            if path.status == .satisfied { wake.fire() }
+            let first = reported.withLock { seen in
+                defer { seen = true }
+                return !seen
+            }
+            if !first, path.status == .satisfied { wake.fire() }
         }
         monitor.start(queue: DispatchQueue(label: "com.cmuxterm.next.daemon.path.\(machineID)"))
         pathMonitor = monitor

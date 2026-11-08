@@ -391,11 +391,13 @@ public actor DaemonConnection {
     }
 
     private func reconnectLoop() async {
+        // The explicit events before the last attempt (`RetryPolicy.keepsEventsDuringAttempt`).
+        var mark: UInt64?
         // wakeup-allow: each iteration waits in RetryWake (capped backoff, then events only, or the cap with `keepsTrying`)
         while !Task.isCancelled {
             // A drop or a failed attempt: space the next one (events only past the budget;
             // in a crash loop a new socket no longer counts, `RetryPolicy.socketRetries`).
-            wake.rebaseline()
+            wake.rebaseline(keepingEventsAfter: pacer.policy.keepsEventsDuringAttempt ? mark : nil)
             let delay = pacer.failed()
             if pacer.socketFailures == pacer.policy.socketRetries {
                 logger.error("cmux-tui reconnect: \(self.pacer.socketFailures) new daemon sockets failed; waiting for app activation or a reconnect")
@@ -404,6 +406,7 @@ public actor DaemonConnection {
             guard cause != .cancelled else { break }
             pacer.woke(cause)
             if isClosedPhase { break }
+            mark = wake.eventMark
             do {
                 _ = try await connectOnce()
                 break

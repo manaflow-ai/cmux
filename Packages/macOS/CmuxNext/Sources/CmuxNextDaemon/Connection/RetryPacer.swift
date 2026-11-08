@@ -29,12 +29,18 @@ public struct RetryPolicy: Sendable {
     /// itself starts its peer (the app's local daemon, through `server ensure`): what made the
     /// start fail can end with no event at all (a full disk that has space again, restore fuzz h2).
     public var keepsTrying: Bool
+    /// An explicit event that came while an attempt ran wakes the wait after it fails
+    /// (``RetryWake/rebaseline(keepingEventsAfter:)``). For a loop with no timer left
+    /// (``linkReconnect``): the link reporting connected during a failing attempt must not be lost.
+    public var keepsEventsDuringAttempt: Bool
 
-    public init(initial: Duration, maximum: Duration, timedRetries: Int, socketRetries: Int = 3, keepsTrying: Bool = false) {
+    public init(initial: Duration, maximum: Duration, timedRetries: Int, socketRetries: Int = 3, keepsTrying: Bool = false,
+                keepsEventsDuringAttempt: Bool = false) {
         backoff = Backoff(initial: initial, maximum: maximum)
         self.timedRetries = timedRetries
         self.socketRetries = socketRetries
         self.keepsTrying = keepsTrying
+        self.keepsEventsDuringAttempt = keepsEventsDuringAttempt
     }
 
     /// Daemon reconnect: 50 ms growing to 30 s, 10 timed attempts (~80 s).
@@ -50,10 +56,12 @@ public struct RetryPolicy: Sendable {
     /// connect`, cmuxterm-hq#7766): one attempt, then events only (the link reporting connected again,
     /// its process exiting, its socket replaced, app activation, a person's Reconnect). No timer: the
     /// link spends its own budget and deadlines, so a timed retry here would only stack dials on it.
-    public static let linkFirstConnect = RetryPolicy(initial: .milliseconds(1), maximum: .milliseconds(1), timedRetries: 0)
+    public static let linkFirstConnect = RetryPolicy(initial: .milliseconds(1), maximum: .milliseconds(1), timedRetries: 0,
+                                                     keepsEventsDuringAttempt: true)
     /// ``linkFirstConnect`` for a connection that dropped: one attempt at once (the link's local socket
     /// stays up while its carrier redials), then events only.
-    public static let linkReconnect = RetryPolicy(initial: .milliseconds(1), maximum: .milliseconds(1), timedRetries: 1)
+    public static let linkReconnect = RetryPolicy(initial: .milliseconds(1), maximum: .milliseconds(1), timedRetries: 1,
+                                                  keepsEventsDuringAttempt: true)
     /// A failing store snapshot while connected: 100 ms growing to 10 s, 8 attempts.
     public static let resync = RetryPolicy(initial: .milliseconds(100), maximum: .seconds(10), timedRetries: 8)
 }
@@ -174,8 +182,10 @@ extension RetryPacer {
     /// spacing (cut short by an event) or, once the budget is spent, for an
     /// event only; in a crash loop a socket change no longer counts.
     /// Returns false when cancelled.
-    public mutating func waitAfterFailure(wake: RetryWake, clock: any Clock<Duration>) async -> Bool {
-        wake.rebaseline()
+    /// `mark`: ``RetryWake/eventMark`` taken before the failed attempt; an event since then is kept
+    /// when the policy ``RetryPolicy/keepsEventsDuringAttempt``.
+    public mutating func waitAfterFailure(wake: RetryWake, clock: any Clock<Duration>, since mark: UInt64? = nil) async -> Bool {
+        wake.rebaseline(keepingEventsAfter: policy.keepsEventsDuringAttempt ? mark : nil)
         let delay = failed()
         let cause = await wake.awaitWake(delay: delay, clock: clock, socket: wakesOnSocket)
         woke(cause)

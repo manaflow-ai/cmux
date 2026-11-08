@@ -2,7 +2,7 @@
 import CmuxNextBridge
 import CmuxNextCompat
 @testable import CmuxNextDaemon
-import CmuxNextDaemonService
+@testable import CmuxNextDaemonService
 import CmuxNextRemote
 import Foundation
 import Testing
