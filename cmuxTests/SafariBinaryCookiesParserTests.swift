@@ -159,6 +159,18 @@ private struct BinaryCookiesFixture {
         #expect(cookies.map(\.name) == ["session", "theme"])
     }
 
+    @Test(arguments: [Double.nan, -Double.infinity, -1, 0])
+    func treatsNonPositiveOrNonFiniteExpiryAsASessionCookie(_ expiry: Double) throws {
+        var cookie = sessionCookie
+        cookie.expiry = expiry
+        let data = BinaryCookiesFixture.file(pages: [[cookie]])
+
+        let cookies = try parser.parse(data)
+
+        #expect(cookies.count == 1)
+        #expect(cookies.first?.expiresDate == nil)
+    }
+
     @Test func emptyStoreDecodesToNoCookies() throws {
         #expect(try parser.parse(BinaryCookiesFixture.file(pages: [])).isEmpty)
         #expect(try parser.parse(BinaryCookiesFixture.file(pages: [[]])).isEmpty)
