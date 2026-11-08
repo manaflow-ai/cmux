@@ -1337,6 +1337,11 @@ fn masked_reply(
     Some(masked)
 }
 
+/// A prompt of `text` alone.
+fn text_block(text: &str) -> Vec<Value> {
+    vec![json!({"type": "text", "text": text})]
+}
+
 #[cfg(test)]
 mod reply_tests {
     use super::*;
@@ -1413,7 +1418,3 @@ mod reply_tests {
     }
 }
 
-/// A prompt of `text` alone.
-fn text_block(text: &str) -> Vec<Value> {
-    vec![json!({"type": "text", "text": text})]
-}

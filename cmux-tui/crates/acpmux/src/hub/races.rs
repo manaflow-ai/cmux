@@ -326,7 +326,7 @@ impl Hub {
                             RpcError::internal("daemon restarted before this candidate start was recorded; no duplicate was started"))
                         .and_then(|result| result)
                     } else {
-                        self.race_launch(parent, &race, &c.id, &c.target, format!(
+                        self.race_launch(parent, race, &c.id, &c.target, format!(
                             "{}\n\nWork only in your own worktree. Do not publish or merge a PR. Finish with a concise summary of the changes and checks for an independent reviewer.", race.prompt)).await
                     };
                     match result {
@@ -649,12 +649,12 @@ fn child_name(race: &str, candidate: &str) -> String {
 
 fn outcome(child: &Session, expected_turn: Option<&str>) -> Option<(bool, Option<String>)> {
     child.read_meta(|m| {
-        if let Some(turn) = &m.last_turn {
-            if let Some(status) = turn["status"].as_str() {
-                let turn_id = turn["turnId"].as_str();
-                let closed = m.status == SessionStatus::Closed;
-                return turn_outcome(status, turn_id, expected_turn, closed, turn);
-            }
+        if let Some(turn) = &m.last_turn
+            && let Some(status) = turn["status"].as_str()
+        {
+            let turn_id = turn["turnId"].as_str();
+            let closed = m.status == SessionStatus::Closed;
+            return turn_outcome(status, turn_id, expected_turn, closed, turn);
         }
         (m.status == SessionStatus::Closed)
             .then(|| (false, Some("session closed before completing".into())))
