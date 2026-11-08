@@ -118,7 +118,8 @@ fn agents_events_until_answers_the_first_match_and_times_out_with_124() {
 
 /// A stand-in app socket: `ping` answers PONG, an `events.stream` request
 /// gets an ack, a heartbeat and `frames`, and the stream then stays open
-/// until the test is done (as the app's does). With `trickle`, each of
+/// until the test is done (as the app's does). A `{"quiet_ms": N}` frame
+/// sends nothing for N ms; `{"close": true}` ends the stream. With `trickle`, each of
 /// `frames` (not the ack or heartbeat) is sent a byte at a time with that
 /// pause between bytes.
 fn stand_in_app(
@@ -156,10 +157,15 @@ fn stand_in_app(
                     }
                     let Ok(request) = serde_json::from_str::<Value>(&text) else { continue };
                     if request["method"] != "events.stream" {
+                        // `--socket`'s kind probe wants `pong`.
+                        let result = match request["method"].as_str() {
+                            Some("system.ping") => json!({"pong": true}),
+                            _ => json!({}),
+                        };
                         let _ = writeln!(
                             writer,
                             "{}",
-                            json!({"id": request["id"], "ok": true, "result": {}})
+                            json!({"id": request["id"], "ok": true, "result": result})
                         );
                         continue;
                     }
@@ -168,6 +174,14 @@ fn stand_in_app(
                     let opening = [ack, heartbeat];
                     let all = opening.iter().map(|frame| (frame, None));
                     for (frame, pause) in all.chain(frames.iter().map(|frame| (frame, trickle))) {
+                        // Directives, not frames: go quiet, or end the stream.
+                        if let Some(quiet) = frame["quiet_ms"].as_u64() {
+                            std::thread::sleep(Duration::from_millis(quiet));
+                            continue;
+                        }
+                        if frame["close"] == true {
+                            return;
+                        }
                         let text = format!("{frame}\n");
                         let sent = match pause {
                             None => writer.write_all(text.as_bytes()),
@@ -324,5 +338,69 @@ fn cmux_events_timeout_holds_while_a_frame_trickles_in() {
     done.store(true, Ordering::Relaxed);
     assert_eq!(output.status.code(), Some(124), "{}", String::from_utf8_lossy(&output.stdout));
     assert!(elapsed < Duration::from_millis(2500), "{elapsed:?}");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// Without --timeout the stream has no deadline: the 5 s reply timeout of
+/// `--socket`'s kind probe (`system.ping`) is cleared, so a wait outlasts a
+/// quiet app (it used to stop after 5 s with exit 124).
+#[test]
+fn cmux_events_without_timeout_outlasts_a_quiet_app() {
+    let dir = std::env::temp_dir().join(format!("cmux-events-quiet-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    let app = dir.join("app.sock");
+    let frames = vec![
+        json!({"quiet_ms": 6500}),
+        json!({"type": "event", "seq": 7, "name": "mobile.rpc.ready", "payload": {}}),
+    ];
+    let done = Arc::new(AtomicBool::new(false));
+    stand_in_app(&app, frames, None, done.clone());
+    let output = Command::new(bin())
+        .arg("--socket")
+        .arg(&app)
+        .args(["events", "--jsonl", "--until", "mobile.rpc.ready"])
+        .env("CMUX_TUI_SOCKET", dir.join("no-daemon.sock"))
+        .env_remove("CMUX_MUX_SOCKET")
+        .env_remove("CMUX_TUI_TERMINAL_ID")
+        .output()
+        .unwrap();
+    done.store(true, Ordering::Relaxed);
+    assert_eq!(output.status.code(), Some(0), "{}", String::from_utf8_lossy(&output.stdout));
+    let line = String::from_utf8_lossy(&output.stdout);
+    assert!(line.contains("\"seq\":7"), "{line}");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// The app closing the stream before the match names the seq to resume
+/// from: the last one it sent, though no event it sent matched.
+#[test]
+fn cmux_events_closed_names_the_seq_to_resume_after() {
+    let dir = std::env::temp_dir().join(format!("cmux-events-closed-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    let app = dir.join("app.sock");
+    let event = |seq: u64| json!({"type": "event", "seq": seq, "name": "mobile.rpc.ready"});
+    let frames = vec![event(4), event(5), json!({"close": true})];
+    let done = Arc::new(AtomicBool::new(false));
+    stand_in_app(&app, frames, None, done.clone());
+    let output = Command::new(bin())
+        .arg("--app-socket")
+        .arg(&app)
+        .args(["--json", "events", "--until", "action.catalog.changed", "--timeout", "10s"])
+        .env("CMUX_TUI_SOCKET", dir.join("no-daemon.sock"))
+        .env_remove("CMUX_MUX_SOCKET")
+        .env_remove("CMUX_TUI_TERMINAL_ID")
+        .output()
+        .unwrap();
+    done.store(true, Ordering::Relaxed);
+    assert_eq!(output.status.code(), Some(1), "{}", String::from_utf8_lossy(&output.stderr));
+    let error = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(error.contains("events.closed"), "{error}");
+    assert!(error.contains("--after 5"), "{error}");
     let _ = fs::remove_dir_all(&dir);
 }

@@ -45,7 +45,16 @@ pub(super) fn stream_events(
         Ok(reader) => Lines { reader, pending: Vec::new(), deadline },
         Err(error) => return failure("app.transport", &error.to_string(), output, 3),
     };
+    // The connect's `system.ping` left its reply timeout on the socket: a
+    // stream with no --timeout has none, however long the app stays quiet.
+    if deadline.is_none()
+        && let Err(error) = lines.reader.set_read_timeout(None)
+    {
+        return failure("app.transport", &error.to_string(), output, 3);
+    }
     let mut stdout = std::io::stdout().lock();
+    // The last `seq` the app sent, matching or not: where a rerun resumes.
+    let mut last_seq: Option<u64> = None;
     loop {
         let line = match lines.next_line() {
             Ok(Some(line)) => line,
@@ -55,6 +64,9 @@ pub(super) fn stream_events(
         };
         let text = line.trim_end_matches(['\n', '\r']);
         let Ok(value) = serde_json::from_str::<Value>(text) else { continue };
+        if let Some(seq) = value.get("seq").and_then(Value::as_u64) {
+            last_seq = Some(seq);
+        }
         if value.get("ok").and_then(Value::as_bool) == Some(false) {
             let error = value.get("error").cloned().unwrap_or(Value::Null);
             return super::super::wire::print_local_error(&error, output, 1);
@@ -82,13 +94,17 @@ pub(super) fn stream_events(
     }
     match &wait.until {
         // The app closed the stream (it quit or restarted) before the event.
-        Some(_) => failure(
-            "events.closed",
-            "the app closed the event stream before a matching event; run the same cmux events \
-             command again with --after <last seq> to resume",
-            output,
-            1,
-        ),
+        Some(_) => {
+            let resume = match last_seq {
+                Some(seq) => format!("run the same cmux events command again with --after {seq}"),
+                None => "no event came before it closed; run the same cmux events command again"
+                    .to_owned(),
+            };
+            let message = format!(
+                "the app closed the event stream before a matching event; {resume} to resume"
+            );
+            failure("events.closed", &message, output, 1)
+        }
         None => 0,
     }
 }
