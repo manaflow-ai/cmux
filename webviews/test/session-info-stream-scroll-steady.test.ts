@@ -16,7 +16,9 @@
 // The real pane (`?mock`: the real direct client against the in-page mock daemon) with a seeded chat,
 // its page marked see-through and its host glass reported to a stand-in App that answers a frame later.
 // Every painted frame is read: the panel's node and each section slot's node stay the same, its glass
-// stays the App's (drawn, no kept underlay), and it never reaches over the composer's stack.
+// stays the App's (drawn, no kept underlay), and it never reaches over the composer's stack. The frames
+// are read from before the turn starts: the running tray comes in with the turn, so the composer's stack
+// is taken without it first (the baseline), and the test waits until the tray stands in the dock.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -166,25 +168,19 @@ await requireBrowserLane("session-info-stream-scroll-steady.test.ts", async () =
           ])
             state.setSessionInfoSection(id, true);
         });
-        await page.evaluate(async (target) => {
-          // The pane's dev server serves src/agent-session/acpmux at its root.
-          const mockUrl = "/mock.ts";
-          const mock = (await import(/* @vite-ignore */ mockUrl)).MockAcpmuxSocket.live as any;
-          mock.emit(target, { mux: "user_message", msg: { text: "Fix the flaky check" } });
-          mock.emit(target, { mux: "turn_started" });
-        }, target);
-        // The reader is a few screens up when the turn gets going.
-        const scroller = (await page.locator(".acpmux-scroll").boundingBox())!;
-        await page.mouse.move(scroller.x + scroller.width / 3, scroller.y + scroller.height / 2);
-        for (let step = 0; step < 8; step++) await page.mouse.wheel(0, -400);
         await page.waitForFunction(() =>
           document
             .querySelector("aside.acpmux-session-info")!
             .getAnimations({ subtree: true })
             .every((animation) => animation.effect?.getComputedTiming().endTime === Infinity),
         );
+        // The baseline: the composer's stack before any running tray, taken before the turn starts.
+        await page.waitForFunction(() => {
+          const dock = document.querySelector(".acpmux-dock");
+          return !!dock?.querySelector(".acpmux-composer") && !dock.querySelector(":scope > .acpmux-running-tray");
+        });
         const hostGlass = `/@fs${path.join(webviews, "src/ui/glass/hostGlass.ts")}`;
-        await page.evaluate(async (hostGlass) => {
+        const baseline = await page.evaluate(async (hostGlass) => {
           const w = window as any;
           // A see-through page whose host glass a stand-in App draws a frame after each report.
           document.documentElement.setAttribute("data-cmux-see-through", "");
@@ -203,6 +199,16 @@ await requireBrowserLane("session-info-stream-scroll-steady.test.ts", async () =
             };
             drawn();
           });
+          // The composer's stack: the top of its highest part (useDockHeight).
+          const stackTop = () => {
+            const dock = document.querySelector(".acpmux-dock")!;
+            let top = Infinity;
+            for (const part of [dock, ...dock.children]) {
+              const box = part.getBoundingClientRect();
+              if (box.height > 0) top = Math.min(top, box.top);
+            }
+            return Math.round(top);
+          };
           const aside = () => document.querySelector<HTMLElement>("aside.acpmux-session-info");
           const panel = aside()!;
           const slots = new Map(
@@ -219,8 +225,12 @@ await requireBrowserLane("session-info-stream-scroll-steady.test.ts", async () =
           };
           w.__seen = seen;
           let lastFoot: number | undefined;
+          // The sampler's first painted frame: the turn starts only after it, so the baseline is sampled.
+          let firstPaint!: () => void;
+          const painted = new Promise<void>((resolve) => (firstPaint = resolve));
           w.__stop = window.cmuxAfterPaint(() => {
             seen.frames += 1;
+            firstPaint();
             const node = aside();
             if (node !== panel) {
               seen.replaced += 1;
@@ -245,14 +255,8 @@ await requireBrowserLane("session-info-stream-scroll-steady.test.ts", async () =
                 style.backgroundColor,
               ].join("|"),
             );
-            // The composer's stack: the top of its highest part (useDockHeight).
-            const dock = document.querySelector(".acpmux-dock")!;
-            let top = Infinity;
-            for (const part of [dock, ...dock.children]) {
-              const box = part.getBoundingClientRect();
-              if (box.height > 0) top = Math.min(top, box.top);
-            }
-            seen.stack.add(Math.round(top));
+            const top = stackTop();
+            seen.stack.add(top);
             if (node.hasAttribute("data-over-chat")) {
               const bottom = node.getBoundingClientRect().bottom;
               if (bottom > top + 0.5) seen.overStack += 1;
@@ -262,7 +266,23 @@ await requireBrowserLane("session-info-stream-scroll-steady.test.ts", async () =
             }
             return true;
           });
+          await painted;
+          return stackTop();
         }, hostGlass);
+
+        // Only now does the turn start: the running tray comes in with it (the seeded chat's background
+        // commands show while a turn runs), so it lands after the baseline and inside the sampled frames.
+        await page.evaluate(async (target) => {
+          // The pane's dev server serves src/agent-session/acpmux at its root.
+          const mockUrl = "/mock.ts";
+          const mock = (await import(/* @vite-ignore */ mockUrl)).MockAcpmuxSocket.live as any;
+          mock.emit(target, { mux: "user_message", msg: { text: "Fix the flaky check" } });
+          mock.emit(target, { mux: "turn_started" });
+        }, target);
+        // The reader is a few screens up when the turn gets going.
+        const scroller = (await page.locator(".acpmux-scroll").boundingBox())!;
+        await page.mouse.move(scroller.x + scroller.width / 3, scroller.y + scroller.height / 2);
+        for (let step = 0; step < 8; step++) await page.mouse.wheel(0, -400);
 
         // The reader scrolls slowly down, pausing past the card's scroll hold (heldWhileScrolling.ts),
         // while the turn streams.
@@ -279,6 +299,15 @@ await requireBrowserLane("session-info-stream-scroll-steady.test.ts", async () =
           await page.waitForTimeout(320);
         }
         await streaming;
+        // The running tray has come in: it stands in the dock and the stack's top left the baseline.
+        await page.waitForFunction(
+          (baseline) =>
+            !!document.querySelector(".acpmux-dock > .acpmux-running-tray:not(.acpmux-running-tray--ghost)") &&
+            (window as any).__seen.stack.has(baseline) &&
+            [...(window as any).__seen.stack].some((top: number) => top !== baseline),
+          baseline,
+          { timeout: 10_000 },
+        );
         const seen = (await page.evaluate(() => {
           const w = window as any;
           w.__stop();
@@ -293,9 +322,10 @@ await requireBrowserLane("session-info-stream-scroll-steady.test.ts", async () =
           footSteps: number;
           stack: number[];
         };
-        console.log(`SESSION-INFO-STREAM-SCROLL ${width}px ${JSON.stringify(seen)}`);
+        console.log(`SESSION-INFO-STREAM-SCROLL ${width}px baseline ${baseline} ${JSON.stringify(seen)}`);
         expect(seen.frames).toBeGreaterThan(100);
-        // The running tray came in: the composer's stack moved under the panel during the run.
+        // The running tray came in: the composer's stack moved under the panel during the sampled run.
+        expect(seen.stack).toContain(baseline);
         expect(seen.stack.length).toBeGreaterThan(1);
         expect(seen.replaced, "frames the panel's node was gone or replaced").toBe(0);
         expect(seen.slotsReplaced, "section slots drawn anew").toEqual([]);

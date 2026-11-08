@@ -56,7 +56,9 @@ public extension WindowOverlayHost {
         if options.kind == .dialog { hideForEntrance([scrim, content].compactMap(\.self)) }
         syncPanel()
         layout(handle)
-        if options.kind == .dialog { animateIn(content, scrim: scrim) }
+        if options.kind == .dialog {
+            if options.holdsEntrance { handle.heldEntrance = (scrim, true) } else { animateIn(content, scrim: scrim) }
+        }
         if options.isModal { beginModal(handle) }
         updateMouseRouting()
         updateEscapeMonitor()
@@ -85,7 +87,7 @@ public extension WindowOverlayHost {
     /// one even step instead of a quick dim and then a slow one. Under Reduce Motion only the fades
     /// remain; with animation off it shows in one frame. Presented again while its close still runs,
     /// it continues from what is on screen.
-    private func animateIn(_ content: NSView, scrim: NSView?) {
+    func animateIn(_ content: NSView, scrim: NSView?) {
         content.wantsLayer = true
         if let layer = content.layer {
             let closing = layer.animation(forKey: "sublayerTransform") != nil
@@ -112,6 +114,14 @@ public extension WindowOverlayHost {
     func frameInWindow(_ handle: OverlayHandle) -> NSRect {
         guard let clip = handle.clipView else { return handle.content.frame }
         return handle.content.frame.offsetBy(dx: clip.frame.minX, dy: clip.frame.minY)
+    }
+
+    /// ``OverlayOptions/mouseRect`` in window coordinates, at the content's frame as placed.
+    func mouseRect(of handle: OverlayHandle) -> NSRect? {
+        guard let rect = handle.options.mouseRect else { return nil }
+        let frame = frameInWindow(handle)
+        let y = handle.content.isFlipped ? frame.maxY - rect.maxY : frame.minY + rect.minY
+        return NSRect(x: frame.minX + rect.minX, y: y, width: rect.width, height: rect.height)
     }
 
     /// What of the overlay shows (window coordinates): a `.pane` overlay
@@ -162,7 +172,10 @@ public extension WindowOverlayHost {
             if options.dimsContent || (options.isModal && options.modalRegion == nil) { return [bounds] }
             var rects: [NSRect] = []
             if let region = options.modalRegion { rects.append(region) }
-            if !options.passesThroughClicks { rects += visibleRegion(of: handle) }
+            if !options.passesThroughClicks {
+                let visible = visibleRegion(of: handle)
+                rects += mouseRect(of: handle).map { mouse in visible.map { $0.intersection(mouse) }.filter { !$0.isEmpty } } ?? visible
+            }
             return rects
         }
     }

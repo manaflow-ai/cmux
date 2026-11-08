@@ -2,7 +2,7 @@
 import { componentEntry } from "../../gallery/format";
 import type { ChatAccounts } from "./chatAccounts";
 import type { ModelPickerProps } from "./modelPickerLayout";
-import type { UsedLook } from "./QuickModelMenu";
+import type { UsedLook } from "./quickModelMenuModel";
 import type { Play } from "../../gallery/play";
 import { BUNDLED_MODEL_CATALOG } from "./modelCatalogData";
 import { topModelsFor } from "./topModels";

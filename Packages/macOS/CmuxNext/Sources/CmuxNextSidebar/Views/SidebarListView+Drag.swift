@@ -97,8 +97,10 @@ extension SidebarListViewComponents {
         suppressed.formUnion(hidden)
         setHovered(nil)
         for key in hidden { rowViews[key]?.alphaValue = 0 }
+        SidebarEmptyZones.keepPinned(self, drag)
         // The source slot closes on the drag's spring; the list does not reload while the drag is held.
         showDragLayout()
+        SidebarEmptyZones.begin(self, drag)
     }
     func updateDrag(windowPoint: NSPoint) {
         guard let drag else { return }
@@ -119,6 +121,7 @@ extension SidebarListViewComponents {
             drag.movingUp = point.y < drag.lastY
             drag.lastY = point.y
         }
+        SidebarEmptyZones.update(self, drag, at: point)
         if drag.group != nil { return updateGroupDrag(drag) }
         if drag.docItems != nil { return updateDocDrag(drag, point: point) }
         let (base, rules) = dragBase(drag)
@@ -133,14 +136,23 @@ extension SidebarListViewComponents {
     /// look change: a move builds no options, lays out nothing and crosses into Rust with the card's points only, so its
     /// cost does not grow with the rows the list holds (`SidebarDragMoveCostTests`, `SidebarDragFullMoveCostTests`). The rows are the held ones as shown (`SidebarRowHold`).
     func dragBase(_ drag: Drag) -> (layout: SidebarLayout, rules: DropResolver.DragRules?) {
-        let key = SidebarDragBaseKey(content: model.contentRevision, reloads: reloads, width: bounds.width, metrics: metrics,
-                                     ungroupedFirst: model.ungroupedFirst)
+        let key = dragBaseKey(drag)
         if let base = drag.base, base.key == key { return (base.layout, base.rules) }
         let sections = listSections
-        let layout = SidebarLayout.make(sections: sections, metrics: metrics, options: options(includeGap: false))
+        let o = options(includeGap: false)
+        let layout = SidebarLayout.make(sections: sections, metrics: metrics, options: o)
         let rules = DropResolver.DragRules(payload: drag.payload, base: layout, sections: sections, ungroupedFirst: model.ungroupedFirst)
-        drag.base = (key, layout, rules)
+        var look: SidebarDragLook?
+        if case let .workspaces(ids) = drag.payload {
+            look = SidebarDragLook(base: layout, sections: sections, options: SidebarDragLook.shown(o, leaving: leaving), moving: ids)
+        }
+        drag.base = (key, layout, rules, look)
         return (layout, rules)
+    }
+    /// What the drag's base is made from now: while it equals the base's key, the base and its look hold.
+    func dragBaseKey(_ drag: Drag) -> SidebarDragBaseKey {
+        SidebarDragBaseKey(content: model.contentRevision, reloads: reloads, width: bounds.width, metrics: metrics,
+                           ungroupedFirst: model.ungroupedFirst, openZone: drag.openZone)
     }
     func finishDrag(at windowPoint: NSPoint? = nil) {
         guard let drag else { return }

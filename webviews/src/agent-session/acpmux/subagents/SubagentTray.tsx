@@ -86,7 +86,7 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { type BackgroundCommand, sendLabel } from "../session-info/processes";
 import { commandRead } from "../session-info/commandRules";
-import { trimRawCommand } from "../conversation/shortCommand";
+import { ROW_WIDTH, trimRawCommand } from "../conversation/shortCommand";
 import { currentCommandRules } from "../session-info/commandLabelSettings";
 import { StopButton as ProcessStopButton } from "../session-info/TasksSection";
 import {
@@ -98,14 +98,17 @@ import {
 import { retrying, retryLabel, sessionRetry } from "./retryState";
 import { AgentMark } from "../../shared/AgentMark";
 import { AgentLine } from "./AgentLine";
-import { AgentIdentity, foreignHarness, SUBAGENT_FALLBACK } from "./AgentIdentity";
+import { AgentIdentity } from "./AgentIdentity";
+import { foreignHarness, SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { harnessFamily } from "./agentRuns";
 import { agentTone } from "./agentTones";
 import { subagentProgress } from "./subagentProgress";
 import { useAgentProgress } from "./agentProgressStore";
 import { subagentDisplayName, subagentTaskLabel } from "./subsessions";
 import { BackgroundTaskTail } from "./BackgroundTaskTail";
-import { elapsed, StopButton, SubagentHarnessContext, useNow } from "./SubagentGroup";
+import { TrayAgentDetail, TrayLineFold } from "./TrayLineDetail";
+import { StopButton } from "./SubagentGroup";
+import { elapsed, SubagentHarnessContext, useNow } from "./subagentGroupModel";
 import { commandStatus, itemStart, trayItemKey, type TrayItem } from "./runningTray";
 import { attentionFirst, type TrayCard } from "./trayAttention";
 import { latestLine, toolDetail } from "./trayDetail";
@@ -122,7 +125,8 @@ import { traySurfaceLook } from "./traySurface.experiment";
 import { trayLatestLook } from "./trayLatest.experiment";
 import { hatChevronLook, hatDoneLook, hatRowMotionLook } from "./hatParts.experiment";
 import { DoneMark } from "./DoneMark";
-import { Tick, useTrayMotion } from "./trayMotion";
+import { Tick } from "./trayMotion";
+import { useTrayMotion } from "./trayMotionModel";
 import type { StartedSession } from "../started/startedSessions";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
@@ -130,6 +134,7 @@ import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
 import { PlanList } from "../conversation/PlanList";
 import type { AcpmuxPlanEntry } from "../model";
 import type { TrayHandleSide } from "../chatDisplay";
+import { earlierPlanHead, planHead } from "./subagentTrayModel";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -157,8 +162,8 @@ export const SubagentTray = memo(function SubagentTray({
   waiting,
   onOpen,
   onOpenCommand,
-  canOpenTerminal = false,
   canReadTail = false,
+  canOpenTerminal = true,
   onOpenSession,
   onOpenPanel,
   stop,
@@ -185,10 +190,12 @@ export const SubagentTray = memo(function SubagentTray({
   onOpen: (id: string) => void;
   /// Opens a command's terminal, or what shows it where none opens (App.tsx).
   onOpenCommand?: (command: BackgroundCommand) => void;
-  /// The local process registry can replay this chat's output in a terminal.
-  canOpenTerminal?: boolean;
   /// A connected local process source is available for the expanded tail.
   canReadTail?: boolean;
+  /// The host opens a command's terminal (App.tsx `opensProcessTerminal`). Where it does not, the
+  /// expanded tail shows no Open in terminal: there it would only reveal the command's call, and the
+  /// tail already shows the command.
+  canOpenTerminal?: boolean;
   /// Opens a chat the agent started (App.tsx `openOfferChat`).
   onOpenSession?: (sessionId: string) => void;
   /// Opens the chat's Background tasks panel (App.tsx `openBackgroundPanel`): the header expands in
@@ -240,7 +247,18 @@ export const SubagentTray = memo(function SubagentTray({
   const [oneName, setOneName] = useState(false);
   // Folded until the person opens it; their choice holds for this chat (trayFoldMemory.ts).
   const [opened, setOpened] = useState<boolean | undefined>(() => trayOpenFor(chat));
-  const [openCommands, setOpenCommands] = useState<ReadonlySet<string>>(() => new Set());
+  // The lines open in place (TrayLineDetail.tsx): a click on a line expands it, never navigates.
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleLine = useCallback(
+    (key: string) =>
+      setExpanded((current) => {
+        const next = new Set(current);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      }),
+    [],
+  );
   // Each line's Stop, as its menu item: off while the request is out (and after it is taken, until
   // that run ends); when acpmux or the harness refuses, the item says so and can be tried again.
   const [stops, setStops] = useState<ReadonlyMap<string, "stopping" | "failed">>(() => new Map());
@@ -659,7 +677,7 @@ export const SubagentTray = memo(function SubagentTray({
             // header is all that says so.
             <span className="acpmux-summary-meta acpmux-running-tray__time" data-lone data-status={loneHead.status}>
               {loneHead.status === "done" ? (
-                <DoneMark state={loneHead.state} time={loneHead.time} look={doneLook} />
+                <DoneMark state={loneHead.state} time={loneHead.time} look={doneLook} checkInSlot />
               ) : loneHead.status === "running" && !loneHead.retry && loneHead.time !== undefined ? (
                 loneHead.time
               ) : (
@@ -796,57 +814,73 @@ export const SubagentTray = memo(function SubagentTray({
   }
 
   function line(item: TrayItem) {
+    const key = itemKey(item);
+    const isOpen = expanded.has(key);
+    const toggleThis = () => toggleLine(key);
     if (item.kind === "agent") {
       const parent = item.agent.parent === null ? undefined : agentsById.get(item.agent.parent);
-      return menu(
-        <AgentLine
-          // Its task, as Claude Code's and ChatGPT's task rows read; its name moves to the tooltip.
-          name={subagentTaskLabel(t, item.agent)}
-          progress={subagentProgress(t, language, item.agent, { usage: false }).join(" · ") || undefined}
-          progressAgent={item.agent}
-          icon={SUBAGENT_FALLBACK}
-          mark={foreignHarness(item.agent.harness, chatHarness)}
-          tone={agentTone(item.agent.id)}
-          doneLook={doneLook}
-          status={subagentStatus(item.agent, waiting)}
-          working={subagentStatus(item.agent, waiting) === "running"}
-          state={subagentStateText(t, item.agent, waiting)}
-          quiet={quietAgent(item.agent, waiting)}
-          time={formatDuration(elapsed(item.agent, now))}
-          depth={item.depth}
-          // Its kind and what it does now are off the line (Leo, 2026-10-31: "a lot of these
-          // subtitles are bad"); the tooltip keeps them under its task.
-          title={agentTooltip(t, item.agent)}
-          label={t("subagents.open", { name: subagentTaskLabel(t, item.agent) })}
-          chevron
-          trayColumns
-          // A narrow tray's workflow progress wraps under the title, above its time and controls.
-          progressAt={row === "below" || narrow ? "below" : "meta"}
-          // What it did last, on its own quiet line (Leo, 2026-11-03: "Tray only, richer").
-          latest={showLatest ? latestLine(t, item.agent, awaitsOwnWork(item.agent)) : undefined}
-          latestAt={latestPlacement}
-          via={parent ? subagentTaskLabel(t, parent) : undefined}
-          onOpen={() => onOpen(item.agent.id)}
-          after={
+      const agentLatest = latestLine(t, item.agent, awaitsOwnWork(item.agent));
+      return (
+        <>
+          {menu(
+            <AgentLine
+              // Its task, as Claude Code's and ChatGPT's task rows read; its name moves to the tooltip.
+              name={subagentTaskLabel(t, item.agent)}
+              progress={subagentProgress(t, language, item.agent, { usage: false }).join(" · ") || undefined}
+              progressAgent={item.agent}
+              icon={SUBAGENT_FALLBACK}
+              mark={foreignHarness(item.agent.harness, chatHarness)}
+              tone={agentTone(item.agent.id)}
+              doneLook={doneLook}
+              status={subagentStatus(item.agent, waiting)}
+              working={subagentStatus(item.agent, waiting) === "running"}
+              state={subagentStateText(t, item.agent, waiting)}
+              quiet={quietAgent(item.agent, waiting)}
+              time={formatDuration(elapsed(item.agent, now))}
+              depth={item.depth}
+              // Its kind and what it does now are off the line (Leo, 2026-10-31: "a lot of these
+              // subtitles are bad"); the tooltip keeps them under its task.
+              title={agentTooltip(t, item.agent)}
+              label={subagentTaskLabel(t, item.agent)}
+              chevron
+              expanded={isOpen}
+              trayColumns
+              // A narrow tray's workflow progress wraps under the title, above its time and controls.
+              progressAt={row === "below" || narrow ? "below" : "meta"}
+              // What it did last, on its own quiet line (Leo, 2026-11-03: "Tray only, richer").
+              latest={showLatest ? agentLatest : undefined}
+              latestAt={latestPlacement}
+              via={parent ? subagentTaskLabel(t, parent) : undefined}
+              onOpen={toggleThis}
+              after={
+                stop &&
+                item.agent.state === "running" &&
+                !item.agent.command && <StopButton agent={item.agent} stop={stop} solid />
+              }
+            />,
+            // An agent a shell call started stops with that call, not through the harness.
             stop &&
-            item.agent.state === "running" &&
-            !item.agent.command && <StopButton agent={item.agent} stop={stop} solid />
-          }
-        />,
-        // An agent a shell call started stops with that call, not through the harness.
-        stop &&
-          item.agent.state === "running" &&
-          !item.agent.command &&
-          stopItem(
-            stopKey(item)!,
-            subagentDisplayName(t, item.agent),
-            t("subagents.stop", { name: subagentDisplayName(t, item.agent) }),
-            () => stop(item.agent.id),
-          ),
+              item.agent.state === "running" &&
+              !item.agent.command &&
+              stopItem(
+                stopKey(item)!,
+                subagentDisplayName(t, item.agent),
+                t("subagents.stop", { name: subagentDisplayName(t, item.agent) }),
+                () => stop(item.agent.id),
+              ),
+          )}
+          <TrayLineFold open={isOpen}>
+            <TrayAgentDetail
+              name={subagentTaskLabel(t, item.agent)}
+              task={item.agent.task}
+              latest={agentLatest}
+              onOpen={() => onOpen(item.agent.id)}
+            />
+          </TrayLineFold>
+        </>
       );
     }
     if (item.kind === "command") {
-      const key = itemKey(item);
       // A finished command stays a while as done, failed or stopped, with how long it ran
       // (trayLinger.ts); only a running one stops.
       const status = commandStatus(item.command);
@@ -872,13 +906,10 @@ export const SubagentTray = memo(function SubagentTray({
           {menu(
             <AgentLine
               name={item.owner ? `${subagentTaskLabel(t, item.owner)} · ${named}` : named}
-              latest={showLatest ? trimRawCommand(item.command.command, 56) : undefined}
+              latest={showLatest ? trimRawCommand(item.command.command, ROW_WIDTH) : undefined}
               latestAt={latestPlacement}
               latestCode
               via={ownerParent ? subagentTaskLabel(t, ownerParent) : undefined}
-              nameLink={
-                item.owner ? { href: `#subagent:${item.owner.id}`, open: () => onOpen(item.owner!.id) } : undefined
-              }
               title={item.command.command}
               chevron
               icon={read.icon}
@@ -887,22 +918,12 @@ export const SubagentTray = memo(function SubagentTray({
               doneLook={doneLook}
               state={t(STATUS_LABEL[status])}
               quiet={runs || status === "done"}
-              expanded={canOpenTerminal ? openCommands.has(key) : undefined}
+              expanded={isOpen}
               trayColumns
               time={commandElapsed}
-              onOpen={
-                onOpenCommand
-                  ? () => {
-                      setOpenCommands((current) => {
-                        const next = new Set(current);
-                        if (next.has(key)) next.delete(key);
-                        else next.add(key);
-                        return next;
-                      });
-                      onOpenCommand(item.command);
-                    }
-                  : undefined
-              }
+              // Expands to its tail where there is one to show: a host that reads its output or opens
+              // its terminal, or a link it is about.
+              onOpen={onOpenCommand || canReadTail || read.link ? toggleThis : undefined}
               after={
                 stopProcess &&
                 processId && (
@@ -920,19 +941,23 @@ export const SubagentTray = memo(function SubagentTray({
               processId &&
               stopItem(stopKey(item)!, item.command.command, t("tray.stopCommand"), () => stopProcess(processId)),
           )}
-          <BackgroundTaskTail
-            command={item.command}
-            open={openCommands.has(key) && (canReadTail || read.link !== undefined)}
-            readOutput={canReadTail}
-            link={read.link}
-            owner={item.owner ? subagentTaskLabel(t, item.owner) : undefined}
-            elapsed={commandElapsed}
-            onOpenTerminal={
-              canOpenTerminal && onOpenCommand && item.command.toolCallId
-                ? () => onOpenCommand(item.command)
-                : undefined
-            }
-          />
+          <TrayLineFold open={isOpen}>
+            <BackgroundTaskTail
+              command={item.command}
+              open
+              readOutput={canReadTail}
+              link={read.link}
+              owner={item.owner ? subagentTaskLabel(t, item.owner) : undefined}
+              elapsed={commandElapsed}
+              // The row expands in place, so its terminal (or, where none opens, its call: App.tsx
+              // `openTrayCommand`) is this explicit button now, never the row's click.
+              onOpenTerminal={canOpenTerminal && onOpenCommand ? () => onOpenCommand(item.command) : undefined}
+              // A subagent's command: the whole line, its title included, expands it, and the way to the
+              // subagent is this explicit Open chat (Leo, 2026-11-07: "me clicking this, the entire box, it
+              // just feels like, okay, I would be expanding this").
+              onOpenOwner={item.owner && (() => onOpen(item.owner!.id))}
+            />
+          </TrayLineFold>
         </>
       );
     }
@@ -940,20 +965,31 @@ export const SubagentTray = memo(function SubagentTray({
     const sessionPhase = sessionRetry(item.session);
     const sessionRetrying = sessionPhase.kind === "retrying" ? sessionPhase.retry : undefined;
     return (
-      <AgentLine
-        name={item.session.title}
-        title={item.session.doing}
-        mark={item.session.harness}
-        tone={agentTone(item.session.sessionId)}
-        chevron
-        icon="agent.chat"
-        status={sessionRetrying ? "running" : SESSION_STATUS[item.session.state]}
-        working={sessionRetrying !== undefined || item.session.state === "running"}
-        state={sessionRetrying ? retryLabel(t, sessionRetrying) : t(STATUS_LABEL[SESSION_STATUS[item.session.state]])}
-        quiet={!sessionRetrying && (item.session.state === "running" || item.session.state === "idle")}
-        trayColumns
-        onOpen={onOpenSession && (() => onOpenSession(item.session.sessionId))}
-      />
+      <>
+        <AgentLine
+          name={item.session.title}
+          title={item.session.doing}
+          mark={item.session.harness}
+          tone={agentTone(item.session.sessionId)}
+          chevron
+          icon="agent.chat"
+          status={sessionRetrying ? "running" : SESSION_STATUS[item.session.state]}
+          working={sessionRetrying !== undefined || item.session.state === "running"}
+          state={sessionRetrying ? retryLabel(t, sessionRetrying) : t(STATUS_LABEL[SESSION_STATUS[item.session.state]])}
+          quiet={!sessionRetrying && (item.session.state === "running" || item.session.state === "idle")}
+          trayColumns
+          expanded={isOpen}
+          // Only a line with something to show expands; one with nothing is a quiet, disabled line.
+          onOpen={onOpenSession || item.session.doing ? toggleThis : undefined}
+        />
+        <TrayLineFold open={isOpen}>
+          <TrayAgentDetail
+            name={item.session.title}
+            latest={item.session.doing}
+            onOpen={onOpenSession && (() => onOpenSession(item.session.sessionId))}
+          />
+        </TrayLineFold>
+      </>
     );
   }
 });
@@ -1032,7 +1068,7 @@ function loneHeadOf(
     const status = commandStatus(item.command);
     return {
       title: sendLabel(t, item.command) ?? commandRead(t, item.command, undefined, currentCommandRules()).label,
-      latest: showLatest && status === "running" ? trimRawCommand(item.command.command, 56) : undefined,
+      latest: showLatest && status === "running" ? trimRawCommand(item.command.command, ROW_WIDTH) : undefined,
       latestCode: true,
       status,
       state: t(STATUS_LABEL[status]),
@@ -1114,21 +1150,6 @@ function stackMarks(
 /// chat bubble, which reads as a message, and never the spinner, which each working line keeps.
 const HEAD_ICON = "app.sample.runningagents";
 
-/// The header's plan part: "2 of 5 · Write the tests", the step at work (else the next one waiting)
-/// after the progress; a list all done reads only its progress.
-export function planHead(t: Translate, plan: readonly AcpmuxPlanEntry[]): string {
-  const done = plan.filter((entry) => entry.status === "completed").length;
-  const progress = t("plan.hat", { done, total: plan.length });
-  const step = plan.find((entry) => entry.status === "in_progress") ?? plan.find((entry) => entry.status === "pending");
-  return step ? `${progress} · ${step.content}` : progress;
-}
-
-/// The header's plan part for an earlier turn's list: "Earlier plan · 2 of 5", naming no step, as
-/// none is at work in this turn.
-export function earlierPlanHead(t: Translate, plan: readonly AcpmuxPlanEntry[]): string {
-  const done = plan.filter((entry) => entry.status === "completed").length;
-  return `${t("plan.earlier.short")} · ${t("plan.hat", { done, total: plan.length })}`;
-}
 const NO_ITEMS: readonly TrayItem[] = [];
 const NO_ARRIVALS: ReadonlySet<string> = new Set();
 /// A line leaving the open list: its last card, and its place among the lines drawn then.

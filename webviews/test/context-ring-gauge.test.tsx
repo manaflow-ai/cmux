@@ -2,7 +2,8 @@
 // the ring at 68% (a faint 30% track under a round-ended arc) as a spinner: "and why does it even take
 // time to read settings? you know what things are". The shipped look (experiment context-ring-look,
 // arm `track`) draws the remaining share as a clearly visible track and the used arc with flat ends,
-// so the whole circle reads as one gauge with no gap. Never a pie, and the ring never animates.
+// so the whole circle reads as one gauge with no gap. Never a pie, and at rest the ring never animates
+// (a new reading eases it there: context-ring-motion-browser.test.ts).
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -70,7 +71,7 @@ for (const share of [0.25, 0.68, 0.95]) {
   });
 }
 
-test("the ring is static: no animation or transition on its arc", async () => {
+test("at rest the ring is static: no animation or transition on its arc", async () => {
   const { svg } = await ring(0.68 * 200_000);
   expect(svg.querySelector("animate, animateTransform")).toBeNull();
   for (const circle of svg.querySelectorAll("circle"))

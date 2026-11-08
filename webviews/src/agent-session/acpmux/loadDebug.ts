@@ -41,12 +41,13 @@ function afterRender(): Promise<number> {
 export async function loadSeed(
   host: { selectSession(sessionId: string): void; rowCount(): number },
   turns: number,
+  options: { light?: boolean } = {},
 ): Promise<Record<string, unknown>> {
   const mock = MockAcpmuxSocket.live;
   if (!mock) return { error: "the pane is not on the mock daemon (run the app with --showcase)" };
   acpmuxPerf.enable();
   const started = performance.now();
-  const session = mock.seedLoadSession(Math.max(1, Math.floor(turns)));
+  const session = mock.seedLoadSession(Math.max(1, Math.floor(turns)), options.light === true);
   const seeded = performance.now();
   host.selectSession(session);
   // The transcript is in once its row count stops growing. Each frame also reads what is on
@@ -228,6 +229,9 @@ export type LoadTickOptions = {
   scroll_depth?: number;
   /// What scrolls: the transcript (`chat`, the default) or Session Info's own body (`session-info`).
   scroll_target?: "chat" | "session-info";
+  /// Text each output line ends with (` see #12`: a `#N` the pane reads out of the output, so each
+  /// update draws through the pane, liveToolOutput.ts).
+  line_suffix?: string;
 };
 
 /// The Session Info parts counted while `loadTick` runs (SessionInfo.tsx `useCountedRender`): its
@@ -285,6 +289,7 @@ export async function loadTick(
           seconds,
           tickMs: Math.max(16, tickMs),
           sidebarMs: Math.max(0, options.sidebar_ms ?? 250),
+          lineSuffix: options.line_suffix ?? "",
         })
       : new Promise<{ ticks: number; sidebar: number }>((resolve) =>
           setTimeout(() => resolve({ ticks: 0, sidebar: 0 }), seconds * 1000),
@@ -361,6 +366,8 @@ export async function loadTick(
   const perSecond = (value: number) => round2(value / elapsed);
   return {
     ...ticked,
+    // Renders per component over the run (`acpmuxPerf.render`), as `loadRun` reports them.
+    renders: Object.fromEntries(acpmuxPerf.renders),
     seconds: round2(elapsed),
     frames,
     scroll_target: panelTarget ? "session-info" : "chat",

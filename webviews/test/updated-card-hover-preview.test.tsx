@@ -142,6 +142,29 @@ describe("the preview's rows", () => {
     expect(rows[0]!.detail).toBe("Agents can drive apps on your Mac.");
   });
 
+  // Review F1 of #37894: with no build notes the rows come from the host's items, already in the
+  // page's language, and the English-only title check let the German generic entry through.
+  test("leave out the host's generic entry in any language when the build notes have not loaded", () => {
+    const german: UpdateHighlights = {
+      ...data,
+      language: "de",
+      items: [
+        {
+          id: "fixes-and-improvements",
+          title: "Fehlerbehebungen und Verbesserungen",
+          summary: null,
+          category: "improved",
+        },
+        { id: "tabs", title: "Tabs behalten ihre Scrollposition", summary: null, category: "improved" },
+      ],
+      rest: undefined,
+      moreCount: 0,
+    };
+    expect(previewEntries(german, undefined, "de").map((row) => row.title)).toEqual([
+      "Tabs behalten ihre Scrollposition",
+    ]);
+  });
+
   test("list every build of the update's span once its notes load, each change once, internal work left out", () => {
     const span = [
       {
@@ -167,6 +190,150 @@ describe("the preview's rows", () => {
     ] as unknown as ReleaseNotes[];
     const titles = previewEntries(data, span, "en").map((row) => row.title);
     expect(titles).toEqual(["Rows keep their color", "Paste keeps its spaces"]);
+  });
+
+  // #37615 F1: the generic entry is known by its source identity (its id and English title), not
+  // by the title the page shows; in German it read as a row of its own.
+  test("leave out the generic entry in every language", () => {
+    const span = [
+      {
+        build: "1",
+        shortVersion: "1.0.0-nightly.1",
+        date: "2026-11-06",
+        highlights: [],
+        changes: [],
+        items: [{ title: "fix(terminal): paste keeps its spaces", pr: 6 }],
+        whatsNew: {
+          version: "1.0.0-nightly.1",
+          channel: "nightly",
+          date: "2026-11-06",
+          headline: { en: "Fixes and improvements" },
+          entries: [
+            {
+              id: "fixes-and-improvements",
+              category: "improved",
+              title: { en: "Fixes and improvements", de: "Fehlerbehebungen und Verbesserungen" },
+              summary: {
+                en: "This build brings fixes and improvements. The link lists every change in it.",
+                de: "Dieser Build bringt Fehlerbehebungen und Verbesserungen.",
+              },
+            },
+          ],
+        },
+      },
+    ] as unknown as ReleaseNotes[];
+    const titles = previewEntries(data, span, "de").map((row) => row.title);
+    expect(titles).not.toContain("Fehlerbehebungen und Verbesserungen");
+    expect(titles).toEqual(["Paste keeps its spaces"]);
+  });
+
+  // #37615 F4: a build with reviewed entries lists those, not its commits too, as the card's summary.
+  test("list a build's commits only when it has no reviewed entries", () => {
+    const span = [
+      {
+        build: "2",
+        shortVersion: "1.0.0-nightly.2",
+        date: "2026-11-07",
+        highlights: [],
+        changes: [],
+        items: [{ title: "feat(sidebar): rows keep their color", pr: 5 }],
+        whatsNew: {
+          version: "1.0.0-nightly.2",
+          channel: "nightly",
+          date: "2026-11-07",
+          headline: { en: "Sidebar colors" },
+          entries: [
+            {
+              id: "sidebar-colors",
+              category: "new",
+              title: { en: "Sidebar groups take a palette color" },
+              summary: { en: "" },
+            },
+          ],
+        },
+      },
+      {
+        build: "1",
+        shortVersion: "1.0.0-nightly.1",
+        date: "2026-11-06",
+        highlights: [],
+        changes: [],
+        items: [{ title: "fix(terminal): paste keeps its spaces", pr: 6 }],
+      },
+    ] as unknown as ReleaseNotes[];
+    const titles = previewEntries(data, span, "en").map((row) => row.title);
+    expect(titles).toEqual(["Sidebar groups take a palette color", "Paste keeps its spaces"]);
+  });
+
+  // #37615 F5: the preview promises every change of the update; none drops off the end.
+  test("list every change, however many", () => {
+    const items = Array.from({ length: 60 }, (_, index) => ({
+      title: `fix(terminal): change number ${index + 1} keeps working`,
+      pr: 100 + index,
+    }));
+    const span = [
+      { build: "1", shortVersion: "1.0.0-nightly.1", date: "2026-11-06", highlights: [], changes: [], items },
+    ] as unknown as ReleaseNotes[];
+    const rows = previewEntries(data, span, "en");
+    expect(rows).toHaveLength(60);
+    expect(rows.at(-1)!.title).toBe("Change number 60 keeps working");
+  });
+
+  // A pull request's changelog sentence restates its title: "Show in Mini points the floating mini
+  // at any chat, …" over "Show in Mini points the floating mini at any agent chat (…)". Each line is
+  // cut to one line in the preview, so the row read "Show in Mini points the fl…" twice. A row whose
+  // second line opens with the title's words shows the title alone; a different line stays.
+  test("never show a second line that repeats the title", () => {
+    const span = [
+      {
+        build: "1",
+        shortVersion: "1.0.0-nightly.1",
+        date: "2026-11-07",
+        highlights: [],
+        changes: [],
+        items: [
+          {
+            title:
+              "cmux NEXT: Show in Mini points the floating mini at any chat, and its reply box keeps typing to it (#37728)",
+            pr: 37728,
+            description:
+              "Show in Mini points the floating mini at any agent chat (chat menu and palette); the mini wears that chat's avatar and state.",
+          },
+          {
+            title: "fix(terminal): paste keeps its spaces (#6)",
+            pr: 6,
+            description: "Paste keeps its spaces.",
+          },
+          {
+            title: "feat(sidebar): groups take a palette color (#7)",
+            pr: 7,
+            description: "A new group picks its color from the theme instead of a random pastel.",
+          },
+        ],
+      },
+    ] as unknown as ReleaseNotes[];
+    const rows = previewEntries(data, span, "en");
+    expect(rows.map((row) => [row.title, row.detail])).toEqual([
+      ["Show in Mini points the floating mini at any chat, and its reply box keeps typing to it", undefined],
+      ["Paste keeps its spaces", undefined],
+      ["Groups take a palette color", "A new group picks its color from the theme instead of a random pastel."],
+    ]);
+  });
+
+  test("drop a host item's second line that repeats its title", () => {
+    const host: UpdateHighlights = {
+      ...data,
+      items: [
+        {
+          id: "mini",
+          title: "Show in Mini points the floating mini at any chat",
+          summary: "Show in Mini points the floating mini at any agent chat from the chat menu.",
+          category: "new",
+        },
+      ],
+      rest: [],
+    };
+    expect(previewEntries(host, undefined, "en").map((row) => row.detail)).toEqual([undefined]);
   });
 });
 
@@ -300,6 +467,165 @@ describe("the card", () => {
     expect(Date.now() - started).toBeGreaterThanOrEqual(380);
     // The card's own 48 px and the list's 120 px.
     expect(sizes).toEqual([168]);
+  });
+
+  // #37615 F2: with motion reduced or off the preview has no close transition to wait for, so the
+  // room goes back as the preview closes.
+  test("with motion reduced, the room goes back as the preview closes", async () => {
+    const page = dom.window.document.documentElement;
+    page.dataset.cmuxMotion = "reduced";
+    try {
+      const sizes: number[] = [];
+      let host: HTMLElement;
+      ({ host } = await render({ hostPointer: false, onPreviewSize: (h: number) => sizes.push(h) }));
+      ({ host } = await render({ hostPointer: true, onPreviewSize: (h: number) => sizes.push(h) }));
+      const state = () => host.querySelector(".wn-card")?.getAttribute("data-preview");
+      await until(() => state() === "open");
+      expect(sizes).toEqual([168]);
+      // The same card hears the pointer leave (render() would mount a new one).
+      const { UpdatedCard } = await import("../src/pages/changelog/UpdateSurfaces");
+      const { createStrings } = await import("../src/pages/shared/i18n");
+      const table = (await import("../src/pages/changelog/generated/strings.json")).default;
+      await act(async () =>
+        root!.render(
+          <UpdatedCard
+            data={data}
+            strings={createStrings(table)}
+            actions={{ openChangelog: () => undefined, dismiss: () => undefined }}
+            closeButton={false}
+            decoration={null}
+            hostPointer={false}
+            onPreviewSize={(h: number) => sizes.push(h)}
+          />,
+        ),
+      );
+      await until(() => state() === "closed");
+      expect(state()).toBe("closed");
+      expect(sizes).toEqual([168, 0]);
+    } finally {
+      delete page.dataset.cmuxMotion;
+    }
+  });
+
+  // Review F2 of #37790 at efe59289: a drag closed the open preview but handed its room back only
+  // after the close (240 ms), so the native host shrank and moved the held card's view mid-drag.
+  // Review F4 of #37790: the card with the theme's doodle decoration had no press listener, rest box or
+  // anchor, so it could not be dragged.
+  // Review of #38020 at 2b1e9834: the press listener was attached to the card's node once, so a live
+  // theme switch between the plain card and the doodle one replaced the node and the new card did not drag.
+  test("a card that switches to the doodle decoration while shown still drags", async () => {
+    const moves: number[] = [];
+    const drag = {
+      place: () => ({ anchor: "bottom" as const, above: 400, below: 0 }),
+      move: (offset: { x: number; y: number }) => moves.push(offset.y),
+      drop: () => undefined,
+      dismiss: () => undefined,
+    };
+    const { host } = await render({ drag });
+    expect(host.querySelector(".wn-updated")).not.toBeNull();
+    // The theme switches live: the same card, now with the doodle decoration.
+    const { UpdatedCard } = await import("../src/pages/changelog/UpdateSurfaces");
+    const { createStrings } = await import("../src/pages/shared/i18n");
+    const table = (await import("../src/pages/changelog/generated/strings.json")).default;
+    await act(async () =>
+      root!.render(
+        <UpdatedCard
+          data={data}
+          strings={createStrings(table)}
+          actions={{ openChangelog: () => undefined, dismiss: () => undefined }}
+          closeButton={false}
+          decoration="doodle"
+          animate={false}
+          drag={drag}
+        />,
+      ),
+    );
+    const card = host.querySelector<HTMLElement>('.wn-card[data-decoration="doodle"]')!;
+    expect(card).not.toBeNull();
+    const pointer = (type: string, y: number, target: EventTarget) => {
+      const event = new dom.window.MouseEvent(type, {
+        bubbles: true,
+        button: 0,
+        buttons: type === "pointerup" ? 0 : 1,
+        clientX: 100,
+        clientY: y,
+        screenX: 100,
+        screenY: y,
+      });
+      Object.defineProperty(event, "pointerId", { value: 1 });
+      target.dispatchEvent(event);
+    };
+    await act(async () => pointer("pointerdown", 60, card.querySelector(".wn-card-note")!));
+    await act(async () => pointer("pointermove", 20, dom.window));
+    expect(moves).toEqual([-40]);
+    await act(async () => pointer("pointerup", 20, dom.window));
+  });
+
+  test("the doodle-decorated card drags too, and says where it rests", async () => {
+    const moves: number[] = [];
+    const drag = {
+      place: () => ({ anchor: "top" as const, above: 0, below: 400 }),
+      move: (offset: { x: number; y: number }) => moves.push(offset.y),
+      drop: () => undefined,
+      dismiss: () => undefined,
+    };
+    const { host } = await render({ decoration: "doodle", animate: false, anchor: "top", drag });
+    const card = host.querySelector<HTMLElement>('.wn-card[data-decoration="doodle"]')!;
+    expect(card.getAttribute("data-anchor")).toBe("top");
+    expect(card.hasAttribute("data-drags")).toBe(true);
+    const pointer = (type: string, y: number, target: EventTarget) => {
+      const event = new dom.window.MouseEvent(type, {
+        bubbles: true,
+        button: 0,
+        buttons: type === "pointerup" ? 0 : 1,
+        clientX: 100,
+        clientY: y,
+        screenX: 100,
+        screenY: y,
+      });
+      Object.defineProperty(event, "pointerId", { value: 1 });
+      target.dispatchEvent(event);
+    };
+    await act(async () => pointer("pointerdown", 20, card.querySelector(".wn-card-note")!));
+    await act(async () => pointer("pointermove", 60, dom.window));
+    expect(moves).toEqual([40]);
+    expect(card.hasAttribute("data-dragging")).toBe(true);
+    await act(async () => pointer("pointerup", 60, dom.window));
+  });
+
+  test("a drag that starts with the preview open hands its room back at once", async () => {
+    const sizes: number[] = [];
+    const moves: number[] = [];
+    const drag = {
+      place: () => ({ anchor: "bottom" as const, above: 400, below: 0 }),
+      move: (offset: { x: number; y: number }) => moves.push(offset.y),
+      drop: () => undefined,
+      dismiss: () => undefined,
+    };
+    let host: HTMLElement;
+    ({ host } = await render({ hostPointer: false, drag, onPreviewSize: (h: number) => sizes.push(h) }));
+    ({ host } = await render({ hostPointer: true, drag, onPreviewSize: (h: number) => sizes.push(h) }));
+    const state = () => host.querySelector(".wn-card")?.getAttribute("data-preview");
+    await until(() => state() === "open");
+    expect(sizes).toEqual([168]);
+    const pointer = (type: string, y: number, target: EventTarget) => {
+      const event = new dom.window.MouseEvent(type, {
+        bubbles: true,
+        button: 0,
+        buttons: 1,
+        clientX: 100,
+        clientY: y,
+        screenX: 100,
+        screenY: y,
+      });
+      Object.defineProperty(event, "pointerId", { value: 1 });
+      target.dispatchEvent(event);
+    };
+    await act(async () => pointer("pointerdown", 20, host.querySelector(".wn-card-note")!));
+    await act(async () => pointer("pointermove", -20, dom.window));
+    expect(moves.length).toBeGreaterThan(0);
+    expect(sizes).toEqual([168, 0]);
+    await act(async () => pointer("pointerup", -20, dom.window));
   });
 });
 

@@ -76,6 +76,22 @@ struct GitHubPageDetailsTests {
         #expect(calls.reads == 1)
     }
 
+    @Test func aNewUpdatedAtReadsTheDetailsAgainAtOnce() async throws {
+        let calls = Calls(), cache = Self.cache()
+        let provider = GitHubPageProvider(cache: cache, diffReader: { _ in nil }, detailsReader: { _ in
+            await MainActor.run { calls.reads += 1 }
+            return GitHubPullRequestDetails.parse(Data(Self.answer.utf8))
+        }, openWeb: { _, _ in false }, openDiff: { _, _, _, _ in false })
+        let params: JSONValue = ["url": .string(Self.pull.absoluteString)]
+        _ = try await provider.call("cmux.github.pr.details", params: params, context: Self.page)
+        // A comment lands: the cache's updatedAt moves, so the next ask reads, inside the minute.
+        let view = #"{"url": "\#(Self.pull.absoluteString)", "number": 36002, "updatedAt": "2026-11-07T09:00:00Z"}"#
+        cache.seed(try #require(AgentPanePullRequest(ghView: Data(view.utf8))), for: Self.pull)
+        _ = try await provider.call("cmux.github.pr.details", params: params, context: Self.page)
+        _ = try await provider.call("cmux.github.pr.details", params: params, context: Self.page)
+        #expect(calls.reads == 2)
+    }
+
     @Test func mergeIsPinnedToTheShownHeadAndNeedsAClick() async throws {
         let calls = Calls()
         let provider = GitHubPageProvider(cache: Self.cache(), diffReader: { _ in nil }, merger: { url, head in

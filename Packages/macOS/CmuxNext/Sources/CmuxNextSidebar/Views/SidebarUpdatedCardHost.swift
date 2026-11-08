@@ -60,8 +60,24 @@ final class SidebarUpdatedCardHost: NSView {
             addSubview(island.view, positioned: .below, relativeTo: closeButton)
             island.onHeightChange = { [weak self] in self?.pageDidReportHeight() }
             island.onDismiss = { [weak self] in self?.onDismiss?() }
+            island.onDrag = { [weak self] in self?.pageDragged($0) }
         }
     }
+
+    /// Where the card rests (``SidebarUpdatedCardHost+Drag``), kept across launches.
+    var anchor = SidebarUpdatedCardHost.rememberedAnchor
+    /// How far the page holds the card from its rest while it is dragged; nil when not held.
+    var heldOffset: CGPoint?
+    /// Where the card was shown, from its rest, when the drag took it: a press while it still sprang to
+    /// its place (review F2 of #37669). The page's offset counts from the press, so it adds to this.
+    var heldBase = CGPoint.zero
+    /// Where the card's view was when it was let go, until the next layout springs it from there.
+    var droppedAt: CGPoint?
+    /// The dropped card's way from where it was let go to its rest (each springs to 0).
+    let settleX = SidebarCardSlotMotion(), settleY = SidebarCardSlotMotion()
+    /// The card was hidden while held: the page's moves and release for that press are dropped until
+    /// its release (``hideEndsDrag()``).
+    var dropsHiddenDrag = false
 
     /// The height the card's page last reported, kept across launches: a relaunch after an update
     /// lays the card out at it in its first frame instead of making room once the page has drawn
@@ -208,6 +224,12 @@ final class SidebarUpdatedCardHost: NSView {
                 self.island = nil
             }
             (heldHeight, holdArmed, pendingRememberedHeight) = (0, false, nil)
+            (heldOffset, heldBase, droppedAt) = (nil, .zero, nil)
+            // Its page went with it: no late drag message of the old page will come.
+            dropsHiddenDrag = false
+            // A card that comes back starts at its rest, not on the way from an old drop.
+            settleX.reset()
+            settleY.reset()
             // A card that comes back starts without its x until the pointer moves onto it.
             isHovered = false
             setHoverShown(closeButton, false, fades: false)
@@ -238,8 +260,27 @@ final class SidebarUpdatedCardHost: NSView {
         island?.setPointerInside(hovered && card != nil)
     }
 
-    /// The room the open hover preview needs above the slot's bottom (the card and the preview's
-    /// rows); 0 while it is closed or there is no card.
+    /// A hidden card is not under the pointer: hidden by the slot (a card of higher priority took it)
+    /// or with no card, its x hides and the page hears the pointer leave, so it closes the preview and
+    /// hands the room back, and the card comes back closed (review F3 of #37615).
+    override var isHidden: Bool {
+        didSet {
+            if isHidden, !oldValue {
+                pointerLeft()
+                hideEndsDrag()
+            }
+        }
+    }
+
+    private func pointerLeft() {
+        guard isHovered else { return }
+        isHovered = false
+        setHoverShown(closeButton, false, fades: false)
+        island?.setPointerInside(false)
+    }
+
+    /// The room the open hover preview needs from the card's resting edge (the card and the preview's
+    /// rows): above the bottom slot's bottom, or below the top place's top; 0 while it is closed.
     var overlayHeight: CGFloat {
         guard card != nil, let island else { return 0 }
         return island.overlayHeight
@@ -250,11 +291,12 @@ final class SidebarUpdatedCardHost: NSView {
     var frameHeight: CGFloat { max(height, overlayHeight) }
 
     /// The x's top: centered on the card's title line (the first of its two centered lines), inside
-    /// the card's own height at the bottom of the view.
+    /// the card's own height: at the bottom of the view, or at its top for a card resting at the top
+    /// (its open preview grows downward).
     var closeTop: CGFloat {
         let m = Self.metrics, card = height > 0 ? height : bounds.height
         let titleCenter = card / 2 - (m.gap + m.noteSize * 1.3) / 2
-        return bounds.height - card + max(Self.closeInset.height, (titleCenter - Self.closeSide / 2).rounded())
+        return (anchor == .top ? 0 : bounds.height - card) + max(Self.closeInset.height, (titleCenter - Self.closeSide / 2).rounded())
     }
 
     /// Whether the x shows now (proofs).
