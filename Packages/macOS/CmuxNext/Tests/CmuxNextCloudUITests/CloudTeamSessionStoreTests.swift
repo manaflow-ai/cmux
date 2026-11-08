@@ -63,17 +63,24 @@ import Testing
 
     @Test func theShownListKeepsOnlyRowsOfItsFilterAndSendsTheTeamHeader() async throws {
         let worker = FakeWorker()
-        let store = CloudTeamSessionStore(transport: worker.transport)
+        let store = CloudTeamSessionStore(transport: worker.transport, activeTeam: { Self.team })
         worker.replies = [.success(Self.list([Self.row("s1", at: 5, mine: true), Self.row("s2", at: 4)]))]
         await store.refresh()
         #expect(store.sessions.map(\.session) == ["s1"], "Assigned to Me shows only the caller's")
         let body = worker.calls[0].body
         #expect(worker.calls[0].path == "v1/read" && body["op"] as? String == "team.cloud.session.list")
         #expect((body["params"] as? [String: Any])?["scope"] as? String == "mine")
+        #expect(worker.calls[0].team == Self.team, "the active team in x-cmux-team, not the Worker's personal default")
+        worker.replies = [.success(["value": ["team": Self.team, "members": [[String: Any]](), "member_count": 0, "next_cursor": NSNull(), "revision": "1"]]),
+                          .success(["value": ["group": "grp_1", "members": [[String: Any]]()]])]
+        _ = try await store.loadMembers()
+        _ = try await store.groupMembers("grp_1")
+        #expect(worker.calls[1].team == Self.team && worker.calls[2].team == Self.team)
         // A script's page with `by` never replaces what the section shows.
         worker.replies = [.success(Self.list([Self.row("s9")]))]
         _ = try await store.list(scope: "mine", by: "user_b")
         #expect(store.sessions.map(\.session) == ["s1"])
+        #expect(worker.calls.last?.team == Self.team)
         // A link's own team goes in x-cmux-team.
         worker.replies = [.success(["value": ["session": Self.row("s1", mine: true)]])]
         _ = try await store.get(Self.ref("s1"))
@@ -180,6 +187,73 @@ import Testing
         await store.refresh()
         #expect(store.listError?.code == "team.not_member")
         #expect(store.sessions.map(\.session) == ["s1"])
+    }
+
+    @Test func aScriptsPageDoesNotDropTheSectionsListOrLeaveItLoading() async throws {
+        let worker = FakeWorker()
+        let store = CloudTeamSessionStore(transport: worker.transport, activeTeam: { Self.team })
+        worker.holds = true
+        worker.replies = [.success(Self.list([Self.row("s1", mine: true)])), .success(Self.list([Self.row("s9")]))]
+        // task-owner: the section's list, held while a script pages.
+        let section = Task { await store.refresh() }
+        await worker.held(1)
+        #expect(store.isLoading)
+        // task-owner: a script's `--by` page.
+        let script = Task { try await store.list(scope: "mine", by: "user_b") }
+        await worker.held(2)
+        worker.release(1)
+        _ = try await script.value
+        worker.release(0)
+        await section.value
+        #expect(store.sessions.map(\.session) == ["s1"], "the section's reply still lands")
+        #expect(!store.isLoading)
+    }
+
+    @Test func aFailedListThatAnOlderOneRacesKeepsTheNewerAnswer() async throws {
+        let worker = FakeWorker()
+        let store = CloudTeamSessionStore(transport: worker.transport)
+        worker.holds = true
+        worker.replies = [.failure(CloudTeamError(code: CloudTeamError.unreachable, message: "down")), .success(Self.list([Self.row("s2")]))]
+        // task-owner: the test's first list, which fails after the filter changed.
+        let first = Task { await store.refresh() }
+        await worker.held(1)
+        // task-owner: the test's second list.
+        let second = Task { await store.select(.team) }
+        await worker.held(2)
+        worker.release(1)
+        await second.value
+        worker.release(0)
+        await first.value
+        #expect(store.listError == nil, "an older list's failure does not show over the newer answer")
+        #expect(store.sessions.map(\.session) == ["s2"])
+    }
+
+    @Test func aRefusalDoesNotUndoARowALaterListReplaced() async throws {
+        let worker = FakeWorker()
+        let store = CloudTeamSessionStore(transport: worker.transport)
+        worker.replies = [.success(Self.list([Self.row("s1")]))]
+        await store.select(.team)
+        worker.holds = true
+        worker.replies = [.failure(CloudTeamError(code: "cloud_session.not_found", message: "gone")),
+                          .success(Self.list([Self.row("s1", following: true, followers: 3)]))]
+        // task-owner: the test's follow, refused after a list replaced the row.
+        let follow = Task { try await store.setFollowing(Self.ref("s1"), true) }
+        await worker.held(1)
+        // task-owner: the list that lands first.
+        let list = Task { await store.refresh() }
+        await worker.held(2)
+        worker.release(1)
+        await list.value
+        worker.release(0)
+        await #expect(throws: CloudTeamError.self) { try await follow.value }
+        #expect(store.row(Self.ref("s1"))?.followerCount == 3, "the list's row stays")
+    }
+
+    @Test func guestsAndBillingMembersAreNotReassignTargets() {
+        #expect(CloudTeamMember(user: "u", name: "n", role: "member").canBeAssigned)
+        #expect(CloudTeamMember(user: "u", name: "n", role: "admin").canBeAssigned)
+        #expect(!CloudTeamMember(user: "u", name: "n", role: "guest").canBeAssigned)
+        #expect(!CloudTeamMember(user: "u", name: "n", role: "billing").canBeAssigned)
     }
 
     @Test func publishSendsWhatTeamDOTakes() async throws {

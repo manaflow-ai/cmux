@@ -21,7 +21,8 @@ public final class CloudTeamFeature {
 
     public init(host: any CloudTeamHost) {
         self.host = host
-        let store = CloudTeamSessionStore(transport: Self.transport(host), currentUser: { [weak host] in host?.cloudTeamUserID })
+        let store = CloudTeamSessionStore(transport: Self.transport(host), currentUser: { [weak host] in host?.cloudTeamUserID },
+                                          activeTeam: { [weak host] in host?.cloudTeamID })
         self.store = store
         publisher = CloudTeamPublisher(host: host, store: store)
     }

@@ -2,12 +2,13 @@ import AppKit
 import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHomeEngine
 
 extension AppServices: CloudTeamHost {
     func cloudTeamCall(_ path: String, _ body: [String: Any], team: String?) async throws -> [String: Any] { try await feed.call(path, body, team: team) }
     var cloudTeamSignedIn: Bool { cloud.isSignedIn }
-    var cloudTeamID: String? { cloud.auth.teamID }
-    var cloudTeamUserID: String? { cloud.auth.user?.id }
+    var cloudTeamID: String? { cloud.isSignedIn ? GitHubAppLease.backendTeam(stackProjectID: cloud.auth.configuration.stackProjectID, userID: cloud.auth.user?.id, stackTeamID: cloud.auth.teamID, managed: cloud.auth.managedTeamID != nil) : nil }
+    var cloudTeamUserID: String? { cloud.auth.user.map { CloudIdentity.workerUserID(stackProjectID: cloud.auth.configuration.stackProjectID, stackUserID: $0.id) } }
     var cloudTeamMachineIDs: [String] { machines.cloud.map(\.machineID) }
     func cloudTeamStore(_ vm: String) -> DaemonStore? { machines.session(vm)?.daemon.store }
     func cloudTeamStatus(_ vm: String) -> String? { machines.session(vm)?.effectiveStatus.rawValue }

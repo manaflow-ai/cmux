@@ -31,7 +31,7 @@ nonisolated extension DeepLink {
 
     /// A Cloud machine id: `vm_` (or an older record's `vm-`) and 1 to 64 ASCII letters or digits
     /// (backend `CloudSessionVm`).
-    static func isCloudVM(_ text: String) -> Bool {
+    public static func isCloudVM(_ text: String) -> Bool {
         guard text.hasPrefix("vm_") || text.hasPrefix("vm-") else { return false }
         let rest = text.utf8.dropFirst(3)
         return (1...64).contains(rest.count) && rest.allSatisfy { (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) }
@@ -39,7 +39,7 @@ nonisolated extension DeepLink {
 
     /// A chat's acpmux session id or a workspace's id on its VM (backend `CloudSessionId`): a letter or
     /// digit, then up to 127 letters, digits, `.`, `_`, `:` or `-`.
-    static func isCloudSessionID(_ text: String) -> Bool {
+    public static func isCloudSessionID(_ text: String) -> Bool {
         let bytes = Array(text.utf8)
         guard let first = bytes.first, (1...128).contains(bytes.count) else { return false }
         let alnum = { (b: UInt8) in (48...57).contains(b) || (65...90).contains(b) || (97...122).contains(b) }

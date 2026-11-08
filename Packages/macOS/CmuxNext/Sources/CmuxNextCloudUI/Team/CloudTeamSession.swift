@@ -90,8 +90,8 @@ public nonisolated struct CloudTeamMember: Identifiable, Equatable, Sendable {
         self.init(user: user, name: (json["display_name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? user, role: json["role"] as? String ?? "member")
     }
 
-    /// A guest is not a member: TeamDO refuses a reassign to one (`cloud_session.assignee_not_member`).
-    public var canBeAssigned: Bool { role != "guest" }
+    /// A guest or a billing-only member is not someone work goes to: TeamDO refuses a reassign to one (`cloud_session.assignee_not_member`).
+    public var canBeAssigned: Bool { role != "guest" && role != "billing" }
 }
 
 /// A refusal from the Team section's core: the backend's own code (`cloud_session.not_yours`,

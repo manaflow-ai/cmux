@@ -1,5 +1,5 @@
 public import CmuxNextActions
-import Foundation
+public import Foundation
 public import Observation
 
 /// The team's Cloud workspaces and chats (cloud multiplayer, lane D): the one core path the
@@ -70,14 +70,18 @@ public final class CloudTeamSessionStore {
     @ObservationIgnored private let transport: Transport
     @ObservationIgnored private let makeKey: () -> String
     @ObservationIgnored private var listGeneration = 0
-    /// The signed-in person's user id: a reassign to them shows under Assigned to me at once.
+    /// The signed-in person's TeamDO user id (`user_…`): a reassign to them shows under Assigned to me at once.
     @ObservationIgnored public var currentUser: () -> String?
+    /// The account's active team: every call that names no team goes to it (`x-cmux-team`), the
+    /// team the publisher writes to, never the Worker's personal-team default.
+    @ObservationIgnored public var activeTeam: () -> String?
 
     public init(transport: @escaping Transport, currentUser: @escaping () -> String? = { nil },
-                idempotencyKey: @escaping () -> String = { "cloud-team-\(UUID().uuidString)" }) {
+                activeTeam: @escaping () -> String? = { nil }, idempotencyKey: (() -> String)? = nil) {
         self.transport = transport
         self.currentUser = currentUser
-        makeKey = idempotencyKey
+        self.activeTeam = activeTeam
+        makeKey = idempotencyKey ?? { "cloud-team-\(UUID().uuidString)" }
     }
 
     // MARK: Reads
@@ -89,16 +93,10 @@ public final class CloudTeamSessionStore {
         await refresh()
     }
 
-    /// Lists ``filter`` again. A failure keeps the rows shown and sets ``listError``.
+    /// Lists ``filter`` again. A failure keeps the rows shown and sets ``listError`` (only while
+    /// no later list of the section was started: ``list(scope:by:archived:cursor:limit:team:)``).
     public func refresh() async {
-        let filter = filter
-        do {
-            _ = try await list(scope: filter.scope, archived: filter == .archived)
-        } catch let error as CloudTeamError {
-            if self.filter == filter { listError = error }
-        } catch {
-            if self.filter == filter { listError = CloudTeamError(code: CloudTeamError.unreachable, message: String(describing: error)) }
-        }
+        _ = try? await list(scope: filter.scope, archived: filter == .archived)
     }
 
     /// `team.cloud.session.list`'s value (`{team, sessions, next_cursor}`). A first page of the
@@ -111,18 +109,29 @@ public final class CloudTeamSessionStore {
         if archived { params["archived"] = true }
         if let cursor { params["cursor"] = cursor }
         if let limit { params["limit"] = limit }
-        let shown = by == nil && cursor == nil && team == nil && scope == filter.scope && archived == (filter == .archived)
+        let resolved = team ?? activeTeam()
+        // The section's own list: its filter's first page in the active team. Only these count
+        // generations, so a script's page (`--by`, `--cursor`, another team) never drops it.
+        let shown = by == nil && cursor == nil && resolved == activeTeam() && scope == filter.scope && archived == (filter == .archived)
+        guard shown else { return try await read("team.cloud.session.list", params, team: resolved) }
         listGeneration += 1
         let generation = listGeneration
-        if shown { isLoading = true }
-        defer { if shown, generation == listGeneration { isLoading = false } }
-        let value = try await read("team.cloud.session.list", params, team: team)
-        if shown, generation == listGeneration {
-            let rows = (value["sessions"] as? [[String: Any]] ?? []).compactMap(CloudTeamSession.init)
-            sessions = rows.filter(filter.includes)
-            listError = nil
+        isLoading = true
+        defer { if generation == listGeneration { isLoading = false } }
+        do {
+            let value = try await read("team.cloud.session.list", params, team: resolved)
+            if generation == listGeneration {
+                let rows = (value["sessions"] as? [[String: Any]] ?? []).compactMap(CloudTeamSession.init)
+                sessions = rows.filter(filter.includes)
+                listError = nil
+            }
+            return value
+        } catch {
+            if generation == listGeneration {
+                listError = error as? CloudTeamError ?? CloudTeamError(code: CloudTeamError.unreachable, message: CloudTeamStrings.unreachable)
+            }
+            throw error
         }
-        return value
     }
 
     /// `team.cloud.session.get`'s value (`{session}`); the row also refreshes the shown one.
@@ -135,7 +144,7 @@ public final class CloudTeamSessionStore {
     /// The active team's members (`team.members.list`), guests last; also ``members``.
     @discardableResult
     public func loadMembers() async throws -> [CloudTeamMember] {
-        let value = try await read("team.members.list", ["limit": 200], team: nil)
+        let value = try await read("team.members.list", ["limit": 200], team: activeTeam())
         let all = (value["members"] as? [[String: Any]] ?? []).compactMap(CloudTeamMember.init)
         members = all.filter(\.canBeAssigned) + all.filter { !$0.canBeAssigned }
         return members
@@ -199,15 +208,15 @@ public final class CloudTeamSessionStore {
     // MARK: Cloud group members
 
     public func groupMembers(_ group: String) async throws -> [String: Any] {
-        try await read("group.members.list", ["group": group], team: nil)
+        try await read("group.members.list", ["group": group], team: activeTeam())
     }
 
     public func setGroupMember(_ group: String, user: String, role: String) async throws -> [String: Any] {
-        try await mutate("group.members.set", ["group": group, "user": user, "role": role], team: nil)
+        try await mutate("group.members.set", ["group": group, "user": user, "role": role], team: activeTeam())
     }
 
     public func removeGroupMember(_ group: String, user: String) async throws -> [String: Any] {
-        try await mutate("group.members.remove", ["group": group, "user": user], team: nil)
+        try await mutate("group.members.remove", ["group": group, "user": user], team: activeTeam())
     }
 
     // MARK: Core
@@ -235,8 +244,10 @@ public final class CloudTeamSessionStore {
     private func change(_ ref: Ref, op: String, params: [String: Any],
                         _ local: (inout CloudTeamSession) -> Void) async throws -> [String: Any] {
         let before = row(ref)
+        var optimistic: CloudTeamSession?
         if var shown = before {
             local(&shown)
+            optimistic = shown
             apply(shown)
         }
         do {
@@ -244,7 +255,9 @@ public final class CloudTeamSessionStore {
             if let row = CloudTeamSession(value) { apply(row) }
             return value
         } catch {
-            if let before { apply(before) }
+            // Undo only our own change: a list or a later change that replaced the row wins.
+            // (Under a filter the optimistic row left, nothing shows for it, so it comes back.)
+            if let before, let optimistic, row(ref) == (filter.includes(optimistic) ? optimistic : nil) { apply(before) }
             throw error
         }
     }

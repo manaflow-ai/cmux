@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
@@ -58,16 +59,18 @@ final class CloudTeamPublisher {
     func inputs() -> [CloudTeamPublishInput] {
         guard let host, let team = host.cloudTeamID else { return [] }
         var out: [CloudTeamPublishInput] = []
-        for machine in host.cloudTeamMachines {
+        // Only ids TeamDO takes (CloudSessionVm, CloudSessionId): another one would be refused on every change.
+        for machine in host.cloudTeamMachines where DeepLink.isCloudVM(machine.vm) {
             let store = machine.store
             let connected = if case .connected = store.connectionState { true } else { false }
             let state = CloudTeamPublishInput.machineState(status: machine.status, connected: connected)
             for tab in store.liveTabs {
-                guard let agent = tab.agentSession, let session = agent.session else { continue }
+                guard let agent = tab.agentSession, let session = agent.session, DeepLink.isCloudSessionID(session) else { continue }
                 let workspace = store.pane(holding: tab).flatMap { store.location(of: $0)?.workspace }
+                    .map { $0.resourceID?.rawValue ?? $0.id }.flatMap { DeepLink.isCloudSessionID($0) ? $0 : nil }
                 out.append(CloudTeamPublishInput(
                     ref: .init(team: team, vm: machine.vm, session: session, kind: .chat), title: tab.displayTitle,
-                    workspace: workspace.map { $0.resourceID?.rawValue ?? $0.id }, harness: agent.harness, machineState: state,
+                    workspace: workspace, harness: agent.harness, machineState: state,
                     activity: CloudTeamPublishInput.activity(agentState: tab.agent.map(\.state.rawValue), attention: tab.attention != nil)))
             }
         }
