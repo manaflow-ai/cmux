@@ -1,7 +1,7 @@
 // A finished subagent's line expands to its final report (Leo, 2026-11-03, on parallel agents in the
 // running tray: "Tray only, richer"): a chevron right after the line's words opens the report under
-// the line; the line's own click still opens the agent's view. A failed line, and a finished one
-// with no report, get no disclosure.
+// the line, and a click anywhere else on the line does too; only the agent's name opens its view
+// (Lucas, 2026-11-08). A failed line, and a finished one with no report, get no disclosure.
 import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -116,15 +116,35 @@ test("the chevron after a finished line's words toggles its report under the lin
   expect(host.querySelector(".cv-subagent-done__report")).toBeNull();
 });
 
-test("the chevron never opens the view, and the line's click still does", () => {
+test("a click on a line with a report toggles it; only the name opens the view", () => {
+  // Lucas, 2026-11-08: the row's click opened the agent and only the small chevron toggled.
   const opened: string[] = [];
   const host = render([agent("a", { result: REPORT })], opened);
   click(host.querySelector("button.cv-subagent-done__disclose")!);
   expect(opened).toEqual([]);
-  click(host.querySelector("button.cv-subagent-done")!);
+  expect(host.querySelector(".cv-subagent-done__report")).not.toBeNull();
+  // The words, the icon and the duration toggle the report and open nothing.
+  for (const part of [".cv-agent-activity__sentence", ".cv-tool__icon", ".cv-subagent-done__time"]) {
+    click(host.querySelector(part)!);
+    expect(opened).toEqual([]);
+  }
+  expect(host.querySelector(".cv-subagent-done__report")).toBeNull();
+  // The line's words are no button of their own, so the name chip can be one.
+  expect(host.querySelector("button.cv-subagent-done")).toBeNull();
+  const name = host.querySelector<HTMLButtonElement>("button.cv-agent-tag.is-open");
+  expect(name?.textContent).toBe("Task a");
+  click(name!);
   expect(opened).toEqual(["a"]);
   // Opening the view leaves the report as it was.
-  expect(host.querySelector(".cv-subagent-done__report")).not.toBeNull();
+  expect(host.querySelector(".cv-subagent-done__report")).toBeNull();
+});
+
+test("a line with no report stays one button that opens the view", () => {
+  const opened: string[] = [];
+  const host = render([agent("a")], opened);
+  expect(host.querySelector("button.cv-agent-tag")).toBeNull();
+  click(host.querySelector("button.cv-subagent-done")!);
+  expect(opened).toEqual(["a"]);
 });
 
 test("a last message stands in for a missing result", () => {
