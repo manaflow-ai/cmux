@@ -22,6 +22,7 @@ import { relativeTime } from "../conversation/relativeTime";
 import { usePullRequestAnswer, type LinkedPullRequest } from "./pullRequestStore";
 import { pullRequestRef } from "./pullRequestCardModel";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
+import { useLoadFade } from "../../shared/loadFade";
 
 const BADGES: Record<string, StringKey> = {
   open: "header.prBadge.open",
@@ -80,6 +81,9 @@ export function PullRequestCardBody({
   // (read only) or a host with nothing to say draws none.
   const readOnly = useTranscriptReadOnly();
   const waiting = !read && !readOnly && (answer === undefined || answer.reading || answer.cacheOnly === true);
+  // The host's answer came after the card drew its placeholders: the rows it fills fade in once
+  // (shared/loadFade.ts) instead of popping; a card drawn from a kept answer shows at once.
+  const loadFade = useLoadFade(!waiting);
   const title = read?.title || known.title;
   const state = read?.state || known.state;
   const now = Date.now();
@@ -97,7 +101,7 @@ export function PullRequestCardBody({
   return (
     <>
       {head?.(title || reference, glyph)}
-      <div className="acpmux-pr-card__body">
+      <div className="acpmux-pr-card__body" data-load-fade={loadFade ? "" : undefined}>
         {!head && title && <div className="acpmux-pr-card__title">{title}</div>}
         {waiting && !state ? <Placeholder row="status" /> : <Status state={state} read={read} t={t} />}
         {waiting && <Placeholder row="who" />}

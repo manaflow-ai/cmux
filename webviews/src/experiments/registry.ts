@@ -11,6 +11,7 @@ import { hoverActions } from "../ui/hoverActions.experiment";
 import { pastePlaceholderLook } from "../agent-session/acpmux/composer/pastePlaceholder.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
+import { expandRowLook } from "../agent-session/acpmux/conversation/expandRow.experiment";
 import { selectionReplyWrap } from "../agent-session/acpmux/conversation/selectionReplyWrap.experiment";
 import { backgroundReactionLook } from "../agent-session/acpmux/conversation/backgroundReaction.experiment";
 import { cloudStartLook } from "../agent-session/acpmux/cloudStart.experiment";
@@ -35,6 +36,7 @@ import { startedSessionCards } from "../agent-session/acpmux/started/startedSess
 import { finishedTaskLook } from "../agent-session/acpmux/conversation/taskLine.experiment";
 import { claudeTurnFold } from "../agent-session/acpmux/conversation/claudeTurnFold.experiment";
 import { turnFoldReplies } from "../agent-session/acpmux/conversation/turnFoldReplies.experiment";
+import { workedForMessages } from "../agent-session/acpmux/conversation/workedForMessages.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
@@ -61,6 +63,7 @@ import { composerPlusCommands } from "../agent-session/acpmux/composerPlusComman
 import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
 import { composerDeeplinkLook } from "../agent-session/acpmux/composer/deeplinkLook.experiment";
 import { pastedAgentLook } from "../agent-session/acpmux/conversation/pastedAgentLook.experiment";
+import { sentMessageLook } from "../agent-session/acpmux/conversation/sentMessageLook.experiment";
 import { contextRingLook } from "../agent-session/acpmux/contextRingLook.experiment";
 import { contextRingMotion } from "../agent-session/acpmux/contextRingMotion.experiment";
 import { planUsageLook } from "../agent-session/acpmux/planUsageLook.experiment";
@@ -84,6 +87,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   finishedTaskLook,
   claudeTurnFold,
   turnFoldReplies,
+  workedForMessages,
   threadMinimapLayout,
   threadMinimapHeight,
   threadMinimapGutter,
@@ -106,6 +110,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   questionPreviewLayout,
   toolErrorLook,
   tableActionsPlace,
+  expandRowLook,
   selectionReplyWrap,
   backgroundReactionLook,
   cloudStartLook,
@@ -140,6 +145,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   promptSuggestionLook,
   composerDeeplinkLook,
   pastedAgentLook,
+  sentMessageLook,
   contextRingLook,
   contextRingMotion,
   planUsageLook,

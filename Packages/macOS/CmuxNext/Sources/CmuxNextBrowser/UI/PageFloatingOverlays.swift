@@ -72,6 +72,16 @@ final class PageFloatingOverlays {
         observePages()
     }
 
+    /// `view`, added passing its clicks through while it is not drawn yet (the cookie import card
+    /// waits for its page to measure itself), takes clicks from now on; the next ``sync()``
+    /// presents it again with its mouse region.
+    func startTakingClicks(_ view: NSView) {
+        guard let index = cards.firstIndex(where: { $0.view === view }), cards[index].passesThroughClicks,
+              !cards[index].isReleased else { return }
+        cards[index].passesThroughClicks = false
+        dismiss(index)
+    }
+
     /// `view` starts to fade out: from now on clicks pass through it to the
     /// page, also when it is presented again before the fade ends.
     func release(_ view: NSView) {
@@ -116,11 +126,15 @@ final class PageFloatingOverlays {
                 handle.update(paneClip: clip)
             } else {
                 dismiss(index)
+                // The host shows what it presents at full opacity; a card keeps its own (the cookie
+                // import card waits clear until its page measured itself, then fades in).
+                let alpha = view.alphaValue
                 let handle = WindowOverlayHost.host(for: window).present(
                     view, options: OverlayOptions(kind: .attached, anchor: NSRect(origin: clip.origin, size: .zero),
                                                   passesThroughClicks: cards[index].isReleased || cards[index].passesThroughClicks,
                                                   layer: .pane(clip: clip))
                 )
+                view.alphaValue = alpha
                 cards[index].handle = handle
                 if let holder = view.superview { pin(view, in: holder, lift: cards[index].lift, placement: cards[index].placement) }
             }

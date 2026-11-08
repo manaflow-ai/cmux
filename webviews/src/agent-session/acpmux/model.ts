@@ -68,6 +68,7 @@ import {
   promptParts,
 } from "./conversation/promptCollapse";
 import { mcpCall } from "./conversation/mcpCalls";
+import { hidesEveryCall, visibleToolItems } from "./conversation/mcpPresentation";
 import { subsessionCall } from "./conversation/subsessionCalls";
 import { agentMessage } from "./conversation/agentMessages";
 import type { ChatTool } from "./summary/chatTools";
@@ -641,6 +642,13 @@ export type AcpmuxRow = {
   /// A "Worked for" disclosure whose fold mixes the agent's messages with its work reads "N previous
   /// messages", as Codex's does (conversation/turns.ts `foldMixesMessages`).
   previous?: number;
+  /// The messages between agents a finished turn's "Worked for" folds, which its label names in the
+  /// `messages` arm of workedForMessages.experiment.ts (conversation/turns.ts `shapeTurn`).
+  workedMessages?: { sent: number; received: number };
+  /// The prompt of other agents' messages a finished turn's "Worked for" folds (conversation/turns.ts
+  /// `shapedTurn`): the line stands for that prompt where the closed fold draws none, so the turn
+  /// keeps its minimap tick (threadMinimap/model.ts `minimapTurns`).
+  foldedPrompt?: AcpmuxRow;
   /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
   queued?: string;
   /// A prompt sent into a running turn: `waiting` until the agent reads it (it reads a steer when
@@ -694,6 +702,10 @@ export type AcpmuxRow = {
   pendingMessages?: { rows: readonly AcpmuxRow[]; displayRows?: readonly AcpmuxRow[]; flat?: boolean };
   /// A received row expanded from an inbox notice; used to keep its waiting run flat.
   inboxDelivery?: true;
+  /// The id of the inbox notice row a delivery was expanded from (laneNoticeBatches.ts
+  /// `inboxChildren`): a turn the notice opened keeps the notice's fold key and minimap anchor
+  /// (conversation/turns.ts `turnFoldFor`, threadMinimap/model.ts `minimapTurns`).
+  inboxSource?: string;
   inboxDeliveryBatch?: true;
   /// Metadata retained for a preview-only inbox delivery so opening it can hydrate its thread.
   inboxThread?: {
@@ -764,6 +776,9 @@ export type AcpmuxActivity = {
     /// harness's highest mode while its card was open): the row says "Approved" at its edge
     /// instead of a receipt line of its own (direct.ts `markApproved`).
     approved?: true;
+    /// The harness metadata that names a built-in tool. Titles are user-visible labels and are
+    /// not sufficient to identify plumbing calls with names such as ToolSearch.
+    provenance?: { claudeTool?: string; claudeCodeToolName?: string };
   };
 };
 
@@ -814,7 +829,14 @@ export const contentsUnknown = (diff: AcpmuxFileDiff) =>
 
 /// An agent's ask for a secret (cx-ncc.42, acpmux `hub/secrets.rs`): the `secret_request` record
 /// holds only the name and reason, never a value. The card answers with `_acpmux/secret_submit`.
-export type AcpmuxSecretAsk = { secretId: string; name: string; reason: string };
+export type AcpmuxSecretAsk = {
+  secretId: string;
+  name: string;
+  reason: string;
+  /// A sudo card (acpmux `hub/elevation.rs`, `elevation_request`): the exact argv sudo runs, on
+  /// which machine, and its time limit. Its answer is the same `secret_submit`, with the password.
+  elevation?: { argv: string[]; host: string; timeoutSecs?: number };
+};
 
 /// An agent's offer of a parallel chat (cx-807da, acpmux `hub/offers.rs`): the `session_offer`
 /// record, and its `session_offer_decision` once the person answered. Title and prompt are the
@@ -1763,7 +1785,7 @@ const isStatusKind = (row: AcpmuxRow) =>
 function isToolRun(row: AcpmuxRow): boolean {
   const card = row.foldRun === undefined && !isFoldedCopy(row);
   let tool = false;
-  for (const item of row.items ?? []) {
+  for (const item of visibleToolItems(row.items) ?? []) {
     if (!item.tool) continue;
     tool = true;
     if (card && (item.tool.kind === "edit" || item.tool.kind === "fileChange") && item.tool.status !== "pending")
@@ -1850,9 +1872,10 @@ export const isLineRow = (row: AcpmuxRow) =>
   row.kind === PENDING_MESSAGES ||
   (row.kind === "user" && !row.received && isIncomingRunLine(row.incoming?.kind));
 const isIncomingRunLine = (kind: string | undefined) => isIncomingLine(kind) || kind === "inbox";
-/// A row that draws nothing: a turn's bookkeeping (conversation/turns.ts), or a session start
-/// (rows/SessionStartRow.tsx), which the transcript no longer draws.
-const drawsNothing = (row: AcpmuxRow) => row.incoming?.kind === "hidden" || row.kind === "sessionStart";
+/// A row that draws nothing: a turn's bookkeeping (conversation/turns.ts), a session start
+/// (rows/SessionStartRow.tsx), which the transcript no longer draws, or a run whose every call is hidden.
+const drawsNothing = (row: AcpmuxRow) =>
+  row.incoming?.kind === "hidden" || row.kind === "sessionStart" || hidesEveryCall(row);
 /// The row after `index` that draws something.
 export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxRow | undefined {
   for (let next = index + 1; next < rows.length; next += 1) if (!drawsNothing(rows[next]!)) return rows[next];
@@ -1956,11 +1979,15 @@ function fallbackRowHeight(
       : height + TURN_GAP - (row.kind === "activity" || isLineRow(row) ? TOOL_RUN_BOTTOM : MESSAGE_GAP);
   const textLines = Math.max(1, Math.ceil((row.text?.length ?? 0) / Math.max(24, Math.floor(width / 8))));
   if (row.kind === "activity") {
+    const items = visibleToolItems(row.items) ?? [];
+    // Successful discovery normally leaves no rendered steps, but keep a mountable slot so Find
+    // can reveal the original call before the row's ToolRows projection is expanded.
+    if (row.items?.length && !items.length) return finish(toolRowHeight());
     // The edited-files card (conversation/EditedFilesCard.tsx): a 58px head, and 34px for each of the first
     // three files and for "Show N more"; one file is named in the head. Otherwise tool rows
     // (`.cv-tools`: 2px above compact rows, with a small run gap), which is also how a copy inside
     // an open "Worked for" draws.
-    const edits = row.items?.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ?? [];
+    const edits = items.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
     if (edits.length && row.foldRun === undefined && !isFoldedCopy(row)) {
       const files = new Set(
         edits.flatMap(
@@ -1972,12 +1999,11 @@ function fallbackRowHeight(
     }
     // A folded run (the Codex-style runs) that keeps an entry in sight (a message to another agent)
     // draws its stretches; one with nothing kept in sight draws one summary line, or its one call.
-    if (row.foldRun && row.items?.length) {
-      const groups = toolGroups(row.items);
+    if (row.foldRun && items.length) {
+      const groups = toolGroups(items);
       if (groups.some(staysInSight)) return finish(TOOL_RUN_TOP + TOOL_RUN_BOTTOM + foldedRunSteps(row, groups, width));
-      if (isFoldedRun(row.items)) return finish(TOOL_RUN_TOP + toolRowHeight() + TOOL_RUN_BOTTOM);
+      if (isFoldedRun(items)) return finish(TOOL_RUN_TOP + toolRowHeight() + TOOL_RUN_BOTTOM);
     }
-    const items = row.items ?? [];
     let steps = items.length
       ? items.reduce((height, item) => height + activityStepHeight(item, width), 0)
       : toolRowHeight();
@@ -2018,9 +2044,6 @@ function fallbackRowHeight(
   if (row.kind === ACTIVITY_LINE) return finish(row.below ? footerRow() : metaRow());
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return finish(20);
-  // The preview card mounts unloaded: one compact row, and 6px below (PreviewCard.tsx). Once the
-  // reader clicks Load preview, the transcript's ResizeObserver measures the head over its frame.
-  if (row.kind === PREVIEW) return finish(previewCardHeight(row.text, false));
   // A tagged ask's card (conversation/NextStepCard.tsx): waiting, 12px padding over the question
   // and its muted line, then a 36px row of answers; answered or superseded, the question over the
   // answer in 8px.
@@ -2431,8 +2454,7 @@ function measuredRowHeight(
   if (row.incoming?.kind === "hidden") return finish(0);
   // A finished step of only quiet thoughts draws nothing (conversation/ThoughtRow.tsx).
   if (onlyQuietThoughts(row)) return finish(0);
-  // A preview row's text is its address, not prose: the card's height is fixed.
-  if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
+  if (!row.text) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
   let entry = cache.get(row.id);
   if (!entry) {
     entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
@@ -2903,7 +2925,6 @@ import { acpmuxSendCalls } from "./conversation/acpmuxSends";
 import { acpmuxMcpSends } from "./conversation/acpmuxMcpSends";
 import { isFoldedRun } from "./conversation/toolRunSummary";
 import { isQuietThought, isThought, mergeThoughts } from "./conversation/thoughts";
-import { previewCardHeight } from "./conversation/previewUrl";
 import { RENDER_FRAME_MIN_HEIGHT } from "./conversation/renderCall";
 import {
   ACTIVITY_LINE,
@@ -2911,7 +2932,6 @@ import {
   isEmptyFooter,
   isFoldedCopy,
   NEXT_STEP,
-  PREVIEW,
   RENDER,
   THINKING,
   WORKED,

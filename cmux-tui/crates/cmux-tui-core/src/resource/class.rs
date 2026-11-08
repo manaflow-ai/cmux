@@ -71,6 +71,7 @@ impl ResourceOperation {
                 | Self::GitFilesList
                 | Self::GitFilesSearch
                 | Self::GitStatus
+                | Self::GitWorktreeSetup
                 | Self::HistoryEntriesList
                 | Self::HistoryVisitSummaries
                 | Self::WorkspaceList

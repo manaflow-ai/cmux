@@ -24,7 +24,9 @@ import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { cancelResize, foldMotion, foldMs, markHeightFold, playResize } from "./fold";
 import { holdHeader } from "./useAnchoredCollapse";
 import { Markdown } from "./Markdown";
-import { SoftBroken, softBreaks } from "./softBreaks";
+import { SoftBroken } from "./softBreaks";
+import { softBreaks } from "./softBreaksModel";
+import { ExpandRow } from "./ExpandRow";
 import { isPromptMarkdown } from "./promptMarkdown";
 import { UrlChip } from "../chips/LinkChips";
 import { githubRefLabel } from "../chips/linkChipsModel";
@@ -32,7 +34,7 @@ import { withForeignFiles } from "../chips/linkedText";
 import { foreignFileIds, textLinks } from "../chips/paths";
 import { deeplinks } from "../composer/deeplinks";
 import { SkillWordsContext } from "./skillWords";
-import { withSkillWords } from "./SkillWord";
+import { withSkillWords } from "./withSkillWords";
 import { Bot, ChevronDown } from "./icons";
 import { agentText } from "../agentText";
 import { experimentArm } from "../../../experiments/experiment";
@@ -216,16 +218,13 @@ export function PromptText({
             )}
       </div>
       {long && (
-        <button
-          type="button"
+        <ExpandRow
           className="cv-user__more"
-          aria-expanded={!collapsed}
-          aria-controls={id}
-          data-find-skip=""
-          onClick={() => showMore(collapsed)}
-        >
-          {t(collapsed ? "message.more" : "message.less")}
-        </button>
+          open={!collapsed}
+          controls={id}
+          onToggle={() => showMore(collapsed)}
+          label={t(collapsed ? "message.more" : "message.less")}
+        />
       )}
     </>
   );
