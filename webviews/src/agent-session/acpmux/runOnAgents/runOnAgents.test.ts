@@ -1,3 +1,4 @@
+import { sendChoiceForKey, sendMenuChoices } from "../composer/sendMenuModel";
 import { expect, test } from "bun:test";
 import type { PickerCatalog, PickerHarness } from "../modelCatalogData";
 import { MAX_RUNS, defaultVariants, fanoutVariants, nextVariant, variantLabel, withModel } from "./runOnAgents";
@@ -73,4 +74,19 @@ test("labels, and the wire's 2 to 4 bound", () => {
       { harness: "claude", effort: "high" },
     ]),
   ).toEqual([{ harness: "codex" }, { harness: "claude", effort: "high" }]);
+});
+
+test("Send's menu offers Run on several agents for a typed draft, on ⌘⌥Return, never ⌘⇧Return", () => {
+  const key = (meta: boolean, alt: boolean, shift = false) =>
+    sendChoiceForKey({ key: "Enter", metaKey: meta, altKey: alt, shiftKey: shift, ctrlKey: false });
+  expect(key(true, true)).toBe("runOn");
+  // ⌘⇧Return is Ghostty's Toggle Pane Zoom, reserved in every pane.
+  expect(key(true, false, true)).toBeUndefined();
+  expect(sendMenuChoices({ draft: true, sendSteers: false, side: false, files: false, runOn: true })).toEqual([
+    "send",
+    "runOn",
+  ]);
+  // A run's prompt is text alone, and a chat that cannot start runs has no row.
+  expect(sendMenuChoices({ draft: true, sendSteers: false, side: false, files: true, runOn: true })).toEqual([]);
+  expect(sendMenuChoices({ draft: true, sendSteers: false, side: false, files: false })).toEqual([]);
 });

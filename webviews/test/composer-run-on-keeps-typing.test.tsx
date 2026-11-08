@@ -136,12 +136,12 @@ async function render(run: (text: string, variants: RunVariant[]) => Promise<unk
   await until(() => !!host.querySelector('[role="combobox"]'), "the editor");
 }
 
-/// ⌘⇧Return in the prompt opens the panel; its Run starts the runs.
+/// ⌘⌥Return in the prompt opens the panel; its Run starts the runs.
 async function runOnAgents() {
   const editor = host.querySelector<HTMLElement>(".acpmux-md")!;
   await act(async () => {
     editor.dispatchEvent(
-      new dom.window.KeyboardEvent("keydown", { key: "Enter", metaKey: true, shiftKey: true, bubbles: true }),
+      new dom.window.KeyboardEvent("keydown", { key: "Enter", metaKey: true, altKey: true, bubbles: true }),
     );
   });
   await until(() => !!dom.window.document.querySelector(".acpmux-run-on-run"), "the panel");

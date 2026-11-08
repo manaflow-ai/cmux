@@ -666,6 +666,41 @@ pub struct ToolRow {
 pub const RETIRED_AGENT_SESSION_IDS: usize = 32;
 
 impl SessionMeta {
+    /// Whether its harness counts a turn's input apart from the prompt cache, as Anthropic's
+    /// usage does, told from what this record knows of how the chat ran (a daemon that has its
+    /// config asks the profile's kind first, `Hub::input_excludes_cache`):
+    /// - Claude Code over its stream (claude-stdio, whatever its profile is named: the `cmux`
+    ///   model router's too), which starts a Claude conversation (`claude_profile`, a Claude
+    ///   `agent_session_family`);
+    /// - the Claude ACP adapter (`@agentclientprotocol/claude-agent-acp`, formerly
+    ///   `claude-code-acp`), which sums `usage.input_tokens` into its ACP `inputTokens`, the
+    ///   cache's reads and writes apart, `totalTokens` all four.
+    ///
+    /// Another ACP harness's input (Codex's, Gemini's) counts the cache's reads in it. A record
+    /// that never started its agent says nothing of either, and is read by its names: a harness
+    /// named `claude…`, a Claude leaf family (`claude-sr2`), or the `cmux` router's profile
+    /// (family `claude`). Plain family `claude` alone is not one, as opencode on a Claude model
+    /// is filed under it with its own usage.
+    pub fn input_excludes_cache(&self) -> bool {
+        if self.claude_profile.is_some()
+            || self.agent_session_family.as_deref().is_some_and(|f| f.starts_with("claude"))
+        {
+            return true;
+        }
+        let argv = self.spawn_argv.as_ref().unwrap_or(&self.harness_argv);
+        if argv
+            .iter()
+            .any(|arg| arg.contains("claude-agent-acp") || arg.contains("claude-code-acp"))
+        {
+            return true;
+        }
+        let harness = self.harness.trim().to_ascii_lowercase();
+        let family = self.family.as_deref().unwrap_or("").trim().to_ascii_lowercase();
+        harness.starts_with("claude")
+            || family.starts_with("claude-")
+            || (harness == "cmux" && family == "claude")
+    }
+
     /// Replace the native id, retaining only prior Claude ids as transcript authority.
     /// Explicit provenance prevents a non-Claude id entering history after a profile switch.
     pub fn set_agent_session_id(&mut self, next: Option<String>, family: &str) {

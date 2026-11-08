@@ -1,7 +1,7 @@
 // The composer's Run on N agents panel: the agents one prompt goes to, one row each (an agent, its
 // model and its effort), 2 to 4 of them, and Run. It opens in a popover over the composer
 // (Composer.tsx, ui/Popover: Escape and a press outside close it) from the + menu, the /run-on
-// command or ⌘⇧Return, with Run focused so Return runs it. It starts with Claude Opus, Codex and Claude Sonnet when they are
+// command or ⌘⌥Return, with Run focused so Return runs it. It starts with Claude Opus, Codex and Claude Sonnet when they are
 // installed (runOnAgents.ts), and remembers nothing: each run picks again. A run that acpmux refuses
 // keeps the panel and the prompt, and says why. Every row is the same height, so adding or removing
 // an agent moves the rows under it by one row and nothing else.

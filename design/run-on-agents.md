@@ -17,7 +17,10 @@ to this, I'm out." Row #8 of the agent-workflow gaps (cmuxterm-hq
 - The composer's + menu, in the composer's own group: **Run on several agents…**, with "Same
   prompt, each in its own worktree; keep the best".
 - `/run-on <prompt>`: the prompt stays in the composer and the panel opens for it.
-- ⌘⇧Return with a prompt typed. ⌘Return keeps its queue and steer meaning; Shift adds the fan-out.
+- Send's menu (right-click or hold Send): **Run on several agents… ⌘⌥↩**, under Send, Queue for later
+  and Send in side chat, when the draft is text alone.
+- ⌘⌥Return with a prompt typed: Command and Option together, the one Return form no app binding takes
+  in a chat. Not ⌘⇧Return, which is Ghostty's Toggle Pane Zoom and reserved in every pane.
 - Only in a chat that exists on this Mac: not on New Tab, the Quick Composer, Cloud or Sandboxed.
 
 ## The panel

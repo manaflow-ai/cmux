@@ -84,7 +84,7 @@ export default componentEntry<Props>({
   load: async () => GalleryRunOn,
   variants: {
     rows: {
-      note: "Picked look. Opened from the + menu, /run-on or ⌘⇧Return: Claude Opus, Codex and Claude Sonnet, Run on 3 agents.",
+      note: "Picked look. Opened from the + menu, /run-on or ⌘⌥Return: Claude Opus, Codex and Claude Sonnet, Run on 3 agents.",
       props: {},
     },
     pills: {
