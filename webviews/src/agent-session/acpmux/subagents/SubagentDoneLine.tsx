@@ -15,25 +15,43 @@
 // error" with the turning ring. A failed one offers Retry, inline and in its ⋯ menu: acpmux runs
 // it again, or, where acpmux cannot, the line asks the chat's agent to ("Ask parent to retry").
 // A refusal leaves a short note after the line until the row next changes.
-import { createContext, useContext, useState } from "react";
+//
+// A finished line whose subagent left a report (its final reply, `result`, else its last message)
+// offers it under the line (Leo, 2026-11-03, on parallel agents in the running tray: "Tray only,
+// richer"): a chevron right after the line's words opens the report, in the transcript's Markdown
+// and capped as an opened tool output is. On such a line a click anywhere opens and closes the
+// report, and only the agent's name, a link chip, opens the agent's view (Lucas, 2026-11-08). How
+// it is offered is an experiment (doneReport.experiment.ts).
+import { useContext, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../../ui/Menu";
 import { AgentTag } from "../conversation/AgentTag";
+import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "../conversation/headerToggle";
 import { TranscriptActivityRowShell } from "../conversation/TranscriptActivityRow";
-import { formatDuration } from "../conversation/turns";
+import { spanDuration } from "../conversation/turns";
 import { ChevronRight, Retry } from "../conversation/icons";
 import { TurnActionsContext } from "../conversation/turnActions";
 import { ReactionMark, ReactionReply } from "../conversation/ReactionMark";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { AgentIdentity, SUBAGENT_FALLBACK } from "./AgentIdentity";
+import { AgentIdentity } from "./AgentIdentity";
+import { foreignHarness, SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { agentTone } from "./agentTones";
 import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
 import { retryLabel, subagentRetry, type RetryAction, type RetryNote, type SessionRetryFields } from "./retryState";
-import { elapsed, SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./SubagentGroup";
-import { subagentDisplayName, subagentTaskLabel, useSubsessionInfo } from "./subsessions";
+import { elapsed, SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./subagentGroupModel";
+import {
+  subagentDisplayName,
+  subagentTaskLabel,
+  subsessionName,
+  useSubsessionInfo,
+  type SubsessionInfo,
+} from "./subsessions";
 import { failedLineLook } from "./failedLine.experiment";
+import { Markdown } from "../conversation/Markdown";
+import { doneReportLook } from "./doneReport.experiment";
+import { RetryAffordanceContext, DoneReportLookContext, doneReport, shortReason } from "./subagentDoneLineModel";
 
 const DONE_LABEL: Record<string, StringKey> = {
   completed: "subagents.ended.completed",
@@ -42,24 +60,11 @@ const DONE_LABEL: Record<string, StringKey> = {
   disconnected: "subagents.ended.disconnected",
 };
 
-/// Where a failed line's Retry sits: an inline button (the default), a link after the line's
-/// time, or only in the ⋯ menu. The gallery compares them (SubagentRetry.gallery.tsx).
-export type RetryAffordance = "button" | "link" | "menu";
-export const RetryAffordanceContext = createContext<RetryAffordance>("button");
-
 /// What acpmux names an Agent or Workflow call that gave no description (claude_stdio
 /// `spawn_subagent`): never a better name than the one a run reports.
 const PLACEHOLDER_TASKS = new Set(["Workflow", "Agent"]);
 
 const ACTION_LABEL: Record<RetryAction, StringKey> = { daemon: "retry.action", ask: "retry.askParent" };
-
-/// A failure's reason as a failed line shows it: its first sentence, the rest in the tooltip and the
-/// button's name ("Agent terminated early due to an API error. Retry with …" reads its first part).
-export function shortReason(error: string): string {
-  const line = error.trim().split("\n")[0]!.trim();
-  const sentence = /^(.+?[.!?])(?:\s|$)/u.exec(line);
-  return (sentence ? sentence[1]! : line).replace(/[.]$/u, "");
-}
 
 export function SubagentDoneLine({ row }: { row: AcpmuxRow }) {
   // Only a sub-session's line reads the session list (its retry is on its own session row): the
@@ -72,14 +77,20 @@ function SubsessionDoneLine({ row, child }: { row: AcpmuxRow; child: string }) {
   return <DoneLine row={row} child={useSubsessionInfo(child)} />;
 }
 
-/// `child`: a sub-session's own session row, where acpmux keeps its retry.
-function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }) {
+/// `child`: a sub-session's own session row, where acpmux keeps its retry and its chat's title.
+function DoneLine({
+  row,
+  child,
+}: {
+  row: AcpmuxRow;
+  child?: SessionRetryFields & Partial<Pick<SubsessionInfo, "name" | "sessionId" | "title">>;
+}) {
   const t = useT();
   const nav = useContext(SubagentNavContext);
   const pane = useContext(SubagentPaneContext);
   const affordance = useContext(RetryAffordanceContext);
-  // The chat's harness when the subagent names none, as its open group's avatar and the tray draw
-  // it (Leo, 2026-10-29: "one of these is Codex, one of these is Claude").
+  // The chat's harness: a subagent of another family draws its mark, one of the chat's own draws the
+  // subagent mark in its tone, as the tray does (AgentIdentity.tsx `foreignHarness`).
   const chatHarness = useContext(SubagentHarnessContext);
   const { restartSubagent, retryAgent, retryCapabilities } = useContext(TurnActionsContext);
   const agent = row.subagents?.[0];
@@ -89,6 +100,11 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   const [note, setNote] = useState<{ version: number; key?: RetryNote; busy?: boolean }>();
   // How a failed line reads (failedLine.experiment.ts): the quiet grid by default.
   const [failedLook] = useState(() => experimentArm(failedLineLook));
+  // How the line offers its report (doneReport.experiment.ts): a chevron that opens it by default.
+  const [reportArm] = useState(() => experimentArm(doneReportLook));
+  const reportLook = useContext(DoneReportLookContext) ?? reportArm;
+  const [reportOpen, setReportOpen] = useState(false);
+  const reportId = useId();
   const open = pane ?? nav;
   if (!agent) return null;
   // The row's retry, as every surface reads it (retryState.ts ``subagentRetry``).
@@ -99,11 +115,21 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   // then its name, its prompt's first line, its kind; "Subagent" only when nothing names it. A
   // task that is only acpmux's placeholder ("Workflow", "Agent") keeps the name a run gave it. A
   // retrying line keeps its short name, so its "Retrying (2/4) …" is never cut behind a long task.
+  // A sub-session's own chat names it (its title, else its name) before the bare "Subagent": its
+  // fold record often names nothing once it ends (Leo, 2026-11-03, on a finished line that read
+  // "Subagent").
+  const childName =
+    child?.sessionId !== undefined && child.name !== undefined
+      ? subsessionName({ sessionId: child.sessionId, name: child.name, title: child.title })
+      : child?.title?.trim() || undefined;
   const name =
-    waiting || PLACEHOLDER_TASKS.has(agent.task ?? "") ? subagentDisplayName(t, agent) : subagentTaskLabel(t, agent);
+    waiting || PLACEHOLDER_TASKS.has(agent.task ?? "")
+      ? subagentDisplayName(t, agent, childName)
+      : subagentTaskLabel(t, agent, childName);
   const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name });
   const reasonKey = agent.state === "cancelled" && agent.stopReason ? STOP_REASON_LABEL[agent.stopReason] : undefined;
-  const time = formatDuration(elapsed(agent, agent.endedAt ?? row.at));
+  // Its own time once ended; none when its start and end were stamped at one moment.
+  const time = spanDuration(t, elapsed(agent, agent.endedAt ?? row.at));
   // A sub-session's failure is on its own session row.
   const error = agent.state === "failed" ? (agent.error ?? child?.error) : undefined;
   // While acpmux retries it, or settles whether it will, Restart would run it a second time.
@@ -123,12 +149,15 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   const [before, after = ""] = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name: "\u0000" }).split("\u0000");
   // The duration is the trailing column's, never part of the sentence; the tooltip and the
   // button's name still read the whole line with it.
-  const whole = (waiting ? parts : [...head, time, ...(error ? [error] : [])]).join(" · ");
+  const whole = (waiting ? parts : [...head, ...(time ? [time] : []), ...(error ? [error] : [])]).join(" · ");
   const shown = note?.version === row.version ? note : undefined;
   // A failed line in the quiet looks (Leo, 2026-11-03: "this ui is pretty awkward looking"): its
   // title in plain text and its reason muted, red only on its mark; the grid arm also lines its
   // columns up from row to row: mark | title | short reason | Retry | time.
   const failed = agent.state === "failed" && !waiting;
+  const report = waiting ? undefined : doneReport(agent);
+  const disclose = report !== undefined && reportLook === "disclosure";
+  const preview = report !== undefined && reportLook === "preview";
   const look = failed ? failedLook : undefined;
   const quiet = look === "grid" || look === "quiet";
   const reason =
@@ -159,20 +188,27 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
     <div className="cv-tools">
       <TranscriptActivityRowShell
         className="cv-tool cv-subagent-done-row"
-        attributes={{ "data-state": waiting ? "retrying" : agent.state, ...(look && { "data-look": look }) }}
+        attributes={{
+          "data-state": waiting ? "retrying" : agent.state,
+          ...(look && { "data-look": look }),
+          ...(disclose && { [HEADER_TOGGLE_ATTRIBUTE]: "" }),
+        }}
+        onClick={disclose ? headerToggleClick(() => setReportOpen((value) => !value)) : undefined}
       >
-        <button
-          type="button"
+        <Line
+          toggles={disclose}
           className="cv-tool cv-bgtask cv-subagent-done cv-agent-activity__control"
-          data-state={waiting ? "retrying" : agent.state}
-          {...(agent.stopReason && { "data-reason": agent.stopReason })}
-          aria-label={whole}
+          attributes={{
+            "data-state": waiting ? "retrying" : agent.state,
+            ...(agent.stopReason && { "data-reason": agent.stopReason }),
+          }}
+          label={whole}
           disabled={!open}
-          onClick={() => open?.(agent.id)}
+          onOpen={() => open?.(agent.id)}
         >
           <span className="cv-tool__icon">
             <AgentIdentity
-              harness={agent.harness ?? chatHarness}
+              harness={foreignHarness(agent.harness, chatHarness)}
               tone={agentTone(agent.id)}
               size={16}
               fallback={SUBAGENT_FALLBACK}
@@ -188,7 +224,13 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
             /* tooltip-allow: the line is cut at the pane's width; its whole text, the failure included */
             <span className="cv-tool__text cv-agent-activity__sentence" title={whole}>
               {!waiting && before}
-              <AgentTag name={name} />
+              {/* A line with a report opens its agent from the name alone; the rest of the line
+                  opens and closes the report. The chip's hover is AgentTag.css's link chip. */}
+              {disclose && open ? (
+                <AgentTag name={name} title={whole} onClick={() => open(agent.id)} />
+              ) : (
+                <AgentTag name={name} />
+              )}
               {!waiting && after}
               {/* Its own box, cut before the chip (subagents.css): the reason and failure go first. */}
               {parts.length > 1 && (
@@ -196,7 +238,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
               )}
             </span>
           )}
-        </button>
+        </Line>
         {inline}
         {shown?.key && <output className="cv-subagent-done__note">{t(shown.key)}</output>}
         {(restart || action) && (
@@ -236,20 +278,123 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
         )}
         <span className="cv-tool__trail cv-subagent-done__trail cv-agent-activity__trail">
           <ReactionMark reaction={agent.reaction} />
-          {!waiting && <span className="cv-command__meta cv-subagent-done__time">{time}</span>}
+          {!waiting && time && <span className="cv-command__meta cv-subagent-done__time">{time}</span>}
         </span>
-        {/* The chevron only marks that the line opens; the line's button is the one control. Its
-            column holds on a line that opens nothing, so the columns still line up. */}
-        <span
-          className={`cv-tool__chevron cv-subagent-done__chevron cv-agent-activity__chevron${open ? "" : " is-idle"}`}
-          aria-hidden
-        >
-          <ChevronRight size={14} strokeWidth={1.2} />
-        </span>
+        {disclose ? (
+          // A line with a report: the chevron after its words is the report's disclosure for the
+          // keyboard; the pointer opens it anywhere on the line. It opens on the click, no fade.
+          <button
+            type="button"
+            className="cv-tool__chevron cv-subagent-done__chevron cv-subagent-done__disclose"
+            aria-expanded={reportOpen}
+            aria-controls={reportOpen ? reportId : undefined}
+            aria-label={t(reportOpen ? "subagents.report.hide" : "subagents.report.show")}
+            title={t(reportOpen ? "subagents.report.hide" : "subagents.report.show")}
+            onClick={() => setReportOpen((value) => !value)}
+          >
+            <ChevronRight size={14} className={`cv-rotor${reportOpen ? " is-open" : ""}`} />
+          </button>
+        ) : (
+          /* The chevron only marks that the line opens; the line's button is the one control. Its
+             column holds on a line that opens nothing, so the columns still line up. */
+          <span
+            className={`cv-tool__chevron cv-subagent-done__chevron cv-agent-activity__chevron${open ? "" : " is-idle"}`}
+            aria-hidden
+          >
+            <ChevronRight size={14} />
+          </span>
+        )}
       </TranscriptActivityRowShell>
+      {disclose && reportOpen && (
+        <div id={reportId} className="cv-subagent-done__report">
+          <div className="cv-subagent-done__markdown selectable">
+            <Markdown commits="quiet">{report}</Markdown>
+          </div>
+        </div>
+      )}
+      {preview && <ReportPreview text={report} />}
       {/* The chat's quiet reply to its end (ReactionMark.tsx), under the line as text Find reads,
           never only in a tooltip (cmux#33538). */}
       <ReactionReply reaction={agent.reaction} />
+    </div>
+  );
+}
+
+/// The line's words. A line with a report is the pointer's wide target for the report's disclosure
+/// (its shell's click, headerToggle.ts): its words are no button then, so its name chip can be the
+/// one that opens the agent, and the chevron stays the keyboard's toggle. Any other line is one
+/// button that opens the agent.
+function Line({
+  toggles,
+  className,
+  attributes,
+  label,
+  disabled,
+  onOpen,
+  children,
+}: {
+  toggles: boolean;
+  className: string;
+  attributes: Record<string, string | undefined>;
+  label: string;
+  disabled: boolean;
+  onOpen: () => void;
+  children: ReactNode;
+}) {
+  if (toggles)
+    return (
+      <div className={className} data-toggle-line="" {...attributes}>
+        {children}
+      </div>
+    );
+  return (
+    <button type="button" className={className} {...attributes} aria-label={label} disabled={disabled} onClick={onOpen}>
+      {children}
+    </button>
+  );
+}
+
+/// The preview arm: the report's first two lines always under the line, Show more opening the rest
+/// (capped as an opened report is). Show more appears only when the cut hides lines.
+function ReportPreview({ text }: { text: string }) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const [long, setLong] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const id = useId();
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node || open) return;
+    const measure = () => setLong(node.scrollHeight - node.clientHeight > 1);
+    measure();
+    if (typeof ResizeObserver !== "function") return;
+    // Stops with the effect: the cleanup disconnects it when the text changes, it opens or unmounts.
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [text, open]);
+  return (
+    <div className="cv-subagent-done__report">
+      <div
+        ref={ref}
+        id={id}
+        className="cv-subagent-done__markdown selectable"
+        data-cut={open ? undefined : true}
+        data-more={long && !open ? true : undefined}
+      >
+        <Markdown commits="quiet">{text}</Markdown>
+      </div>
+      {(long || open) && (
+        <button
+          type="button"
+          className="cv-subagent-done__more"
+          aria-expanded={open}
+          aria-controls={id}
+          onClick={() => setOpen((value) => !value)}
+        >
+          {t(open ? "message.less" : "message.more")}
+        </button>
+      )}
     </div>
   );
 }

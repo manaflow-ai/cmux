@@ -3,7 +3,8 @@ public import Foundation
 
 /// Chief's first messages on a fresh install: Chief greets the person, says what it can do, then
 /// offers a background, each as its own iMessage bubble after its own typing dots (user, 2026-10-30;
-/// "more spaced out, better animation timings", 2026-10-31).
+/// "more spaced out, better animation timings", 2026-10-31). The three bubbles are one run, as in
+/// Messages: 3 pt apart, and only the last has the tail (user, 2026-11-04).
 ///
 /// The messages are stored as real messages from Chief in the Chief conversation, through the
 /// owner's `conversation-import` (which keeps an author other than the person), so the Home

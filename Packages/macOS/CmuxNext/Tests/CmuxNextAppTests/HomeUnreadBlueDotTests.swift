@@ -169,9 +169,10 @@ struct HomeUnreadBlueDotTests {
         row.badge.updateLayer()
         #expect(!row.badge.isHidden && row.badge.state == .dot, "\(style): Home draws no dot on its glyph")
         let fill = try #require(row.badge.layer?.backgroundColor.flatMap(NSColor.init(cgColor:))?.usingColorSpace(.sRGB))
-        // Lawrence msg 11983: the sidebar's unread blue is the system blue.
+        // Lawrence msg 11983: the sidebar's unread blue is the system blue's hue, at 3:1 on the theme's
+        // rows (c0230efd501), read in the scope that draws it.
         var resolved: NSColor?
-        row.effectiveAppearance.performAsCurrentDrawingAppearance { resolved = Palette.statusUnread.usingColorSpace(.sRGB) }
+        row.effectiveAppearance.performAsCurrentDrawingAppearance { resolved = row.performWithTheme { Palette.statusUnread }.usingColorSpace(.sRGB) }
         let blue = try #require(resolved)
         #expect(abs(fill.redComponent - blue.redComponent) < 0.01 && abs(fill.blueComponent - blue.blueComponent) < 0.01,
                 "\(style): Home's glyph dot is \(fill), not the unread blue")

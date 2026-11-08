@@ -4,6 +4,60 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes grant.revoke declares.
+    GrantRevokeError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        UnknownInvite = "unknown_invite",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Put a workspace in a cloud group and record where it runs (placement: local, mini or cloud_vm). A workspace is in at most one cloud group; adding it again updates its placement and title. The group's owner only.
+    GroupAddWorkspaceOp {
+        name: "group.add_workspace",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: GroupAddWorkspaceParams,
+        result: CloudGroupItem,
+        error: GroupAddWorkspaceError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GroupAddWorkspaceParams {
+    pub group: GroupId,
+    pub workspace: GroupWorkspaceId,
+    pub placement: GroupPlacement,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes group.add_workspace declares.
+    GroupAddWorkspaceError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Conflict = "conflict",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Archive a cloud group (its owner only). The id stays; links to it still open, read-only.
     GroupArchiveOp {
@@ -846,47 +900,5 @@ wire_errors! {
     /// The error codes install.list declares.
     InstallListError {
         AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Register an install's public key under the signed-in user; returns the install with its default grant. The server kinds vm and daemon are reserved (install.kind_reserved): the server creates those installs itself (pairing, Cloud bind).
-    InstallRegisterOp {
-        name: "install.register",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session],
-        params: InstallRegisterParams,
-        result: Install,
-        error: InstallRegisterError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct InstallRegisterParams {
-    pub public_jwk: PublicJwk,
-    pub kind: InstallKind,
-    pub name: String,
-    pub device_name: String,
-    pub platform: Platform,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub device: Option<DeviceId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub op_classes: Option<Vec<OpClass>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bound_team: Option<TeamId>,
-}
-
-wire_errors! {
-    /// The error codes install.register declares.
-    InstallRegisterError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        InstallKindReserved = "install.kind_reserved",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
     }
 }

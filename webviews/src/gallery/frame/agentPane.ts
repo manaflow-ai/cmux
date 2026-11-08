@@ -118,8 +118,24 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
     // The chat's look as the app's `display` push sends it (none: the default look).
     setChatDisplay(state.display ?? {});
     bridge.applyWorkflowLabs?.(state.workflowLabs !== false);
-    bridge.receive(structuredClone(snapshot));
+    const query = new URLSearchParams(location.search);
+    const script = query.get("script");
+    const slot = query.get("slot");
+    if (!script && !slot) {
+      bridge.receive(structuredClone(snapshot));
+      return;
+    }
+    // `slot=` (an extension's renderer) and `script=` (the chat on a loop): scripts.ts, through the
+    // same `receive`.
+    void import("./scripts").then(({ applySlot, playScript }) => {
+      const base = applySlot(slot, snapshot);
+      window.cmuxAcpmuxBridge?.receive(structuredClone(base));
+      if (!script || scriptStarted) return;
+      scriptStarted = true;
+      playScript(script, base, (next) => window.cmuxAcpmuxBridge?.receive(next), { loop: query.get("loop") !== "0" });
+    });
   };
+  let scriptStarted = false;
   const next = (method: string | undefined) => {
     const after =
       method && state.afterCall && Object.hasOwn(state.afterCall, method) ? state.afterCall[method] : undefined;
@@ -141,7 +157,8 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
       default: {
         const staged = stageUpload(message);
         if (staged !== undefined) return answer(staged);
-        const value = state.native?.[message.method ?? ""] ?? null;
+        const fixture = state.native?.[message.method ?? ""];
+        const value = (typeof fixture === "function" ? fixture(message.params) : fixture) ?? null;
         // `{ nativeError: {code, userMessage?} }` answers as the app's refusal of the call.
         if (value && typeof value === "object" && "nativeError" in value)
           return { ok: false, error: (value as { nativeError: unknown }).nativeError };
@@ -149,9 +166,11 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
       }
     }
   };
-  (window as unknown as { webkit: unknown }).webkit = {
+  const stubWebkit = {
     messageHandlers: {
       agentSession: {
+        // A stand-in, not the app: the pane's flicker detector (acpmux/flickerLog.ts) stays off.
+        standIn: true,
         postMessage: (message: Message) => {
           const reply = handle(message);
           const delay = state.nativeDelayMs?.[message.method ?? ""];
@@ -160,6 +179,13 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
       },
     },
   };
+  // In a real WKWebView (the native view shell) `window.webkit` is the host's own namespace and
+  // may not take an assignment: shadow it on the window instead, so the pane talks to this stand-in.
+  try {
+    (window as unknown as { webkit: unknown }).webkit = stubWebkit;
+  } catch {}
+  if ((window as unknown as { webkit?: unknown }).webkit !== stubWebkit)
+    Object.defineProperty(window, "webkit", { value: stubWebkit, configurable: true, writable: true });
   document.documentElement.dataset.cmuxWebviewKind = "acpmux-agent-session";
   // Before the pane's scripts run, as AgentPaneTunables.documentScript sets them in the app.
   for (const [name, value] of Object.entries(state.documentAttributes ?? {}))
@@ -174,7 +200,10 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   // Mock pages need their daemon before mounting: the ready reply schedules the fixture
   // snapshot, which must not paint while the mock transport's chunk is still loading.
   if (state.ready?.transport === "mock") prepareMockTransport(await import("../../agent-session/acpmux/mock"));
-  const { mountAcpmux } = await import("../../agent-session/acpmux/mount");
+  // Opened before the chat binds: the first chat's own choice (a new pane starts with it closed).
+  if (state.sessionInfoOpen)
+    (await import("../../agent-session/acpmux/session-info/sessionInfoState")).setSessionInfoOpen(true);
+  const { mountAcpmux } = await import("../../agent-session/acpmux/mountModel");
   // Static chat previews already have their final snapshot. Do not first mount an empty shell
   // and simulate a network delivery of data we hold. Scenes specifying a handshake, New Tab
   // context or a delayed host still exercise the normal asynchronous startup.
@@ -183,7 +212,7 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
       ? { snapshot: structuredClone(snapshot), machineName: "This Mac", workflowLabs: state.workflowLabs }
       : undefined;
   if (initialChat) {
-    const { applyPaneTheme, applyPaneThemeCSS } = await import("../../agent-session/acpmux/App");
+    const { applyPaneTheme, applyPaneThemeCSS } = await import("../../agent-session/acpmux/paneTheme");
     const { setSessionStatus } = await import("../../agent-session/acpmux/sessionStatus");
     applyPaneTheme({ ...context.agentTheme, ...state.theme });
     applyPaneThemeCSS(agentPaneFontCSS(context.env.fontFamily, context.env.fontSize));

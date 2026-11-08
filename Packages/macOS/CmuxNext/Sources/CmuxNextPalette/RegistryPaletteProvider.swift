@@ -17,6 +17,8 @@ public final class RegistryPaletteProvider: PaletteProvider {
     public var effectOverrides: [ActionID: @MainActor () -> PaletteEffect?] = [:]
     /// Lists objects for target arguments (workspace, tab group, ...).
     public var targets: (any PaletteTargetSource)?
+    /// Makes a target from a typed name on an argument page (`PaletteSources.targetCreators`).
+    public var targetCreators: [ActionTargetKind: PaletteTargetCreator] = [:]
     /// Objects captured when the palette opened; argument-taking actions
     /// target them (`PaletteArgumentFlow`).
     public var capturedTargets: [ActionTargetRef] = []
@@ -153,22 +155,22 @@ public final class RegistryPaletteProvider: PaletteProvider {
         let isEnabled = runs || recovery != nil
         // An on/off command's state, read now, every open (Lawrence 2026-11-03: "we don't know the current state").
         let isOn = action?.paletteState?()
-        let toggleStyle = PaletteTunables.toggleStyle.value
         // A toggle that opts in (`ActionTargetTitles.setPaletteTitle`) reads as the change it makes.
-        var title = action?.paletteTitle?() ?? descriptor.title
-        if toggleStyle.suffixesTitle, let isOn {
-            title = PaletteStrings.titleWithState(title, isOn ? PaletteStrings.on : PaletteStrings.off)
-        }
+        // The state shows the one way every row that flips a state shows it (`PaletteToggleStyle.apply`).
+        let shown = PaletteTunables.toggleStyle.value.apply(title: action?.paletteTitle?() ?? descriptor.title,
+                                                            symbol: descriptor.symbol, isOn: isOn)
         return RegistryPaletteRows.Face(
-            title: title,
-            // A disabled row says why (Chromium without a CEF runtime).
-            subtitle: recovery?.note ?? (isEnabled ? nil : registry.unavailableReason(for: descriptor.id) ?? paletteReason),
+            title: shown.title,
+            // A disabled row says why (Chromium without a CEF runtime); one that runs, what it does when
+            // its title alone does not (``ActionDescriptor/hint``).
+            subtitle: recovery?.note ?? (isEnabled ? descriptor.hint : registry.unavailableReason(for: descriptor.id) ?? paletteReason),
             accessory: entry.isBound || overridden ? nil : unbound,
-            // The icon becomes a check while on only in that style; the others draw a trailing badge.
-            symbol: toggleStyle.replacesIcon && isOn == true ? "checkmark.circle.fill" : descriptor.symbol,
+            symbol: shown.symbol,
             isOn: isOn,
+            flipsInPlace: isOn != nil && Self.flipsInPlace(descriptor, action: action),
             keycaps: registry.shortcutKeycaps(for: descriptor.id),
-            keywords: descriptor.keywords,
+            // A row named by its setting ("Focus Ring") is still found by the verb people type.
+            keywords: isOn == nil ? descriptor.keywords : descriptor.keywords + ["toggle"],
             isEnabled: isEnabled,
             isBound: entry.isBound,
             overridden: overridden,
@@ -189,7 +191,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
     private func makeRow(_ descriptor: ActionDescriptor, face: RegistryPaletteRows.Face, section: PaletteSection, labels: RowLabels,
                          context: RegistryPaletteRows.RunContext) -> PaletteItem {
         let actionID = descriptor.id
-        let fallback = Self.defaultEffect(for: descriptor, registry: registry, context: context)
+        let fallback = Self.defaultEffect(for: descriptor, registry: registry, context: context, flipsInPlace: face.flipsInPlace)
         let effect = face.overridden ? PaletteEffect.deferred { context.effectOverrides[actionID]?() ?? fallback } : fallback
         var item = PaletteItem(
             id: "action:\(actionID.rawValue)",
@@ -222,6 +224,11 @@ public final class RegistryPaletteProvider: PaletteProvider {
             actionID: actionID
         )
         item.toggleState = face.isOn
+        if face.isOn != nil {
+            let registry = registry
+            item.readsToggleState = { registry.action(for: actionID)?.paletteState?() ?? false }
+            item.toggleBase = (registry.action(for: actionID)?.paletteTitle?() ?? descriptor.title, descriptor.symbol)
+        }
         item.actionRefs = [PaletteActionRef(actionID, isDestructive: descriptor.isDestructive)]
         item.ball = PaletteGroupColor.ball(forAction: actionID)
         item.suggestedRank = descriptor.paletteSuggestionRank
@@ -234,16 +241,28 @@ public final class RegistryPaletteProvider: PaletteProvider {
     /// with arguments builds its argument page, target list included, only
     /// then, never for every row on open, with the targets of the open it runs from.
     private static func defaultEffect(for descriptor: ActionDescriptor, registry: ActionRegistry,
-                                      context: RegistryPaletteRows.RunContext) -> PaletteEffect {
+                                      context: RegistryPaletteRows.RunContext, flipsInPlace: Bool = false) -> PaletteEffect {
         let id = descriptor.id
         guard descriptor.arguments.contains(where: \.isRequired) else {
+            // A setting's on/off row flips in place: the palette stays open and the row reads its new state.
+            if flipsInPlace { return .performKeepingOpen { registry.perform(id, invocation: ActionInvocation()) } }
             return .perform { registry.perform(id, invocation: ActionInvocation()) }
         }
         return .deferred {
             PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: context.targets, captured: context.capturedTargets,
-                                preview: context.argumentPreview, swatches: context.argumentSwatches)
+                                preview: context.argumentPreview, swatches: context.argumentSwatches,
+                                creators: context.targetCreators)
                 .effect(collected: ActionInvocation())
         }
+    }
+
+    /// Whether `descriptor`'s row flips an on/off setting, which Return or a click flips without closing
+    /// the palette (Leo 2026-11-07: "just unify"), as a Settings row does: only an action that says so
+    /// (`ActionTargetTitles.setPaletteSettingState`: Focus Ring, Pane Borders, the animation switches).
+    /// A preset with a state (Density: Compact) picks a value and closes, and so does an on/off command
+    /// on what is in front (Left Sidebar, Copy Mode, Dictation).
+    static func flipsInPlace(_ descriptor: ActionDescriptor, action: Action?) -> Bool {
+        !descriptor.arguments.contains(where: \.isRequired) && action?.paletteStateIsSetting == true
     }
 
     static func primaryTitle(for descriptor: ActionDescriptor) -> String {

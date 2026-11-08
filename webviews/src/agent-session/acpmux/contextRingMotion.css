@@ -1,0 +1,56 @@
+/* The context ring eases between readings (contextRingMotion.experiment.ts; Leo, 2026-11-07, of a
+   compaction: "I feel like that should, like, play a cute little, like, eased animation that goes
+   down"). The share used is one registered number, so a transition interpolates
+   it and the arc and the percent both read it. The ring and the caption are keyed by chat in
+   ContextRing, so opening or switching chats mounts them at the new value with nothing to ease. */
+@property --acpmux-ring-used {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+@property --acpmux-ring-percent {
+  syntax: "<integer>";
+  inherits: false;
+  initial-value: 0;
+}
+:root {
+  /* A gauge draining after a compaction reads as a drain only past the scale's 240 ms ceiling (Leo's
+     ask); Reduce Motion and motion off take the transition to none below. */
+  --acpmux-ring-ease: 600ms; /* motion-allow: the ring's drain, above */
+}
+/* The arc: a circle of path length 1, its dash the share used. */
+.acpmux-context-used {
+  stroke-dasharray: var(--acpmux-ring-used) 1;
+}
+.acpmux-context-meter[data-ring-motion="ease"],
+.acpmux-context-meter[data-ring-motion="ease-number-jumps"],
+.acpmux-context-caption[data-ring-motion="ease"] {
+  transition: --acpmux-ring-used var(--acpmux-ring-ease) var(--cmux-ease-out); /* motion-allow: the ring's drain, above */
+}
+.acpmux-context-meter[data-ring-motion="spring"],
+.acpmux-context-caption[data-ring-motion="spring"] {
+  transition: --acpmux-ring-used var(--acpmux-ring-ease) var(--cmux-ease-spring); /* motion-allow: the ring's drain, above */
+}
+/* The percent that counts: whole percents of the same eased number. */
+.acpmux-context-caption[data-ring-counts] {
+  --acpmux-ring-percent: calc(var(--acpmux-ring-used) * 100);
+  counter-reset: acpmux-ring-percent var(--acpmux-ring-percent);
+}
+.acpmux-context-caption[data-ring-counts]::before {
+  content: counter(acpmux-ring-percent) "%";
+}
+/* Reduce Motion and motion off: the new reading in one frame. */
+:root:is(
+    [data-agent-motion="off"],
+    [data-agent-motion="reduced"],
+    [data-cmux-motion="off"],
+    [data-cmux-motion="reduced"]
+  )
+  :is(.acpmux-context-meter, .acpmux-context-caption) {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root :is(.acpmux-context-meter, .acpmux-context-caption) {
+    transition: none;
+  }
+}

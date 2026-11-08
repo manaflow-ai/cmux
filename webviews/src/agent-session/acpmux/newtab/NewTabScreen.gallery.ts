@@ -631,6 +631,29 @@ export default agentPaneEntry({
           throw new Error("this Mac and the SSH peer should be online, the Cloud host offline");
       },
     },
+    "minimal-ambient-paused": {
+      note: "Machines on, the old Cloud host is a Cloud machine the account says is paused (`cloudMachine.list`): it keeps the quiet ring and its tooltip says Paused, never offline (Cloud machines pause on their own when idle; its first use resumes it).",
+      ready: newTab({ template: "minimal", pageWidgets: ["greeting", "machines"] }),
+      // cloud-dev is listed by acpmux too, its link lost while it sleeps.
+      snapshot: {
+        ...ambientSnapshot(),
+        peers: ["build-box", "cloud-dev"],
+        peerKinds: { "build-box": "ssh" as const, "cloud-dev": "cloud" as const },
+        peerStates: { "build-box": "connected", "cloud-dev": "reconnecting" },
+      },
+      native: {
+        "cloudMachine.list": {
+          signedIn: true,
+          loaded: true,
+          machines: [{ id: "vm-dev", name: "cloud-dev", stage: "paused" }],
+        },
+      },
+      play: async (ctx: PlayContext) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-ambient-machine[data-paused]") !== null);
+        if (ctx.document.querySelectorAll(".nt-ambient-machine[data-online]").length !== 2)
+          throw new Error("this Mac and the SSH peer should stay online");
+      },
+    },
     "minimal-ambient-offline": {
       note: "The weather could not refresh (offline): the last reading stays, dimmed; its tooltip says it is the last reading.",
       ready: newTab({ template: "minimal", pageWidgets: ["greeting", "weather"], weather: weatherAt(3 * 60 * 60_000) }),

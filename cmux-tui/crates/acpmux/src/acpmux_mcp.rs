@@ -7,8 +7,11 @@
 //! (`team_send`, `team_inbox`, `team_ack`). It also runs the chat's
 //! background tasks under the daemon (`bg_start`, `bg_list`, `bg_output`, `bg_stop`,
 //! `acpmux_mcp_bg.rs`), so they outlive a hibernated agent, and reads a pull request's state
-//! in one condensed call (`pr_state`, `acpmux_mcp_pr.rs`). `github_status` names the GitHub
-//! account cmux can see, never a token (`github_status.rs`). With a cmux sign-in it also saves,
+//! in one condensed call (`pr_state`, `acpmux_mcp_pr.rs`), and ends a turn with the next-step
+//! box the person sees under the answer (`wrap_up`, `acpmux_mcp_wrap_up.rs`), and keeps the chat's
+//! goal and its done-when on any harness (`goal_set`, `goal_update`, `goal_get`,
+//! `acpmux_mcp_goal.rs`), and wakes it when other sessions are done or blocked (`watch_add`,
+//! `watch_ls`, `watch_rm`, `acpmux_mcp_watch.rs`). `github_status` names the GitHub account cmux can see, never a token (`github_status.rs`). With a cmux sign-in it also saves,
 //! searches, lists and reads the person's cmux artifacts (`artifact_*`, `acpmux_mcp_artifacts.rs`).
 //!
 //! Each tool is the request the agent's own `acpmux` CLI makes, over a connection that carries
@@ -44,6 +47,13 @@ const BG_STEER: &str = "Long-running commands (a dev server, a watcher, a long b
 run): start them with bg_start, not as a background shell or terminal of your own. This chat's \
 agent hibernates after 2 idle minutes and its own background shells end with it; a bg_start task \
 keeps running, and bg_list and bg_output read it later by its id.";
+/// How every chat with the background tools is asked to pace its work: the reads and searches a
+/// task already needs go out as one batch, and a bg_start task runs while the agent goes on.
+/// Some chats did read early and concurrently and others went one call at a time on the same
+/// model (Leo, 2026-11-04); the harness prompts allow both, so cmux says which it wants.
+const PARALLEL_STEER: &str = "Work in parallel: at the start of a task, read the files and run \
+the searches you already know you need as one batch of independent tool calls, not one after \
+another, and while a bg_start task runs, go on with the parts that do not need its result.";
 /// Most replies `last` returns.
 const MAX_LAST: u64 = 20;
 /// How many sessions `ls` lists unless asked for another `limit`, and the most it lists: a fleet
@@ -59,16 +69,31 @@ const LS_FIELDS: &[&str] =
 pub(crate) mod artifacts;
 #[path = "acpmux_mcp_bg.rs"]
 mod bg;
+#[path = "acpmux_mcp_goal.rs"]
+mod goal;
 #[path = "acpmux_mcp_pr.rs"]
 mod pr;
 #[path = "acpmux_mcp_send.rs"]
 mod send;
+#[path = "acpmux_mcp_send_status.rs"]
+mod send_status;
+#[path = "acpmux_mcp_watch.rs"]
+mod watch;
+#[path = "acpmux_mcp_who_else.rs"]
+mod who_else;
+#[path = "acpmux_mcp_wrap_up.rs"]
+mod wrap_up;
 
 fn tools() -> Value {
     let mut all = base_tools();
     if let Some(list) = all.as_array_mut() {
         list.extend(bg::tools());
         list.push(pr::tool());
+        list.push(wrap_up::tool());
+        list.push(who_else::tool());
+        list.extend(goal::tools());
+        list.extend(watch::tools());
+        list.push(send_status::tool());
     }
     all
 }
@@ -136,6 +161,14 @@ fn base_tools() -> Value {
                 "type": "object",
                 "properties": {"name": {"type": "string", "description": "The session's name, id, or host/name."}},
                 "required": ["name"]
+            }
+        },
+        {
+            "name": "machine_info",
+            "description": "Report what this machine can do from acpmux's current state: machine and workspace identity, repository, running background work, ports and previews, browser/display support, the environment's verify command, and secret names with status. Secret values are never returned; unavailable capabilities include the next action to take.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {}
             }
         },
         {
@@ -208,15 +241,28 @@ fn allowed(all: Value, allow: Option<&str>) -> Value {
     Value::Array(all.as_array().into_iter().flatten().filter(|t| keep(t)).cloned().collect())
 }
 
-/// The server's instructions: the background steer where the background tools are listed, and
-/// the GitHub one where `github_status` is.
+/// The server's instructions: the background and parallel steers where the background tools are
+/// listed, and the GitHub one where `github_status` is.
 fn instructions(tools: &Value) -> Option<String> {
     let mut parts = Vec::new();
     if crate::mcp_hint::names(tools).any(|n| bg::TOOLS.contains(&n)) {
         parts.push(BG_STEER);
+        parts.push(PARALLEL_STEER);
     }
     if crate::mcp_hint::names(tools).any(|n| n == crate::github_status::TOOL) {
         parts.push(crate::github_status::STEER);
+    }
+    if crate::mcp_hint::names(tools).any(|n| n == wrap_up::NAME) {
+        parts.push(wrap_up::STEER);
+    }
+    if crate::mcp_hint::names(tools).any(|n| n == who_else::NAME) {
+        parts.push(who_else::STEER);
+    }
+    if crate::mcp_hint::names(tools).any(|n| goal::TOOLS.contains(&n)) {
+        parts.push(goal::STEER);
+    }
+    if crate::mcp_hint::names(tools).any(|n| n == "watch_add") {
+        parts.push(watch::STEER);
     }
     (!parts.is_empty()).then(|| parts.join(" "))
 }
@@ -267,6 +313,18 @@ pub async fn run() -> Result<()> {
                 if name == pr::NAME {
                     return pr::call(&daemon, &session, &args).await;
                 }
+                if name == wrap_up::NAME {
+                    return wrap_up::call(&args);
+                }
+                if name == send_status::NAME {
+                    return send_status::call(&daemon, &session, &args).await;
+                }
+                if name == who_else::NAME {
+                    return who_else::call(&daemon, &session, &args).await;
+                }
+                if goal::TOOLS.contains(&name) {
+                    return goal::call(&daemon, &session, name, &args).await;
+                }
                 if name == crate::github_status::TOOL {
                     let sources = crate::github_status::Sources::current();
                     let status = crate::github_status::resolve(&sources).await;
@@ -278,11 +336,23 @@ pub async fn run() -> Result<()> {
                 if name == "search" {
                     return search_tool(&daemon, &session, &args).await;
                 }
+                if name == "machine_info" {
+                    return machine_info(&daemon, &session).await;
+                }
                 call(&daemon, &params).await
             }
         },
     )
     .await
+}
+
+async fn machine_info(daemon: &Arc<Client>, session: &str) -> Value {
+    match daemon.request(method::MUX_MACHINE_INFO, json!({"sessionId": session})).await {
+        Ok(result) => {
+            ok(serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string()), result)
+        }
+        Err(error) => refusal(error),
+    }
 }
 
 fn ok(text: String, structured: Value) -> Value {
@@ -308,6 +378,7 @@ pub(crate) async fn call(daemon: &Arc<Client>, params: &Value) -> Value {
         "team_inbox" => team_inbox(daemon, &args).await,
         "team_ack" => team_ack(daemon, &args).await,
         "ls" => ls(daemon, &args).await,
+        name if watch::TOOLS.contains(&name) => watch::call(daemon, name, &args).await,
         "last" => {
             let Some(name) = arg(&args, "name") else {
                 return error_result("name is required".to_owned());
@@ -489,7 +560,17 @@ async fn ls(daemon: &Arc<Client>, args: &Value) -> Value {
         _ => json!({"excludeStatus": ["closed"]}),
     };
     match daemon.whole_list(method::MUX_SESSIONS, params).await {
-        Ok(all) => ls_result(&all, args),
+        Ok(mut all) => {
+            // The other machines' sessions a host with no peer to them lists through its send
+            // relay (`cli/send_relay.rs` lsArgv), as `acpmux ls` does.
+            let far = crate::cli::send_relay::relay_rows(true).await;
+            if !far.is_empty()
+                && let Some(rows) = all.get_mut("sessions").and_then(Value::as_array_mut)
+            {
+                crate::cli::send_relay::merge_rows(rows, far);
+            }
+            ls_result(&all, args)
+        }
         Err(e) => refusal(e),
     }
 }

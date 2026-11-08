@@ -856,11 +856,53 @@ fn notification_workspace_scope_names_the_workspace_and_clears_only_it() {
     let titles =
         mux.resource_notifications(8).iter().map(|entry| entry.title.clone()).collect::<Vec<_>>();
     assert_eq!(titles, vec!["second"], "another workspace's row stays");
+
+    // One row by its id (the notifications panel's Clear on a row an agent chat posted,
+    // which has no terminal): only that row goes.
+    create("n-loose", "loose", serde_json::json!({}));
+    let loose =
+        mux.resource_notifications(8).into_iter().find(|entry| entry.title == "loose").unwrap();
+    assert!(loose.terminal_id.is_none());
+    let mixed = public_request(
+        &mux,
+        "clear-mixed",
+        "notification.clear",
+        serde_json::json!({"machine":"current","session":"current",
+            "notification_id":loose.id, "terminal_id":second_terminal}),
+        Some("clear-mixed"),
+    );
+    assert!(mixed.get("error").is_some(), "one scope at a time: {mixed}");
+    let one = public_request(
+        &mux,
+        "clear-one",
+        "notification.clear",
+        serde_json::json!({"machine":"current","session":"current","notification_id":loose.id}),
+        Some("clear-one"),
+    );
+    assert_eq!(one["result"]["value"]["cleared"], serde_json::json!([loose.id]), "{one}");
+    let titles =
+        mux.resource_notifications(8).iter().map(|entry| entry.title.clone()).collect::<Vec<_>>();
+    assert_eq!(titles, vec!["second"], "the other rows stay");
+
+    // The last unread row of a terminal goes with its ring: nothing is left
+    // that still marks the tab unread.
+    assert!(mux.surface_notification(second.id).is_some_and(|marker| marker.unread));
+    let row = mux.resource_notifications(8).remove(0);
+    let last = public_request(
+        &mux,
+        "clear-last",
+        "notification.clear",
+        serde_json::json!({"machine":"current","session":"current","notification_id":row.id}),
+        Some("clear-last"),
+    );
+    assert_eq!(last["result"]["value"]["cleared"], serde_json::json!([row.id]), "{last}");
+    assert!(mux.resource_notifications(8).is_empty());
+    assert!(mux.surface_notification(second.id).is_none(), "its marker goes with the last row");
     drop(events);
     drop(mux);
     let mux = open_persistent_test_mux(session, &root);
     let restored = crate::resource_api::public_session_snapshot(&mux).unwrap();
-    assert_eq!(restored["notifications"].as_array().map(Vec::len), Some(1), "{restored}");
+    assert_eq!(restored["notifications"].as_array().map(Vec::len), Some(0), "{restored}");
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -904,4 +946,32 @@ fn a_posted_notification_remembers_its_event_number_and_poster() {
     let plain = mux.resource_notifications(1).remove(0);
     assert_eq!(mux.notification_post(&plain.id).unwrap().poster, None);
     mux.shutdown();
+}
+
+/// W1-B: a terminal bell's mark is a `Notification` event with `desktop: false`
+/// and the terminal source, so every client (local, and remote through the
+/// subscribe `notification` event that carries `desktop`) can pass it on to its
+/// host as a bell without a banner, and a second bell on the unread mark posts
+/// nothing.
+#[test]
+fn attention_a_bell_posts_one_notification_event_without_a_desktop_banner() {
+    let mux = Mux::new("attention-bell-event", SurfaceOptions::default());
+    let surface = mux.new_workspace(None, None).unwrap();
+    let events = mux.subscribe();
+
+    mux.post_bell_notification(surface.id);
+    mux.post_bell_notification(surface.id);
+
+    let bells = events
+        .try_iter()
+        .filter_map(|event| match event {
+            MuxEvent::Notification(note) if note.title == "Bell" => Some(note),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(bells.len(), 1, "the unread mark absorbs the second bell");
+    let bell = &bells[0];
+    assert!(!bell.desktop);
+    assert_eq!(bell.surface, Some(surface.id));
+    assert_eq!(bell.source, NotificationSource::Terminal);
 }

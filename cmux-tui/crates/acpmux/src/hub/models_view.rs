@@ -19,6 +19,7 @@
 use super::*;
 use crate::catalog::{Catalog, CatalogHarness, CatalogService, HarnessModel};
 use crate::config::HarnessKind;
+use crate::live_models::LiveModel;
 use cmux_json::JsonSet as _;
 use std::sync::PoisonError;
 
@@ -169,6 +170,16 @@ fn picker_models(reported: &[(String, String)], models: &[Value]) -> Vec<String>
     top
 }
 
+/// The harness's current models: its report without the ones its live catalog moves to
+/// another model (Codex's `upgrade`: gpt-5.6-terra and gpt-5.5 name gpt-6-sol). Pickers list
+/// those under Legacy (`topModels` leaves them out), so current and legacy follow the CLI's
+/// own catalog rather than its order (#38044).
+fn current(reported: &[(String, String)], live: Option<&[LiveModel]>) -> Vec<(String, String)> {
+    let upgraded =
+        |id: &str| live.is_some_and(|live| live.iter().any(|m| m.id == id && m.upgrade.is_some()));
+    reported.iter().filter(|(id, _)| !upgraded(id)).cloned().collect()
+}
+
 /// Whether pickers leave out the profile `name` (`pickerHidden` on its `_acpmux/models` and
 /// `_acpmux/harnesses` rows): the discovered `cmux` profile, Claude Code on the cmux model
 /// router, is Claude's automatic fallback, not an agent to pick. It showed as a "Cmux" harness
@@ -210,7 +221,7 @@ impl Hub {
                 .collect();
             let curated = curated_for(&self.catalog, name, profile);
             let live = self.live_models_for(name).filter(|l| !l.is_empty());
-            let reported = match &live {
+            let reported: Vec<(String, String)> = match &live {
                 Some(live) => live.iter().map(|m| (m.id.clone(), m.name.clone())).collect(),
                 None => known.get(name).cloned().unwrap_or_default(),
             };
@@ -228,7 +239,7 @@ impl Hub {
             super::model_availability::mark_unavailable(&mut models, name, &refused);
             let top =
                 if live.is_some() || (profile.kind == HarnessKind::Acp && !reported.is_empty()) {
-                    Some(picker_models(&reported, &models))
+                    Some(picker_models(&current(&reported, live.as_deref()), &models))
                 } else {
                     None
                 };

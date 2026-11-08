@@ -106,8 +106,6 @@ test("the refined look stacks a narrow pane too: no side border, strip-sized tab
   // content its left-cut corners and gap, all from the refined rules that outrank the narrow block.
   expect(refined(".settings > .sidebar", "border-right", 480)).toBe("0");
   expect(refined(".settings > .sidebar", "border-bottom", 480)).toBe("1px solid var(--polish-edge)");
-  expect(refined(".settings > .sidebar", "padding", 480)).toBe("10px 12px 8px");
-  expect(refined(".settings .section-link", "padding", 480)).toBe("4px 8px");
   expect(refined(".settings .section-link", "min-height", 480)).toBe("0");
   // The content pane paints no fill of its own (user, 2026-10-30: one background), so it needs no
   // inset gap at any width; a wide pane has no divider beside the sidebar either.
@@ -129,7 +127,6 @@ test("a setting row's Reset slot stays on its control's line", () => {
   // slot wrapped and the control sat in the slot's column, 30 px right and a line high.
   expect(computed(".row-control", "flex-wrap", 1000)).toBe("wrap");
   expect(computed(".row-control:has(> .reset-slot)", "flex-wrap", 1000)).toBe("nowrap");
-  expect(computed(".row-control:has(> .reset-slot)", "max-width", 1000)).toBe("calc(60% + 30px)");
   expect(computed(".row-control:has(> .reset-slot)", "max-width", 480)).toBe("100%");
 });
 

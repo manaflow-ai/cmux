@@ -160,7 +160,7 @@ fn bare_roster_joins_acpmux_sessions_with_message_addresses() {
         ]}),
         json!({"deliveries": [{"recipient": "term_1", "state": "queued"}]}),
     ];
-    let rows = merge_sources(json!([terminal]), &sessions, &queued, None);
+    let rows = merge_sources(json!([terminal]), &sessions, &queued, None, None);
     let result = shape(rows, &[], AgentRosterView::default(), NOW);
     let agents = result["agents"].as_array().unwrap();
     assert_eq!(agents.len(), 2);
@@ -181,11 +181,50 @@ fn acpmux_state_filter_applies_before_roster_sorting() {
         json!({"sessionId": "idle", "status": "ready", "updatedAt": NOW}),
         json!({"sessionId": "working", "status": "running", "updatedAt": NOW}),
     ];
-    let rows = merge_sources(json!([]), &sessions, &[], Some("idle"));
+    let rows = merge_sources(json!([]), &sessions, &[], Some("idle"), None);
     let agents = rows.as_array().unwrap();
     assert_eq!(agents.len(), 1);
     assert_eq!(agents[0]["address"], "acp:idle");
     assert_eq!(agents[0]["state"], "idle");
+}
+
+/// Inside one cmux session, `agent list` lists that session's agents: its
+/// terminal agents and the chats created in its workspaces. A chat of
+/// another session's workspace (the desktop app's), and a chat with no
+/// workspace on record, stay out; `--all-sessions` lists every chat.
+#[test]
+fn a_bare_roster_lists_only_chats_of_this_sessions_workspaces() {
+    let workspaces = [
+        json!({"id": "ws_1", "extra": {"key": "0a1b2c3d-0000-4000-8000-000000000001"}}),
+        json!({"id": "ws_2", "extra": {}}),
+    ];
+    let keys = workspace_keys(&workspaces);
+    let chat = |id: &str, created_by: Value| json!({"sessionId": id, "status": "idle", "updatedAt": NOW, "createdBy": created_by});
+    // The app hands workspaces their key's uppercase UUID form.
+    let mine = json!({"kind": "person", "workspace": "0A1B2C3D-0000-4000-8000-000000000001"});
+    let app = json!({"kind": "person", "workspace": "ffffffff-0000-4000-8000-000000000009"});
+    let sessions = [
+        chat("mine", mine),
+        chat("app", app),
+        chat("nowhere", json!({"kind": "script"})),
+        chat("old", Value::Null),
+    ];
+    let terminal = agent("agent_terminal", "blocked", NOW, "term_1");
+    let rows = merge_sources(json!([terminal]), &sessions, &[], None, Some(&keys));
+    let addresses: Vec<&str> =
+        rows.as_array().unwrap().iter().filter_map(|row| row["address"].as_str()).collect();
+    assert_eq!(addresses, ["term_1", "acp:mine"]);
+
+    let all = merge_sources(json!([]), &sessions, &[], None, None);
+    assert_eq!(all.as_array().unwrap().len(), 4, "--all-sessions keeps every chat");
+}
+
+#[test]
+fn a_session_without_readable_workspaces_lists_no_chat() {
+    let sessions =
+        [json!({"sessionId": "app", "status": "idle", "createdBy": {"workspace": "ws"}})];
+    let rows = merge_sources(json!([]), &sessions, &[], None, Some(&workspace_keys(&[])));
+    assert_eq!(rows, json!([]));
 }
 
 #[test]

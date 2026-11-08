@@ -24,8 +24,14 @@ use crate::status::Status;
 pub enum Wake {
     /// An identity client accepted before this turn's metadata observation.
     Identity,
-    /// The realtime clock was set (`TFD_TIMER_CANCEL_ON_SET`).
+    /// The realtime clock was set (`TFD_TIMER_CANCEL_ON_SET`) and moved
+    /// against the boot clock by at least [`RESUME_CLOCK_JUMP_NS`]: the
+    /// machine was paused, restored or forked.
     ClockSet,
+    /// The realtime clock was set but moved against the boot clock by less
+    /// than [`RESUME_CLOCK_JUMP_NS`]: a provider's clock sync (Freestyle sets
+    /// it on every exec and file operation), not a resume.
+    ClockAdjusted,
     /// The set of global addresses changed (rtnetlink, filtered).
     Address,
     /// The driver wrote `/run/cmux/instance-id`.
@@ -34,6 +40,8 @@ pub enum Wake {
     BakeFile,
     /// `server.json` was written.
     ConfigFile,
+    /// `/var/lib/cmux/carrier.json` was written.
+    CarrierFile,
     /// The observation retry timer.
     Retry,
     /// The periodic announce timer.
@@ -45,6 +53,22 @@ pub enum Wake {
     Rearm,
     Backoff,
     StopDeadline,
+}
+
+/// How far the realtime clock must move against the boot clock for a clock
+/// set to count as a resume. A snapshot restore (pause, fork) freezes the boot
+/// clock, so the set that follows moves realtime by the whole time the machine
+/// was stopped; a provider's sync on a running machine moves it by its drift.
+pub const RESUME_CLOCK_JUMP_NS: i128 = 2_000_000_000;
+
+/// The wake for a clock set that moved `realtime - boottime` from
+/// `before_ns` to `after_ns`.
+pub fn clock_set_wake(before_ns: i128, after_ns: i128) -> Wake {
+    if (after_ns - before_ns).abs() >= RESUME_CLOCK_JUMP_NS {
+        Wake::ClockSet
+    } else {
+        Wake::ClockAdjusted
+    }
 }
 
 /// A reaped process the machine cares about.
@@ -77,6 +101,11 @@ pub trait Platform {
     fn run(&mut self, action: &Action) -> io::Result<Option<Input>>;
     /// The supervised session host's pid.
     fn daemon_pid(&self) -> Option<u32>;
+    /// Whether the supervised session host runs with another relay carrier
+    /// route than `carrier.json` names now (`carrier_entry.rs`).
+    fn carrier_changed(&mut self) -> bool {
+        false
+    }
     /// Publishes the status file.
     fn write_status(&mut self, status: &Status) -> io::Result<()>;
     /// Answers accepted identity clients only after the fresh observation's actions.
@@ -160,9 +189,14 @@ impl<P: Platform> Agent<P> {
             self.log.line(&format!("adopt-daemon pid={pid}"));
         }
         let first = self.platform.observe();
-        if self
-            .dispatch([Input::Boot { adopted_daemon: adopted.is_some() }, Input::Observed(first)])
-        {
+        let mut boot =
+            vec![Input::Boot { adopted_daemon: adopted.is_some() }, Input::Observed(first)];
+        // A session host kept from before an agent restart may run with an
+        // older carrier route.
+        if adopted.is_some() && self.platform.carrier_changed() {
+            boot.push(Input::CarrierChanged);
+        }
+        if self.dispatch(boot) {
             return Ok(());
         }
         loop {
@@ -206,6 +240,15 @@ impl<P: Platform> Agent<P> {
                     observe = true;
                     clone_signal = true;
                 }
+                // A clock sync on a running machine: the metadata is read
+                // again with the clone signal (a failed read still fences
+                // the identity), but remote authority, the roles and their
+                // receivers stay up and no `Resumed` is sent. Ending them
+                // here dropped the Native receiver on every provider exec.
+                Wake::ClockAdjusted => {
+                    observe = true;
+                    clone_signal = true;
+                }
                 // A change of the global address set: roles rebind and the
                 // metadata is read again with a fresh retry budget. Not a
                 // resume: no Resumed event, no announce.
@@ -214,6 +257,11 @@ impl<P: Platform> Agent<P> {
                     observe = true;
                 }
                 Wake::ConfigFile => rest.push(Input::ConfigChanged),
+                Wake::CarrierFile => {
+                    if self.platform.carrier_changed() {
+                        rest.push(Input::CarrierChanged);
+                    }
+                }
                 Wake::DriverFile => {
                     self.platform.invalidate_remote_authority();
                     observe = true;
@@ -378,10 +426,12 @@ fn wake_name(wake: Wake) -> &'static str {
     match wake {
         Wake::Identity => "identity",
         Wake::ClockSet => "clock",
+        Wake::ClockAdjusted => "clock-adjusted",
         Wake::Address => "net",
         Wake::DriverFile => "driver-file",
         Wake::BakeFile => "bake-file",
         Wake::ConfigFile => "config-file",
+        Wake::CarrierFile => "carrier-file",
         Wake::Retry => "retry",
         Wake::AnnounceTimer => "announce-timer",
         Wake::Terminate => "terminate",
@@ -410,14 +460,23 @@ mod identity_tests {
         wakes: VecDeque<Wake>,
         reads: usize,
         replies: Vec<(usize, Option<String>)>,
+        invalidations: std::cell::Cell<usize>,
+        /// `carrier_changed` answers, in order (then `false`).
+        carrier: VecDeque<bool>,
+        exits: VecDeque<Exit>,
+        /// Every action run, by name.
+        ran: Vec<&'static str>,
     }
 
     impl Platform for Fake {
+        fn invalidate_remote_authority(&self) {
+            self.invalidations.set(self.invalidations.get() + 1);
+        }
         fn wait(&mut self) -> io::Result<Vec<Wake>> {
             Ok(vec![self.wakes.pop_front().unwrap()])
         }
         fn reap(&mut self) -> Vec<Exit> {
-            vec![]
+            self.exits.drain(..).collect()
         }
         fn observe(&mut self) -> Observation {
             self.reads += 1;
@@ -431,8 +490,12 @@ mod identity_tests {
         fn adopt_daemon(&mut self) -> Option<u32> {
             Some(1)
         }
-        fn run(&mut self, _: &Action) -> io::Result<Option<Input>> {
+        fn run(&mut self, action: &Action) -> io::Result<Option<Input>> {
+            self.ran.push(action.name());
             Ok(None)
+        }
+        fn carrier_changed(&mut self) -> bool {
+            self.carrier.pop_front().unwrap_or(false)
         }
         fn daemon_pid(&self) -> Option<u32> {
             Some(1)
@@ -452,6 +515,10 @@ mod identity_tests {
             wakes: [Wake::Identity, Wake::Identity, Wake::Identity, Wake::Terminate].into(),
             reads: 0,
             replies: vec![],
+            invalidations: std::cell::Cell::new(0),
+            carrier: VecDeque::new(),
+            exits: VecDeque::new(),
+            ran: vec![],
         };
         let mut agent =
             Agent::new(fake, vec![], Err("no roles".into()), ActionLog::new(None).unwrap());
@@ -460,5 +527,108 @@ mod identity_tests {
             agent.platform.replies,
             vec![(2, Some("a".into())), (3, None), (4, None), (4, None)]
         );
+    }
+
+    /// Runs `wakes` on a bound machine and returns its action log and how
+    /// often remote authority was ended.
+    fn run_wakes(wakes: &[Wake]) -> (String, usize) {
+        let fake = Fake {
+            observations: std::iter::repeat_n(Some("a"), wakes.len() + 1).collect(),
+            wakes: wakes.iter().copied().chain([Wake::Terminate]).collect(),
+            reads: 0,
+            replies: vec![],
+            invalidations: std::cell::Cell::new(0),
+            carrier: VecDeque::new(),
+            exits: VecDeque::new(),
+            ran: vec![],
+        };
+        let path = std::env::temp_dir().join(format!(
+            "cmux-host-clock-{}-{}.log",
+            std::process::id(),
+            wakes.len()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let mut agent =
+            Agent::new(fake, vec![], Err("no roles".into()), ActionLog::new(Some(&path)).unwrap());
+        agent.run().unwrap();
+        let log = std::fs::read_to_string(&path).unwrap_or_default();
+        let _ = std::fs::remove_file(&path);
+        // Every clock wake still reads the metadata again (the clone check).
+        assert_eq!(agent.platform.reads, wakes.len() + 1);
+        (log, agent.platform.invalidations.get())
+    }
+
+    #[test]
+    fn a_clock_sync_keeps_remote_authority_and_sends_no_resume() {
+        let (log, invalidations) = run_wakes(&[Wake::ClockAdjusted, Wake::ClockAdjusted]);
+        assert_eq!(invalidations, 0, "a clock sync ended remote authority: {log}");
+        assert!(!log.contains("event=resumed"), "a clock sync sent Resumed: {log}");
+    }
+
+    #[test]
+    fn a_resume_clock_jump_ends_remote_authority_and_sends_resume() {
+        let (log, invalidations) = run_wakes(&[Wake::ClockSet]);
+        assert_eq!(invalidations, 1);
+        assert!(log.contains("event=resumed"), "a resume sent no Resumed: {log}");
+    }
+
+    #[test]
+    fn only_a_clock_jump_past_the_threshold_is_a_resume() {
+        let base = 1_793_780_000_000_000_000_i128;
+        // Drift a provider's exec sync corrects, either way.
+        assert_eq!(clock_set_wake(base, base + 3_000_000), Wake::ClockAdjusted);
+        assert_eq!(clock_set_wake(base, base - 250_000_000), Wake::ClockAdjusted);
+        assert_eq!(clock_set_wake(base, base + RESUME_CLOCK_JUMP_NS - 1), Wake::ClockAdjusted);
+        // A pause or fork: the boot clock stood still while time went on.
+        assert_eq!(clock_set_wake(base, base + RESUME_CLOCK_JUMP_NS), Wake::ClockSet);
+        assert_eq!(clock_set_wake(base, base + 140_000_000_000), Wake::ClockSet);
+        assert_eq!(clock_set_wake(base, base - 30_000_000_000), Wake::ClockSet);
+    }
+
+    /// The session host (adopted, so `Running`) under a fake spawner: the
+    /// run of `wakes` with `carrier_changed` answering `carrier`; returns
+    /// the actions run.
+    fn run_carrier(wakes: &[Wake], carrier: &[bool]) -> Vec<&'static str> {
+        let fake = Fake {
+            observations: std::iter::repeat_n(Some("a"), 16).collect(),
+            wakes: wakes.iter().copied().chain([Wake::Terminate]).collect(),
+            reads: 0,
+            replies: vec![],
+            invalidations: std::cell::Cell::new(0),
+            carrier: carrier.iter().copied().collect(),
+            exits: [Exit::Daemon { lived_ms: 60_000 }].into(),
+            ran: vec![],
+        };
+        let mut agent =
+            Agent::new(fake, vec![], Err("no roles".into()), ActionLog::new(None).unwrap());
+        agent.run().unwrap();
+        std::mem::take(&mut agent.platform.ran)
+    }
+
+    #[test]
+    fn carrier_json_appearing_respawns_the_session_host() {
+        // Boot: the adopted host matches; then carrier.json is written.
+        let ran = run_carrier(&[Wake::CarrierFile, Wake::ProcessExit], &[false, true]);
+        let terminate = ran.iter().position(|a| *a == "terminate-daemon").expect("no stop");
+        let spawn = ran.iter().position(|a| *a == "spawn-daemon").expect("no respawn");
+        assert!(terminate < spawn, "{ran:?}");
+        assert!(!ran.contains(&"stop-terminal-hosts"), "{ran:?}");
+    }
+
+    #[test]
+    fn an_adopted_host_with_an_old_route_respawns_at_boot() {
+        let ran = run_carrier(&[Wake::ProcessExit], &[true]);
+        assert_eq!(
+            ran.iter().filter(|a| matches!(**a, "terminate-daemon" | "spawn-daemon")).count(),
+            2,
+            "{ran:?}"
+        );
+    }
+
+    #[test]
+    fn an_unchanged_route_restarts_nothing() {
+        let ran = run_carrier(&[Wake::CarrierFile, Wake::CarrierFile], &[false, false, false]);
+        assert!(!ran.contains(&"terminate-daemon"), "{ran:?}");
+        assert!(!ran.contains(&"spawn-daemon"), "{ran:?}");
     }
 }

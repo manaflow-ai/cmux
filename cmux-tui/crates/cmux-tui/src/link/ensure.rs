@@ -87,7 +87,6 @@ impl ReadyPipe {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Served {
     pub session_socket: Option<std::path::PathBuf>,
-    pub credential_socket: Option<std::path::PathBuf>,
     pub server_config: Option<std::path::PathBuf>,
     pub server_config_sha256: Option<String>,
 }
@@ -113,7 +112,6 @@ impl Served {
             bytes.map(|bytes| Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect());
         Self {
             session_socket: flags.get("--session-socket").map(std::path::PathBuf::from),
-            credential_socket: flags.get("--credential-socket").map(std::path::PathBuf::from),
             server_config,
             server_config_sha256,
         }
@@ -122,7 +120,6 @@ impl Served {
     fn json(&self) -> Value {
         json!({
             "session_socket": self.session_socket,
-            "credential_socket": self.credential_socket,
             "server_config": { "path": self.server_config, "sha256": self.server_config_sha256 },
         })
     }
@@ -135,8 +132,6 @@ impl Served {
             return true;
         }
         status["session_socket"] == json!(self.session_socket)
-            && status.get("credential_socket").unwrap_or(&Value::Null)
-                == &json!(self.credential_socket)
             && status["server_config"]["path"] == json!(self.server_config)
             && status["server_config"]["sha256"] == json!(self.server_config_sha256)
     }
@@ -407,7 +402,7 @@ fn start(state: &LinkState, flags: &Flags) -> anyhow::Result<Option<Value>> {
     }
     let mut command = std::process::Command::new(std::env::current_exe()?);
     command.args(["link", "serve", "--state-dir"]).arg(state.dir());
-    for name in ["--session-socket", "--server-config", "--credential-socket"] {
+    for name in ["--session-socket", "--server-config"] {
         if let Some(value) = flags.get(name) {
             command.arg(name).arg(value);
         }

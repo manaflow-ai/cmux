@@ -11,6 +11,7 @@ import {
   ACTION_RUN,
   AccountOps,
   CloudErrors,
+  CloudActions,
   CloudOps,
   HostActions,
   NATIVE_ACTIONS,
@@ -135,6 +136,9 @@ export class MockCloudProvider implements PageClient {
   /** Files of each machine and this Mac's port forwards and browser routes. */
   readonly fs = new MockFiles();
   readonly edge = new MockEdge();
+  /** Native preview-share state, kept to exercise create/copy/revoke in page tests and gallery. */
+  readonly previewLinks = new Map<string, { linkId: string; url: string; expiresAt: number }>();
+  clipboard?: string;
   /** The projection revision: one step per change, shared by the events of that change. */
   revision = 10;
   private nextId = 1;
@@ -551,6 +555,31 @@ export class MockCloudProvider implements PageClient {
       if (this.tabError) throw pageError(this.tabError, "the browser refused the proxied tab");
       return { confirmed: true };
     }
+    if (action === CloudActions.previewShare) {
+      if (this.unsupported.has(action)) throw pageError("cmux.cloud.unknown_op", `${action} is not a Cloud op`);
+      const args = (p.args ?? {}) as Params;
+      const machine = targetMachine(p, args);
+      const port = Number(args.port);
+      const key = `${machine}:${port}`;
+      const link = {
+        linkId: `mock-link-${String(this.previewLinks.size + 1).padStart(4, "0")}`,
+        url: `https://preview.example/${machine}/${port}?cmux_share=mock`,
+        expiresAt: Date.now() + 86_400_000,
+      };
+      this.previewLinks.set(key, link);
+      this.clipboard = link.url;
+      return { confirmed: true, machine_id: machine, port, ...link };
+    }
+    if (action === CloudActions.previewRevoke) {
+      if (this.unsupported.has(action)) throw pageError("cmux.cloud.unknown_op", `${action} is not a Cloud op`);
+      const args = (p.args ?? {}) as Params;
+      const machine = targetMachine(p, args);
+      const key = `${machine}:${Number(args.port)}`;
+      const link = this.previewLinks.get(key);
+      if (!link || link.linkId !== String(args.linkId)) return { confirmed: true, revoked: false };
+      this.previewLinks.delete(key);
+      return { confirmed: true, machine_id: machine, port: Number(args.port), linkId: link.linkId, revoked: true };
+    }
     if (!NATIVE_ACTIONS.has(action)) throw pageError("cmux.app.unknown_action", action);
     if (this.unsupported.has(action)) throw pageError("cmux.cloud.unknown_op", `${action} is not a Cloud op`);
     if (action === CloudOps.machineConnect) return { confirmed: true };
@@ -562,6 +591,11 @@ export class MockCloudProvider implements PageClient {
       queueMicrotask(() => this.finishTransfers());
     return { confirmed: true, ...(result as object) };
   }
+}
+
+function targetMachine(params: Params, args: Params): string {
+  const target = typeof params.target === "string" ? params.target : "";
+  return target.startsWith("machine:") ? target.slice("machine:".length) : String(args.machine);
 }
 
 /**

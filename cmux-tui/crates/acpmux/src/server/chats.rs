@@ -134,6 +134,9 @@ pub(super) async fn route(
     if let Some(reply) = heap(|| super::bg_tasks::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
+    if let Some(reply) = super::goal::dispatch(hub, conn, m, &params) {
+        return reply;
+    }
     if let Some(reply) = heap(|| super::workflow_runs::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
@@ -482,7 +485,8 @@ fn forward(hub: Arc<Hub>, service: Arc<ChatService>, conn: Arc<Conn>, generation
             }
             match next {
                 Ok(changes) => {
-                    let activity = hub.chat_activity();
+                    // One activity per batch, shared by every watcher of it.
+                    let activity = hub.chat_activity_for_batch(&changes);
                     for change in changes.iter() {
                         let mut value = change_value(change);
                         if let Some(chat) = value.get_mut("chat") {

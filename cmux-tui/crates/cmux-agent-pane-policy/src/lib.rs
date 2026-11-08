@@ -57,6 +57,7 @@ pub mod connection;
 pub mod data;
 pub mod environment;
 pub mod error;
+pub mod ffi;
 pub mod frame;
 pub mod gesture;
 pub mod json_keys;

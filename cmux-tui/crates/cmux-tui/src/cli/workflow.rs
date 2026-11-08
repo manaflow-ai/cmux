@@ -11,6 +11,18 @@ use serde_json::{Value, json};
 
 const WORKFLOW_SUFFIX: &str = ".workflow.js";
 
+/// `cmux workflow --help` and `cmux help workflow`.
+pub(super) const HELP: &str = "\
+USAGE
+  cmux workflow start <file> [--args-json JSON] [--name NAME] [--session SESSION]
+  cmux workflow status [run-id]
+  cmux workflow pause|resume <run-id>
+
+<file> is a .workflow.js file under the project's .cmux/workflows directory.
+The daemon owns the run; status, pause and resume take the run id that
+start printed.
+";
+
 pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (global, words) = super::parse_globals(args).ok()?;
     let (scope, rest) = words.split_first()?;
@@ -18,9 +30,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         return None;
     }
     if rest.is_empty() || rest.iter().any(|arg| matches!(arg.as_str(), "--help" | "-h")) {
-        println!(
-            "cmux workflow start <file> [--args-json JSON] [--name NAME] [--session SESSION]\ncmux workflow status [run-id]\ncmux workflow pause|resume <run-id>"
-        );
+        print!("{HELP}");
         return Some(0);
     }
     let invocation = std::env::current_dir()

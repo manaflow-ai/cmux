@@ -8,7 +8,7 @@
 // request returns before the turn stops, so the pause waits for the turn to end
 // (`StopWaiter`, on the chat's own turn state, not the working indicator a forced stop clears)
 // and is not sent if the turn still runs after STOP_WAIT_MS, or if the pane shows another chat.
-import type { ChatMenuItem } from "./header/ChatHeaderTools";
+import type { ChatMenuItem } from "./header/chatHeaderToolsModel";
 import type { CloudMachine } from "./cloudMachines";
 import type { Translate } from "./i18n";
 

@@ -24,8 +24,7 @@ import CoreGraphics
 /// Row title and detail text size and weight do not change with density (Interface Size and
 /// `sidebar.textSize` own the text size); `sidebar.textSize` (``SidebarTextSize``) adds its
 /// `rowStep` to every row and header height here, on top of any density. A group header's name
-/// keeps its existing rule and follows its bar (`SidebarStyle.groupHeaderFont`: 11 pt on the 24 pt row,
-/// 12 pt on the 28 pt row). Row spacing stays `space1` so selection fills
+/// takes the rows' title size and regular weight (`SidebarStyle.groupHeaderFont`). Row spacing stays `space1` so selection fills
 /// keep their rhythm, and it is the only gap between rows: a group's or the
 /// Pinned block's last row adds no padding (Leo 2026-10-21). Values are read at layout time, never cached, so a
 /// change applies live.
@@ -41,24 +40,22 @@ enum SidebarDensityTokens {
     /// A one-line workspace row, group header or band row.
     static var rowHeight: CGFloat { SidebarRowTokens.current.rowHeight }
     /// A workspace row with one detail line: the one-line row plus that line's height, so a row's
-    /// text keeps the same room above and below with one line or more (Leo 2026-10-20). With
-    /// `SidebarTunables.evenRowText` off, the app's fixed step instead.
-    static var rowHeightWithSubtitle: CGFloat {
-        SidebarTunables.evenRowText.value ? rowHeight + SidebarStyle.detailLineHeight : Metrics.sidebarRowHeightWithSubtitle + extra
-    }
+    /// text keeps the same room above and below with one line or more (Leo 2026-10-20).
+    static var rowHeightWithSubtitle: CGFloat { rowHeight + SidebarStyle.detailLineHeight }
     /// A machine or section header in the list, and a band's header.
     static var headerHeight: CGFloat { Metrics.sidebarHeaderHeight + extra }
-    /// Rows inset from the sidebar edge, and their content from the row edge.
-    static var horizontalInset: CGFloat { SidebarRowTokens.current.horizontalInset }
+    /// Rows inset from the sidebar edge, and their content from the row edge: `SidebarRowTokens.horizontalInset`'s
+    /// rule, read from its two inputs. Every row frame reads it several times (`SidebarListView.frame(for:)`), and
+    /// `SidebarRowTokens.current` builds the whole token set, fonts too, for each read.
+    static var horizontalInset: CGFloat { isComfortable ? Metrics.space4 : Metrics.space3 }
     static var iconBox: CGFloat { isComfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox }
     /// Compatibility name used by the existing session-tree layout. The tree's base indent is
     /// independent of the sidebar's group nesting grid and remains the original space4.
     static var depthIndent: CGFloat { Metrics.space4 }
     /// The corner radius of every row fill: pinned rows, group headers and workspace rows share it,
-    /// so their fills line up at each density. One `space1` rounder than the app's item corner (8 compact,
-    /// 9 comfortable), near ChatGPT's soft row corner for its height (about 9 to 10 pt on a 30 pt row).
-    /// Leo 2026-11-02: "SMOOTH OUT A BIT MORE OF OUR CORNERS ON THE SIDEBAR WORKSPACES".
-    static var rowCornerRadius: CGFloat { Metrics.itemCornerRadius + Metrics.space1 }
+    /// so their fills line up at each density. It is the tab pill's radius (`Metrics.tabCornerRadius`),
+    /// one token for both (Lawrence 2026-11-05: "workspace roundness needs to be same as tabs roundness").
+    static var rowCornerRadius: CGFloat { Metrics.tabCornerRadius }
     static var sectionSpacing: CGFloat { isComfortable ? Metrics.space5 : Metrics.space4 }
     static var topPadding: CGFloat { isComfortable ? Metrics.space3 : Metrics.space2 }
 }

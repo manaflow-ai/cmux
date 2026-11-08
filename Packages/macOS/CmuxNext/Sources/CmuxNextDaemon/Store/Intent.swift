@@ -75,6 +75,24 @@ public enum Intent: Sendable, Hashable {
     /// shows in the input's turn until the daemon's layout places the pane with that id or the
     /// move is refused (``ProvisionalDock``).
     case dockTab(surface: SurfaceID, pane: PaneID, provisional: ProvisionalPane, dock: DockSnapshot, standIn: TabSnapshot?)
+    /// `close-pane` of a pane still opening (a dock's stand-in pane; ``DaemonStore/intendStandInPaneClose(_:)``): the
+    /// pane leaves the visible records in the input's turn, and so does the daemon's pane that takes it over (the same
+    /// public `paneID`, or the pane of Cmd-N's workspace `workspace` that holds its first tab), until the daemon's
+    /// records drop it or the close fails. Leo 2026-11-03: "i should be able to just close immedeiately".
+    case closeStandInPane(pane: PaneID, paneID: String?, workspace: WorkspaceKey?)
+
+    /// The stand-in tab a creation shows under a provisional id until the daemon's tab takes its place: a new tab, a new
+    /// workspace's first tab, a conversation split's tab, a dock's fresh tab. A terminal split's tab is not one: it shows
+    /// under the id the daemon keeps.
+    var standInTab: TabSnapshot? {
+        switch self {
+        case .createTab(_, let provisional): provisional
+        case .createWorkspace(let provisional, _): provisional.tab
+        case .splitPane(_, _, _, let provisional): provisional.tab
+        case .dockTab(_, _, _, _, let standIn): standIn
+        default: nil
+        }
+    }
 
     /// The provisional pane a split or a dock shows until the daemon's pane with its public id.
     var provisionalPane: ProvisionalPane? {

@@ -24,6 +24,7 @@ mod browser_provider;
 /// Where the daemon finds the first-party app packages (cx-0uo1, cx-e0cs).
 pub mod first_party_dir;
 mod lock_rank;
+pub mod remote_host;
 /// The cloud conversations proxy; its own crate, re-exported at the old path.
 pub use cmux_tui_cloud_conversations as cloud_conversations;
 pub mod chief_brains;
@@ -34,6 +35,8 @@ mod conversation_search;
 mod conversation_store;
 pub mod daemon_env;
 use cmux_tui_util::debug_spans;
+#[cfg(unix)]
+pub mod blob_fetch;
 mod browser_profile_ops;
 mod browser_site_engines;
 pub mod diagnostics;
@@ -71,7 +74,7 @@ mod pty_input_room;
 #[cfg(unix)]
 mod pty_write;
 /// A mutex-guarded value whose readers load a published projection without the lock (R-DAEMON-STATE).
-mod published;
+use cmux_tui_util::published;
 mod terminal_title;
 use cmux_tui_remote_access::remote_relay_state;
 mod login_shell;
@@ -101,7 +104,10 @@ pub mod store_schemas;
 use cmux_tui_util::stream_interrupt;
 #[cfg(unix)]
 mod holder_runtime;
+#[cfg(feature = "hotpatch")]
+pub mod hotpatch;
 mod surface;
+mod tasks_link;
 mod terminal_activity;
 #[cfg(unix)]
 mod terminal_backend;
@@ -128,6 +134,8 @@ pub mod session_state_import;
 pub mod terminal_host;
 pub mod terminal_host_protocol;
 pub mod terminal_host_runtime;
+#[cfg(any(target_vendor = "apple", target_os = "linux"))]
+pub mod test_owner;
 #[cfg(unix)]
 pub use cmux_tui_platform::unix_process_scope;
 pub use cmux_tui_util::user_settings;
@@ -208,7 +216,8 @@ pub use workspace_registry::{
     PersistentSessionStateResetPreview, PersistentSessionStateResetter, ProjectionCommit,
     RegistryCommit, RegistryCompactError, RegistryCompaction, RegistryEvent, RegistryQuarantined,
     RegistrySnapshot, RegistryWorkspace, SessionJournalPage, SessionJournalRecord,
-    UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry, compact_registry,
+    TabAttentionRecord, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
+    compact_registry,
 };
 
 pub use cmux_remote_protocol::{REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES};

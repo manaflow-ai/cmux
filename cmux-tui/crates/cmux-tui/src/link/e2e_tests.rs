@@ -52,7 +52,7 @@ fn mesh(node: Node) -> MeshOverlay {
         }],
         mtu: super::state::LINK_MTU,
     };
-    MeshOverlay::new(WgMesh::start(config, node.socket).unwrap(), Zeroizing::new(node.private))
+    MeshOverlay::new(WgMesh::start(config, node.socket).unwrap())
 }
 
 async fn within<T>(future: impl Future<Output = T>) -> T {
@@ -153,6 +153,7 @@ async fn paired_server_link_enrolled_key_exchanges_bytes_over_two_meshes() {
                 team: "team_00000000000000000001".into(),
                 user: "user_00000000000000000001".into(),
                 install: INSTALL.into(),
+                machine_join: None,
             }))
         }
     }
@@ -414,7 +415,6 @@ async fn outgoing_revocation_and_endpoint_updates_work_across_two_real_meshes() 
         local,
         overlay_b.clone(),
         peers_b.clone(),
-        Arc::new(super::cloud::CloudResolver::new(super::cloud::RelaySource::unavailable())),
         Arc::from("{}"),
     ));
     let mut caller = tokio::net::UnixStream::connect(local_path).await.unwrap();

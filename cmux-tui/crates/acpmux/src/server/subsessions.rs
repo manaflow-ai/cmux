@@ -150,6 +150,7 @@ async fn handle(
             worktree: params.get("worktree").and_then(Value::as_bool).unwrap_or(false),
             owner_authorized_race: false,
             race_id: None,
+            fork: params.get("fork").and_then(Value::as_bool).unwrap_or(false),
             force_admit: super::requests::can_force(conn.origin)
                 && super::requests::force_asked(params),
             local: super::remote_guard::control_of(conn.origin, conn.auth, params)

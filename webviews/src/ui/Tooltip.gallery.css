@@ -1,0 +1,28 @@
+.tooltip-gallery-stage {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: var(--ds-space-4);
+  min-height: calc(var(--ds-space-56) * 4);
+  padding: var(--ds-space-4);
+  color: var(--cmux-text, CanvasText);
+  font-family: var(--font-ui);
+}
+
+.tooltip-gallery-copy {
+  display: grid;
+  gap: var(--grid-half-step);
+  text-align: center;
+  color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
+  font-size: var(--text-detail);
+}
+
+.tooltip-gallery-copy strong {
+  color: var(--cmux-text, CanvasText);
+  font-size: var(--text-body);
+  font-weight: var(--weight-emphasis);
+}
+
+.tooltip-gallery-control {
+  font-size: var(--text-body);
+}
