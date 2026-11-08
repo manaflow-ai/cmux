@@ -2,6 +2,7 @@ import {
   environmentDraft,
   environmentPatch,
   scriptFits,
+  secretNeedsValue,
   SETUP_SCRIPT_BYTES,
   storedEnvironment,
   validateEnvironment,
@@ -32,17 +33,21 @@ export type EnvironmentState = {
     | "file"
     | "copy"
     | "secret"
+    | "retype"
     | "hosts"
+    | "value"
     | "header"
     | "route";
 };
 
 /** The platform's secret refusals (cmux-platform#1008), shown as the same sentence the editor's own check shows.
  *  `secret_value_required`: a value-less entry for a secret removed elsewhere since the sheet opened.
- *  `invalid_secret_route`: a header the request itself needs, a header without hosts, or a host given twice. */
+ *  `invalid_secret_route`: a header the request itself needs, a header without hosts, or a host given twice.
+ *  `invalid_value`: a value or header format with a line break, control or non-ASCII character. */
 const refusals: Record<string, EnvironmentState["error"]> = {
   "cloud_environment.secret_value_required": "secret",
   "cloud_environment.invalid_secret_route": "route",
+  "cloud_environment.invalid_value": "value",
 };
 
 /** One draft for every entry point; stale reads never resurrect a closed or different editor. */
@@ -139,6 +144,15 @@ export class EnvironmentStore {
     if (invalid) return this.error(invalid);
     if (draft.secrets.some((row) => !row.value && !original.secrets.some((secret) => secret.name === row.name)))
       return this.error("secret");
+    if (
+      draft.secrets.some((row) =>
+        secretNeedsValue(
+          row,
+          original.secrets.find((secret) => secret.name === row.name),
+        ),
+      )
+    )
+      return this.error("retype");
     const patch = environmentPatch(original, draft);
     if (!Object.keys(patch).length) return this.close();
     this.set({ saving: true, error: undefined });

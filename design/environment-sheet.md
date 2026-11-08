@@ -56,7 +56,9 @@ Anatomy, top to bottom, inside one `.env-secret` block (8 px between lines, 16 p
 | Invalid host | On blur, or on Save: Sent to is `aria-invalid`, the message line reads "Use up to 8 host names like api.example.com, with no scheme, port, path or wildcard." in the danger text color, and Save stops with the same sentence at the foot. |
 | Invalid header | A header name that is not a lowercase token of up to 64 characters (typing folds case), or a format without `{value}` or over 256 characters: both header fields are `aria-invalid`, the message reads "Name the header and include {value} in its format.", Save stops. |
 | Framing header | `host`, `content-length`, `transfer-encoding`, `connection` or `upgrade`: the message reads "That header carries the request itself (like host or content-length). Use another, such as authorization.", Save stops. The platform's `cloud_environment.invalid_secret_route` shows the same sentence. |
-| Delivery changed, value empty | An existing secret whose hosts or header changed with its value left empty: no message. Save sends where it goes and keeps the sealed value. |
+| Delivery changed, value empty | A secret that already has hosts, with its hosts or header changed or its hosts cleared, and its value left empty: no message. Save sends where it goes and keeps the sealed value. |
+| First hosts, value empty | A stored plain secret given its first host with its value left empty: the value field is `aria-invalid`, the message reads "Type the value again to send this secret to these hosts.", Save stops. The platform can't move a plain secret's value to hosts without it (`secret_value_required`). |
+| Invalid value | A secret with hosts whose value has a line break, a control or a non-ASCII character (it goes in a header): the value field is `aria-invalid`, the message reads "A secret sent to hosts goes in a header: use plain ASCII text, spaces and tabs, with no line breaks. The header format follows the same rule.", Save stops. The platform's `cloud_environment.invalid_value` shows the same sentence. A plain secret's value is unchanged: any text. |
 | Saved | The sheet closes, as for every other change. Reopening shows the stored hosts and header and an empty value. |
 
 ### Motion
@@ -73,7 +75,8 @@ Reduced or off motion opens and closes at once.
 others. Each entry states where the secret goes in full; only `value` may be left out:
 
 - `{ name, value?, hosts?, header? }`. No `value` keeps the stored sealed value and changes only
-  where it goes; the platform answers 400 `cloud_environment.secret_value_required` when no secret
+  where it goes, for a secret that already has hosts or one made plain again; a plain secret's first
+  hosts need its value; the platform answers 400 `cloud_environment.secret_value_required` when no secret
   by that name exists (one removed elsewhere since the sheet opened), shown as "a new secret needs a
   value".
 - No `hosts` means a plain environment variable, never "unchanged": clearing every host sends the
@@ -84,8 +87,9 @@ others. Each entry states where the secret goes in full; only `value` may be lef
   hosts never sends one.
 
 The rules match the platform's (cmux-platform#1008): hosts as above, a lowercase header name, the
-reserved framing headers, `{value}` in a format of at most 256 characters. Its refusals
-`secret_value_required` and `invalid_secret_route` map to the editor's own sentences; a schema 400
+reserved framing headers, `{value}` in a format of at most 256 characters, and printable ASCII
+(spaces and tabs allowed) in a host-pinned secret's value and in the header format. Its refusals
+`secret_value_required`, `invalid_secret_route` and `invalid_value` map to the editor's own sentences; a schema 400
 the editor's checks already stop never reaches it.
 
 ## Variants considered for the secret row
@@ -101,7 +105,8 @@ the editor's checks already stop never reaches it.
 
 The gallery (`cloud.environment-sheet`) shows the picked design in its states: `secrets` (no hosts),
 `secret-hosts` (default and custom header), `secret-header-open`, `secret-invalid-host` and
-`secret-delivery-edit` (a host added to a stored secret, value left empty). Gallery variants are states of the real component, never copies of it
+`secret-delivery-edit` (a host added to a secret that has hosts, value left empty) and
+`secret-first-hosts` (a stored plain secret given its first host, asking for its value). Gallery variants are states of the real component, never copies of it
 (`webviews/src/gallery/ENTRIES.md`), so B and C live only in this section.
 
 ## Never
@@ -109,3 +114,4 @@ The gallery (`cloud.environment-sheet`) shows the picked design in its states: `
 - A secret value read from the server, kept in state, or drawn.
 - A `set_secrets` entry that leaves out hosts or header to mean "unchanged".
 - A header line that appears or a message that appears without its fold.
+- A plain secret moved to hosts without its value.

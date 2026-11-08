@@ -77,7 +77,15 @@ export function headerIssue(header: SecretHeader | undefined): "header" | "route
   const name = header.name.toLowerCase();
   if (!HEADER_NAME.test(name)) return "header";
   if (RESERVED_SECRET_HEADERS.has(name)) return "route";
-  if (header.format.length > 256 || !header.format.includes("{value}") || /[\r\n]/.test(header.format)) return "header";
+  if (header.format.length > 256 || !header.format.includes("{value}") || !headerText(header.format)) return "header";
+}
+/** A value or format that goes into a request header: printable ASCII, spaces and tabs (no line break, control
+ *  or non-ASCII character), as the platform requires (`cloud_environment.invalid_value`). */
+export const headerText = (text: string) => /^[\x20-\x7e\t]*$/.test(text);
+/** A stored plain secret getting its first hosts: the platform needs its value again, because a value-less
+ *  entry only moves a secret that already has hosts, or makes one plain again. */
+export function secretNeedsValue(row: SecretDraft, stored: EnvironmentSecret | undefined): boolean {
+  return !row.value && stored !== undefined && !stored.hosts?.length && secretHosts(row.hosts).length > 0;
 }
 /** Where a secret row goes, as the platform stores it: no hosts is an environment variable. */
 export function secretDelivery(row: Pick<SecretDraft, "hosts" | "header">): Pick<SecretWrite, "hosts" | "header"> {
@@ -129,7 +137,7 @@ export function environmentDraft(environment: CloudEnvironment): EnvironmentDraf
 
 export function validateEnvironment(
   draft: EnvironmentDraft,
-): "name" | "names" | "script" | "hosts" | "header" | "route" | undefined {
+): "name" | "names" | "script" | "hosts" | "value" | "header" | "route" | undefined {
   if (!draft.name.trim()) return "name";
   if (draft.script !== null && !scriptFits(draft.script)) return "script";
   for (const rows of [draft.variables, draft.secrets]) {
@@ -139,7 +147,9 @@ export function validateEnvironment(
   }
   if (draft.secrets.some((row) => !hostsValid(row.hosts))) return "hosts";
   for (const row of draft.secrets) {
-    const issue = secretHosts(row.hosts).length ? headerIssue(row.header) : undefined;
+    if (!secretHosts(row.hosts).length) continue;
+    if (!headerText(row.value)) return "value";
+    const issue = headerIssue(row.header);
     if (issue) return issue;
   }
 }

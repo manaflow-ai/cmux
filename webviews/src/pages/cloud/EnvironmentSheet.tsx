@@ -21,6 +21,8 @@ const errorKeys: Record<NonNullable<EnvironmentState["error"]>, string> = {
   hosts: L.envInvalidHosts,
   header: L.envInvalidHeader,
   route: L.envReservedHeader,
+  value: L.envInvalidValue,
+  retype: L.envSecretRetype,
 };
 const sections = {
   overview: L.envTitle,

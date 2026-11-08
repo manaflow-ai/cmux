@@ -27456,6 +27456,270 @@
           }
         }
       }
+    },
+    "environment.invalidValue": {
+      "comment": "Cloud environment editor: a secret's delivery hosts and header",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السر المرسل إلى مضيفين يوضع في ترويسة: استخدم نص ASCII عاديًا ومسافات وعلامات جدولة، بلا فواصل أسطر. ويتبع تنسيق الترويسة القاعدة نفسها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tajna koja se šalje hostovima ide u zaglavlje: koristite običan ASCII tekst, razmake i tabove, bez prelazaka u novi red. Format zaglavlja slijedi isto pravilo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En hemmelighed, der sendes til værter, ligger i en header: brug almindelig ASCII-tekst, mellemrum og tabulatorer uden linjeskift. Headerformatet følger samme regel."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Geheimnis, das an Hosts geht, steht in einem Header: Verwende einfachen ASCII-Text, Leerzeichen und Tabs, ohne Zeilenumbrüche. Für das Header-Format gilt dieselbe Regel."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A secret sent to hosts goes in a header: use plain ASCII text, spaces and tabs, with no line breaks. The header format follows the same rule."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un secreto enviado a hosts va en un encabezado: usa texto ASCII simple, espacios y tabulaciones, sin saltos de línea. El formato del encabezado sigue la misma regla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un secret envoyé à des hôtes passe dans un en-tête : utilisez du texte ASCII simple, des espaces et des tabulations, sans saut de ligne. Le format de l’en-tête suit la même règle."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un segreto inviato agli host va in un’intestazione: usa testo ASCII semplice, spazi e tabulazioni, senza a capo. Il formato dell’intestazione segue la stessa regola."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホストに送信するシークレットはヘッダーに入ります。改行を含まない ASCII 文字、スペース、タブのみを使ってください。ヘッダーの形式も同じ規則に従います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សម្ងាត់ដែលផ្ញើទៅម៉ាស៊ីនស្ថិតក្នុងក្បាល៖ ប្រើអត្ថបទ ASCII ធម្មតា ដកឃ្លា និងថេប ដោយគ្មានការចុះបន្ទាត់។ ទម្រង់ក្បាលក៏អនុវត្តតាមច្បាប់ដូចគ្នា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호스트로 보내는 시크릿은 헤더에 들어갑니다. 줄바꿈 없이 일반 ASCII 텍스트, 공백, 탭만 사용하세요. 헤더 형식도 같은 규칙을 따릅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En hemmelighet som sendes til verter, ligger i en header: bruk vanlig ASCII-tekst, mellomrom og tabulatorer, uten linjeskift. Headerformatet følger samme regel."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekret wysyłany do hostów trafia do nagłówka: używaj zwykłego tekstu ASCII, spacji i tabulatorów, bez łamania wierszy. Format nagłówka podlega tej samej zasadzie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um segredo enviado a hosts vai em um cabeçalho: use texto ASCII simples, espaços e tabulações, sem quebras de linha. O formato do cabeçalho segue a mesma regra."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Секрет, отправляемый хостам, передаётся в заголовке: используйте обычный текст ASCII, пробелы и табуляцию, без переносов строк. Формат заголовка подчиняется тому же правилу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความลับที่ส่งไปยังโฮสต์จะอยู่ในส่วนหัว: ใช้ข้อความ ASCII ธรรมดา ช่องว่าง และแท็บ โดยไม่มีการขึ้นบรรทัดใหม่ รูปแบบส่วนหัวก็ใช้กฎเดียวกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ana makinelere gönderilen gizli bilgi bir başlıkta taşınır: satır sonu olmadan düz ASCII metin, boşluk ve sekme kullanın. Başlık biçimi de aynı kurala uyar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Секрет, що надсилається хостам, передається в заголовку: використовуйте звичайний текст ASCII, пробіли й табуляцію, без розривів рядків. Формат заголовка підлягає тому самому правилу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bí mật gửi đến máy chủ nằm trong một tiêu đề: dùng văn bản ASCII thường, dấu cách và tab, không xuống dòng. Định dạng tiêu đề theo cùng quy tắc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发送到主机的密钥放在请求头中：只能使用普通 ASCII 文本、空格和制表符，不能换行。请求头格式遵循同样的规则。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "傳送至主機的密鑰放在請求標頭中：只能使用一般 ASCII 文字、空格和定位字元，不能換行。請求標頭格式遵循相同規則。"
+          }
+        }
+      }
+    },
+    "environment.secretRetype": {
+      "comment": "Cloud environment editor: a secret's delivery hosts and header",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اكتب القيمة مرة أخرى لإرسال هذا السر إلى هؤلاء المضيفين."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponovo upišite vrijednost da se ova tajna šalje ovim hostovima."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriv værdien igen for at sende hemmeligheden til disse værter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib den Wert erneut ein, um dieses Geheimnis an diese Hosts zu senden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type the value again to send this secret to these hosts."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vuelve a escribir el valor para enviar este secreto a estos hosts."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez de nouveau la valeur pour envoyer ce secret à ces hôtes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digita di nuovo il valore per inviare questo segreto a questi host."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このシークレットをこれらのホストに送信するには、値をもう一度入力してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "វាយតម្លៃម្ដងទៀត ដើម្បីផ្ញើសម្ងាត់នេះទៅម៉ាស៊ីនទាំងនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 시크릿을 이 호스트들로 보내려면 값을 다시 입력하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriv inn verdien på nytt for å sende hemmeligheten til disse vertene."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wpisz wartość ponownie, aby wysyłać ten sekret do tych hostów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digite o valor de novo para enviar este segredo a esses hosts."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введите значение ещё раз, чтобы отправлять этот секрет на эти хосты."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พิมพ์ค่าอีกครั้งเพื่อส่งความลับนี้ไปยังโฮสต์เหล่านี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu gizli bilgiyi bu ana makinelere göndermek için değeri yeniden yazın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Введіть значення ще раз, щоб надсилати цей секрет цим хостам."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhập lại giá trị để gửi bí mật này đến các máy chủ này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要将此密钥发送到这些主机，请重新输入其值。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要將此密鑰傳送至這些主機，請重新輸入其值。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

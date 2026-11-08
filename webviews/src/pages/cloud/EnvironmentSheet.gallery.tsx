@@ -29,6 +29,12 @@ const deliveryEdit: Play = async (ctx) => {
     ),
   );
 };
+const firstHosts: Play = async (ctx) => {
+  await ready(ctx);
+  await ctx.type("registry.npmjs.org", hostsField(0));
+  await ctx.click({ selector: ".env-heading h2" });
+  await ctx.waitFor(() => ctx.document.querySelector(".env-secret .env-error"));
+};
 const saveFailure: Play = async (ctx) => {
   await ready(ctx);
   await ctx.type("\necho ready", { selector: ".env-code textarea" });
@@ -170,6 +176,11 @@ export default componentEntry<Props>({
       note: "A host added to a stored secret with its value left empty: Save sends only where it goes.",
       props: { section: "secrets", delivery: true },
       play: deliveryEdit,
+    },
+    "secret-first-hosts": {
+      note: "A stored plain secret given its first host: the row asks for its value again.",
+      props: { section: "secrets", delivery: true },
+      play: firstHosts,
     },
     variables: {
       note: "Environment variable names and editable values.",

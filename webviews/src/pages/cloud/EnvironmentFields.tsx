@@ -4,9 +4,12 @@ import { L } from "./strings";
 import {
   DEFAULT_SECRET_HEADER,
   headerIssue,
+  headerText,
+  secretNeedsValue,
   hostsValid,
   secretHosts,
   type EnvironmentDraft,
+  type EnvironmentSecret,
   type SecretDraft,
 } from "./environmentModel";
 import type { EnvironmentState, EnvironmentStore } from "./environmentStore";
@@ -107,6 +110,12 @@ export function EnvironmentValues({
               type={secrets ? "password" : "text"}
               spellCheck={false}
               value={row.value}
+              aria-invalid={
+                (secrets &&
+                  secretHosts(row.hosts).length > 0 &&
+                  (!headerText(row.value) || secretNeedsValue(row, stored))) ||
+                undefined
+              }
               onChange={(event) => edit(index, { value: event.target.value })}
             />
             <button
@@ -123,7 +132,7 @@ export function EnvironmentValues({
         return (
           <div className="env-secret" key={index}>
             {value}
-            <SecretDelivery row={row} strings={strings} onChange={(patch) => edit(index, patch)} />
+            <SecretDelivery row={row} stored={stored} strings={strings} onChange={(patch) => edit(index, patch)} />
           </div>
         );
       })}
@@ -139,10 +148,12 @@ export function EnvironmentValues({
  *  its own height, so the rows below move with it and nothing pops in. */
 export function SecretDelivery({
   row,
+  stored,
   strings,
   onChange,
 }: {
   row: SecretDraft;
+  stored?: EnvironmentSecret;
   strings: Strings;
   onChange(patch: Partial<SecretDraft>): void;
 }) {
@@ -154,13 +165,20 @@ export function SecretDelivery({
   const hostsBad = !editingHosts && !hostsValid(row.hosts);
   const headerProblem = hasHosts ? headerIssue(row.header) : undefined;
   const headerBad = headerProblem !== undefined;
+  const valueBad = hasHosts && !headerText(row.value);
+  // A stored plain secret getting its first hosts needs its value again (the platform can't move it without).
+  const retype = secretNeedsValue(row, stored);
   const message = hostsBad
     ? L.envInvalidHosts
-    : headerProblem === "route"
-      ? L.envReservedHeader
-      : headerProblem
-        ? L.envInvalidHeader
-        : undefined;
+    : valueBad
+      ? L.envInvalidValue
+      : headerProblem === "route"
+        ? L.envReservedHeader
+        : headerProblem
+          ? L.envInvalidHeader
+          : retype
+            ? L.envSecretRetype
+            : undefined;
   const id = useId();
   return (
     <>

@@ -57,6 +57,8 @@ export const L = {
   envInvalidHosts: "environment.invalidHosts",
   envInvalidHeader: "environment.invalidHeader",
   envReservedHeader: "environment.reservedHeader",
+  envInvalidValue: "environment.invalidValue",
+  envSecretRetype: "environment.secretRetype",
 
   title: "page.title",
   disconnected: "page.disconnected",

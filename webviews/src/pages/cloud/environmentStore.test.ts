@@ -561,6 +561,72 @@ describe("secret delivery hosts and header", () => {
     expect(store.getSnapshot().error).toBe("save");
   });
 
+  test("a secret with hosts needs printable ASCII in its value and header format; a plain one does not", async () => {
+    const { store, writes } = fake();
+    await store.open();
+    for (const value of ["line\nbreak", "caf\u00e9", "bell\u0007"]) {
+      store.edit({ secrets: [{ name: "PACKAGE_TOKEN", value, hosts: "api.example.com" }] });
+      await store.save();
+      expect(store.getSnapshot().error).toBe("value");
+    }
+    expect(headerIssue({ name: "x-key", format: "Token\u0001 {value}" })).toBe("header");
+    expect(headerIssue({ name: "x-key", format: "Token\t{value}" })).toBeUndefined();
+    expect(writes).toEqual([]);
+    store.edit({ secrets: [{ name: "PACKAGE_TOKEN", value: "tab\tand space ok", hosts: "api.example.com" }] });
+    await store.save();
+    expect(writes[0]?.patch.set_secrets).toEqual([
+      { name: "PACKAGE_TOKEN", value: "tab\tand space ok", hosts: ["api.example.com"] },
+    ]);
+    const plain = fake();
+    await plain.store.open();
+    plain.store.edit({ secrets: [{ name: "PACKAGE_TOKEN", value: "multi\nline caf\u00e9" }] });
+    await plain.store.save();
+    expect(plain.writes[0]?.patch.set_secrets).toEqual([{ name: "PACKAGE_TOKEN", value: "multi\nline caf\u00e9" }]);
+  });
+
+  test("a stored plain secret's first hosts need its value; hosts-to-hosts and hosts-to-plain do not", async () => {
+    const { store, writes } = fake({ list: async () => [delivered()] });
+    await store.open();
+    const rows = store.getSnapshot().draft!.secrets;
+    store.edit({
+      secrets: rows.map((row) => (row.name === "PACKAGE_TOKEN" ? { ...row, hosts: "registry.example.com" } : row)),
+    });
+    await store.save();
+    expect(store.getSnapshot().error).toBe("retype");
+    expect(writes).toEqual([]);
+    store.edit({
+      secrets: rows.map((row) =>
+        row.name === "PACKAGE_TOKEN"
+          ? { ...row, value: "npm-token", hosts: "registry.example.com" }
+          : row.name === "GITHUB_TOKEN"
+            ? { ...row, hosts: "uploads.github.com" }
+            : row.name === "SEARCH_KEY"
+              ? { ...row, hosts: "" }
+              : row,
+      ),
+    });
+    await store.save();
+    expect(writes[0]?.patch).toEqual({
+      set_secrets: [
+        { name: "PACKAGE_TOKEN", value: "npm-token", hosts: ["registry.example.com"] },
+        { name: "GITHUB_TOKEN", hosts: ["uploads.github.com"] },
+        { name: "SEARCH_KEY" },
+      ],
+    });
+  });
+
+  test("the platform's invalid_value maps to the value error", async () => {
+    const { store } = fake({
+      update: async () => {
+        throw Object.assign(new Error("refused"), { code: "cloud_environment.invalid_value" });
+      },
+    });
+    await store.open();
+    store.edit({ secrets: [{ name: "PACKAGE_TOKEN", value: "v", hosts: "api.example.com" }] });
+    await store.save();
+    expect(store.getSnapshot().error).toBe("value");
+  });
+
   test("a value-only change still states the stored hosts and header in full", () => {
     const original = delivered();
     const draft = environmentDraft(original);
