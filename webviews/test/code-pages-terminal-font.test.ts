@@ -35,6 +35,8 @@ describe("code pages follow the terminal font", () => {
     hostSends("Fira Code");
     const stop = followHostTerminalTheme(() => applyDiffViewerAppearance(resolveDiffViewerAppearance(undefined)));
     expect(codeFamily().startsWith('"Fira Code",')).toBe(true);
+    expect(codeFamily()).toContain('"Symbols Nerd Font Mono"');
+    expect(codeFamily()).toContain('"Noto Sans Mono CJK JP"');
     hostSends("JetBrains Mono");
     expect(codeFamily().startsWith('"JetBrains Mono",')).toBe(true);
     stop();

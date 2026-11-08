@@ -52,6 +52,8 @@ describe("the agent pane's code follows the terminal font", () => {
     hostApplies("Fira Code");
     for (const name of ["--cmux-diff-code-font-family", "--cv-code-font"]) {
       expect(variable(name).startsWith('"Fira Code",')).toBe(true);
+      expect(variable(name)).toContain('"Symbols Nerd Font Mono"');
+      expect(variable(name)).toContain('"Noto Sans Mono CJK JP"');
       expect(variable(name).endsWith("monospace")).toBe(true);
     }
   });

@@ -299,9 +299,12 @@ function colorString(value: unknown, fallback: string) {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : fallback;
 }
 
-function codeFontFamily(fontFamily: unknown) {
+/** Shared fallback faces keep private-use symbols and CJK in the same code/chat stack. */
+export const TERMINAL_FONT_FALLBACK_STACK = '"Symbols Nerd Font Mono", "Noto Sans Mono CJK JP", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace';
+
+export function codeFontFamily(fontFamily: unknown) {
   const family = typeof fontFamily === "string" && fontFamily.trim() !== "" ? fontFamily.trim() : "Menlo";
-  return `${JSON.stringify(family)}, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace`;
+  return `${JSON.stringify(family)}, ${TERMINAL_FONT_FALLBACK_STACK}`;
 }
 
 function metric(value: unknown, fallback: number) {

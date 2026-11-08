@@ -13,12 +13,18 @@ import Foundation
 enum GhosttyConfigFontFamily {
     /// The family `paths` name, read in order.
     nonisolated static func family(inFiles paths: [String]) -> String? {
+        families(inFiles: paths).first
+    }
+
+    /// Every `font-family` entry in the loaded config, in Ghostty's precedence
+    /// order. An empty entry resets the list, just as Ghostty does.
+    nonisolated static func families(inFiles paths: [String]) -> [String] {
         var families: [String] = []
         for path in paths {
             guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
             families = fontFamilies(configText: text, after: families)
         }
-        return families.first
+        return families
     }
 
     private static var loads = 0

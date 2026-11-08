@@ -1,4 +1,5 @@
 import type { AgentSessionTheme } from "./types";
+import { codeFontFamily } from "../../appearance";
 
 const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   isDark: null,
@@ -105,8 +106,6 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   applyTerminalCodeFont(root);
 }
 
-/** The mono stack behind the terminal's face, the pane's own default (conversation.css `--cv-mono`). */
-const MONO_STACK = `ui-monospace, "SF Mono", Menlo, monospace`;
 /** The pane's code font variables: diffs (diffTheme.ts) and code blocks, file names and paths. */
 const CODE_FONT_VARIABLES = ["--cmux-diff-code-font-family", "--cv-code-font"] as const;
 
@@ -121,7 +120,7 @@ function applyTerminalCodeFont(root: HTMLElement): void {
   const family = host?.current?.terminal?.fontFamily;
   const face = typeof family === "string" ? family.trim() : "";
   for (const variable of CODE_FONT_VARIABLES) {
-    if (face) root.style.setProperty(variable, `${JSON.stringify(face)}, ${MONO_STACK}`);
+    if (face) root.style.setProperty(variable, codeFontFamily(face));
     else root.style.removeProperty(variable);
   }
 }
