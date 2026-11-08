@@ -16,18 +16,14 @@ import { usePaneLanguage, useT } from "../i18n";
 import { pasteName } from "../conversation/promptCollapse";
 import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
-import {
-  AttachmentChip,
-  InstantPreview,
-  RetryButton,
-  UploadProgress,
-  type PendingAttachment,
-} from "./attachmentIntake";
+import { AttachmentChip, InstantPreview, RetryButton, UploadProgress } from "./attachmentIntake";
+import { imageShape, type PendingAttachment } from "./attachmentIntakeModel";
 import { keptThumb } from "./imagePool";
 import { PasteLoadingMark } from "./pasteLoading";
 import { PASTE_LOADING_CLASS, usePasteLoadingLook } from "./pasteLoadingLook";
 import { reordered } from "./stripReorder";
-import { pastedSize, TextAttachmentCard } from "./TextAttachmentCard";
+import { TextAttachmentCard } from "./TextAttachmentCard";
+import { pastedSize } from "./textAttachmentCardModel";
 import { RemoveGlyph } from "./RemoveGlyph";
 import { chipRef } from "../conversation/sendMorph";
 
@@ -338,6 +334,12 @@ const InlineChip = memo(function InlineChip({
         className={pending!.failed ? "acpmux-md-inline-chip" : `acpmux-md-inline-chip ${PASTE_LOADING_CLASS}`}
         data-state={pending!.failed ? "failed" : "loading"}
         {...(pending!.failed ? {} : { "data-paste-look": look })}
+        // A loading image is the shape its thumbnail will be (its header's size), so the picture
+        // arriving moves nothing.
+        {...(!pending!.failed && pending!.image && pending!.size
+          ? { "data-sized": "", style: imageShape(pending!.size) }
+          : {})}
+        {...(!pending!.failed && pending!.sizing ? { "data-sizing": "" } : {})}
         aria-busy={pending!.failed ? undefined : "true"}
         aria-label={name}
         /* tooltip-allow: the failed tile is cut to its size; the tooltip has the reason */ title={pending!.failed}

@@ -37,6 +37,12 @@ const ALLOWED: { file: string; keyframes: string; selector: string; why: string;
     why: "the Messages typing bubble's three dots (the native transcript's typing indicator, shown only while someone types; still under the motion gate), not a status dot",
   },
   {
+    file: "agent-session/acpmux/dictation.css",
+    keyframes: "acpmux-mic-outside",
+    selector: ".acpmux-mic-outside > span",
+    why: "level bars in the composer mic's place while another app dictates (outsideDictation.ts), not a status dot; Static status indicators, motion off and Reduce Motion hold them still",
+  },
+  {
     file: "agent-session/acpmux/newtab/screen.css",
     keyframes: "nt-player-level",
     selector: ".nt-player-levels",

@@ -3,13 +3,15 @@
 // with Show all N lines when it is long (BlockParts.tsx). A prose file (Markdown, text) wraps with a
 // hanging indent; code keeps its lines whole, its right edge fading while more lies past it. The
 // changes view (changes/EditBlock.tsx) draws the same edits at full size.
+import { cornerAction } from "./cornerActions";
 import { lazy, Suspense, useContext, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { editPatch, type TurnFile } from "../diff";
 import { copyTextResult } from "./clipboard";
 import { Copy } from "./icons";
 import { useT } from "../i18n";
 import { fileBlockKind, useBlockWrap } from "./blockWrap";
-import { PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
+import { PreviewMore, WrapButton } from "./BlockParts";
+import { usePreview, useSidewaysRef } from "./blockPartsModel";
 import { FindReveal, foldFind } from "./chatFind";
 import { EditDiffLoading, useDiffPainted } from "./EditDiffLoading";
 
@@ -91,10 +93,10 @@ export function EditDiffFrame({
         </span>
         <span className="cv-edit-diff__add">+{file.additions}</span>
         <span className="cv-edit-diff__del">-{file.deletions}</span>
-        <WrapButton kind={kind} className="cv-codeblock__action cv-edit-diff__wrap" />
+        <WrapButton kind={kind} className={`${cornerAction()} cv-edit-diff__wrap`} />
         <button
           type="button"
-          className="cv-codeblock__action cv-edit-diff__copy"
+          className={`${cornerAction()} cv-edit-diff__copy`}
           aria-label={copied ? t("code.copied") : t("code.copyDiff")}
           onClick={() =>
             void copyTextResult(patches.join("")).then(

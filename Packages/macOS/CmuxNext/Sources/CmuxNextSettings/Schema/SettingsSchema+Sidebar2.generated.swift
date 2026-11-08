@@ -357,30 +357,20 @@ extension SidebarSettingsSchema {
                 keywords: ["sidebar", "group", "groups", "background", "glass", "glassy", "solid", "opaque", "translucent", "fill", "header"]
             ),
             SettingDescriptor(
-                SidebarSectionsSetting.minimalModePath,
+                SidebarSectionsSetting.groupPalettePath,
                 section: .appearance,
                 group: group,
-                title: SettingsText.keyed("settings.sidebar.minimalMode", "Hide Bands Until Hover"),
-                help: SettingsText.keyed("settings.sidebar.minimalMode.help", "Hides the chosen sections until the pointer is over the sidebar."),
+                title: SettingsText.keyed("settings.sidebar.groupPalette", "Group Colors"),
+                help: SettingsText.keyed("settings.sidebar.groupPalette.help", "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked."),
                 kind: .choice([
-                    SettingChoice(SidebarMinimalMode.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
-                    SettingChoice(SidebarMinimalMode.bottom.rawValue, SettingsText.keyed("settings.choice.minimalBottom", "Settings and Account Row")),
-                    SettingChoice(SidebarMinimalMode.top.rawValue, SettingsText.keyed("settings.choice.minimalTop", "Top Sections")),
-                    SettingChoice(SidebarMinimalMode.both.rawValue, SettingsText.keyed("settings.choice.minimalBoth", "Top and Bottom")),
+                    SettingChoice(GroupPalette.glass.rawValue, SettingsText.keyed("settings.choice.groupPaletteGlass", "Glass")),
+                    SettingChoice(GroupPalette.theme.rawValue, SettingsText.keyed("settings.choice.groupPaletteTheme", "App Theme")),
+                    SettingChoice(GroupPalette.wallpaper.rawValue, SettingsText.keyed("settings.choice.groupPaletteWallpaper", "Wallpaper")),
+                    SettingChoice(GroupPalette.grayscale.rawValue, SettingsText.keyed("settings.choice.groupPaletteGrayscale", "Grayscale")),
+                    SettingChoice(GroupPalette.vibrant.rawValue, SettingsText.keyed("settings.choice.groupPaletteVibrant", "Vibrant")),
                 ]),
-                default: .string(SidebarSectionsSetting.minimalModeDefault.rawValue),
-                keywords: ["sidebar", "minimal", "hide", "hover", "settings", "account"]
-            ),
-            SettingDescriptor(
-                SidebarSectionsSetting.tipsPath,
-                section: .appearance,
-                group: group,
-                title: SettingsText.keyed("settings.sidebar.cards.tips", "Show Tips"),
-                help: SettingsText.keyed("settings.sidebar.cards.tips.help", "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once."),
-                summary: SettingsText.keyed("settings.sidebar.cards.tips.summary", "A daily tip about a feature you haven't used"),
-                kind: .toggle,
-                default: .bool(SidebarSectionsSetting.tipsDefault),
-                keywords: ["sidebar", "tips", "did you know", "cards", "learn", "features"]
+                default: .string(SidebarSectionsSetting.groupPaletteDefault.rawValue),
+                keywords: ["sidebar", "group", "groups", "color", "colors", "colour", "palette", "theme", "wallpaper", "grayscale", "vibrant", "glass", "automatic"]
             ),
         ]
     }

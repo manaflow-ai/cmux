@@ -8,6 +8,32 @@ extension SidebarSettingsSchema {
         let group = SettingsText.keyed("settings.group.sidebar", "Sidebar")
         return [
             SettingDescriptor(
+                SidebarSectionsSetting.minimalModePath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.minimalMode", "Hide Bands Until Hover"),
+                help: SettingsText.keyed("settings.sidebar.minimalMode.help", "Hides the chosen sections until the pointer is over the sidebar."),
+                kind: .choice([
+                    SettingChoice(SidebarMinimalMode.off.rawValue, SettingsText.keyed("settings.choice.off", "Off")),
+                    SettingChoice(SidebarMinimalMode.bottom.rawValue, SettingsText.keyed("settings.choice.minimalBottom", "Settings and Account Row")),
+                    SettingChoice(SidebarMinimalMode.top.rawValue, SettingsText.keyed("settings.choice.minimalTop", "Top Sections")),
+                    SettingChoice(SidebarMinimalMode.both.rawValue, SettingsText.keyed("settings.choice.minimalBoth", "Top and Bottom")),
+                ]),
+                default: .string(SidebarSectionsSetting.minimalModeDefault.rawValue),
+                keywords: ["sidebar", "minimal", "hide", "hover", "settings", "account"]
+            ),
+            SettingDescriptor(
+                SidebarSectionsSetting.tipsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.cards.tips", "Show Tips"),
+                help: SettingsText.keyed("settings.sidebar.cards.tips.help", "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once."),
+                summary: SettingsText.keyed("settings.sidebar.cards.tips.summary", "A daily tip about a feature you haven't used"),
+                kind: .toggle,
+                default: .bool(SidebarSectionsSetting.tipsDefault),
+                keywords: ["sidebar", "tips", "did you know", "cards", "learn", "features"]
+            ),
+            SettingDescriptor(
                 SidebarPriorityViewSetting.enabledPath,
                 section: .appearance,
                 group: group,

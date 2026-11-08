@@ -107,6 +107,9 @@ extension SidebarSectionsSetting {
     /// `sidebar.groupHeader.background`.
     public nonisolated static let groupHeaderBackgroundPath = ["sidebar", "groupHeader", "background"]
     public nonisolated static let groupHeaderBackgroundDefault: SidebarGroupBackgroundStyle = .auto
+    /// `sidebar.groupPalette`.
+    public nonisolated static let groupPalettePath = ["sidebar", "groupPalette"]
+    public nonisolated static let groupPaletteDefault: GroupPalette = .glass
     /// `sidebar.minimalMode`.
     public nonisolated static let minimalModePath = ["sidebar", "minimalMode"]
     public nonisolated static let minimalModeDefault: SidebarMinimalMode = .off

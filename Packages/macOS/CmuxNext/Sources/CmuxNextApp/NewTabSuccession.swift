@@ -69,7 +69,7 @@ struct NewTabSuccession {
     }
 
     private mutating func found(_ surface: SurfaceID, claiming: Bool = false) {
-        if claiming, surface != self.surface { claimed = nil } // the open's word wins over a guess
+        if claiming, surface != self.surface, !(claimed.map { ProvisionalTab.isProvisional($0.rawValue) } ?? true) { claimed = nil } // its word beats a guess; a stand-in resolves
         self.surface = surface
         deadline = ContinuousClock.now.advanced(by: Self.orderLimit)
         expire(after: Self.orderLimit)
@@ -94,13 +94,13 @@ struct NewTabSuccession {
 
     /// `snapshot` as `pane`'s strip shows it while a new tab of it is made. A tab the store made for a provisional one (Cmd-T's
     /// New Tab page shows before the store has its tab) takes the provisional tab's cell: the store swaps them in one step, so
-    /// one provisional tab leaving as one tab arrives is that pair. It was a shrink beside a grow on every Cmd-T.
+    /// one provisional tab leaving as one tab arrives is that pair when that tab is the stand-in's (F1 on #38085). It was a shrink beside a grow on every Cmd-T.
     static func order(_ snapshot: PaneController.Snapshot, in pane: PaneController) -> PaneController.Snapshot {
         let shown = Set(pane.stripModel.tabs.map(\.id)), listed = Set(snapshot.items.map(\.id))
         let left = shown.filter { ProvisionalTab.isProvisional($0.rawValue) && !listed.contains($0) }
-        let arrived = snapshot.items.filter { !shown.contains($0.id) }
+        let arrived = snapshot.items.filter { !shown.contains($0.id) }, swapped = arrived.filter { pane.daemon.store.creations.tookAStandInsPlace(tab: $0.id.rawValue, in: pane.pane) }
         var handed: SurfaceID?
-        if left.count == 1, arrived.count == 1, let provisional = left.first {
+        if left.count == 1, arrived.count == 1, let provisional = left.first, pane.daemon.store.creations.handsOver(standIn: provisional.rawValue, to: arrived[0].id.rawValue, in: pane.pane) {
             pane.stripModel.successors[arrived[0].id] = provisional
             handed = pane.pane.tabs.first { $0.id == arrived[0].id.rawValue }?.surface
             // The selection goes with the cell, in the same apply: a selected stand-in never
@@ -108,13 +108,16 @@ struct NewTabSuccession {
             if pane.stripModel.selectedID == provisional, let handed { pane.pendingSelect.surface = handed }
         }
         let key = ObjectIdentifier(pane.pane), now = ContinuousClock.now
-        // A stand-in the store replaced: the open that showed it, and one going after it, now name the daemon's tab.
-        let opens = (active[key] ?? []).filter { now < $0.deadline }.map { $0.resolving(pane.pane) }
+        let opens = (active[key] ?? []).filter { now < $0.deadline }.map { $0.resolving(pane.pane) } // stand-ins the store replaced: the daemon's tabs
         var snapshot = snapshot, items = snapshot.items, kept: [NewTabSuccession] = [], claimed = Set(opens.compactMap(\.claimed))
+        // Stand-ins swapped in one snapshot (no answer named them yet), in order, with as many tabs the daemon named as a creation's (never one moved in, a script's or a closed stand-in's: F3 on #37799); each stand-in's tab in this pass, for an open placed after it.
+        var unpaired = left.count == swapped.count ? swapped.map(\.id).filter { !claimed.contains($0) } : [], became: [StripTabID: StripTabID] = [:]
         for (index, var open) in opens.enumerated() {
+            if let leader = open.before.flatMap({ became[$0] }) { open.before = leader }
             // Its own tab, else its surface; the newest also by the store's tab after a provisional one or the tab being selected.
             let newest = index == opens.count - 1, known = Set(open.known), tabs = pane.pane.tabs.filter { !known.contains($0.id) }
-            let mine = open.claimed.flatMap { id in tabs.first { $0.id == id.rawValue } }
+            let mine = open.claimed.flatMap { id in tabs.first { $0.id == id.rawValue } ?? open.surface.flatMap { surface in tabs.first { $0.surface == surface } } ?? (left.contains(id) ? unpaired.first.flatMap { next in tabs.first { $0.id == next.rawValue } } : nil) }
+            if let mine, unpaired.first?.rawValue == mine.id { unpaired.removeFirst() }
             let guessed = [newest ? handed : nil, open.surface, newest ? pane.pendingSelect.surface : nil].lazy.compactMap { $0 }.compactMap { surface in tabs.first { $0.surface == surface && !claimed.contains(StripTabID($0.id)) } }.first
             guard let tab = mine ?? guessed, let item = items.first(where: { $0.id.rawValue == tab.id }) else {
                 // Not answered yet: a new daemon tab of this pane waits for the answer naming this one (a reopened tab being selected never
@@ -124,21 +127,22 @@ struct NewTabSuccession {
                 kept.append(open)
                 continue
             }
+            if let shown = open.claimed { became[shown] = item.id } // a stand-in swapped before the store names it (`resolving`)
             (open.claimed, _) = (item.id, claimed.insert(item.id))
             if open.surface != tab.surface { open.found(tab.surface) }
             var others = items.filter { $0.id != item.id && $0.id != open.page }
-            if let before = open.before, !others.contains(where: { $0.id == before }) { open.before = pane.stripModel.anchor(replacing: before, newTab: left.union([item.id]), staying: Set(others.map(\.id)), opened: open.known.map { StripTabID($0) }) }
+            let after = open.before.flatMap { before in others.contains { $0.id == before } ? before : pane.stripModel.anchor(replacing: before, newTab: left.union([item.id]), staying: Set(others.map(\.id)), opened: open.known.map { StripTabID($0) }) } // re-anchored when it closed
+            if let before = open.before?.rawValue, !pane.daemon.store.creations.isUnderway(standIn: before), !pane.pane.tabs.contains(where: { $0.id == before }) { open.before = after } // a stand-in under way, or a tab hidden until answered, stays the anchor for the move (`a b 2 1 c`)
             // `NewTabSlot`'s slot: the page's, else right after the anchor's group (a duplicate: in it; re-anchored above when it closed), never among the pinned tabs.
             var slot = others.prefix { $0.isPinned }.count, placed = item
-            if let before = open.before, var index = others.firstIndex(where: { $0.id == before }) {
+            if let before = after, var index = others.firstIndex(where: { $0.id == before }) {
                 if open.joins, let group = others[index].groupID { placed.groupID = group }
                 while open.page == nil, !open.joins, let group = others[index].groupID, index + 1 < others.count, others[index + 1].groupID == group { index += 1 }
                 slot = open.page == nil ? max(index + 1, slot) : index + 1
             }
             others.insert(placed, at: slot)
             if let page = open.page, listed.contains(page) { pane.stripModel.successors[item.id] = page }
-            // Done once the daemon's order agrees (the page closed, the move landed).
-            if items == others { open.expiry.cancel() } else { kept.append(open) }
+            if items == others { open.expiry.cancel() } else { kept.append(open) } // done once the daemon's order agrees (the page closed, the move landed)
             items = others
         }
         active[key] = kept.isEmpty ? nil : kept

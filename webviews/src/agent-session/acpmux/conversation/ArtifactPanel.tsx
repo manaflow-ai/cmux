@@ -8,7 +8,7 @@
 // Run. Markdown draws as the transcript draws it. The gallery, which has no native frame, draws
 // passive markup in srcdoc with the nonce'd frame script that refuses link clicks, and a frame that
 // leaves its document anyway shows the source. Other dev pages show their source only.
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import { artifactFileName, documentName, previewHtml, type Artifact, type ArtifactKind } from "./artifactPreview";
 import {
@@ -20,10 +20,12 @@ import {
 } from "./artifactSandbox";
 import { renderFrameCSS } from "./renderBase";
 import { copyText } from "./clipboard";
-import { CodeBlock, languageLabel } from "./CodeBlock";
+import { CodeBlock } from "./CodeBlock";
+import { languageLabel } from "./codeBlockModel";
 import { Check, ChevronLeft, ChevronRight, Close, Copy, Pin, SaveTray } from "./icons";
 import { Markdown } from "./Markdown";
-import { canRender, ranRenders, RENDER_FRAME_URL, useRenderFrame } from "./RenderCard";
+import { ranRenders, useRenderFrame } from "./renderCardModel";
+import { canRender, RENDER_FRAME_URL } from "./renderCardModel";
 import {
   INLINE_PREVIEW_SANDBOX,
   nativePassiveHtml,
@@ -42,19 +44,6 @@ export type SaveDocument = (
   suggestedName: string,
   kind: ArtifactKind,
 ) => Promise<"saved" | "cancelled" | "unavailable">;
-
-/// Below this pane width the side panel covers the whole pane instead of sitting beside the chat
-/// (conversation.css `@media (max-width: 720px)`): the chat's header, and the Inspector's toggle in
-/// it, are under it, so the Inspector steps aside while it is open (App.tsx `covered`).
-export const ARTIFACT_COVERS_PANE = "(max-width: 720px)";
-const subscribeCovers = (change: () => void) => {
-  const query = globalThis.matchMedia?.(ARTIFACT_COVERS_PANE);
-  query?.addEventListener("change", change);
-  return () => query?.removeEventListener("change", change);
-};
-const coversNow = () => globalThis.matchMedia?.(ARTIFACT_COVERS_PANE).matches ?? false;
-/// Whether an open side panel would cover the whole pane at its current width.
-export const useArtifactCoversPane = (): boolean => useSyncExternalStore(subscribeCovers, coversNow, () => false);
 
 export function ArtifactPanel({
   artifact: opened,

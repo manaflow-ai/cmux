@@ -120,6 +120,8 @@ const REAP_INTERVAL: Duration = Duration::from_secs(1);
 /// file first means the owner exited (a lost bind race or a crash).
 pub(crate) const OWNER_READY_FD_ARG: &str = "--owner-ready-fd";
 
+mod carried_launch;
+pub(crate) use carried_launch::CarriedLaunch;
 mod exit_with;
 mod install_key;
 mod replace;
@@ -251,6 +253,10 @@ pub(crate) struct OwnerSpec {
     /// The loopback WebSocket listener for an owner this call spawns; a
     /// running owner keeps the listener it was started with.
     pub websocket: Option<EnsureWebSocket>,
+    /// Launch environment of the owner a `server restart` replaces
+    /// ([`CarriedLaunch`]), set on an owner this call spawns before the
+    /// values this client passes itself.
+    pub carried_env: Vec<(String, String)>,
 }
 
 /// A validated, client-ready owner.
@@ -883,6 +889,9 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         }
     }
     configure_detached_owner_environment(&mut command);
+    for (key, value) in &spec.carried_env {
+        command.env(key, value);
+    }
     if let Some(tools) = &spec.chief_tools_socket {
         command.env("CMUX_TUI_CHIEF_TOOLS_SOCKET", tools);
     }
