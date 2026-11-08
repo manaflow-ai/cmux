@@ -27,13 +27,19 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var seedPhase: String?
         public var seedStartedAt: Double?
         public var seedFinishedAt: Double?
+        /// `seed_refused`: the seed plan's code for why the machine can't clone the folder (`not_git`, ...).
+        public var fallbackCode: String?
+        /// `seed_refused` for `seed.needs_github`: the cmux GitHub App's install page for the repository.
+        public var installURL: String?
 
         public init(ok: Bool, errorCode: String? = nil, error: String? = nil, sessionID: String? = nil, transferID: String? = nil,
                     conflicts: [String] = [], side: String? = nil, updated: Bool = false, build: String? = nil, notOlder: Bool = false,
-                    seedState: String? = nil, seedPhase: String? = nil, seedStartedAt: Double? = nil, seedFinishedAt: Double? = nil) {
+                    seedState: String? = nil, seedPhase: String? = nil, seedStartedAt: Double? = nil, seedFinishedAt: Double? = nil,
+                    fallbackCode: String? = nil, installURL: String? = nil) {
             (self.ok, self.errorCode, self.error, self.sessionID, self.transferID) = (ok, errorCode, error, sessionID, transferID)
             (self.conflicts, self.side, self.updated, self.build, self.notOlder) = (conflicts, side, updated, build, notOlder)
             (self.seedState, self.seedPhase, self.seedStartedAt, self.seedFinishedAt) = (seedState, seedPhase, seedStartedAt, seedFinishedAt)
+            (self.fallbackCode, self.installURL) = (fallbackCode, installURL)
         }
 
         /// `link machine update`: whether the machine's daemon may have restarted in the run that gave this
@@ -170,20 +176,37 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// `cmux link start-chat copy`: copies `local` to a folder of the send's own on the machine `socket` reaches, under the
     /// first of `workRoots` it can write, unless this send's copy already finished there. With the cmux `access` token
     /// (on stdin) it goes through the content-addressed store. The chat's folder there, whether it copied now, and
-    /// whether this Mac's acpmux (home `acpmuxHome`) trusts the chat's folder here.
+    /// whether this Mac's acpmux (home `acpmuxHome`) trusts the chat's folder here. `onSeedRefusal` says what it does
+    /// when the machine can't clone the folder from its git remote.
     public func startChatCopy(key: String, account: String, machine: String, socket: String, local: String, subpath: String,
-                              workRoots: [String], acpmuxHome: String?, access: String? = nil,
+                              workRoots: [String], acpmuxHome: String?, access: String? = nil, onSeedRefusal: SeedRefusal = .copy,
                               stderrLine: (@Sendable (String) -> Void)? = nil) async throws -> (Answer, (chat: String, folder: String, copied: Bool, sourceTrusted: Bool)) {
-        struct Call: Encodable {
-            var verb = "start-chat-copy"
-            var key: String, account: String, machine: String, socket: String, local: String, subpath: String
-            var workRoots: [String], acpmuxHome: String?, store: Bool
-        }
-        let call = Call(key: key, account: account, machine: machine, socket: socket, local: local, subpath: subpath, workRoots: workRoots,
-                        acpmuxHome: acpmuxHome, store: access != nil)
+        let call = StartChatCopyCall(key: key, account: account, machine: machine, socket: socket, local: local, subpath: subpath,
+                                     workRoots: workRoots, acpmuxHome: acpmuxHome, store: access != nil, onSeedRefusal: onSeedRefusal)
         let read = try await run(call, reading: "start-chat-copy", stdin: access.map { Data(($0 + "\n").utf8) }, stderrLine: stderrLine)
         let copy = read.copy
         return (read.answer, (copy?.chat ?? "", copy?.folder ?? "", copy?.copied ?? false, copy?.sourceTrusted ?? false))
+    }
+
+    /// What a start copy does when the machine can't clone the folder from its git remote
+    /// (cmux-tui `--on-seed-refusal`): `ask` answers `seed_refused` with the reason and what a copy
+    /// would send, and copies nothing; `copy` copies the folder instead.
+    public enum SeedRefusal: String, Sendable, Encodable {
+        case ask, copy
+    }
+
+    /// `link start-chat copy`'s arguments, as Rust names them (`store`: the cmux access token is on stdin).
+    public static func startChatCopyArguments(key: String, account: String, machine: String, socket: String, local: String, subpath: String,
+                                              workRoots: [String], acpmuxHome: String?, store: Bool, onSeedRefusal: SeedRefusal) -> [String] {
+        let call = StartChatCopyCall(key: key, account: account, machine: machine, socket: socket, local: local, subpath: subpath,
+                                     workRoots: workRoots, acpmuxHome: acpmuxHome, store: store, onSeedRefusal: onSeedRefusal)
+        return CloudMoveCore().call("cli_invocation", call, as: Invocation.self)?.args ?? []
+    }
+
+    private struct StartChatCopyCall: Encodable {
+        var verb = "start-chat-copy"
+        var key: String, account: String, machine: String, socket: String, local: String, subpath: String
+        var workRoots: [String], acpmuxHome: String?, store: Bool, onSeedRefusal: SeedRefusal
     }
 
     /// What Rust read of one run.

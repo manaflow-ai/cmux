@@ -273,7 +273,9 @@ test("with the account state kept from an earlier page, the menu's first rows ar
 // sign-in row).
 test("an absent Cloud account state shows Cloud, not sign-in; only an explicit signed-out answer offers sign-in", async () => {
   const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
-  const rows = async () => {
+  for (const account of [undefined, true]) {
+    setCloudMachinesForTestAccount(account);
+    await mount(true, { cloudMachines: [], onConnect: () => undefined });
     await openPicker();
     return [...doc().querySelectorAll<HTMLElement>(".acpmux-location-menu .acpmux-menu-item")].filter((item) =>
       item.querySelector(".acpmux-location-name"),
@@ -289,6 +291,40 @@ test("an absent Cloud account state shows Cloud, not sign-in; only an explicit s
     const labels = (await rows()).map(label);
     expect(labels).toContain(shown);
     expect(labels).not.toContain(hidden);
+    act(() => root?.unmount());
+    root = undefined;
+    host.replaceChildren();
+  }
+});
+
+test("the Where list has one Cloud row, Cloud, whatever the account state (Send signs in)", async () => {
+  const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
+  const whereRows = async () => {
+    const button = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find((candidate) =>
+      (candidate.getAttribute("aria-label") ?? "").startsWith(t("composer.environment") + ":"),
+    );
+    expect(button, "no Where control").toBeTruthy();
+    await act(async () => {
+      button!.dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true }));
+      button!.click();
+    });
+    return [
+      ...doc().querySelectorAll<HTMLElement>(
+        ".acpmux-env-popover.acpmux-env-rows-where:not([data-closed]) .acpmux-menu-item",
+      ),
+    ].map(label);
+  };
+  const where = {
+    cloudMachines: [],
+    stripLayout: "where-machine",
+    runMode: { mode: "persistent", onMode: () => undefined },
+  };
+  for (const account of [undefined, true, false]) {
+    setCloudMachinesForTestAccount(account);
+    await mount(true, where);
+    const names = await whereRows();
+    const cloudRows = names.filter((name) => name === t("composer.cloud") || name === "Sign in for Cloud");
+    expect(cloudRows, `account ${String(account)}`).toEqual([t("composer.cloud")]);
     act(() => root?.unmount());
     root = undefined;
     host.replaceChildren();

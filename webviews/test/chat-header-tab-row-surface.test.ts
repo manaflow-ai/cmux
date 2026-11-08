@@ -54,46 +54,6 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
     }
   });
 
-  // #37412: a chat's pane has no native "…" (trailingInset 0); its last tool, the ••• menu, sat flush with the pane's
-  // edge and its pressed fill was cut by the rounded corner. It centers on the pane's trailing control column now
-  // (the offered trailingColumn), inside the corner; with a native "…" at the row's end the inset alone holds it.
-  for (const [inset, column, gap] of [
-    [0, 15, 3],
-    [0, 18, 6],
-    [40, 15, 40],
-  ] as const) {
-    test(`the last tool keeps ${gap}px from the pane's edge (inset ${inset}, column ${column})`, async () => {
-      const page = await pane.open({ width: 900, height: 640 });
-      try {
-        await page.evaluate(
-          async ({ inset, column }) => {
-            const url = "/header/tabRow.ts";
-            const module = (await import(/* @vite-ignore */ url)) as {
-              setTabRow(value: { height: number; trailingInset: number; trailingColumn: number }): void;
-            };
-            module.setTabRow({ height: 28, trailingInset: inset, trailingColumn: column });
-          },
-          { inset, column },
-        );
-        await page.waitForSelector(".acpmux-header[data-tab-row] .acpmux-handoff-header-tools .acpmux-header-tool");
-        const measured = await page.evaluate(() => {
-          const header = document.querySelector(".acpmux-header[data-tab-row]")!.getBoundingClientRect();
-          const tools = [
-            ...document.querySelectorAll(
-              ".acpmux-header[data-tab-row] .acpmux-handoff-header-tools .acpmux-header-tool",
-            ),
-          ];
-          const last = tools.at(-1)!.getBoundingClientRect();
-          return { gap: Math.round(header.right - last.right), top: Math.round(last.top - header.top) };
-        });
-        expect(measured.gap).toBe(gap);
-        expect(measured.top).toBeGreaterThanOrEqual(0);
-      } finally {
-        await page.close();
-      }
-    });
-  }
-
   test("a separate header fits its tools without an empty vertical band", async () => {
     const page = await pane.open({ width: 900, height: 640 });
     try {

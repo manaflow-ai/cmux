@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
+use super::relay::typed_error;
 use super::*;
 
 fn strings(words: &[&str]) -> Vec<String> {
@@ -25,6 +26,7 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             prompt: Some("hi there".into()),
             agent: "claude".into(),
             cwd: None,
+            from_folder: None,
             login: None,
             environment: None,
             machine: Machine::New,
@@ -689,7 +691,8 @@ fn a_signed_out_app_says_how_to_sign_in() {
 #[test]
 fn a_pending_machine_names_the_command_that_waits_on() {
     let mut fake = Fake::new(vec![
-        signed_in(),
+        // A list that has not loaded cannot vouch that the name is free: no relay-first create.
+        ok(json!({"account": {"signed_in": true}, "loaded": false, "machines": []})),
         ok(json!({"pending": true, "machine_name": "chat-fresh", "text": "still starting"})),
         ok(
             json!({"machines": [{"title": "chat-fresh", "machine_id": "vm-9", "status": "provisioning"}]}),
@@ -707,6 +710,26 @@ fn a_pending_machine_names_the_command_that_waits_on() {
     assert_eq!(error["details"]["stage"]["status"], "provisioning");
     assert!(error["message"].as_str().unwrap().contains("stuck at: the machine is provisioning"));
     assert_eq!(fake.ran.last().unwrap(), &strings(&["cloud", "list-machines", "--json"]));
+}
+
+#[test]
+fn a_relay_first_named_create_still_being_made_names_the_command_that_waits_on() {
+    // The create takes the whole --timeout: nothing more starts, and the command to ask again names the
+    // machine by its name, which a rerun finds among the creates on their way (never a second create).
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        ok(json!({"pending": true, "machine_name": "chat-fresh", "text": "still being made"})),
+    ]);
+    fake.costs.push(("new-machine", Duration::from_secs(60)));
+    let asked = request(&["--prompt", "x", "--name", "chat-fresh", "--wait", "--timeout", "60"]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(fake.ran[1], strings(&["cloud", "new-machine", "--name", "chat-fresh", "--json"]));
+    assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75));
+    assert_eq!(
+        error["details"]["again"],
+        "cmux cloud start-chat --name chat-fresh --prompt TEXT --wait --json"
+    );
+    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
 }
 
 #[test]
@@ -1180,6 +1203,114 @@ fn the_relay_answers_a_new_chat_with_no_link_to_the_machine() {
 }
 
 #[test]
+fn a_name_no_machine_has_is_made_and_its_first_chat_goes_the_relay_way() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        made(),
+        relayed(json!({"session_id": "relay-1", "reply": "ok", "stop_reason": "end_turn",
+                       "first_text_ms": 1800, "total_ms": 2000})),
+    ]);
+    let asked = request(&["--prompt", "Reply with exactly: ok", "--name", "probe-1", "--wait"]);
+    let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["reply"], "ok");
+    assert_eq!(answer["path"], "relay");
+    assert_eq!(fake.ran[1], strings(&["cloud", "new-machine", "--name", "probe-1", "--json"]));
+    assert_eq!(&fake.ran[2][..4], &strings(&["cloud", "relay-chat", "--target", "machine:vm-1"]));
+    assert_eq!(fake.ran.len(), 3, "no start-session: no link to the machine");
+}
+
+#[test]
+fn a_name_whose_create_is_on_its_way_is_waited_on_never_made_again() {
+    let mut fake = Fake::new(vec![
+        ok(json!({"account": {"signed_in": true}, "loaded": true, "machines": [],
+                  "creating": [{"name": "probe-1", "status": "creating"}]})),
+        ok(json!({"machines": [], "creating": [{"name": "probe-1", "status": "creating"}]})),
+    ]);
+    let asked = request(&["--prompt", "x", "--name", "probe-1", "--wait"]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75));
+    assert_eq!(error["details"]["machine_name"], "probe-1");
+    // Only the machine list: no new-machine and no start-session, either of which would make a second machine.
+    assert!(fake.ran.iter().all(|step| step[1] == "list-machines"), "{:?}", fake.ran);
+}
+
+#[test]
+fn a_name_new_machine_does_not_take_goes_the_link_way_as_before() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        ok(json!({"pending": true, "machine_name": "my dev", "text": "still starting"})),
+        ok(json!({"machines": [], "creating": []})),
+    ]);
+    let asked = request(&["--prompt", "x", "--name", "my dev", "--wait"]);
+    let _ = run(&mut fake, &asked);
+    assert!(
+        !fake.ran.iter().any(|step| step.contains(&"new-machine".to_owned())),
+        "{:?}",
+        fake.ran
+    );
+    assert_eq!(
+        fake.ran[1],
+        strings(&["cloud", "start-session", "--name", "my dev", "--agent", "claude", "--json"])
+    );
+}
+
+#[test]
+fn a_name_the_list_cannot_vouch_for_goes_the_link_way_as_before() {
+    for listed in [
+        json!({"account": {"signed_in": true}, "loaded": false, "machines": [], "creating": []}),
+        json!({"account": {"signed_in": true}, "loaded": true, "machines": [],
+               "creating": [{"status": "creating"}]}),
+    ] {
+        let mut fake = Fake::new(vec![
+            ok(listed.clone()),
+            ok(json!({"pending": true, "machine_name": "probe-1", "text": "still starting"})),
+            ok(json!({"machines": [], "creating": [{"name": "probe-1", "status": "creating"}]})),
+        ]);
+        let asked = request(&["--prompt", "x", "--name", "probe-1", "--wait"]);
+        let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{listed}") };
+        assert_eq!((error["code"].as_str(), exit), (Some("cloud.start_pending"), 75), "{listed}");
+        assert!(
+            !fake.ran.iter().any(|step| step.contains(&"new-machine".to_owned())),
+            "{listed}: {:?}",
+            fake.ran
+        );
+        assert_eq!(&fake.ran[1][..3], &strings(&["cloud", "start-session", "--name"]), "{listed}");
+    }
+}
+
+#[test]
+fn a_named_new_machine_the_relay_never_reached_goes_the_link_way_on_that_machine() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        made(),
+        relayed(json!({"delivered": false, "error_code": "cloud.relay.machine_offline"})),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":3,\"status\":\"completed\",\"endedAt\":9}]}\n\
+             @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"ok\"]}\n@@lastexit 0\n",
+        ),
+    ]);
+    let asked = request(&["--prompt", "x", "--name", "probe-1", "--wait"]);
+    let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["reply"], "ok");
+    // Made once, by its name; the link path starts on that machine's id, never a second create.
+    assert_eq!(fake.ran[1], strings(&["cloud", "new-machine", "--name", "probe-1", "--json"]));
+    assert_eq!(
+        fake.ran[3],
+        strings(&[
+            "cloud",
+            "start-session",
+            "--target",
+            "machine:vm-1",
+            "--agent",
+            "claude",
+            "--json"
+        ])
+    );
+}
+
+#[test]
 fn a_relay_turn_still_running_is_waited_on_in_its_session() {
     let mut fake = Fake::new(vec![
         ok(json!({"account": {"signed_in": true},
@@ -1252,6 +1383,24 @@ fn no_relay_chat_without_wait_for_a_big_prompt_or_a_machine_still_being_made() {
     let _ =
         run(&mut fake, &request(&["--prompt", big.as_str(), "--target", "machine:vm-1", "--wait"]));
     assert_eq!(fake.ran[1][1], "start-session");
+    // A new name with a big prompt: no relay chat, so `start-session --name` makes it, once.
+    let mut fake = Fake::new(vec![signed_in(), no_relay()]);
+    let _ = run(&mut fake, &request(&["--prompt", big.as_str(), "--name", "probe-1", "--wait"]));
+    assert_eq!(&fake.ran[1][..4], &strings(&["cloud", "start-session", "--name", "probe-1"]));
+    assert!(!fake.ran.iter().any(|step| step[1] == "new-machine"), "{:?}", fake.ran);
+    // A big prompt for a name whose create is on its way: waited on, never a second machine.
+    let mut fake = Fake::new(vec![
+        ok(json!({"account": {"signed_in": true}, "loaded": true, "machines": [],
+                  "creating": [{"name": "probe-1", "status": "creating"}]})),
+        ok(json!({"machines": [], "creating": [{"name": "probe-1", "status": "creating"}]})),
+    ]);
+    let Outcome::Failed { error, .. } =
+        run(&mut fake, &request(&["--prompt", big.as_str(), "--name", "probe-1", "--wait"]))
+    else {
+        panic!()
+    };
+    assert_eq!(error["code"], "cloud.start_pending");
+    assert!(fake.ran.iter().all(|step| step[1] == "list-machines"), "{:?}", fake.ran);
 
     // A create still pending at `--timeout` is the answer; nothing is sent. The one deadline counts from the
     // start: the list and the create take 10 s of it, one read of the list the rest.
@@ -1423,10 +1572,11 @@ fn every_step_fits_in_one_timeout_from_the_start() {
     );
     assert_eq!(fake.ran.len(), 2);
 
-    // No environment: a machine `start-session --name` makes in 30 s of the 40 leaves the wait what is left.
+    // No environment: a machine `start-session --name` makes in 30 s of the 40 leaves the wait what is left
+    // (a name `cloud new-machine` does not take, so no relay-first create).
     let mut fake = Fake::new(vec![signed_in(), started(), sent()]);
     fake.costs.push(("start-session", Duration::from_secs(30)));
-    let asked = request(&["--prompt", "x", "--name", "py-new", "--wait", "--timeout", "40"]);
+    let asked = request(&["--prompt", "x", "--name", "py new", "--wait", "--timeout", "40"]);
     let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
     assert_eq!((error["code"].as_str(), exit), (Some("chat.wait_timeout"), 3));
     assert_eq!(fake.ran.len(), 3, "{:?}", fake.ran);
@@ -1855,6 +2005,107 @@ fn a_timeout_shorter_than_the_relay_window_goes_the_link_way() {
     assert!(fake.ran.iter().all(|step| step.get(1).map(String::as_str) != Some("relay-chat")));
 }
 
+#[test]
+fn from_folder_is_an_existing_folder_of_this_mac_answered_canonical() {
+    let dir = tempfile::tempdir().unwrap();
+    let canonical = std::fs::canonicalize(dir.path()).unwrap().to_string_lossy().into_owned();
+    // A spelling with `.` and `..` parts is the folder's canonical path.
+    let spelled = format!("{}/./sub/..", dir.path().display());
+    std::fs::create_dir(dir.path().join("sub")).unwrap();
+    let parsed = request(&["--prompt", "x", "--from-folder", spelled.as_str()]);
+    assert_eq!(parsed.from_folder.as_deref(), Some(canonical.as_str()));
+    assert_eq!(parsed.cwd, None);
+    let inline = format!("--from-folder={canonical}");
+    assert_eq!(
+        request(&["--prompt", "x", inline.as_str()]).from_folder.as_deref(),
+        Some(canonical.as_str())
+    );
+    let file = dir.path().join("file.txt");
+    std::fs::write(&file, "x").unwrap();
+    let missing = dir.path().join("gone");
+    for words in [
+        vec!["--prompt", "x", "--from-folder", "relative/app"],
+        vec!["--prompt", "x", "--from-folder", missing.to_str().unwrap()],
+        vec!["--prompt", "x", "--from-folder", file.to_str().unwrap()],
+        vec!["--prompt", "x", "--from-folder"],
+        // `--cwd` is a folder on the machine; `--from-folder` already names where the chat starts.
+        vec!["--prompt", "x", "--from-folder", canonical.as_str(), "--cwd", "/home/cmux/work"],
+        vec!["--prompt", "x", "--cwd", "/home/cmux/work", "--from-folder", canonical.as_str()],
+    ] {
+        assert!(parse(&strings(&words), || Ok(String::new())).is_err(), "{words:?}");
+    }
+    // `--from-folder --json`: the output flag is never taken as its value.
+    let mut output = OutputMode::Human;
+    let words = lift_output(&strings(&["--from-folder", "--json"]), &mut output);
+    assert_eq!((words.len(), output), (2, OutputMode::Human));
+}
+
+#[test]
+fn from_folder_goes_to_start_session_and_skips_the_relay_chat() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = std::fs::canonicalize(dir.path()).unwrap().to_string_lossy().into_owned();
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":1,\"status\":\"completed\",\"endedAt\":9}]}\n\
+             @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"done\"]}\n@@lastexit 0\n",
+        ),
+    ]);
+    let asked = request(&[
+        "--prompt",
+        "Run the tests",
+        "--from-folder",
+        folder.as_str(),
+        "--name",
+        "dev",
+        "--wait",
+    ]);
+    let Outcome::Done(answer) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
+    assert_eq!(answer["reply"], "done");
+    // No relay chat: it copies no folder. The start names the folder as its own argument.
+    assert!(fake.ran.iter().all(|step| step.get(1).map(String::as_str) != Some("relay-chat")));
+    assert_eq!(
+        fake.ran[1],
+        strings(&[
+            "cloud",
+            "start-session",
+            "--name",
+            "dev",
+            "--agent",
+            "claude",
+            "--from-folder",
+            folder.as_str(),
+            "--json"
+        ])
+    );
+    assert_eq!(
+        again_command(&asked, &asked.machine),
+        format!(
+            "cmux cloud start-chat --name dev --from-folder {} --prompt TEXT --wait --json",
+            shell_quote(&folder)
+        )
+    );
+}
+
+#[test]
+fn a_pending_start_from_a_folder_says_the_copy_may_still_run() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = std::fs::canonicalize(dir.path()).unwrap().to_string_lossy().into_owned();
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        ok(json!({"pending": true, "machine_id": "vm-9", "text": "still starting"})),
+        ok(json!({"machines": [{"title": "dev", "machine_id": "vm-9", "status": "running"}]})),
+    ]);
+    let asked =
+        request(&["--prompt", "x", "--target", "machine:vm-9", "--from-folder", folder.as_str()]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!() };
+    assert_eq!(exit, 75);
+    assert!(error["message"].as_str().unwrap().contains(&format!("or copying {folder} to it")));
+    assert!(error["details"]["again"].as_str().unwrap().contains("--from-folder"));
+}
+
 /// The words `cmux cloud start-chat --prompt "What is 2+2?" --cwd /home/cmux/w --wait` hands the app's
 /// `cloud relay-chat` on a new machine, as the CLI's own code builds them (the action argument contract's
 /// cmux-tui/spec/fixtures/cli-action-requests.json carries their `action.run` request, which the app's
@@ -2121,6 +2372,7 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         prompt: Some("And 2+3?".into()),
         agent: String::new(),
         cwd: None,
+        from_folder: None,
         login: None,
         environment: None,
         machine: Machine::Target("vm-1".into()),
@@ -2154,6 +2406,7 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         prompt: Some(prompt),
         agent: String::new(),
         cwd: None,
+        from_folder: None,
         login: None,
         environment: None,
         machine: Machine::Target("vm-1".into()),

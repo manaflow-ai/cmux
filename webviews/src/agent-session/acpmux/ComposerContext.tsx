@@ -14,11 +14,9 @@ import {
   ServerIcon,
   type RunRowDetails,
   type EnvironmentFaceStyle,
-  SECTION_LABELS,
-  environmentStateLabel,
-  useMachineRefresh,
   type SavedEnvironmentRows,
 } from "./EnvironmentPicker";
+import { SECTION_LABELS, environmentStateLabel, useMachineRefresh } from "./environmentPickerModel";
 import { machineColor } from "./machineColor";
 import {
   isCloudMachineRow,
@@ -699,8 +697,8 @@ export function ComposerContext({
     current: selectedComputer,
     onPick: pickEnvironment,
     ...((!started || onboardingConnect) && onConnect ? { onConnect } : {}),
-    // A fresh home may not have a Cloud list reply at all. EnvironmentPicker treats only
-    // an explicit true as signed in, so it can offer the existing sign-in action there.
+    // A fresh home may not have a Cloud list reply yet: EnvironmentPicker offers Sign in for Cloud
+    // (in place of Cloud) only once the app said signed out, never before it knows.
     cloudSignedIn,
     ...(savedRows ? { saved: savedRows } : {}),
     ...(onRefreshMachines ? { onOpen: onRefreshMachines } : {}),

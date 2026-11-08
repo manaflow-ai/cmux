@@ -88,7 +88,7 @@
     "cmux-tui/crates/acpmux/src/cloud_rewind.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/config/launchers.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/daemon.rs:rust-duration": {"count": 6, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
-    "cmux-tui/crates/acpmux/src/daemon/cloud_activity.rs:rust-duration": {"count": 2, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
+    "cmux-tui/crates/acpmux/src/daemon/cloud_activity.rs:rust-duration": {"count": 3, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness. One more, safe: FLUSH_BUDGET (2 s) is how long the idle activity line waits for sync(2) before it goes anyway; nothing is refused or cut off (https://github.com/manaflow-ai/cmux/pull/36084)"},
     "cmux-tui/crates/acpmux/src/daemon/cloud_handoff.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/daemon/login_session.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/daemon/router_owner/fifo.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},

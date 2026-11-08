@@ -249,9 +249,14 @@ public struct CloudWorkspaceSetupWizard {
     public enum Provider: Sendable, Equatable { case claude, codex }
 
     /// Transfers only the selected providers after an explicit, non-dismissed confirmation.
-    public func offerCredentialSetup(machine: String, account: String,
+    /// `cachedClaude`: cmux already holds the person's Claude login and may pass it with no prompt
+    /// (the start's own rule, ``CloudLoginCopyGate``): it goes to the new machine with no dialog, as a
+    /// Cloud sandbox gets the account's credential. Only a workspace with nothing cached asks, and its
+    /// one setup-token fills the cache for every later machine.
+    public func offerCredentialSetup(machine: String, account: String, cachedClaude: Bool = false,
                                      present: (CmuxDialogSpec) async -> CmuxDialogAnswer,
                                      transfer: (Provider) async throws -> Void) async throws {
+        if cachedClaude { return try await transfer(.claude) }
         let answer = await present(Self.credentialDialogSpec(machine: machine, account: account))
         guard answer.button == "transfer", !answer.isDismissal else { return }
         if answer.isOn("claude") { try await transfer(.claude) }

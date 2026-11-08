@@ -153,8 +153,15 @@ extension CloudHandlers {
             try Task.checkCancellation()
             guard !creation.isTornDown, availability == .available, let userID,
                   cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return }
+            // The person's cached Claude login goes to every new machine with no dialog when this build
+            // may pass it silently (DEV and NIGHTLY; Release with the switch on and their consent).
+            let hasCachedClaude = await CloudCredentialTransfer.hasCachedLogin(provider: .claude, teamID: teamID, userID: userID,
+                                                                               otherTeams: CloudStartChat.loginScopes(cloud))
+            let cachedClaude = hasCachedClaude ? await CloudStartChat.loginCopyGate(services).recoveryAllowed(claude: true, automatic: true) : false
+            try Task.checkCancellation()
             try await wizard.offerCredentialSetup(machine: session.machine.title,
-                account: cloud.auth.activeTeam.team?.displayName ?? CloudWorkspaceSetupWizard.personalAccountTitle, present: present) { provider in
+                account: cloud.auth.activeTeam.team?.displayName ?? CloudWorkspaceSetupWizard.personalAccountTitle,
+                cachedClaude: cachedClaude, present: present) { provider in
                 try Task.checkCancellation()
                 guard !creation.isTornDown, cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else {
                     throw CancellationError()

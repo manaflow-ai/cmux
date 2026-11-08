@@ -169,11 +169,19 @@ impl FsService {
         if entry.kind == EntryKind::Symlink {
             entry.target_kind = self.roots.target_kind(path);
         }
+        // Measured at the folder's parent (the root itself for `/`): the
+        // same file system unless the folder is a mount point.
+        let available_bytes = if entry.kind == EntryKind::Dir {
+            sys::available_bytes(resolved.dir()).ok()
+        } else {
+            None
+        };
         Ok(StatResult {
             entry,
             mode_display: mode_display(meta.mode),
             owner_display: sys::user_name(meta.uid).unwrap_or_else(|| meta.uid.to_string()),
             revision: meta.revision(),
+            available_bytes,
         })
     }
 
