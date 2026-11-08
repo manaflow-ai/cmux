@@ -146,4 +146,29 @@ struct ClosedPaneHiddenTabTests {
         #expect(store.tab(surface: chat) != nil)
         #expect(store.mirrorViolations.isEmpty, "\(store.mirrorViolations)")
     }
+
+    /// A cancelled creation's daemon tab (Cmd-T, then Cmd-W at once) is hidden in the same pane as the closed tab. The
+    /// lift puts both back for the apply; when the apply closes the pane first, the restore cannot hide either again.
+    /// Before, only the closed tab left the closed pane's record, so its leaving pane showed the cancelled tab.
+    @Test func theClosedPanesRecordNeverListsACancelledCreationsTab() throws {
+        let store = Self.store()
+        store.creations.onClose { _, _ in }
+        let pane = try #require(store.pane(Self.closing))
+        let fresh = SurfaceID(rawValue: 15)
+        let provisional = ProvisionalTab()
+        let create = ClientTransactionID.generate()
+        store.intend(.createTab(pane: Self.closing, provisional: provisional.terminal(TerminalID.generate(), cwd: nil)),
+                     transaction: create)
+        try #require(store.creations.cancel(tab: provisional.id), "Cmd-W did not cancel the pending creation")
+        let added = DaemonEvent.tabAdded(TabDelta(workspace: Self.workspace, screen: Self.screen, pane: Self.closing, surface: fresh,
+                                                  index: nil, entity: TabSnapshot(surface: fresh), clientTransactionID: create))
+        _ = store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: added)])
+        try #require(pane.tabs.map(\.surface) == [Self.closedTab], "the cancelled creation's daemon tab shows")
+        _ = try #require(store.intendClose([Self.closedTab]))
+        try #require(pane.tabs.isEmpty, "the intent hid the tab in the key's turn")
+
+        _ = store.apply(batch: [DaemonEventEnvelope(sequence: 2, event: Self.paneClosed)])
+        #expect(pane.tabs.isEmpty, "the closed pane's record lists a tab again: \(pane.tabs.map(\.surface.rawValue))")
+        #expect(store.mirrorViolations.isEmpty, "\(store.mirrorViolations)")
+    }
 }
