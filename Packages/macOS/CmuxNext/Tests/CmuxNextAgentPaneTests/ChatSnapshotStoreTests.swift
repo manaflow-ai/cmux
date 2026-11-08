@@ -47,6 +47,8 @@ struct ChatSnapshotStoreTests {
         guard let answer = await resources.rangedResource(for: request, range: nil) else { return nil }
         #expect(answer.status == 200)
         #expect(answer.headers["Content-Type"] == "text/javascript")
+        // Only the page's own document runs it: a cross-origin frame in the page can't load it.
+        #expect(answer.headers["Cross-Origin-Resource-Policy"] == "same-origin")
         return String(data: answer.data, encoding: .utf8)
     }
 
@@ -108,6 +110,27 @@ struct ChatSnapshotStoreTests {
             let incognito = AgentPageResources(session: { "s-7" }, allowed: { false })
             let refused = try #require(incognito.readyResource(for: request))
             #expect(String(data: refused.data, encoding: .utf8)?.hasPrefix("self.__cmuxChatSnapshot=null;") == true)
+        }
+    }
+
+    /// A request that took the read ahead before it was in leaves no copy behind: a later request
+    /// (a reload) reads the chat's copy as it is then, never the one read when the page was made.
+    @Test func aReadAheadTakenBeforeItIsInIsNotKept() async throws {
+        try await Self.withDisk { disk in
+            try await Self.put("s-9", html: "<main>first</main>")
+            await disk.settled()
+            let url = URL(string: "cmux-page://cmux.agent/__snapshot/chat.js")!
+            let request = PageResourceRequest(prefix: "__snapshot", path: ["chat.js"], url: url)
+            let resources = AgentPageResources(session: { "s-9" }, allowed: { true })
+            let first = try #require(await Self.served(resources))
+            #expect(first.contains("<main>first</main>"))
+            await resources.readAhead()
+            #expect(resources.readyResource(for: request) == nil, "the consumed read ahead was kept")
+            try await Self.put("s-9", html: "<main>second</main>")
+            await disk.settled()
+            let reload = try #require(await Self.served(resources))
+            #expect(reload.contains("<main>second</main>"))
+            #expect(!reload.contains("<main>first</main>"))
         }
     }
 

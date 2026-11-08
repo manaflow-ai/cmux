@@ -90,7 +90,8 @@ reportChatSnapshot(async (method, params) => {
 // The page draws the chat itself once the host's answer came (the handshake and the rows' read take
 // longer than it, as at launch), or at once (\`drawFirst\`: the answer comes after the page drew).
 const booted = () => w.__cmuxChatSnapshotShown !== undefined || w.__cmuxChatSnapshotMiss !== undefined;
-const wait = () => (w.drawFirst || booted() ? draw() : requestAnimationFrame(wait));
+// holdDraw keeps the page from drawing the chat at all, so the copy stays up (a slow first screen).
+const wait = () => (!w.holdDraw && (w.drawFirst || booted()) ? draw() : requestAnimationFrame(wait));
 requestAnimationFrame(wait);
 function draw() {
 const host = document.querySelector("cmux-chat-snapshot");
@@ -179,7 +180,11 @@ requestAnimationFrame(() => {
     page: Page,
     snapshot: unknown,
     theme = "theme-1",
-    { holdUntil, drawFirst = false }: { holdUntil?: "bundle" | "drawn"; drawFirst?: boolean } = {},
+    {
+      holdUntil,
+      drawFirst = false,
+      holdDraw = false,
+    }: { holdUntil?: "bundle" | "drawn"; drawFirst?: boolean; holdDraw?: boolean } = {},
   ): Promise<void> {
     await page.route("http://chat.test/**", (route) => {
       const url = new URL(route.request().url());
@@ -193,7 +198,7 @@ requestAnimationFrame(() => {
       if (url.pathname === "/fixture.js")
         return route.fulfill({
           contentType: "text/javascript",
-          body: `self.liveMarkup=${JSON.stringify(MARKUP())};self.userCss=${JSON.stringify(USER_CSS)};self.drawFirst=${drawFirst};`,
+          body: `self.liveMarkup=${JSON.stringify(MARKUP())};self.userCss=${JSON.stringify(USER_CSS)};self.drawFirst=${drawFirst};self.holdDraw=${holdDraw};`,
         });
       if (url.pathname === "/__snapshot/chat.js")
         return (
@@ -216,6 +221,10 @@ requestAnimationFrame(() => {
       return route.fulfill({ status: 404, body: "" });
     });
     await page.goto("http://chat.test/b.html");
+    if (holdDraw) {
+      await page.waitForFunction(() => (window as any).__cmuxChatSnapshotShown !== undefined);
+      return;
+    }
     await page.waitForFunction(
       () =>
         ((window as any).afterSwap !== undefined || (window as any).atBundle?.shown === false) &&
@@ -255,6 +264,67 @@ requestAnimationFrame(() => {
     expect(frames.findIndex((frame) => !frame.host)).toBe(1);
     const afterSwap = (await page.evaluate(() => (window as any).afterSwap)) as Record<string, unknown>;
     expect(afterSwap).toEqual({ header: before.header, row: before.row, composer: before.composer });
+    await context.close();
+  });
+
+  test("a press on the copy ends it and reaches nothing under it", async () => {
+    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const before = await written(await context.newPage());
+    const page = await context.newPage();
+    await relaunched(page, before.snapshot, "theme-1", { holdDraw: true });
+    expect(await page.evaluate(() => !!document.querySelector("cmux-chat-snapshot"))).toBe(true);
+    // A live control the person can't see sits under the copy (a permission card's Allow).
+    await page.evaluate(() => {
+      const w = window as any;
+      w.presses = [];
+      const allow = document.createElement("button");
+      allow.textContent = "Allow";
+      allow.style.cssText = "position:fixed;left:100px;top:300px;width:200px;height:60px;";
+      for (const name of ["pointerdown", "pointerup", "click"])
+        allow.addEventListener(name, () => w.presses.push(name));
+      window.addEventListener("keydown", (event) => w.presses.push(`key ${event.key}`));
+      document.getElementById("root")!.append(allow);
+    });
+    await page.mouse.click(200, 330);
+    expect(await page.evaluate(() => !!document.querySelector("cmux-chat-snapshot"))).toBe(false);
+    expect(await page.evaluate(() => (window as any).presses)).toEqual([]);
+    // Once the copy is gone, a press reaches the page as usual.
+    await page.mouse.click(200, 330);
+    await page.keyboard.press("a");
+    expect(await page.evaluate(() => (window as any).presses)).toEqual(["pointerdown", "pointerup", "click", "key a"]);
+    await context.close();
+  });
+
+  test("a key on the copy ends it and reaches nothing under it", async () => {
+    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const before = await written(await context.newPage());
+    const page = await context.newPage();
+    await relaunched(page, before.snapshot, "theme-1", { holdDraw: true });
+    await page.evaluate(() => {
+      const w = window as any;
+      w.keys = [];
+      document.addEventListener("keydown", (event) => w.keys.push(event.key));
+    });
+    await page.keyboard.press("Enter");
+    expect(await page.evaluate(() => !!document.querySelector("cmux-chat-snapshot"))).toBe(false);
+    expect(await page.evaluate(() => (window as any).keys)).toEqual([]);
+    await context.close();
+  });
+
+  test("a write while the copy still covers the live root keeps a visible root", async () => {
+    const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
+    const page = await context.newPage();
+    await page.route("http://chat.test/a.html", (route) =>
+      route.fulfill({ contentType: "text/html", body: htmlDocument(`<main id="root">${MARKUP()}</main>`) }),
+    );
+    await page.goto("http://chat.test/a.html");
+    await page.addScriptTag({ content: capture });
+    const html = (await page.evaluate(() => {
+      document.getElementById("root")!.style.opacity = "0";
+      return (globalThis as any).captureSnapshot(document, "theme-1").html;
+    })) as string;
+    expect(html.startsWith('<main id="root">')).toBe(true);
+    expect(html).not.toContain("opacity");
     await context.close();
   });
 

@@ -88,6 +88,27 @@ export function swapChatSnapshot(): void {
 /// keeps an old frame up.
 const SNAPSHOT_HOLD_MS = 10_000;
 
+/// How long the rest of a consumed press (its pointerup and click) is swallowed at most.
+const SWALLOW_GESTURE_MS = 1_000;
+
+/// Swallows the rest of the press that ended the copy: its pointerup, mouseup and click reach
+/// nothing, so the live control under the press never sees half a gesture. Ends at the click, or
+/// after ``SWALLOW_GESTURE_MS`` when no click comes (a drag).
+function swallowGesture(): void {
+  const names = ["pointerup", "mouseup", "click", "auxclick", "dblclick"] as const;
+  const swallow = (event: Event) => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.type === "click" || event.type === "auxclick") done();
+  };
+  const timer = window.setTimeout(() => done(), SWALLOW_GESTURE_MS);
+  const done = () => {
+    window.clearTimeout(timer);
+    for (const name of names) window.removeEventListener(name, swallow, true);
+  };
+  for (const name of names) window.addEventListener(name, swallow, { capture: true });
+}
+
 /// Called as the bundle starts: when the copy shows, the host shows the page now, in one frame and
 /// with no fade, as for a kept tail (AgentPaneView+Loading `endLoadingState`). The host's answer
 /// loads `async` (boot.ts), so a copy may draw after this: then it reports when it draws, unless the
@@ -98,9 +119,16 @@ export function reportChatSnapshot(
   if (typeof window === "undefined") return;
   const shows = () => {
     void report("pane.painted", { drewKeptTail: true }).catch(() => undefined);
-    // Input before the swap reaches the live page under the copy; a click or key also ends the
-    // copy, so what it does shows. Stops with the copy.
-    const end = () => {
+    // A click or key while the copy shows ends the copy and does nothing else: the live page under
+    // it is at opacity 0, so a press must never act on a control the person can't see (a permission
+    // card's Allow, a shortcut). The press is consumed, with the rest of its gesture (its pointerup
+    // and click). A wheel ends the copy and scrolls. Stops with the copy.
+    const end = (event?: Event) => {
+      if (event && event.type !== "wheel") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (event.type === "pointerdown") swallowGesture();
+      }
       removeChatSnapshot();
       stop();
     };
@@ -110,7 +138,7 @@ export function reportChatSnapshot(
       window.clearTimeout(timer);
       for (const name of events) window.removeEventListener(name, end, true);
     };
-    for (const name of events) window.addEventListener(name, end, { capture: true, passive: true });
+    for (const name of events) window.addEventListener(name, end, { capture: true, passive: name === "wheel" });
   };
   if (showsChatSnapshot()) shows();
   else liveSide().painted = shows;

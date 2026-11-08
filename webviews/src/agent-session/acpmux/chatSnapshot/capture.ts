@@ -120,6 +120,10 @@ export function captureSnapshot(doc: Document, theme: string): ChatSnapshot | un
   const liveElements = Array.from(live.querySelectorAll("*"));
   const plans = liveElements.map((element) => planFor(element, viewHeight));
   const copy = live.cloneNode(true) as HTMLElement;
+  // The live root is held at opacity 0 while a drawn copy covers it (paint.ts, until the swap): a
+  // write in that time must not keep an invisible root.
+  copy.style.removeProperty("opacity");
+  if (copy.getAttribute("style") === "") copy.removeAttribute("style");
   const copyElements = Array.from(copy.querySelectorAll("*"));
   missed = "the copy's elements differ";
   if (copyElements.length !== liveElements.length) return undefined;

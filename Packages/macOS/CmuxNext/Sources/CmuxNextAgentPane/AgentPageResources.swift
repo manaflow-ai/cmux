@@ -28,7 +28,9 @@ final class AgentPageResources: PageDynamicResourceSource, PageRangedResourceSou
             // task-owner: one bounded disk read per page made; kept until the document asks for it
             ahead = (chat, Task { [weak self] in
                 let kept = await AgentPaneTailCache.shared.snapshots.snapshot(for: chat)
-                self?.read = (chat, kept)
+                // Kept only while no request took the read ahead: a request that took it already
+                // has this copy, and holding it after would serve it to a later document.
+                if let self, self.ahead != nil { self.read = (chat, kept) }
                 return kept
             })
         }
@@ -81,8 +83,12 @@ final class AgentPageResources: PageDynamicResourceSource, PageRangedResourceSou
     func rangedResource(for request: PageResourceRequest, range: String?) async -> PageRangedResource? {
         if request.prefix == AgentPaneChatSnapshots.prefix {
             guard let script = await resource(for: request) else { return nil }
+            // The script holds the chat's transcript: only the page's own document may run it, never
+            // a cross-origin frame inside it (a localhost preview) loading it as a no-cors script.
             return PageRangedResource(status: 200, headers: ["Content-Type": "text/javascript", "Cache-Control": "no-store",
-                                                             "Content-Length": String(script.data.count)],
+                                                             "Content-Length": String(script.data.count),
+                                                             "Cross-Origin-Resource-Policy": "same-origin",
+                                                             "X-Content-Type-Options": "nosniff"],
                                       data: script.data)
         }
         return await AgentPageMediaResource.shared.rangedResource(for: request, range: range)

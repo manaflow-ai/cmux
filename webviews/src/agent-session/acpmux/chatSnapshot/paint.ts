@@ -145,7 +145,8 @@ export function paintSnapshot(doc: Document, snapshot: ChatSnapshot | null | und
   adoptShadowSheets(body, sheets);
   html.appendChild(body);
   shadow.appendChild(html);
-  // The live root lays out and takes input under the copy, unseen until the swap (live.ts).
+  // The live root lays out under the copy, unseen until the swap (live.ts); a press on the copy ends it
+  // and reaches nothing under it (live.ts `reportChatSnapshot`).
   live.style.opacity = "0";
   doc.body.appendChild(host);
   restoreScroll(body);
