@@ -467,7 +467,7 @@ mod tests {
 
     #[test]
     fn an_ask_is_one_masked_line() {
-        let secret = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";
+        let secret = "ghp_aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jSaZ3k";
         let tool =
             json!({"toolCall": {"kind": "execute", "title": format!("Run\n  curl -H {secret}")}});
         let ask = ask_text(Kind::Approval, &tool);
