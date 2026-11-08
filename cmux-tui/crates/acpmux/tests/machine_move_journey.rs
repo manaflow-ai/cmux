@@ -840,3 +840,68 @@ async fn a_delivery_again_to_another_generation_of_its_session_is_refused_as_sta
     let same = tokio::time::timeout(Duration::from_secs(60), same).await.unwrap().unwrap();
     assert!(same.get("error").is_none(), "the same generation refused it: {same}");
 }
+
+/// What a move during a long turn finds: the Mac's copy holds the running turn's records and a
+/// prompt queued behind it while that turn still runs, not once it ends. The turn here runs until
+/// it is cancelled, so nothing the copy shows can have come with the turn's end.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_copy_takes_a_running_turns_records_while_it_runs() {
+    let _one = ONE_AT_A_TIME.lock().await;
+    acpmux::hub::peer_snapshot_reads_fail("b", 0);
+    acpmux::hub::peer_snapshot_bound(0);
+    let _ = HERMETIC;
+    let home = tempfile::tempdir().unwrap();
+    let (b_disk, auth_dir) = (home.path().join("b-disk"), home.path().join("b-auth"));
+    std::fs::create_dir_all(&b_disk).unwrap();
+    let b_cfg = config(StoreMode::Local);
+    let b = Hub::new(b_cfg.clone(), acpmux::store::open(&b_cfg.store, &b_disk).unwrap());
+    b.resume_queues();
+    let auth = Arc::new(PeerAuth::create(&auth_dir).unwrap());
+    let peer_token =
+        std::fs::read_to_string(acpmux::server::peer_auth::token_path(&auth_dir)).unwrap();
+    let port = serve(b.clone(), &auth).await;
+    let mut cb = plain_client(b.clone()).await;
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+                     "_meta": {"acpmux": {"name": "moved"}}});
+    let id = cb.call(method::SESSION_NEW, new).await["sessionId"].as_str().unwrap().to_owned();
+    let a_dir = home.path().join("a");
+    std::fs::create_dir_all(&a_dir).unwrap();
+    let a_cfg = config(StoreMode::Local);
+    let a = Hub::new(a_cfg.clone(), acpmux::store::open(&a_cfg.store, &a_dir).unwrap());
+    let url = format!("ws://127.0.0.1:{port}");
+    a.add_peer("b", &url, Some("tok".into()), Some(peer_token), true).await.unwrap();
+    let mut ca = client(a.clone()).await;
+    ca.call(method::MUX_ATTACH, json!({"session": "b/moved", "limit": 400})).await;
+    send(&mut ca, "first", "p0").await;
+    copy_until(&mut ca, "the first reply", |e| e.iter().any(|e| says(e, "echo: first"))).await;
+
+    send(&mut ca, "until-cancel", "p1").await;
+    send(&mut ca, "second", "p2").await;
+    // Well inside the turn: it runs until it is cancelled (the fake agent's cap is 30 s).
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let got =
+            ca.call("_acpmux/peer_snapshot", json!({"sessionId": "b/moved", "limit": 1000})).await;
+        let events = got["events"].as_array().cloned().unwrap_or_default();
+        if events.iter().any(|e| says(e, "running"))
+            && events.iter().any(|e| names_prompt(e, "queued", "p2"))
+        {
+            break;
+        }
+        if Instant::now() >= deadline {
+            let shown = |records: &[Value]| -> Vec<Value> {
+                records.iter().map(|e| json!([e["seq"], e["dir"], e["kind"]])).collect()
+            };
+            panic!(
+                "A's copy lacks the running turn or the prompt behind it 5 s into the turn.\n\
+                 copy lastSeq {} hostLastSeq {}: {:?}\nB: {:?}",
+                got["lastSeq"],
+                got["hostLastSeq"],
+                shown(&events),
+                shown(&journal(&b, &id))
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    b.shutdown_all().await;
+}
