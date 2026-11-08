@@ -207,6 +207,249 @@ if not accepts({**run, "status": "completed", "conclusion": "success"}, False):
 if accepts(run, True, [dict(jobs[0], conclusion=None), jobs[1]]):
     failures.append("a live source resumes only once build-nightly-app succeeded")
 
+# The push run ends at the sign dispatch. GitHub holds a workflow-level concurrency group until every job of the
+# run has ended, so a job that can still run in a pipelined push run beside or after the build holds the push
+# group past the dispatch (sentry-dsyms-nightly, up to 45 min, did). Evaluate every job's `if:` over the needs
+# graph for a pipelined push run whose build succeeded: a value the run decides (a var, an output this file does
+# not pin) is unknown, and a job whose `if:` is not false for certain counts as one that can run.
+UNKNOWN = object()
+
+
+def truthy(value) -> bool:
+    return value not in ("", None, False, 0, "false")
+
+
+def tokenize(text: str) -> list[str]:
+    pattern = r"'(?:[^']|'')*'|&&|\|\||==|!=|[!(),]|[A-Za-z_][\w.*-]*|\d+"
+    if re.sub(pattern, "", text).strip():
+        raise ValueError(f"unparsed expression: {text}")
+    return re.findall(pattern, text)
+
+
+def evaluate(expression, context: dict, job_needs: list[str], results: dict):
+    """GitHub's expression subset nightly.yml's `if:`s use, in three values: a known one, or UNKNOWN."""
+    if isinstance(expression, bool):
+        return expression
+    text = str(expression).strip()
+    if text.startswith("${{") and text.endswith("}}"):
+        text = text[3:-2]
+    tokens = tokenize(text)
+    pos = 0
+    status = False
+
+    def peek():
+        return tokens[pos] if pos < len(tokens) else None
+
+    def take(expected=None):
+        nonlocal pos
+        token = tokens[pos]
+        if expected is not None and token != expected:
+            raise ValueError(f"expected {expected} in {text}")
+        pos += 1
+        return token
+
+    def success():
+        values = [results[n] for n in job_needs]
+        if all(v == "success" for v in values):
+            return True
+        return UNKNOWN if all(v in ("success", UNKNOWN) for v in values) else False
+
+    def call(name):
+        nonlocal status
+        args = []
+        take("(")
+        while peek() != ")":
+            args.append(either())
+            if peek() == ",":
+                take(",")
+        take(")")
+        if name in ("always", "cancelled", "success", "failure"):
+            status = True
+        if name == "always":
+            return True
+        if name == "cancelled":
+            return False
+        if name == "success":
+            return success()
+        if name == "failure":
+            return False
+        if name == "contains":
+            haystack, needle = args
+            if needle is UNKNOWN:
+                return UNKNOWN
+            if isinstance(haystack, list):
+                if needle in haystack:
+                    return True
+                return UNKNOWN if UNKNOWN in haystack else False
+            return UNKNOWN if haystack is UNKNOWN else str(needle).lower() in str(haystack).lower()
+        raise ValueError(f"unknown function {name}")
+
+    def atom():
+        token = take()
+        if token == "(":
+            value = either()
+            take(")")
+            return value
+        if token == "!":
+            value = atom()
+            return UNKNOWN if value is UNKNOWN else not truthy(value)
+        if token.startswith("'"):
+            return token[1:-1].replace("''", "'")
+        if token.isdigit():
+            return int(token)
+        if token in ("true", "false"):
+            return token == "true"
+        if peek() == "(":
+            return call(token)
+        if token.startswith("needs.*."):
+            field = token.removeprefix("needs.*.")
+            if field == "result":
+                return [results[n] for n in job_needs]
+            return ["" if results[n] == "skipped" else context.get(f"needs.{n}.{field}", UNKNOWN) for n in job_needs]
+        if token.startswith("needs."):
+            need = token.split(".")[1]
+            if need not in job_needs:
+                raise ValueError(f"{token} is not in this job's needs")
+            if token.endswith(".result"):
+                return results[need]
+            if results[need] == "skipped":
+                return ""
+        return context.get(token, UNKNOWN)
+
+    def compare():
+        left = atom()
+        while peek() in ("==", "!="):
+            op = take()
+            right = atom()
+            if left is UNKNOWN or right is UNKNOWN:
+                left = UNKNOWN
+            else:
+                same = str(left).lower() == str(right).lower()
+                left = same if op == "==" else not same
+        return left
+
+    def conjunction():
+        left = compare()
+        while peek() == "&&":
+            take()
+            right = compare()
+            if left is UNKNOWN:
+                left = right if right is not UNKNOWN and not truthy(right) else UNKNOWN
+            elif truthy(left):
+                left = right
+        return left
+
+    def either():
+        left = conjunction()
+        while peek() == "||":
+            take()
+            right = conjunction()
+            if left is UNKNOWN:
+                left = right if right is not UNKNOWN and truthy(right) else UNKNOWN
+            elif not truthy(left):
+                left = right
+        return left
+
+    value = either()
+    if pos != len(tokens):
+        raise ValueError(f"trailing tokens in {text}")
+    if not status:
+        gate = success()
+        if gate is False:
+            return False
+        if gate is UNKNOWN:
+            return UNKNOWN if value is UNKNOWN or truthy(value) else False
+    return value
+
+
+def simulate(context: dict, outputs: dict) -> dict:
+    """Each job's result: success (it runs, and this run's jobs succeed), skipped, or UNKNOWN (it may run)."""
+    results: dict = {}
+    pending = list(JOBS)
+    while pending:
+        ready = [n for n in pending if all(need in results for need in needs(n))]
+        if not ready:
+            raise ValueError(f"cycle or unknown need among {pending}")
+        for name in ready:
+            pending.remove(name)
+            job = JOBS[name]
+            ran = evaluate(job["if"], context, needs(name), results) if "if" in job else \
+                evaluate("success()", context, needs(name), results)
+            results[name] = UNKNOWN if ran is UNKNOWN else "success" if truthy(ran) else "skipped"
+            for key, value in outputs.get(name, {}).items():
+                context[f"needs.{name}.outputs.{key}"] = value
+    return results
+
+
+PUSH = {"github.event_name": "push", "github.ref": "refs/heads/nightly-next", "github.repository": "manaflow-ai/cmux",
+        "github.repository_owner": "manaflow-ai", "github.event.schedule": "",
+        **{f"inputs.{name}": "" for name in inputs}}
+# What decide outputs for a pipelined push (const pipeline: a publishing nightly-next push, no pause, no notary
+# test; a push takes no dispatch input), and resolve's outputs for a build the run goes on to dispatch.
+PIPELINED = {
+    "decide": {"pipeline": "true", "track": "nightly-next", "should_build": "true", "should_publish": "true",
+               "no_publish": "false", "notary_test": "false", "notary_paused": "false", "continue_only": "false",
+               "republish_run": "", "fast_build": "false", "build_only": "false"},
+    "resolve-nightly-cmux-tui-client": {"already_published": "false", "superseded": "", "build_sha": SHA},
+}
+# A producer the app build installs from beside it (the web bundles; build-nightly-app builds them itself when
+# they are not up yet), so it is part of the build stage though the dispatch does not wait for it.
+BUILD_STAGE_EXTRA = {"build-nightly-inputs"}
+
+
+def ancestors(name: str) -> set[str]:
+    found: set[str] = set()
+    stack = [name]
+    while stack:
+        for need in needs(stack.pop()):
+            if need not in found:
+                found.add(need)
+                stack.append(need)
+    return found
+
+
+try:
+    push_results = simulate(dict(PUSH), PIPELINED)
+except ValueError as error:
+    failures.append(f"the pipelined push run's `if:`s do not evaluate: {error}")
+else:
+    allowed = ancestors("dispatch-nightly-next-sign") | {"dispatch-nightly-next-sign"} | BUILD_STAGE_EXTRA
+    can_run = {n for n, r in push_results.items() if r != "skipped"}
+    if push_results.get("dispatch-nightly-next-sign") != "success":
+        failures.append("a pipelined push run whose build succeeded dispatches the sign stage")
+    for name in sorted(can_run - allowed):
+        failures.append(f"{name} can run in a pipelined push run: it holds the push group after the sign dispatch "
+                        f"(skip it there with {PIPELINE_OFF}, and run its work in the sign run or its tail)")
+    for name in sorted(allowed - can_run):
+        failures.append(f"{name} is in the build stage but does not run in a pipelined push run")
+
+# What the push run skips happens in the sign run (a sign-stage dispatch of the unsigned resume) or in the tail
+# run that sign run dispatches (nightly_next_post_publish).
+SIGN = {**PUSH, "github.event_name": "workflow_dispatch", "inputs.nightly_next_sign_stage": "true",
+        "inputs.nightly_next_unsigned_run": "7", "inputs.nightly_next_unsigned_attempt": "1"}
+SIGN_OUTPUTS = {
+    "decide": {**PIPELINED["decide"], "pipeline": "false"},
+    "resolve-nightly-cmux-tui-client": PIPELINED["resolve-nightly-cmux-tui-client"],
+    # A sign run dispatches its tail (run_tail false, as checked above).
+    "published-build": {"run_tail": "false"},
+}
+TAIL = {**PUSH, "github.event_name": "workflow_dispatch", "inputs.nightly_next_post_publish": '{"tail": true}'}
+try:
+    sign_results = simulate(dict(SIGN), SIGN_OUTPUTS)
+    tail_results = simulate(dict(TAIL), {})
+except ValueError as error:
+    failures.append(f"the sign run's `if:`s do not evaluate: {error}")
+else:
+    for name, where, results in (("check-nightly-webviews", "the sign run", sign_results),
+                                 ("attest-nightly-remote-daemon", "the sign run", sign_results),
+                                 ("sentry-dsyms-nightly", "the sign run's tail run", tail_results)):
+        if results.get(name) == "skipped":
+            failures.append(f"{name} must run in {where}: the pipelined push run skips it")
+    if sign_results.get("publish-nightly") == "skipped" or sign_results.get("build-sign-notarize-nightly") == "skipped":
+        failures.append("the sign run's simulation must reach the signer and publish-nightly")
+    if sign_results.get("sentry-dsyms-nightly") not in (None, "skipped"):
+        failures.append("sentry-dsyms-nightly runs in the tail, not in the sign run, which holds the sign group")
+
 if failures:
     print("FAIL: nightly-next build and sign stages pipelined\n  " + "\n  ".join(failures))
     sys.exit(1)
