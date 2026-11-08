@@ -16,6 +16,9 @@ public final class HomeChiefHomes {
     private let homes = NSHashTable<HomeChiefTurnActions>.weakObjects()
     /// Transcripts with no Chief that start their own agents (``startsOwnAgents(_:)``).
     private let ownStarters = NSHashTable<HomeNativeTranscriptView>.weakObjects()
+    /// The transcript whose pill menu was built last: its Start now row starts that transcript's agent, though
+    /// another one shows the same conversation (two fixture tabs over the mock owner, or one and the playground).
+    private weak var menuOrigin: HomeNativeTranscriptView?
     /// The registry ``bind(into:)`` bound; the Homes' rows and Stop run its actions.
     private(set) weak var registry: ActionRegistry?
 
@@ -34,9 +37,10 @@ public final class HomeChiefHomes {
     public func startsOwnAgents(_ transcript: HomeNativeTranscriptView) {
         ownStarters.add(transcript)
         let conversation = transcript.conversationID.rawValue
-        transcript.startAgentMenuItem = { [weak self] peer in
-            self?.registry?.makeContextMenuItem(for: Self.startQueuedAgent, in: .agentChat,
-                                                arguments: ["agent": .string(peer), "conversation": .string(conversation)])
+        transcript.startAgentMenuItem = { [weak self, weak transcript] peer in
+            self?.menuOrigin = transcript
+            return self?.registry?.makeContextMenuItem(for: Self.startQueuedAgent, in: .agentChat,
+                                                       arguments: ["agent": .string(peer), "conversation": .string(conversation)])
         }
     }
 
@@ -63,14 +67,17 @@ public final class HomeChiefHomes {
     }
 
     /// The Chief Home that can start queued agents of `conversation` (nil: the key window's, else any one), or a
-    /// transcript that starts its own (no control).
+    /// transcript that starts its own (no control). Of several showing `conversation`: the one whose menu was built
+    /// last, else the key window's, else any.
     private func startingChief(of conversation: ConversationID?) -> (transcript: HomeNativeTranscriptView, control: HomeChiefTurnControl?)? {
         let chiefs: [(transcript: HomeNativeTranscriptView, control: HomeChiefTurnControl?)] =
             homes.allObjects.compactMap(\.startingChief).map { ($0.transcript, $0.control) }
         let own = ownStarters.allObjects.filter { $0.onStartAgent != nil }.map { (transcript: $0, control: HomeChiefTurnControl?.none) }
         let open = chiefs + own
-        if let conversation { return open.first { $0.transcript.conversationID == conversation } }
-        return open.first { $0.transcript.window?.isKeyWindow == true } ?? open.first
+        func key(_ view: HomeNativeTranscriptView) -> Bool { view.window?.isKeyWindow == true }
+        guard let conversation else { return open.first { key($0.transcript) } ?? open.first }
+        let showing = open.filter { $0.transcript.conversationID == conversation }
+        return showing.first { $0.transcript === menuOrigin } ?? showing.first { key($0.transcript) } ?? showing.first
     }
 }
 
