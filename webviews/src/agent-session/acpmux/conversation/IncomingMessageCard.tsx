@@ -119,6 +119,8 @@ export function SenderMark({ message }: { message: IncomingMessage }) {
       harness={harness}
       tone={agentTone(sender.sessionId ?? message.sessionId ?? message.name)}
       size={SENDER_LOGO_SIZE}
+      // The sparkle fills more of its grid than the bot: at 14px its ink is the logos' (about 12px).
+      glyphSize={14}
       fallbackNode={<Bot size={16} />}
     />
   );
@@ -146,7 +148,7 @@ function NoticeTitle({ notice }: { notice: AgentNotice }) {
   return (
     <>
       <span className="cv-notice__lead">{lead}</span>
-      {end && <span className="cv-notice__end">{end}</span>}
+      {end && <span className="cv-notice__end">{` ${end}`}</span>}
       {notice.more ? (
         <span className="cv-notice__more" data-find-skip="">
           +{notice.more}
@@ -688,6 +690,8 @@ export function IncomingMessageLine({
             className={`cv-received__preview${agentNotice ? " cv-notice__title" : ""}`}
             data-find-skip={agentNotice ? undefined : ""}
             data-find-keep={agentNotice ? "" : undefined}
+            // A notice's title is one Find run: a match may span its command and its exit.
+            data-find-join={agentNotice ? "" : undefined}
           >
             {agentNotice && look === "tag" && agentNotice.severity !== "info" && (
               <span className="cv-notice__tag" data-severity={agentNotice.severity} data-find-skip="">

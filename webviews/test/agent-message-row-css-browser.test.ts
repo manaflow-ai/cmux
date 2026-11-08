@@ -58,7 +58,10 @@ await requireBrowserLane("agent-message-row-css-browser.test.ts", async () => {
       expect(Number(await copy.evaluate((node) => getComputedStyle(node).opacity))).toBeLessThan(1);
       await received.locator(".cv-agentmsg__card").hover({ position: { x: 4, y: 4 } });
       await page.waitForFunction(
-        () => getComputedStyle(document.querySelector(".cv-agentmsg__card > .cv-card-copy")!).opacity === "1",
+        // The received row's own card: an earlier test's opened group draws cards above it.
+        () =>
+          getComputedStyle(document.querySelector('[data-testid="received"] .cv-agentmsg__card > .cv-card-copy')!)
+            .opacity === "1",
         undefined,
         { timeout: 2_000 },
       );

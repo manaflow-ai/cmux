@@ -3041,6 +3041,21 @@ button.cv-tool:not(.cv-sent, .cv-agent-activity__control):is(:hover, :focus-visi
   /* The agent's words read in the transcript's ink, the calls around them grey (Lucas, 2026-11-06). */
   color: var(--cv-text);
 }
+/* The turn's two levels, compared in the gallery only (TurnLevels.gallery.ts): the shipped look is
+   the outer "Worked for … · N tool calls" line over inner run lines at their own weight, each run
+   between the agent's asides counting its own calls. `indented` sets the inner lines in by one icon
+   box and in the dim ink under the opened outer line; `guide` hangs them on a rule from the outer
+   line's glyph. Neither ships. */
+:root[data-turn-levels-look="indented"] :is(.cv-tools, .cv-tool-note) {
+  margin-inline-start: var(--grid-icon-box);
+}
+:root[data-turn-levels-look="indented"] .cv-tool.is-run {
+  color: var(--cv-text-dim);
+}
+:root[data-turn-levels-look="guide"] :is(.cv-tools, .cv-tool-note) {
+  padding-inline-start: var(--grid-icon-box);
+  box-shadow: inset 1px 0 var(--cv-rule);
+}
 .cv-tool__detail {
   color: var(--cv-text-dim);
 }

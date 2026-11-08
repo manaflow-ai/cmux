@@ -113,9 +113,10 @@ test("a verified relayed message: the bare name, its family's mark, and the whol
   const container = await render(<IncomingMessageLine id="m-verified" message={message} onOpen={() => undefined} />);
   // The shared row.
   expect(container.querySelector(".cv-agentmsg")).not.toBeNull();
-  // The codex mark, not the neutral robot every unknown sender wears.
+  // The codex mark, with the session's badge (SenderIcon.tsx), not the toned robot alone every
+  // unknown sender wears.
   expect(container.querySelector(".cv-received__mark")).not.toBeNull();
-  expect(container.querySelector(".cv-received__mark [data-agent-tone]")).toBeNull();
+  expect(container.querySelector(".cv-received__mark .cv-sender-icon__main")).not.toBeNull();
   expect(container.querySelector(".cv-unverified")).toBeNull();
   await openAll(container);
   const card = container.querySelector(".cv-agentmsg__card");

@@ -24,7 +24,7 @@ import { AgentMessageRow } from "./AgentMessageRow";
 import { messagePreview } from "./agentMessageRowModel";
 import { MessageGroupHead } from "./MessageGroupHead";
 import { groupSender } from "./messageGroupHeadModel";
-import { messageOpened, setMessageOpened } from "./incomingOpened";
+import { messageOpened, setDigestOpened, setMessageOpened } from "./incomingOpened";
 import type { IncomingMessage } from "./incomingMessage";
 import {
   inboxCounts,
@@ -311,7 +311,16 @@ export function InboxNoticeCard({
         senders={senders.join(", ")}
         open={open}
         bodyId={bodyId}
-        onToggle={() => show(!open)}
+        onToggle={() => {
+          // The head opens the group with every thread's messages open (incomingOpened.ts).
+          setDigestOpened(
+            session,
+            rowId,
+            notice.threads.map((thread) => inboxThreadKey(rowId, thread.threadId)),
+            !open,
+          );
+          setOpen(!open);
+        }}
         className="cv-inbox__head"
         messages={inboxHover(notice.threads)}
       />
