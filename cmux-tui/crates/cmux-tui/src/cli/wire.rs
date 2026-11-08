@@ -147,6 +147,21 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     // The caller's terminal belongs to the session its environment names; an
     // explicit route targets that session's current workspace.
     let caller_route = global.socket.is_none() && global.session.is_none();
+    // A new workspace opens in its caller's window, or the one `--window`
+    // names: the app hears of it before the daemon makes it (#32989).
+    if super::create_window::applies(&plan) {
+        let key = request.get("idempotency_key").and_then(Value::as_str).map(str::to_owned);
+        if let Err(error) =
+            super::create_window::announce(global, &mut plan, key.as_deref(), &socket, caller_route)
+        {
+            return print_operation_error(&error, global.output);
+        }
+        request.set("params", plan.params.clone());
+        encoded = match encode_request(&request) {
+            Ok(encoded) => encoded,
+            Err(code) => return code,
+        };
+    }
     // An agent's terminal with no place goes beside its chat (beside.rs).
     #[cfg(unix)]
     match super::beside::run_cli(

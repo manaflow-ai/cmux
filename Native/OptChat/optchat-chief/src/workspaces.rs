@@ -547,6 +547,9 @@ pub fn open_request(session: &str, name: &str, key: &str, cwd: &Path) -> Value {
             "wait": true,
             // A script's run: it never takes focus or switches workspaces.
             "origin": "script",
+            // From the Chief's chat in Home: the app opens the subagent's workspace in the
+            // window the person prompted the Chief from, not the most recent one (#32989).
+            "caller": {"home_chat": true},
             "idempotency_key": format!("optchat-subagent-workspace-{key}"),
         }
     })

@@ -1172,3 +1172,5 @@ mod split_focus_tests;
 mod terminal_get_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod workspace_create_mutation_tests;

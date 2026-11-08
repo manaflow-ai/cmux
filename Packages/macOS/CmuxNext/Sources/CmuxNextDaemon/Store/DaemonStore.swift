@@ -117,6 +117,11 @@ public final class DaemonStore: StateResourceQueries {
     /// workspace keeps the set and never calls it: the App's membership pass
     /// visits every workspace, and the sidebar churn ran it per change.
     @ObservationIgnored public var onWorkspaceListChanged: (() -> Void)?
+    /// A workspace-added delta brought a new workspace a resource-API create made (origin
+    /// `resource-api`, the `cmux` CLI's and MCP's): (its id, the create's idempotency key, which
+    /// the daemon echoes as `mutation_id`). On the main actor, inside the batch, before
+    /// `onWorkspaceListChanged`, so the App claims it for the window its create named (#32989).
+    @ObservationIgnored public var onResourceWorkspaceAdded: ((String, String) -> Void)?
     /// Runs when the connection drops or the daemon shuts down (before any reconnect).
     @ObservationIgnored public var onDisconnected: (@MainActor () -> Void)?
     /// Bookmark and conversation events (not in the tree snapshot), on the main actor.

@@ -16,18 +16,19 @@ enum WorkspaceVerbHandlers {
         registry.bind("workspace.newAbove", run: { try create(context, $0) { .above($0.id) } })
         // On one of several selected rows: below the last of them (Chrome's New Tab Below).
         registry.bind("workspace.newBelow", run: { invocation in
-            let anchor = try WindowMembershipHandlers.rowTargets(invocation, context).last ?? context.workspace(invocation).model
-            try spawn(context, anchor: anchor, cwd: nil, slot: .below(anchor.id), newTabPage: invocation.origin == .user)
+            // A person's selected rows; a caller's create goes by its own window (createAnchor, #32989).
+            let anchor = try (invocation.origin == .user ? WindowMembershipHandlers.rowTargets(invocation, context).last : nil) ?? context.createAnchor(invocation)
+            try spawn(context, invocation, anchor: anchor, cwd: nil, slot: .below(anchor.id), newTabPage: invocation.origin == .user)
         })
         registry.bind("workspace.newAtTop", run: { try create(context, $0, anchorFree: .top(anchor: nil)) })
         registry.bind("workspace.newAtBottom", run: { try create(context, $0, anchorFree: .bottom(anchor: nil)) })
         // Its directory, its place (below it, so in its group) and its first tab's kind
         // (cmuxterm-hq#1829); also what New Workspace in This Group and in Same Directory ran.
         registry.bind("workspace.newLikeThis", run: { invocation in
-            let anchor = try context.workspace(invocation).model
+            let anchor = try context.createAnchor(invocation)
             let cwd = directory(of: anchor, context)
             let first = firstTab(like: anchor, cwd: cwd, user: invocation.origin == .user, context)
-            try spawn(context, anchor: anchor, cwd: cwd, slot: .below(anchor.id), newTabPage: first.newTabPage, firstChat: first.chat)
+            try spawn(context, invocation, anchor: anchor, cwd: cwd, slot: .below(anchor.id), newTabPage: first.newTabPage, firstChat: first.chat)
         })
         registry.bind("workspace.newInNewGroup", run: { invocation in
             let name = invocation["name"]?.stringValue ?? ""
@@ -107,8 +108,8 @@ enum WorkspaceVerbHandlers {
     /// placed at `slot` once the daemon reports it.
     private static func create(_ context: AppActionContext, _ invocation: ActionInvocation, cwd: String? = nil,
                                _ slot: (WorkspaceModel) throws -> WorkspaceSlot) throws {
-        let anchor = try context.workspace(invocation).model
-        try spawn(context, anchor: anchor, cwd: cwd, slot: try slot(anchor), newTabPage: invocation.origin == .user)
+        let anchor = try context.createAnchor(invocation)
+        try spawn(context, invocation, anchor: anchor, cwd: cwd, slot: try slot(anchor), newTabPage: invocation.origin == .user)
     }
 
     /// New workspace in the target workspace's window (else the active
@@ -117,23 +118,24 @@ enum WorkspaceVerbHandlers {
     /// showed no workspace (`WorkspaceSpawn.placesFromCurrent`).
     static func create(_ context: AppActionContext, _ invocation: ActionInvocation, anchorFree slot: WorkspaceSlot?,
                        fromCurrent: Bool = true, then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil) throws {
-        try spawn(context, anchor: try? context.workspace(invocation).model, cwd: nil, slot: slot, newTabPage: invocation.origin == .user,
+        try spawn(context, invocation, anchor: (try? context.createAnchorIfAny(invocation)) ?? nil, cwd: nil, slot: slot, newTabPage: invocation.origin == .user,
                   fromCurrent: fromCurrent, then: then)
     }
 
     /// The window a new workspace next to `anchor` opens in: the anchor's window, else the active one. A Home anchor
     /// is no window's place of its own: a Chief turn names the store's Home (in whichever window holds it) as its
     /// caller workspace, and a workspace the person started from another window went there (cmux#37366). It goes to
-    /// the window the person acts in.
-    static func window(for anchor: WorkspaceModel?, _ context: AppActionContext) -> String? {
-        anchor.flatMap { $0.isAnyHome ? nil : context.services.windows.registry.value.owner(of: $0.id) } ?? context.activeWindow?.state.id
+    /// the window the person acts in; a control caller's (a Chief turn's) goes to its own window, the one it was
+    /// prompted from (#32989).
+    static func window(for anchor: WorkspaceModel?, _ context: AppActionContext, _ invocation: ActionInvocation = ActionInvocation()) -> String? {
+        anchor.flatMap { $0.isAnyHome ? nil : context.services.windows.registry.value.owner(of: $0.id) } ?? context.createWindow(invocation)?.state.id
     }
 
-    private static func spawn(_ context: AppActionContext, anchor: WorkspaceModel?, cwd: String?, slot: WorkspaceSlot?,
+    private static func spawn(_ context: AppActionContext, _ invocation: ActionInvocation, anchor: WorkspaceModel?, cwd: String?, slot: WorkspaceSlot?,
                               newTabPage: Bool, firstChat: AgentPaneSeed? = nil, fromCurrent: Bool = true,
                               then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil) throws {
         let windows = context.services.windows
-        let target = windows.targetWindow(preferring: window(for: anchor, context))
+        let target = windows.targetWindow(preferring: window(for: anchor, context, invocation))
         var spawn = WorkspaceSpawn(cwd: cwd)
         spawn.slot = slot
         spawn.onListed = then
@@ -153,14 +155,14 @@ enum WorkspaceVerbHandlers {
         })
     }
 
-    /// New Workspace on Machine: a new workspace on `daemon` in the active window, born in that
+    /// New Workspace on Machine: a new workspace on `daemon` in the active window (a control caller's: its own, #32989), born in that
     /// window's room so it shows even when the room does not follow the machine's session
     /// (data-model.md 3.2). A person gets the New Tab page; a CLI, MCP or script run gets a
     /// terminal and waits for the create, so `action.run` answers with what it made
     /// (``createdFields``) and lists it in `created`.
     static func newWorkspace(on daemon: DaemonService, _ invocation: ActionInvocation, _ context: AppActionContext) {
         let services = context.services, windows = services.windows
-        let target = windows.targetWindow(preferring: context.activeWindow?.state.id)
+        let target = windows.targetWindow(preferring: context.createWindow(invocation)?.state.id)
         let spawn = WorkspaceSpawn(newTabPage: invocation.origin == .user)
         services.registry.track(result: Task {
             do {

@@ -4,6 +4,7 @@ import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextLayout
 import CmuxNextSidebar
 import CmuxNextWindowRules
 import Foundation
@@ -50,7 +51,7 @@ enum AgentSessionWorkspace {
         do { session = try AgentLaneStore.shared.localSessionID(request.session, host: request.host, localHost: context.services.agentTabs.localHost) } catch { throw ActionFailure(message: error.description) }
         let task = try open(session: session, name: request.name, defaultName: request.defaultName, key: request.key, cwd: request.cwd,
                             host: request.host, group: request.group, top: request.top, focus: invocation.allowsViewChange, parent: parent,
-                            services: context.services)
+                            window: invocation.callerWindow, services: context.services)
         context.services.registry.track(task)
     }
 
@@ -62,7 +63,7 @@ enum AgentSessionWorkspace {
     @discardableResult
     static func open(session: String, name: String?, defaultName: String? = nil, key: WorkspaceKey = .generate(), cwd: String?, host: String? = nil,
                      group: String? = nil, top: Bool = false, focus: Bool = false, parent: AgentSessionParents.Identity? = nil,
-                     services: AppServices,
+                     window callerWindow: String? = nil, services: AppServices,
                      beforeFirstTab: (@MainActor @Sendable () async -> Void)? = nil) throws -> ActionWork {
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let daemon = services.daemon
@@ -82,12 +83,13 @@ enum AgentSessionWorkspace {
         }
         // A chat its tab would refuse (or, before localHost resolves, could not bind) makes no workspace: made first, its row listed and closed again (Leo, 2026-11-05).
         if let refusal = WorkspaceCreation.sessionTabRefusal(host: host, on: daemon, tabs: services.agentTabs) { throw ActionFailure(message: refusal) }
-        let placed = expectPlacement(key.rawValue, group: group, top: top, parent: parent, windows: windows)
+        let claimedWindow = windows.claims.claimForCaller(key.rawValue, window: callerWindow, shows: focus, in: windows.registry.value) ? callerWindow : nil
+        let placed = expectPlacement(key.rawValue, group: group, top: top, parent: parent, window: claimedWindow, windows: windows)
         // The lineage parent before the row lists, so the row nests under its caller from its first frame, never moves under it later.
         SidebarSessionTreeFeed.shared.recordedParents.record(parent, of: AgentSessionParents.identity(host: targetHost, session: session))
         // No group: workspace and chat show now (P4) with Cmd-N's pending row at their slot, in a window whose space lists them (never drawn elsewhere first).
         let tabs = services.agentTabs, machine = MachineID(daemon.machineID), shownName = name ?? defaultName ?? SidebarMapping.nextWorkspaceName(in: daemon.store, reserved: PendingWorkspaceRows.shared.reservedNames(on: machine) { services.workspace(id: $0) != nil }), membership = WindowProfiles.membership(services.machines)
-        let window = (group == nil && tabs.showsWorkspaceAtOnce(on: daemon) && AgentTabStore.hostRefusal(host, localHost: tabs.localHost, chiefHost: tabs.chiefHost, daemonIsLocal: daemon.isLocal) == nil ? windows.registry.value.mostRecentOpen() : nil).flatMap { window in membership.flatMap { membership in daemon.store.registryID.map { membership.contains(.init(session: $0, key: key.rawValue), in: windows.controller(for: window)?.state.profileID ?? .defaultProfile) } } ?? true ? window : nil }
+        let window = (group == nil && tabs.showsWorkspaceAtOnce(on: daemon) && AgentTabStore.hostRefusal(host, localHost: tabs.localHost, chiefHost: tabs.chiefHost, daemonIsLocal: daemon.isLocal) == nil ? claimedWindow ?? windows.registry.value.mostRecentOpen() : nil).flatMap { window in membership.flatMap { membership in daemon.store.registryID.map { membership.contains(.init(session: $0, key: key.rawValue), in: windows.controller(for: window)?.state.profileID ?? .defaultProfile) } } ?? true ? window : nil }
         let instant = window.flatMap { window in PendingWorkspaceRows.shared.add(creating: key.rawValue, window: window, machine: machine, name: shownName, opensPage: true, slot: placed.slot, byDefault: placed.rule, unpinned: true); return tabs.showWorkspace(key, name: shownName, index: nil, cwd: nil, token: nil, session: (session, host, true), firstTabKeyed: true, on: daemon, repair: repair) }
         return Task { @MainActor in
             do {
@@ -123,8 +125,10 @@ enum AgentSessionWorkspace {
                 logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in workspace \(key.rawValue, privacy: .public) tab \(tab, privacy: .public)")
                 return nil
             } catch let refusal as AgentTabRefusal {
+                if claimedWindow != nil { _ = windows.createFailed(key.rawValue, refusal) }
                 return ActionWorkFailure("agent.openSessionWorkspace: \(refusal.message)")
             } catch {
+                if claimedWindow != nil { _ = windows.createFailed(key.rawValue, error) }
                 logger.error("agent.openSessionWorkspace failed: \(String(describing: error), privacy: .public)")
                 return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
             }
@@ -139,7 +143,7 @@ enum AgentSessionWorkspace {
     /// Returns the slot and the default rule it registered (a stand-in's pending row takes them).
     @discardableResult
     @MainActor static func expectPlacement(_ id: String, group: String?, top: Bool, parent: AgentSessionParents.Identity?,
-                                           windows: WindowManager) -> (slot: WorkspaceSlot?, rule: NewWorkspaceDefaultSlot?) {
+                                           window: String? = nil, windows: WindowManager) -> (slot: WorkspaceSlot?, rule: NewWorkspaceDefaultSlot?) {
         // The placement is cmux-window-rules `chat::agent::session_placement`; no answer places it like Cmd-N.
         let placement = WindowRules().sessionPlacement(group: group != nil, top: top)
         var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
@@ -158,10 +162,10 @@ enum AgentSessionWorkspace {
         let defaultSlot: WindowRules.SessionPlacement.DefaultSlot? = if let placement { placement.defaultSlot } else { .newWorkspace }
         let rule: NewWorkspaceDefaultSlot? = switch defaultSlot {
         case .top?: NewWorkspaceDefaultSlot(placement: .top, current: nil, named: true)
-        case .newWorkspace?: NewWorkspacePlacements.rule(for: nil, in: windows)
+        case .newWorkspace?: NewWorkspacePlacements.rule(for: window, in: windows)
         case nil: nil
         }
-        NewWorkspacePlacements.expect(id, in: nil, slot: slot, byDefault: rule, then: join, windows: windows)
+        NewWorkspacePlacements.expect(id, in: window, slot: slot, byDefault: rule, then: join, windows: windows)
         return (slot, rule)
     }
 

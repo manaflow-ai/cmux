@@ -12,6 +12,28 @@ extension AppActionContext {
     var store: DaemonStore { services.activeDaemon.store }
     var activeWindow: WindowController? { services.windows.active }
 
+    /// A control caller's own window while it is open (a Chief turn's: where it was prompted, #32989); nil for a person.
+    func callerWindow(_ invocation: ActionInvocation) -> WindowController? {
+        invocation.callerWindow.flatMap { services.windows.registry.value.window($0)?.isOpen == true ? services.windows.controller(for: $0) : nil }
+    }
+
+    /// The window a new workspace of `invocation` opens in: the caller's, else the active one.
+    func createWindow(_ invocation: ActionInvocation) -> WindowController? { callerWindow(invocation) ?? activeWindow }
+
+    /// What a create is placed next to: its target, else what the caller's window shows (nil: none, so the create
+    /// goes to that window, never the active one's), else the active window's workspace.
+    func createAnchorIfAny(_ invocation: ActionInvocation) throws -> WorkspaceModel? {
+        guard (invocation.target ?? invocation["workspace"]?.targetValue)?.kind != .workspace, let caller = callerWindow(invocation) else {
+            return try workspace(invocation).model
+        }
+        return caller.state.workspaceID.flatMap(services.workspace(id:)).flatMap { $0.key == nil ? nil : $0 }
+    }
+
+    func createAnchor(_ invocation: ActionInvocation) throws -> WorkspaceModel {
+        guard let anchor = try createAnchorIfAny(invocation) else { throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn) }
+        return anchor
+    }
+
     /// Throws unless the daemon serves `capability`.
     func require(_ capability: String) throws {
         let daemon = services.activeDaemon

@@ -97,7 +97,7 @@ impl Mux {
             intent.set("split_reservation", json!({ "split_id": split_id }));
         }
         if topology_effect_may_create_workspace(operation) {
-            let mutation = context.mutation.reservation();
+            let mutation = context.mutation.workspace_reservation();
             let workspace_key = fields
                 .get("workspace_key")
                 .and_then(Value::as_str)

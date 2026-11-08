@@ -464,6 +464,7 @@ test, fmt and clippy on rbx.
 | Answer a Chief question (`conversation-op question.answer`) | **Answer** > sheet > **Send Answer** (Face ID) | works | Signed `cmux-mobile-chief-answer-v1` approval, checked and stripped by hostd. Failures say why ("Not sent: Face ID was cancelled.", "Chief no longer needs this answer.", "Couldn't confirm. Chief may have it." + Check). code-checked; live pending |
 | Skip a Chief question | — | missing | The phone has no decline for a Chief question. |
 | "Open traces", "Show memory", New Chief…, Archive Chief | text: "Chief's memory and traces open on the Mac." | not from a phone | |
+| A Chief's new workspaces open in the window it was prompted from; `cmux workspace create --window` | — | not from a phone | Mac-only chrome: the phone has no windows. A Chief prompted from the phone keeps the Mac's default (the window last prompted from, else the most recent one). |
 | Cloud desktop / "Open Desktop" | Chief info > **Computer** (live screen, view only; asleep, waking or unavailable states) | partial | View only: no input reaches the machine from the phone. code-checked; live pending |
 
 ### 4. Feed: questions and permissions

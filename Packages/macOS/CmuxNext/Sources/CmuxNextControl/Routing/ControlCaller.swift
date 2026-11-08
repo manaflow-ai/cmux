@@ -1,4 +1,4 @@
-import CmuxNextSettings
+public import CmuxNextSettings
 import Foundation
 
 /// Who sent a control request (`caller`): the acpmux agent session the cmux
@@ -74,9 +74,13 @@ struct ControlCallerLocation: Sendable, Equatable {
     }
 
     /// The Home workspace's docked chat tab (page `home-dock`, HomeDock.page),
-    /// for a Chief turn whose own session the topology does not show.
+    /// for a Chief turn whose own session the topology does not show: the Home of the
+    /// window the person prompted the Chief from first (#32989), else the first Home.
     static func homeChat(_ caller: ControlCaller, in topology: ControlTopology) -> Self? {
-        for workspace in topology.workspaces where workspace.kind == "home" {
+        let prompted = topology.chiefPromptWindowID.flatMap { id in topology.windows.first { $0.id == id } }
+        let homes = topology.workspaces.filter { $0.kind == "home" }
+        let ordered = homes.filter { prompted?.workspaceIDs.contains($0.id) == true } + homes.filter { prompted?.workspaceIDs.contains($0.id) != true }
+        for workspace in ordered {
             for screen in workspace.screens {
                 for pane in screen.panes {
                     guard let tab = pane.tabs.first(where: { $0.page == "home-dock" }) else { continue }
@@ -144,10 +148,26 @@ struct ControlCallerLocation: Sendable, Equatable {
         return beside.tabs.first?.id
     }
 
-    var callerJSON: JSONValue {
+    var callerJSON: JSONValue { callerJSON(window: nil) }
+
+    /// `callerJSON` with `window`: the window the caller's new workspaces open in (`window(for:in:)`).
+    func callerJSON(window: ControlWindowInfo?) -> JSONValue {
         ["is_caller": true, "agent_session": .optional(caller.agentSession), "terminal_id": .optional(caller.terminalID),
          "workspace": .string(workspace.publicID), "screen": .string(screen.id), "pane": .string(pane.id), "tab": .string(tab.id),
-         "column": pane.column.map { JSONValue($0) } ?? .null]
+         "column": pane.column.map { JSONValue($0) } ?? .null, "window": .optional(window?.publicID)]
+    }
+
+    /// The window `caller`'s new workspaces open in (#32989): for a Chief turn, the window the
+    /// person prompted it from; else the window that lists the caller's own workspace. Nil when
+    /// neither is known (the most recent window takes it, as before).
+    static func window(for caller: ControlCaller, location: Self?, in topology: ControlTopology) -> ControlWindowInfo? {
+        // A turn whose own chat the topology shows is placed by it; one placed by the Home chat
+        // fallback is wherever the person prompted it.
+        if caller.homeChat, own(caller, in: topology) == nil,
+           let id = topology.chiefPromptWindowID, let prompted = topology.windows.first(where: { $0.id == id }) {
+            return prompted
+        }
+        return location.flatMap { topology.window(listing: $0.workspace.id) }
     }
 
     /// `beside`: the column the caller's new tabs open in, or `null` pane with
@@ -179,7 +199,7 @@ struct ControlCallerLocation: Sendable, Equatable {
                                  "terminal_id": .optional(caller.terminalID), "found": false]
             return
         }
-        members["caller"] = location.callerJSON
+        members["caller"] = location.callerJSON(window: window(for: caller, location: location, in: topology))
         members["beside"] = location.besideJSON
         // The browser its `current` browser commands drive (#26648), in its own session: the
         // daemon the CLI and MCP address.
@@ -187,7 +207,29 @@ struct ControlCallerLocation: Sendable, Equatable {
     }
 }
 
+/// The window a request's `caller` creates workspaces in (`workspace.expect_window`, #32989).
+public struct ControlCallerWindow: Sendable, Equatable {
+    /// The window's record id (`ControlWindowInfo.id`).
+    public var id: String
+
+    /// The window of `params`' `caller` in `topology`; nil when it names none or none is known.
+    /// A malformed caller is refused.
+    public init?(params: [String: JSONValue], in topology: ControlTopology) throws {
+        guard let caller = try ControlCaller(params) else { return nil }
+        let location = ControlCallerLocation.resolve(caller, in: topology)
+        guard let window = ControlCallerLocation.window(for: caller, location: location, in: topology) else { return nil }
+        id = window.id
+    }
+}
+
 extension ControlRouter {
+    /// The window `request`'s caller creates workspaces in (``ControlCallerLocation/window(for:location:in:)``).
+    static func callerWindow(of request: ControlActionRequest, in topology: ControlTopology) -> String? {
+        guard request.callerAgentSession != nil || request.callerTerminal != nil || request.callerHomeChat else { return nil }
+        let caller = ControlCaller(agentSession: request.callerAgentSession, terminalID: request.callerTerminal, homeChat: request.callerHomeChat)
+        return ControlCallerLocation.window(for: caller, location: ControlCallerLocation.resolve(caller, in: topology), in: topology)?.id
+    }
+
     /// The actions `beside_caller` places (phase 1: the browser and the diff viewer).
     static let besideCallerActions: Set<String> = ["openBrowser", "openDiffViewer"]
 

@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextLayout
 import CmuxNextSettings
 import CmuxNextSidebar
 
@@ -60,9 +61,10 @@ enum NewWorkspacePlacements {
     }
 
     /// A new workspace's key, placed like Cmd-N's on any machine: a create with no slot of its own never lands at its daemon's.
-    static func placedKey(in windows: WindowManager) -> WorkspaceKey {
+    static func placedKey(in windows: WindowManager, claimingFor caller: String? = nil, shows: Bool = false) -> WorkspaceKey {
         let key = WorkspaceKey.generate()
-        expect(key.rawValue, in: nil, byDefault: rule(for: nil, in: windows), windows: windows)
+        let window = windows.claims.claimForCaller(key.rawValue, window: caller, shows: shows, in: windows.registry.value) ? caller : nil
+        expect(key.rawValue, in: window, byDefault: rule(for: window, in: windows), windows: windows)
         return key
     }
 

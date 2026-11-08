@@ -117,6 +117,8 @@ pub(crate) use journal_extensions::{
     JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan, JournalHookState,
     JournalSegmentSealCommit, JournalSegmentSealStart,
 };
+#[cfg(test)]
+pub(crate) use mutation_ledger::WORKSPACE_RESERVATION_SUFFIX;
 pub(crate) use mutation_ledger::insert_resource_mutation;
 pub use mutation_ledger::{Actor, WorkspaceMutation};
 pub use personal_browser_profiles::{BrowserProfileInput, BrowserProfileUpdate};

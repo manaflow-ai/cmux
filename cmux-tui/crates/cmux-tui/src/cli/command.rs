@@ -3436,6 +3436,23 @@ mod tests {
     }
 
     #[test]
+    fn workspace_create_window_is_taken_out_before_the_daemon_request() {
+        // #32989: `--window` names the app's window, which the daemon has no field for.
+        let mut plan = protocol(&["workspace", "create", "--window", "win_0123"]);
+        assert!(crate::cli::create_window::applies(&plan));
+        assert_eq!(plan.params["window"], "win_0123");
+        assert_eq!(crate::cli::create_window::take_window(&mut plan).as_deref(), Some("win_0123"));
+        assert!(plan.params.get("window").is_none(), "the daemon request carries no window");
+        // A plain create has none to take.
+        let mut plain = protocol(&["workspace", "create"]);
+        assert_eq!(crate::cli::create_window::take_window(&mut plain), None);
+        assert!(
+            parse(&strings(&["workspace", "create", "--window="]), super::super::Surface::CmuxTui)
+                .is_err()
+        );
+    }
+
+    #[test]
     fn creation_correlation_is_bounded_and_scoped() {
         let correlated =
             protocol(&["workspace", "create", "--correlation-key", "creation-attempt-1"]);

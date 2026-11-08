@@ -3,8 +3,10 @@ import CmuxNextActions
 import CmuxNextAppCore
 import CmuxNextBridge
 import CmuxNextCompat
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextLayout
+import CmuxNextSettings
 import Observation
 
 // Window membership transitions. Every change goes through `transition`,
@@ -550,6 +552,8 @@ extension WindowManager {
     private func installWorkspaceListHook(on daemon: DaemonService) {
         guard daemon.store.onWorkspaceListChanged == nil else { return }
         daemon.store.onWorkspaceListChanged = { [weak self] in self?.reconcileMembership() }
+        // A CLI create announced by `workspace.expect_window` opens in its window, not the most recent (#32989).
+        daemon.store.onResourceWorkspaceAdded = { [weak self] id, key in _ = self.map { $0.claims.claimExpected(id, key: key, in: $0.registry.value) } }
     }
 
     /// True when `id` is known gone: its machine is loaded and lacks it, or
@@ -607,5 +611,21 @@ extension WindowManager {
         let follows = personal.follows.map { "\($0.key.rawValue)>\($0.value.sorted().joined(separator: "+"))" }.sorted()
         return "\(personal.isLoaded)|" + pins.joined(separator: ",") + "|" + follows.joined(separator: ",") + "|"
             + daemon.store.profileIDs.map(\.rawValue).joined(separator: ",")
+    }
+}
+
+/// `workspace.expect_window` (``ControlWorkspaceWindowExpectation``, #32989): an announced CLI create's window.
+extension WindowManager {
+    func expectWindowControlMethods() -> [ControlMethod] {
+        [.mainActor(ControlWorkspaceWindowExpectation.method) { [weak self] call in
+            guard let self else { return .value(["window": .null]) }
+            return .value(try expectCreate(call.params, topology: call.snapshot.topology))
+        }]
+    }
+
+    func expectCreate(_ params: [String: CmuxNextSettings.JSONValue], topology: ControlTopology) throws -> CmuxNextSettings.JSONValue {
+        let expected = try ControlWorkspaceWindowExpectation(params: params, in: topology) { registry.value.window($0)?.isOpen == true }
+        if let window = expected.window { claims.expected.expect(key: expected.key, window: window, shows: expected.shows) }
+        return expected.reply
     }
 }

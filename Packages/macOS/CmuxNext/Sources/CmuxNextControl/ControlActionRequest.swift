@@ -27,6 +27,10 @@ public struct ControlActionRequest: Sendable, Hashable {
     public var callerTerminal: String?
     /// `caller.home_chat`: a Chief turn, whose chat is the Home chat (ControlCaller).
     public var callerHomeChat = false
+    /// The window the caller's new workspaces open in (a Chief turn's prompting window, else the
+    /// window listing the caller's own workspace; ControlCallerLocation.window), set by the router
+    /// from the topology; nil when no caller or none is known (#32989).
+    public var callerWindow: String?
     public var besideCaller = false
     /// That column does not exist: the target is the chat itself, and the
     /// handler moves the new tab into a new column right of it.

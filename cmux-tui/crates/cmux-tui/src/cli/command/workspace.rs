@@ -3,7 +3,9 @@
 //! `--`), as classic `cmux new-workspace --cwd --command` did. It opens in
 //! the background unless `--focus` is given, and goes where
 //! `workspaces.newPlacement` puts it unless `--top` puts it first; run from a
-//! cmux terminal, below that terminal's workspace.
+//! cmux terminal, below that terminal's workspace. It opens in the caller's
+//! window (a Chief turn's: the window it was prompted from) unless `--window`
+//! names another (cli/create_window.rs, #32989).
 
 use super::*;
 
@@ -40,6 +42,14 @@ pub(super) fn workspace_create(
         // (ask-48544d7525). A place hint only; an older daemon gets the
         // request without it (wire/workspace_created_by.rs).
         params.insert("created_by".into(), json!({"kind": "script", "workspace": key}));
+    }
+    // The app's window, not a daemon param: taken out before the request is
+    // sent, and announced to the app (cli/create_window.rs).
+    if let Some(window) = flags.take("window") {
+        if window.is_empty() {
+            return Err(UsageError::new("--window needs a window id (win_…)"));
+        }
+        params.insert(crate::cli::create_window::WINDOW_PARAM.into(), Value::String(window));
     }
     // The daemon refuses these with --empty: there is no terminal to launch.
     if let Some(cwd) = flags.take("cwd") {

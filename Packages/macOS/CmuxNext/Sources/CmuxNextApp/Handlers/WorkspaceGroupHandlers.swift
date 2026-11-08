@@ -68,7 +68,7 @@ enum WorkspaceGroupHandlers {
         ActionTargetVisibility.hide("removeWorkspaceFromGroup", in: registry) { (try? context.workspace($0).model).map { (try? WorkspaceVerbHandlers.group(of: $0, context)) == nil } ?? false }
         ActionTargetVisibility.hide("groupSelectedWorkspaces", in: registry) { ((try? WindowMembershipHandlers.workspaces($0, context).count) ?? 0) < 2 }
         registry.bind("workspaceGroup.newWorkspace", requires: DaemonCapability.profiles.rawValue, daemon: home, run: { invocation in
-            try newPersonalWorkspace(in: context.group(invocation).id, newTabPage: invocation.origin == .user, context)
+            try newPersonalWorkspace(in: context.group(invocation).id, newTabPage: invocation.origin == .user, invocation, context)
         })
         registry.bind("workspaceGroup.newSubgroup", run: { invocation in
             // A document group (a nested one too) may have no personal-store row: the target's id is enough.
@@ -189,9 +189,9 @@ enum WorkspaceGroupHandlers {
     /// New workspace in the window's room, made on the machine the group's workspaces run on
     /// (`GroupSpawnHost`: a group in a remote host's section stays on that host), then into
     /// personal group `id`. A remote host that is not connected refuses instead of making it here.
-    private static func newPersonalWorkspace(in id: WorkspaceGroupID, newTabPage: Bool, _ context: AppActionContext) throws {
+    private static func newPersonalWorkspace(in id: WorkspaceGroupID, newTabPage: Bool, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
         let windows = context.services.windows
-        let target = windows.targetWindow(preferring: windows.active?.state.id)
+        let target = windows.targetWindow(preferring: context.createWindow(invocation)?.state.id) // a caller's own window (#32989)
         let machines = context.services.machines, local = machines.local
         let homes = context.workspaces(inPersonalGroup: id).compactMap { member in
             machines.daemons.first { daemon in daemon.store.workspaces.contains { $0.id == member.id } }
