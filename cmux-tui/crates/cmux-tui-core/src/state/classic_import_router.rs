@@ -317,10 +317,10 @@ impl Record {
 
 /// `bad request: ...` failures are the caller's input (`validation.invalid`).
 fn record_error(error: anyhow::Error) -> ResourceError {
-    if error.downcast_ref::<ResourceError>().is_none() {
-        if let Some(reason) = error.to_string().strip_prefix("bad request: ") {
-            return ResourceError::validation_invalid(None, reason);
-        }
+    if error.downcast_ref::<ResourceError>().is_none()
+        && let Some(reason) = error.to_string().strip_prefix("bad request: ")
+    {
+        return ResourceError::validation_invalid(None, reason);
     }
     resource_operation_error(error)
 }
