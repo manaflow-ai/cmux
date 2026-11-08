@@ -166,6 +166,12 @@ import PackageDescription
 // past the grid (RESIZE P0 13). An old-grid frame (a program that repaints
 // for the size it read before the change) no longer ends cmux's hold.
 //
+// Since 8e881185b..7a372c740 (release/cmux-538a3e2e-resize-p0-16): a full
+// clear that begins a picture no longer reaches the last row by itself; the
+// picture reaches it once the program printed on the grid's last two rows.
+// ncurses (htop) writes its repaint after the clear in several reads, so the
+// first read's end showed a nearly empty frame (RESIZE P0 16).
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -189,8 +195,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-8e881185b5afaf587df13356030e206aada4f1f8-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "14c3f1ff076cce97f37772f59549cf6de63e71a2a7850e76890f9f506c98c8d3"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-7a372c74075f9194900ee401b699d02d8fee5f9c-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "2e754da266ce884619ae777dd983a426e47ce24ad35e83c257829790abf74af9"
         ),
     ]
 )

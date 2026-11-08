@@ -12,6 +12,17 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### A clear does not draw the grid (ghostty-next)
+
+- Release branch `release/cmux-538a3e2e-resize-p0-16` at `7a372c740` (red test `b3cd3811c`, on `8e881185b`); the pin is
+  that branch until it and #86, #87 and #88 merge to fork `main`.
+- What: a full clear (ED 2, ED 0 from home) outside a synchronized update begins a picture and reaches only the last
+  column. The picture reaches the last row when the program prints on it or moves there, or at a read's end when the
+  grid's last two rows have text (`Terminal.programDrewBottomRows`). Other erases to the end reach both edges as before.
+  ncurses programs (htop) write their repaint after the clear in several reads; the first read's end no longer marks
+  the grid drawn.
+- Conflict notes: `src/terminal/Terminal.zig` (`eraseDisplay`, `programOutputEnd`, `ProgramRedraw.cleared`).
+
 ### READY_PROGRAM means the program redrew the whole new grid (ghostty-next)
 
 - Fork PR #88 (`resize-p0-13-ready`, head `8e881185b`, stacked on #87 `2db2ea423`); the pin is the release branch
