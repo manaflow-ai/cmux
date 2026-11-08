@@ -533,6 +533,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/review_brief",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/review_verdict",
       "params": true,
       "result": true
