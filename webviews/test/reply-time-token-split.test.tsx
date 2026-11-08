@@ -32,7 +32,10 @@ const CLAUDE_58 = {
   outputTokens: 23_702,
   contextTokens: 125_327,
   modelCalls: 58,
+  inputExcludesCache: true,
 };
+const CLAUDE_CHAT = { harness: "claude", family: "claude" };
+const CODEX_CHAT = { harness: "codex", family: "codex" };
 
 test("a multi-call Claude turn: its input is counted once, uncached apart from cached, with its context", () => {
   const split = resultTokenSplit(CLAUDE_58)!;
@@ -69,12 +72,16 @@ test("the running turn adds its calls up and keeps the main loop's newest contex
 test("a Codex turn: acpmux takes the cached part out of its input, and its context is its last call's", () => {
   // A Codex turn of 22 calls (its rollout's token_count last_token_usage, added up): input 3,336,595
   // of which 3,021,696 cached; its last call held 170,568 in and 173 out.
-  const split = resultTokenSplit({
-    inputTokens: 314_899,
-    cacheReadTokens: 3_021_696,
-    outputTokens: 4_017,
-    contextTokens: 170_741,
-  })!;
+  const split = resultTokenSplit(
+    {
+      inputTokens: 314_899,
+      cacheReadTokens: 3_021_696,
+      outputTokens: 4_017,
+      contextTokens: 170_741,
+      inputExcludesCache: true,
+    },
+    CODEX_CHAT,
+  )!;
   expect(uncachedTokens(split)).toBe(314_899);
   expect(cachedTokens(split)).toBe(3_021_696);
   expect(split.calls).toBeUndefined();
@@ -86,11 +93,44 @@ test("a Codex turn: acpmux takes the cached part out of its input, and its conte
 });
 
 test("a turn an older acpmux recorded draws no context and no call count", () => {
-  const { contextTokens: _context, modelCalls: _calls, ...older } = CLAUDE_58;
-  expect(tokenRows(t, "en", resultTokenSplit(older)!)).toEqual([
+  const { contextTokens: _context, modelCalls: _calls, inputExcludesCache: _mark, ...older } = CLAUDE_58;
+  expect(tokenRows(t, "en", resultTokenSplit(older, CLAUDE_CHAT)!)).toEqual([
     "Output 23.7K",
     "Input across calls 124.7K uncached · 4.5M cached",
   ]);
+});
+
+// The same Codex turn as an older acpmux recorded it: its input whole, the cache's reads in it, and
+// no `inputExcludesCache` mark (Codex's ACP usage, copied as it came).
+const OLD_CODEX = { inputTokens: 3_336_595, cacheReadTokens: 3_021_696, outputTokens: 4_017 };
+
+test("an older acpmux's Codex turn counts its cached input once: 314.9K uncached, not 3.3M", () => {
+  const old = resultTokenSplit(OLD_CODEX, CODEX_CHAT)!;
+  expect(uncachedTokens(old)).toBe(314_899);
+  expect(cachedTokens(old)).toBe(3_021_696);
+  expect(tokenRows(t, "en", old)).toEqual(["Output 4K", "Input across calls 314.9K uncached · 3M cached"]);
+  // Another family's ACP record (Gemini's) is read the same way.
+  expect(uncachedTokens(resultTokenSplit(OLD_CODEX, { harness: "gemini", family: "gemini" })!)).toBe(314_899);
+  // The marked record of that turn already left the cache out: it is not taken out again.
+  const marked = resultTokenSplit({ ...OLD_CODEX, inputTokens: 314_899, inputExcludesCache: true }, CODEX_CHAT)!;
+  expect(marked).toEqual(old);
+});
+
+test("an older acpmux's Claude turn keeps its input, which was always the fresh part alone", () => {
+  const { inputExcludesCache: _mark, ...older } = CLAUDE_58;
+  // By the chat's harness, by a Claude leaf family, and with no chat named, by the record's model.
+  for (const chat of [CLAUDE_CHAT, { harness: "sr2", family: "claude-sr2" }, { harness: "claude-acp" }])
+    expect(uncachedTokens(resultTokenSplit(older, chat)!)).toBe(124_728);
+  expect(uncachedTokens(resultTokenSplit({ ...older, model: "claude-opus-4-5" })!)).toBe(124_728);
+  // A Codex chat's unmarked record had the cache in its input: that one has it taken out.
+  expect(uncachedTokens(resultTokenSplit(OLD_CODEX, CODEX_CHAT)!)).toBe(314_899);
+});
+
+test("an unmarked record that names no harness and no Claude model can never count the cache twice", () => {
+  // opencode on a Claude model is filed under family "claude" with its own usage: not a Claude.
+  for (const chat of [undefined, {}, { harness: "opencode", family: "claude" }])
+    expect(uncachedTokens(resultTokenSplit(OLD_CODEX, chat)!)).toBe(314_899);
+  expect(uncachedTokens(resultTokenSplit({ ...OLD_CODEX, model: "gpt-5.1-codex" })!)).toBe(314_899);
 });
 
 test("the reply time's tooltip: its time, then one count per row", () => {

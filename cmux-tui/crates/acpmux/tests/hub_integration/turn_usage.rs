@@ -54,6 +54,9 @@ async fn turn_usage_records_each_claude_turn_and_the_session_totals() {
     for turn in &turns {
         assert_eq!(spend(turn), one, "{turn}");
         assert_eq!(turn["model"], model, "{turn}");
+        // Its input is the fresh part alone, and the record says so: an older acpmux's
+        // unmarked ACP record counted the cache's reads in it (webviews tokenSplit.ts).
+        assert_eq!(turn["inputExcludesCache"], true, "{turn}");
     }
     let two = json!({"costUsd": 0.5, "inputTokens": 200, "outputTokens": 40,
                      "cacheReadTokens": 600, "cacheWriteTokens": 80});
@@ -209,6 +212,8 @@ async fn turn_usage_of_a_harness_that_reports_none_is_absent() {
     let turns = turn_results(&hub, &id);
     assert_eq!(turns.len(), 1, "{turns:?}");
     assert_eq!(spend(&turns[0]), json!({}), "{}", turns[0]);
+    // No input counted, so nothing to mark.
+    assert!(turns[0].get("inputExcludesCache").is_none(), "{}", turns[0]);
     assert!(saved(&hub, &id).get("totals").is_none(), "{}", saved(&hub, &id));
     let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
     assert!(info["totals"].is_null(), "{info}");

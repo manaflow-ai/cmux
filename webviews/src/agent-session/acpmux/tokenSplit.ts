@@ -34,18 +34,44 @@ export function callTokenSplit(update: any, output: number | undefined): TurnTok
   };
 }
 
+/// The chat a `turn_result` is from, as acpmux's session summary names it.
+export type ResultHarness = { harness?: string; family?: string };
+
+/// Whether a `turn_result`'s `inputTokens` is its fresh input alone. acpmux marks every record it
+/// writes so (`inputExcludesCache`, hub/turn_usage.rs). An older acpmux wrote no mark: its Claude
+/// records were fresh-only too (Claude names its input, cache reads and cache writes apart), but its
+/// ACP records (Codex's, Gemini's) counted the cache in the input, so a Codex turn of 314.9K fresh
+/// and 3M cached read "3.3M uncached". A Claude chat is one whose harness is a Claude (`claude`,
+/// `claude-acp`) or whose family is a Claude leaf (`claude-sr2`); plain family `claude` alone is
+/// not one, as opencode on a Claude model is filed under it with its own usage. With no chat named,
+/// the record's model names a Claude. A record that says none of it is read as counting its cache,
+/// the reading that can never count a token twice: at worst it shows a Claude turn's uncached input
+/// low, never a Codex turn's cached reads again as uncached.
+function inputIsFresh(msg: any, chat: ResultHarness | undefined): boolean {
+  if (msg?.inputExcludesCache === true) return true;
+  const harness = chat?.harness?.trim().toLowerCase();
+  const family = chat?.family?.trim().toLowerCase();
+  if (harness || family) return !!harness?.startsWith("claude") || !!family?.startsWith("claude-");
+  return typeof msg?.model === "string" && /claude|opus|sonnet|haiku/i.test(msg.model);
+}
+
 /// A `turn_result`'s tokens (acpmux hub/turn_usage.rs), when it names its output and has any (an
 /// all-zero result is an empty turn, with nothing to show), with its context and model calls when
-/// the daemon names them (an older one does not).
-export function resultTokenSplit(msg: any): TurnTokenSplit | undefined {
+/// the daemon names them (an older one does not). Its input is the fresh part alone: an older
+/// acpmux's unmarked record of a harness that counted its cache in it has the cache taken out
+/// (`inputIsFresh`), at no less than none.
+export function resultTokenSplit(msg: any, chat?: ResultHarness): TurnTokenSplit | undefined {
   if (typeof msg?.outputTokens !== "number") return undefined;
   const context = positive(msg.contextTokens);
   const calls = positive(msg.modelCalls);
+  const cacheRead = tokenCount(msg.cacheReadTokens);
+  const cacheWrite = tokenCount(msg.cacheWriteTokens);
+  const input = tokenCount(msg.inputTokens);
   const split: TurnTokenSplit = {
     output: tokenCount(msg.outputTokens),
-    input: tokenCount(msg.inputTokens),
-    cacheRead: tokenCount(msg.cacheReadTokens),
-    cacheWrite: tokenCount(msg.cacheWriteTokens),
+    input: inputIsFresh(msg, chat) ? input : Math.max(0, input - cacheRead - cacheWrite),
+    cacheRead,
+    cacheWrite,
     ...(context !== undefined ? { context } : {}),
     ...(calls !== undefined ? { calls } : {}),
   };

@@ -34,10 +34,14 @@ use super::{Session, current_model};
 use crate::store::TurnUsage;
 use serde_json::{Map, Value, json};
 
+/// The `turn_result` field that says its `inputTokens` leaves out the cache's
+/// reads and writes (what every turn this acpmux records does).
+pub(super) const INPUT_EXCLUDES_CACHE: &str = "inputExcludesCache";
+
 /// The turn's `turn_result` fields for a prompt `result` (`model`, then any
 /// of `costUsd`, `inputTokens`, `outputTokens`, `cacheReadTokens` and
 /// `cacheWriteTokens`, added to the session's totals as they are taken, and
-/// `contextTokens` and `modelCalls`, which are not).
+/// `contextTokens`, `modelCalls` and `inputExcludesCache`, which are not).
 pub(super) fn turn_usage(session: &Session, result: &Value) -> Map<String, Value> {
     let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
     let mut fields = Map::new();
@@ -87,6 +91,12 @@ pub(super) fn turn_usage(session: &Session, result: &Value) -> Map<String, Value
     meta.totals.get_or_insert_with(TurnUsage::default).add(&turn);
     if let Ok(Value::Object(spent)) = serde_json::to_value(&turn) {
         fields.extend(spent);
+    }
+    // Its `inputTokens` is the fresh input alone, for every harness. An older acpmux stored an
+    // ACP harness's (Codex's, Gemini's) input whole, its cached reads in it, and wrote no mark:
+    // clients read an unmarked record by its harness (webviews tokenSplit.ts).
+    if turn.input_tokens.is_some() {
+        fields.insert(INPUT_EXCLUDES_CACHE.into(), Value::Bool(true));
     }
     if let Some(context) = context.filter(|c| *c > 0) {
         fields.insert("contextTokens".into(), json!(context));

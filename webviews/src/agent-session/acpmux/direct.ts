@@ -7396,6 +7396,11 @@ export class AcpmuxDirectClient {
           this.endedTurns.add(turnId);
           if (this.runningTurnId === turnId) this.runningTurnId = undefined;
         }
+        // An older acpmux's record is read by the chat's harness (tokenSplit.ts `inputIsFresh`).
+        const resultTokens =
+          event.kind === "turn_result"
+            ? resultTokenSplit(msg, { harness: this.summary?.harness, family: this.summary?.family })
+            : undefined;
         if (event.kind === "turn_result")
           this.rows.set(summaryId, {
             id: summaryId,
@@ -7407,7 +7412,7 @@ export class AcpmuxDirectClient {
             ...(event.seq >= 1 ? { seq: event.seq } : {}),
             ...(turnId ? { turnId } : {}),
             ...this.turnTotals(event.at),
-            ...(event.kind === "turn_result" && resultTokenSplit(msg) ? { tokens: resultTokenSplit(msg) } : {}),
+            ...(event.kind === "turn_result" && resultTokens ? { tokens: resultTokens } : {}),
             status,
             ...(continued ? { continued } : {}),
             // An agent that could not start ends its turn with `error` and no `errorText`

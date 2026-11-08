@@ -674,3 +674,31 @@ test("usage carries acpmux's cache expiry to the card, and a finished compaction
     client.close();
   }
 });
+
+// A Codex turn an older acpmux recorded: its input whole, the cache's reads in it, and no
+// `inputExcludesCache` mark. The summary row reads it by the chat's harness (tokenSplit.ts), so its
+// hover says 314.9K uncached, not 3.3M; the same turn recorded now, marked, reads the same.
+test("a Codex chat's older and marked turn_results count their cached input once", async () => {
+  const turn = (seq: number, result: Record<string, unknown>) =>
+    record(
+      [
+        prompt("fix the build"),
+        started,
+        ["mux", "turn_result", { status: "completed", outputTokens: 4_017, cacheReadTokens: 3_021_696, ...result }],
+      ],
+      seq,
+    );
+  const daemon = fakeDaemon(
+    [...turn(1, { inputTokens: 3_336_595 }), ...turn(4, { inputTokens: 314_899, inputExcludesCache: true })],
+    { harness: "codex", family: "codex" },
+  );
+  const { client, snapshot } = await connect(daemon);
+  try {
+    const summaries = () => snapshot().rows.filter((row: AcpmuxRow) => row.kind === "turnSummary");
+    await until(() => summaries().length === 2, "both turns' ends");
+    const split = { output: 4_017, input: 314_899, cacheRead: 3_021_696, cacheWrite: 0 };
+    expect(summaries().map((row: AcpmuxRow) => row.tokens)).toEqual([split, split]);
+  } finally {
+    client.close();
+  }
+});
