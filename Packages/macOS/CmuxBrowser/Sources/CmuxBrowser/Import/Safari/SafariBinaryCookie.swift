@@ -21,6 +21,12 @@ public struct SafariBinaryCookie: Equatable, Sendable {
     /// Whether Safari recorded the `HttpOnly` attribute.
     public let isHTTPOnly: Bool
 
+    /// Whether the cookie had already expired at `date`. A session cookie never has.
+    public func isExpired(at date: Date) -> Bool {
+        guard let expiresDate else { return false }
+        return expiresDate <= date
+    }
+
     /// Creates a record; the parser is the normal producer, tests the other.
     public init(
         domain: String,

@@ -104,8 +104,9 @@ public struct SafariBinaryCookiesParser: Sendable {
             throw ParseError.invalidPageHeader(pageIndex: pageIndex)
         }
 
+        // No capacity is reserved from `cookieCount`: it comes from the file, and
+        // the result grows only with records that pass the decode budget.
         var cookies: [SafariBinaryCookie] = []
-        cookies.reserveCapacity(cookieCount)
         for cookieIndex in 0..<cookieCount {
             let offset = Int(page.littleEndianUInt32(at: 8 + cookieIndex * 4) ?? 0)
             guard offset <= page.count - Self.cookieFixedHeaderSize,
@@ -127,8 +128,8 @@ public struct SafariBinaryCookiesParser: Sendable {
     }
 
     /// Decodes one record whose size has already been checked against its page.
-    /// Returns `nil` when a string offset points outside the record or a string
-    /// runs to the end of the record without a terminator.
+    /// Returns `nil` when a string offset points into the fixed header or outside
+    /// the record, or a string runs to the end of the record without a terminator.
     ///
     /// A zero or non-finite expiry means a session cookie. A negative expiry is
     /// a real date before 2001 and is kept, so the caller can see the cookie has
@@ -202,11 +203,13 @@ public struct SafariBinaryCookiesParser: Sendable {
         }
 
         /// Reads the little-endian offset stored at `offsetField`, then the
-        /// null-terminated string it points at. A string with no terminator
-        /// before the window ends is a truncated record and yields `nil`;
+        /// null-terminated string it points at. Strings start after the fixed
+        /// cookie header, so an offset inside it is a damaged record and yields
+        /// `nil`, as does a string with no terminator before the window ends;
         /// invalid UTF-8 is replaced rather than rejected.
         func cString(atOffsetStoredAt offsetField: Int) -> String? {
             guard let stringOffset = littleEndianUInt32(at: offsetField).map(Int.init),
+                  stringOffset >= SafariBinaryCookiesParser.cookieFixedHeaderSize,
                   stringOffset < count else {
                 return nil
             }
