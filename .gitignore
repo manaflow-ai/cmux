@@ -106,6 +106,7 @@ Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/
 /webviews/src/ui/featureTips/tips.generated.json
 /webviews/src/ui/theme.generated.css
 /webviews/src/ui/designTokens.generated.ts
+/webviews/src/browser-chrome/omnibox/resolver/top-level-domains.generated.ts
 /webviews/src/pages/home-channels/generated/pane-strings.json
 /webviews/src/pages/changelog/generated/pane-strings.json
 /webviews/src/pages/diff/generated/locales/

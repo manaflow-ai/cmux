@@ -41,6 +41,8 @@ on:
       - "webviews/scripts/gallery/**"
       - "webviews/scripts/agent-pane/**"
       - "webviews/scripts/pages/**"
+      # The omnibar TLD table gen-strings.mjs builds (gen-top-level-domains.mjs).
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Resources/TopLevelDomains.txt"
       - "webviews/test/latency/mock-host.ts"
       - "webviews/vite.config.ts"
       - "webviews/vite.config.gallery.ts"
@@ -96,6 +98,8 @@ on:
       - "webviews/scripts/gallery/**"
       - "webviews/scripts/agent-pane/**"
       - "webviews/scripts/pages/**"
+      # The omnibar TLD table gen-strings.mjs builds (gen-top-level-domains.mjs).
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Resources/TopLevelDomains.txt"
       - "webviews/test/latency/mock-host.ts"
       - "webviews/vite.config.ts"
       - "webviews/vite.config.gallery.ts"

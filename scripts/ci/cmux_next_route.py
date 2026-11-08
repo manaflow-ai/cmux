@@ -240,6 +240,8 @@ BUNDLE_INPUTS = (
     "webviews/reactCompiler.mjs", "webviews/vite.config.ts", "schemas/settings/*",
     # The feature tips' source (webviews/scripts/pages/gen-feature-tips.mjs).
     "release-notes/next/highlights/*",
+    # The omnibar TLD table's source (webviews/scripts/pages/gen-top-level-domains.mjs).
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Resources/TopLevelDomains.txt",
     "Resources/markdown-viewer/marked.min.js",
     "scripts/build-webviews-app.sh", "scripts/check-webviews-bun-version.sh",
     "scripts/cmux-next/build-agent-pane-web.sh", "scripts/cmux-next/build-pages-web.sh",

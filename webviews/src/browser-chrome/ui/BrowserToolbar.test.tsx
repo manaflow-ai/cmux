@@ -2,7 +2,7 @@
 // Back and Forward for history, right-click menus on the profile and machine badges, the badges'
 // tooltips, the focus mode badge's glyph and help, the dimmer hollow star, accessibility ids and
 // extension values, and the chip's drag image.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { readFileSync } from "node:fs";
@@ -63,6 +63,7 @@ function render(node: ReactNode): Document {
 }
 
 afterEach(() => {
+  jest.useRealTimers();
   act(() => root?.unmount());
   root = undefined;
   for (const [key, value] of saved) scope[key] = value;
@@ -99,8 +100,9 @@ test("a press on Back held past the hold time opens its history, and the release
   const sent: BrowserToolbarCommand[] = [];
   const doc = render(toolbar(sent));
   const back = doc.querySelector('[data-toolbar-button="back"]')!;
+  jest.useFakeTimers();
   press(back, "pointerdown");
-  await act(() => new Promise((resolve) => setTimeout(resolve, HOLD_MENU_MS + 50)));
+  await act(async () => void jest.advanceTimersByTime(HOLD_MENU_MS));
   press(back, "pointerup");
   press(back, "click");
   expect(sent).toEqual([{ type: "navigationMenu", direction: "back" }]);
@@ -109,7 +111,7 @@ test("a press on Back held past the hold time opens its history, and the release
   press(back, "pointerdown");
   press(back, "pointerup");
   press(back, "click");
-  await act(() => new Promise((resolve) => setTimeout(resolve, HOLD_MENU_MS + 50)));
+  await act(async () => void jest.advanceTimersByTime(HOLD_MENU_MS));
   expect(sent).toEqual([{ type: "goBack" }]);
 });
 

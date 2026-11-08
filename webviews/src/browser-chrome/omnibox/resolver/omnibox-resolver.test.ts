@@ -1,13 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import { HostTypoMemory } from "../host-typo-fixup";
 import { SEARCH_ENGINES, searchURL } from "../search-engine";
 import { hasFocus, initialOmnibarState } from "../state";
 import { commits, key, run, typed } from "../testing";
-import { parseTopLevelDomains, TLD_SOURCE } from "./gen-top-level-domains";
 import { intranetCandidate, IntranetHostMemory } from "./intranet";
 import { createOmniboxResolver } from "./omnibox-resolver";
-import { isTopLevelDomain, topLevelDomains, TOP_LEVEL_DOMAINS_VERSION } from "./top-level-domains";
+import { isTopLevelDomain, topLevelDomains, TOP_LEVEL_DOMAINS_VERSION } from "./top-level-domains.generated";
 
 describe("OmnibarChromeParityTests", () => {
   test.each([
@@ -125,10 +123,9 @@ describe("host typos", () => {
     expect(resolver.typoFixedURL("ftp://example.con")).toBeNull();
   });
 
-  test("the bundled IANA list matches the Swift resource", () => {
-    const source = parseTopLevelDomains(readFileSync(TLD_SOURCE, "utf8"));
-    expect(TOP_LEVEL_DOMAINS_VERSION).toBe(source.version);
-    expect([...topLevelDomains()].sort()).toEqual([...source.labels].sort());
+  test("the IANA list the build makes from the Swift resource answers top-level domains", () => {
+    expect(TOP_LEVEL_DOMAINS_VERSION).not.toBe("");
+    expect(topLevelDomains().size).toBeGreaterThan(1000);
     expect(isTopLevelDomain("COM")).toBe(true);
     expect(isTopLevelDomain("xn--p1ai")).toBe(true);
     expect(isTopLevelDomain("con")).toBe(false);

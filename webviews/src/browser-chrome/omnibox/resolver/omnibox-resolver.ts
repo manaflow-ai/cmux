@@ -6,7 +6,7 @@ import { trimSpaces } from "../text";
 import type { OmnibarKeyword, OmniboxDestination, OmniboxResolver, SearchEngine } from "../types";
 import { urlHost, urlScheme } from "../url-display";
 import { intranetCandidate, IntranetHostMemory } from "./intranet";
-import { isTopLevelDomain } from "./top-level-domains";
+import { isTopLevelDomain } from "./top-level-domains.generated";
 import { createURLResolver, isLoopback, type URLResolverConfig } from "./url-resolver";
 import { trimWhitespace } from "./url-text";
 

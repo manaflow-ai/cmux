@@ -17,6 +17,9 @@
   --bc-badge-inset: 2px;
   --bc-badge-height: 12px;
   --bc-progress-height: 2px;
+  /* Native metrics off the spacing scale: the focus badge's side padding, the profile symbol's 9 pt glyph. */
+  --bc-badge-focus-padding: 6px;
+  --bc-badge-symbol-size: 9px;
   position: relative;
   box-sizing: border-box;
   display: flex;
@@ -329,7 +332,7 @@ img.bc-extension-icon {
    (FocusModeBadgeView, AddressBarView's badge fade). */
 .bc-badge-focus {
   gap: 4px;
-  padding-inline: 6px;
+  padding-inline: var(--bc-badge-focus-padding);
   background: color-mix(in srgb, var(--ds-color-accent) 16%, transparent);
   color: var(--ds-color-accent);
   animation: bc-badge-in var(--cmux-motion-quick) var(--cmux-ease-out);
@@ -352,8 +355,8 @@ img.bc-extension-icon {
 
 /* An SF Symbol profile icon (the host draws it; OmnibarBadges.profile.symbol), the native badge's 9 pt glyph. */
 .bc-badge-symbol {
-  width: 9px;
-  height: 9px;
+  width: var(--bc-badge-symbol-size);
+  height: var(--bc-badge-symbol-size);
 }
 
 .bc-star {
@@ -495,11 +498,14 @@ img.bc-extension-icon {
 /* The drag image of a page dragged out of the chip (setChipDragImage): one line of the bar's text,
    laid out off screen for the snapshot. */
 .bc-drag-label {
+  /* Under document.body, outside the row: its own metrics (the native label's 2 pt padding). */
+  --bc-drag-label-padding-block: 2px;
+  --bc-offscreen: -1000px;
   position: fixed;
-  top: -1000px;
+  top: var(--bc-offscreen);
   left: 0;
   max-width: 360px;
-  padding: 2px 4px;
+  padding: var(--bc-drag-label-padding-block) 4px;
   overflow: hidden;
   color: var(--ds-color-fg);
   font-family: var(--font-ui);

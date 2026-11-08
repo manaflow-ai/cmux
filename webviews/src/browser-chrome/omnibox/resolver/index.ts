@@ -4,5 +4,5 @@
 export * from "./chromium-page";
 export * from "./intranet";
 export * from "./omnibox-resolver";
-export { isTopLevelDomain, TOP_LEVEL_DOMAINS_VERSION } from "./top-level-domains";
+export { isTopLevelDomain, TOP_LEVEL_DOMAINS_VERSION } from "./top-level-domains.generated";
 export * from "./url-resolver";

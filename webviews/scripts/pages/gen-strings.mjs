@@ -616,6 +616,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   // The design scale's Tailwind theme and token list are build output too (gen-design-scale.mjs).
   const { writeDesignScale } = await import("./gen-design-scale.mjs");
   const scaleFailed = writeDesignScale({ check, log: () => {} });
+  // The omnibar's top-level domain table, from the list the Swift omnibar bundles (gen-top-level-domains.mjs).
+  const { writeTopLevelDomains } = await import("./gen-top-level-domains.mjs");
+  const tldFailed = writeTopLevelDomains({ check });
   const bestEffort = process.argv.includes("--best-effort") || (!check && process.env.CMUX_STRINGS_BEST_EFFORT === "1");
   const failed = writeStrings({
     check,
@@ -623,5 +626,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ifStale: process.argv.includes("--if-stale"),
     only: process.argv.slice(2).filter((arg) => !arg.startsWith("--")),
   });
-  process.exit((failed && !bestEffort) || tipsFailed || scaleFailed ? 1 : 0);
+  process.exit((failed && !bestEffort) || tipsFailed || scaleFailed || tldFailed ? 1 : 0);
 }
