@@ -16,7 +16,7 @@ extension HomeHostView {
         let services = control.services
         let isEnabled = HomeNeedsYouSetting.reader { [weak services] in services?.settings } // opt-in, off by default
         needsYouWatch = FeedNeedsYouSection.watch(feed: services.feed.daemon, isEnabled: isEnabled, host: transcript) { [weak services] in
-            services.flatMap { PageFactory(services: $0).feedWebPage(route: "#/needs-you") }
+            services.flatMap { PageFactory(services: $0).feedWebPage(route: "#/needs-you") }.map { p in FeedNeedsYouSection(page: p, zoom: { [weak p] in p?.pageZoom ?? 1 }) { p.onZoomChange = $0 } }
         }
     }
 }

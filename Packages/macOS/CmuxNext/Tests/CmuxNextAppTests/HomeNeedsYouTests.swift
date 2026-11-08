@@ -1,8 +1,10 @@
 import AppKit
 import CmuxHomeCore
 @testable import CmuxNextApp
+import CmuxNextDesign
 import CmuxNextFeedClient
 @testable import CmuxNextHome
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTestSupport
 import Foundation
@@ -35,12 +37,58 @@ import Testing
 
     @Test func itIsTheHeaderAndARowPerRequestUpToThree() {
         #expect(FeedNeedsYouSection.height(waiting: 0) == 0, "nothing waits: hidden")
-        #expect(FeedNeedsYouSection.height(waiting: 1) == 6 * 2 + 22 + 40)
-        #expect(FeedNeedsYouSection.height(waiting: 3) == 6 * 2 + 22 + 40 * 3)
+        // The page's CSS px: the page and the card pad 4 each, the header 24, a row 40.
+        #expect(FeedNeedsYouSection.height(waiting: 1) == 8 * 2 + 24 + 40)
+        #expect(FeedNeedsYouSection.height(waiting: 3) == 160, "three rows fit at 100%")
         #expect(FeedNeedsYouSection.height(waiting: 7) == FeedNeedsYouSection.height(waiting: 3), "the page counts the rest")
         let section = FeedNeedsYouSection(page: NSView())
         section.waiting = 2
         #expect(section.intrinsicContentSize.height == FeedNeedsYouSection.height(waiting: 2))
+    }
+
+    /// Review F1 of #37378: the page follows `ui.scale`, so the section is its CSS height times the
+    /// page's zoom; at 125% three rows need 200 points, not 160.
+    @Test func threeRowsFitAtEveryScale() {
+        #expect(FeedNeedsYouSection.height(waiting: 3, zoom: 1.25) == 200)
+        let section = FeedNeedsYouSection(page: NSView())
+        section.waiting = 3
+        section.zoom = 1.25
+        #expect(section.intrinsicContentSize.height == 200)
+        #expect(section.fittingSize.height == 200)
+    }
+
+    /// A `ui.scale` change resizes the pinned section live: the Feed page's zoom change gives the
+    /// section its new zoom and the host measures it again.
+    @Test func aScaleChangeResizesTheHost() async throws {
+        let saved = DesignSettings.shared.uiScale
+        defer { DesignSettings.shared.uiScale = saved }
+        DesignSettings.shared.uiScale = 1
+        let directory = FileManager.default.temporaryDirectory.appending(path: "needs-you-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try Data("<!doctype html><title>Needs you</title>".utf8).write(to: directory.appending(path: "index.html"))
+        let descriptor = PageDescriptor(id: "test.needs-you", resource: "needs-you", namespaces: [])
+        let page = try #require(PageWebView(descriptor: descriptor, root: directory, routes: []))
+        defer { page.close() }
+
+        let daemon = FakeFeedDaemon()
+        daemon.reply("feed.view.read", Self.needsYou(["a", "b", "c"]))
+        let host = PinHost(), toggle = PinToggle()
+        toggle.on = true
+        let watch = FeedNeedsYouSection.watch(feed: daemon.client, isEnabled: { toggle.on }, host: host) {
+            FeedNeedsYouSection(page: page, zoom: { [weak page] in page?.pageZoom ?? 1 }) { page.onZoomChange = $0 }
+        }
+        defer { watch.cancel() }
+        await until { host.pinnedSection != nil }
+        let section = try #require(host.pinnedSection as? FeedNeedsYouSection)
+        #expect(section.fittingSize.height == 160)
+        let resizes = host.resizes
+
+        DesignSettings.shared.uiScale = 1.25
+        await until { host.resizes > resizes }
+        #expect(host.resizes > resizes, "a scale change measures the section again")
+        #expect(section.zoom == 1.25)
+        #expect(section.fittingSize.height == 200, "three rows fit at 125%")
     }
 
     @Test func itIsOffByDefaultAndTheSettingTurnsItOn() throws {
@@ -58,7 +106,7 @@ import Testing
         let daemon = FakeFeedDaemon()
         daemon.reply("feed.view.read", Self.needsYou(["a"]))
         let host = PinHost(), toggle = PinToggle()
-        let watch = FeedNeedsYouSection.watch(feed: daemon.client, isEnabled: { toggle.on }, host: host) { NSView() }
+        let watch = FeedNeedsYouSection.watch(feed: daemon.client, isEnabled: { toggle.on }, host: host) { FeedNeedsYouSection(page: NSView()) }
         defer { watch.cancel() }
         await until { host.updates > 0 }
         #expect(host.pinnedSection == nil, "off by default: nothing pinned while a request waits")
