@@ -320,6 +320,8 @@ impl Machine {
             echo a > src/AGENTS.md; echo x > src/lib/x.rs; echo w > src/.github/w.yml
             g -C src add -A; g -C src commit -qm one
             echo y > src/lib/y.rs; g -C src add -A; g -C src commit -qm two
+            g -C src checkout -qb feature; echo f > src/f.txt; g -C src add -A; g -C src commit -qm f
+            g -C src checkout -q -
             git -C src config uploadpack.allowFilter true
             printf '#!/bin/sh\nwhile [ "${1#--}" != "$1" ]; do shift; done; exec "$@"\n' > bin/systemd-run
             printf '#!/bin/sh\nshift 3; exec "$@"\n' > bin/runuser
@@ -342,8 +344,15 @@ impl Machine {
 
     /// Runs the step for this machine's source repository; its exit code and repo-status.json.
     fn run(&self) -> (i32, serde_json::Value) {
+        self.run_with(None, crate::machine_bootstrap::NO_SCRIPT)
+    }
+
+    /// [`Machine::run`] for `r#ref`, beside the bootstrap script `script` (the runner's `script`).
+    fn run_with(&self, r#ref: Option<&str>, script: &str) -> (i32, serde_json::Value) {
         let url = format!("file://{}", self.0.join("src").display());
-        let step = Repo::new("o", "r").step().replace("https://github.com/o/r.git", &url);
+        let repo = Repo { r#ref: r#ref.map(str::to_owned), ..Repo::new("o", "r") };
+        let step = repo.step().replace("https://github.com/o/r.git", &url);
+        std::fs::write(self.0.join("boot/script"), script).unwrap();
         let file = self.0.join("boot/repo");
         std::fs::write(&file, step).unwrap();
         // As the bootstrap writes it (0o700): the fill runs the step again by its path.
@@ -364,6 +373,16 @@ impl Machine {
 
     fn checkout(&self) -> std::path::PathBuf {
         self.0.join("home/work/r")
+    }
+
+    fn git(&self, args: &[&str]) -> String {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(self.checkout())
+            .args(args)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
     }
 }
 
@@ -417,4 +436,38 @@ fn without_a_hold_the_whole_repository_is_cloned() {
         .output()
         .unwrap();
     assert_eq!(String::from_utf8_lossy(&shallow.stdout).trim(), "false");
+}
+
+#[cfg(unix)]
+/// Review F2 (cmux#38099, e473b67ec61): a depth-1 clone tracks only the default branch, so once
+/// the history came in, a later start on another branch found no such branch.
+#[test]
+fn a_head_first_clone_keeps_every_branch_for_a_later_start() {
+    let Some(machine) = Machine::new(true) else { return };
+    let (code, record) = machine.run();
+    assert_eq!((code, record["fill"].as_str()), (0, Some("background")), "{record}");
+    let fetch = machine.git(&["config", "--get-all", "remote.origin.fetch"]);
+    assert_eq!(fetch, "+refs/heads/*:refs/remotes/origin/*");
+    // The history comes in the background (`unshallow`): let it end before the next start.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    while machine.git(&["rev-parse", "--is-shallow-repository"]) != "false" {
+        assert!(std::time::Instant::now() < deadline, "the history never came in");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let (code, record) = machine.run_with(Some("feature"), crate::machine_bootstrap::NO_SCRIPT);
+    assert_eq!(code, 0, "{record}");
+    assert!(machine.checkout().join("f.txt").is_file());
+}
+
+#[cfg(unix)]
+/// Review F1 (cmux#38099, e473b67ec61): the runner runs a start's bootstrap script right after the
+/// step, with no barrier, so with a script of its own the whole tree is cloned first.
+#[test]
+fn a_start_with_a_bootstrap_script_clones_the_whole_repository() {
+    let Some(machine) = Machine::new(true) else { return };
+    let (code, record) = machine.run_with(None, "#!/bin/sh\ntest -f work/r/lib/y.rs\n");
+    assert_eq!((code, record["fill"].as_str()), (0, Some("none")), "{record}");
+    assert!(machine.checkout().join("lib/y.rs").is_file());
+    assert_eq!(machine.git(&["rev-parse", "--is-shallow-repository"]), "false");
+    assert!(!machine.0.join("home/held").exists(), "no hold");
 }

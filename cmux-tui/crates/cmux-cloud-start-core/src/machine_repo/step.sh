@@ -81,10 +81,13 @@ root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }
 # clone takes tens (microsoft/vscode: 1.0 s against 28 s). The rest of the tree comes in the
 # background (`fill`) under `cmux repo hold`, which keeps every agent tool waiting until the tree
 # is whole while a Claude start goes ahead at the head. A machine whose cmux has no `repo hold`,
-# or no systemd-run, clones the whole repository as before.
+# or no systemd-run, clones the whole repository as before. So does a start with a bootstrap
+# script (anything but machine_bootstrap.rs `NO_SCRIPT`): the runner runs it right after this
+# step, and nothing holds it at the barrier.
 head_dirs=".claude .codex .cursor .gemini .github .vscode .devcontainer"
 holder() {
-  hx=$(command -v cmux) && "$hx" repo hold --help >/dev/null 2>&1 && command -v systemd-run >/dev/null 2>&1
+  printf '#!/bin/sh\nexit 0\n' | cmp -s - "$d/script" &&
+    hx=$(command -v cmux) && "$hx" repo hold --help >/dev/null 2>&1 && command -v systemd-run >/dev/null 2>&1
 }
 # The fill, in its own scope: the bootstrap's unit ends with this runner, and the hold outlives it.
 # The hold is taken before this returns, so no chat starts on the folder before it.
@@ -147,6 +150,10 @@ else
     net clone --quiet --depth 1 --filter=blob:none --sparse "$url" "$dir"
     # shellcheck disable=SC2086 # one word per folder
     g -C "$dir" sparse-checkout add $head_dirs || { rm -rf "$dir"; die "cannot check out the head of $url"; }
+    # A depth-1 clone fetches only the default branch from then on; every branch, as a whole
+    # clone has, so the history fill and a later start's `@branch` see them all.
+    g -C "$dir" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*' ||
+      { rm -rf "$dir"; die "cannot track the branches of $url"; }
     tip=1
   else
     net clone --quiet --filter=blob:none "$url" "$dir"
