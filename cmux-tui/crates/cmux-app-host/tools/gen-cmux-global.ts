@@ -39,10 +39,58 @@ const EXECUTE = /(^terminal\.input\.(write|keys|mouse)$|\.run$|^terminal\.(attac
 // settings.set/reset/reset_all (cx-9ce.10): the settings file is the person's; an app may read settings only.
 // layout.bulk (cx-gzh.5) closes tabs, panes, screens and workspaces, like every .close op.
 // workspace.open_url (cx-ebm.59.3) navigates the person's browser tabs; Home and the person's tools only.
-const NEVER = /(^settings\.(set|reset|reset_all)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^workspace\.open_url$|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|release|send|unsend)$)/
+// conductor_import.plan/record read Conductor's database and worktrees and keep the import ledger: the app's
+// own Import from Conductor only.
+// palette.rank ranks rows for a cmux page's own palette (the Channels page); apps have `cmux.palette`, the
+// app palette, so the op family would collide with it.
+const NEVER = /(^settings\.(set|reset|reset_all)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^workspace\.open_url$|^conductor_import\.|^palette\.rank$|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|release|send|unsend)$)/
+
+/** The daemon's Cloud API calls carry the person's own access token in their params; the app's own Cloud code only. */
+const CLOUD_API_CALLS = [
+  "cloud.machine.io",
+  "cloud.owner.acpmux_keyed_start",
+  "cloud.owner.acpmux_person_holds",
+  "cloud.owner.fork_run",
+  "cloud.owner.github_app",
+  "cloud.owner.handoff_begin_turn",
+  "cloud.owner.handoff_open",
+  "cloud.owner.handoff_wait",
+  "cloud.owner.handoffs",
+  "cloud.owner.harness_login_copy",
+  "cloud.previews.create_link",
+  "cloud.previews.refresh",
+  "cloud.previews.revoke_link",
+  "cloud.runs.cancel",
+  "cloud.runs.create",
+  "cloud.runs.sandbox",
+  "cloud.runs.start",
+  "cloud.runs.wait",
+  "cloud.vm.delete_snapshot",
+  "cloud.vm.domains",
+  "cloud.vm.firewall_create",
+  "cloud.vm.firewall_delete",
+  "cloud.vm.firewall_get",
+  "cloud.vm.firewall_list",
+  "cloud.vm.fork",
+  "cloud.vm.networks",
+  "cloud.vm.provision_api",
+  "cloud.vm.publication_api_keys",
+  "cloud.vm.publications",
+  "cloud.vm.resize",
+  "cloud.vm.restore",
+  "cloud.vm.revoke_publication_api_key",
+  "cloud.vm.scp_endpoint",
+  "cloud.vm.snapshot",
+  "cloud.vm.snapshots",
+  "cloud.vm.tunnel_attach",
+  "cloud.vm.tunnel_detach",
+  "cloud.vm.tunnel_enroll",
+  "cloud.vm.tunnel_revoke",
+  "cloud.vm.tunnel_rotate_key",
+]
 
 /** Ops no app may call, whatever their risk (cloud.machine.link_token mints dial tokens). */
-export const NEVER_OPS = new Set(["cloud.machine.link_token"])
+export const NEVER_OPS = new Set(["cloud.machine.link_token", ...CLOUD_API_CALLS])
 
 const readJSON = (p: string) => JSON.parse(readFileSync(join(repo, p), "utf8"))
 

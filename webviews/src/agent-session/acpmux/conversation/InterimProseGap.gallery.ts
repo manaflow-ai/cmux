@@ -2,7 +2,7 @@
 // Interim prose between tool rows (Leo, 2026-11-01: "the thoughts in between tool calls probably
 // want a bit more padding"). A running turn's run of calls holds two short notes the agent wrote
 // between its calls (turns.ts mergeShortNotes): a command, a note, two commands under "Ran 2
-// commands", a note, a command, then the latest call on the live line. The run is opened, as in the
+// commands", a note, a command, then the live line. The run is opened, as in the
 // reader's view. Each note has the plain status gap (`--cv-note-gap`, 12px) to the rows above and
 // below it, as a longer reply between two runs has; the rows of the run keep their 22px rhythm
 // (transcript-interim-prose-gap.test.ts).
@@ -25,10 +25,9 @@ const rows = [
     9.7,
   ),
   assistant("Its owner merged an hour ago, so the helper is free.", 9.6),
+  // A finished call stays in its run (the live line reads Thinking under it), so this one keeps the
+  // second note between two of the run's rows.
   activity([command("Run the helper's tests", "bun test fetch")], 9.5),
-  // The running turn's latest step draws as its live line, outside the run (#29938), so one more
-  // call keeps the second note between two of the run's rows.
-  activity([command("Show the test log", "tail -n 40 fetch.log")], 9.4),
 ];
 
 const snapshot = chat(rows, { title: "Retry fix", isWorking: true });

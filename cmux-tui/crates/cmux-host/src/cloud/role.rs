@@ -39,8 +39,8 @@ use super::trajectory::Layout;
 use super::trajectory_thread::{AcpmuxImporter, Trajectories};
 use super::wire::{
     AGENT_SOCKET, AGENT_STATE_FILE, BIND_FILE, BOUND_FILE, Bound, DAEMON_ACTIVITY_CAPABILITY,
-    DAEMON_INFO_FILE, DAEMON_SOCKET_FILE, DaemonInfo, STATE_DIR, daemon_info_from_identify,
-    heartbeat_ms_for,
+    DAEMON_INFO_FILE, DAEMON_SOCKET_FILE, DESKTOP_CAPABILITY, DESKTOP_SOCKET_UNIT, DaemonInfo,
+    STATE_DIR, daemon_info_from_identify, heartbeat_ms_for,
 };
 use crate::config::Paths;
 use crate::daemon_spec::{ROOT_HOME, WORK_HOME, WORK_USER, binary_path};
@@ -216,6 +216,10 @@ impl Http for PosterHttp {
         self.0.post(url, body, bearer)
     }
 
+    fn post_empty(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Value), String> {
+        self.0.post_empty(url, bearer)
+    }
+
     fn request_until(
         &self,
         url: &str,
@@ -234,6 +238,20 @@ impl Http for PosterHttp {
         deadline: &cmux_server::cloud_http::RequestDeadline,
     ) -> Result<(u16, Vec<u8>), String> {
         self.0.request_with_deadline(url, body, bearer, deadline)
+    }
+
+    fn request_with_headers(
+        &self,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        deadline: &cmux_server::cloud_http::RequestDeadline,
+    ) -> Result<cmux_server::cloud_http::Response, String> {
+        self.0.request_with_deadline_headers(url, body, bearer, deadline)
+    }
+
+    fn reset(&self) {
+        self.0.reset();
     }
 }
 
@@ -284,17 +302,28 @@ pub fn daemon_socket(paths: &Paths) -> Option<PathBuf> {
 }
 
 /// Live identify first; the bake-recorded `daemon.json` when the daemon
-/// does not answer. Never an empty list.
+/// does not answer. Never an empty list. Either way the image's own
+/// desktop ([`DESKTOP_CAPABILITY`]) is added when it has one.
 pub fn resolve_daemon_info(paths: &Paths) -> Result<DaemonInfo, String> {
     if let Some(socket) = daemon_socket(paths)
         && let Ok(identify) = query_identify(&socket, Duration::from_secs(2))
     {
-        return Ok(daemon_info_from_identify(&identify, false));
+        return Ok(with_desktop(paths, daemon_info_from_identify(&identify, false)));
     }
     let recorded = fs::read_to_string(paths.at(DAEMON_INFO_FILE))
         .map_err(|_| "no daemon identify and no recorded daemon.json".to_owned())?;
     let info: DaemonInfo = serde_json::from_str(&recorded).map_err(|e| e.to_string())?;
-    Ok(info.with_activity(false, false, false))
+    Ok(with_desktop(paths, info.with_activity(false, false, false)))
+}
+
+/// `info` with [`DESKTOP_CAPABILITY`] exactly when the image installed the
+/// desktop's socket unit (a recorded daemon.json never decides it).
+fn with_desktop(paths: &Paths, mut info: DaemonInfo) -> DaemonInfo {
+    info.capabilities.retain(|c| c != DESKTOP_CAPABILITY);
+    if paths.at(DESKTOP_SOCKET_UNIT).is_file() {
+        info.capabilities.push(DESKTOP_CAPABILITY.to_owned());
+    }
+    info
 }
 
 /// `wg genkey | wg pubkey` (wireguard-tools in the base image).
@@ -433,6 +462,12 @@ impl Role for CloudRole {
                 self.send("resume");
                 Ok(())
             }
+            // The late network attach lands about a second after the bind: a bind or relay token in flight over the
+            // old addresses would otherwise hang to its 20 s bound.
+            HostEvent::AddressesChanged => {
+                cmux_server::cloud_http::network_changed();
+                Ok(())
+            }
             // No request is held open into a snapshot.
             HostEvent::Parked { deadline } | HostEvent::Shutdown { deadline } => {
                 self.halt(*deadline)
@@ -440,6 +475,12 @@ impl Role for CloudRole {
             _ => Ok(()),
         }
     }
+}
+
+/// How long a failed bind waits before its retry. One the machine's address change failed (a fresh machine's network
+/// attach lands about a second after it boots) goes again at once, without growing the backoff.
+fn bind_retry_wait(backoff: &mut Backoff, network_changed: bool) -> u64 {
+    if network_changed { 0 } else { backoff.next(0, random_unit()) }
 }
 
 struct Client {
@@ -486,12 +527,23 @@ struct Worker {
     live: Option<Live>,
     /// GitHub token asks, off the poll loop (`github_minter.rs`).
     github: Minter<PosterHttp>,
+    /// The carrier grant keyset's own fetch (`carrier_keyset.rs`).
+    keyset: super::carrier_keyset::Refresher<PosterHttp>,
     /// ACP chats kept in cmux Cloud and restored on a replacement (`trajectory_thread.rs`).
     trajectories: Option<Trajectories<PosterHttp>>,
     /// The held socket of the relay-first chat path (`relay.rs`), from bind on.
     relay: Option<Relay>,
+    /// This machine's inference gateway bearer, while the person made it their gateway (gateway_token.rs).
+    gateway_token: Option<super::gateway_token::GatewayToken>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
+    /// A carrier bind waiting for the session host's Noise key (its
+    /// identity file appears once the host has started): the bind token it
+    /// waits for and when the wait began. A new token starts a new wait.
+    noise_key_wait: Option<(String, u64)>,
+    /// The workload probe (`workload.rs`): its memory and when it runs next (while bound).
+    workload: super::workload::Tracker,
+    workload_at: Option<u64>,
     rng: SystemRandom,
     epoch: Instant,
 }
@@ -513,6 +565,7 @@ impl Worker {
         let trajectories =
             spawn_trajectories(&paths).map_err(|e| log(&format!("trajectory mirror: {e}"))).ok();
         forget_harness_login_state(&paths);
+        let keyset = super::carrier_keyset::Refresher::spawn(paths.clone(), log)?;
         Ok(Worker {
             bootstrap: None,
             bootstrap_retry_at: None,
@@ -537,10 +590,15 @@ impl Worker {
             },
             live: None,
             github: Minter::spawn(wall_ms, log, github_stop)?,
+            keyset,
             trajectories,
             relay: None,
+            gateway_token: None,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
+            noise_key_wait: None,
+            workload: super::workload::Tracker::default(),
+            workload_at: None,
             rng: SystemRandom::new(),
             epoch: Instant::now(),
         })
@@ -567,6 +625,7 @@ impl Worker {
                 self.bind_retry_at,
                 self.activity.retry_at,
                 self.bootstrap_retry_at,
+                self.workload_at,
             ]
             .into_iter()
             .flatten()
@@ -655,8 +714,24 @@ impl Worker {
         let words: Vec<String> = take_lines(&mut self.control_buf);
         for word in words {
             match word.as_str() {
-                "stop" => return Ok(true),
+                "stop" => {
+                    // cmux-host is stopping (a restart, an update): the relay's chats keep their turns in acpmux,
+                    // and the next cmux-host reattaches. Dropping the Relay instead (a rebind) cancels them.
+                    if let Some(relay) = self.relay.take() {
+                        relay.detach();
+                    }
+                    return Ok(true);
+                }
                 "resume" => {
+                    // Connections from before a pause are stale, and the guest's clock did not count the pause, so
+                    // nothing here would notice for a minute: the relay dials again before a chat can go down its
+                    // old socket, and the resume report below gets a fresh HTTPS connection instead of hanging.
+                    if let Some(relay) = &self.relay {
+                        relay.resumed();
+                    }
+                    if let Some(live) = &self.live {
+                        live.client.reset_transport();
+                    }
                     self.bootstrap_retry_at = None;
                     self.bootstrap_backoff.reset();
                     if let Some(bridge) = &mut self.bootstrap {
@@ -742,6 +817,24 @@ impl Worker {
                 continue;
             }
             if closed.contains(&i) {
+                continue;
+            }
+            if let Some(ask) = carrier_keyset_ask(&line) {
+                let reply = match ask {
+                    Ok(kid) => {
+                        self.keyset.unknown_kid(kid);
+                        json!({ "ok": true })
+                    }
+                    Err(why) => github::refusal("request.invalid", &why),
+                };
+                let Some(client) = self.clients.get_mut(i) else { continue };
+                if !client.output.is_empty() {
+                    closed.push(i);
+                    continue;
+                }
+                client.output = serde_json::to_vec(&reply).unwrap_or_default();
+                client.output.push(b'\n');
+                client.write_deadline = Some(self.epoch.elapsed().as_millis() as u64 + 1000);
                 continue;
             }
             if let Some(ask) = agent_ask(&line) {
@@ -881,7 +974,50 @@ impl Worker {
             Ok(poster) => PosterHttp(poster),
             Err(e) => return log(&e),
         };
-        let result = bind_machine(&mut self.store, &http, &key, &wg, &daemon, wall_ms());
+        // Only a bind with a relay carrier sends its daemon's Noise key, and
+        // it must: the device's dial requires it (#37211). The token is not
+        // spent yet, so the bind waits for the key, as long as the token
+        // lives (`daemon_noise_key::wait_after`), and never goes without it.
+        let carrier_token = self
+            .store
+            .read(BIND_FILE)
+            .and_then(|text| super::wire::parse_bind_file(&text).ok())
+            .filter(|file| file.carrier.is_some())
+            .map(|file| file.bind_token);
+        let noise_key = carrier_token.as_ref().and_then(|_| self.daemon_noise_key());
+        if let Some(token) = carrier_token.filter(|_| noise_key.is_none()) {
+            let now = self.now();
+            let started = match &self.noise_key_wait {
+                Some((waiting, at)) if *waiting == token => *at,
+                _ => {
+                    log("bind: waiting for the session host's Noise key");
+                    self.noise_key_wait = Some((token, now));
+                    now
+                }
+            };
+            match super::daemon_noise_key::wait_after(now.saturating_sub(started)) {
+                Some(delay) => self.bind_retry_at = Some(now + delay),
+                None => log(
+                    "bind: the session host's Noise key did not appear while the bind token lives; not binding until a new bind.json",
+                ),
+            }
+            return;
+        }
+        self.noise_key_wait = None;
+        let changes = cmux_server::cloud_http::network_changes();
+        // The bind writes carrier.json; the keyset refresher's write waits.
+        let carrier_lock = self.keyset.carrier_lock();
+        let carrier_held = carrier_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let result = bind_machine(
+            &mut self.store,
+            &http,
+            &key,
+            &wg,
+            &daemon,
+            noise_key.as_deref(),
+            wall_ms(),
+        );
+        drop(carrier_held);
         log(&format!("bind: {}", result.describe()));
         match result {
             BindResult::Bound(bound) => {
@@ -892,10 +1028,21 @@ impl Worker {
                 self.start_live(*bound, key, http, daemon);
             }
             BindResult::Retry(_) => {
-                self.bind_retry_at = Some(self.now() + self.bind_backoff.next(0, random_unit()));
+                let changed = cmux_server::cloud_http::network_changes() != changes;
+                self.bind_retry_at =
+                    Some(self.now() + bind_retry_wait(&mut self.bind_backoff, changed));
             }
             _ => {}
         }
+    }
+
+    /// The session host's Noise static public key, from its identity file
+    /// under the home the supervisor spawned it with (the layout marker).
+    fn daemon_noise_key(&self) -> Option<String> {
+        let marker = fs::read_to_string(self.paths.at(crate::config::LAYOUT_MARKER_FILE)).ok();
+        let home = super::daemon_noise_key::session_home(marker.as_deref())?;
+        let file = super::daemon_noise_key::identity_path(&home, crate::daemon_spec::SESSION);
+        super::daemon_noise_key::read(&self.paths.at(&file.to_string_lossy()))
     }
 
     /// The agent restarted on a bound machine: report again, unless the
@@ -938,6 +1085,10 @@ impl Worker {
             Ok(client) => self.github.bound(client),
             Err(e) => log(&format!("github minter: {e}")),
         }
+        match github_client(&bound, &key) {
+            Ok(client) => self.keyset.bound(client),
+            Err(e) => log(&format!("carrier keyset: {e}")),
+        }
         if let Some(trajectories) = self.trajectories.as_ref() {
             match github_client(&bound, &key) {
                 Ok(client) => trajectories.bound(client),
@@ -954,6 +1105,16 @@ impl Worker {
             }
             (Err(e), _) | (_, Err(e)) => log(&format!("relay: {e}")),
         }
+        self.gateway_token = None;
+        match github_client(&bound, &key) {
+            Ok(client) => {
+                self.gateway_token =
+                    super::gateway_token::GatewayToken::spawn(client, wall_ms, log)
+                        .map_err(|e| log(&format!("inference gateway token: {e}")))
+                        .ok();
+            }
+            Err(e) => log(&format!("inference gateway token: {e}")),
+        }
         let mut session = Session::new(&bound.machine, daemon, heartbeat);
         let reqs = session.start(self.now());
         self.live = Some(Live { client: CloudClient::new(http, bound, key), session });
@@ -963,6 +1124,9 @@ impl Worker {
         self.activity = self.activity_reset();
         self.connect_activity();
         self.drive(reqs);
+        // A new session knows no workload yet: the first probe now, the first result one interval on.
+        self.workload = super::workload::Tracker::default();
+        self.workload_at = Some(self.now());
     }
 
     fn activity_reset(&self) -> Activity {
@@ -1068,11 +1232,35 @@ impl Worker {
         if self.activity.retry_at.is_some_and(|at| at <= now) {
             self.connect_activity();
         }
+        if self.workload_at.is_some_and(|at| at <= self.now()) {
+            self.probe_workload();
+        }
         let now = self.now();
         if let Some(live) = self.live.as_mut() {
             let reqs = live.session.fire(now);
             self.drive(reqs);
         }
+    }
+
+    /// One workload probe (`workload.rs`); the next one an interval later. A probe that does not
+    /// read makes the workload unknown, and the report then drops `activity-workload`.
+    fn probe_workload(&mut self) {
+        let now = self.now();
+        self.workload_at = Some(now + super::workload::PROBE_INTERVAL_MS);
+        let Some(live) = self.live.as_mut() else { return };
+        let seen = match super::workload::read_snapshot(self.paths.root(), now) {
+            // The first probe has no CPU baseline yet: it changes nothing.
+            Some(snapshot) => match self.workload.observe(&snapshot, wall_ms()) {
+                Some(workload) => Some(workload),
+                None => return,
+            },
+            None => {
+                self.workload = super::workload::Tracker::default();
+                None
+            }
+        };
+        let reqs = live.session.workload(seen, now);
+        self.drive(reqs);
     }
 
     /// Sends each request and feeds its answer back until nothing is due.
@@ -1189,6 +1377,13 @@ fn github_client(bound: &Bound, key: &InstallKey) -> Result<CloudClient<PosterHt
     Ok(CloudClient::new(PosterHttp(JsonPoster::new()?), bound.clone(), key))
 }
 
+/// The kid of a `{"carrier_keyset": {"kid": ...}}` line (checked): the
+/// session host's verifier saw a grant signed by a kid it does not hold.
+fn carrier_keyset_ask(line: &str) -> Option<Result<String, String>> {
+    let msg: Value = serde_json::from_str(line).ok()?;
+    msg.get(super::carrier_keyset::REQUEST_KEY).map(super::carrier_keyset::check_ask)
+}
+
 /// The ask of a `{"github_token": {...}}` or `{"handoff_report": {...}}`
 /// line (checked), or `None` for every other line (the session's).
 fn agent_ask(line: &str) -> Option<Ask> {
@@ -1201,6 +1396,9 @@ fn agent_ask(line: &str) -> Option<Ask> {
     }
     if let Some(ask) = msg.get(super::github_status::REQUEST_KEY) {
         return Some(Ask::GithubStatus(super::github_status::check_ask(ask)));
+    }
+    if let Some(ask) = msg.get(super::carrier_ticket::REQUEST_KEY) {
+        return Some(Ask::CarrierTicket(super::carrier_ticket::check_ask(ask)));
     }
     let report = msg.get(handoff::REQUEST_KEY)?;
     Some(HandoffReport::from_json(report).into())

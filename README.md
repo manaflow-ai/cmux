@@ -12,7 +12,6 @@
 </p>
 
 <p align="center">
-  <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
   <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
@@ -486,7 +485,7 @@ Mac. Then the [contributor guide](CONTRIBUTING.md) and
 
 Ways to get involved:
 
-- Follow us on X for updates [@manaflowai](https://x.com/manaflowai), [@lawrencecchen](https://x.com/lawrencecchen), and [@austinywang](https://x.com/austinywang)
+- Follow us on X for updates [@lawrencecchen](https://x.com/lawrencecchen) and [@austinywang](https://x.com/austinywang)
 - Join the conversation on [Discord](https://discord.gg/xsgFEVrWCZ)
 - Create and participate in [GitHub issues](https://github.com/manaflow-ai/cmux/issues) and [discussions](https://github.com/manaflow-ai/cmux/discussions)
 - Let us know what you're building with cmux
@@ -496,7 +495,6 @@ Ways to get involved:
 - [Discord](https://discord.gg/xsgFEVrWCZ)
 - [WhatsApp](https://chat.whatsapp.com/Fblh7FB58lOI2cx6ccdIqY?mode=gi_t)
 - [GitHub](https://github.com/manaflow-ai/cmux)
-- [X / Twitter](https://twitter.com/manaflowai)
 - [YouTube](https://www.youtube.com/channel/UCAa89_j-TWkrXfk9A3CbASw)
 - [LinkedIn](https://www.linkedin.com/company/manaflow-ai/)
 - [Reddit](https://www.reddit.com/r/cmux/)

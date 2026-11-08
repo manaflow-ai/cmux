@@ -41,6 +41,8 @@ Layers (each one only on files the push changes under Packages/macOS/CmuxNext, c
                dialogs, opaque glass (tree-sitter, so comments, strings and `case .alert` never match)
   swiftformat  --lint with scripts/cmux-next/lint/swiftformat.conf; local only: the pre-push hook and a plain
                local run, never --base/--head, --commits or GitHub Actions (no new CI gate, lead 2026-10-27)
+  rustfmt      changed cmux-tui/**/*.rs through the pinned rustfmt (cmux-tui/rustfmt.toml); local only, like
+               swiftformat; a file the base already left unformatted does not block
   swiftlint    swift-syntax rules only (scripts/cmux-next/lint/swiftlint.yml), no SourceKit
 Tool versions are pinned in scripts/cmux-next/lint-tools.lock and downloaded once (sha256 checked)
 to $CMUX_LINT_TOOLS_DIR (default ~/Library/Caches/cmux-lint-tools, ~/.cache/cmux-lint-tools on Linux).
@@ -69,6 +71,11 @@ it after the merge: digest.parse, then digest.entry_problems (scripts/whats-new/
 link, at most 2 sentences, 240 characters, no internal names). Unchanged highlights are never read. The hook runs
 the validator of this clone's origin/feat-cmux-next, never the pushed one (a plain run: the head's). 2026-11-01:
 #30774, #31156 and #31140 each landed a highlight that turned that check red on every pull request.
+Also on every local run, the same way: "Workflow YAML parses": each .github/workflows/*.yml (and composite
+action.yml) the push changes must parse at the pushed head (PyYAML, else Ruby's Psych; plus the local actionlint's
+new [syntax-check] findings when it is on PATH), for a push to any branch, main and feat-cmux-next included.
+CMUX_NEXT_CHECKS_SKIP_REASON does not skip it: GitHub runs no job of a workflow it cannot load (dd8b867f,
+2026-11-06: no nightly for 3.5 hours). CI's "Lint every workflow" step is the backstop.
 
 Also on every local run (the hook and a plain run; never --commits, never under GitHub Actions, so CI
 gains no gate; Lawrence 2026-10-23): "Guardrails" (guardrails.py, plans/cmux-next/codebase-health.md):
@@ -199,6 +206,21 @@ SCANNERS = (
 # Ghostty's default split keys stay Ghostty's (Lawrence 2026-10-20, after 2f3e1f95983).
 RESERVED_CHECK = "Ghostty-default keys (schemas/keybindings/ghostty-reserved-keys.json)"
 CONFLICT_CHECK = "Merge conflict markers"
+# A workflow GitHub cannot load runs no job at all: dd8b867f (2026-11-06, a direct commit) left an unquoted `: ` in a
+# nightly.yml input description, every push made a 0-job failed run and no nightly built for 3.5 hours.
+WORKFLOW_CHECK = "Workflow YAML parses (.github/workflows, .github/actions)"
+WORKFLOW_FILE = re.compile(r"^\.github/(?:workflows/[^/]+|actions/.+/action)\.ya?ml$")
+WORKFLOW_HINT = ("Fix the workflow: quote a value that holds `: ` or ` #` (description: \"a: b\"), then push. GitHub "
+                 "cannot load a workflow that does not parse and runs none of its jobs, so no skip reason passes it.")
+# Ruby's Psych (libyaml), the parser a Mac without PyYAML still has: it parses only, it builds no objects.
+RUBY_YAML_PARSE = """require 'psych'
+begin
+  Psych.parse_stream($stdin.read)
+rescue Psych::SyntaxError => e
+  puts "#{e.line}:#{e.column}: #{[e.problem, e.context].compact.join(' ')}"
+  exit 1
+end
+"""
 CARGO_LOCK_CHECK = "Cargo.lock matches its manifests (cargo metadata --locked)"
 CARGO_FILE = re.compile(r"(^|/)Cargo\.(toml|lock)$")
 CARGO_DRIFT = "cannot update the lock file"
@@ -363,6 +385,19 @@ def load_push_range(repo: Path, trusted_scripts: Path | None):
 def changed_files(repo: Path, base: str, head: str) -> list[str]:
     names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head).decode()
     return sorted(n for n in names.split("\0") if n and n.startswith(SCOPES + ("Packages/Shared/", "cmux-next-ios/")))
+
+
+def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
+    """Files whose RATCHET_BASELINES row the push adds or changes, present at both revs. The trees hold only changed
+    files, so a row added for an untouched file (a base red's fix: a reviewed row for sites already on base) read 0
+    sites against its row and was refused as "fewer than the baseline" (#37531, fast gates on the merge)."""
+    files: set[str] = set()
+    for name, (keys, count) in RATCHET_BASELINES.items():
+        rows = [_ratchet_rows(blob.decode(errors="replace"), keys, count) if blob else {}
+                for blob in (blob_at(repo, rev, f"{SCRIPTS}/{name}") for rev in (base, head))]
+        files.update(key[0] for key in rows[0].keys() | rows[1].keys() if rows[0].get(key) != rows[1].get(key))
+    return sorted(p for p in files if p.startswith(SCOPES) and blob_at(repo, base, p) is not None
+                  and blob_at(repo, head, p) is not None)
 
 
 def deleted_package_swift(repo: Path, base: str, head: str) -> list[str]:
@@ -754,6 +789,92 @@ def swiftformat(binary: Path, config: Path, tree: Path, swift: list[str]) -> str
     return "\n".join(l for l in out.splitlines() if SWIFTFORMAT_FINDING.match(l))
 
 
+RUST_SCOPE = "cmux-tui/"
+
+
+EDITION = re.compile(r'^\s*edition\s*=\s*"(\d{4})"', re.M)
+
+
+def rust_edition(repo: Path) -> str:
+    """The cmux-tui workspace's Rust edition (`[workspace.package] edition`), else 2024."""
+    try:
+        text = (repo / RUST_SCOPE / "Cargo.toml").read_text()
+    except OSError:
+        return "2024"
+    found = EDITION.search(text)
+    return found.group(1) if found else "2024"
+
+
+def _manifest_text(repo: Path, tree: Path, rel: str) -> str | None:
+    """REL's text in the judged tree, else in the checkout, else None."""
+    for root in (tree, repo):
+        try:
+            return (root / rel).read_text()
+        except OSError:
+            continue
+    return None
+
+
+def rustfmt_edition(repo: Path, tree: Path, path: str) -> str | None:
+    """The edition `cargo fmt --all` in cmux-tui/ formats PATH with, or None when it does not format PATH at all.
+
+    The nearest Cargo.toml above PATH names its crate. A crate with its own `[workspace]`, or one the cmux-tui
+    workspace lists under `exclude`, is outside that check (cmux-rd-host: own workspace, edition 2021), so the
+    layer leaves its files alone rather than judge them by another crate's edition. A crate's literal `edition`
+    wins; `edition.workspace = true` (or none) is the workspace's."""
+    root_text = _manifest_text(repo, tree, RUST_SCOPE + "Cargo.toml") or ""
+    excluded = set()
+    found = re.search(r"^\s*exclude\s*=\s*\[(.*?)\]", root_text, re.M | re.S)
+    if found:
+        excluded = {RUST_SCOPE + e for e in re.findall(r'"([^"]+)"', found.group(1))}
+    crate = Path(path).parent
+    while str(crate).startswith(RUST_SCOPE.rstrip("/")) and str(crate) != RUST_SCOPE.rstrip("/"):
+        text = _manifest_text(repo, tree, f"{crate}/Cargo.toml")
+        if text is not None:
+            if str(crate) in excluded or re.search(r"^\s*\[workspace\]", text, re.M):
+                return None
+            own = EDITION.search(text)
+            return own.group(1) if own else rust_edition(repo)
+        crate = crate.parent
+    return rust_edition(repo)
+
+
+def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
+    """One finding per changed cmux-tui Rust file that rustfmt would change: `<path>: not rustfmt-clean ...`.
+
+    Each file goes through rustfmt's stdin mode, so only that file is judged (a path argument would also format the
+    files its `mod` lines name). The rustfmt is the one the cmux-tui checkout pins (rust-toolchain.toml, run in
+    cmux-tui/), never installed for this check; with no such rustfmt the layer warns and finds nothing. The tip's
+    `cargo fmt --all --check` (cmux-tui-rust-check.sh fmt) stays the backstop."""
+    present = [p for p in rust if (tree / p).is_file()]
+    if not present or not config.is_file():
+        return ""
+    env = {**os.environ, "RUSTUP_AUTO_INSTALL": "0"}
+    findings = []
+    for path in present:
+        edition = rustfmt_edition(repo, tree, path)
+        if edition is None:
+            continue  # outside the cmux-tui workspace's `cargo fmt --all`: not this layer's to judge
+        args = ["rustfmt", "--edition", edition, "--config-path", str(config), "--emit", "stdout"]
+        source = (tree / path).read_bytes()
+        try:
+            done = subprocess.run(args, cwd=repo / RUST_SCOPE, input=source, env=env, capture_output=True, timeout=60)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            log(f"prepush-gate: WARNING: rustfmt did not run ({type(error).__name__}); Rust formatting NOT checked")
+            return ""
+        if done.returncode != 0:
+            if b"error[" in done.stderr or (b"error:" in done.stderr and b"toolchain" not in done.stderr and b"not installed" not in done.stderr):
+                findings.append(f"{path}: rustfmt cannot parse it: "
+                                f"{done.stderr.decode(errors='replace').strip().splitlines()[0][:200]}")
+                continue
+            log("prepush-gate: WARNING: the pinned rustfmt is not available here (rustup component add rustfmt in "
+                f"cmux-tui/); Rust formatting NOT checked: {done.stderr.decode(errors='replace').strip()[:200]}")
+            return ""
+        if done.stdout != source:
+            findings.append(f"{path}: not rustfmt-clean; run `cargo fmt` in cmux-tui/ (the pre-commit hook does this)")
+    return "\n".join(findings)
+
+
 def swiftlint(binary: Path, config: Path, tree: Path, swift: list[str]) -> str:
     present = [p for p in swift if (tree / p).is_file()]
     if not present:
@@ -1065,6 +1186,94 @@ def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
             for n, text in marks]
 
 
+def yaml_problem(text: str) -> tuple[bool, str | None]:
+    """(whether TEXT could be parsed here, `line:column: problem` when it does not parse).
+
+    PyYAML when this Python has it (CI's guard venv and most dev Pythons), else Ruby's Psych (macOS ships it).
+    Neither: (False, None), and the caller warns; no network is needed either way."""
+    try:
+        import yaml  # noqa: PLC0415  (optional: the gate runs on Pythons without it)
+    except ImportError:
+        yaml = None
+    if yaml is not None:
+        try:
+            yaml.safe_load(text)
+        except yaml.MarkedYAMLError as error:
+            mark = error.problem_mark or error.context_mark
+            where = f"{mark.line + 1}:{mark.column + 1}" if mark else "1:1"
+            return True, f"{where}: {error.problem or error.context or error}"
+        except yaml.YAMLError as error:
+            return True, f"1:1: {error}"
+        return True, None
+    ruby = shutil.which("ruby")
+    if ruby is None:
+        return False, None
+    try:
+        result = subprocess.run([ruby, "-e", RUBY_YAML_PARSE], input=text, text=True, capture_output=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return False, None
+    if result.returncode == 0:
+        return True, None
+    first = result.stdout.strip().splitlines()
+    # No line printed: Ruby itself failed (no psych), which says nothing about the file.
+    return (True, first[0]) if first else (False, None)
+
+
+def actionlint_syntax(actionlint: str, path: str, text: str) -> set[str] | None:
+    """actionlint's [syntax-check] messages for TEXT as PATH, without their line and column; None if it did not run.
+
+    Its external linters are off (-shellcheck= -pyflakes=): syntax is what keeps GitHub from loading a workflow."""
+    try:
+        result = subprocess.run([actionlint, "-no-color", "-oneline", "-shellcheck=", "-pyflakes=",
+                                 "-stdin-filename", path, "-"], input=text, text=True, capture_output=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode not in (0, 1):
+        return None
+    found = set()
+    for line in result.stdout.splitlines():
+        match = re.match(r"^[^:]+:(\d+):(\d+): (.*\[syntax-check\])$", line)
+        if match:
+            found.add(f"{match.group(1)}:{match.group(2)}: {match.group(3)}")
+    return found
+
+
+def workflow_problems(repo: Path, base: str, head: str, restrict: set[str] | None = None) -> list[str]:
+    """`file:line:column: problem` for each workflow (or composite action) BASE..HEAD changes that HEAD leaves
+    unloadable: YAML that does not parse, and the local actionlint's new [syntax-check] findings when it is on PATH.
+
+    Only the head counts: GitHub loads the pushed head's file, so a broken commit fixed later in the push passes, and
+    a file the push does not change is never read. Not skippable by CMUX_NEXT_CHECKS_SKIP_REASON (main())."""
+    names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head, "--",
+                ".github/").decode().split("\0")
+    files = sorted(n for n in names if n and WORKFLOW_FILE.match(n) and (restrict is None or n in restrict))
+    actionlint = shutil.which("actionlint")
+    found, unchecked = [], []
+    for path in files:
+        data = blob_at(repo, head, path)
+        if data is None:
+            continue
+        text = data.decode("utf-8", "replace")
+        checked, problem = yaml_problem(text)
+        if problem:
+            found.append(f"{path}:{problem} (the YAML does not parse; GitHub will not load this file)")
+            continue
+        if not checked:
+            unchecked.append(path)
+        if actionlint and path.startswith(".github/workflows/"):
+            now = actionlint_syntax(actionlint, path, text)
+            if now:
+                before = blob_at(repo, base, path)
+                old = actionlint_syntax(actionlint, path, before.decode("utf-8", "replace")) if before else set()
+                old_keys = {line.split(": ", 1)[1] for line in old or ()}
+                found += [f"{path}:{line} (actionlint)" for line in sorted(now)
+                          if line.split(": ", 1)[1] not in old_keys]
+    if unchecked and not actionlint:
+        log(f"prepush-gate: WARNING: no YAML parser here (PyYAML, ruby or actionlint), so {', '.join(unchecked)} "
+            "went unchecked; CI's \"Lint every workflow\" step still checks it. `pip install pyyaml` fixes this.")
+    return found
+
+
 def highlight_problems(repo: Path, base: str, head: str, trusted_scripts: Path | None = None,
                        restrict: set[str] | None = None) -> list[str]:
     """`<highlight file>: <validator problem>` for each problem of each What's New highlight BASE..HEAD adds or changes.
@@ -1205,6 +1414,12 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         markers = conflict_markers(repo, base, head)
         if markers:
             reserved.append((CONFLICT_CHECK, markers))
+    # Local only, like the highlights (CLAUDE.md: no new CI gates): CI's "Lint every workflow" step (actionlint, on
+    # every pull request and every feat-cmux-next and main push) is the backstop. Here it meets a direct commit first.
+    if highlights_layer if only is None else "workflows" in only:
+        broken = workflow_problems(repo, base, head, restrict)
+        if broken:
+            reserved.append((WORKFLOW_CHECK, broken))
     # Local only, like SwiftFormat: CI's own --locked cargo steps stay the backstop. Not in gate_own's runs over the
     # ranges a merge does not own (RESTRICT): the check reads only the checkout, never those ranges' heads.
     if (highlights_layer if only is None else "cargo-lock" in only) and restrict is None:
@@ -1232,9 +1447,9 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         if bad:
             reserved.append((HIGHLIGHTS_CHECK, bad))
     # The git-only checks above need no trees: a run of only those (CI's sidebar sweep) stops here.
-    if only is not None and not only & {"scanners", "ast-grep", "swiftformat", "swiftlint"}:
+    if only is not None and not only & {"scanners", "ast-grep", "swiftformat", "swiftlint", "rustfmt"}:
         return reserved
-    changed = changed_files(repo, base, head)
+    changed = sorted(set(changed_files(repo, base, head)) | set(ratchet_row_files(repo, base, head)))
     deleted = deleted_package_swift(repo, base, head) if only is None or "scanners" in only else []
     if restrict is not None:
         changed = [p for p in changed if p in restrict]
@@ -1286,6 +1501,10 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         if swift and (swiftformat_layer if only is None else "swiftformat" in only):
             jobs["SwiftFormat --lint"] = ("fn", swiftformat, ensure_tool(lock, "swiftformat"),
                                           lint / "swiftformat.conf", swift)
+        # Local only, like SwiftFormat (lead 2026-11-05: PRs merge before CI's fmt check ends; no new CI gate).
+        rust = [p for p in changed if p.startswith(RUST_SCOPE) and p.endswith(".rs")]
+        if rust and (swiftformat_layer if only is None else "rustfmt" in only):
+            jobs["rustfmt (cmux-tui)"] = ("fn", rustfmt, repo, repo / RUST_SCOPE / "rustfmt.toml", rust)
         if swift and (only is None or "swiftlint" in only):
             jobs["SwiftLint (syntax rules)"] = ("fn", swiftlint, ensure_tool(lock, "swiftlint"),
                                                 lint / "swiftlint.yml", swift)
@@ -1639,8 +1858,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--own-range", help="sidebar sweep on a pull request: the PR's own commits (BASE..HEAD). A "
                                             "finding on a commit outside it (on the base) is a warning that names the "
                                             "commit and the owner file; one inside it is an error")
-    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,swiftlint,reserved,leo-bans,conflicts,"
-                                       "cargo-lock,sidebar,crash-allow,freeze,highlights")
+    parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,leo-bans,conflicts,"
+                                       "cargo-lock,sidebar,crash-allow,freeze,highlights,workflows")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     args = parser.parse_args(argv)
@@ -1760,6 +1979,9 @@ def main(argv: list[str] | None = None) -> int:
     if skip and any(name == CONFLICT_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {CONFLICT_CHECK}: finish the merge "
               "(keep one side of each hunk), then push.")
+    elif skip and any(name == WORKFLOW_CHECK for name, _ in found_any):
+        # A workflow GitHub cannot load stops every run of it (all its jobs, on every push), not one check.
+        print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {WORKFLOW_CHECK}. {WORKFLOW_HINT}")
     elif skip and any(name == SIDEBAR_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {SIDEBAR_CHECK}. Amend the commit with a "
               "`Sidebar-Look:` trailer (and the note for a visual change); the sidebar owner keeps the look.")
@@ -1780,6 +2002,8 @@ def main(argv: list[str] | None = None) -> int:
         print(HIGHLIGHTS_HINT)
     if any(name == CARGO_LOCK_CHECK for name, _ in found_any):
         print(CARGO_HINT)
+    if any(name == WORKFLOW_CHECK for name, _ in found_any):
+        print(WORKFLOW_HINT)
     print(HOW_TO_FIX)
     print(f"prepush-gate: push refused ({elapsed:.1f}s)")
     return 1

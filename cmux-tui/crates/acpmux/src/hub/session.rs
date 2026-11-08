@@ -231,6 +231,11 @@ pub struct Session {
     /// its agent start has no deadline while its harness works on it, and says it is still
     /// starting (`lifecycle.rs` `person_start`). Never set by an agent's or a lane's request.
     pub(super) person: AtomicBool,
+    /// Its creator asked its agent start to wait on the harness rather than a wall clock
+    /// (`NewRequest::wait_start`; the Chief, whose turn answers a person's message): the start
+    /// ends when the harness stops working (`lifecycle.rs` `StartWatch`), and says it is still
+    /// starting. Unlike `person` it proves nothing about who asks and opens nothing else.
+    pub(super) wait_start: AtomicBool,
     /// Steers into the running turn by prompt id (`steer_end.rs`): Send now stops the agent's
     /// step for one that waits (`queue_edit.rs`).
     pub(super) steer_now: StdMutex<SteerNow>,
@@ -260,9 +265,22 @@ pub struct Session {
     /// How many times its turn was stopped (`cancel.rs`): a prompt whose model-sized copies were
     /// made meanwhile is not written (`turns.rs`).
     pub(super) cancels: AtomicU64,
+    /// Woken by a Stop of its turn and a stop of the chat: a prompt whose agent start waits to be
+    /// tried again (`start_retry.rs`) ends that wait at once.
+    pub(super) start_retry_wake: Notify,
+    /// A prompt's agent start waits to be tried again (`start_retry.rs`): the row reads `starting`.
+    pub(super) start_retry_waits: AtomicBool,
+    /// The turn's Stop count while a retry's agent start runs (`start_retry.rs`, `NO_RETRY`
+    /// otherwise): a Stop since ends that start.
+    pub(super) start_retry_cancels: AtomicU64,
     /// The turn id whose forced cancellation was already published. A second
     /// Stop for the same turn must not publish another forced answer.
     pub(super) cancel_forced_turn: StdMutex<Option<String>>,
+    /// The turn whose own prompt is not handed to its agent yet, and whether a Stop fenced it
+    /// meanwhile (`cancel.rs`). A fenced prompt is never written (`steer_end.rs`), so its Stop
+    /// sends the agent no `session/cancel`: with no prompt of the turn to stop, a harness could
+    /// keep that cancel and end the next turn with it.
+    pub(super) unwritten_prompt: StdMutex<Option<(String, bool)>>,
     /// The forced `turn_result` already written for a turn, if any. This is
     /// separate from `cancel_forced_turn`: several prompt waiters can observe
     /// the same forced answer, but only one may append the result.
@@ -355,6 +373,9 @@ pub struct Session {
     /// Bumps on every sign of the model and every new or held count (`stalled_turn.rs`): a
     /// stalled end decided at one value is not carried out at another.
     pub(super) stalled_gen: AtomicU64,
+    /// The turn a refused sign-in's end is scheduled for (`turn_retry.rs`): its later retries
+    /// schedule no second end.
+    pub(super) sign_in_refused_turn: StdMutex<Option<String>>,
     /// Unix ms of the agent's last sign of its model at work (as `heard`); 0: none since load.
     /// A running turn quiet since then, with no tool call in flight, stalls (`views.rs`).
     pub(super) last_model_at: AtomicU64,
@@ -394,6 +415,10 @@ pub struct Session {
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
     /// (`pull_requests.rs`).
     pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
+    /// Files its tool calls just edited, for the who-else notice (`touched.rs`).
+    pub(super) touch_queue: StdMutex<Vec<(String, String)>>,
+    /// The sessions it was told share its files, once each (`touched.rs`).
+    pub(super) overlaps_told: StdMutex<std::collections::HashSet<String>>,
     /// Its agent's `start_session` tool calls that run, with their input (`lineage.rs`).
     pub(super) start_calls: StdMutex<std::collections::HashMap<String, Value>>,
     /// The places typing into it, and who sent its prompts (`composers.rs`).
@@ -731,9 +756,13 @@ impl Session {
     pub fn moving(&self) -> Option<String> {
         self.moving.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
-    /// A failed turn holds the prompts that waited behind it (`queue.rs` `pause_queue`).
+    /// A prompt a hold keeps waits for the person's Resume (`queue.rs` `pause_queue`,
+    /// `QueuedPrompt::waits_for_resume`). What a failed turn held goes in again by itself after
+    /// its wait, so that pauses nothing.
     pub fn queue_paused(&self) -> bool {
-        self.queue.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|q| q.held)
+        let stop_held = self.stop_hold.load(Ordering::SeqCst) != 0;
+        let queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
+        queue.iter().any(|q| q.held && q.waits_for_resume(stop_held))
     }
     pub fn pending_permissions(&self) -> Vec<(String, Value)> {
         self.permissions
@@ -884,5 +913,30 @@ impl SessionStderr {
             self.open.insert(source, stream);
         }
         clean
+    }
+}
+
+/// A held `spawn_lock` that a list sees: taking it and letting it go each count as a change
+/// (`list_guard::Events::changed`), so a cached session list never shows a start that began or
+/// ended since it was built. A row's `starting` reads the lease; an update waits on it.
+pub(super) struct SpawnLease<'a> {
+    guard: Option<tokio::sync::MutexGuard<'a, ()>>,
+    events: &'a super::list_guard::Events,
+}
+
+impl Drop for SpawnLease<'_> {
+    fn drop(&mut self) {
+        // Released first, then counted: a list built after the count reads it free.
+        drop(self.guard.take());
+        self.events.changed();
+    }
+}
+
+impl Hub {
+    /// `session.spawn_lock`, held as a [`SpawnLease`].
+    pub(super) async fn spawn_lease<'a>(&'a self, session: &'a Session) -> SpawnLease<'a> {
+        let guard = session.spawn_lock.lock().await;
+        self.events.changed();
+        SpawnLease { guard: Some(guard), events: &self.events }
     }
 }

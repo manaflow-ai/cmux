@@ -36,9 +36,32 @@ public nonisolated struct CloudRelayChat: Sendable {
         /// `error`'s code and message.
         public var errorCode: String?
         public var errorMessage: String?
+        /// `error`'s type from acpmux on the machine (cmux-host relay `final_event_of`), each a short code: its
+        /// detail (`daemon_closed`), a closed daemon's cause (`panicked`, `socket_left`), its kind
+        /// (`auth.signed_out`), and whether a retry may work. Nil from an older machine.
+        public var errorDetail: String?, errorCause: String?, errorKind: String?
+        /// What to do about it: acpmux's own sentence (`recovery.rs`), bounded by the machine.
+        public var errorRecovery: String?
+        public var errorRetryable: Bool?
+
+        /// The error's text fields under the names the app's answer gives them (`CloudStartSession.relayFields`).
+        public var errorTexts: [String: String?] {
+            ["error_code": errorCode, "error_message": errorMessage, "error_detail": errorDetail,
+             "error_cause": errorCause, "error_kind": errorKind, "error_recovery": errorRecovery]
+        }
         /// From the request to the first `text` event, and to the end.
         public var firstText: Duration?
         public var total: Duration?
+        /// From the request to the first `queued`, `sent` and `started` event (cmuxterm-hq#7415's stage trace): how long the
+        /// machine took to connect, to take the prompt, and to start its turn.
+        public var queuedAt: Duration?, sentAt: Duration?, startedAt: Duration?
+        /// The platform's own stage times for this chat, when its `sent` or `done` event carries `stages_ms` (name to
+        /// milliseconds since the platform took the request). Passed through as they came; nil from an older platform.
+        public var platformStages: [String: Int]?
+        /// Each time above under its answer field's name; nil until it came.
+        public var stageTimes: [String: Duration?] {
+            ["first_text_ms": firstText, "total_ms": total, "queued_ms": queuedAt, "sent_ms": sentAt, "started_ms": startedAt]
+        }
         /// Whether the machine was not connected yet when the chat arrived (it waited for it).
         public var queued = false
         /// The platform sent the chat down the machine's socket (`sent`).
@@ -59,9 +82,15 @@ public nonisolated struct CloudRelayChat: Sendable {
                   let event = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                   let kind = event["kind"] as? String else { return }
             switch kind {
-            case "queued": queued = true
-            case "sent": sent = true
+            case "queued":
+                queued = true
+                queuedAt = queuedAt ?? at
+            case "sent":
+                sent = true
+                sentAt = sentAt ?? at
+                takeStages(event)
             case "started":
+                startedAt = startedAt ?? at
                 session = event["session"] as? String
                 promptID = event["prompt_id"] as? String
             case "text":
@@ -75,12 +104,24 @@ public nonisolated struct CloudRelayChat: Sendable {
                     reply = whole
                 }
                 total = at
+                takeStages(event)
             case "error":
                 errorCode = (event["code"] as? String) ?? "cloud.relay.failed"
                 errorMessage = (event["message"] as? String) ?? ""
+                (errorDetail, errorCause, errorKind) = (event["detail"] as? String, event["cause"] as? String, event["error_kind"] as? String)
+                errorRetryable = event["retryable"] as? Bool
+                errorRecovery = event["recovery"] as? String
                 total = at
             default: return
             }
+        }
+
+        /// Merges an event's `stages_ms` into ``platformStages``; a later event's value for a name wins.
+        private mutating func takeStages(_ event: [String: Any]) {
+            guard let stages = event["stages_ms"] as? [String: Any] else { return }
+            var merged = platformStages ?? [:]
+            for case let (name, ms as NSNumber) in stages { merged[name] = ms.intValue }
+            platformStages = merged
         }
     }
 

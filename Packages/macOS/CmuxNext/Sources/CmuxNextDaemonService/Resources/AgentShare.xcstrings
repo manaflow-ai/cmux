@@ -6855,7 +6855,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "拷贝邀请链接"
+            "value": "复制邀请链接"
           }
         },
         "ko": {
@@ -6914,7 +6914,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已拷贝"
+            "value": "已复制"
           }
         },
         "ko": {

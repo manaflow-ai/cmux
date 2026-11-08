@@ -1,7 +1,7 @@
 import Foundation
 
 /// A custom domain owned by the signed-in Cloud account.
-public struct CloudDomain: Sendable, Hashable, Decodable {
+public struct CloudDomain: Sendable, Hashable, Codable {
     public var id: String?
     public var hostname: String?
     public var verificationState: String?
@@ -11,7 +11,7 @@ public struct CloudDomain: Sendable, Hashable, Decodable {
 }
 
 /// The publication summary nested in a custom-domain response.
-public struct CloudDomainPublication: Sendable, Hashable, Decodable {
+public struct CloudDomainPublication: Sendable, Hashable, Codable {
     public var id: String?
     public var hostname: String?
     public var state: String?
@@ -19,7 +19,7 @@ public struct CloudDomainPublication: Sendable, Hashable, Decodable {
 
 /// A Cloud VM publication. Provider and certificate details stay server-side;
 /// the UI receives only the redacted publication view.
-public struct CloudPublication: Sendable, Hashable, Decodable {
+public struct CloudPublication: Sendable, Hashable, Codable {
     public var id: String?
     public var hostname: String?
     public var url: String?

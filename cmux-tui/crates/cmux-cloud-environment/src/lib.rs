@@ -24,6 +24,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const STATE_FILE: &str = "cloud-environment.json";
 const DEV_BUNDLE: &str = "com.cmuxterm.app.debug";
 const NIGHTLY_BUNDLE: &str = "com.cmuxterm.app.nightly.cmux-next";
+/// The bundle id shipped NEXT Nightly builds carry (`nightly-next`).
+const SHIPPED_NIGHTLY_BUNDLE: &str = "com.cmuxterm.app.nightly";
 
 /// A supported NEXT Cloud deployment.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -128,7 +130,7 @@ impl Environment {
             platform_origin: deployment.platform_origin.into(),
             mobile_origin: deployment.mobile_origin.into(),
             device_hub_origin: deployment.device_hub_origin.into(),
-            share_room_origin: deployment.platform_origin.into(),
+            share_room_origin: deployment.share_origin.into(),
             // Previews use the development room, whose install-token issuer
             // remains the development API.
             share_api_origin: deployment.api_origin.into(),
@@ -145,6 +147,11 @@ pub const PRODUCTION_API: &str = "https://cloud-api.cmux.dev";
 pub const DEVELOPMENT_PLATFORM: &str = "https://cmux-platform-development.debussy.workers.dev";
 pub const STAGING_PLATFORM: &str = "https://cmux-platform-staging.debussy.workers.dev";
 pub const PRODUCTION_PLATFORM: &str = "https://cmux-platform-production.debussy.workers.dev";
+/// Each platform deployment's short chat share host (cmux-platform `SHARE_PAGE_ORIGIN`, a custom domain of
+/// the same Worker): links made there and on the platform origin are the same deployment's.
+pub const DEVELOPMENT_SHARE: &str = "https://share-dev.cmux.dev";
+pub const STAGING_SHARE: &str = "https://share-staging.cmux.dev";
+pub const PRODUCTION_SHARE: &str = "https://share.cmux.dev";
 pub const STACK_ORIGIN: &str = "https://api.stack-auth.com";
 pub const DEVELOPMENT_STACK_PROJECT: &str = "454ecd03-1db2-4050-845e-4ce5b0cd9895";
 pub const DEVELOPMENT_STACK_CLIENT_KEY: &str = "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g";
@@ -157,6 +164,8 @@ pub struct Deployment {
     pub auth_web_origin: &'static str,
     pub vm_origin: &'static str,
     pub platform_origin: &'static str,
+    /// The chat share room: the platform deployment's short share host, so links read `share.cmux.dev/g/...`.
+    pub share_origin: &'static str,
     pub mobile_origin: &'static str,
     pub device_hub_origin: &'static str,
     pub stack_project_id: &'static str,
@@ -168,6 +177,7 @@ pub const DEVELOPMENT_DEPLOYMENT: Deployment = Deployment {
     auth_web_origin: "https://cmux-staging.vercel.app",
     vm_origin: "https://vm-staging.cmux.dev",
     platform_origin: DEVELOPMENT_PLATFORM,
+    share_origin: DEVELOPMENT_SHARE,
     mobile_origin: "https://cmux-mobile-api-dev.debussy.workers.dev",
     device_hub_origin: "https://cmux-device-hub-dev.debussy.workers.dev",
     stack_project_id: DEVELOPMENT_STACK_PROJECT,
@@ -176,6 +186,7 @@ pub const DEVELOPMENT_DEPLOYMENT: Deployment = Deployment {
 pub const STAGING_DEPLOYMENT: Deployment = Deployment {
     api_origin: STAGING_API,
     platform_origin: STAGING_PLATFORM,
+    share_origin: STAGING_SHARE,
     ..DEVELOPMENT_DEPLOYMENT
 };
 pub const PRODUCTION_DEPLOYMENT: Deployment = Deployment {
@@ -183,6 +194,7 @@ pub const PRODUCTION_DEPLOYMENT: Deployment = Deployment {
     auth_web_origin: "https://cmux.com",
     vm_origin: "https://vm.cmux.dev",
     platform_origin: PRODUCTION_PLATFORM,
+    share_origin: PRODUCTION_SHARE,
     mobile_origin: "https://mobile-api.cmux.dev",
     device_hub_origin: "https://cmux-device-hub.debussy.workers.dev",
     stack_project_id: PRODUCTION_STACK_PROJECT,
@@ -195,6 +207,7 @@ pub const LOCAL_DEPLOYMENT: Deployment = Deployment {
     auth_web_origin: "http://localhost:3777",
     vm_origin: "http://localhost:8789",
     platform_origin: "http://localhost:8788",
+    share_origin: "http://localhost:8788",
     mobile_origin: "http://localhost:8790",
     device_hub_origin: "http://localhost:8791",
     ..DEVELOPMENT_DEPLOYMENT
@@ -369,6 +382,20 @@ impl Resolver {
         client_config::resolve(self, selection).await
     }
 
+    /// A launch's read, with no network I/O when it can: the validated cache, else a known
+    /// deployment's built-in configuration (what an unreachable or config-less backend gives
+    /// anyway); only a custom origin with no cache is fetched. The app refreshes the cache after
+    /// its window is up, so a changed backend config applies at the next launch.
+    pub async fn client_config_cache_first(
+        &self,
+        selection: Selection,
+    ) -> Result<Selection, String> {
+        match client_config::without_fetch(self, selection.clone()) {
+            Some(selection) => Ok(selection),
+            None => client_config::resolve(self, selection).await,
+        }
+    }
+
     /// Applies a previously fetched, validated client-config cache without
     /// performing network I/O. Daemon consumers use this after CLI bootstrap.
     pub fn cached_client_config(&self, selection: Selection) -> Result<Option<Selection>, String> {
@@ -412,9 +439,12 @@ impl Resolver {
         let legacy_storage = legacy_hint.unwrap_or(revision == 0)
             && match self.bundle_id.as_str() {
                 "com.cmuxterm.app.debug.next" => environment == Environment::Dev,
-                "com.cmuxterm.app" | "com.cmuxterm.app.rc" | NIGHTLY_BUNDLE => {
-                    environment == Environment::Prod
-                }
+                // Shipped NEXT Nightly is `com.cmuxterm.app.nightly`; its session
+                // was in `<bundle>.auth` before runtime selection (2026-11-05).
+                "com.cmuxterm.app"
+                | "com.cmuxterm.app.rc"
+                | SHIPPED_NIGHTLY_BUNDLE
+                | NIGHTLY_BUNDLE => environment == Environment::Prod,
                 bundle if bundle.starts_with("com.cmuxterm.app.rc.") => {
                     environment == Environment::Prod
                 }
@@ -654,6 +684,21 @@ mod tests {
         assert_eq!(resolver.resolve(Some("prod")).unwrap().name, "prod");
         assert_eq!(resolver.set(Environment::Prod).unwrap().name, "prod");
         assert_eq!(resolver.resolve(None).unwrap().name, "prod");
+    }
+
+    #[test]
+    fn an_update_from_a_build_before_runtime_selection_stays_signed_in() {
+        // Shipped NEXT Nightly is `com.cmuxterm.app.nightly`; its session was in
+        // `<bundle>.auth` before #35284 and must still be read there (2026-11-05).
+        for bundle in
+            ["com.cmuxterm.app", "com.cmuxterm.app.rc", "com.cmuxterm.app.nightly", NIGHTLY_BUNDLE]
+        {
+            let home = Home::new();
+            let selected = Resolver::new(bundle, &home.0).unwrap().resolve(None).unwrap();
+            assert_eq!(selected.configuration.name, "prod", "{bundle}");
+            assert!(selected.legacy_storage, "{bundle}");
+            assert_eq!(selected.auth_storage_namespace, None, "{bundle}");
+        }
     }
 
     #[test]

@@ -7,6 +7,7 @@ use crate::hub::{EventFilter, Hub, HubEvent, VERSION};
 use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
 use crate::rpc::{Message, RpcError, method};
+use crate::sender_harness::SocketPeer;
 use crate::session_identity::SessionReceipt;
 use anyhow::{Context, Result};
 use cmux_local_auth::{ListenerPolicy, Refusal};
@@ -193,6 +194,14 @@ pub struct Conn {
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
     peer: Option<cmux_link::app_caller::PeerToken>,
+    /// The unix socket peer's pid, read at accept (`SO_PEERCRED`, `LOCAL_PEERPID`), or the daemon's
+    /// own outbox: where a send's process chain is walked from and whose check is carried
+    /// (`sender_harness::check_trust`), provenance only, never a proof.
+    pub(super) socket_peer: crate::sender_harness::SocketPeer,
+    /// A unix socket peer that is root while this daemon is not (Linux, `daemon/provision.rs`):
+    /// the VM provisioning exec, the one caller besides the signed app that may give the person key.
+    /// Only a Cloud machine's daemon, not dumpable since its start, has one.
+    provisioner: bool,
     /// Requests seen so far (`hub/person.rs`: initialize first, the proof second).
     requests: std::sync::atomic::AtomicU64,
     /// Its first request was an `initialize` that got the person challenge.
@@ -784,7 +793,15 @@ pub async fn serve_unix(hub: Arc<Hub>, listener: UnixListener) -> Result<()> {
                 use std::os::fd::AsRawFd;
                 cmux_link::app_caller::peer_token(stream.as_raw_fd())
             };
-            stream::serve_stream(hub, stream, peer).await;
+            // A root peer of a Cloud machine's daemon may carry the person key (`daemon/provision.rs`).
+            let provisioner = crate::daemon::provision::accept_provisioner(&stream);
+            let socket_peer = stream
+                .peer_cred()
+                .ok()
+                .and_then(|c| c.pid())
+                .and_then(|p| u32::try_from(p).ok())
+                .map_or(SocketPeer::Unknown, SocketPeer::Pid);
+            stream::serve_stream(hub, stream, peer, provisioner, socket_peer).await;
         });
     }
 }
@@ -1257,7 +1274,7 @@ pub async fn serve_ws_until(
                 }
                 None => (origin, proof, None),
             };
-            serve_connection_from(hub, in_rx, out_tx, origin, proof, None, device, Some(wire))
+            serve_connection_from(hub, in_rx, out_tx, origin, proof, None, false, SocketPeer::Unknown, device, Some(wire))
                 .await;
             if let Some(watcher) = watcher {
                 watcher.abort();
@@ -1421,6 +1438,31 @@ pub async fn serve_connection_with(
     serve_connection_authed(hub, inbound, out, origin, ConnAuth::proven_for(origin)).await
 }
 
+/// The daemon's own outbox delivering a send it kept (`outbox.rs` `attempt_once`): served as
+/// `origin` with its proof, and the one local connection whose `senderHarnessChecked` is the
+/// daemon's own (`sender_harness::check_trust`).
+pub(super) async fn serve_outbox_connection(
+    hub: Arc<Hub>,
+    inbound: mpsc::Receiver<String>,
+    out: mpsc::Sender<String>,
+    origin: Origin,
+) {
+    let auth = ConnAuth::proven_for(origin);
+    serve_connection_from(
+        hub,
+        inbound,
+        out,
+        origin,
+        auth,
+        None,
+        false,
+        SocketPeer::Outbox,
+        None,
+        None,
+    )
+    .await
+}
+
 /// A connection with the proof its transport checked. `ConnAuth::None`
 /// gets no sessions and no data: its first request is refused and the
 /// connection ends (`conn_auth.rs`).
@@ -1431,7 +1473,19 @@ pub async fn serve_connection_authed(
     origin: Origin,
     auth: ConnAuth,
 ) {
-    serve_connection_from(hub, inbound, out, origin, auth, None, None, None).await
+    serve_connection_from(
+        hub,
+        inbound,
+        out,
+        origin,
+        auth,
+        None,
+        false,
+        SocketPeer::Unknown,
+        None,
+        None,
+    )
+    .await
 }
 
 /// A paired machine's connection, served as its role says
@@ -1444,7 +1498,19 @@ pub async fn serve_connection_device(
     device: crate::pairing::DeviceAuth,
 ) {
     let (origin, auth) = pairing::origin_of(&device);
-    serve_connection_from(hub, inbound, out, origin, auth, None, Some(device.id), None).await
+    serve_connection_from(
+        hub,
+        inbound,
+        out,
+        origin,
+        auth,
+        None,
+        false,
+        SocketPeer::Unknown,
+        Some(device.id),
+        None,
+    )
+    .await
 }
 
 /// `serve_connection_authed` for a unix socket peer named by its audit token.
@@ -1455,6 +1521,8 @@ async fn serve_connection_from(
     origin: Origin,
     auth: ConnAuth,
     peer: Option<cmux_link::app_caller::PeerToken>,
+    provisioner: bool,
+    socket_peer: SocketPeer,
     device: Option<String>,
     wire: Option<Arc<crate::frame_compress::Wire>>,
 ) {
@@ -1489,6 +1557,8 @@ async fn serve_connection_from(
         notices: Arc::new(AtomicU64::new(0)),
         watch_inventory: StdMutex::new(false),
         peer,
+        socket_peer,
+        provisioner,
         requests: std::sync::atomic::AtomicU64::new(0),
         challenged: AtomicBool::new(false),
         nonce: crate::hub::person::new_nonce(),
@@ -1970,6 +2040,7 @@ mod lane_parent;
 mod list_reply;
 use lane_parent::lane_parent;
 mod bg_tasks;
+mod goal;
 pub mod local_app;
 pub(crate) mod machine_health;
 mod models_fanout;
@@ -1983,7 +2054,7 @@ pub(crate) mod outbox;
 mod pairing;
 pub mod peer_auth;
 mod peer_forward;
-mod peer_status;
+pub(crate) mod peer_status;
 pub mod peer_text;
 mod pending;
 mod place;
@@ -2002,6 +2073,7 @@ pub(crate) use redact::url_without_secrets;
 pub(crate) mod remote_guard;
 mod requests;
 pub use requests::{DURABLE_DISPATCH_FEATURE, SESSION_RESUME_FEATURE};
+mod accounts;
 mod mcp_connect;
 mod routes;
 mod secrets;
@@ -2189,6 +2261,10 @@ mod list_fit_tests;
 #[cfg(test)]
 #[path = "list_pending_tests.rs"]
 mod list_pending_tests;
+
+#[cfg(test)]
+#[path = "list_web_page_tests.rs"]
+mod list_web_page_tests;
 
 #[cfg(test)]
 #[path = "session_list_pages_tests.rs"]

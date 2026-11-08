@@ -55,6 +55,12 @@ pub enum PeerCmd {
     /// whether a turn runs here, and a build or test that is running. Reads
     /// only; never starts a daemon. Fields it cannot read are left out.
     Load,
+    /// The shadow admission verdict (cmuxterm-hq#7342) for host readings on
+    /// stdin: one JSON object, or an array of them, in; the verdict (or an
+    /// array of verdicts) out, as JSON. Pure: reads no host and starts no
+    /// daemon. A reading with no `now_ms` is judged at this machine's clock.
+    /// Nothing is deferred on it; lane-place and placement log it.
+    Verdict,
     /// Add one muted line to every live chat on this machine's daemon, such
     /// as the note cmux Cloud adds after it resizes the machine.
     Notice {
@@ -94,6 +100,16 @@ pub enum PeerCmd {
         /// Show cloud machine join status without reading stdin.
         #[arg(long)]
         status: bool,
+    },
+    /// Leave the cloud: revoke this joined machine's credential at the hub
+    /// with the credential itself (`tailscale logout`), then remove
+    /// `meshRelay`, the credential and the node key here. A hub that cannot
+    /// revoke from the machine says to revoke it from your Mac (`cmux machine
+    /// revoke NAME`); then `--local-only` removes this machine's state anyway.
+    Leave {
+        /// Remove the local join state even when the hub did not revoke it.
+        #[arg(long)]
+        local_only: bool,
     },
     /// Request screen/control consent through the daemon. Changing it requires
     /// the local app's person proof; a shell or agent cannot grant consent.
@@ -245,6 +261,25 @@ pub enum PeerCmd {
         /// Also try key-only ssh to each online machine.
         #[arg(long)]
         probe: bool,
+    },
+    /// This machine's ssh public key: the one line a new machine lists in its
+    /// ~/.ssh/authorized_keys, and the command that adds it there. --create makes an
+    /// ed25519 key when this machine has none (never over an existing key).
+    Key {
+        #[arg(long)]
+        create: bool,
+    },
+    /// Claude Code and Codex on MACHINE (a machine name or ssh host): installed, signed
+    /// in, and what can be offered. Nothing installs or signs in unless a flag asks.
+    Agents {
+        #[arg(value_name = "MACHINE")]
+        target: String,
+        /// Install it there with its vendor's official installer (`harness install`).
+        #[arg(long, value_name = "ID", conflicts_with = "login")]
+        install: Option<String>,
+        /// Sign it in there, in this terminal (`harness login` over ssh -t).
+        #[arg(long, value_name = "ID")]
+        login: Option<String>,
     },
 }
 

@@ -70,7 +70,7 @@ async function render(onDismiss = () => {}, extra: Partial<NonNullable<AcpmuxSna
   });
   await act(async () => {
     root = createRoot(container);
-    root.render(<HarnessStatusCard summary={{ ...summary(), ...extra }} rows={[]} onDismiss={onDismiss} />);
+    root.render(<HarnessStatusCard summary={{ ...summary(), ...extra }} onDismiss={onDismiss} />);
   });
   return { container, copied };
 }
@@ -148,7 +148,7 @@ test("Escape dismisses the card from composer focus, while an open menu gets fir
   // Re-mount the card, then leave an interactive AnchoredCard open. Tooltip popups use role=dialog
   // without an [open] attribute, so the status card must defer to the real overlay shape.
   await act(async () =>
-    root!.render(<HarnessStatusCard summary={summary()} rows={[]} onDismiss={() => dismissed.push("menu-closed")} />),
+    root!.render(<HarnessStatusCard summary={summary()} onDismiss={() => dismissed.push("menu-closed")} />),
   );
   const popover = document.createElement("div");
   popover.setAttribute("role", "dialog");
@@ -187,7 +187,7 @@ test("the real Summary popover takes Escape before status, while the inline Summ
     const [shown, setShown] = useState(true);
     return (
       <>
-        <HarnessStatusCard summary={summary()} rows={[]} onDismiss={() => dismissed.push("status")} />
+        <HarnessStatusCard summary={summary()} onDismiss={() => dismissed.push("status")} />
         <SummaryCard
           rows={[]}
           subagents={{ views: undefined, current: undefined, asks: new Set(), onOpen: () => {} }}
@@ -242,7 +242,7 @@ test("the focused real minimap preview takes Escape before status", async () => 
     useEscapeCloses(shown && focused, () => setShown(false));
     return (
       <>
-        <HarnessStatusCard summary={summary()} rows={[]} onDismiss={() => dismissed.push("status")} />
+        <HarnessStatusCard summary={summary()} onDismiss={() => dismissed.push("status")} />
         {shown && (
           <PreviewCard
             id="preview"

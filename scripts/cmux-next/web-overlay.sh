@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Point a running Debug, NIGHTLY or NEXT DEV cmux-next at live web code, without an app build or relaunch
-# (plans/cmux-next/web-live-reload.md). It edits web-dev.json next to cmux-next.json, which the
-# app watches (WebDevOverride.swift); every open page and agent pane reloads on a change.
+# Point a running cmux at live web code, without an app build or relaunch (docs/cmux-next/hot-reload.md,
+# plans/cmux-next/web-live-reload.md). It edits web-dev.json next to cmux-next.json, which every
+# build watches while Settings > General > Live Web Reload (updates.liveWebReload) is on, the
+# default (WebDevOverride.swift); every open page and agent pane, WebKit or Chromium, reloads on a change.
 #
 #   web-overlay.sh server --local [--worktree DIR] [--port N]
 #                        # the default: run the webviews Vite server from a checkout on this Mac
@@ -73,7 +74,7 @@ for key, raw in zip(pairs[::2], pairs[1::2]):
         data.pop(key, None)
     else:
         data[key] = value
-fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".web-dev.")
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".web-dev.")  # 0600: it holds the token
 with os.fdopen(fd, "w") as f:
     json.dump(data, f, indent=2)
     f.write("\n")
@@ -105,12 +106,20 @@ install_dirs() {
     ln -sfn ".gen-$stamp/$name" "$overlay/.$name.next"  # -n: a leftover link is replaced, not entered
     mv -fh "$overlay/.$name.next" "$overlay/$name" 2>/dev/null || mv -fT "$overlay/.$name.next" "$overlay/$name"
   done
-  python3 - "$overlay" "$stamp" "$source_commit" "${installed[@]}" <<'PY'
+  # The native interface the bundles need (their pages/web-abi.json): the app refuses an overlay
+  # whose abi is not its own (WebDevOverride.refusal), as it refuses such a web update.
+  python3 - "$overlay" "$stamp" "$source_commit" "$pages/web-abi.json" "${installed[@]}" <<'PY'
 import json, os, sys, tempfile
-overlay, stamp, commit, names = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+overlay, stamp, commit, abi_file, names = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5:]
+manifest = {"stamp": stamp, "commit": commit, "surfaces": names}
+try:
+    with open(abi_file) as f:
+        manifest["abi"] = int(json.load(f)["abi"])
+except (OSError, ValueError, KeyError, TypeError):
+    pass  # bundles with no web-abi.json: the app checks nothing, as before
 fd, tmp = tempfile.mkstemp(dir=overlay, prefix=".manifest.")
 with os.fdopen(fd, "w") as f:
-    json.dump({"stamp": stamp, "commit": commit, "surfaces": names}, f)
+    json.dump(manifest, f)
     f.write("\n")
 os.replace(tmp, os.path.join(overlay, "manifest.json"))
 PY
@@ -249,8 +258,19 @@ start_local() {
   echo "dev server: http://127.0.0.1:$port/ from $tree (log: $state/dev-server.log)"
 }
 
+# A fresh token for web-dev.json on every `server`: the app sends each request a random nonce and
+# loads only answers proving HMAC-SHA256(token, nonce) (webviews/dev-server/plugins.ts reads the token
+# from the same 0600 file, per request), so a process that takes the port of a stopped server serves
+# the app nothing. $1, when long enough, is used instead (a slot's server's token).
+ensure_token() {
+  local token="${1:-}"
+  [[ ${#token} -ge 32 ]] || token="$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
+  echo "$token"
+}
+
+# Points the app at a server on port $1; $2 is the token its answers carry (default: ours).
 point_at() {
-  set_key server "$(json_string "http://127.0.0.1:$1/")" enabled true
+  set_key server "$(json_string "http://127.0.0.1:$1/")" token "$(json_string "$(ensure_token "${2:-}")")" enabled true
 }
 
 cmd="${1:-}"; [[ -n "$cmd" ]] || usage 1; shift
@@ -289,7 +309,19 @@ case "$cmd" in
           echo $! >"$state/tunnel.pid"
           if answers "$port" 15; then
             echo "slot: $host:$port through a tunnel"
-            point_at "$port"; exit 0
+            # The slot's server sends the token of web-dev.json on its own machine.
+            remote_token="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$host" python3 - <<'PY' 2>/dev/null || true
+import json, os
+try:
+    print(json.load(open(os.path.expanduser("~/.config/cmux/web-dev.json"))).get("token") or "")
+except Exception:
+    print("")
+PY
+)"
+            if [[ ${#remote_token} -lt 32 ]]; then
+              echo "warning: $host has no token in ~/.config/cmux/web-dev.json; start its server with CMUX_WEB_DEV_TOKEN set to the \"token\" in $web_dev, or the app keeps the bundled pages" >&2
+            fi
+            point_at "$port" "$remote_token"; exit 0
           fi
           kill "$(cat "$state/tunnel.pid")" 2>/dev/null || true; rm -f "$state/tunnel.pid"
           echo "the slot on $host:$port does not answer; using a local dev server" >&2
@@ -304,7 +336,8 @@ case "$cmd" in
         if ! curl -fsS -o /dev/null --max-time 5 "${url%/}/agent-pane/index.html"; then
           echo "warning: ${url%/}/agent-pane/index.html does not answer yet; the app uses the bundled pages until it does" >&2
         fi
-        set_key server "$(json_string "$url")" enabled true
+        set_key server "$(json_string "$url")" token "$(json_string "$(ensure_token)")" enabled true
+        echo "a webviews dev server on this Mac sends this token itself; any other server needs CMUX_WEB_DEV_TOKEN set to the \"token\" in $web_dev"
         ;;
     esac
     ;;
@@ -434,6 +467,30 @@ case "$cmd" in
     cat "$web_dev" 2>/dev/null || echo "(none: the app serves its bundled pages)"
     echo "overlay: $overlay"
     cat "$overlay/manifest.json" 2>/dev/null || echo "(no overlay installed)"
+    # The app's bridge check (WebDevOverride.refusal): an overlay for another web ABI is not served.
+    # CMUX_WEB_OVERLAY_APP names the app; else the installed NEXT builds.
+    apps=("/Applications/cmux NIGHTLY.app" "/Applications/cmux NEXT.app")
+    [[ -z "${CMUX_WEB_OVERLAY_APP:-}" ]] || apps=("$CMUX_WEB_OVERLAY_APP")
+    for app in "${apps[@]}"; do
+      [[ -f "$overlay/manifest.json" && -d "$app" ]] || continue
+      python3 - "$overlay/manifest.json" "$app" <<'PY'
+import json, sys
+manifest, app = sys.argv[1], sys.argv[2]
+try:
+    want = json.load(open(manifest)).get("abi")
+    have = json.load(open(app + "/Contents/Resources/CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages/web-abi.json"))["abi"]
+except (OSError, ValueError, KeyError):
+    sys.exit(0)
+if want is not None and want != have:
+    print(f"refused by {app}: the overlay needs web ABI {want}, the app has {have} (build it from a tree at the app's ABI)")
+elif want is not None:
+    print(f"served by {app}: web ABI {have}")
+PY
+    done
+    # The app's switch for all of this: off means the file above is ignored.
+    if command -v cmux >/dev/null 2>&1; then
+      echo "Live Web Reload (updates.liveWebReload): $(cmux settings get updates.liveWebReload 2>/dev/null || echo unknown)"
+    fi
     ;;
   -h|--help) usage ;;
   *) echo "unknown command: $cmd" >&2; usage 1 ;;

@@ -24,13 +24,18 @@ public struct NextStepAsk: Equatable, Sendable {
         }
     }
 
-    /// The tag the line carried, lowercased ("outward").
+    /// The tag the line carried, lowercased ("outward"), or `wrap_up` for the agent's own wrap-up
+    /// call (WrapUp.swift).
     public var tag: String
-    /// The question, through its last question mark, without the tag or a "For Leo:" lead.
+    /// What changed and where things stand, muted above the question: only a wrap-up carries one.
+    public var recap: String?
+    /// The question, through its last question mark, without the tag or a "For Leo:" lead. Empty
+    /// for a wrap-up with nothing to decide, which draws the recap alone.
     public var question: String
     /// What the line said after the question ("My pick: yes."), muted under it.
     public var detail: String?
-    /// Two to four answers; the first is the primary.
+    /// Two to four answers; the first is the primary. A wrap-up's may hold one, or none with no
+    /// question.
     public var options: [Option]
     /// The answer's text without the ask's lines, which the card draws instead.
     public var rest: String
@@ -108,7 +113,7 @@ public struct NextStepAsk: Equatable, Sendable {
         }
         var rest = (Array(lines[..<ask.at]) + tail).joined(separator: "\n")
         while let scalar = rest.unicodeScalars.last, CharacterSet.whitespacesAndNewlines.contains(scalar) { rest.removeLast() }
-        return NextStepAsk(tag: ask.tag, question: question, detail: after.isEmpty ? nil : after, options: options, rest: rest)
+        return NextStepAsk(tag: ask.tag, recap: nil, question: question, detail: after.isEmpty ? nil : after, options: options, rest: rest)
     }
 
     /// The answer the person gave: the option their next prompt chose (case and outer space

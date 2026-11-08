@@ -661,6 +661,52 @@ const fontSizeVariants: Record<string, AgentPaneVariant> = Object.fromEntries(
   ),
 );
 
+/// Pastes `types` on the prompt as the system clipboard hands them over; `plain`, after Paste as
+/// Plain Text (⌘⇧V), as the prompt was before rich paste (richClipboard.ts).
+async function pasteTypes(ctx: PlayContext, types: Record<string, string>, settled: string, plain = false) {
+  const view = ctx.document.defaultView!;
+  if (plain) (ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement).acpmuxMarkdownField?.plainPaste();
+  const data = new view.DataTransfer();
+  for (const [type, value] of Object.entries(types)) data.setData(type, value);
+  const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", { value: data });
+  ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md")?.textContent?.includes(settled));
+}
+
+/// A bulleted reply as Claude's and ChatGPT's Copy put it on the clipboard (Leo's screenshots).
+const BULLETED_REPLY = [
+  "Continuing the landing pass:",
+  "",
+  "- **#21620** merged; no red of its own",
+  "- **#21621** typecheck fixed where `vp check` failed",
+  "- **#21200** waiting on review",
+].join("\n");
+
+/// HTML from a web page or Notes with a heading, a list and code.
+const HEADING_AND_CODE_HTML =
+  "<meta charset='utf-8'><h2>Retry plan</h2><ul><li>Retry only on <b>429</b> and <b>503</b></li><li>Back off from 200 ms</li></ul><pre><code class='language-ts'>await retry(send, { attempts: 3 });</code></pre>";
+
+/// One long paragraph, as dictation or a chat message gives it: about 1,100 words on a single line.
+const PARAGRAPH = Array.from(
+  { length: 40 },
+  (_, index) =>
+    `Okay, but at the same time the retry helper in step ${index + 1} should back off a little longer each attempt, log why it gave up, and keep the`,
+).join(" ");
+
+/// Pastes PARAGRAPH on the prompt and waits for its card (`card`).
+async function pasteParagraph(ctx: PlayContext, card: string) {
+  const view = ctx.document.defaultView!;
+  const data = new view.DataTransfer();
+  data.setData("text/plain", PARAGRAPH);
+  const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", { value: data });
+  ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+  await ctx.waitFor(() => ctx.document.querySelector(card));
+  if (/\b1 line\b/.test(ctx.find({ selector: card }).querySelector(".acpmux-text-card__label")?.textContent ?? ""))
+    throw new Error("a one-paragraph paste must say its size, never 1 line");
+}
+
 export default agentPaneEntry({
   id: "agent-pane.composer",
   title: "Composer",
@@ -756,7 +802,7 @@ export default agentPaneEntry({
       ready: { newSession: true, cwd: AGENT_HOME, chooseFolder: true },
       // A new chat's session starts at once (the prewarmed process), so the snapshot and its
       // summary name the same session, as the app's do; the folder control is then the new chat's
-      // folder menu (Choose folder…), not the path field.
+      // folder menu (Add folder…), not the path field.
       snapshot: noChat([], {
         sessionId: "prewarmed",
         summary: {
@@ -1018,7 +1064,7 @@ export default agentPaneEntry({
     // Leo (2026-10-21), as in Claude: a huge paste is a chip with its first words and line count,
     // the prompt as typed; a click puts it back in the prompt, × removes it (pastedText.ts).
     "text-pasted": {
-      note: "A 130-line paste (780 words, over the 750-word limit): a Pasted text card (its first lines faded, Pasted text · 130 lines) over the typed prompt, × on hover.",
+      note: "A 130-line paste (780 words, over the 750-word limit): a Pasted text card (its first lines faded, Pasted text · 130 lines and its characters) over the typed prompt, × on hover.",
       ready: { draft: "Why does the build fail?" },
       snapshot: chat(finished),
       play: async (ctx) => {
@@ -1062,6 +1108,57 @@ export default agentPaneEntry({
           throw new Error("the inline paste card must show the paste's first lines");
         if (!/131 lines/.test(card.querySelector(".acpmux-text-card__label")?.textContent ?? ""))
           throw new Error("the inline paste card must say its line count");
+      },
+    },
+    // Leo (2026-11-05): "we don't even render bullet points properly in our thing when we're pasting
+    // that stuff in". Before: the bulleted reply goes in as literal "- " lines (Paste as Plain Text
+    // keeps that); after: an ordinary paste draws the same bullets typing "- " makes.
+    "paste-bulleted-reply-plain": {
+      note: 'Before, and still Paste as Plain Text (⌘⇧V): a bulleted reply copied from a chat goes in as its literal lines, each starting with "- " and **bold** as typed.',
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        await pasteTypes(ctx, { "text/plain": BULLETED_REPLY }, "#21200", true);
+        if (ctx.document.querySelector(".acpmux-md li")) throw new Error("Paste as Plain Text must not draw a list");
+      },
+    },
+    "paste-bulleted-reply": {
+      note: "After: the same paste draws its intro line and three bullets, bold and inline code as the reply had them.",
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        await pasteTypes(ctx, { "text/plain": BULLETED_REPLY }, "#21200");
+        if (ctx.document.querySelectorAll(".acpmux-md ul > li").length !== 3)
+          throw new Error("a pasted bulleted reply must draw three bullets");
+      },
+    },
+    "paste-heading-and-code": {
+      note: "HTML from a web page or Notes with a heading, a list and code: a heading, two bullets and a code block in the prompt.",
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        await pasteTypes(
+          ctx,
+          { "text/html": HEADING_AND_CODE_HTML, "text/plain": "Retry plan\nRetry only on 429 and 503" },
+          "attempts",
+        );
+        if (!ctx.document.querySelector(".acpmux-md h2") || !ctx.document.querySelector(".acpmux-md pre"))
+          throw new Error("a pasted heading and code block must draw as a heading and a code block");
+      },
+    },
+    // Leo (2026-11-05): "it says pasted text one line, but there's a lot more than this ... you're
+    // previewing one, two, three, four, five words out of a multi-hundred-word pasted text bit". One
+    // long dictated paragraph: the card wraps it in the composer's font and says its size.
+    "text-pasted-paragraph": {
+      note: "One 1,100-word paragraph pasted in the inline view: the card wraps its first lines in the composer's font, faded, over Pasted text · 5.4K characters (never 1 line).",
+      ready: { draft: "Can you tighten this up? " },
+      snapshot: chat(finished),
+      play: (ctx) => pasteParagraph(ctx, '.acpmux-md-inline-chip[data-preview="text"]'),
+    },
+    "text-pasted-paragraph-strip": {
+      note: "The same paragraph in the strip view: a wider card, three wrapped lines over its size.",
+      ready: { draft: "Can you tighten this up?" },
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        ctx.document.defaultView!.cmuxAcpmuxComposer?.({ attachmentView: "strip" });
+        await pasteParagraph(ctx, ".acpmux-attachment-pasted");
       },
     },
     // Leo (2026-10-28): "double paste of long block text should reveal it instead of duplicating
@@ -1387,6 +1484,27 @@ export default agentPaneEntry({
       ready: { draft: "Which layout reads better?" },
       play: pasteTwoScreenshots,
     },
+    // Leo, 2026-11-07: "the blinking caret to the right of attachments needs a little more space than
+    // what we have right now". The room after each chip in the text (markdownField.css
+    // .acpmux-md-inline), the caret after the last of two: 2px, a thin spacer; 4px, half; 8px, the
+    // default, the same as from one chip to the next.
+    ...Object.fromEntries(
+      ([2, 4, 8] as const).map((room) => [
+        `attachment-inline-caret-room-${room}`,
+        {
+          note: `Leo, 2026-11-07: "the blinking caret to the right of attachments needs a little more space than what we have right now". ${room}px of room after each chip in the text${room === 8 ? " (the default)" : ""}: the caret after the second screenshot stands ${room}px from it, as the second stands from the first. The prompt's text gains no space.`,
+          snapshot: chat(finished),
+          ready: { draft: "Which layout reads better?" },
+          play: async (ctx: PlayContext) => {
+            ctx.document.documentElement.style.setProperty("--acpmux-inline-room", `${room}px`);
+            await pasteTwoScreenshots(ctx);
+            const field = ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement;
+            field.acpmuxMarkdownField!.focus();
+            field.acpmuxMarkdownField!.setCaret("Which layout reads better?".length + 2);
+          },
+        },
+      ]),
+    ),
     "attachment-inline-reorder-hover": {
       note: "The pointer on the first screenshot: its small × shows in the top-right corner, and only there; the rest of the thumbnail is where a drag starts.",
       snapshot: chat(finished),
@@ -2233,29 +2351,57 @@ export default agentPaneEntry({
           throw new Error("a cancelled capture left focus off the prompt");
       },
     },
-    "attach-screenshot-too-large": {
-      note: "Play: + > Attach Screenshot… of a capture too large to attach shows the composer's note naming it, not nothing.",
+    "attach-screenshot-oversized": {
+      note: "Play: + > Attach Screenshot… of a capture over the 5 MiB image cap attaches it like a pasted image: its thumbnail, with the full original saved to the chat for the agent. Never refused for its size.",
       snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
         chat(finished),
       ),
       checks: {
         anchorMovePx: {
-          value: 40,
-          reason: "The note row opens above the prompt, as a pasted file that is too large does.",
+          value: 78,
+          reason: "The attached image's thumbnail row opens above the prompt, the same growth a pasted image makes.",
         },
-        layoutShiftMax: { value: 0.05, reason: "The note row the refused capture adds above the prompt." },
+        layoutShiftMax: { value: 0.07, reason: "The thumbnail row the capture adds above the prompt." },
       },
-      native: { "composer.capture": { tooLarge: true, name: "Screenshot 2026-10-11 14.32.05.png" } },
+      native: {
+        // A noise PNG no encoder shrinks under the cap, made when the pane asks for it.
+        "composer.capture": () => {
+          const canvas = document.createElement("canvas");
+          // 1800 x 1300 opaque noise: about 7 MB of RGB that no PNG filter or deflate shrinks.
+          canvas.width = 1800;
+          canvas.height = 1300;
+          const context = canvas.getContext("2d")!;
+          const pixels = context.createImageData(canvas.width, canvas.height);
+          let seed = 0x9e3779b9;
+          for (let at = 0; at < pixels.data.length; at += 4) {
+            seed ^= seed << 13;
+            seed ^= seed >>> 17;
+            seed ^= seed << 5;
+            pixels.data[at] = seed & 255;
+            pixels.data[at + 1] = (seed >>> 8) & 255;
+            pixels.data[at + 2] = (seed >>> 16) & 255;
+            pixels.data[at + 3] = 255;
+          }
+          context.putImageData(pixels, 0, 0);
+          const data = canvas.toDataURL("image/png").slice("data:image/png;base64,".length);
+          return { name: "Screenshot 2026-10-11 14.32.05.png", mimeType: "image/png", data };
+        },
+      },
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
         await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.screenshot"]' });
-        await ctx.waitFor(() =>
-          ctx.document
-            .querySelector(".acpmux-attachment-note")
-            ?.textContent?.includes("Screenshot 2026-10-11 14.32.05.png"),
-        );
-        if (ctx.document.querySelector(".acpmux-attachment-image"))
-          throw new Error("a refused capture attached an image");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img"));
+        const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string; params?: unknown }[] })
+          .cmuxGalleryLog;
+        // The original streams to the chat through the staged upload, as a pasted image's does.
+        await ctx.waitFor(() => log.some(({ method }) => method === "chat.upload.finish"), { capMs: 30_000 });
+        const begun = log.find(({ method }) => method === "chat.upload.begin")?.params as
+          | { name?: string; size?: number }
+          | undefined;
+        if (begun?.name !== "Screenshot 2026-10-11 14.32.05.png" || !(Number(begun.size) > 5 * 1024 * 1024))
+          throw new Error(`the capture's original was not saved: ${JSON.stringify(begun)}`);
+        if (ctx.document.querySelector(".acpmux-attachment-note"))
+          throw new Error("an oversized capture must not show a refusal note");
       },
     },
     "context-breakdown": {

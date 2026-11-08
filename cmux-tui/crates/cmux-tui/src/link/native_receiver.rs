@@ -24,7 +24,9 @@ use zeroize::Zeroizing;
 
 #[cfg(test)]
 use super::host_inbound::serve_host_inbound;
-use super::host_inbound::{HostIdentity, HostRefused, StreamTrace, serve_host_inbound_traced};
+use super::host_inbound::{
+    DESKTOP_SOCKET, HostIdentity, HostRefused, StreamTrace, serve_host_inbound_traced,
+};
 
 const MAX_STREAMS: usize = 4096;
 type ServiceTask = Pin<Box<dyn Future<Output = u64> + Send>>;
@@ -155,7 +157,13 @@ impl NativeReceiver {
         let sshd = self.sshd;
         self.inflight.push(Box::pin(async move {
             let source = stream.peer_addr();
-            let me = HostIdentity { host: &host, epoch, session_socket: &session, sshd };
+            let me = HostIdentity {
+                host: &host,
+                epoch,
+                session_socket: &session,
+                sshd,
+                desktop: std::path::Path::new(DESKTOP_SOCKET),
+            };
             let started = Instant::now();
             let mut trace = StreamTrace::default();
             let outcome = tokio::select! {
@@ -303,9 +311,13 @@ pub(super) fn stream_ended_line(
         None => {
             "closed by the receiver (its peer left the policy, or the receiver stopped)".to_string()
         }
-        Some(Err(HostRefused::Token)) => match trace.token {
-            Some(why) => format!("refused: token {why:?}"),
-            None => "refused: token".to_string(),
+        Some(Err(HostRefused::Token)) => match (trace.token, &trace.check) {
+            // The verifier's own check, when it names more than the variant.
+            (Some(why), Some(check)) if check.reason != why.name() => {
+                format!("refused: token {why:?}: {check}")
+            }
+            (Some(why), _) => format!("refused: token {why:?}"),
+            (None, _) => "refused: token".to_string(),
         },
         Some(Err(why)) => format!("refused: {why:?}"),
         Some(Ok(())) => match trace.spliced {

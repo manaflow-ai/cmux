@@ -13,6 +13,26 @@ extension WorkspaceHibernationSettings {
     public nonisolated static let hiddenSpaceMinutesPath = ["workspaces", "hibernation", "hiddenSpaceMinutes"]
     public nonisolated static let hiddenSpaceMinutesDefault: Double = 15
     public nonisolated static let hiddenSpaceMinutesRange: ClosedRange<Double> = 5...1440
+    /// `workspaces.freeing.enabled`: Off by default at first (plans/cmux-next/sidebar-recents-and-freeing-DESIGN.md): it ends shell processes, user-visible high-tier behavior. On: a hibernated workspace idle freeingIdleMinutes parks each terminal that sits at an empty prompt (park-tabs); showing it starts a new shell in the same folder under the saved screen.
+    public nonisolated static let freeingEnabledPath = ["workspaces", "freeing", "enabled"]
+    public nonisolated static let freeingEnabledDefault = false
+    /// `workspaces.freeing.idleMinutes`: Minutes since the workspace was last shown, printed output, or its agent spoke. 1440: a day away.
+    public nonisolated static let freeingIdleMinutesPath = ["workspaces", "freeing", "idleMinutes"]
+    public nonisolated static let freeingIdleMinutesDefault: Double = 1440
+    public nonisolated static let freeingIdleMinutesRange: ClosedRange<Double> = 60...43_200
+    /// `workspaces.freeing.agents`: On by default (plans/cmux-next/sidebar-recents-and-freeing-DESIGN.md): a Claude Code or Codex TUI whose agent is idle (no turn, nothing waiting on the person) and whose session id is recorded frees like an idle shell; showing the tab resumes it (claude --resume / codex resume, the respawn prefill rules).
+    public nonisolated static let freeingAgentsPath = ["workspaces", "freeing", "agents"]
+    public nonisolated static let freeingAgentsDefault = true
+    /// `workspaces.freeing.runningCommands`: never by default: ending a program the person started is not ours to do silently. relaunch: a running command (a dev server, tail -f) ends with its shell; showing the tab types the same command on the new prompt without Return.
+    public nonisolated static let freeingRunningCommandsPath = ["workspaces", "freeing", "runningCommands"]
+    public nonisolated static let freeingRunningCommandsDefault: WorkspaceFreeingRunningCommandsSetting = .never
+    /// `agents.hiddenChats.discard`: Off by default (Leo, 2026-11-07: "if it really isn't being used after a while, can't things be more aggressive?"). On: a hidden agent chat's page is let go after hiddenChatDiscardAfterMinutes without browser.hibernation, least recently seen first; memory pressure shortens the wait (warning 5 minutes, critical 10 seconds). Chats whose turn runs or waits on the person, that hold a typed draft, or that are pinned stay. Browser tabs never follow it (HiddenChatPages in CmuxNextHibernation).
+    public nonisolated static let hiddenChatDiscardPath = ["agents", "hiddenChats", "discard"]
+    public nonisolated static let hiddenChatDiscardDefault = false
+    /// `agents.hiddenChats.discardAfterMinutes`: Minutes a chat stays hidden before Release Hidden Agent Chats lets its page go. 15 by default. Memory pressure shortens it (warning at most 5 minutes, critical 10 seconds).
+    public nonisolated static let hiddenChatDiscardAfterMinutesPath = ["agents", "hiddenChats", "discardAfterMinutes"]
+    public nonisolated static let hiddenChatDiscardAfterMinutesDefault: Double = 15
+    public nonisolated static let hiddenChatDiscardAfterMinutesRange: ClosedRange<Double> = 1...1440
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -50,6 +70,69 @@ nonisolated enum WorkspaceHibernationSettingsSchema {
                 kind: .number(SettingNumber(WorkspaceHibernationSettings.hiddenSpaceMinutesRange, step: 5, unit: .minutes)),
                 default: .number(WorkspaceHibernationSettings.hiddenSpaceMinutesDefault),
                 keywords: ["hibernate", "idle", "minutes", "hidden", "space", "spaces", "window", "memory"]
+            ),
+            SettingDescriptor(
+                WorkspaceHibernationSettings.freeingEnabledPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.workspaceHibernation.freeingEnabled", "Free Idle Terminals"),
+                help: SettingsText.keyed("settings.workspaceHibernation.freeingEnabled.help", "Ends the shells of workspaces you have not used for a long time when they sit at an empty prompt. Opening the workspace starts each shell again in the same folder, with its saved screen above it. Pinned workspaces and workspaces kept awake are never freed."),
+                kind: .toggle,
+                default: .bool(WorkspaceHibernationSettings.freeingEnabledDefault),
+                keywords: ["free", "freeing", "park", "shell", "terminal", "processes", "idle", "resources", "restore", "scrollback"]
+            ),
+            SettingDescriptor(
+                WorkspaceHibernationSettings.freeingIdleMinutesPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.workspaceHibernation.freeingIdleMinutes", "Free Terminals After"),
+                help: SettingsText.keyed("settings.workspaceHibernation.freeingIdleMinutes.help", "A hibernated workspace's idle shells end after this many minutes without use (1440 is one day)."),
+                kind: .number(SettingNumber(WorkspaceHibernationSettings.freeingIdleMinutesRange, step: 60, unit: .minutes)),
+                default: .number(WorkspaceHibernationSettings.freeingIdleMinutesDefault),
+                keywords: ["free", "idle", "hours", "timeout", "shell", "terminal"]
+            ),
+            SettingDescriptor(
+                WorkspaceHibernationSettings.freeingAgentsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.workspaceHibernation.freeingAgents", "Free Idle Agents"),
+                help: SettingsText.keyed("settings.workspaceHibernation.freeingAgents.help", "Also ends Claude Code and Codex sessions that wait for your next message. Opening the tab resumes the same session."),
+                kind: .toggle,
+                default: .bool(WorkspaceHibernationSettings.freeingAgentsDefault),
+                keywords: ["free", "agent", "claude", "codex", "resume", "idle"]
+            ),
+            SettingDescriptor(
+                WorkspaceHibernationSettings.freeingRunningCommandsPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.workspaceHibernation.freeingRunningCommands", "Running Commands"),
+                help: SettingsText.keyed("settings.workspaceHibernation.freeingRunningCommands.help", "What happens to a command that still runs in a workspace that frees its terminals."),
+                kind: .choice([
+                    SettingChoice(WorkspaceFreeingRunningCommandsSetting.never.rawValue, SettingsText.keyed("settings.choice.freeingRunningNever", "Keep Running")),
+                    SettingChoice(WorkspaceFreeingRunningCommandsSetting.relaunch.rawValue, SettingsText.keyed("settings.choice.freeingRunningRelaunch", "End and Offer Again")),
+                ]),
+                default: .string(WorkspaceHibernationSettings.freeingRunningCommandsDefault.rawValue),
+                keywords: ["free", "running", "command", "dev server", "relaunch", "idle"]
+            ),
+            SettingDescriptor(
+                WorkspaceHibernationSettings.hiddenChatDiscardPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.workspaceHibernation.hiddenChatDiscard", "Release Hidden Agent Chats"),
+                help: SettingsText.keyed("settings.workspaceHibernation.hiddenChatDiscard.help", "A chat you have not looked at for a while gives back its memory, and comes back where you left it when you open it. Chats that are working, waiting on you or holding a draft are never released."),
+                kind: .toggle,
+                default: .bool(WorkspaceHibernationSettings.hiddenChatDiscardDefault),
+                keywords: ["agent", "chat", "chats", "release", "discard", "hidden", "memory", "ram", "idle", "saver"]
+            ),
+            SettingDescriptor(
+                WorkspaceHibernationSettings.hiddenChatDiscardAfterMinutesPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.workspaceHibernation.hiddenChatDiscardAfterMinutes", "Release Hidden Chats After"),
+                help: SettingsText.keyed("settings.workspaceHibernation.hiddenChatDiscardAfterMinutes.help", "How many minutes a chat stays out of sight before its memory is given back. When the Mac runs low on memory, it happens sooner."),
+                kind: .number(SettingNumber(WorkspaceHibernationSettings.hiddenChatDiscardAfterMinutesRange, step: 1, unit: .minutes)),
+                default: .number(WorkspaceHibernationSettings.hiddenChatDiscardAfterMinutesDefault),
+                keywords: ["agent", "chat", "release", "discard", "hidden", "minutes", "timeout", "memory"]
             ),
         ]
     }

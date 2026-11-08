@@ -4,6 +4,7 @@ import CmuxMobileDesign
 import CmuxScreenKit
 import CmuxScreenKitUI
 public import SwiftUI
+import CmuxSpinner
 
 private let theme = CmuxMobileTheme.standard
 
@@ -31,6 +32,10 @@ public struct ScreenSharingPage: View {
         }
         .navigationTitle("Screen Sharing")
         .navigationBarTitleDisplayMode(.inline)
+        // Its own tint: shown as a workspace's sheet or tab it sat under the app's neutral `label`
+        // tint, and a switch takes its on track from the tint (white under a white knob in Dark
+        // Mode, user 2026-11-05). Pickers follow `label`, switches stay green.
+        .cmuxMobileNeutralControlTint()
         .refreshable { await service.refresh() }
         .onAppear {
             service.start()
@@ -65,7 +70,7 @@ public struct ScreenSharingPage: View {
         case .idle, .starting:
             Section {
                 HStack(spacing: 12) {
-                    ProgressView()
+                    CmuxSpinner()
                     Text("Connecting to your devices…").foregroundStyle(theme.colors.label2)
                 }
             }

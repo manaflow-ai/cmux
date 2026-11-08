@@ -7,10 +7,14 @@ public nonisolated struct AgentPaneAddAccount: Equatable, Sendable {
     public let kind: String
     public let family: String
     public let fields: [String: String]
+    /// A Codex login in a shadow home of the CLI's own (`shadow: true` on `_acpmux/route/add`).
+    public let shadow: Bool
 
     init?(params: [String: Any]?) {
-        let allowed: Set<String> = ["id", "kind", "family", "name", "accountHome", "secret"]
-        guard let params, Set(params.keys).isSubset(of: allowed),
+        let allowed: Set<String> = ["id", "kind", "family", "name", "accountHome", "secret", "shadow"]
+        guard var params, Set(params.keys).isSubset(of: allowed) else { return nil }
+        let shadow = params.removeValue(forKey: "shadow")
+        guard shadow == nil || shadow is Bool,
               let fields = params as? [String: String],
               let id = fields["id"], !id.isEmpty, id.utf8.count <= 128,
               let kind = fields["kind"], !kind.isEmpty, kind.utf8.count <= 128,
@@ -19,6 +23,7 @@ public nonisolated struct AgentPaneAddAccount: Equatable, Sendable {
         self.id = id
         self.kind = kind
         self.family = family
+        self.shadow = shadow as? Bool ?? false
         self.fields = fields.merging(Self.expandedHome(fields["accountHome"])) { _, home in home }
     }
 
@@ -38,6 +43,7 @@ public nonisolated struct AgentPaneAddAccount: Equatable, Sendable {
         do {
             var params: [String: any Sendable] = ["families": [family]]
             for (key, value) in fields where key != "family" { params[key] = value }
+            if shadow { params["shadow"] = true }
             let value = try await AcpmuxStatusClient.call(socketPath: socket, method: "_acpmux/route/add",
                                                           params: params, deadline: .seconds(20), detailed: true)
             return AgentPaneReply.success(value)

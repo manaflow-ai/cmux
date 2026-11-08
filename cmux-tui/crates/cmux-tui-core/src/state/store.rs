@@ -95,6 +95,7 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
     // triggers drop an archive with its group.
     crate::workspace_registry::terminal_archive_store::create_schema(transaction)?;
     super::agent_folder::create_agent_folder_schema(transaction)?;
+    super::created_by::create_schema(transaction)?;
     super::agent_message_schema::create_agent_message_schema(transaction)?;
     super::window_record_store::create_window_record_schema(transaction)?;
     super::sidebar_layout_store::create_sidebar_layout_schema(transaction)?;
@@ -102,6 +103,7 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
     super::projects_store::create_projects_schema(transaction)?;
     super::palette_usage_store::create_palette_usage_schema(transaction)?;
     super::stash_store::create_stash_schema(transaction)?;
+    super::conductor_import_store::create_conductor_import_schema(transaction)?;
     super::kept_tab_store::create_kept_tab_schema(transaction)?;
     super::status_meta::create_status_meta_schema(transaction)?;
     super::workspace_checklist_store::create_checklist_schema(transaction)?;

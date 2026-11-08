@@ -204,14 +204,23 @@ public final class SettingsController {
 
     // MARK: - Writing
 
-    /// Writes `value` at a dotted or array key path. The watcher applies it.
+    /// Writes `value` at a dotted or array key path. The watcher applies it. A retired key is
+    /// refused as `SettingRetired`, as ``setSetting(at:to:by:)`` refuses it: a caller's raw write for a
+    /// key outside the schema (Toggle Setting) must not set it again.
     public func set(_ value: JSONValue, at path: [String]) async throws {
+        if SettingsSchema.isRetired(path) { throw SettingRetired(key: path.joined(separator: ".")) }
         try await file.set(value, at: path)
         // Atomic replacement can race the vnode event on the old inode. The
         // writer already knows the newest source exists, so drive the same
         // reload path and wait for it to apply even when that event is
         // coalesced away.
         await reloadAfterWrite()
+    }
+
+    /// Whether a layer below cmux-next.json (MDM recommended, the team's default) fills `key` when
+    /// the file leaves it unset, so only a value in the file keeps the person's choice of the default.
+    func layerBelowFileSets(_ key: String) -> Bool {
+        lastSource?.managed.recommended[key] != nil || teamPolicy.defaults[key] != nil
     }
 
     /// Writes a shortcut override for `id`; nil unbinds it.
@@ -271,7 +280,7 @@ public final class SettingsController {
     /// Writes `browser.keepNeighborTabsAwake` (0...3) through `setSetting`;
     /// the default (1) removes the key.
     public func setKeepNeighborTabsAwake(_ radius: Int) async throws {
-        let value: JSONValue? = radius == BrowserHibernationSetting.defaultNeighborRadius ? nil : .number(Double(radius))
+        let value: JSONValue? = Double(radius) == BrowserHibernationSetting.neighborRadiusDefault ? nil : .number(Double(radius))
         try await setSetting(at: BrowserHibernationSetting.neighborRadiusPath, to: value, by: .currentRun())
     }
 
@@ -468,13 +477,13 @@ extension SettingsController {
                 }
             }
             self.sources = sources
-            let settingPath = ThemeFileSetting.path.joined(separator: ".")
+            let settingPath = ThemeFileSetting.configPath.joined(separator: ".")
             guard let name = ThemeFileSetting.name(in: root) else {
                 overlay = nil
                 activeSource = nil
                 goodSource = nil
                 applied = root
-                diagnostics = root.value(at: ThemeFileSetting.path).map { _ in
+                diagnostics = root.value(at: ThemeFileSetting.configPath).map { _ in
                     [SettingsDiagnostic(kind: .invalidValue, path: settingPath,
                                         message: "expected a theme file name, such as \"tokyo\" for themes/tokyo.json")]
                 } ?? []

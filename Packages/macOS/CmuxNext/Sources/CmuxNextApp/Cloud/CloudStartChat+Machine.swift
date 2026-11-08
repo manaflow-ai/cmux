@@ -61,7 +61,7 @@ extension CloudStartChat {
         try await importKeptSends(cli)
         try Self.checkAccount(account, now: cloud.account, listCurrent: cloud.hasLoadedCurrentMachines)
         let listed = cloud.listedMachineIDs
-        let ensureProject = (account.last ?? nil) == nil && !cloud.auth.configuration.isProductionAuth
+        let ensureProject = CloudStartCore().ensuresProject(account: account, platform: cloud.configuration.artifactsAPIBaseURL(), production: cloud.auth.configuration.isProductionAuth)
         let team = start.reservationKey != nil ? try await cloud.reservationTeam() : nil
         let access = try? await (ensureProject || start.reservationKey != nil ? cloud.auth.tokens().access : nil)
         let request = Self.planRequest(key: start.key, account: account, workspace: workspace, user: cloud.auth.user?.id,
@@ -84,7 +84,7 @@ extension CloudStartChat {
         if let id = plan.machine {
             invocation.arguments["machine"] = .string(id)
         } else {
-            if cloud.configuration.linkSource == .appServer, !plan.createSent {
+            if !plan.createSent {
                 _ = try Self.checked(await cli.startChatCreateBegin(key: start.key, account: CloudStartCore().accountText(account), name: plan.newName ?? "cloud-chats", createKey: plan.createKey))
             }
             var request = CloudMachineRequest(startChatKey: plan.createKey, sizedFor: await pick(), team: plan.createTeam ?? (account.last ?? nil))
@@ -99,7 +99,7 @@ extension CloudStartChat {
                 }) {
                     try Self.checkAccount(account, now: cloud.account, listCurrent: true)
                 }
-            } catch let failure as CloudAppOpFailure where cloud.configuration.linkSource == .appServer && !Task.isCancelled && CloudMachineCreateRetry().isDefinitiveRefusal(failure) {
+            } catch let failure as CloudAppOpFailure where !Task.isCancelled && CloudStartCore().isDefinitiveRefusal(failure) {
                 _ = try Self.checked(await cli.startChatCreateRefused(key: start.key, account: CloudStartCore().accountText(account), createKey: plan.createKey))
                 throw failure
             }

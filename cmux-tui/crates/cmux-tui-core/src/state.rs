@@ -48,8 +48,15 @@ mod closed_screen_layout;
 mod closed_tab_groups;
 pub(crate) mod command_history_store;
 pub(crate) mod commit;
+pub(crate) mod conductor_import_router;
+pub(crate) mod conductor_import_store;
+#[cfg(test)]
+mod conductor_import_tests;
 pub(crate) mod conversation_tabs;
 pub(crate) mod conversation_tabs_store;
+pub(crate) mod created_by;
+#[cfg(test)]
+mod created_by_tests;
 pub(crate) mod ephemeral_moves;
 #[cfg(test)]
 mod ephemeral_moves_tests;

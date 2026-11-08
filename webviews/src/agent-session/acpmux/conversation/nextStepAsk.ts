@@ -32,7 +32,7 @@ export type NextStepAsk = {
   rest: string;
 };
 
-const TAGS = ["taste", "outward", "irreversible", "physical", "for you"];
+const TAGS = ["taste", "outward", "irreversible", "physical", "check-in", "for you"];
 // A line that starts with the tag, after an optional list marker or bold: `- **[outward]** ...`.
 const TAGGED = new RegExp(
   String.raw`^\s{0,3}(?:[-*+]\s+|\d{1,2}[.)]\s+)?(?:\*\*|__)?\[(${TAGS.join("|")})\](?:\*\*|__)?:?\s+(.+?)\s*$`,
@@ -127,12 +127,18 @@ export function nextStepAsk(text: string | undefined): NextStepAsk | undefined {
   return { tag, question, ...(detail && { detail }), options, rest };
 }
 
-/// The answer the person gave: the option their next prompt chose (case and outer space aside),
-/// else that prompt's first line, so a typed answer reads too.
+/// The option a prompt picked (case and outer space aside): what a click on the card sends, or the
+/// same words typed. Undefined for any other prompt, which leaves the card answerable.
+export function pickedAnswer(ask: NextStepAsk, reply: string): string | undefined {
+  const said = reply.trim().toLowerCase();
+  return ask.options.find((option) => option.label.toLowerCase() === said)?.label;
+}
+
+/// The answer the person gave: the option their prompt chose, else that prompt's first line, so a
+/// typed answer reads too.
 export function chosenAnswer(ask: NextStepAsk, reply: string): string {
-  const said = reply.trim();
-  const picked = ask.options.find((option) => option.label.toLowerCase() === said.toLowerCase());
-  if (picked) return picked.label;
-  const first = said.split("\n")[0]!.trim();
+  const picked = pickedAnswer(ask, reply);
+  if (picked) return picked;
+  const first = reply.trim().split("\n")[0]!.trim();
   return first.length > 120 ? `${first.slice(0, 119)}…` : first;
 }

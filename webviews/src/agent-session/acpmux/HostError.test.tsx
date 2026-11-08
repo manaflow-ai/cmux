@@ -5,7 +5,8 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { HostError, HostUnavailableLine, HostWaitingLine, waitedText } from "./HostError";
+import { HostError, HostUnavailableLine, HostWaitingLine } from "./HostError";
+import { waitedText } from "./hostErrorModel";
 import { hostLineText } from "./hostLine";
 import { hostErrorShows } from "./hostRetry";
 import { translate } from "./i18n";
@@ -59,7 +60,7 @@ test("a refusal another binary's acpmux caused is one line whose one action is R
       />,
     );
   });
-  expect(buttons(container)).toEqual(["Restart acpmux"]);
+  expect(buttons(container)).toEqual(["Restart agent service"]);
   expect(container.querySelectorAll("p")).toHaveLength(1);
   expect(container.textContent).not.toContain("starts the one in this app");
   await act(async () => container.querySelector("button")!.click());
@@ -74,7 +75,7 @@ test("a restart in flight holds its button", async () => {
       <HostUnavailableLine message="refused" onRetry={() => undefined} onRestart={() => undefined} restarting />,
     );
   });
-  expect(buttons(container)).toEqual(["Restarting acpmux…"]);
+  expect(buttons(container)).toEqual(["Restarting agent service…"]);
   expect([...container.querySelectorAll("button")].every((b) => b.disabled)).toBe(true);
 });
 
@@ -93,7 +94,7 @@ test("a queued Retry holds Restart acpmux until the handshake settles", async ()
     );
   });
   const [restart] = [...container.querySelectorAll<HTMLButtonElement>("button")];
-  expect(restart?.textContent).toBe("Restart acpmux");
+  expect(restart?.textContent).toBe("Restart agent service");
   expect(restart?.disabled).toBe(true);
   await act(async () => restart?.click());
   expect(pressed).toEqual([]);

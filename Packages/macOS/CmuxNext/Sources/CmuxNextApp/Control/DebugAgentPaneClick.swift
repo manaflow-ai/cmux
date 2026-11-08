@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextCompat
 import CmuxNextAgentPane
 import CmuxNextSettings
 import WebKit
@@ -21,20 +22,28 @@ enum DebugAgentPaneClick {
         return false;
         """
 
-    /// After the click: the page's events (`?` marks an untrusted one), its visibility and focus.
+    /// After the click: the page's events (`?` marks an untrusted one), the `buttons` its pointer and mouse events carried, its visibility and focus.
     private static let report = """
         await new Promise((resolve) => setTimeout(resolve, 300));
-        return JSON.stringify({ events: window.__cmuxDebugClick ?? [], visibility: document.visibilityState, focus: document.hasFocus() });
+        return JSON.stringify({ events: window.__cmuxDebugClick ?? [], buttons: window.__cmuxDebugClickButtons ?? [], visibility: document.visibilityState, focus: document.hasFocus() });
         """
 
-    static func click(_ params: [String: JSONValue], pane: String, view: AgentPaneView, services: AppServices) async -> JSONValue {
+    /// The element `params` names (`selector` or `text`) in the page `view` shows: its center (`x`, `y`, CSS pixels) and
+    /// `tag`, or `error`.
+    static func locate(_ params: [String: JSONValue], view: AgentPaneView) async -> [String: Any] {
         let selector = params["selector"]?.stringValue ?? ""
         let text = params["text"]?.stringValue ?? ""
-        guard !selector.isEmpty || !text.isEmpty else {
-            return .object(["pane": .string(pane), "error": .string("pass selector or text")])
-        }
+        guard !selector.isEmpty || !text.isEmpty else { return ["error": "pass selector or text"] }
         // In the page the chat shows: on the shared page host, the pane's own web view holds no document.
-        let found = await view.debugLocate(selector: selector, text: text)
+        return await view.debugLocate(selector: selector, text: text)
+    }
+
+    /// `located`: the element ``locate(_:view:)`` found ahead (a frame strip finds it before it records, so the click's
+    /// time is the click's alone). `willDeliver` runs right before the press goes in: the click's instant.
+    static func click(_ params: [String: JSONValue], pane: String, view: AgentPaneView, services: AppServices,
+                      located: [String: Any]? = nil, willDeliver: (() -> Void)? = nil) async -> JSONValue {
+        var found = located ?? [:]
+        if located == nil { found = await locate(params, view: view) }
         if let error = found["error"] as? String { return .object(["pane": .string(pane), "error": .string(error)]) }
         guard let x = found["x"] as? Double, let y = found["y"] as? Double else {
             return .object(["pane": .string(pane), "error": .string("the page returned no point")])
@@ -45,7 +54,8 @@ enum DebugAgentPaneClick {
             // The pane's gesture monitor judges a real click in the page window before Chromium gets it; the
             // DevTools press is the page's half only, so the monitor gets its native mouse down first.
             judgeChromiumClick(x: x, y: y, pane: pane, view: view, services: services)
-            let pressed = await view.debugPress(x: x, y: y)
+            // The click's instant: the release, which fires the page's click, not the press's DevTools round trip before it.
+            let pressed = await view.debugPress(x: x, y: y, beforeRelease: willDeliver)
             let page = (try? await view.callPageScript(report)) as? String
             let pageObject = page.flatMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
             return .object([
@@ -76,6 +86,7 @@ enum DebugAgentPaneClick {
         // `path`: "app" or "view" forces one delivery path; by default the key window takes the app's.
         let path = params["path"]?.stringValue
         var delivered: String
+        willDeliver?()
         if path == "app" || (path != "view" && DebugNativeInput.usesAppKitPath(window)) {
             DebugNativeInput.sendThroughApp([down, up])
             delivered = "app"
@@ -84,28 +95,27 @@ enum DebugAgentPaneClick {
             // it goes to the web view as for a window that is not key. A click AppKit gave another view stays there.
             let pageSawIt = (try? await view.callPageScript(arrived, arguments: ["ms": 500])) as? Bool
             if path != "app", pageSawIt == false, hit?.isDescendant(of: webView) == true {
-                webView.mouseDown(with: down); webView.mouseUp(with: up)
+                SyntheticInput.click(webView, down: down, up: up)
                 delivered = "app, then view"
             }
         } else {
             DebugNativeInput.runPaneMonitors(down, in: window, services: services) // the local monitor sees mouse downs only
-            SyntheticInput.register([down, up])
             // As AppKit's click does, inside an input event: the clicked web view takes the keyboard (AgentPaneView.refusesSelfFocus).
             let app = NSApp as? CmuxApplication, outer = app?.isHandlingSendEvent() ?? false; app?.setHandlingSendEvent(true)
             if hit?.isDescendant(of: webView) == true { window.makeFirstResponder(webView) }
-            webView.mouseDown(with: down); webView.mouseUp(with: up); app?.setHandlingSendEvent(outer)
+            SyntheticInput.click(webView, down: down, up: up); app?.setHandlingSendEvent(outer)
             delivered = "view"
         }
-        let gestures = view.model.transport.gestures.debugState
         let page = (try? await view.callPageScript(report)) as? String
         let pageObject = page.flatMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
         return .object([
             "pane": .string(pane), "clicked": .bool(true), "tag": (found["tag"] as? String).map(JSONValue.string) ?? .null,
             "window_x": .number(Double(point.x)), "window_y": .number(Double(point.y)), "delivered": .string(delivered),
-            "gesture_available": .bool(gestures.available),
+            "gesture_available": .bool(view.model.transport.gestures.debugState.available),
             "hit": hit.map { .string(String(describing: type(of: $0))) } ?? .null,
             "hit_in_page": .bool(hit?.isDescendant(of: webView) == true),
             "page_events": .array(((pageObject?["events"] as? [String]) ?? []).map(JSONValue.string)),
+            "page_buttons": .array(((pageObject?["buttons"] as? [String]) ?? []).map(JSONValue.string)),
             "page_visibility": (pageObject?["visibility"] as? String).map(JSONValue.string) ?? .null,
             "page_focus": (pageObject?["focus"] as? Bool).map(JSONValue.bool) ?? .null,
         ])

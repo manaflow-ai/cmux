@@ -166,13 +166,13 @@ final class TabContentCache {
     ///   - fileInput: answers a WebKit browser tab's file input (the App's made-ahead panel; tests pass a stand-in).
     ///   - afterFrame: runs work once the current pass's frame committed (a stand-in's page follows the key's
     ///     frame); tests pass one that collects the work or runs it at once.
-    ///   - resizes: The app's grid sender (`AppServices.resizes`); tests get their own.
+    ///   - resizes: The app's grid sender (`AppServices.resizes`); tests get their own. `memoryPressure`: drops the WebKit tab made ahead (`WebKitSpareTab`).
     init(daemon: DaemonService, cef: CEFEngine = CEFEngine(stores: .inMemory(), signInCallbacks: CEFSignInCallbacks()), fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
-         resizes: ResizeCoordinator = ResizeCoordinator()) {
+         resizes: ResizeCoordinator = ResizeCoordinator(), memoryPressure: MemoryPressureEvents? = nil) {
         self.daemon = daemon
         self.cef = cef
-        webKit = WebKitEngine(fileInput: fileInput, stores: cef.stores)
+        webKit = WebKitEngine(fileInput: fileInput, stores: cef.stores, spareTab: WebKitSpareTab(memoryPressure: memoryPressure))
         self.afterFrame = afterFrame
         self.resizes = resizes
         browserTabs = BrowserTabService(daemon: daemon, cef: cef)
@@ -360,7 +360,7 @@ final class TabContentCache {
         Task {
             defer { pendingBrowsers.remove(key) }
             guard let page = try? await makeCEFTab(await chromiumConfiguration(for: tab, key: key, url: url)) else { return }
-            installReplacement(page, for: key)
+            install(page, for: key)
             browserTabs.track(page, tabID: key)
             onBrowserReady?(key)
         }
@@ -462,7 +462,7 @@ final class TabContentCache {
         let key = tab.id
         browserTabs.untrack(key)
         browsers.removeValue(forKey: key)?.close()
-        _ = tracked(installReplacement(page, for: key), tab)
+        _ = tracked(install(page, for: key), tab)
         onBrowserReady?(key)
     }
 
@@ -474,7 +474,7 @@ final class TabContentCache {
     func swapPage(_ key: String, with page: any BrowserTab, asleep: BrowserTabState? = nil) {
         browserTabs.untrack(key)
         browsers.removeValue(forKey: key)?.close()
-        installReplacement(page, for: key)
+        install(page, for: key)
         if let asleep { browsers[key]?.state.holdAddress(whileWaking: asleep) }
         if !(page is HibernatedBrowserTab) { browserTabs.track(page, tabID: key) }
         onBrowserReady?(key)

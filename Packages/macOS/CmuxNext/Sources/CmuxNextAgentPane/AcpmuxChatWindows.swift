@@ -77,6 +77,10 @@ public final class AcpmuxChatWindows {
         /// acpmux has more chats past these rows that the window's filter passes (`hasMore`): a list's
         /// Show More. acpmux decides it, so a list never asks for one more row to find out.
         public private(set) var hasMore = false
+        /// acpmux sent this window's rows at least once. Until then `rows` is empty because nothing came yet
+        /// (no connection, or an index still starting after a relaunch), not because there are no chats; a list
+        /// reads it to show loading instead of nothing. It stays true across a reconnect, which keeps the rows.
+        public private(set) var hasAnswered = false
         /// The revision of the last message applied; 0 before the first.
         @ObservationIgnored public fileprivate(set) var revision: UInt64 = 0
         /// Called with the rows after each message of this window acpmux sends for its current spec
@@ -113,6 +117,7 @@ public final class AcpmuxChatWindows {
         }
 
         fileprivate func answered() {
+            if !hasAnswered { hasAnswered = true }
             followers.removeAll { $0.owner() == nil }
             for follower in followers { follower.changed(rows) }
         }

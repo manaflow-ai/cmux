@@ -5,6 +5,7 @@ import { DialogButton } from "../../ui/DialogButton";
 import type { NewChatAccount } from "./chatAccounts";
 import { useT, type StringKey } from "./i18n";
 import "./addAccount.css";
+import { accountIdFor } from "./addAccountDialogModel";
 
 type Kind = "direct-subscription" | "direct-api-key";
 /** new: a fresh login folder of its own; cli: the CLI's own login on this Mac; key: an API key. */
@@ -15,20 +16,6 @@ const BRANDS: Record<string, { brand: StringKey; cli: StringKey; folder: string 
   claude: { brand: "picker.addBrand.claude", cli: "picker.addCli.claude", folder: "~/.claude" },
   codex: { brand: "picker.addBrand.codex", cli: "picker.addCli.codex", folder: "~/.codex" },
 };
-
-/** A route id from a name: lowercase letters, digits and `-` (routes.rs), unique among `taken`. */
-export function accountIdFor(name: string, fallback: string, taken: readonly string[]): string {
-  const slug = (text: string) =>
-    text
-      .normalize("NFKD")
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 48);
-  const base = slug(name) || slug(fallback) || "account";
-  if (!taken.includes(base)) return base;
-  for (let n = 2; ; n++) if (!taken.includes(`${base}-${n}`)) return `${base}-${n}`;
-}
 
 /** The picker adds a local route. Rust validates it; existing accounts and bindings stay intact.
  * Nobody types an id or a folder: the id comes from the name, and a new login gets its own folder
@@ -63,7 +50,9 @@ export function AddAccountDialog({
   const sending = useRef(false);
   const [error, setError] = useState<string>();
   const brand = known ? t(known.brand) : family;
-  const cli = known ? t(known.cli) : t("picker.harnessLogin");
+  // The family's own name for a CLI cmux has no product name for ("gemini login"), never the
+  // generic "CLI login", which the sentences around it would double ("the CLI login login").
+  const cli = known ? t(known.cli) : family;
   // A second login is "ChatGPT 2", then 3, ...: the first number no route has taken.
   const nextName = () => {
     for (let n = 2; ; n++) {
@@ -96,6 +85,8 @@ export function AddAccountDialog({
       name: name.trim() || defaultName,
     };
     if (way === "new") account.accountHome = folder;
+    // A second ChatGPT login shares the CLI's conversations, so routing can move a chat onto it.
+    if (way === "new" && family === "codex") account.shadow = true;
     if (way === "key") account.secret = secret.trim();
     sending.current = true;
     setPending(true);
@@ -117,7 +108,7 @@ export function AddAccountDialog({
         if (!open && !pending) onClose();
       }}
       label={title}
-      className="acpmux-add-account"
+      className="ui-glass ui-glass-floats acpmux-add-account"
     >
       <form
         onSubmit={(event) => {
@@ -140,9 +131,16 @@ export function AddAccountDialog({
             }}
           >
             {choices.map((choice) => (
-              <label key={choice.way} className="acpmux-add-account-way" htmlFor={`${group}-${choice.way}`}>
+              <label
+                key={choice.way}
+                className="acpmux-add-account-way"
+                htmlFor={`${group}-${choice.way}`}
+                aria-label={choice.title}
+              >
                 <input
                   id={`${group}-${choice.way}`}
+                  aria-label={choice.title}
+                  aria-describedby={`${group}-${choice.way}-detail`}
                   type="radio"
                   name={group}
                   value={choice.way}
@@ -152,7 +150,7 @@ export function AddAccountDialog({
                 />
                 <span>
                   <strong>{choice.title}</strong>
-                  <small>{choice.detail}</small>
+                  <small id={`${group}-${choice.way}-detail`}>{choice.detail}</small>
                 </span>
               </label>
             ))}
@@ -207,9 +205,10 @@ export function AddAccountDialog({
         <footer>
           <DialogButton
             dialogKey="escape"
-            className="ui-btn"
+            className="ui-button ui-btn"
             data-variant="subtle"
             data-size="md"
+            data-disabled={pending ? "" : undefined}
             disabled={pending}
             onClick={onClose}
           >
@@ -218,9 +217,10 @@ export function AddAccountDialog({
           <DialogButton
             dialogKey="return"
             type="submit"
-            className="ui-btn"
+            className="ui-button ui-btn"
             data-variant="solid"
             data-size="md"
+            data-disabled={pending || !ready ? "" : undefined}
             disabled={pending || !ready}
           >
             {t("picker.addAccount")}

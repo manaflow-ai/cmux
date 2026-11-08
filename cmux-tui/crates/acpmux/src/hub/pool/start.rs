@@ -59,7 +59,7 @@ impl Hub {
             // As `ensure_child` starts a fresh Claude session.
             let fresh_id = uuid::Uuid::now_v7().to_string();
             let effort = current_effort(draft).unwrap_or_else(|| "default".into());
-            let mode = "default".to_owned();
+            let mode = crate::claude_stdio::OWN_MODE.to_owned();
             let model = current_model(draft).unwrap_or_else(|| "default".into());
             let plan = crate::claude_stdio::spawn_plan(
                 profile,
@@ -301,6 +301,9 @@ impl Hub {
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         tokio::pin!(start);
         let mut last_cpu_ms = None;
+        // The last read of a harness macOS can read: what it did since is judged over its whole
+        // process tree, page-ins too (`HarnessState::worked_since`).
+        let mut last_state: Option<(crate::cpu_class::HarnessState, tokio::time::Instant)> = None;
         let mut no_progress_since = None;
         let mut unread_since = None;
         loop {
@@ -315,8 +318,10 @@ impl Hub {
                     match seen {
                         crate::cpu_class::HarnessSeen::Running(state) => {
                             unread_since = None;
-                            let cpu_progressed = last_cpu_ms.is_some_and(|last| state.cpu_ms > last);
-                            if state.cpu_ms > 0 && !cpu_progressed {
+                            let worked = last_state
+                                .as_ref()
+                                .is_some_and(|(last, at)| state.worked_since(last, at.elapsed()));
+                            if state.cpu_ms > 0 && !worked {
                                 let since = *no_progress_since.get_or_insert(tokio::time::Instant::now());
                                 if since.elapsed() >= START_HAZARD {
                                     return Err(RpcError::internal(format!(
@@ -331,13 +336,17 @@ impl Hub {
                                 waited_ms = waited.as_millis() as u64,
                                 cpu_ms = state.cpu_ms,
                                 threads_running = state.threads_running,
+                                processes = state.processes,
+                                pageins = state.pageins,
                                 "pooled agent start waiting; machine busy"
                             );
+                            last_state = Some((state, tokio::time::Instant::now()));
                         }
                         // A hosted child can be alive before it reports a harness
                         // pid. Keep waiting in that state; `is_alive` above is the
                         // terminal process-liveness check.
                         crate::cpu_class::HarnessSeen::Unread => {
+                            last_state = None;
                             let cpu_ticks = child
                                 .pid
                                 .and_then(crate::cpu_class::harness_cpu_ticks);
@@ -364,6 +373,7 @@ impl Hub {
                                 );
                             } else {
                                 last_cpu_ms = None;
+                                last_state = None;
                                 no_progress_since = None;
                                 let since =
                                     *unread_since.get_or_insert(tokio::time::Instant::now());
@@ -383,6 +393,7 @@ impl Hub {
                             unread_since = None;
                             no_progress_since = None;
                             last_cpu_ms = None;
+                            last_state = None;
                             tracing::info!(
                                 waited_ms = waited.as_millis() as u64,
                                 "pooled agent start waiting; machine busy"

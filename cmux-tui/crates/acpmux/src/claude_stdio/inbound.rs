@@ -9,6 +9,10 @@ impl Translator {
         // A Ctrl-B the hub stopped waiting for leaves no mark (`end_background_asks`).
         let now = std::time::Instant::now();
         self.end_background_asks(false, |_, deadline| deadline.is_some_and(|d| d <= now)).await;
+        // A `/rename` acpmux wrote is never the chat's (`live_name.rs`).
+        if let Some(answer) = self.rename_line(line).await {
+            return answer;
+        }
         let kind = line.get("type").and_then(Value::as_str).unwrap_or("");
         let sub = line.get("subtype").and_then(Value::as_str).unwrap_or("");
         let main_line = line.get("parent_tool_use_id").and_then(Value::as_str).is_none();
@@ -248,6 +252,10 @@ impl Translator {
                         {
                             out.push(upd(self.spawn_subagent(id, name, &input).await));
                         }
+                        // A call of the chat's own that blocks its turn (`foreground_work.rs`).
+                        if main_line && let Some(id) = c.get("id").and_then(Value::as_str) {
+                            self.foreground_call(name, id, &input).await;
+                        }
                         // The todo list is the turn's ACP plan (cx-ncc.80): clients
                         // draw it as a checklist.
                         if name == "TodoWrite"
@@ -395,6 +403,7 @@ impl Translator {
                         };
                         let is_err = c.get("is_error").and_then(Value::as_bool).unwrap_or(false);
                         let tool = c.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
+                        self.foreground_done(tool).await;
                         // A failed launch never ran; a foreground shell no task
                         // named is done.
                         {
@@ -726,6 +735,10 @@ impl Translator {
                 }
                 // A call named early whose whole call never came ends with its turn.
                 out.extend(self.end_announced().await);
+                // Every result ends the step its calls ran in, also one that returns below
+                // (an abandoned prompt's, or a stopped turn that still runs an unread steer):
+                // a call whose result never came runs in the foreground no more.
+                self.foreground_ended().await;
                 // The window Claude Code reports for the chat's model: the pane's
                 // context ring fills by used over it (cx-ncc.79).
                 if let Some(window) = self.result_context_window(line).await {

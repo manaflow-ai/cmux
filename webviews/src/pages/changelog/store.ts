@@ -10,6 +10,7 @@ import {
   type ListResult,
   type NewsLayout,
   type SheetLayout,
+  type SheetLinks,
   type ReleaseNotes,
 } from "./types";
 
@@ -30,6 +31,12 @@ export interface ChangelogSnapshot {
   loaded: Record<string, ReleaseNotes>;
   /** Builds whose notes could not be loaded (offline, unsigned). */
   unavailable: Record<string, true>;
+  /** The host can restart into another listed build (``ChangelogStore.install``). */
+  installs: boolean;
+  /** The build an install is downloading and checking; the app restarts when it is done. */
+  installing?: string;
+  /** Why the last install did not run, for the build it was for. */
+  installFailed?: { build: string; message: string };
 }
 
 export interface UpdateSpan {
@@ -66,6 +73,12 @@ export function parseSheetLayout(hash: string): SheetLayout {
   const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
   const sheet = new URLSearchParams(query).get("sheet");
   return sheet === "stack" || sheet === "grid" ? sheet : "inline";
+}
+
+export function parseSheetLinks(hash: string): SheetLinks {
+  const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
+  const prs = new URLSearchParams(query).get("prs");
+  return prs === "end" || prs === "row" ? prs : "hover";
 }
 
 /** Orders release versions (`1.2.3`, `1.0.0-nightly.42`): numbers first, a prerelease before its release. */
@@ -123,6 +136,7 @@ export class ChangelogStore {
       inSpan: [],
       loaded: {},
       unavailable: {},
+      installs: false,
     };
   }
 
@@ -179,6 +193,7 @@ export class ChangelogStore {
       const builds = list.builds.length ? list.builds : [];
       this.listed = true;
       this.set({ builds, current: list.current, loading: false });
+      void this.readInstallable();
       // A route change while the list loaded wins over the first route.
       if (this.latestSpan) return this.setSpan(this.latestSpan);
       await this.select(list.current || builds[0]?.build);
@@ -231,6 +246,31 @@ export class ChangelogStore {
       .finally(() => this.pending.delete(build));
     this.pending.set(build, load);
     return load;
+  }
+
+  /** Whether the host lists Install (none on a DEV build, or a host without the op). */
+  private async readInstallable(): Promise<void> {
+    try {
+      const answer = await this.client?.call<{ installs?: boolean }>(ChangelogOps.installable, {});
+      if (answer?.installs === true) this.set({ installs: true });
+    } catch {
+      // An older host: no Install.
+    }
+  }
+
+  /** Install this version: the host downloads `build`, checks its signature and team, keeps it and
+      restarts into it with every session. One at a time; a refusal (pulled, unsigned, a store the
+      build cannot read) stays beside that build. */
+  async install(build: string): Promise<void> {
+    if (!this.client || this.snapshot.installing) return;
+    this.set({ installing: build, installFailed: undefined });
+    try {
+      await this.client.call(ChangelogOps.install, { build });
+    } catch (error) {
+      this.set({ installFailed: { build, message: isPageError(error) ? error.message : String(error) } });
+    } finally {
+      this.set({ installing: undefined });
+    }
   }
 
   /** "Try it": the host runs the action only when it is on the allow-list. */

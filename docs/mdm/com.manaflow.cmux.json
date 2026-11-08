@@ -22,6 +22,27 @@
       "title" : "Composer Ring",
       "type" : "string"
     },
+    "agentPane.dictationShortcut" : {
+      "default" : "",
+      "description" : "The shortcut the dictation button sends to the app it dictates with, such as ctrl+opt+space, when you set that app to one other than its default. Leave it empty for the app's default.",
+      "title" : "Dictation App Shortcut",
+      "type" : "string"
+    },
+    "agentPane.dictationSource" : {
+      "default" : "cmux",
+      "description" : "What the dictation button uses: cmux's own dictation, or the dictation app you already use. An app's button sends that app's shortcut.",
+      "enum" : [
+        "cmux",
+        "macos",
+        "chatgpt",
+        "claude",
+        "gemini",
+        "wisprFlow",
+        "superwhisper"
+      ],
+      "title" : "Dictate With",
+      "type" : "string"
+    },
     "agentPane.display.code.family" : {
       "description" : "The font of code in the chat. Empty uses the Markdown viewer's code font, then the terminal font.",
       "title" : "Chat Code Font",
@@ -80,6 +101,26 @@
       "minimum" : 10,
       "title" : "Chat Font Size",
       "type" : "number"
+    },
+    "agentPane.display.font.ui" : {
+      "default" : "inter-tuned",
+      "description" : "The font of the whole chat: replies, the composer, cards and menus.",
+      "enum" : [
+        "inter-tuned",
+        "inter",
+        "verdana",
+        "roboto",
+        "plex",
+        "source-sans",
+        "geist",
+        "cmux-sans",
+        "hanken",
+        "atkinson",
+        "system-ui",
+        "system-ui-tight"
+      ],
+      "title" : "Chat Interface Font",
+      "type" : "string"
     },
     "agentPane.display.fullWidth" : {
       "default" : false,
@@ -144,6 +185,22 @@
         "overlay"
       ],
       "title" : "Session Info",
+      "type" : "string"
+    },
+    "agentPane.display.statusVerbs.custom" : {
+      "description" : "Comma-separated -ing verbs for the live status line.",
+      "title" : "Custom Working Verbs",
+      "type" : "string"
+    },
+    "agentPane.display.statusVerbs.mode" : {
+      "default" : "thinking",
+      "description" : "Choose whether the live status line rotates through verbs or stays on Thinking.",
+      "enum" : [
+        "thinking",
+        "rotate",
+        "custom"
+      ],
+      "title" : "Working Status Verbs",
       "type" : "string"
     },
     "agentPane.display.transcriptView" : {
@@ -355,6 +412,44 @@
       "title" : "Permission Mode for New Chats",
       "type" : "string"
     },
+    "agents.guidance.claude" : {
+      "default" : true,
+      "description" : "New Claude Code chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap.",
+      "title" : "cmux Guidance for Claude Code",
+      "type" : "boolean"
+    },
+    "agents.guidance.codex" : {
+      "default" : true,
+      "description" : "New Codex chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap.",
+      "title" : "cmux Guidance for Codex",
+      "type" : "boolean"
+    },
+    "agents.guidance.otherAgents" : {
+      "default" : true,
+      "description" : "Other agents (Gemini, OpenCode and the ones you added) get the same guidance about how cmux shows their work.",
+      "title" : "cmux Guidance for Other Agents",
+      "type" : "boolean"
+    },
+    "agents.guidance.userSkills" : {
+      "default" : true,
+      "description" : "Skills you put in ~/.config/cmux/skills, one folder each with a SKILL.md, reach every new agent chat.",
+      "title" : "Your Skills in Every Chat",
+      "type" : "boolean"
+    },
+    "agents.hiddenChats.discard" : {
+      "default" : false,
+      "description" : "A chat you have not looked at for a while gives back its memory, and comes back where you left it when you open it. Chats that are working, waiting on you or holding a draft are never released.",
+      "title" : "Release Hidden Agent Chats",
+      "type" : "boolean"
+    },
+    "agents.hiddenChats.discardAfterMinutes" : {
+      "default" : 15,
+      "description" : "How many minutes a chat stays out of sight before its memory is given back. When the Mac runs low on memory, it happens sooner.",
+      "maximum" : 1440,
+      "minimum" : 1,
+      "title" : "Release Hidden Chats After",
+      "type" : "number"
+    },
     "agents.modelRouter.model" : {
       "default" : "deepseek/deepseek-v4.1-flash-1017",
       "description" : "The model a new chat on the cmux model router starts on. A model you pick in a chat applies to that chat only.",
@@ -479,10 +574,9 @@
       "type" : "boolean"
     },
     "app.quitBehavior" : {
-      "default" : "ask",
+      "default" : "keep",
       "description" : "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
       "enum" : [
-        "ask",
         "keep",
         "end-keep-layout",
         "end-everything"
@@ -897,7 +991,7 @@
       "type" : "string"
     },
     "appearance.chromeStyle" : {
-      "default" : "flat-sidebar-line",
+      "default" : "flat",
       "description" : "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them.",
       "enum" : [
         "default",
@@ -908,7 +1002,8 @@
         "bare",
         "panes",
         "two-tone",
-        "floating"
+        "floating",
+        "blocks"
       ],
       "title" : "Window Style",
       "type" : "string"
@@ -1100,6 +1195,16 @@
       "minimum" : 0,
       "title" : "Hue",
       "type" : "number"
+    },
+    "appearance.iconTheme" : {
+      "default" : "default",
+      "description" : "The icon drawings used by cmux.",
+      "enum" : [
+        "default",
+        "neko"
+      ],
+      "title" : "Icon Theme",
+      "type" : "string"
     },
     "appearance.inactiveWindowDim" : {
       "default" : 0,
@@ -1612,6 +1717,12 @@
       "title" : "Offer to Import Cookies",
       "type" : "boolean"
     },
+    "browser.import.cookieSync" : {
+      "default" : true,
+      "description" : "After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it.",
+      "title" : "Keep Imported Cookies in Sync",
+      "type" : "boolean"
+    },
     "browser.import.enabled" : {
       "default" : true,
       "description" : "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays.",
@@ -1813,6 +1924,12 @@
       "title" : "Open Links in cmux Browser",
       "type" : "boolean"
     },
+    "browser.openPullRequestsInGitHubPage" : {
+      "default" : true,
+      "description" : "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way.",
+      "title" : "Open Pull Requests in cmux GitHub Page",
+      "type" : "boolean"
+    },
     "browser.openSignInPagesInCmux" : {
       "default" : true,
       "description" : "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win.",
@@ -1944,11 +2061,34 @@
       "title" : "Fill Codes from Verification Emails",
       "type" : "boolean"
     },
+    "browser.wakeTabsOnHover" : {
+      "default" : false,
+      "description" : "When the pointer rests on a tab or a workspace, its sleeping pages start to load before you click. Uses more memory.",
+      "title" : "Wake Tabs on Hover",
+      "type" : "boolean"
+    },
+    "chat.on" : {
+      "default" : "",
+      "description" : "Where cmux chat starts a chat when neither --on nor CMUX_ON names one: here, cloud, vm:new, vm:NAME, or a device name. Empty is here.",
+      "title" : "Default Chat Target",
+      "type" : "string"
+    },
     "chief.autoRouteSubagents" : {
       "default" : false,
       "description" : "The Chief picks the agent each subagent runs on, such as Codex for long coding work and Claude for writing and UI, even when the Chief itself runs on another. Off, subagents run on the Chief's own agent.",
       "title" : "Route Subagents to the Best Agent",
       "type" : "boolean"
+    },
+    "chief.permissionMode" : {
+      "default" : "bypassPermissions",
+      "description" : "How the Chief's own turns handle permissions. Bypass runs every command without asking. Auto lets a safety check decide each command. Manual refuses each change that would need approval. Applies from the next turn.",
+      "enum" : [
+        "bypassPermissions",
+        "auto",
+        "default"
+      ],
+      "title" : "Chief Permission Mode",
+      "type" : "string"
     },
     "chief.reactionClassifier.harness" : {
       "default" : "",
@@ -1973,6 +2113,47 @@
       "description" : "A reaction you put on a Chief message can start a turn when it asks for one, such as a question mark on a question or a thumbs down on a plan. A cheap model decides first, so a reaction that needs no answer never shows the typing dots. Off, reactions are only noted.",
       "title" : "Reactions Can Wake the Chief",
       "type" : "boolean"
+    },
+    "chief.subagentSidebar" : {
+      "default" : "auto",
+      "description" : "Automatic lets the Chief decide for each subagent: work you will want to watch or join shows, short errands stay hidden. Always and Never override the Chief.",
+      "enum" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "title" : "Subagents in the Sidebar",
+      "type" : "string"
+    },
+    "chief.subagentSidebarHideWords" : {
+      "default" : [
+
+      ],
+      "description" : "Words or phrases that keep a subagent hidden when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A show word wins.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Hide Tasks That Mention",
+      "type" : "array"
+    },
+    "chief.subagentSidebarMinWords" : {
+      "default" : 50,
+      "description" : "A task with no show or hide word shows when it has at least this many words, and stays hidden when it is shorter.",
+      "maximum" : 1000,
+      "minimum" : 0,
+      "title" : "Show Tasks Longer Than",
+      "type" : "number"
+    },
+    "chief.subagentSidebarShowWords" : {
+      "default" : [
+
+      ],
+      "description" : "Words or phrases that show a subagent when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Show Tasks That Mention",
+      "type" : "array"
     },
     "cloud.agentsStartWithoutAsking" : {
       "default" : true,
@@ -2002,8 +2183,14 @@
       "title" : "Use My Claude Login on My Own Cloud Machines",
       "type" : "boolean"
     },
+    "cloud.useMyCodexLoginOnMyCloudMachines" : {
+      "default" : false,
+      "description" : "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead.",
+      "title" : "Use My Codex Login on My Own Cloud Machines",
+      "type" : "boolean"
+    },
     "computerUse.driver" : {
-      "default" : "legacy",
+      "default" : "upstream",
       "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
       "enum" : [
         "legacy",
@@ -2715,6 +2902,24 @@
       "title" : "Bubble Style",
       "type" : "string"
     },
+    "home.chiefDock.edge" : {
+      "default" : "left",
+      "description" : "The window edge the Chief goes to when you dock it. The rest of the window shows the workspace you pick.",
+      "enum" : [
+        "left",
+        "right",
+        "top",
+        "bottom"
+      ],
+      "title" : "Dock Edge",
+      "type" : "string"
+    },
+    "home.chiefDock.openBeside" : {
+      "default" : true,
+      "description" : "A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it.",
+      "title" : "Show Chief When Opening Workspaces",
+      "type" : "boolean"
+    },
     "home.chiefEngine" : {
       "default" : "auto",
       "description" : "Which Chief Home opens. Auto uses this Mac's Chief while it runs here, else the Hosted Chief in the cloud.",
@@ -2784,16 +2989,16 @@
       "title" : "Connect iMessage",
       "type" : "boolean"
     },
-    "labs.classicHome" : {
+    "labs.liveCode" : {
       "default" : false,
-      "description" : "Show Home as a full page instead of a workspace with the Chief docked on the left. Takes effect after cmux restarts.",
-      "title" : "Classic Home",
+      "description" : "In a live code build of cmux, Swift changes you compile from your own checkout apply to the running app without waiting for a new build. Turn it off to go back to normal. Takes effect after cmux restarts.",
+      "title" : "Live Code",
       "type" : "boolean"
     },
     "labs.machineJoin" : {
       "default" : false,
-      "description" : "Add Device shows a line to paste on any Mac or Linux computer; it joins your team's machines. Screen sharing and control stay off until that machine allows them.",
-      "title" : "Join Any Machine with One Line",
+      "description" : "Shows this Mac's Screen sharing and Control switches in Settings > Devices once it has joined your machines. Both stay off until you turn them on.",
+      "title" : "Screen Sharing for Joined Machines",
       "type" : "boolean"
     },
     "labs.previewFeatures" : {
@@ -2976,7 +3181,7 @@
       "type" : "number"
     },
     "layout.paneCornerRadius" : {
-      "description" : "One radius for panes and tabs. Shapes inside a pane use this radius minus the corner padding.",
+      "description" : "One radius for panes, tabs, panels, popovers, cards and toasts. Shapes inside them use this radius minus the corner padding.",
       "maximum" : 20,
       "minimum" : 0,
       "title" : "Corner Radius",
@@ -3726,6 +3931,12 @@
       "title" : "Workspaces Prefix",
       "type" : "string"
     },
+    "palette.searchHistory" : {
+      "default" : true,
+      "description" : "The row you pick for what you typed comes first the next time you type it, and rows you use often rank higher. Off, the palette records nothing and ranks by match and sidebar order only.",
+      "title" : "Remember Palette Searches",
+      "type" : "boolean"
+    },
     "phone.allowConnections" : {
       "default" : false,
       "description" : "So your phone can find this Mac, cmux registers with its servers this Mac's name, device ID and platform, the app's bundle ID, version and build channel, the Mac's relay address and connection key, and your account and team IDs. Workspace names, folders, full paths and terminal output go only over the encrypted link to your phone. None of that, and no branch name or repo URL, is sent to cmux servers. Exception: while “Show This Mac's Workspaces on Your Phone While It's Off” is on, cmux servers store each workspace's ID, resource ID, short ID, name, name revision, group, color, icon, pinned state, unread mark, unread count and whether it is active.",
@@ -3771,6 +3982,12 @@
       },
       "title" : "Pinned Folders",
       "type" : "array"
+    },
+    "remote.endSharingOnQuit" : {
+      "default" : false,
+      "description" : "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit.",
+      "title" : "End Sharing When cmux Quits",
+      "type" : "boolean"
     },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
@@ -3900,7 +4117,8 @@
       "description" : "sidebar.groupBy",
       "enum" : [
         "none",
-        "folder"
+        "folder",
+        "recents"
       ],
       "title" : "Group Projects By",
       "type" : "string"
@@ -3910,6 +4128,17 @@
       "description" : "Off: one list of workspaces, and a workspace on another computer names it under its title. On: a section per computer.",
       "title" : "Group Workspaces by Computer",
       "type" : "boolean"
+    },
+    "sidebar.groupHeader.background" : {
+      "default" : "auto",
+      "description" : "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.",
+      "enum" : [
+        "auto",
+        "glass",
+        "solid"
+      ],
+      "title" : "Group Background",
+      "type" : "string"
     },
     "sidebar.groupHeader.memberCount" : {
       "default" : false,
@@ -3922,6 +4151,19 @@
       "description" : "A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner.",
       "title" : "Show Group Unread Count",
       "type" : "boolean"
+    },
+    "sidebar.groupPalette" : {
+      "default" : "glass",
+      "description" : "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked.",
+      "enum" : [
+        "glass",
+        "theme",
+        "wallpaper",
+        "grayscale",
+        "vibrant"
+      ],
+      "title" : "Group Colors",
+      "type" : "string"
     },
     "sidebar.hoverCards.delay" : {
       "default" : 400,
@@ -4800,6 +5042,17 @@
       "title" : "Native New Tab Page",
       "type" : "boolean"
     },
+    "tabs.newTabButtonPosition" : {
+      "default" : "end",
+      "description" : "Where the + button after the last tab puts the new tab. Cmd-T follows New Tab Position (Cmd-T).",
+      "enum" : [
+        "afterCurrent",
+        "end",
+        "start"
+      ],
+      "title" : "New Tab Position (+ Button)",
+      "type" : "string"
+    },
     "tabs.newTabNowPlaying" : {
       "default" : false,
       "description" : "A player for what is playing, on the New Tab page.",
@@ -4808,13 +5061,13 @@
     },
     "tabs.newTabPosition" : {
       "default" : "afterCurrent",
-      "description" : "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.",
+      "description" : "Where Cmd-T puts the new tab. New Tab to the Right in a tab's menu always puts it after that tab.",
       "enum" : [
         "afterCurrent",
         "end",
         "start"
       ],
-      "title" : "New Tab Position",
+      "title" : "New Tab Position (Cmd-T)",
       "type" : "string"
     },
     "tabs.newTabTemplate" : {
@@ -4939,7 +5192,7 @@
         "hover",
         "always"
       ],
-      "title" : "New Tab Button",
+      "title" : "+ Button Visibility",
       "type" : "string"
     },
     "tabs.swapCmdTAndCmdN" : {
@@ -5018,6 +5271,16 @@
       },
       "title" : "Program Link Rules",
       "type" : "array"
+    },
+    "terminal.term" : {
+      "default" : "xterm-256color",
+      "description" : "The TERM new terminals start with. xterm-256color works on every host you ssh to. xterm-ghostty needs Ghostty's terminfo on each of those hosts, and applies only when it is installed on this Mac.",
+      "enum" : [
+        "xterm-256color",
+        "xterm-ghostty"
+      ],
+      "title" : "Terminal Type (TERM)",
+      "type" : "string"
     },
     "ui.animations.bounce" : {
       "default" : "none",
@@ -5212,6 +5475,12 @@
       "title" : "Keep Previous Versions",
       "type" : "number"
     },
+    "updates.liveWebReload" : {
+      "default" : true,
+      "description" : "Edits to cmux's web UI from your own checkout show up in this app as you save, with no build and no relaunch. Start it with scripts/cmux-next/web-overlay.sh server --local. Off: cmux ignores ~/.config/cmux/web-dev.json and shows the web UI it shipped with.",
+      "title" : "Live Web Reload",
+      "type" : "boolean"
+    },
     "updates.meteredNetwork" : {
       "default" : "defer-low-data",
       "description" : "While downloads wait, a found update shows on Settings and one click downloads it.",
@@ -5261,6 +5530,12 @@
       ],
       "title" : "Web UI Updates",
       "type" : "string"
+    },
+    "updates.whatsNewInstall" : {
+      "default" : false,
+      "description" : "Each day in What's New lists its versions with an Install button. cmux checks the download's signature, then restarts into that version with your terminals and agents.",
+      "title" : "Install Versions from What's New",
+      "type" : "boolean"
     },
     "window.titlebar" : {
       "default" : "minimal",
@@ -5320,6 +5595,36 @@
       "title" : "Name Workspaces from Tabs",
       "type" : "boolean"
     },
+    "workspaces.freeing.agents" : {
+      "default" : true,
+      "description" : "Also ends Claude Code and Codex sessions that wait for your next message. Opening the tab resumes the same session.",
+      "title" : "Free Idle Agents",
+      "type" : "boolean"
+    },
+    "workspaces.freeing.enabled" : {
+      "default" : false,
+      "description" : "Ends the shells of workspaces you have not used for a long time when they sit at an empty prompt. Opening the workspace starts each shell again in the same folder, with its saved screen above it. Pinned workspaces and workspaces kept awake are never freed.",
+      "title" : "Free Idle Terminals",
+      "type" : "boolean"
+    },
+    "workspaces.freeing.idleMinutes" : {
+      "default" : 1440,
+      "description" : "A hibernated workspace's idle shells end after this many minutes without use (1440 is one day).",
+      "maximum" : 43200,
+      "minimum" : 60,
+      "title" : "Free Terminals After",
+      "type" : "number"
+    },
+    "workspaces.freeing.runningCommands" : {
+      "default" : "never",
+      "description" : "What happens to a command that still runs in a workspace that frees its terminals.",
+      "enum" : [
+        "never",
+        "relaunch"
+      ],
+      "title" : "Running Commands",
+      "type" : "string"
+    },
     "workspaces.hibernation.enabled" : {
       "default" : true,
       "description" : "Frees the memory of workspaces you have not used for a while. Terminals and agents keep running; pages and chats come back where they were when you open the workspace.",
@@ -5343,7 +5648,7 @@
       "type" : "number"
     },
     "workspaces.newPlacement" : {
-      "default" : "top",
+      "default" : "afterCurrent",
       "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. A workspace made in a group goes to the same place inside that group. Pinned workspaces stay above it.",
       "enum" : [
         "top",

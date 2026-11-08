@@ -73,7 +73,7 @@ public nonisolated struct KeyBindingDefaults {
     ]
 
     /// The Chief chat's zoom: every key of theirs (a default, a cmux.json or a Settings rebind) runs only
-    /// where ``onHome`` holds, so a rebind never zooms the Chief chat from a terminal or a browser.
+    /// where ``onChiefZoom`` holds, so a rebind never zooms the Chief chat from a terminal or a browser.
     public static let homeScoped: Set<ActionID> = ["home.zoomIn", "home.zoomOut", "home.zoomReset"]
 
     /// The tab keys on Home: the keys that cycle a pane's tabs move through Home's chat list in
@@ -133,11 +133,12 @@ public nonisolated struct KeyBindingDefaults {
                    when: .and([notTerminal, .not(.has(KeyContext.codeEditorFocusedKey))])),
         // Cmd-Shift-R on Home: Reply to Selection (free in the defaults; Cmd-R is Rename Tab and Reload).
         KeyBinding(keys: [Shortcut("r", modifiers: [.command, .shift])], command: "home.replyToSelection", when: onHome),
-        // Cmd-= / Cmd-+ / Cmd-- / Cmd-0 on Home zoom the Chief chat, as they zoom an agent chat or a page.
-        KeyBinding(keys: [Shortcut("=", modifiers: [.command])], command: "home.zoomIn", when: onHome),
-        KeyBinding(keys: [Shortcut("=", modifiers: [.command, .shift])], command: "home.zoomIn", when: onHome),
-        KeyBinding(keys: [Shortcut("-", modifiers: [.command])], command: "home.zoomOut", when: onHome),
-        KeyBinding(keys: [Shortcut("0", modifiers: [.command])], command: "home.zoomReset", when: onHome),
+        // Cmd-= / Cmd-+ / Cmd-- / Cmd-0 on Home and on Bring your history zoom the Chief chat, as they
+        // zoom an agent chat or a page.
+        KeyBinding(keys: [Shortcut("=", modifiers: [.command])], command: "home.zoomIn", when: onChiefZoom),
+        KeyBinding(keys: [Shortcut("=", modifiers: [.command, .shift])], command: "home.zoomIn", when: onChiefZoom),
+        KeyBinding(keys: [Shortcut("-", modifiers: [.command])], command: "home.zoomOut", when: onChiefZoom),
+        KeyBinding(keys: [Shortcut("0", modifiers: [.command])], command: "home.zoomReset", when: onChiefZoom),
         // Cmd-W in the sidebar with several rows selected closes them, as Chrome's Cmd-W closes its
         // selected tabs (Leo 2026-10-20); with one row selected it still closes the shown tab.
         KeyBinding(keys: [Shortcut("w", modifiers: [.command])], command: "closeWorkspace", when: sidebarMultiSelection),
@@ -151,6 +152,23 @@ public nonisolated struct KeyBindingDefaults {
         .equals(KeyContext.topPage, .string("home")),
         .equals(KeyContext.surfaceKind, .string("home")),
         .equals(KeyContext.surfaceKind, .string("home-dock")),
+    ])
+
+    /// The `topPage` of a window that shows Bring your history on top (the first-run import over Home).
+    public static let historyImportTopPage = "import-history"
+
+    /// Where the Chief chat's zoom keys run: Home (``onHome``'s terms), and Bring your history
+    /// (`cmux.import-history`) as the window's top page or with the keyboard in a pane, whose page
+    /// zooms with the Chief chat (`PageWebView.followsChatZoom`; issue 38049: Cmd-= / Cmd-- did
+    /// nothing on the first-run import). As on Home, the top page takes the zoom keys wherever the
+    /// window's keyboard is (a sidebar click leaves it shown). One flat `or`, the tree its text
+    /// parses back to, so the Rust catalog's text form (`bindings.rs`) gives this clause.
+    public static let onChiefZoom = WhenClause.or([
+        .equals(KeyContext.topPage, .string("home")),
+        .equals(KeyContext.surfaceKind, .string("home")),
+        .equals(KeyContext.surfaceKind, .string("home-dock")),
+        .equals(KeyContext.topPage, .string(historyImportTopPage)),
+        .equals(KeyContext.pageID, .string("cmux.import-history")),
     ])
 
     /// The arrow aliases for pane resize. These are defaults in addition to
@@ -219,7 +237,7 @@ public nonisolated struct KeyBindingDefaults {
     public static let yieldsToCodeEditor: Set<ActionID> = [
         "splitRight", "openBrowser", "focusUp", "focusDown",
         "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
-        "space.previous", "space.next", "globalSearch", "palette.newAgentChat", "focusLocation", "groupSelectedWorkspaces",
+        "space.previous", "space.next", "globalSearch", "palette.newAgentChat", "home.openChiefDock", "focusLocation", "groupSelectedWorkspaces",
         // VS Code's Insert Line Below / Above (Cmd-Return, Shift-Cmd-Return; Lawrence 2026-10-19:
         // "all common vscode shortcuts").
         "toggleChecklistItemComplete", "toggleSplitZoom",
