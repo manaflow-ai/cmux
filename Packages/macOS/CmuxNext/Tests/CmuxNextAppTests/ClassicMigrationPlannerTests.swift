@@ -263,19 +263,27 @@ import Testing
         #expect(stable.source.appName == "cmux" && !stable.classicRunning)
     }
 
-    /// Launch Services' open apps: classic is 0.x under a classic channel's bundle id; cmux-next (1.x, the same
-    /// bundle ids), this process, debug builds and other apps are not.
-    @Test func openClassicAppsAreToldFromCmuxNext() {
-        let apps = [
-            ClassicRunningProbe.App(bundleID: "com.cmuxterm.app", version: "0.65.2", pid: 38050),
-            ClassicRunningProbe.App(bundleID: "com.cmuxterm.app.nightly", version: "1.0.0-nightly.4245364216501", pid: 70559),
-            ClassicRunningProbe.App(bundleID: "com.cmuxterm.app.rc", version: "0.66.0", pid: 1),
-            ClassicRunningProbe.App(bundleID: "com.cmuxterm.app.staging", version: nil, pid: 2),
-            ClassicRunningProbe.App(bundleID: "com.cmuxterm.app.debug.next", version: "0.65.0", pid: 3),
-            ClassicRunningProbe.App(bundleID: nil, version: "0.1", pid: 4),
-        ]
-        #expect(ClassicRunningProbe.classicChannels(apps, ownPID: 1) == ["com.cmuxterm.app", "com.cmuxterm.app.staging"])
-        #expect(ClassicRunningProbe.classicChannels([apps[1]], ownPID: 1).isEmpty)
+    /// Classic holds `<socket>.lock` beside its control socket while it runs; a missing or free lock (a classic
+    /// that quit or crashed) is not running, and asking never leaves the lock taken.
+    @Test func classicsSocketLockSaysItRuns() throws {
+        let home = URL(fileURLWithPath: "/Users/someone")
+        #expect(ClassicRunningProbe.lockPaths(channel: "com.cmuxterm.app", home: home)
+                == ["/Users/someone/.local/state/cmux/cmux.sock.lock", "/tmp/cmux.sock.lock"])
+        #expect(ClassicRunningProbe.lockPaths(channel: "com.cmuxterm.app.nightly", home: home)
+                == ["/Users/someone/.local/state/cmux/cmux-nightly.sock.lock", "/tmp/cmux-nightly.sock.lock"])
+
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let lock = folder.appendingPathComponent("cmux.sock.lock").path
+        #expect(!ClassicRunningProbe.isLockHeld(lock))
+        #expect(FileManager.default.createFile(atPath: lock, contents: nil))
+        #expect(!ClassicRunningProbe.isLockHeld(lock))
+        let holder = open(lock, O_RDONLY)
+        #expect(holder >= 0 && flock(holder, LOCK_EX | LOCK_NB) == 0)
+        #expect(ClassicRunningProbe.isLockHeld(lock))
+        close(holder)
+        #expect(!ClassicRunningProbe.isLockHeld(lock))
     }
 
     // MARK: cmux-next in use before its first migration

@@ -149,7 +149,7 @@ final class ClassicUpgradeSimulator {
         services.onboarding.classicMigrationAtLaunch = true
         services.onboarding.classicStateRoot = mac.state
         // Classic's sentinel in `mac.state` is the only sign it runs: never this Mac's own open classic app.
-        services.onboarding.classicApps = { [] }
+        services.onboarding.classicLockHeld = { _ in false }
         services.onboarding.classicMigrationConfirmation = { _ in .accepted }
         if let ssh { services.onboarding.classicSSH = ssh }
         else { services.onboarding.classicSSH = { destination in DaemonService(machineID: "ssh:\(destination)") } }

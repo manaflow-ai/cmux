@@ -479,20 +479,16 @@ extension AppOnboardingServices {
         }
     }
 
-    /// Whether the classic app that saves `source` is open and may still save: Launch Services lists it
-    /// (``ClassicRunningProbe/classicChannels(_:ownPID:)``), or its launch sentinel and a recent save say so.
-    /// No process scan (plans/cmux-next/pty-holder.md).
+    /// Whether the classic app that saves `source` is open and may still save: it holds the lock beside
+    /// its control socket (``ClassicRunningProbe/lockPaths(channel:home:)``), or its launch sentinel and a
+    /// recent save say so. A non-blocking `flock`, no process scan (plans/cmux-next/pty-holder.md).
     private func classicIsRunning(_ source: ClassicMigrationSource?) -> Bool {
         if let seam = owner.classicRunning { return seam() }
         guard let source else { return false }
-        let apps = owner.classicApps?() ?? ClassicMigrationSourceFinder.channels.flatMap { channel in
-            NSRunningApplication.runningApplications(withBundleIdentifier: channel).map { app in
-                ClassicRunningProbe.App(bundleID: app.bundleIdentifier,
-                                        version: app.bundleURL.flatMap(Bundle.init(url:))?.infoDictionary?["CFBundleShortVersionString"] as? String,
-                                        pid: app.processIdentifier)
-            }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        for path in ClassicRunningProbe.lockPaths(channel: source.bundleID, home: home) {
+            if owner.classicLockHeld?(path) ?? ClassicRunningProbe.isLockHeld(path) { return true }
         }
-        if ClassicRunningProbe.classicChannels(apps, ownPID: ProcessInfo.processInfo.processIdentifier).contains(source.bundleID) { return true }
         let root = owner.classicStateRoot ?? ClassicRunningProbe.defaultStateRoot(
             home: FileManager.default.homeDirectoryForCurrentUser, environment: ProcessInfo.processInfo.environment)
         return ClassicRunningProbe(stateRoot: root).isRunning(source, now: Date().timeIntervalSince1970)

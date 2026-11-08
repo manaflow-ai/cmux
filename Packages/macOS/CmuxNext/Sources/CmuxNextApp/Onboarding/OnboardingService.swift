@@ -53,10 +53,10 @@ final class OnboardingService {
     var classicMigrationSupport: URL?
     /// Whether launch runs the classic migration; nil decides by build (shipping builds only).
     var classicMigrationAtLaunch: Bool?
-    /// Whether a classic cmux app is running; nil asks Launch Services and reads classic's launch sentinel.
+    /// Whether a classic cmux app is running; nil checks classic's socket lock and reads its launch sentinel.
     var classicRunning: (@MainActor () -> Bool)?
-    /// The apps open under classic's bundle ids; nil asks Launch Services (tests answer none).
-    var classicApps: (@MainActor () -> [ClassicRunningProbe.App])?
+    /// Whether the classic socket lock at a path is held; nil asks `flock` (tests answer free).
+    var classicLockHeld: (@MainActor (String) -> Bool)?
     /// Classic's state folder, where its launch sentinel says it runs; nil is this Mac's
     /// (`~/.local/state/cmux`); tests use a scratch folder.
     var classicStateRoot: URL?
