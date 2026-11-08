@@ -87,13 +87,20 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   }
   // A sent prompt's motion (`--agent-motion-send`) is the scale's send step, scaled as the host scaled
   // its move step (ui.animationSpeed; 0 with animations off), since the host sends no send duration.
+  // Its fades (`--agent-motion-send-fade`) run that clock while things move; Reduce Motion (Calm mode
+  // too) zeroes the move step but keeps fades, and then the prompt fades on the fade setting and
+  // nothing moves (WebKit may still answer `prefers-reduced-motion: no-preference`).
   const move = theme.motion?.move;
-  if (typeof move === "number" && Number.isFinite(move) && move >= 0)
-    root.style.setProperty(
-      "--agent-motion-send",
-      `${Math.round(((move * 1000) / MOTION_MS.standard) * MOTION_SEND_MS)}ms`,
-    );
-  else root.style.removeProperty("--agent-motion-send");
+  if (typeof move === "number" && Number.isFinite(move) && move >= 0) {
+    const send = Math.round(((move * 1000) / MOTION_MS.standard) * MOTION_SEND_MS);
+    const fadeIn = theme.motion?.fadeIn;
+    const fade = send > 0 || typeof fadeIn !== "number" || !(fadeIn >= 0) ? send : Math.round(fadeIn * 1000);
+    root.style.setProperty("--agent-motion-send", `${send}ms`);
+    root.style.setProperty("--agent-motion-send-fade", `${fade}ms`);
+  } else {
+    root.style.removeProperty("--agent-motion-send");
+    root.style.removeProperty("--agent-motion-send-fade");
+  }
   // `ui.animationSpeed: off` reaches the page as an all-zero motion policy. Mark it on the root so
   // CSS animations and transitions that represent loops or third-party surfaces stop as well as
   // tokenized fades. Reduce Motion keeps its short crossfade values and therefore does not trip this.

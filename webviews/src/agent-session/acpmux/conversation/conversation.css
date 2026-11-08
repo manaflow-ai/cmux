@@ -5249,7 +5249,9 @@ a.cv-sha:focus-visible {
  * clock (followGlide.ts `sent`), its bubble fades in anchored at its right edge and opens leftward to
  * its width, and the thinking row that came with it fades in on the same clock. Only the bubble's
  * clip and the ink move, never layout, so nothing reflows and the text never scales (an agent
- * message keeps its plain fade: #34751). Reduce Motion keeps the fade; motion off makes the token 0.
+ * message keeps its plain fade: #34751). Reduce Motion keeps the fade: the system setting through the
+ * media query, the app's (move step 0, fades on) through --agent-motion-send-fade on the fade
+ * setting while the edge and the rise take the 0 move step. Motion off makes both tokens 0.
  * The gallery's agent-pane.send-entrance compares the bubble's other entrances (`data-send-entrance`
  * on an ancestor); the product's is `reveal`. */
 @keyframes cv-send-reveal {
@@ -5279,7 +5281,7 @@ a.cv-sha:focus-visible {
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-user.acpmux-row--message-enter .acpmux-row__message-presentation,
   .acpmux-user.acpmux-row--message-enter ~ .acpmux-thinking.acpmux-row--enter {
-    animation-duration: var(--agent-motion-send, 265ms);
+    animation-duration: var(--agent-motion-send-fade, var(--agent-motion-send, 265ms));
     animation-timing-function: var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1));
   }
   /* A sent picture or video appears in its slot, at its size, with the prompt: it only fades, on the
@@ -5287,7 +5289,7 @@ a.cv-sha:focus-visible {
      sort of, like, fly-in animation ... I feel like that's kind of weird"). One whose bytes come
      later still fades in where it is, and so does one in a new chat's first prompt. */
   .cv-user .cv-enter {
-    animation: cv-enter-fade var(--agent-motion-send, 265ms) var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1))
+    animation: cv-enter-fade var(--agent-motion-send-fade, var(--agent-motion-send, 265ms)) var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1))
       both;
   }
   .acpmux-user.acpmux-row--message-enter .cv-user__bubble {
@@ -5296,7 +5298,7 @@ a.cv-sha:focus-visible {
   }
   /* The text comes in a beat behind the bubble's edge, so no letter shows cut at the edge. */
   .acpmux-user.acpmux-row--message-enter .cv-user__bubble > * {
-    animation: cv-message-enter calc(var(--agent-motion-send, 265ms) * 0.7)
+    animation: cv-message-enter calc(var(--agent-motion-send-fade, var(--agent-motion-send, 265ms)) * 0.7)
       var(--agent-ease-send, cubic-bezier(0.16, 1, 0.3, 1)) calc(var(--agent-motion-send, 265ms) * 0.3) both;
   }
   [data-send-entrance="grow"] .acpmux-user.acpmux-row--message-enter .cv-user__bubble {
