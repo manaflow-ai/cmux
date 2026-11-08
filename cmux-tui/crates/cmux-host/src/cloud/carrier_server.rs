@@ -167,8 +167,8 @@ struct Shared<H: Http> {
     state: Mutex<State<H>>,
     changed: Condvar,
     /// Bumped (under the state's lock) at each bind and resume. A ticket
-    /// asked for in an earlier generation is never kept or handed out. Read
-    /// without the state's lock under the stop's, at the hand-out.
+    /// asked for in an earlier generation is never kept or handed out: the
+    /// hand-out checks it and writes under the same lock.
     generation: AtomicU64,
     /// Tests: points where a test steps in between two steps of the threads.
     #[cfg(test)]
@@ -208,6 +208,14 @@ impl TestPoints {
 impl<H: Http> Shared<H> {
     fn lock(&self) -> MutexGuard<'_, State<H>> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// A bind or a resume (`state` is this lock's): nothing asked for before
+    /// it is kept or handed out.
+    fn new_generation(&self, state: &mut State<H>) {
+        self.generation.fetch_add(1, Ordering::SeqCst);
+        state.warm = None;
+        state.answered = None;
     }
 
     fn wait<'g>(
@@ -312,7 +320,12 @@ impl<H: Http + Send + 'static> CarrierServer<H> {
     /// `prefetch` (the machine has a relay carrier), a ticket is asked for at
     /// once and kept for the session host's Register.
     pub fn bound(&self, client: CloudClient<H>, prefetch: bool) {
-        self.shared.lock().next = Some(Next { client, prefetch });
+        let mut state = self.shared.lock();
+        // The bind's generation starts now, not when the fetch thread takes
+        // it: an ask in between waits for the bind's ticket.
+        self.shared.new_generation(&mut state);
+        state.next = Some(Next { client, prefetch });
+        drop(state);
         self.shared.changed.notify_all();
     }
 }
@@ -495,7 +508,6 @@ impl<H: Http + Send + 'static> Fetcher<'_, H> {
                 return Some(Job::Done(Box::new(done), current));
             }
             if let Some(next) = state.next.take() {
-                self.new_generation(&mut state);
                 state.bound = true;
                 state.fetching = true;
                 return Some(Job::Bind(Box::new(next)));
@@ -504,7 +516,7 @@ impl<H: Http + Send + 'static> Fetcher<'_, H> {
             if resumes != self.seen {
                 self.seen = resumes;
                 self.refreshes = 0;
-                self.new_generation(&mut state);
+                shared.new_generation(&mut state);
                 // A fresh ticket is asked for at once on a carrier machine;
                 // otherwise an asker waiting on a request from before the
                 // pause asks again.
@@ -512,24 +524,21 @@ impl<H: Http + Send + 'static> Fetcher<'_, H> {
                 shared.changed.notify_all();
                 return Some(Job::Resume);
             }
+            // `fetching` is set here, under the lock that took the want, so
+            // an asker woken before the request starts does not ask again.
             if state.want && self.client.is_some() {
                 state.want = false;
+                state.fetching = true;
                 return Some(Job::Wanted);
             }
             let refresh = state.warm.as_ref().map(|warm| warm.refresh_in((self.hooks.now)()));
             if refresh.is_some_and(|left| left.is_zero()) && self.client.is_some() {
                 state.warm = None;
+                state.fetching = self.refreshes < MAX_REFRESHES;
                 return Some(Job::Refresh);
             }
             state = shared.wait(state, refresh.filter(|_| self.client.is_some()));
         }
-    }
-
-    /// A bind or a resume: nothing asked for before it is kept or handed out.
-    fn new_generation(&self, state: &mut State<H>) {
-        self.shared.generation.fetch_add(1, Ordering::SeqCst);
-        state.warm = None;
-        state.answered = None;
     }
 
     /// The machine resumed: a request from before the pause is abandoned (a
@@ -682,21 +691,27 @@ fn answer<H: Http>(stream: UnixStream, shared: &Shared<H>, stop: &Stop, hooks: H
             }
             return;
         }
-        // The checks and the write hold the stop's lock, so a stop is either
-        // before both (no ticket goes out) or after the write. A ticket from
-        // before a resume or bind that came between is not handed out: the
-        // ask waits for the fresh one (still within its wait).
+        #[cfg(test)]
+        TestPoints::run(&shared.test_points.before_handout);
+        // The checks and the write hold the state's lock (a bind's or a
+        // resume's generation changes only under it) and then the stop's, so
+        // a stop, a bind or a resume is either before both (no ticket from
+        // before it goes out) or after the write. A ticket from before a
+        // resume or bind is not handed out: the ask waits for the fresh one
+        // (still within its wait). The reply is one short line, far under the
+        // socket's buffer, and its write is bounded by REPLY_WRITE_TIMEOUT.
+        let state = shared.lock();
         let stopped = stop.lock();
         if *stopped {
             reply = stopping();
         } else if reply.get("ok") == Some(&Value::Bool(true)) && !current() {
             drop(stopped);
+            drop(state);
             continue;
         }
-        #[cfg(test)]
-        TestPoints::run(&shared.test_points.before_handout);
         let _ = write_reply(stream, &reply);
         drop(stopped);
+        drop(state);
         return (hooks.log)(&note(&reply, kept, started.elapsed()));
     }
 }
