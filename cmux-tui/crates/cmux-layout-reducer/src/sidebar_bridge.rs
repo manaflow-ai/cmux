@@ -12,6 +12,9 @@
 
 use serde::{Deserialize, Serialize};
 
+mod link;
+pub use link::{Joined, PeerLink, Shown, joined_link, peer_link, status_link, status_links};
+
 #[cfg(test)]
 mod tests;
 
@@ -630,6 +633,18 @@ pub enum Request {
     AppActivation {
         app: String,
     },
+    /// acpmux's whole link state as one dot (`link`).
+    PeerLink {
+        link: PeerLink,
+    },
+    /// Every app status's dot, keyed by its word.
+    StatusLinks,
+    /// A hub-joined machine's dot: its peer link when acpmux has one, else the hub's row.
+    JoinedLink {
+        hub: Joined,
+        #[serde(default)]
+        peer: Option<PeerLink>,
+    },
 }
 
 /// Answers one request as JSON: the rule's reply (an index or daemon is null for none).
@@ -679,6 +694,9 @@ pub fn respond(request: &Request) -> serde_json::Result<Vec<u8>> {
         }
         Request::DismissNotice { card } => serde_json::to_vec(&dismiss_notice(card)),
         Request::AppActivation { app } => serde_json::to_vec(&app_activation(app)),
+        Request::PeerLink { link } => serde_json::to_vec(&peer_link(*link)),
+        Request::StatusLinks => serde_json::to_vec(&status_links()),
+        Request::JoinedLink { hub, peer } => serde_json::to_vec(&joined_link(*hub, *peer)),
     }
 }
 

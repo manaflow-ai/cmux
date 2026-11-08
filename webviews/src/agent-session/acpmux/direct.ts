@@ -62,7 +62,8 @@ import { primeSentImages, withSentShapes } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
 import { frameTextOf, imageNames, withoutFrames } from "./composer/videoPrompt";
 import { PeerStateEvents } from "./peerStateEvents";
-import { peerConnectedFromStatus, peerKindsFromStatus, peerStatesFromStatus } from "./environments";
+import { peerConnectedFromStatus, peerKindsFromStatus, peerLinksFromStatus, peerStatesFromStatus } from "./environments";
+import type { PeerLinkDetail } from "./linkState";
 import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { resolvedTarget } from "./conversation/sessionRefs";
@@ -2490,6 +2491,8 @@ export class AcpmuxDirectClient {
   private peerKinds: Record<string, "ssh" | "cloud"> = {};
   private peerConnected: Record<string, boolean> = {};
   private peerStates: Record<string, string> = {};
+  /// Each peer's whole link state as acpmux said it (linkState.ts), from a daemon that sends it.
+  private peerLinks: Record<string, PeerLinkDetail> = {};
   private peerResources: NonNullable<AcpmuxSnapshot["peerResources"]> = {};
   /// Each peer's link state, last-seen time and failed attempts, for why a chat is not listed.
   private peerStatus: Record<string, PeerStatus> = {};
@@ -8281,6 +8284,7 @@ export class AcpmuxDirectClient {
       peerKinds: this.peerKinds,
       peerConnected: this.peerConnected,
       peerStates: this.peerStates,
+      peerLinks: this.peerLinks,
       peerResources: this.peerResources,
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
       summary: this.publishedSummary(summary, effort, limits),
@@ -11014,6 +11018,17 @@ export class AcpmuxDirectClient {
       ...(this.peerEvents.authoritative ? {} : this.peerStates),
       ...Object.fromEntries(peers.map(([peer, link]) => [peer, link.state])),
     };
+    const links = Object.fromEntries(
+      peers.flatMap(([peer, link]) => (link.detail ? [[peer, link.detail] as const] : [])),
+    );
+    // A note from an older daemon (no detail) leaves no stale whole state behind.
+    const said = new Set(peers.map(([peer]) => peer));
+    this.peerLinks = {
+      ...Object.fromEntries(
+        Object.entries(this.peerEvents.authoritative ? {} : this.peerLinks).filter(([peer]) => !said.has(peer)),
+      ),
+      ...links,
+    };
     this.peerConnected = {
       ...unlisted,
       ...Object.fromEntries(peers.map(([peer, link]) => [peer, link.connected])),
@@ -11044,6 +11059,7 @@ export class AcpmuxDirectClient {
     this.peerKinds = peerKindsFromStatus(status);
     this.peerConnected = peerConnectedFromStatus(status);
     this.peerStates = peerStatesFromStatus(status);
+    this.peerLinks = peerLinksFromStatus(status);
     this.peerResources = peerResourcesFromStatus(status);
     this.peerStatus = peerStatusFromStatus(status);
     if (this.peerEvents.observed) this.applyPeerStates();

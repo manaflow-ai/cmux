@@ -191,6 +191,16 @@ public nonisolated struct SidebarBridgeRules: Sendable {
         (ask("app_activation", ["app": .string(app)], as: [AppReply].self) ?? []).map { ($0.action, $0.appArgument) }
     }
 
+    // MARK: Machine links (MachineLinkState)
+
+    /// Every machine status's dot and whether using the machine reconnects it, keyed by the status's word: the
+    /// table Rust owns (`status_links`), read once per launch by ``MachineLinkState``; nil when the library did not answer.
+    public func statusLinks() -> [String: MachineLinkState.Shown]? {
+        ask("status_links", [:], as: [String: LinkReply].self)?.compactMapValues { reply in
+            MachineLinkState(rawValue: reply.link).map { MachineLinkState.Shown(link: $0, reconnectsOnUse: reply.reconnectsOnUse) }
+        }
+    }
+
     // MARK: The call
 
     private func id(_ object: AnyObject?) -> RuleJSON {
@@ -277,4 +287,10 @@ private nonisolated struct AppReply: Decodable {
     let action: String, appArgument: Bool
 
     enum CodingKeys: String, CodingKey { case action, appArgument = "app_argument" }
+}
+
+private nonisolated struct LinkReply: Decodable {
+    let link: String, reconnectsOnUse: Bool
+
+    enum CodingKeys: String, CodingKey { case link, reconnectsOnUse = "reconnects_on_use" }
 }
