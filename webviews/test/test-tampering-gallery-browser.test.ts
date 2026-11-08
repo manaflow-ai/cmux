@@ -84,7 +84,7 @@ await requireBrowserLane("test-tampering-gallery-browser.test.ts", async () => {
             expect(await disclosure.getAttribute("aria-expanded")).toBe("true");
 
             const evidence = card.locator(".acpmux-tampering-list > li");
-            expect(await evidence.count()).toBe(variant === "multiFile" ? 2 : 1);
+            expect(await evidence.count()).toBe(variant === "multi-file" ? 2 : 1);
             const first = evidence.first();
             expect(await first.locator(".acpmux-tampering-evidence-title code").textContent()).toBe(
               "tests/auth.test.ts",
