@@ -197,6 +197,14 @@ pub enum MuxEvent {
     /// (page-router.json `events`); other connections hear it as apps
     /// clients after their first `apps-*` command.
     AppsChanged(Arc<Value>),
+    /// A `stash.*` mutation committed (`stash-v1`): the state revision it
+    /// committed at. Consumers re-read `stash.list`. Clients of
+    /// `session.events` also see it as a `stash` resource change; this one
+    /// is for a page relay (page-router.json `events`: the Stashed Tabs
+    /// page).
+    StashChanged {
+        revision: u64,
+    },
     /// The local Tasks owner committed a change, or the daemon's link to it
     /// ended: the `tasks-changed` payload (tasks_link.rs). `subscribe` sends
     /// it only to a page relay whose page hears it (page-router.json `events`).

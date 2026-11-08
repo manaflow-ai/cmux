@@ -23,6 +23,9 @@ public protocol AgentShareHost: AnyObject {
     /// A fresh cmux install token of the signed-in owner (`/v1/auth/token`, ES256) from `api`, the API the
     /// daemon's share room takes tokens from (nil: the daemon did not say, the build's default); nil signed out.
     func shareOwnerToken(api: URL?) async -> String?
+    /// The signed-in person's cmux (Stack) access token, for a share room's one-time hand-off when the app opens
+    /// a share link (``AgentShareLinks``); nil signed out.
+    func shareSignInToken() async -> String?
     /// Puts `text` on the general pasteboard.
     func shareCopy(_ text: String)
     /// Shows a person's run `message` as a notice in the active window.
@@ -101,4 +104,9 @@ public struct AgentShareConsentAsk: Sendable, Hashable {
     public var declineTitle: String { invite == nil ? AgentShareStrings.consentDecline : AgentShareStrings.inviteConsentDecline }
     /// The Feed request's button that brings this Mac's sheet forward (it never allows a link).
     public var showOnMacTitle: String { AgentShareStrings.consentShowOnMac }
+}
+
+public extension AgentShareHost {
+    /// No sign-in to hand a share page: a link opens signed out.
+    func shareSignInToken() async -> String? { nil }
 }
