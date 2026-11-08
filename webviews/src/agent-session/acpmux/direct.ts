@@ -6910,7 +6910,7 @@ export class AcpmuxDirectClient {
         update.kind === "delete" ||
         update.kind === "move" ||
         (Array.isArray(update.content) && update.content.some((item: any) => item?.type === "diff")) ||
-        /(?:edit|write|patch|replace|notebook)/.test(tool);
+        /(?:edit|write|patch|replace|notebookedit)/.test(tool);
       if (editing) rememberPlanEdit(sessionId, editPaths(update));
     }
     const resultTurnId =
