@@ -112,6 +112,10 @@ fn payload(reports: Vec<FileReport>) -> Option<Value> {
     })
 }
 
+#[allow(
+    clippy::string_slice,
+    reason = "diff prefixes are ASCII bytes removed after first-byte validation"
+)]
 fn unified_edit(path: &str, patch: &str) -> Option<Edit> {
     let language = test_language(path)?;
     let (mut hunks, mut old, mut new) = (Vec::new(), Vec::new(), Vec::new());
@@ -149,6 +153,10 @@ fn unified_edit(path: &str, patch: &str) -> Option<Edit> {
 
 /// Unique line anchors split whole-file payloads in linear space/time. Common
 /// edges become context; each reported block excludes distant unrelated changes.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "slice bounds are established by the monotonic line cursors"
+)]
 fn split_hunks(old: &str, new: &str, line: Option<usize>, language: Language) -> Vec<Hunk> {
     let old_lines: Vec<&str> = old.lines().collect();
     let new_lines: Vec<&str> = new.lines().collect();
@@ -225,6 +233,10 @@ fn split_hunks(old: &str, new: &str, line: Option<usize>, language: Language) ->
     result
 }
 
+#[allow(
+    clippy::indexing_slicing,
+    reason = "language and hunk keys are populated from the same edit batch"
+)]
 fn detect_edits(edits: Vec<Edit>) -> Vec<FileReport> {
     let mut totals: HashMap<Language, (String, String)> = HashMap::new();
     for edit in &edits {
@@ -511,6 +523,11 @@ fn test_names(language: Language, code: &str) -> Vec<String> {
     }
     names
 }
+#[allow(
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    reason = "call offsets come from the balanced-parenthesis scanner and ASCII matcher suffixes"
+)]
 fn assertions(language: Language, code: &str) -> Vec<Assertion> {
     if language == Language::Python {
         return code
@@ -626,6 +643,11 @@ fn weakens(old: &Assertion, new: &Assertion) -> bool {
         && !old.subject.is_empty()
         && old.subject == new.subject
 }
+#[allow(
+    clippy::indexing_slicing,
+    clippy::string_slice,
+    reason = "byte offsets are checked by match_indices and the balanced scanner before slicing"
+)]
 fn calls<'a>(code: &'a str, name: &str) -> Vec<(usize, usize, &'a str)> {
     let mut result = Vec::new();
     for (start, _) in code.match_indices(&(name.to_owned() + "(")) {
@@ -654,6 +676,10 @@ fn calls<'a>(code: &'a str, name: &str) -> Vec<(usize, usize, &'a str)> {
     }
     result
 }
+#[allow(
+    clippy::string_slice,
+    reason = "argument boundaries are byte offsets from ASCII delimiters"
+)]
 fn arguments(code: &str) -> Vec<&str> {
     let (mut result, mut depth, mut start) = (Vec::new(), 0, 0);
     for (index, byte) in code.bytes().enumerate() {
@@ -673,6 +699,7 @@ fn arguments(code: &str) -> Vec<&str> {
 
 /// Preserve byte offsets/newlines while blanking comments, quoted examples,
 /// Python docstrings, JS templates and Rust raw-string fixtures.
+#[allow(clippy::indexing_slicing, reason = "literal scanning maintains bounded byte cursors")]
 fn code_only(text: &str, language: Language) -> String {
     let input = text.as_bytes();
     let mut output = input.to_vec();
