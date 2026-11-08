@@ -15123,13 +15123,6 @@
           "required" : false
         },
         {
-          "kind" : "int",
-          "max" : 6,
-          "min" : 0,
-          "name" : "open",
-          "required" : false
-        },
-        {
           "kind" : "string",
           "name" : "peer",
           "required" : false
@@ -27620,43 +27613,6 @@
 
       ],
       "cli" : "guiOnly",
-      "cli_name" : "feed show",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "i",
-        "modifiers" : [
-          "shift",
-          "cmd"
-        ]
-      },
-      "id" : "feed.show",
-      "main_menu" : "window",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.notifications",
-        "order" : 108,
-        "title" : "Notifications",
-        "title_key" : "category.notifications",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Show Feed",
-      "title_key" : "action.feed.show",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "args" : [
-
-      ],
-      "cli" : "guiOnly",
       "cli_name" : "notification show",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -28944,6 +28900,37 @@
       "palette_suggested" : null,
       "title" : "New Agent Chat on…",
       "title_key" : "action.palette.newAgentChatOn",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "guiOnly",
+      "cli_name" : "action palette-new-cloud-chat",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.newCloudChat",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Cloud Chat",
+      "title_key" : "action.palette.newCloudChat",
       "title_table" : "ActionCatalog"
     },
     {

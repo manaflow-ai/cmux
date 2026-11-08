@@ -97,9 +97,6 @@
     "sidebar.workspaceRow.notification": [
       true
     ],
-    "tabs.cmdWClosesPinnedTabs": [
-      false
-    ],
     "tabs.newTabNowPlaying": [
       true
     ],

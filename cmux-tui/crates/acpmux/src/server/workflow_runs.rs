@@ -133,6 +133,8 @@ async fn handle(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
             let mut caller_env = crate::hub::person::caller_env(&run.owner_session_id)
                 .into_iter()
                 .collect::<std::collections::BTreeMap<_, _>>();
+            // The runner may outlive this daemon run: the next one knows it by this token too.
+            hub.caller_issued(&run.owner_session_id);
             caller_env.insert("ACPMUX_SESSION_ID", run.owner_session_id.clone());
             caller_env.insert(crate::agent_tools::AGENT_SESSION_ENV, run.owner_session_id.clone());
             return Ok(json!({"runId":run.id,"generation":run.generation,"source":run.source,
