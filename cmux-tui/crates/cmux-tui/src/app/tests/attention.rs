@@ -91,3 +91,31 @@ fn attention_host_context_follows_drawn_panes_host_focus_and_the_own_host_termin
     assert!(hosted.session_hosts_tui && !hosted.own_host_terminal);
     assert!(app.host_notify_context(43).own_host_terminal);
 }
+
+/// A BEL in a hidden tab: the daemon posts it as a `Bell` notification with
+/// `desktop: false` (`post_bell_notification`), which is the one event the
+/// App forwards. With `notifications.bell` on, the gate answers a bare BEL
+/// for a tab the person cannot see, and nothing for the tab they look at.
+#[test]
+fn attention_a_hidden_tabs_bell_rings_the_host_bell_only_when_configured() {
+    let mux = Mux::new("attention-host-bell-test", SurfaceOptions::default());
+    let mut app = test_app(Session::Local(mux));
+    app.replace_tree(attention_tree());
+    app.pane_areas = vec![browser_completion_area(41)];
+    let bell = |surface| crate::host_notify::HostNotifyRequest {
+        surface,
+        title: "Bell",
+        body: "",
+        desktop: false,
+    };
+    let now = Instant::now();
+    let mut config = app.config.notifications;
+    assert!(!config.bell, "the host bell is off by default");
+    let context = app.host_notify_context(42);
+    assert_eq!(app.host_notify.decide(config, &bell(42), context, now), None);
+    config.bell = true;
+    assert_eq!(app.host_notify.decide(config, &bell(42), context, now), Some(vec![0x07]));
+    let seen = app.host_notify_context(41);
+    let later = now + Duration::from_secs(10);
+    assert_eq!(app.host_notify.decide(config, &bell(41), seen, later), None);
+}

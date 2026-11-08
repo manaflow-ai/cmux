@@ -414,7 +414,7 @@ WebSocket clients pair through a six-digit browser/TUI comparison by default. Ap
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `notifications.desktop` | `"off"`, `"auto"`, or `"always"` | `"auto"` | Passes a notification on to the terminal that hosts the TUI, so it shows as a desktop notification |
-| `notifications.bell` | boolean | `false` | Also rings the host terminal's bell (BEL) with each notification passed on |
+| `notifications.bell` | boolean | `false` | Also rings the host terminal's bell (BEL) with each notification passed on. A terminal bell (BEL) in a tab you cannot see rings the host bell only, with no desktop notification, once until that tab's mark is read |
 
 A tab needs you when an agent marked it (`cmux attention request`), when its agent or program waits on you (`blocked`), or when it has an unread notification. The tab chip shows `!` for a mark, the pane border and the workspace row take the warning color, and the workspace row shows the agent's reason. `Ctrl-b a` (`next-attention`) goes to the next such tab: marked and blocked tabs first, then unread error and warning notifications, then other unread ones, each oldest first. Pressing it again cycles. `Ctrl-b A` (`attention-list`) opens a searchable list of the same tabs. `cmux attention next [--focus]` and `cmux attention list` answer the same order as JSON for scripts; `next` moves focus only with `--focus`.
 

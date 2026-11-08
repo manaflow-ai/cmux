@@ -413,6 +413,11 @@ mod attention_passthrough_tests {
         let mut quiet_mark = gate(DesktopNotifyMode::Auto, false, HostTerminal::Ghostty);
         let mark = HostNotifyRequest { desktop: false, ..request(2) };
         assert_eq!(quiet_mark.decide(&mark, away(), now), None, "desktop:false posts no banner");
+        // A terminal bell reaches the TUI as the daemon's `Bell` notification
+        // with `desktop: false`: with `bell` on it rings the host, no banner.
+        let mut bell_mark = gate(DesktopNotifyMode::Auto, true, HostTerminal::Ghostty);
+        let bell = HostNotifyRequest { title: "Bell", body: "", desktop: false, ..request(4) };
+        assert_eq!(bell_mark.decide(&bell, away(), now), Some(vec![0x07]));
         let mut both = gate(DesktopNotifyMode::Auto, true, HostTerminal::Ghostty);
         let bytes = both.decide(&request(3), away(), now).unwrap();
         assert_eq!(bytes.last(), Some(&0x07));
