@@ -23,6 +23,22 @@ final class ScreenContentView: NSView {
     var geometry: ScreenGeometry
     internal(set) var paneFrames: [PaneID: AnimatedFrame] = [:]
     private(set) var dividerViews: [DividerHandleView.Kind: DividerHandleView] = [:]
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Z4 key turn (ZOOM VARIANTS 3, never merged): the divider handles a film zoom took out, kept in the view tree at
+    /// opacity 0 with no size (no hit, no cursor) and given back by the unzoom, so the key turn changes layer properties
+    /// only and AppKit does not rebuild the window's layer tree in its commit (Chromium changes compositor layer
+    /// properties, not the DOM).
+    var filmParkedDividers: [DividerHandleView.Kind: DividerHandleView] = [:]
+    #endif
+
+    /// A divider handle a film zoom parked for `kind` (``filmParkedDividers``), back in use; nil outside the films.
+    private func takeParkedDivider(_ kind: DividerHandleView.Kind) -> DividerHandleView? {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        return filmParkedDividers.removeValue(forKey: kind)
+        #else
+        return nil
+        #endif
+    }
     /// The hover and resize cursor of those handles from one tracking area (`ScreenDividerPointer`).
     private(set) lazy var dividerPointer = ScreenDividerPointer(screen: self)
     internal(set) var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] = [:]
@@ -419,6 +435,10 @@ final class ScreenContentView: NSView {
             if let existing = dividerViews[kind] {
                 view = existing
                 view.setAxis(target.axis)
+            } else if let parked = takeParkedDivider(kind) {
+                view = parked
+                view.setAxis(target.axis)
+                dividerViews[kind] = view
             } else {
                 view = DividerHandleView(kind: kind, axis: target.axis)
                 view.onDrag = { [weak self] event in self?.handleDrag(kind: kind, event: event) }
@@ -470,6 +490,15 @@ final class ScreenContentView: NSView {
         for kind in dividerViews.keys where targets[kind] == nil {
             // The handle under a drag goes away: its mouse-up never comes.
             if activeDrag?.kind == kind { endDrag() }
+            #if DEBUG || CMUX_BENCH_HOOKS
+            if filmSnaps, let view = dividerViews.removeValue(forKey: kind) {
+                view.alphaValue = 0
+                view.frame = .zero
+                filmParkedDividers[kind] = view
+                dividerFrames[kind] = nil
+                continue
+            }
+            #endif
             dividerViews.removeValue(forKey: kind)?.removeFromSuperview()
             dividerFrames[kind] = nil
         }
