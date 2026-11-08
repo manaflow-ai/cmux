@@ -55,13 +55,6 @@ on:
         required: false
         default: false
         type: boolean
-    outputs:
-      changed:
-        value: ${{ jobs.rollback.outputs.changed }}
-      serving:
-        value: ${{ jobs.rollback.outputs.serving }}
-      pulled:
-        value: ${{ jobs.rollback.outputs.pulled }}
   workflow_dispatch:
     inputs:
       reason:
