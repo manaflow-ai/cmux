@@ -84,6 +84,18 @@ Tabs are numbered by default. A recognized agent program can appear after the nu
 
 The built-in sidebar defaults to the workspace list. Set `"sidebar": {"view": "files"}` for the yazi-style file browser. `Tab` toggles the built-in view while the sidebar is focused, and the configurable `toggle-sidebar-view` action toggles it from anywhere. A configured `sidebar.plugin` still replaces either built-in view.
 
+The workspace list shows agent state with no configuration. Each workspace row starts with the rolled-up status of its agents and shows the active pane's title on its second line. Below the workspaces, an **agents** section lists every agent across all workspaces as an attention queue: `blocked` first, then `done`, `working`, `idle` and `unknown`, the most recent change first inside each status. Click a row, or select it with the arrow keys in the focused sidebar and press `Enter`, to focus that agent's tab. Tab chips show the same status glyph. The section takes at most half the rail and appears only when an agent runs; set `"sidebar": {"agents": false}` to hide it.
+
+| Status | Glyph | Meaning |
+| --- | --- | --- |
+| `blocked` | `!` | The agent waits on you: an approval, a question, a plan review, or an error |
+| `done` | `✓` | The agent finished a turn that you have not viewed yet |
+| `working` | `●` | The agent runs a turn |
+| `idle` | `○` | The agent waits at its prompt and you saw its last turn |
+| `unknown` | `·` | The state is not known |
+
+A workspace or tab with several agents shows the most urgent status, in the order above. `done` stays until a client shows you the agent's tab: you focus it, type in it, or it finishes while it is the tab you are looking at in a focused terminal window. Then it is `idle`. Reading agent state from the socket (`list-agents`, whose rows carry the same word as `status`) never clears it. Viewing the tab sends `ack-tab-notifications`. The daemon keeps that clear in memory, so a daemon restart shows a turn that is still unread in the journal as `done` again.
+
 `sidebar.views` is an ordered list of native resource projections, with no fixed column count. Each view has a stable `id`, a `levels` path, and optional native `actions`. A one-level path renders a list. Multi-level paths such as `workspaces → agents` and `workspaces → panes → tabs` render collapsible trees in one column. Nesting is optional. Valid resources are `machines`, `workspaces`, `panes`, `tabs`, and `agents`. Flat pane, tab, and agent views follow the highlighted workspace. Omit a resource to hide it.
 
 `sidebar.profiles` names multiple view lists, and `sidebar.profile` selects the startup layout. Right-click anywhere and open **Sidebar → Layouts** to switch profiles without reconnecting machines. The same menu can hide or restore an individual view for the current session. Runtime visibility changes are keyed by profile and view ID, so switching away and back restores that profile's session-local choices.
@@ -115,6 +127,7 @@ Every view has an independent width and drag handle. Lower `collapse_priority` v
 | `sidebar.row_gap` | integer | `1` | Blank rows between rail entries, `0` through `2` |
 | `sidebar.rail_glyph` | string | `"▎"` | Accent glyph on active rail rows; `"none"` removes it |
 | `sidebar.workspace_label` | string | `"{name}"` | Workspace row template with `{index}` and `{name}` |
+| `sidebar.agents` | boolean | `true` | Show the agents section (every agent, most urgent first) at the bottom of the workspace list |
 | `sidebar.columns` | array of column objects | unset | Compatibility form for one-level `machines`, `workspaces`, and `tabs` views |
 | `sidebar.plugin.command` | array of strings | unset | External sidebar plugin argv; when set, the sidebar hosts this program in a PTY instead of the built-in list |
 | `sidebar.plugin.cwd` | string | unset | Working directory for the sidebar plugin process |

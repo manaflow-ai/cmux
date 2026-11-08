@@ -11006,10 +11006,14 @@ fn parse_notification_level(level: &str) -> anyhow::Result<NotificationLevel> {
     }
 }
 
+/// A roster state word. The older CLI words are aliases: `busy` is
+/// `working`, `waiting-for-input` is `blocked` and `ended` is `done` (the
+/// roster's word for an ended session).
 fn parse_agent_state(state: &str) -> anyhow::Result<AgentState> {
     match state {
-        "working" => Ok(AgentState::Working),
-        "blocked" => Ok(AgentState::Blocked),
+        "working" | "busy" => Ok(AgentState::Working),
+        "blocked" | "waiting-for-input" => Ok(AgentState::Blocked),
+        "ended" => Ok(AgentState::Done),
         "idle" => Ok(AgentState::Idle),
         "done" => Ok(AgentState::Done),
         "unknown" => Ok(AgentState::Unknown),
@@ -11025,10 +11029,15 @@ fn parse_agent_source(source: &str) -> anyhow::Result<AgentSource> {
     }
 }
 
-fn agent_json(record: &AgentRecord) -> Value {
+/// One `list-agents` row. `state` is the roster state (`done` there is an
+/// ended session); `status` is what the person sees (`working`, `blocked`,
+/// `done` for a finished turn not yet seen, `idle`, `unknown`), `null` for an
+/// ended session.
+fn agent_json(record: &AgentRecord, status: Option<crate::AgentStatus>) -> Value {
     json!({
         "surface": record.surface,
         "state": record.state.as_str(),
+        "status": status.map(crate::AgentStatus::as_str),
         "source": record.source.as_str(),
         "session": record.session,
         "agent": record.agent,
@@ -12738,13 +12747,17 @@ fn handle_command_with_cancellation(
                 Some(state) => Some(parse_agent_state(&state)?),
                 None => None,
             };
-            let agents = mux.list_agents(surface, state).iter().map(agent_json).collect::<Vec<_>>();
+            let agents = mux
+                .list_agents(surface, state)
+                .iter()
+                .map(|record| agent_json(record, mux.agent_status(record)))
+                .collect::<Vec<_>>();
             Ok(json!({ "agents": agents }))
         }
         Command::AckTabNotifications { surface } => {
-            // Red stub: acknowledges nothing yet.
             get_surface(mux, surface)?;
-            Ok(json!({ "surface": surface, "cleared": false }))
+            let cleared = mux.clear_surface_notification(surface);
+            Ok(json!({ "surface": surface, "cleared": cleared }))
         }
         Command::ReportAgent { surface, state, source, session } => {
             get_surface(mux, surface)?;

@@ -139,6 +139,7 @@
   },
   "commands": {
     "control": [
+      "ack-tab-notifications",
       "apply-layout",
       "clear-history",
       "clear-window-title",

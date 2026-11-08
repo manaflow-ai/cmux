@@ -11933,6 +11933,16 @@ impl Mux {
         }
     }
 
+    /// The status the person sees for a listed agent: `done` while a
+    /// finished turn's unread marker is still on its terminal
+    /// ([`crate::AgentStatus`]). A read: it never clears the marker. `None`
+    /// for an ended session.
+    pub fn agent_status(&self, record: &AgentRecord) -> Option<crate::AgentStatus> {
+        let unseen =
+            self.terminal_notification(&record.terminal_id).is_some_and(|marker| marker.unread);
+        crate::AgentStatus::from_state(record.state, unseen)
+    }
+
     pub fn list_agents(
         &self,
         surface: Option<SurfaceId>,

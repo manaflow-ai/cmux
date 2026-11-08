@@ -567,6 +567,8 @@ struct RawSidebar {
     rail_glyph: Option<String>,
     /// Workspace row label template with `{index}` and `{name}`.
     workspace_label: Option<String>,
+    /// The workspace rail's agents section; `false` hides it.
+    agents: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1075,7 +1077,6 @@ pub struct Sidebar {
     pub workspace_label: String,
     /// Show the agents section (every agent across workspaces, most urgent
     /// first) at the bottom of the workspace rail.
-    #[allow(dead_code)] // Red stub: nothing reads it yet.
     pub agents: bool,
 }
 
@@ -3531,6 +3532,9 @@ pub fn load() -> Config {
                 "cmux-tui: ignoring sidebar.rail_glyph {glyph:?}: one single-width character or \"none\""
             );
         }
+    }
+    if let Some(agents) = raw.sidebar.agents {
+        config.sidebar.agents = agents;
     }
     if let Some(template) = raw.sidebar.workspace_label {
         let template = template.trim().to_string();

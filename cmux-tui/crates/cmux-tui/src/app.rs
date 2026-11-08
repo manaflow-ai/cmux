@@ -2306,6 +2306,10 @@ impl OrderedSession {
         self.inner.agents()
     }
 
+    fn acknowledge_tab_notifications(&self, surface: SurfaceId) {
+        self.inner.acknowledge_tab_notifications(surface);
+    }
+
     fn respond_pairing(&self, request: u64, approve: bool) -> anyhow::Result<()> {
         self.inner.respond_pairing(request, approve)
     }
@@ -4070,6 +4074,8 @@ pub(crate) enum WorkspaceRailSelection {
     Workspace,
     Recoverable,
     Action(SidebarActionTarget),
+    /// An agent of the agents section, by its tab.
+    Agent(SurfaceId),
 }
 
 impl WorkspaceRailSelection {
@@ -4087,6 +4093,7 @@ enum WorkspaceRailTarget {
     Workspace(WorkspaceId),
     Recoverable(String),
     Action(SidebarActionTarget),
+    Agent(SurfaceId),
 }
 
 fn rail_page_size(area: Option<Rect>) -> usize {
@@ -4162,7 +4169,6 @@ pub enum Hit {
         index: usize,
     },
     /// A row of the workspace rail's agents section: focus that agent's tab.
-    #[allow(dead_code)] // Red stub: the sidebar does not draw it yet.
     AgentRow {
         surface: SurfaceId,
         target: ProjectionTarget,
@@ -7476,9 +7482,13 @@ pub struct App {
     pub(crate) tabs_footer_scroll: usize,
     projection_rails: HashMap<String, ProjectionRailState>,
     projection_order_cache: AgentOrderCache,
-    /// Agent status for the default sidebar and tab chips.
-    #[allow(dead_code)] // Red stub: nothing builds or reads it yet.
+    /// Agent status for the default sidebar and tab chips, rebuilt with
+    /// the tree on each layout frame (`sync_layout`), read on every frame.
     pub(crate) sidebar_status: crate::sidebar_status::SidebarStatus,
+    /// The agents section's scroll offset in rows.
+    pub(crate) agent_section_scroll: usize,
+    /// The done tab this client last acknowledged as viewed.
+    pub(crate) done_tab_ack_sent: Option<SurfaceId>,
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
     pub(crate) tabs_rail_follow_selection: bool,
@@ -9757,6 +9767,8 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         projection_rails: HashMap::new(),
         projection_order_cache: AgentOrderCache::default(),
         sidebar_status: crate::sidebar_status::SidebarStatus::default(),
+        agent_section_scroll: 0,
+        done_tab_ack_sent: None,
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,
         tabs_rail_follow_selection: true,
@@ -10412,6 +10424,36 @@ impl App {
         }
     }
 
+    /// Rebuild the agent status index from the tree just adopted and the
+    /// session's agent roster, then treat a turn that finished while the
+    /// person views its tab as seen. Runs on layout frames only.
+    fn refresh_sidebar_status(&mut self) {
+        let agents = self.session.agents();
+        self.sidebar_status = crate::sidebar_status::SidebarStatus::build(&self.tree, &agents);
+        self.acknowledge_viewed_done_tab();
+    }
+
+    /// Done-until-seen: a turn that finished in the tab this client shows,
+    /// while the host terminal has focus, was seen as it finished, so ack it
+    /// and it is idle rather than done. Focusing or typing in a done tab
+    /// makes it the viewed tab, so this one path covers those too. A host
+    /// that never reports focus counts as focused, as for host
+    /// notifications. One ack per finished turn: the daemon's `tree-changed`
+    /// ends the done state.
+    fn acknowledge_viewed_done_tab(&mut self) {
+        let viewed = self.active_surface().filter(|_| self.host_focused).filter(|surface| {
+            self.sidebar_status.tab(*surface) == Some(cmux_tui_core::AgentStatus::Done)
+        });
+        if viewed.is_none() || viewed == self.done_tab_ack_sent {
+            self.done_tab_ack_sent = viewed;
+            return;
+        }
+        self.done_tab_ack_sent = viewed;
+        if let Some(surface) = viewed {
+            self.session.acknowledge_tab_notifications(surface);
+        }
+    }
+
     fn reconcile_workspace_rail_selection(&mut self) {
         let actions = self.workspace_sidebar_action_rows();
         let selection_is_valid = match self.workspace_rail_selection {
@@ -10421,6 +10463,10 @@ impl App {
             }),
             WorkspaceRailSelection::Action(target) => {
                 actions.iter().any(|action| action.target == target)
+            }
+            WorkspaceRailSelection::Agent(surface) => {
+                self.config.sidebar.agents
+                    && self.sidebar_status.agents().iter().any(|row| row.surface == surface)
             }
         };
         if self.workspace_rail_selection != WorkspaceRailSelection::Workspace && !selection_is_valid
@@ -12579,7 +12625,9 @@ impl App {
                 .pane(pane)
                 .and_then(|pane| pane.tabs.get(index))
                 .map(|tab| PointerHitIdentity::Tab(tab.surface)),
-            Hit::SidebarTab { surface, .. } => Some(PointerHitIdentity::Tab(surface)),
+            Hit::SidebarTab { surface, .. } | Hit::AgentRow { surface, .. } => {
+                Some(PointerHitIdentity::Tab(surface))
+            }
             Hit::ProjectionRow { target: ProjectionTarget::Surface { surface, .. }, .. } => {
                 Some(PointerHitIdentity::Tab(surface))
             }
@@ -12598,7 +12646,6 @@ impl App {
             | Hit::WorkspaceScrollbar { .. }
             | Hit::RailResize(_)
             | Hit::PaneResize { .. }
-            | Hit::AgentRow { .. }
             | Hit::TabScroll { .. } => None,
         }
     }
@@ -14868,6 +14915,7 @@ impl App {
             let _ = self.sync_sidebar_plugin(false);
         }
         self.replace_tree(self.session.tree());
+        self.refresh_sidebar_status();
         self.claim_active_terminal_geometry(false);
         if self.surface_only.is_none() {
             self.sidebar_workspace_selection = self
@@ -16285,6 +16333,8 @@ impl App {
                 Ok(if dismissed { action.merge(RenderAction::Draw) } else { action })
             }
             TerminalInput::FocusGained => {
+                // The layout frame below acks a done agent tab the person
+                // now sees (done-until-seen).
                 self.host_focused = true;
                 self.advance_pointer_focus_generation();
                 self.reassert_scoped_host_terminal_state();
@@ -17012,7 +17062,7 @@ impl App {
             .map(|pane| pane.id)
     }
 
-    fn active_surface(&self) -> Option<SurfaceId> {
+    pub(crate) fn active_surface(&self) -> Option<SurfaceId> {
         self.tree.active_surface()
     }
 
@@ -18492,6 +18542,15 @@ impl App {
                 .into_iter()
                 .map(|action| WorkspaceRailTarget::Action(action.target)),
         );
+        // The agents section sits below the action rows.
+        if self.config.sidebar.agents {
+            targets.extend(
+                self.sidebar_status
+                    .agents()
+                    .iter()
+                    .map(|row| WorkspaceRailTarget::Agent(row.surface)),
+            );
+        }
         targets
     }
 
@@ -18512,6 +18571,12 @@ impl App {
                 })
                 .map(|workspace| WorkspaceRailTarget::Recoverable(workspace.id.clone())),
             WorkspaceRailSelection::Action(action) => Some(WorkspaceRailTarget::Action(action)),
+            WorkspaceRailSelection::Agent(surface) => self
+                .sidebar_status
+                .agents()
+                .iter()
+                .any(|row| row.surface == surface)
+                .then_some(WorkspaceRailTarget::Agent(surface)),
         }
     }
 
@@ -18539,6 +18604,9 @@ impl App {
             }
             WorkspaceRailTarget::Action(action) => {
                 self.workspace_rail_selection = WorkspaceRailSelection::Action(action);
+            }
+            WorkspaceRailTarget::Agent(surface) => {
+                self.workspace_rail_selection = WorkspaceRailSelection::Agent(surface);
             }
         }
     }
@@ -19392,6 +19460,18 @@ impl App {
                         Some(WorkspaceRailTarget::Recoverable(id)) => {
                             self.request_restore_managed_workspace(&id);
                             self.focus = FocusTarget::Pane;
+                        }
+                        Some(WorkspaceRailTarget::Agent(surface)) => {
+                            let target = self
+                                .sidebar_status
+                                .agents()
+                                .iter()
+                                .find(|row| row.surface == surface)
+                                .map(|row| row.target);
+                            if let Some(target) = target {
+                                self.activate_projection_target(target)?;
+                                self.focus = FocusTarget::Pane;
+                            }
                         }
                         None => {}
                     }
@@ -22940,6 +23020,12 @@ impl App {
                         self.focus = FocusTarget::Pane;
                     }
                 }
+                Hit::AgentRow { surface, target } => {
+                    self.workspace_rail_follow_selection = true;
+                    self.workspace_rail_selection = WorkspaceRailSelection::Agent(surface);
+                    self.activate_projection_target(target)?;
+                    self.focus = FocusTarget::Pane;
+                }
                 Hit::ProjectionToggle { view, branch } => {
                     let state = self.projection_rail_state_mut(view);
                     if !state.collapsed.remove(&branch) {
@@ -23074,7 +23160,6 @@ impl App {
                     }
                 }
                 Hit::TabScroll { pane, delta } => self.scroll_tabs(pane, delta),
-                Hit::AgentRow { .. } => {}
             }
             return Ok(RenderAction::Draw);
         }
@@ -46917,6 +47002,8 @@ mod tests {
             projection_rails: HashMap::new(),
             projection_order_cache: AgentOrderCache::default(),
             sidebar_status: crate::sidebar_status::SidebarStatus::default(),
+            agent_section_scroll: 0,
+            done_tab_ack_sent: None,
             machine_rail_follow_selection: true,
             workspace_rail_follow_selection: true,
             tabs_rail_follow_selection: true,
