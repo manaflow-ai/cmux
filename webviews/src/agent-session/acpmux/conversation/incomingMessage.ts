@@ -104,6 +104,8 @@ export type IncomingMessage = {
   edited?: true;
   /// What the sender wrote.
   text: string;
+  /// When acpmux recorded it (an inbox message's `at`, ms): a group's hover lists by it.
+  at?: number;
   /// The prompt as the agent got it.
   raw: string;
   /// Hub-authored lane report metadata, retained for its collapsed presentation.
