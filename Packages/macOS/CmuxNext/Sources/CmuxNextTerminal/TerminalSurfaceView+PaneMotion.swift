@@ -126,7 +126,10 @@ extension TerminalSurfaceView {
         isFollowingResizeGesture = active
         // The start ends a spring's hold the drag caught (a split or a press still landing): the surface follows the drag
         // from this frame. The end sends the grid that waits in the coalescer's window now, then any grid still held.
-        if active { endPaneMotion() } else {
+        if active {
+            beginResizeGesture()
+            endPaneMotion()
+        } else {
             resendShownGrid(atRest: true)
             gridReports.flush()
             if isHeldGridPending { updateSurfaceSize() }

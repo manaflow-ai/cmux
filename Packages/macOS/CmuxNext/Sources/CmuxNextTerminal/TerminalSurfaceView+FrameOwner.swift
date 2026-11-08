@@ -29,7 +29,8 @@ struct TerminalFrameOwnership {
     /// the program's redraw at that grid counts from it (RESIZE P0 12).
     var aheadSentEpoch: UInt64?
     /// The last frame of a size that waited for the program's redraw showed at the hold's bound without it: the next
-    /// sizes do not wait, until a frame the program drew at its grid shows again (``TerminalFramePresenter``).
+    /// sizes of this gesture do not wait, until a frame the program drew at its grid shows again
+    /// (``TerminalFramePresenter``). A new key press or divider drag clears it (``TerminalSurfaceView/beginResizeGesture()``).
     var programMissedHold = false
 }
 
@@ -115,6 +116,13 @@ extension TerminalSurfaceView {
     /// ``TerminalFramePresenter/resizeHoldTicks``. Other sizes do not wait: a split's, close's or zoom's grid goes at its
     /// landing, so no redraw can come before it. A program that missed a hold
     /// (``TerminalFrameOwnership/programMissedHold``) does not hold the next sizes.
+    /// A key press or a divider drag begins (RESIZE P0 14): its sizes wait for the program's redraw again, even when a size
+    /// of an earlier one showed at the hold's bound (a shell at its prompt does not redraw its whole screen; a full-screen
+    /// program started after it does). A program that does not redraw costs one bound per gesture.
+    func beginResizeGesture() {
+        frameOwnership.programMissedHold = false
+    }
+
     var programHoldTicks: UInt64 {
         guard followsKeyResize || isFollowingResizeGesture, !frameOwnership.programMissedHold else { return 0 }
         return TerminalFramePresenter.resizeHoldTicks

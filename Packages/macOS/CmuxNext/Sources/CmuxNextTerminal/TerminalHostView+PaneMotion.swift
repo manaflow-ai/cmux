@@ -68,6 +68,7 @@ extension TerminalHostView: PaneMotionHoldFollowing {
     /// begin leaves it to the next placement at rest, which drops it unless it takes it (``dropsAheadAtRest``).
     public func drawAheadOfFollow(nextHostSize: CGSize, keyPress: Bool) {
         guard !surfaceFollowsArea, !isHidden, let current else { return }
+        if keyPress { current.beginResizeGesture() }
         aheadOfKeyResize = keyPress
         current.drawAhead(surfaceSize(forHostSize: nextHostSize))
         dropsAheadAtRest = true

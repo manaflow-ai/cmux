@@ -320,7 +320,8 @@ final class TerminalFramePresenter {
 
     /// A request's frame showed: a frame the program drew at its grid lets the view's next sizes wait for the program's
     /// redraw again; one of the size only at a hold's bound (the program did not redraw in time) stops them waiting, so a
-    /// program that does not redraw at a new grid costs one bound per resize, not one per frame of its spring.
+    /// program that does not redraw at a new grid costs one bound per gesture (a key press or a divider drag clears it,
+    /// ``TerminalSurfaceView/beginResizeGesture()``), not one per frame of its spring.
     private func programRedrew(_ view: TerminalSurfaceView, request: Request, state: ghostty_host_frame_e) {
         if state == GHOSTTY_HOST_FRAME_READY_PROGRAM {
             view.frameOwnership.programMissedHold = false
