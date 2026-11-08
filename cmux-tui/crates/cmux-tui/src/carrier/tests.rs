@@ -6,15 +6,18 @@ use cmux_remote::link::LinkError;
 use cmux_remote::provider::ProviderError;
 use serde_json::{Value, json};
 
-use super::answer::{Prefetched, TicketCache, grant_vmk, key_text, parse_answer, read_reply};
-use super::client::{classify, pinned_daemon, resume_outcome};
+use super::answer::{
+    Prefetched, TicketCache, grant_vmk, key_text, parse_answer, read_reply, token_subject,
+};
+use super::client::{Marks, classify, pinned_daemon, resume_outcome};
 use super::contract::{
-    Backoff, Failure, INITIAL_BACKOFF, MAX_BACKOFF, Phase, StdinLine, Step, Vmk, answer_line,
-    connected_line, failure_line, parse_deadline, route_line, served_line, serving_line,
-    stdin_line,
+    Backoff, Failure, INITIAL_BACKOFF, MAX_BACKOFF, Phase, PhaseTimes, PhasesOf, StdinLine, Step,
+    Vmk, answer_line, connected_line, detail_code, failure_line, parse_deadline, phases_line,
+    route_line, served_line, serving_line, stdin_line,
 };
 use super::{
-    DialArgs, DialService, ServeArgs, parse, parse_key, parse_serve, public_key_line, with_team_env,
+    DialArgs, DialService, ServeArgs, desktop_failure, parse, parse_key, parse_serve,
+    public_key_line, with_team_env,
 };
 
 fn words(text: &str) -> Vec<String> {
@@ -70,20 +73,186 @@ fn each_step_has_its_own_code_and_exit() {
 #[test]
 fn the_route_line_is_pinned() {
     assert_eq!(
-        route_line(VM, Phase::Connect, None, Duration::from_millis(1234)),
+        route_line(VM, Phase::Connect, None, None, Duration::from_millis(1234)),
         format!("cloud.connect route=carrier machine={VM} phase=connect outcome=ok ms=1234\n")
     );
     assert_eq!(
-        route_line(VM, Phase::of_attempt(2), Some(Step::Parked), Duration::from_millis(7)),
+        route_line(VM, Phase::of_attempt(2), Some(Step::Parked), None, Duration::from_millis(7)),
         format!(
             "cloud.connect route=carrier machine={VM} phase=reconnect outcome=parked_timeout ms=7\n"
         )
     );
     assert_eq!(
-        route_line(VM, Phase::Resume, Some(Step::Handshake), Duration::ZERO),
+        route_line(VM, Phase::Resume, Some(Step::Handshake), None, Duration::ZERO),
         format!("cloud.connect route=carrier machine={VM} phase=resume outcome=handshake ms=0\n")
     );
     assert_eq!(Phase::of_attempt(1), Phase::Connect);
+}
+
+/// A failed attempt's route line ends in ` detail=<code>` after `ms`, so a
+/// parser of `outcome=(\S+) ms=(\d+)` still reads it; an ok one has none.
+#[test]
+fn a_failed_route_line_names_its_detail_code_after_ms() {
+    let closed = "link transport failed: relay WebSocket closed (close 1013)";
+    assert_eq!(
+        route_line(
+            VM,
+            Phase::of_attempt(2),
+            Some(Step::Relay),
+            Some(closed),
+            Duration::from_millis(541)
+        ),
+        format!(
+            "cloud.connect route=carrier machine={VM} phase=reconnect outcome=relay ms=541 detail=1013\n"
+        )
+    );
+    assert_eq!(
+        route_line(VM, Phase::Connect, None, Some(closed), Duration::from_millis(9)),
+        format!("cloud.connect route=carrier machine={VM} phase=connect outcome=ok ms=9\n")
+    );
+    // No text, no detail field at all.
+    assert_eq!(
+        route_line(VM, Phase::Resume, Some(Step::Relay), Some("  "), Duration::ZERO),
+        format!("cloud.connect route=carrier machine={VM} phase=resume outcome=relay ms=0\n")
+    );
+}
+
+/// Each detail is one short `[a-z0-9_]` code, and none carries the failure
+/// text (a ticket or grant in it stays out).
+#[test]
+fn detail_codes_are_short_tokens_and_never_the_text() {
+    let cases = [
+        ("link transport failed: relay WebSocket closed (close 1013)", "1013"),
+        ("relay WebSocket closed (close 4003)", "4003"),
+        (
+            "link transport failed: relay WebSocket connection failed: HTTP status 409 Conflict",
+            "http_409",
+        ),
+        ("cmux-platform answered 503 carrier.unavailable: no route", "http_503"),
+        ("relay allocation is temporarily unavailable (relay code slot-busy)", "slot_busy"),
+        ("relay circuit is temporarily unavailable (relay code other)", "other"),
+        ("relay allocation is temporarily unavailable (relay code Bad.Code)", "other"),
+        (
+            "relay WebSocket connection failed: I/O error: Connection refused (os error 111)",
+            "connect_refused",
+        ),
+        ("relay WebSocket connection failed: TLS error: invalid peer certificate", "tls"),
+        ("link transport failed: relay allocation timed out", "timeout"),
+        ("relay circuit join timed out", "timeout"),
+        ("the deadline passed", "deadline"),
+        ("link transport failed: relay WebSocket closed", "closed"),
+        ("relay WebSocket read failed", "closed"),
+        ("relay WebSocket authentication was rejected", "rejected"),
+        ("the machine has no daemon key", "daemon_key"),
+        ("unexpected Bearer eyJhbGciOi.secret-ticket", "other"),
+    ];
+    let token = |code: &str| {
+        (1..=24).contains(&code.len())
+            && code.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+    };
+    for (text, want) in cases {
+        let code = detail_code(text).unwrap_or_else(|| panic!("no code for {text:?}"));
+        assert_eq!(code, want, "{text:?}");
+        assert!(token(&code), "{code:?} is not ^[a-z0-9_]{{1,24}}$");
+    }
+    assert_eq!(detail_code(""), None);
+    assert_eq!(detail_code(" \n"), None);
+}
+
+#[test]
+fn the_phases_line_is_pinned_and_never_a_route_line() {
+    let ms = Duration::from_millis;
+    let times = PhaseTimes {
+        ticket: ms(310),
+        relay: ms(42),
+        parked: ms(120),
+        handshake: ms(250),
+        mux: ms(30),
+        lanes: 3,
+    };
+    let line = phases_line(VM, PhasesOf::Attempt(Phase::Connect), None, times, ms(760));
+    assert_eq!(
+        line,
+        format!(
+            "carrier.phases machine={VM} phase=connect carrier=relay:0 outcome=ok ticket_ms=310 relay_ms=42 parked_ms=120 handshake_ms=250 mux_ms=30 lanes=3 ms=760\n"
+        )
+    );
+    let stream = phases_line(
+        VM,
+        PhasesOf::Stream,
+        None,
+        PhaseTimes { mux: ms(4), ..PhaseTimes::default() },
+        ms(4),
+    );
+    assert!(stream.contains(" phase=stream "), "{stream}");
+    let failed = phases_line(
+        VM,
+        PhasesOf::Attempt(Phase::of_attempt(2)),
+        Some(Step::Parked),
+        PhaseTimes::default(),
+        ms(9),
+    );
+    assert!(failed.contains(" phase=reconnect ") && failed.contains(" outcome=parked_timeout "));
+    // cmuxterm-hq's start matrix fails a row on any cloud.connect line that
+    // is not exactly a route line.
+    for line in [line, stream, failed] {
+        assert!(!line.contains("cloud.connect"), "{line}");
+    }
+}
+
+#[test]
+fn phase_times_run_mark_to_mark_and_the_open_step_to_now() {
+    let t0 = tokio::time::Instant::now();
+    let at = |ms| Some(t0 + Duration::from_millis(ms));
+    let done = Marks {
+        started: at(0),
+        answered: at(300),
+        relay_up: at(340),
+        first_open: at(341),
+        first_allocated: at(460),
+        connected: at(700),
+        mux_open: at(730),
+        lanes: 3,
+    };
+    let now = t0 + Duration::from_millis(5000);
+    let ms = Duration::from_millis;
+    assert_eq!(
+        done.times(now),
+        PhaseTimes {
+            ticket: ms(300),
+            relay: ms(40),
+            parked: ms(119),
+            handshake: ms(240),
+            mux: ms(30),
+            lanes: 3
+        }
+    );
+    // Cut while parked: the park runs to now, later steps are zero.
+    let parked = Marks { first_allocated: None, connected: None, mux_open: None, lanes: 1, ..done };
+    let times = parked.times(now);
+    assert_eq!((times.parked, times.handshake, times.mux), (ms(4659), ms(0), ms(0)));
+    assert_eq!(Marks::default().times(now), PhaseTimes::default());
+}
+
+#[test]
+fn a_credential_s_subject_is_its_jwt_sub_claim_or_none() {
+    use base64::Engine as _;
+    let encode =
+        |value: Value| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(value.to_string());
+    let jwt = |claims: Value| format!("{}.{}.sig", encode(json!({"alg": "ES256"})), encode(claims));
+    assert_eq!(token_subject(&jwt(json!({"sub": "user-1", "exp": 1}))), Some("user-1".into()));
+    assert_eq!(token_subject(&jwt(json!({"exp": 1}))), None);
+    assert_eq!(token_subject(&jwt(json!({"sub": ""}))), None);
+    assert_eq!(token_subject(&jwt(json!({"sub": 7}))), None);
+    assert_eq!(token_subject("opaque-token"), None);
+    assert_eq!(token_subject("a.!!!.c"), None);
+    // Only a three-segment credential with a JWT header has a `sub`.
+    let claims = encode(json!({"sub": "user-1"}));
+    let header = encode(json!({"alg": "ES256"}));
+    assert_eq!(token_subject(&format!("opaque.{claims}.sig")), None);
+    assert_eq!(token_subject(&format!("{}.{claims}.sig", encode(json!({"typ": "JWT"})))), None);
+    assert_eq!(token_subject(&format!("{header}.{claims}")), None);
+    assert_eq!(token_subject(&format!("{header}.{claims}.sig.extra")), None);
 }
 
 #[test]
@@ -475,4 +644,27 @@ fn key_prints_only_the_public_key_as_one_base64url_line() {
     assert!(text.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'), "{line}");
     assert_eq!(text, key_text(&identity.public_key()), "the platform's noise_key spelling");
     assert_ne!(text, key_text(identity.private_key()), "never the private key");
+}
+
+/// The desktop open's own send (or a heartbeat) can meet the lost session
+/// before the multiplexer's reader marks it: the error itself says
+/// `SessionUnavailable` while `session_unavailable()` is still false. That
+/// is still a session the host lost, so the dial takes a fresh one.
+#[test]
+fn a_carrier_desktop_open_that_its_send_finds_the_session_gone_takes_a_fresh_session() {
+    use cmux_remote::bridge::BridgeError;
+    use cmux_remote::service::ServiceError;
+    let sent = BridgeError::Service(ServiceError::Client(ConnectionError::SessionUnavailable));
+    let failure = desktop_failure(sent, false);
+    assert!(failure.fresh_session && failure.retryable, "{}", failure.detail);
+    assert_eq!(failure.step, Step::Relay);
+    let typed = desktop_failure(BridgeError::Service(ServiceError::SessionUnavailable), false);
+    assert!(typed.fresh_session, "{}", typed.detail);
+    // A session that ended any other way is still the carrier's, and fatal.
+    let closed = desktop_failure(BridgeError::Service(ServiceError::Closed), false);
+    assert!(!closed.fresh_session && !closed.retryable, "{}", closed.detail);
+    // The daemon's refusal is the service's.
+    let refused = desktop_failure(BridgeError::Rejected("not the owner".into()), false);
+    assert_eq!(refused.step, Step::Service);
+    assert!(!refused.fresh_session);
 }

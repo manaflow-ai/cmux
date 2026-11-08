@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1374,
-    "shortcuts": 189
+    "entries": 1375,
+    "shortcuts": 188
   },
   "sections": [
     {
@@ -162,13 +162,13 @@
         {
           "id": "focusHistoryBack",
           "title": "Go Back",
-          "shortcut": "⌃-",
+          "shortcut": "⌥⌘,",
           "command": null
         },
         {
           "id": "focusHistoryForward",
           "title": "Go Forward",
-          "shortcut": "⌃⇧-",
+          "shortcut": "⌥⌘.",
           "command": null
         },
         {
@@ -6058,12 +6058,6 @@
           "command": "cmux notification preview-sound"
         },
         {
-          "id": "feed.show",
-          "title": "Show Feed",
-          "shortcut": "⇧⌘I",
-          "command": null
-        },
-        {
           "id": "showNotifications",
           "title": "Show Notifications",
           "shortcut": null,
@@ -6492,6 +6486,12 @@
         {
           "id": "palette.newAgentChatOn",
           "title": "New Agent Chat on…",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "palette.newCloudChat",
+          "title": "New Cloud Chat",
           "shortcut": null,
           "command": null
         },
@@ -7874,6 +7874,12 @@
           "title": "Reload Configuration",
           "shortcut": "⇧⌘,",
           "command": "cmux settings reload-configuration"
+        },
+        {
+          "id": "app.reloadCustomViews",
+          "title": "Reload Custom Views",
+          "shortcut": null,
+          "command": "cmux apps reload"
         },
         {
           "id": "app.remove",

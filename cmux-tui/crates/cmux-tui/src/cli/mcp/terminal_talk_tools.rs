@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 
-use super::super::terminal_talk::{self, roster, send};
+use super::super::terminal_talk::{self, roster_names, send};
 use super::agent_wait_tool::{Progress, Ticker};
 use super::{Backend, envelope, failure_result, success, tool_error, v2_tools};
 
@@ -22,10 +22,13 @@ const DEFAULT_SEND_SECONDS: f64 = 300.0;
 
 const LIST_DESCRIPTION: &str = "The terminals in cmux that run a coding agent (Claude Code, \
     Codex, or any program that reports OSC 7501 status), as `cmux terminal list --agents`: \
-    {items: [{terminal, harness, state, title, workspace_id, workspace, cwd, updated_at_ms, \
-    age_ms, source}]}. state is busy, idle, waiting-for-input (a permission dialog or a \
-    question waits) or ended. Waiting first, then busy, idle, ended; newest first. A shell \
-    without an agent is not listed. Changes nothing.";
+    {items: [{terminal, harness, status, state, title, workspace_id, workspace, cwd, \
+    updated_at_ms, age_ms, source}]}. status is blocked (a permission dialog, a question or an \
+    error waits), done (a turn finished and nobody has viewed the terminal yet), working, idle \
+    or unknown, and null for an ended session. state keeps the older words: busy, idle, \
+    waiting-for-input or ended. Blocked first, then done, working, idle, unknown, ended; \
+    newest first. A shell without an agent is not listed. Changes nothing: reading does not \
+    clear done.";
 
 const SEND_DESCRIPTION: &str = "Send a message to the agent (or shell) in a cmux terminal and \
     get its answer, as `cmux terminal <t> send`: types text as one bracketed paste (a \
@@ -170,11 +173,11 @@ pub(super) fn call_list<B: Backend>(backend: &B, arguments: &Map<String, Value>)
     match send::snapshot(backend, session.as_deref()) {
         Ok(snapshot) => {
             let now = terminal_talk::now_ms();
-            let rows = roster::agent_rows(&snapshot);
-            success(
-                json!({"items": rows.iter().map(|row| row.to_json(now)).collect::<Vec<_>>()}),
-                false,
-            )
+            let rows = roster_names::rows(&snapshot);
+            let facts = roster_names::facts(&snapshot);
+            let items: Vec<Value> =
+                rows.iter().map(|row| roster_names::row_json(row, &facts, now)).collect();
+            success(json!({"items": items}), false)
         }
         Err(failure) => failure_result(failure),
     }

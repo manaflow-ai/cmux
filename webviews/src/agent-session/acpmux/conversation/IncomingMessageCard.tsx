@@ -73,6 +73,8 @@ import { openSessionAttributes } from "./menuParts";
 import { useSessionRef } from "./sessionRefModel";
 import { useSessionHover } from "../started/useSessionHover";
 import { resolveSessionRef, senderRef, sessionRefsResolve, whenIdle } from "./sessionRefs";
+import { AgentMessageRow } from "./AgentMessageRow";
+import { UnverifiedMark } from "./UnverifiedMark";
 import { senderHarness, senderAbout, senderLabel } from "./incomingMessageCardModel";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
@@ -124,6 +126,20 @@ export function SenderMark({ message }: { message: IncomingMessage }) {
   );
 }
 
+/// A received message's mark in the one message row's icon column (AgentMessageRow.tsx): its
+/// tooltip is what the sender runs on, as the mark's beside a name always said.
+export function ReceivedMark({ message }: { message: IncomingMessage }) {
+  const sender = useSenderChat(message.chief ? "" : message.name, message.sessionId);
+  const about = message.chief
+    ? undefined
+    : senderAbout(senderHarness(sender.harness, message.harness), sender.run, message);
+  return (
+    <span className="cv-received__mark" aria-hidden="true" title={about}>
+      <SenderMark message={message} />
+    </span>
+  );
+}
+
 /// A notice's title on its line: what it is about, cut first when the line is short, then the outcome
 /// that ends it (`(exit 2)`) and how many more notices went in with it, which the line always shows
 /// whole (Leo, 2026-11-08: "why was there a yellow warning symbol?": the cut hid the exit).
@@ -154,18 +170,32 @@ function useSenderSessionName(message: IncomingMessage, person: boolean): string
 
 /// The sender's mark and name at a received line's start (and a waiting group's sender head,
 /// PendingMessagesCard.tsx): the name opens the sender's chat when there is one to open.
-export function SenderName({
-  message,
-  onOpen,
-  toolNotice,
-  look = "mark",
-}: {
+export function SenderName(props: {
   message: IncomingMessage;
   onOpen(sessionId: string): void;
   /// A tool's notice: its severity's mark in the icon column (not in the `tag` look, which keeps
   /// the sender's), and the machine it names after its name.
   toolNotice?: AgentNotice;
   look?: NoticeLook;
+}) {
+  return <SenderChip {...props} withMark />;
+}
+
+/// The sender's name (its chip, the machine it runs on, and an unverified sender's marker), and its
+/// mark before it when `withMark`: the one message row (AgentMessageRow.tsx) draws the mark in its
+/// icon column itself.
+export function SenderChip({
+  message,
+  onOpen,
+  toolNotice,
+  look = "mark",
+  withMark = false,
+}: {
+  message: IncomingMessage;
+  onOpen(sessionId: string): void;
+  toolNotice?: AgentNotice;
+  look?: NoticeLook;
+  withMark?: boolean;
 }) {
   const t = useT();
   // A Chief's message names the Chief and draws its avatar (chiefFace.ts); its turn session is no
@@ -234,9 +264,15 @@ export function SenderName({
   return (
     // Its own part of the line: the name opens the sender's chat or nothing, never the message.
     <span className="cv-received__sender" data-own-click="">
-      <span className="cv-received__mark" aria-hidden={toolNotice && look !== "tag" ? undefined : "true"} title={about}>
-        {icon}
-      </span>
+      {withMark && (
+        <span
+          className="cv-received__mark"
+          aria-hidden={toolNotice && look !== "tag" ? undefined : "true"}
+          title={about}
+        >
+          {icon}
+        </span>
+      )}
       {sessionId ? (
         <AgentTag
           name={from}
@@ -259,14 +295,15 @@ export function SenderName({
       ) : (
         <AgentTag name={from} className="cv-received__from" title={about} />
       )}
+      {/* A sender acpmux could not verify (Leo, 2026-11-05: "why is it sending it as if it were
+          me?"): the one subtle marker, never words in or beside its name. The message row draws
+          its own (AgentMessageRow.tsx `unverified`). */}
+      {withMark && message.unverified && <UnverifiedMark />}
       {/* The other machine the sender's chat runs on, on the line itself, not only in the name's
           tooltip (Leo, 2026-10-27, on a lane's message: "Is this, like, from another machine? But
           even if they're from another machine, what's going on here?"). This Mac's chats name none. */}
       {host &&
         (readOnly ? <span className="cv-received__host">{host}</span> : <MachineMenu host={host} onOpen={onOpen} />)}
-      {/* acpmux could not verify who sent it (Leo, 2026-11-05: "why is it sending it as if it were
-          me?"): never the person's, and the name it gives is only a claim. */}
-      {message.unverified && <span className="cv-received__host">{t("message.unverified")}</span>}
       {message.edited && <span className="cv-received__host">{t("message.edited")}</span>}
       {sessionId && card}
     </span>
@@ -482,65 +519,9 @@ export function IncomingMessageLine({
     if (!next && editing) setReply("closed");
     show(next);
   };
-  return (
-    <DisclosureRow
-      className={
-        agentNotice
-          ? `cv-received cv-notice is-${agentNotice.severity} look-${look}`
-          : notice
-            ? "cv-received cv-lane-notice"
-            : "cv-received"
-      }
-      open={open}
-      onOpenChange={toggled}
-      animates={() => !notice && played.current}
-      leading={
-        person ? (
-          <PersonName person={person} />
-        ) : (
-          <SenderName message={message} onOpen={onOpen} toolNotice={agentNotice} look={look} />
-        )
-      }
-      lineClassName="cv-agent-activity-row"
-      toggleLabel={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
-      label={
-        // Find counts the panel's whole text, not the line's first-line copy of it. Single (the
-        // default, messageLineLook.ts) a message's first line follows the sender on its line.
-        // A notice's title is its text (the row's, which Find searches) and stays on the line: Find
-        // highlights it here, inside the line Find otherwise skips (chatFind.ts `findSkipped`).
-        lineLook === "single" || agentNotice ? (
-          <span
-            className={`cv-received__preview${agentNotice ? " cv-notice__title" : ""}`}
-            data-find-skip={agentNotice ? undefined : ""}
-            data-find-keep={agentNotice ? "" : undefined}
-            // A notice's title is one Find run: a match may span its command and its exit.
-            data-find-join={agentNotice ? "" : undefined}
-          >
-            {agentNotice && look === "tag" && agentNotice.severity !== "info" && (
-              <span className="cv-notice__tag" data-severity={agentNotice.severity} data-find-skip="">
-                {t(SEVERITY_LABEL[agentNotice.severity])}
-              </span>
-            )}
-            {agentNotice ? <NoticeTitle notice={agentNotice} /> : preview || t("message.noText")}
-          </span>
-        ) : null
-      }
-      below={lineLook === "stacked" && !open && !agentNotice ? preview || t("message.noText") : undefined}
-      // It opens at once, its height alone moving, as the message's card always did; closing fades.
-      fadeIn={false}
-      // One slot at the line's end, over the preview's tail, shown on hover or focus: it never moves
-      // the chevron, which ends every message's line at the same place (conversation.css).
-      actions={
-        <span className="cv-received__hover">
-          {replies && !editing && (
-            <button ref={replyButton} type="button" className="cv-received__reply" onClick={startReply}>
-              {t("message.reply")}
-            </button>
-          )}
-          {actions}
-        </span>
-      }
-    >
+  // The words: its card, from the card's corner, its images and files.
+  const words = (
+    <>
       {/* The sender's words, as written, from the card's corner. */}
       <CardCopy text={agentNotice ? `${agentNotice.title}\n\n${text}`.trim() : text} />
       {/* The chips read whose files these are (chips/messageScope.ts). */}
@@ -568,6 +549,11 @@ export function IncomingMessageLine({
           ))}
         </div>
       )}
+    </>
+  );
+  // Under the words: the prompt as the agent got it, behind Details, and the reply.
+  const below = (
+    <>
       {raw !== undefined && (
         <div className="cv-received__details">
           <button
@@ -626,6 +612,103 @@ export function IncomingMessageLine({
         </div>
       )}
       {reply === "sent" && <output className="cv-message__note cv-received__replied">{t("message.replied")}</output>}
+    </>
+  );
+  const hover = (
+    <span className="cv-received__hover">
+      {replies && !editing && (
+        <button ref={replyButton} type="button" className="cv-received__reply" onClick={startReply}>
+          {t("message.reply")}
+        </button>
+      )}
+      {actions}
+    </span>
+  );
+  // Another agent's message is the one message row (AgentMessageRow.tsx), as a send and a subagent's
+  // report are: the sender's name after its family's mark in the icon column, the first
+  // line, and the card that opens to the whole message (Leo, 2026-11-07: "They should look basically
+  // the same as the other ones"). A tool's notice, a lane's report and a person's held message keep
+  // their own line below.
+  if (!agentNotice && !notice && !person)
+    return (
+      <AgentMessageRow
+        direction="received"
+        keepsPreviewOpen
+        className="cv-received"
+        // Find counts the message's text (chatFind.ts rowText), never the line that sums it up: the
+        // sender's chip and machine and the first line add no matches, as DisclosureRow's line added
+        // none (cmux#37653 review).
+        lineAttributes={{ "data-find-skip": "" }}
+        icon={<ReceivedMark message={message} />}
+        // The sender named once, first, as every received line reads (cmux#25002, #32711): the
+        // family mark before it says which way the message went.
+        sentence={"\u0000"}
+        previewClassName="cv-received__preview"
+        name={from}
+        nameSlot={<SenderChip message={message} onOpen={onOpen} />}
+        unverified={message.unverified === true}
+        preview={preview || t("message.noText")}
+        label={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
+        open={open}
+        onToggle={() => toggled(!open)}
+        animates={() => played.current}
+        actions={hover}
+        body={words}
+        under={below}
+      />
+    );
+  return (
+    <DisclosureRow
+      className={
+        agentNotice
+          ? `cv-received cv-notice is-${agentNotice.severity} look-${look}`
+          : notice
+            ? "cv-received cv-lane-notice"
+            : "cv-received"
+      }
+      open={open}
+      onOpenChange={toggled}
+      animates={() => !notice && played.current}
+      leading={
+        person ? (
+          <PersonName person={person} />
+        ) : (
+          <SenderName message={message} onOpen={onOpen} toolNotice={agentNotice} look={look} />
+        )
+      }
+      lineClassName="cv-agent-activity-row"
+      toggleLabel={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
+      label={
+        // Find counts the panel's whole text, not the line's first-line copy of it. Single (the
+        // default, messageLineLook.ts) a message's first line follows the sender on its line.
+        // A notice's title is its text (the row's, which Find searches) and stays on the line: Find
+        // highlights it here, inside the line Find otherwise skips (chatFind.ts `findSkipped`).
+        lineLook === "single" || agentNotice ? (
+          <span
+            className={`cv-received__preview${agentNotice ? " cv-notice__title" : ""}`}
+            data-find-skip={agentNotice ? undefined : ""}
+            data-find-keep={agentNotice ? "" : undefined}
+            // A notice's title is one Find run: a match may span its command and its exit.
+            data-find-join={agentNotice ? "" : undefined}
+          >
+            {agentNotice && look === "tag" && agentNotice.severity !== "info" && (
+              <span className="cv-notice__tag" data-severity={agentNotice.severity} data-find-skip="">
+                {t(SEVERITY_LABEL[agentNotice.severity])}
+              </span>
+            )}
+            {agentNotice ? <NoticeTitle notice={agentNotice} /> : preview || t("message.noText")}
+          </span>
+        ) : null
+      }
+      below={lineLook === "stacked" && !open && !agentNotice ? preview || t("message.noText") : undefined}
+      // It opens at once, its height alone moving, as the message's card always did; closing fades.
+      fadeIn={false}
+      // One slot at the line's end, over the preview's tail, shown on hover or focus: it never moves
+      // the chevron, which ends every message's line at the same place (conversation.css).
+      actions={hover}
+    >
+      {words}
+      {below}
     </DisclosureRow>
   );
 }

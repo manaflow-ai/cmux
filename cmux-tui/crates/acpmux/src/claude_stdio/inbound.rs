@@ -546,6 +546,13 @@ impl Translator {
                     }
                     // An MCP server's form, asked as a question (elicitation.rs).
                     Some("elicitation") => out.extend(self.elicit(&sid, &rid, &req).await),
+                    // The policy gate's hook asks the hub, or answers at once (policy_gate.rs).
+                    Some("hook_callback")
+                        if req.get("callback_id").and_then(Value::as_str)
+                            == Some(policy_gate::GATE_CALLBACK) =>
+                    {
+                        out.extend(self.gate_hook(&sid, &rid, &req).await);
+                    }
                     // A registered hook fired: answered with no decision (hook_callback.rs).
                     Some("hook_callback") => self.answer_hook_callback(&rid, &req).await,
                     // Anything else (mcp_message) is declined with an error
@@ -556,6 +563,8 @@ impl Translator {
             // Claude Code no longer needs the answer to one of its requests.
             "control_cancel_request" => {
                 let rid = line.get("request_id").and_then(Value::as_str).unwrap_or("");
+                // A gate hook Claude Code stopped waiting on: its late answer is dropped.
+                self.forget_gate(rid).await;
                 if let Some(id) = self.cancel_control_request(rid).await {
                     out.push(Message::notification(
                         method::CANCEL_REQUEST,
@@ -587,7 +596,7 @@ impl Translator {
                     }
                     out.push(Message::ok(id, json!({
                         "protocolVersion": 1,
-                        "agentInfo": {"name": AGENT_NAME, "title": "Claude Code", "version": inner.get("version").cloned().unwrap_or(Value::Null)},
+                        "agentInfo": {"name": AGENT_NAME, "title": "Claude Code", "version": inner.get("version").cloned().unwrap_or(Value::Null), "_meta": {"acpmux": {"toolGate": cfg!(unix)}}},
                         "agentCapabilities": {"loadSession": true, "promptCapabilities": {"image": true, "embeddedContext": true}, "sessionCapabilities": {"fork": {}, "list": {}, "close": {}}},
                         "authMethods": [],
                         "_meta": {"steering": {"supported": true}, "claude": {"commands": inner.get("commands"), "capabilities": inner.get("capabilities")}}
@@ -735,6 +744,8 @@ impl Translator {
                 }
                 // A call named early whose whole call never came ends with its turn.
                 out.extend(self.end_announced().await);
+                // This result's main-loop calls; the next turn counts its own from here.
+                let calls = self.turn_calls.swap(0, Ordering::SeqCst);
                 // Every result ends the step its calls ran in, also one that returns below
                 // (an abandoned prompt's, or a stopped turn that still runs an unread steer):
                 // a call whose result never came runs in the foreground no more.
@@ -880,6 +891,17 @@ impl Translator {
                     ))
                 } else {
                     let mut claude = json!({"subtype": sub, "cost_usd": line.get("total_cost_usd"), "usage": line.get("usage"), "num_turns": line.get("num_turns")});
+                    // `usage` adds every call's reads up, and each call reads the whole context
+                    // again, so a long turn's sum is many times what the context holds: the
+                    // context at the turn's end and how many calls made the sum go beside it
+                    // (hub/turn_usage.rs).
+                    let context = self.context_end.load(Ordering::SeqCst);
+                    if context > 0 {
+                        claude.set("contextTokens", json!(context));
+                    }
+                    if calls > 0 {
+                        claude.set("modelCalls", json!(calls));
+                    }
                     if let Some(next) = &carried {
                         claude.set("carried", next.clone());
                     }
@@ -912,6 +934,7 @@ impl Translator {
                 }
                 let after = line.pointer("/compact_metadata/post_tokens").and_then(Value::as_u64);
                 self.context_used.store(after.unwrap_or(0), Ordering::SeqCst);
+                self.context_end.store(after.unwrap_or(0), Ordering::SeqCst);
                 self.context_from_compaction.store(true, Ordering::SeqCst);
                 self.cache.compacted();
                 self.awaiting_summary.store(true, Ordering::SeqCst);

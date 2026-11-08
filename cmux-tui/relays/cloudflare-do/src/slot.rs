@@ -11,11 +11,12 @@ use worker::{
 
 use crate::abuse::{
     CIRCUITS_STORAGE_KEY, CLIENT_CONTROL_IDLE_TIMEOUT_MS, CircuitLedger,
-    DAEMON_CONTROL_IDLE_TIMEOUT_MS, SLOT_HANDSHAKE_TIMEOUT_MS, SlotEndpoint, SlotSocketCounts,
-    admit_slot_socket, websocket_counts_toward_capacity,
+    DAEMON_CONTROL_IDLE_TIMEOUT_MS, PendingRoute, SLOT_HANDSHAKE_TIMEOUT_MS, SlotEndpoint,
+    SlotSocketCounts, admit_slot_socket, websocket_counts_toward_capacity,
 };
 use crate::attachment::{SlotAttachment, SlotPhase};
 use crate::auth::{DEFAULT_TICKET_ISSUER, TicketExpectation, issue_ticket, verify_ticket};
+use crate::daemon::{current_registration, heard_within_window, live_daemon, replaced_by_register};
 use crate::park::{
     ConnectDisposition, DAEMON_OFFLINE_CODE, DAEMON_OFFLINE_MESSAGE, ParkedConnect,
     connect_disposition, expired_while_parked, pairing_order, parked_and_live, parked_notice,
@@ -116,29 +117,26 @@ impl RelaySlot {
         counts
     }
 
-    fn registered_daemon(
-        &self,
-        slot: &str,
-        now: u64,
-        now_ms: u64,
-    ) -> Option<(WebSocket, SlotAttachment)> {
-        self.state
+    fn registered_daemon(&self, slot: &str, now_ms: u64) -> Option<(WebSocket, SlotAttachment)> {
+        let candidates =
+            self.state.get_websockets_with_tag(CONTROL_TAG).into_iter().filter_map(|socket| {
+                let attachment = Self::attachment(&socket).ok()?;
+                let ready_state = socket.as_ref().ready_state();
+                Some(((socket, attachment.clone()), ready_state, attachment))
+            });
+        live_daemon(candidates, slot, now_ms)
+    }
+
+    /// Whether `socket`, a registered daemon, is still its slot's current
+    /// registration (`crate::daemon::current_registration`).
+    fn is_current_registration(&self, socket: &WebSocket, attachment: &SlotAttachment) -> bool {
+        let others = self
+            .state
             .get_websockets_with_tag(CONTROL_TAG)
             .into_iter()
-            .find(|socket| {
-                Self::attachment(socket).is_ok_and(|attachment| {
-                    websocket_counts_toward_capacity(
-                        socket.as_ref().ready_state(),
-                        attachment.idle_deadline_ms,
-                        now_ms,
-                    ) && attachment.phase == SlotPhase::Registered
-                        && attachment.relay.slot == slot
-                        && attachment.expires_at > now
-                })
-            })
-            .and_then(|socket| {
-                Self::attachment(&socket).ok().map(|attachment| (socket, attachment))
-            })
+            .filter(|other| other != socket)
+            .filter_map(|other| Self::attachment(&other).ok());
+        current_registration(attachment, socket.as_ref().ready_state(), others)
     }
 
     async fn circuits(&self) -> Result<CircuitLedger> {
@@ -158,9 +156,10 @@ impl RelaySlot {
         circuit: &CircuitId,
         deadline_ms: u64,
         now_ms: u64,
+        route: PendingRoute,
     ) -> Result<bool> {
         let mut ledger = self.circuits().await?;
-        if !ledger.reserve(circuit.0.clone(), deadline_ms, now_ms) {
+        if !ledger.reserve_for(circuit.0.clone(), deadline_ms, now_ms, Some(route)) {
             return Ok(false);
         }
         self.write_circuits(&ledger).await?;
@@ -282,18 +281,26 @@ impl RelaySlot {
             }
         };
 
+        // Each registration on the slot gets the next registration number
+        // (kept in `generation`, which a daemon socket has no other use for),
+        // so a replaced socket's late Ping knows it is no longer current.
+        let mut previous_registration = 0;
         for existing in self.state.get_websockets_with_tag(CONTROL_TAG) {
-            if existing != *socket
-                && Self::attachment(&existing).is_ok_and(|current| {
-                    current.phase == SlotPhase::Registered && current.relay.slot == slot
-                })
-            {
+            let Ok(current) = Self::attachment(&existing) else {
+                continue;
+            };
+            if !replaced_by_register(&current, &slot) {
+                continue;
+            }
+            previous_registration = previous_registration.max(current.generation);
+            if existing != *socket {
                 Self::fail(&existing, "replaced", "daemon control connection was replaced", 4001);
             }
         }
 
         attachment.phase = SlotPhase::Registered;
-        attachment.generation = 0;
+        attachment.generation = previous_registration.saturating_add(1);
+        attachment.last_seen_ms = now_ms;
         attachment.expires_at = claims.expires_at_unix;
         attachment.idle_deadline_ms = now_ms
             .saturating_add(DAEMON_CONTROL_IDLE_TIMEOUT_MS)
@@ -307,6 +314,12 @@ impl RelaySlot {
             .min(REGISTRATION_HEARTBEAT_SECONDS)
             .min(u32::MAX.into()) as u32;
         send_control(socket, &RelayControl::Registered { lease_seconds })?;
+        // Circuits allocated to a daemon that never joined them (it went away
+        // without closing its socket) go to this one; the client is still
+        // waiting on them.
+        if let Err(error) = self.hand_over_unjoined(&slot, socket, attachment.expires_at).await {
+            worker::console_error!("RelaySlot circuit hand-over error: {error}");
+        }
         // A failure answering a waiting client must not fail the daemon's
         // registration; that client is answered with a retryable error.
         if let Err(error) = self.pair_parked(&slot, socket, attachment.expires_at).await {
@@ -365,7 +378,7 @@ impl RelaySlot {
         // client reads only the answer for the lane it asked for last.
         attachment.parked = None;
 
-        let daemon = self.registered_daemon(&request.slot, now, now_ms);
+        let daemon = self.registered_daemon(&request.slot, now_ms);
         let disposition = if daemon.is_some() {
             connect_disposition(true, 0, 0)
         } else {
@@ -474,6 +487,77 @@ impl RelaySlot {
         Ok(())
     }
 
+    /// Sends `daemon` an `Incoming`, with a new join ticket, for every
+    /// pending circuit on `slot` that no daemon has joined.
+    async fn hand_over_unjoined(
+        &self,
+        slot: &str,
+        daemon: &WebSocket,
+        daemon_expires_at: u64,
+    ) -> Result<()> {
+        let now_ms = self.now_ms();
+        let now = now_ms / 1_000;
+        for unjoined in self.circuits().await?.unjoined(now_ms) {
+            let expires_at = now
+                .saturating_add(JOIN_TICKET_TTL_SECONDS)
+                .min(unjoined.deadline_ms / 1_000)
+                .min(daemon_expires_at);
+            if expires_at <= now {
+                continue;
+            }
+            let circuit = CircuitId(unjoined.circuit);
+            let join_ticket = self.join_ticket(
+                RelayRole::Daemon,
+                slot,
+                &circuit,
+                &unjoined.route.lane,
+                unjoined.route.generation,
+                now,
+                expires_at,
+            )?;
+            send_control(
+                daemon,
+                &RelayControl::Incoming {
+                    circuit,
+                    lane: unjoined.route.lane,
+                    generation: unjoined.route.generation,
+                    join_ticket,
+                },
+            )?;
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn join_ticket(
+        &self,
+        role: RelayRole,
+        slot: &str,
+        circuit: &CircuitId,
+        lane: &LaneToken,
+        generation: u64,
+        now: u64,
+        expires_at: u64,
+    ) -> Result<String> {
+        let key = self.ticket_key()?;
+        let issuer = self.ticket_issuer();
+        let claims = RelayTicketClaims {
+            version: RelayTicketClaims::VERSION,
+            issuer: issuer.clone(),
+            permission: RelayPermission::Join,
+            role,
+            slot: slot.into(),
+            circuit: Some(circuit.clone()),
+            lane: Some(lane.clone()),
+            generation: Some(generation),
+            issued_at_unix: now,
+            expires_at_unix: expires_at,
+        };
+        issue_ticket(&claims, key.as_bytes(), &issuer).map_err(|error| {
+            worker::Error::RustError(format!("failed to mint {role:?} join ticket: {error}"))
+        })
+    }
+
     /// Reserves a circuit and sends `Allocated` to the client and `Incoming`
     /// to the daemon. Returns false when the daemon socket failed and closed.
     #[allow(clippy::too_many_arguments)]
@@ -489,40 +573,33 @@ impl RelaySlot {
     ) -> Result<bool> {
         let now_ms = self.now_ms();
         let now = now_ms / 1_000;
-        let key = self.ticket_key()?;
-        let issuer = self.ticket_issuer();
         let namespace = self.env.durable_object("RELAY_CIRCUITS")?;
         let circuit = CircuitId(namespace.unique_id()?.to_string());
         let join_expires_at = now
             .saturating_add(JOIN_TICKET_TTL_SECONDS)
             .min(client_expires_at)
             .min(daemon_expires_at);
-        let join_claims = |role| RelayTicketClaims {
-            version: RelayTicketClaims::VERSION,
-            issuer: issuer.clone(),
-            permission: RelayPermission::Join,
-            role,
-            slot: slot.into(),
-            circuit: Some(circuit.clone()),
-            lane: Some(lane.clone()),
-            generation: Some(generation),
-            issued_at_unix: now,
-            expires_at_unix: join_expires_at,
-        };
-        let client_join_ticket =
-            issue_ticket(&join_claims(RelayRole::Client), key.as_bytes(), &issuer).map_err(
-                |error| {
-                    worker::Error::RustError(format!("failed to mint client join ticket: {error}"))
-                },
-            )?;
-        let daemon_join_ticket =
-            issue_ticket(&join_claims(RelayRole::Daemon), key.as_bytes(), &issuer).map_err(
-                |error| {
-                    worker::Error::RustError(format!("failed to mint daemon join ticket: {error}"))
-                },
-            )?;
+        let client_join_ticket = self.join_ticket(
+            RelayRole::Client,
+            slot,
+            &circuit,
+            &lane,
+            generation,
+            now,
+            join_expires_at,
+        )?;
+        let daemon_join_ticket = self.join_ticket(
+            RelayRole::Daemon,
+            slot,
+            &circuit,
+            &lane,
+            generation,
+            now,
+            join_expires_at,
+        )?;
         let join_deadline_ms = join_expires_at.saturating_mul(1_000);
-        if !self.reserve_pending_circuit(&circuit, join_deadline_ms, now_ms).await? {
+        let route = PendingRoute { lane: lane.clone(), generation };
+        if !self.reserve_pending_circuit(&circuit, join_deadline_ms, now_ms, route).await? {
             Self::capacity(
                 socket,
                 "slot-circuit-capacity",
@@ -589,13 +666,38 @@ impl RelaySlot {
                 if attachment.phase == SlotPhase::Registered
                     && attachment.expires_at > self.now() =>
             {
-                attachment.idle_deadline_ms = self
-                    .now_ms()
+                let now_ms = self.now_ms();
+                // Silent past the liveness window: it paused or lost its
+                // network and is back, so circuits sent to it meanwhile may
+                // never have arrived.
+                let resumed = !heard_within_window(&attachment, now_ms);
+                attachment.last_seen_ms = now_ms;
+                attachment.idle_deadline_ms = now_ms
                     .saturating_add(DAEMON_CONTROL_IDLE_TIMEOUT_MS)
                     .min(attachment.expires_at.saturating_mul(1_000));
                 socket.serialize_attachment(&attachment)?;
                 self.ensure_cleanup_alarm(attachment.idle_deadline_ms).await?;
-                send_control(socket, &RelayControl::Pong { nonce })
+                send_control(socket, &RelayControl::Pong { nonce })?;
+                // A Ping from a registration a newer Register replaced (it
+                // was in flight when the replacement ran) hands nothing to
+                // this closing socket: the current registration owns the
+                // slot's parked Connects and unjoined circuits.
+                if !self.is_current_registration(socket, &attachment) {
+                    return Ok(());
+                }
+                // A Connect parked while this daemon was past the liveness
+                // window (crate::daemon) is answered now that it spoke.
+                let slot = attachment.relay.slot.clone();
+                if resumed
+                    && let Err(error) =
+                        self.hand_over_unjoined(&slot, socket, attachment.expires_at).await
+                {
+                    worker::console_error!("RelaySlot circuit hand-over error: {error}");
+                }
+                if let Err(error) = self.pair_parked(&slot, socket, attachment.expires_at).await {
+                    worker::console_error!("RelaySlot parked pairing error: {error}");
+                }
+                Ok(())
             }
             RelayControl::Ping { .. } if attachment.phase == SlotPhase::Registered => {
                 Self::fail(
@@ -696,6 +798,7 @@ impl DurableObject for RelaySlot {
             expires_at: 0,
             idle_deadline_ms,
             parked: None,
+            last_seen_ms: 0,
         })?;
         self.state.accept_websocket_with_tags(&pair.server, &[tag]);
         if let Err(error) = self.ensure_cleanup_alarm(idle_deadline_ms).await {

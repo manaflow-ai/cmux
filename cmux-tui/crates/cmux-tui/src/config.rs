@@ -122,9 +122,12 @@
 //! `toggle-sidebar-view`, `focus-sidebar`, `new-pane-right`, `undo-layout`,
 //! `focus-left`, `focus-right`, `focus-up`, `focus-down`, `focus-next-pane`,
 //! `swap-pane-prev`, `swap-pane-next`, `zoom-pane`, `resize-grow`,
-//! `resize-shrink`, `scroll-up`, `scroll-down`, `clear-history`, `browser-back`,
+//! `resize-shrink`, `scroll-up`, `scroll-down`, `scroll-page-up`,
+//! `scroll-page-down`, `scroll-half-page-up`, `scroll-half-page-down`,
+//! `copy-mode`, `search-scrollback`, `clear-history`, `browser-back`,
 //! `browser-forward`, `browser-reload`, `browser-edit-url`, `show-shortcuts`,
-//! `next-attention`, `attention-list`, and `detach`.
+//! `next-attention`, `attention-list`, and `detach`. `keys.copy_mode` holds
+//! the copy-mode key table.
 //!
 //! The defaults intentionally match tmux where cmux has the same
 //! capability, except that `x` closes the more commonly managed tab and
@@ -175,6 +178,7 @@ mod action_catalog;
 #[cfg(test)]
 mod action_metadata;
 mod browser;
+mod copy_mode_keys;
 mod file_io;
 mod ghostty_config;
 mod ghostty_helper;
@@ -192,6 +196,7 @@ use action::*;
 pub use action_catalog::action_definitions;
 use action_catalog::*;
 pub use browser::{Browser, apply_browser_to_surface_options};
+pub use copy_mode_keys::{CopyModeAction, CopyModeKeys};
 pub use file_io::config_path;
 #[cfg(test)]
 use file_io::*;
@@ -205,6 +210,7 @@ use ghostty_theme_mode::*;
 use keys::*;
 pub use keys::{Chord, Keys};
 pub use load::load;
+pub(crate) use load::load_raw_agents;
 #[cfg(test)]
 use load::*;
 #[cfg(test)]
@@ -429,6 +435,8 @@ struct RawSidebar {
     rail_glyph: Option<String>,
     /// Workspace row label template with `{index}` and `{name}`.
     workspace_label: Option<String>,
+    /// The workspace rail's agents section; `false` hides it.
+    agents: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]

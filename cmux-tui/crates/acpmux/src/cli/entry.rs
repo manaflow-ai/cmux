@@ -338,6 +338,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             })
             .await
         }
+        Some(Command::Race(cmd)) => {
+            let json_out = cli.json;
+            match crate::cli::race::run(cmd, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
         Some(Command::Task(cmd)) => {
             let json_out = cli.json;
             match crate::cli::task::run(cmd, json_out).await {
@@ -355,6 +362,13 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::WhoElse(args)) => {
             let json_out = cli.json;
             match crate::cli::who_else::run(args, json_out).await {
+                Ok(()) => Ok(()),
+                Err(e) => errors::exit_with(&e, json_out),
+            }
+        }
+        Some(Command::Ledger(args)) => {
+            let json_out = cli.json;
+            match crate::cli::ledger::run(args, json_out).await {
                 Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, json_out),
             }

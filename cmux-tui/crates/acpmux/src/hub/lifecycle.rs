@@ -169,6 +169,11 @@ impl Hub {
             }
             (None, None) => defaults.policy,
         };
+        // Deny-all or review, asked for (or a preset's or profile's), promises protection with no
+        // person to ask: a harness that cannot keep it fails the creation (`policy_mode.rs`
+        // `require_enforced`).
+        let must_hold = !inherits_policy
+            && matches!(policy, Some(PermissionPolicy::DenyAll | PermissionPolicy::Review));
         // `${model}` in argv or env: the model is a spawn parameter, not a set_model call.
         let spawn_model = profile_takes_model_at_spawn(&profile)
             || defaults.env.values().any(|v| v.contains("${model}"));
@@ -316,8 +321,9 @@ impl Hub {
             let mut sessions = self.sessions.lock().unwrap();
             // The shutdown reads the sessions after it starts: a session
             // inserted after that is never ended, so none is (shutdown.rs).
+            // Nothing is made yet: the CLI sends the create to the next daemon.
             if self.shutting_down() {
-                return Err(super::shutdown::shutting_down_error());
+                return Err(super::shutting_down_before_create());
             }
             if sessions.contains_key(&id) || self.importing.lock().unwrap().contains(&id) {
                 return Err(RpcError::invalid_params(format!(
@@ -503,6 +509,9 @@ impl Hub {
                 .await?;
             // Every chat, eligible or not: a preset's or a pinned profile's policy holds too.
             let default = self.config.read().await.permission_policy;
+            if must_hold {
+                super::policy_mode::require_enforced(&session.meta(), default)?;
+            }
             self.note_unenforced_policy(&session, default);
             Ok(())
         })
@@ -1276,6 +1285,11 @@ impl Hub {
                 })
             })?
         };
+        // An agent with no host ends with this run, so no earlier run's token is its own
+        // (`caller_registry.rs`).
+        if !self.agent_hosts_enabled() {
+            self.caller_registry.forget(&session.id);
+        }
         // A direct start records the format its command was pinned to (a host's: hosts.rs).
         if let Some(format) = child.preview_format {
             self.record_preview_format(session, format);

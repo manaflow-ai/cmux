@@ -53,8 +53,8 @@ struct AgentIncomingCard: View {
     }
 
     /// The harness a sender's icon draws: the card's, when one sender sent every message.
-    private func harness(for sender: String) -> String? {
-        incoming.messages.allSatisfy { $0.sender == sender } ? incoming.harness : nil
+    private func harness(for message: AgentIncoming.Message) -> String? {
+        incoming.oneSenderKey == message.toneKey ? incoming.harness : nil
     }
 
     /// A card of several messages opens and closes all of them from its header, so every message can
@@ -64,7 +64,7 @@ struct AgentIncomingCard: View {
         if incoming.messages.count > 1 {
             let allOpen = open.count == incoming.messages.count
             Button {
-                withAnimation(.cmuxMobileSmooth) {
+                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) {
                     open = allOpen ? [] : Set(incoming.messages.indices)
                 }
             } label: {
@@ -79,11 +79,10 @@ struct AgentIncomingCard: View {
 
     private func headerLine(chevron open: Bool?) -> some View {
         HStack(spacing: 6) {
-            // One sender, however many messages: its family's mark and its own badge.
-            let one = incoming.messages.first.map(\.sender).flatMap { sender in
-                incoming.messages.allSatisfy { $0.sender == sender } ? sender : nil
-            }
-            AgentSenderIcon(harness: one.flatMap { harness(for: $0) }, identity: one ?? "messages", size: 16)
+            // One sender, however many messages: its family's mark and its own badge, in the tone of
+            // its session id (the Mac's), else its name.
+            let one = incoming.oneSenderKey.flatMap { _ in incoming.messages.first }
+            AgentSenderIcon(harness: one.flatMap(harness(for:)), identity: one?.toneKey ?? "messages", assignedTone: one?.tone, size: 16)
             Group {
                 if incoming.messages.count != 1 {
                     Text("\(incoming.messages.count) messages")
@@ -126,12 +125,12 @@ struct AgentIncomingCard: View {
         let isOpen = open.contains(index)
         return VStack(alignment: .leading, spacing: 6) {
             Button {
-                withAnimation(.cmuxMobileSmooth) {
+                withAnimation(.cmuxMobileSmooth.unlessReduceMotion) {
                     if isOpen { open.remove(index) } else { open.insert(index) }
                 }
             } label: {
                 HStack(spacing: 6) {
-                    AgentSenderIcon(harness: harness(for: message.sender), identity: message.sender, size: 14)
+                    AgentSenderIcon(harness: harness(for: message), identity: message.toneKey, assignedTone: message.tone, size: 14)
                     Text(message.sender)
                         .font(.footnote.weight(.semibold))
                         .lineLimit(1)

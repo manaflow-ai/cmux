@@ -73,6 +73,58 @@ private actor FakeJournal: ChiefScreenJournaling {
 
 @MainActor
 @Suite struct ChiefScreenShareTests {
+    // MARK: One look when the floating Chief opens (home.chiefPanel.seesScreen, user 2026-11-07)
+
+    /// Opening the floating Chief with "sees your screen" on gives the Chief one look: the screen behind cmux (the
+    /// helper leaves cmux out) with the app, window and tab in front, kept as one memory entry for the Chief's next
+    /// turn. Sharing stays off: the journal opens for that one entry and closes again, so no current-screen file stays.
+    @Test func aGlanceWhenThePanelOpensKeepsOneEntryNamingWhatIsInFront() async throws {
+        let journal = FakeJournal()
+        let screen = FakeScreen(["build failed: 3 errors"])
+        let share = ChiefScreenShare(capture: screen, journal: journal)
+        await share.settled()
+        let endsBefore = await journal.ends
+        var records = journal.records.makeAsyncIterator()
+        let seen = await share.glance(app: "cmux", window: "app › zsh — ~/fun/cmux")
+        #expect(seen?.text == "build failed: 3 errors")
+        #expect(seen?.app == "cmux" && seen?.window == "app › zsh — ~/fun/cmux", "the front app and tab were not named")
+        let record = await records.next()
+        #expect(record?.0 == "build failed: 3 errors" && record?.1 == true, "the look is not a memory entry")
+        #expect(share.state == .off, "a glance turned sharing on")
+        let sharingAfter = await journal.sharing, endsAfter = await journal.ends
+        #expect(!sharingAfter && endsAfter == endsBefore + 1, "the journal stayed open after the glance")
+    }
+
+    /// Without the app named, the glance keeps the window the helper saw in front.
+    @Test func aGlanceFromAnotherAppKeepsTheHelpersFrontWindow() async throws {
+        let share = ChiefScreenShare(capture: FakeScreen(["Inbox"]), journal: FakeJournal())
+        let seen = await share.glance()
+        #expect(seen?.app == "Safari" && seen?.window == "Docs")
+    }
+
+    /// The glance uses the Screen Recording grant the helper already has and never asks macOS for it: opening the
+    /// Chief never raises a permission prompt. Not allowed means no look.
+    @Test func aGlanceNeverAsksForScreenRecording() async throws {
+        let screen = FakeScreen(["secret"], allowed: false, grantsOnRequest: true)
+        let share = ChiefScreenShare(capture: screen, journal: FakeJournal())
+        #expect(await share.glance() == nil)
+        #expect(await screen.requests == 0, "opening the Chief asked macOS for Screen Recording")
+        #expect(await screen.captures == 0)
+    }
+
+    /// While sharing, a glance is one more look in the same session: sharing goes on.
+    @Test func aGlanceWhileSharingKeepsSharing() async throws {
+        let journal = FakeJournal()
+        let share = ChiefScreenShare(capture: FakeScreen(["first", "second"]), journal: journal, clock: ManualClock())
+        var records = journal.records.makeAsyncIterator()
+        share.start()
+        _ = await records.next()
+        let seen = await share.glance(app: "cmux", window: "app")
+        let journalSharing = await journal.sharing
+        #expect(seen != nil && share.state == .sharing && journalSharing)
+        share.stop()
+    }
+
     @Test func startLooksAtOnceThenOnlyKeepsChangedFrames() async throws {
         let clock = ManualClock()
         let journal = FakeJournal()
