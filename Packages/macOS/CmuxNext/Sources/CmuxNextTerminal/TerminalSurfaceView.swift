@@ -76,6 +76,19 @@ public final class TerminalSurfaceView: NSView {
         gridReports.now(report)
     }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// CLOSE VARIANTS film snap (``FilmCloseVariant/snapSendsGrid``; DEBUG and bench builds only, never merged): the grid a
+    /// view of `pixels` fits goes to the PTY owner now, in the close's turn before its commit, so the program redraws at
+    /// its final grid before the tick that shows the final size. The landing at that size then reports nothing more (the
+    /// policy already has it as reported).
+    func reportFilmSnapGrid(pixels: NSSize, on surface: ghostty_surface_t) {
+        var columns: UInt16 = 0, rows: UInt16 = 0
+        guard ghostty_surface_fit_grid(surface, UInt32(pixels.width), UInt32(pixels.height), &columns, &rows), columns > 0, rows > 0,
+              let report = geometry.viewSized(TerminalGridSize(columns: Int(columns), rows: Int(rows))) else { return }
+        gridReports.now(report)
+    }
+    #endif
+
     /// The pane's layout spring landed: the final grid no longer stands in for the view's, and the surface
     /// takes its host's area again (a landing at another size reports that grid). The reflow preview is
     /// left as it is until the view's next size.

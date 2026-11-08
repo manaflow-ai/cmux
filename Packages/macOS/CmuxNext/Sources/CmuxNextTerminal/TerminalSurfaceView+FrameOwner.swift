@@ -25,6 +25,11 @@ struct TerminalFrameOwnership {
     var ahead: CGSize?
     /// The draw-ahead size the presenter gives Ghostty after this turn's pass (``TerminalFramePresenter/drawAhead(_:)``).
     var pendingAhead: CGSize?
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The pending size drawn ahead is a film snap's final size (``FilmCloseVariant/snapSendsGrid``): its grid goes to the
+    /// PTY when it goes to Ghostty (``TerminalSurfaceView/applyAhead()``).
+    var filmSendsGrid = false
+    #endif
 }
 
 /// FRAME OWNER REFACTOR S4, cmux-ad m18, m19 (no switch) and m26 (draw ahead): a terminal's bounds change only in the
@@ -111,6 +116,9 @@ extension TerminalSurfaceView {
         guard frameOwnership.embedderPresents, isShown, let presenter = framePresenter, size.width >= 1, size.height >= 1,
               size != (frameOwnership.wanted?.size ?? bounds.size) else { return }
         frameOwnership.pendingAhead = size
+        #if DEBUG || CMUX_BENCH_HOOKS
+        frameOwnership.filmSendsGrid = DesignSettings.shared.filmClose.snapSendsGrid
+        #endif
         presenter.drawAhead(self)
     }
 
@@ -121,6 +129,9 @@ extension TerminalSurfaceView {
     func applyAhead() { // perf-hot: 1ms motion-frame (each frame of a key resize, after the pass)
         guard let size = frameOwnership.pendingAhead else { return }
         frameOwnership.pendingAhead = nil
+        #if DEBUG || CMUX_BENCH_HOOKS
+        frameOwnership.filmSendsGrid = false
+        #endif
         guard surface != nil, isShown, frameOwnership.inFlight == nil, size != bounds.size,
               size != frameOwnership.wanted?.size else { return }
         let pixels = convertToBacking(size)

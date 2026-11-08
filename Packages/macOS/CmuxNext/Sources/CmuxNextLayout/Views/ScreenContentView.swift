@@ -478,7 +478,13 @@ final class ScreenContentView: NSView {
         // drag step, an equalize) moves only the panes whose frames changed, and every per-pane input (frame,
         // alpha, clip range, covers, divider clips) is compared in the pass (`applyPresentation`).
         if structural { forcesPresentation = true }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        DesignSettings.shared.filmClose.snapSendsGrid = filmSnaps && holdsSnap
+        #endif
         if holdsSnap, !holdsSnapForContent() { releaseSnapDeparted() }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        DesignSettings.shared.filmClose.snapSendsGrid = false
+        #endif
         if presents { applyPresentation() }
         let moving = animate && hasMotion
         if !(moving && holdsGrids) { holdsGrids = false }
