@@ -11447,6 +11447,666 @@
         }
       }
     },
+    "classicImport.preview.source": {
+      "comment": "The Source value in the classic import preview: the classic cmux app's name (%1$@, e.g. cmux NIGHTLY) and when it saved the session (%2$@, a date and time).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (الكلاسيكي)، حُفظ في %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (klasični), sačuvano %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (klassisk), gemt %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (klassisch), gespeichert am %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (classic), saved %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (clásico), guardado el %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (classique), enregistré le %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (classico), salvato il %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@（クラシック）、%2$@ に保存"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (បុរាណ) បានរក្សាទុក %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@(클래식), %2$@에 저장됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (klassisk), lagret %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (klasyczny), zapisano %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (clássico), salvo em %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (классический), сохранено %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (คลาสสิก) บันทึกเมื่อ %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (klasik), kaydedilme: %2$@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (класичний), збережено %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (cổ điển), đã lưu lúc %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@（经典版），保存于 %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@（經典版），儲存於 %2$@"
+          }
+        }
+      }
+    },
+    "classicImport.preview.sourceOpen": {
+      "comment": "The Source value in the classic import preview when that classic cmux app is still open: its name (%1$@) and the time of its last autosave (%2$@).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (الكلاسيكي)، لا يزال مفتوحًا: حفظه التلقائي من %2$@. أغلقه أولًا لجلب أحدث حالة له."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (klasični), još je otvoren: njegovo automatsko spremanje od %2$@. Prvo ga zatvorite da prenesete najnovije stanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (klassisk), stadig åben: dens automatiske gemning fra %2$@. Afslut den først for at få den seneste tilstand med."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (klassisch), noch geöffnet: seine automatische Sicherung von %2$@. Beende es zuerst, um den neuesten Stand zu übernehmen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (classic), still open: its autosave from %2$@. Quit it first to bring its latest state."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (clásico), aún abierto: su guardado automático de %2$@. Ciérralo primero para traer su estado más reciente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (classique), toujours ouvert : sa sauvegarde automatique du %2$@. Quittez-le d’abord pour importer son état le plus récent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (classico), ancora aperto: il suo salvataggio automatico del %2$@. Chiudilo prima per portare il suo stato più recente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@（クラシック）はまだ開いています：%2$@ の自動保存です。最新の状態を取り込むには先に終了してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (បុរាណ) នៅតែបើក៖ ការរក្សាទុកស្វ័យប្រវត្តិពី %2$@។ សូមបិទវាជាមុនសិន ដើម្បីនាំយកស្ថានភាពចុងក្រោយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@(클래식)이 아직 열려 있음: %2$@의 자동 저장입니다. 최신 상태를 가져오려면 먼저 종료하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (klassisk), fortsatt åpen: den automatiske lagringen fra %2$@. Avslutt den først for å få med den nyeste tilstanden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (klasyczny), nadal otwarty: jego autozapis z %2$@. Najpierw go zamknij, aby przenieść najnowszy stan."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (clássico), ainda aberto: o salvamento automático de %2$@. Encerre-o primeiro para trazer o estado mais recente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (классический) всё ещё открыт: его автосохранение от %2$@. Сначала закройте его, чтобы перенести последнее состояние."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (คลาสสิก) ยังเปิดอยู่: บันทึกอัตโนมัติเมื่อ %2$@ ให้ออกจากแอปก่อนเพื่อนำสถานะล่าสุดมา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (klasik) hâlâ açık: %2$@ tarihli otomatik kaydı. En son durumunu getirmek için önce kapatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (класичний) ще відкритий: його автозбереження від %2$@. Спершу закрийте його, щоб перенести останній стан."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (cổ điển) vẫn đang mở: bản tự lưu lúc %2$@. Hãy thoát ứng dụng trước để mang theo trạng thái mới nhất."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@（经典版）仍在运行：这是 %2$@ 的自动保存。请先退出它以导入最新状态。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@（經典版）仍在執行：這是 %2$@ 的自動儲存。請先結束它以匯入最新狀態。"
+          }
+        }
+      }
+    },
+    "classicImport.toast.classicOpen": {
+      "comment": "A toast on the first launch when a classic cmux app (%@, its name) is open, so its workspaces were not imported.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (الكلاسيكي) مفتوح، لذا لم تُستورد مساحات عمله. أغلقه وأعد فتح هذا التطبيق، أو استوردها من الإعدادات › الاستيراد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (klasični) je otvoren, pa njegovi radni prostori nisu uvezeni. Zatvorite ga i ponovo otvorite ovu aplikaciju ili ih uvezite iz Postavke › Uvoz."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (klassisk) er åben, så dens arbejdsområder blev ikke importeret. Afslut den og åbn denne app igen, eller importér dem fra Indstillinger › Import."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (klassisch) ist geöffnet, daher wurden seine Arbeitsbereiche nicht importiert. Beende es und öffne diese App erneut oder importiere sie unter Einstellungen › Import."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (classic) is open, so its workspaces weren’t imported. Quit it and reopen this app, or import them from Settings › Import."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (clásico) está abierto, así que sus espacios de trabajo no se importaron. Ciérralo y vuelve a abrir esta app, o impórtalos desde Ajustes › Importar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (classique) est ouvert, ses espaces de travail n’ont donc pas été importés. Quittez-le et rouvrez cette app, ou importez-les depuis Réglages › Importer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (classico) è aperto, quindi i suoi spazi di lavoro non sono stati importati. Chiudilo e riapri questa app, oppure importali da Impostazioni › Importa."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（クラシック）が開いているため、ワークスペースは読み込まれませんでした。終了してこのアプリを開き直すか、設定 › 読み込みから読み込んでください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (បុរាណ) កំពុងបើក ដូច្នេះកន្លែងធ្វើការរបស់វាមិនត្រូវបាននាំចូលទេ។ សូមបិទវា ហើយបើកកម្មវិធីនេះឡើងវិញ ឬនាំចូលពី ការកំណត់ › នាំចូល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@(클래식)이 열려 있어 작업 공간을 가져오지 않았습니다. 종료한 뒤 이 앱을 다시 열거나 설정 › 가져오기에서 가져오세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (klassisk) er åpen, så arbeidsområdene ble ikke importert. Avslutt den og åpne denne appen på nytt, eller importer dem fra Innstillinger › Import."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (klasyczny) jest otwarty, więc jego obszary robocze nie zostały zaimportowane. Zamknij go i otwórz ponownie tę aplikację albo zaimportuj je w Ustawienia › Import."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (clássico) está aberto, então os espaços de trabalho não foram importados. Encerre-o e reabra este app, ou importe-os em Ajustes › Importar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (классический) открыт, поэтому его рабочие пространства не импортированы. Закройте его и снова откройте это приложение или импортируйте их в разделе Настройки › Импорт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (คลาสสิก) เปิดอยู่ จึงไม่ได้นำเข้าพื้นที่ทำงาน ให้ออกจากแอปแล้วเปิดแอปนี้อีกครั้ง หรือนำเข้าจาก การตั้งค่า › นำเข้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (klasik) açık olduğu için çalışma alanları içe aktarılmadı. Kapatıp bu uygulamayı yeniden açın veya Ayarlar › İçe Aktar bölümünden aktarın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (класичний) відкритий, тому його робочі простори не імпортовано. Закрийте його й знову відкрийте цей застосунок або імпортуйте їх у Параметри › Імпорт."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (cổ điển) đang mở nên không gian làm việc của nó chưa được nhập. Hãy thoát nó rồi mở lại ứng dụng này, hoặc nhập từ Cài đặt › Nhập."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（经典版）正在运行，因此未导入其工作区。请退出它并重新打开此应用，或在 设置 › 导入 中导入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（經典版）正在執行，因此未匯入其工作區。請結束它並重新開啟此 App，或在 設定 › 匯入 中匯入。"
+          }
+        }
+      }
+    },
+    "classicImport.toast.inUseBefore": {
+      "comment": "A toast on the first launch when this app already had workspaces, so classic cmux's workspaces were recorded but not imported.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم تُستورد مساحات عمل cmux الكلاسيكي لأن هذا التطبيق يحتوي بالفعل على مساحات عمل خاصة به. استوردها في أي وقت من الإعدادات › الاستيراد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klasični cmux radni prostori nisu uvezeni jer ova aplikacija već ima svoje. Uvezite ih bilo kada iz Postavke › Uvoz."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbejdsområder fra klassisk cmux blev ikke importeret, fordi denne app allerede havde sine egne. Importér dem når som helst fra Indstillinger › Import."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereiche aus dem klassischen cmux wurden nicht importiert, weil diese App bereits eigene hatte. Importiere sie jederzeit unter Einstellungen › Import."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic cmux workspaces weren’t imported because this app already had its own. Import them any time from Settings › Import."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los espacios de trabajo de cmux clásico no se importaron porque esta app ya tenía los suyos. Impórtalos cuando quieras desde Ajustes › Importar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les espaces de travail de cmux classique n’ont pas été importés, car cette app avait déjà les siens. Importez-les à tout moment depuis Réglages › Importer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli spazi di lavoro di cmux classico non sono stati importati perché questa app ne aveva già di propri. Importali quando vuoi da Impostazioni › Importa."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリにはすでに独自のワークスペースがあるため、クラシック cmux のワークスペースは読み込まれませんでした。設定 › 読み込みからいつでも読み込めます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការ cmux បុរាណមិនត្រូវបាននាំចូលទេ ព្រោះកម្មវិធីនេះមានកន្លែងធ្វើការផ្ទាល់ខ្លួនរួចហើយ។ នាំចូលពេលណាក៏បានពី ការកំណត់ › នាំចូល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 앱에 이미 자체 작업 공간이 있어 클래식 cmux 작업 공간을 가져오지 않았습니다. 언제든지 설정 › 가져오기에서 가져올 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeidsområder fra klassisk cmux ble ikke importert fordi denne appen allerede hadde sine egne. Importer dem når som helst fra Innstillinger › Import."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obszary robocze klasycznego cmux nie zostały zaimportowane, ponieważ ta aplikacja miała już własne. Zaimportuj je w dowolnej chwili w Ustawienia › Import."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os espaços de trabalho do cmux clássico não foram importados porque este app já tinha os seus. Importe-os quando quiser em Ajustes › Importar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рабочие пространства классического cmux не импортированы, так как в этом приложении уже были свои. Импортируйте их в любое время в разделе Настройки › Импорт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ได้นำเข้าพื้นที่ทำงานจาก cmux คลาสสิก เพราะแอปนี้มีพื้นที่ทำงานของตัวเองอยู่แล้ว นำเข้าได้ทุกเมื่อจาก การตั้งค่า › นำเข้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu uygulamanın zaten kendi çalışma alanları olduğu için klasik cmux çalışma alanları içe aktarılmadı. İstediğiniz zaman Ayarlar › İçe Aktar bölümünden aktarabilirsiniz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Робочі простори класичного cmux не імпортовано, бо цей застосунок уже мав власні. Імпортуйте їх будь-коли в Параметри › Імпорт."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không gian làm việc từ cmux cổ điển chưa được nhập vì ứng dụng này đã có không gian làm việc riêng. Nhập bất cứ lúc nào từ Cài đặt › Nhập."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此应用已有自己的工作区，因此未导入经典版 cmux 的工作区。可随时在 设置 › 导入 中导入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 App 已有自己的工作區，因此未匯入經典版 cmux 的工作區。可隨時在 設定 › 匯入 中匯入。"
+          }
+        }
+      }
+    },
+    "classicImport.toast.declined": {
+      "comment": "A toast after the person cancels the launch's classic import preview; later launches do not ask again.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبقى مساحات العمل الكلاسيكية في cmux الكلاسيكي. استوردها في أي وقت من الإعدادات › الاستيراد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klasični radni prostori ostaju u klasičnom cmuxu. Uvezite ih bilo kada iz Postavke › Uvoz."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klassiske arbejdsområder bliver i klassisk cmux. Importér dem når som helst fra Indstillinger › Import."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klassische Arbeitsbereiche bleiben im klassischen cmux. Importiere sie jederzeit unter Einstellungen › Import."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic workspaces stay in classic cmux. Import them any time from Settings › Import."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los espacios de trabajo clásicos se quedan en cmux clásico. Impórtalos cuando quieras desde Ajustes › Importar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les espaces de travail classiques restent dans cmux classique. Importez-les à tout moment depuis Réglages › Importer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gli spazi di lavoro classici restano in cmux classico. Importali quando vuoi da Impostazioni › Importa."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラシックのワークスペースはクラシック cmux に残ります。設定 › 読み込みからいつでも読み込めます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កន្លែងធ្វើការបុរាណនៅតែក្នុង cmux បុរាណ។ នាំចូលពេលណាក៏បានពី ការកំណត់ › នាំចូល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클래식 작업 공간은 클래식 cmux에 그대로 남습니다. 언제든지 설정 › 가져오기에서 가져올 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klassiske arbeidsområder blir værende i klassisk cmux. Importer dem når som helst fra Innstillinger › Import."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klasyczne obszary robocze pozostają w klasycznym cmux. Zaimportuj je w dowolnej chwili w Ustawienia › Import."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os espaços de trabalho clássicos ficam no cmux clássico. Importe-os quando quiser em Ajustes › Importar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Классические рабочие пространства остаются в классическом cmux. Импортируйте их в любое время в разделе Настройки › Импорт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พื้นที่ทำงานคลาสสิกยังอยู่ใน cmux คลาสสิก นำเข้าได้ทุกเมื่อจาก การตั้งค่า › นำเข้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klasik çalışma alanları klasik cmux'ta kalır. İstediğiniz zaman Ayarlar › İçe Aktar bölümünden aktarabilirsiniz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Класичні робочі простори залишаються в класичному cmux. Імпортуйте їх будь-коли в Параметри › Імпорт."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không gian làm việc cổ điển vẫn ở trong cmux cổ điển. Nhập bất cứ lúc nào từ Cài đặt › Nhập."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "经典版工作区仍保留在经典版 cmux 中。可随时在 设置 › 导入 中导入。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "經典版工作區仍保留在經典版 cmux 中。可隨時在 設定 › 匯入 中匯入。"
+          }
+        }
+      }
+    },
     "classicImport.preview.cleanup": {
       "extractionState": "manual",
       "localizations": {
@@ -12628,6 +13288,138 @@
           "stringUnit": {
             "state": "translated",
             "value": "已停止所有代理：%@"
+          }
+        }
+      }
+    },
+    "home.stopAll.stoppedSome": {
+      "comment": "Toast after Stop All Agents when some subagents could not be stopped (so not \"all\"). %@ is the list of subagent ids that did stop, e.g. \"a1 and a3\".",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم إيقاف %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaustavljeno: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stoppet: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestoppt: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopped %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se detuvieron: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrêtés : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrotti: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を停止しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានបញ្ឈប់ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@을(를) 중지했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stoppet: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatrzymano: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parados: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Остановлены: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุด %@ แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durduruldu: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зупинено: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã dừng %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已停止 %@"
           }
         }
       }

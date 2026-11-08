@@ -250,6 +250,8 @@ IDENTITY AND SESSION:
   --device-name NAME  --session NAME
   --state-dir PATH  --local-socket PATH  --headless [--json]
 
+  --local-socket PATH also serves PATH.admin, owner-only: the link's state
+(link-state) and a wait until it is connected by a deadline (await-ready).
   --invite-file avoids exposing the single-use invitation in process arguments.
   Regular files must be owner-only; - reads one line from stdin.
   --carrier dials ws routes with carrier authentication (no enrollment, no
@@ -283,6 +285,9 @@ RECONNECT:
   --reconnect-max-ms MS  --reconnect-attempt-timeout-ms MS
   --reconnect-jitter full|none  --heartbeat-interval-ms MS
   --heartbeat-timeout-ms MS
+  A dropped link redials 3 times, then waits for a network change or a caller
+and tries again, within a redial budget; it never exits on its own.
+--reconnect-attempts is still accepted but no longer limits this.
 "#,
     ssh_help: r#"USAGE: cmux remote ssh [USER@]HOST[:PORT] [OPTIONS]
 
@@ -304,6 +309,9 @@ other RPC resources reset
   --reconnect-max-ms MS  --reconnect-attempt-timeout-ms MS
   --reconnect-jitter full|none  --heartbeat-interval-ms MS
   --heartbeat-timeout-ms MS
+  A dropped link redials 3 times, then waits for a network change or a caller
+and tries again, within a redial budget; it never exits on its own.
+--reconnect-attempts is still accepted but no longer limits this.
 "#,
     browser_proxy_help: "USAGE: cmux remote browser-proxy [ROUTE] --allowed-host HOST [--allowed-host HOST ...] --workspace-root PATH --wireguard-hub PATH [OPTIONS]\n\nStarts an authenticated local browser proxy to the selected machine's loopback ports. Prints private proxy credentials on stdout.\n",
     forward_help: r#"USAGE: cmux remote forward [ROUTE] --workspace-root PATH --port PORT [OPTIONS]
@@ -450,6 +458,8 @@ ID とセッション:
   --device-name 名前  --session 名前
   --state-dir パス  --local-socket パス  --headless [--json]
 
+  --local-socket パス は所有者専用の パス.admin も提供します: リンクの状態
+(link-state) と、期限までの接続待ち (await-ready)。
   --invite-file は一回限りの招待をプロセス引数に公開しません。
   通常ファイルは所有者だけが読める必要があります。- は標準入力から 1 行読みます。
   --carrier は ws ルートをキャリア認証で接続します（登録や招待は不要）。
@@ -482,6 +492,9 @@ ID とセッション:
   --reconnect-max-ms ミリ秒  --reconnect-attempt-timeout-ms ミリ秒
   --reconnect-jitter full|none  --heartbeat-interval-ms ミリ秒
   --heartbeat-timeout-ms ミリ秒
+  切れたリンクは 3 回再接続を試し、その後はネットワークの変化か呼び出し元を
+待って再試行します (再接続の予算内)。自分から終了することはありません。
+--reconnect-attempts は引き続き受け付けますが、この回数を制限しません。
 "#,
     ssh_help: r#"使用方法: cmux remote ssh [ユーザー@]ホスト[:ポート] [オプション]
 
@@ -502,6 +515,9 @@ ID とセッション:
   --reconnect-max-ms ミリ秒  --reconnect-attempt-timeout-ms ミリ秒
   --reconnect-jitter full|none  --heartbeat-interval-ms ミリ秒
   --heartbeat-timeout-ms ミリ秒
+  切れたリンクは 3 回再接続を試し、その後はネットワークの変化か呼び出し元を
+待って再試行します (再接続の予算内)。自分から終了することはありません。
+--reconnect-attempts は引き続き受け付けますが、この回数を制限しません。
 "#,
     browser_proxy_help: "使用方法: cmux remote browser-proxy [ルート] --allowed-host ホスト [--allowed-host ホスト ...] --workspace-root パス --wireguard-hub パス [オプション]\n\n選択したマシンのループバックポートへの認証付きローカルブラウザプロキシを起動します。非公開のプロキシ認証情報を標準出力に出力します。\n",
     forward_help: r#"使用方法: cmux remote forward [ルート] --workspace-root パス --port ポート [オプション]

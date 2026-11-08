@@ -8,7 +8,9 @@
 //! `--settings`, which applies under any config directory. Claude Code honors
 //! only the last `--settings` flag, so every `--settings` value is folded into
 //! one private file that also carries the hooks. Any failure starts Claude
-//! unchanged.
+//! unchanged. A launch that gets the hooks this way, or that turns them off,
+//! loses cmux-tui's Claude Code plugin from `CLAUDE_CODE_PLUGIN_DIRS`
+//! (claude_plugin.rs), which covers the launches that skip the shim.
 
 use std::ffi::{CString, OsStr, OsString};
 use std::fs;
@@ -75,11 +77,17 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     // after a reboot starts Claude with again (relaunch_store::agent_launch).
     command.env(AGENT_ARGS_ENV, agent_args_json(args));
     let mut launch_args = args.to_vec();
+    if std::env::var_os(HOOKS_DISABLED_ENV).is_some_and(|value| value == "1") {
+        drop_cmux_plugin(&mut command);
+    }
     if should_inject(args, |name| std::env::var_os(name)) {
         match prepare_hooks(args) {
             Ok((injected, helper)) => {
                 launch_args = injected;
                 command.env(WRAPPER_ACTIVE_ENV, "1");
+                // The merged `--settings` carries the hooks; the pane's plugin
+                // would report every event a second time.
+                drop_cmux_plugin(&mut command);
                 if let Some(helper) = helper {
                     command.env("CMUX_TUI_HOOK", helper);
                 }
@@ -90,6 +98,17 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     let _error = command.args(&launch_args).exec();
     eprintln!("{}", messages.agent_start_failed);
     126
+}
+
+/// Removes cmux-tui's Claude Code plugin from the `CLAUDE_CODE_PLUGIN_DIRS`
+/// Claude inherits (claude_plugin.rs), keeping every other folder.
+fn drop_cmux_plugin(command: &mut Command) {
+    let env = crate::claude_plugin::PLUGIN_DIRS_ENV;
+    let Some(value) = std::env::var_os(env) else { return };
+    match crate::claude_plugin::without_cmux_plugins(&value) {
+        Some(kept) => command.env(env, kept),
+        None => command.env_remove(env),
+    };
 }
 
 /// This cmux-tui binary's canonical path, which the shim and fallback hooks run.
