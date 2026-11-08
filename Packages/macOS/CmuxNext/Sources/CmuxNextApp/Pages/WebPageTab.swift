@@ -191,7 +191,7 @@ extension WebPageTab {
                 pane?.workspace?.expectFocus(on: surface, generation: intent)
                 // The reply can come before the daemon's pane: the open's turn ends once the store lists the tab,
                 // so the next open beside this pane never aims at the provisional pane (BrowserTabSplitCommand).
-                services.registry.track(Task { @MainActor in
+                services.registry.track(Task { () -> ActionWorkFailure? in
                     finished(await BrowserTabSplitCommand.listed(surface, in: store) ? surface : nil)
                     return nil
                 })
