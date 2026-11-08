@@ -192,7 +192,7 @@ mod start_retry;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
-mod shell_readonly;
+pub(crate) mod shell_readonly;
 mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
 pub(crate) use shutdown::{CREATED as REFUSED_CREATED, shutting_down_before_create};

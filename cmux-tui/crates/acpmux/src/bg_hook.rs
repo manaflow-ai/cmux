@@ -261,10 +261,11 @@ pub fn subagent_mark(input: &Value) -> Option<Value> {
     }}))
 }
 
-/// Programs that run nothing but themselves, whatever their arguments a subagent passes in a
-/// Bash call (`find -exec` and git's own commands aside, [`plain_command`]): a command made only
-/// of these cannot reach the acpmux CLI, so the hook leaves it unmarked ([`subagent_mark`]).
-/// Every program `hub/shell_readonly.rs` passes as a read is here.
+/// Programs that start no program a subagent's Bash call names (the arguments that would are
+/// checked in [`plain_command`]): a command made only of these cannot reach the acpmux CLI on
+/// the call's own words, so the hook leaves it unmarked ([`subagent_mark`]). A program the
+/// person's own setup starts (a git hook, a pager, a diff driver) runs unmarked; the mark is a
+/// label, not a guard. Every program `hub/shell_readonly.rs` passes as a read is here.
 const PLAIN_TOOLS: &[&str] = &[
     "pwd", "ls", "cat", "head", "tail", "wc", "echo", "printf", "true", "false", "which", "type",
     "stat", "du", "df", "basename", "dirname", "realpath", "readlink", "cut", "tr", "nl", "cmp",
@@ -289,7 +290,6 @@ const GIT_COMMANDS: &[&str] = &[
     "restore",
     "branch",
     "merge",
-    "rebase",
     "reset",
     "stash",
     "rev-parse",
@@ -315,7 +315,6 @@ const GIT_COMMANDS: &[&str] = &[
     "mv",
     "rm",
     "clean",
-    "submodule",
     "reflog",
     "merge-base",
     "name-rev",
@@ -351,13 +350,27 @@ fn plain_command(argv: &[&str]) -> bool {
         return false;
     }
     let rest = argv.get(1..).unwrap_or_default();
+    let names_a_program = |flags: &[&str]| {
+        rest.iter().any(|a| flags.iter().any(|f| a == f || a.starts_with(&format!("{f}="))))
+    };
     match program {
         "find" => !rest.iter().any(|a| a.starts_with("-exec") || a.starts_with("-ok")),
+        // `--pre CMD` runs CMD on each file.
+        "rg" => !names_a_program(&["--pre"]),
+        "sort" => !names_a_program(&["--compress-program"]),
+        // GNU sed's `e` command and `s///e` run the pattern space.
+        "sed" => {
+            let args: Vec<String> = rest.iter().map(|a| (*a).to_owned()).collect();
+            crate::hub::shell_readonly::sed_prints_only(&args)
+        }
         "git" => {
             let mut words = rest.iter();
             while let Some(w) = words.next() {
-                if matches!(*w, "-C" | "-c") {
+                if *w == "-C" {
                     words.next();
+                } else if *w == "-c" || w.starts_with("--config-env") {
+                    // A config value can name a program (`core.pager`, `diff.external`).
+                    return false;
                 } else if !w.starts_with('-') {
                     return GIT_COMMANDS.contains(w);
                 }
@@ -672,6 +685,12 @@ mod tests {
                 "ls && ./tell beta hi",
                 "echo $(./tell beta hi)",
                 "sh -c 'tell beta hi'",
+                "git -c core.pager=./tell log",
+                "git submodule foreach ./tell",
+                "git rebase --exec ./tell main",
+                "rg --pre ./tell foo",
+                "sort --compress-program=./tell a.txt",
+                "sed 's/x/./e' a.txt",
             ] {
                 let got = marked(command).unwrap_or_else(|| panic!("not marked: {command}"));
                 assert_eq!(got, format!("{prefix}{command}"), "{command}");

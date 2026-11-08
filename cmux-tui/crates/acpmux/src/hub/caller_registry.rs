@@ -22,8 +22,11 @@
 //!   run's token, the one its harness got; an earlier run's stops counting, as its process group
 //!   is gone (`forget_adopted_caller`);
 //! - this run gives the session's token to another process (a workflow runner): this run's
-//!   token counts too;
-//! - at most [`MAX_HASHES`] per session and [`MAX_SESSIONS`] sessions, the oldest dropped first.
+//!   token counts too, beside the host's, at most [`MAX_ISSUED`] of them (the oldest dropped
+//!   first; the host's own token is never dropped for one);
+//! - the session's agent starts without a host (`ACPMUX_AGENT_HOSTS=0`), so it ends with this
+//!   run, or the session is purged: none (`forget`);
+//! - at most [`MAX_SESSIONS`] sessions, the oldest dropped first.
 //!
 //! A token still proves only a session this daemon has (`Hub::proven_caller`).
 
@@ -33,8 +36,8 @@ use std::collections::BTreeMap;
 
 /// The file's name, beside config.json.
 const FILE: &str = "caller-tokens.json";
-/// The most tokens one session's entry keeps.
-const MAX_HASHES: usize = 4;
+/// The most tokens given to other processes one session's entry keeps.
+const MAX_ISSUED: usize = 4;
 /// The most sessions the file keeps.
 const MAX_SESSIONS: usize = 1024;
 
@@ -49,10 +52,12 @@ struct Registry {
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 struct Entry {
-    /// SHA-256 of each accepted token ([`digest`]), oldest first.
-    hashes: Vec<String>,
-    /// The incarnation of the host whose harness started with the newest token.
+    /// SHA-256 ([`digest`]) of the token the session's newest host started its harness with.
+    host: Option<String>,
+    /// The incarnation of that host.
     incarnation: Option<String>,
+    /// SHA-256 of each token given to another process since, oldest first.
+    issued: Vec<String>,
     /// When the entry last changed (ms), for dropping the oldest.
     at_ms: u64,
 }
@@ -95,22 +100,29 @@ impl CallerRegistry {
         }
         let wanted = digest(token);
         self.lock().sessions.get(session).is_some_and(|entry| {
-            entry.hashes.iter().any(|known| cmux_local_auth::tokens_match(&wanted, known))
+            entry
+                .host
+                .iter()
+                .chain(&entry.issued)
+                .any(|known| cmux_local_auth::tokens_match(&wanted, known))
         })
     }
 
     /// Whether the host `incarnation` of `session` started with a token the entry accepts.
     pub(super) fn knows_host(&self, session: &str, incarnation: &str) -> bool {
         self.lock().sessions.get(session).is_some_and(|entry| {
-            !entry.hashes.is_empty() && entry.incarnation.as_deref() == Some(incarnation)
+            entry.host.is_some() && entry.incarnation.as_deref() == Some(incarnation)
         })
     }
 
     /// A new host `incarnation` of `session` started with `token`: it is the one token counted.
     pub(super) fn host_started(&self, session: &str, token: &str, incarnation: &str) {
         self.change(session, |entry| {
-            entry.hashes = vec![digest(token)];
-            entry.incarnation = Some(incarnation.to_owned());
+            *entry = Entry {
+                host: Some(digest(token)),
+                incarnation: Some(incarnation.to_owned()),
+                ..Entry::default()
+            };
         });
     }
 
@@ -118,10 +130,21 @@ impl CallerRegistry {
     pub(super) fn issued(&self, session: &str, token: &str) {
         let hash = digest(token);
         self.change(session, |entry| {
-            if !entry.hashes.contains(&hash) {
-                entry.hashes.push(hash);
+            if entry.host.as_ref() != Some(&hash) && !entry.issued.contains(&hash) {
+                entry.issued.push(hash);
             }
+            let excess = entry.issued.len().saturating_sub(MAX_ISSUED);
+            entry.issued.drain(..excess);
         });
+    }
+
+    /// No earlier run's token proves `session` in a later run: its agent ends with this run (it
+    /// has no host), or the session is gone.
+    pub(super) fn forget(&self, session: &str) {
+        let mut state = self.lock();
+        if state.sessions.remove(session).is_some() {
+            self.save(&state);
+        }
     }
 
     /// Applies `edit` to `session`'s entry and saves the registry when it changed.
@@ -130,12 +153,9 @@ impl CallerRegistry {
         let before = state.sessions.get(session).cloned();
         let mut entry = before.clone().unwrap_or_default();
         edit(&mut entry);
-        let excess = entry.hashes.len().saturating_sub(MAX_HASHES);
-        entry.hashes.drain(..excess);
-        if before
-            .as_ref()
-            .is_some_and(|b| b.hashes == entry.hashes && b.incarnation == entry.incarnation)
-        {
+        if before.as_ref().is_some_and(|b| {
+            b.host == entry.host && b.incarnation == entry.incarnation && b.issued == entry.issued
+        }) {
             return;
         }
         entry.at_ms = now_ms();
@@ -146,8 +166,13 @@ impl CallerRegistry {
             let Some(oldest) = oldest else { break };
             state.sessions.remove(&oldest);
         }
+        self.save(&state);
+    }
+
+    /// Writes `state` to the file, if the registry has one.
+    fn save(&self, state: &Registry) {
         let Some(path) = &self.path else { return };
-        let saved = serde_json::to_vec(&*state)
+        let saved = serde_json::to_vec(state)
             .map_err(anyhow::Error::from)
             .and_then(|bytes| crate::config::write_atomic(path, &bytes));
         if let Err(e) = saved {
@@ -243,7 +268,12 @@ mod tests {
                 registry.issued("s1", &token(n));
             }
             assert!(registry.proves("s1", &token(11)));
-            assert!(!registry.proves("s1", &token(3)), "more than {MAX_HASHES} kept");
+            assert!(!registry.proves("s1", &token(4)), "more than {MAX_ISSUED} issued kept");
+            assert!(registry.proves("s1", &token(3)), "issued tokens pushed out the host's own");
+            assert!(registry.knows_host("s1", "inc-2"));
+            registry.forget("s1");
+            assert!(!registry.proves("s1", &token(3)), "a forgotten session's token still counts");
+            assert!(!registry.knows_host("s1", "inc-2"));
         }
 
         /// A file another user could have written proves nothing: it is not read.

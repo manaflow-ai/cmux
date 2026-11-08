@@ -642,7 +642,7 @@ fn segment_ok(words: &[String]) -> Option<Reads> {
 /// `sed -n` that only prints lines by number (`sed -n '1,40p' f`, `-e '$p'`): a reviewer's way
 /// to read part of a file. Any other sed command can write (`w`, `s///w`) or run one (`e`), and
 /// `-i` edits in place, so anything else asks; GNU sed reads an option after the files too.
-fn sed_prints_only(args: &[String]) -> bool {
+pub(crate) fn sed_prints_only(args: &[String]) -> bool {
     let mut quiet = false;
     let mut scripts: Vec<&str> = Vec::new();
     let mut i = 0;
