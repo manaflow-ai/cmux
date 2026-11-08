@@ -124,6 +124,7 @@ crate::framework! {
         static kVTCompressionPropertyKey_ColorPrimaries: CFStringRef;
         static kVTCompressionPropertyKey_TransferFunction: CFStringRef;
         static kVTCompressionPropertyKey_YCbCrMatrix: CFStringRef;
+        static kVTCompressionPropertyKey_MaximizePowerEfficiency: CFStringRef;
         fn VTCompressionSessionCreate(a: CFAllocatorRef, w: i32, h: i32, codec: u32, spec: CFDictionaryRef, src_attrs: CFDictionaryRef, data_alloc: CFAllocatorRef, cb: OutputCallback, refcon: *mut c_void, out: *mut VTCompressionSessionRef) -> OSStatus;
         fn VTSessionSetProperty(s: *mut c_void, key: CFStringRef, value: CFTypeRef) -> OSStatus;
         fn VTCompressionSessionEncodeFrame(s: VTCompressionSessionRef, pb: CVPixelBufferRef, pts: CMTime, duration: CMTime, props: CFDictionaryRef, frame_refcon: *mut c_void, info: *mut u32) -> OSStatus;
@@ -132,6 +133,14 @@ crate::framework! {
     }
 }
 use vt_sys::*;
+
+// macOS 13 and later. Kept apart from `vt_sys`: an older VideoToolbox that lacks it still
+// encodes, only without the speed hint.
+crate::framework! {
+    mod vt_speed_sys = "/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox" {
+        static kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality: CFStringRef;
+    }
+}
 
 /// Loads the frameworks the encoder binds at run time (crate::dynlib); an error says which
 /// framework or symbol is missing.
@@ -332,6 +341,15 @@ fn create_session(
         let rate = number_f64(f64::from(fps.max(1)));
         set(kVTCompressionPropertyKey_ExpectedFrameRate(), rate);
         CFRelease(rate);
+        // A screen stream waits on every frame (CompleteFrames below), so the media engine
+        // runs at full clock and picks its fastest mode instead of its most efficient one.
+        set(kVTCompressionPropertyKey_MaximizePowerEfficiency(), kCFBooleanFalse());
+        if vt_speed_sys::available().is_ok() {
+            set(
+                vt_speed_sys::kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality(),
+                kCFBooleanTrue(),
+            );
+        }
     }
     Ok(session)
 }
@@ -379,7 +397,7 @@ impl VideoToolbox {
             kbps: kbps.max(100),
             color: None,
             name: format!(
-                "videotoolbox h264 {} low-latency-rc realtime no-reordering gop=inf",
+                "videotoolbox h264 {} low-latency-rc realtime speed-first no-reordering gop=inf",
                 if baseline { "constrained-baseline" } else { "high" }
             ),
         };
