@@ -31,12 +31,11 @@ import Testing
         let runs = Count()
         // `start` is synchronous: the activation that asks returns while the warm is still pending.
         let first = warms.start("user_a|team_a") { runs.value += 1; await wait() }
-        let second = warms.start("user_a|team_a") { runs.value += 1 }
-        #expect(first == second && warms.isWarming("user_a|team_a"))
-        // Another identity's warm starts its own instead of waiting on this one.
-        let other = warms.start("user_b|team_a") {}
-        #expect(other != first)
-        await other.value
+        _ = warms.start("user_a|team_a") { runs.value += 1 }
+        #expect(warms.isWarming("user_a|team_a"))
+        // Another identity's warm starts its own and ends while this one is still pending.
+        await warms.start("user_b|team_a") {}.value
+        #expect(warms.isWarming("user_a|team_a") && !warms.isWarming("user_b|team_a"))
         open()
         await first.value
         #expect(runs.value == 1 && !warms.isWarming("user_a|team_a"))

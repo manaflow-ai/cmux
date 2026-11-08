@@ -181,7 +181,7 @@ public nonisolated struct CloudHarnessLoginDecision: Sendable, Equatable {
     /// (``Verdict/warmCopyConflict``, ``CloudSpareWarms/waitForCopy(onto:conflicts:)``).
     public mutating func readGuest(exec: @escaping @Sendable (String) async -> String?, pause: @escaping @Sendable () async throws -> Void,
                                    budget: Duration = CloudCredentialTransfer.guestCheckBudget, warmCopy: (warms: CloudSpareWarms, machine: String)? = nil) async throws {
-        if let warmCopy { await warmCopy.warms.waitForCopy(onto: warmCopy.machine, conflicts: verdict.warmCopyConflict == true) }
+        if let warmCopy, verdict.step != .refuse { await warmCopy.warms.waitForCopy(onto: warmCopy.machine, conflicts: verdict.warmCopyConflict == true) }
         try await readGuest(exec: exec, pause: pause, budget: budget, clock: ContinuousClock())
     }
 

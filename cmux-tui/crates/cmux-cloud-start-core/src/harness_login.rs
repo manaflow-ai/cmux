@@ -509,7 +509,7 @@ pub fn decide(d: &Inputs) -> Decision {
         reads_machine,
         guest_takes_login: guest_takes_login(kind, d.release, d.provider),
         skipped_team_machine: reason == Reason::GuestNotOwner && kind == Some("team"),
-        warm_copy_conflict: reads_machine && d.provider.is_some_and(warm_copies),
+        warm_copy_conflict: reads_machine && step != Step::Refuse && d.provider.is_some_and(warm_copies),
         summary: summary(d, step, reason),
     }
 }

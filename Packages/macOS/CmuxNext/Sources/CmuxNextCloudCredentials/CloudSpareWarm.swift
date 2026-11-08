@@ -30,7 +30,8 @@ public import os
                   auth.user?.id == userID, auth.teamID == teamID,
                   let copy = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install) else { return }
             let still = { @MainActor @Sendable [auth, installIdentity] in
-                try await copy.copyAllowed(account: auth.user?.id, team: MacInstallIdentity.team(ofToken: installIdentity.installToken())) && auth.teamID == teamID
+                let token = try await installIdentity.installToken()
+                return copy.copyAllowed(account: auth.user?.id, team: MacInstallIdentity.team(ofToken: token)) && auth.teamID == teamID
             }
             let installed = await warms.copy(onto: copy.machineID) { await self.copyLogin(onto: copy.machineID, userID: userID, teamID: teamID, still: still) }.value
             // A copy given up to an account or team switch is not done: Rust answers it again on the next warm.
