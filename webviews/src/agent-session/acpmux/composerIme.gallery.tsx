@@ -51,7 +51,10 @@ export default componentEntry<Props>({
     };
   },
   variants: {
-    empty: { props: { draft: "" }, note: "An empty composer with an observable send callback for input-method probes." },
+    empty: {
+      props: { draft: "" },
+      note: "An empty composer with an observable send callback for input-method probes.",
+    },
     korean: { props: { draft: "안녕하세요" }, note: "Korean input-method probe." },
     japanese: { props: { draft: "日本語" }, note: "Japanese input-method probe." },
     vietnamese: { props: { draft: "tiếng Việt" }, note: "Vietnamese input-method probe." },

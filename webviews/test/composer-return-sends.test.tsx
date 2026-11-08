@@ -585,9 +585,16 @@ for (const inputType of ["insertParagraph", "insertLineBreak"]) {
     test(`${inputType} during composition never sends the draft (event flag ${reportsComposing})`, async () => {
       const { field, sent } = await composer(chat(), "日本語");
       await dispatch(field, new window.CompositionEvent("compositionstart", { bubbles: true }), 1_000);
-      await dispatch(field, new window.InputEvent("beforeinput", {
-        inputType, isComposing: reportsComposing, bubbles: true, cancelable: true,
-      }), 1_500);
+      await dispatch(
+        field,
+        new window.InputEvent("beforeinput", {
+          inputType,
+          isComposing: reportsComposing,
+          bubbles: true,
+          cancelable: true,
+        }),
+        1_500,
+      );
       expect(sent).toEqual([]);
       expect(field.textContent).toBe("日本語");
       await dispatch(field, new window.CompositionEvent("compositionend", { bubbles: true }), 2_000);
