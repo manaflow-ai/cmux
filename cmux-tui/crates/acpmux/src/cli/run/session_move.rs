@@ -464,8 +464,18 @@ async fn prepare(
             let read = tokio::task::spawn_blocking({
                 let (top, ssh) = (c.top.clone(), source.ssh().map(str::to_owned));
                 move || match ssh {
-                    None => carry::snapshot(&top),
-                    Some(ssh) => carry_out_on(&ssh, &top),
+                    None => carry::snapshot(&|script, input| run_here(script, input), &top, true),
+                    Some(ssh) => carry::snapshot(
+                        &|script, input| {
+                            crate::cli::hosts::Remote::exec(
+                                &crate::cli::hosts::SshRemote(&ssh),
+                                script,
+                                Some(input),
+                            )
+                        },
+                        &top,
+                        false,
+                    ),
                 }
             })
             .await??;
@@ -603,24 +613,6 @@ fn push_branch_on(ssh: &str, top: &Path, branch: &str) -> Result<String> {
         bail!("pushing {branch} to origin on {ssh} failed (it may have moved on there): {last}");
     }
     Ok(head)
-}
-
-/// [`carry::snapshot`] on the ssh host `ssh`, through its own acpmux (`acpmux carry-out`).
-fn carry_out_on(ssh: &str, top: &Path) -> Result<Carry> {
-    let input = format!("{}\n", top.display());
-    let out = crate::cli::hosts::Remote::exec(
-        &crate::cli::hosts::SshRemote(ssh),
-        carry::CARRY_OUT_SCRIPT,
-        Some(input.as_bytes()),
-    )?;
-    if !out.ok {
-        let last = out.stderr.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("").trim();
-        if last.contains("unrecognized subcommand") {
-            bail!("acpmux on {ssh} is too old to carry changes: update it, or commit them");
-        }
-        bail!("reading the uncommitted changes of {} on {ssh} failed: {last}", top.display());
-    }
-    Carry::from_wire(&out.stdout)
 }
 
 /// Applies `carry` in the chat's new folder `there` on the ssh host `host` (this machine when

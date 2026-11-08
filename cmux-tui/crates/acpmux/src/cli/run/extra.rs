@@ -392,11 +392,6 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::CarryOut { top } => {
-            let carry = crate::cli::session_move_carry::snapshot(&top)?;
-            print!("{}", carry.to_wire());
-            Ok(())
-        }
         Command::MoveSessions {
             sessions,
             host,

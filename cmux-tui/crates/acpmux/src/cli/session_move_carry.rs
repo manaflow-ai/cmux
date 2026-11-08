@@ -10,21 +10,27 @@
 //! - [`APPLY_SCRIPT`] applies it on the target in the new worktree, only when that worktree is at
 //!   the commit the patch was read against. `git apply` is all or nothing: a patch that does not
 //!   apply fails the move, which gives the chat back here with its folder unchanged.
-//! - A source on another machine (`--from`) reads it there with the hidden `acpmux carry-out`,
-//!   which prints [`Carry::to_wire`].
+//!
+//! Every step is a fixed script of git and base64, run on the machine the folder is on (this
+//! one, or over ssh for a move `--from` another), its values on stdin, never in the script. So
+//! only the machine that drives the move needs an acpmux that knows `--carry-changes`: a cloud
+//! VM or a mini on an older build still gives up its changes and takes them. On another machine
+//! a registry file (`.npmrc`, `.pypirc`) is not read for a token, so it stays there.
 //!
 //! The changes land unstaged on the target (what was staged here is not told apart), and the
 //! source keeps its own copy: the chat never runs here again, so nothing writes it.
 
+use crate::cli::hosts::RemoteOut;
 use anyhow::{Context as _, Result, anyhow, bail};
 use base64::Engine as _;
 use serde_json::{Value, json};
-use std::io::Write as _;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::path::Path;
 
 /// The most a carried patch may be: more is work to commit and push, not to carry.
 pub(crate) const MAX_CARRY_BYTES: usize = 64 * 1024 * 1024;
+
+/// Runs one of the fixed scripts where the folder is, its stdin given.
+pub(crate) type Exec<'a> = &'a dyn Fn(&str, &[u8]) -> Result<RemoteOut>;
 
 /// A checkout's uncommitted work, read against `base` (its HEAD).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,92 +51,85 @@ impl Carry {
             self.left_out.iter().map(|(p, why)| json!({"path": p, "why": why})).collect();
         json!({"files": self.files, "bytes": self.patch.len(), "leftOut": left})
     }
-
-    /// `acpmux carry-out`'s answer: one JSON line, then the patch in base64 on one line.
-    pub fn to_wire(&self) -> String {
-        let mut head = self.record();
-        head["base"] = json!(self.base);
-        let patch = base64::engine::general_purpose::STANDARD.encode(&self.patch);
-        format!("{head}\n{patch}\n")
-    }
-
-    /// [`Carry::to_wire`] read back.
-    pub fn from_wire(text: &str) -> Result<Self> {
-        let mut lines = text.lines();
-        let head: Value = serde_json::from_str(lines.next().unwrap_or_default())
-            .context("the source's carry-out answered no summary line")?;
-        let base = head.get("base").and_then(Value::as_str).unwrap_or_default().to_owned();
-        if base.len() < 40 || !base.bytes().all(|b| b.is_ascii_hexdigit()) {
-            bail!("the source's carry-out named no base commit");
-        }
-        let patch = base64::engine::general_purpose::STANDARD
-            .decode(lines.next().unwrap_or_default().trim())
-            .context("the source's carry-out patch is not base64")?;
-        let files = head.get("files").and_then(Value::as_u64).unwrap_or(0) as usize;
-        let left_out = head
-            .get("leftOut")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|l| {
-                let path = l.get("path")?.as_str()?.to_owned();
-                Some((path, l.get("why").and_then(Value::as_str).unwrap_or_default().to_owned()))
-            })
-            .collect();
-        Ok(Self { base, patch, files, left_out })
-    }
 }
 
-/// `git` in `top` (with the scratch index `index`, when named), `stdin` on its stdin; its
-/// stdout, or the error with git's last stderr line.
-fn git(top: &Path, index: Option<&Path>, args: &[&str], stdin: Option<&[u8]>) -> Result<Vec<u8>> {
-    let mut cmd = Command::new("git");
-    cmd.args(["-c", "core.fsmonitor=false", "-c", "core.quotepath=false", "-C"])
-        .arg(top)
-        .args(args);
-    if let Some(index) = index {
-        cmd.env("GIT_INDEX_FILE", index);
-    }
-    cmd.stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = cmd.spawn().context("git")?;
-    if let (Some(bytes), Some(mut pipe)) = (stdin, child.stdin.take()) {
-        pipe.write_all(bytes).context("git: stdin")?;
-    }
-    let out = child.wait_with_output().context("git")?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        let last = err.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("").trim();
-        bail!("git {} failed in {}: {last}", args.first().unwrap_or(&""), top.display());
-    }
-    Ok(out.stdout)
+/// The fixed script that lists what a carry could take: the checkout's top folder on stdin;
+/// prints its HEAD, then the untracked files that are not ignored (NUL-separated, base64).
+const LIST_SCRIPT: &str = r#"read -r top || exit 2
+cd -- "$top" || exit 2
+git rev-parse HEAD || exit 3
+s=$(mktemp) || exit 2
+trap 'rm -f -- "$s"' EXIT
+git -c core.fsmonitor=false ls-files -z --others --exclude-standard >"$s" || exit 3
+base64 <"$s" | tr -d '\n'
+echo"#;
+
+/// The fixed script that makes the patch: the top folder, the base commit, the most bytes the
+/// patch may be and the untracked files to add (NUL-separated, base64) on four lines of stdin.
+/// Prints the number of files the patch touches, its size, then the patch in base64 (left out
+/// when it is over the most). Exit 4: HEAD is no longer the base.
+const PATCH_SCRIPT: &str = r#"read -r top || exit 2; read -r base || exit 2; read -r max || exit 2; read -r keep
+cd -- "$top" || exit 2
+head=$(git rev-parse HEAD) || exit 3
+if [ "$head" != "$base" ]; then echo "HEAD moved from $base to $head" >&2; exit 4; fi
+real=$(git rev-parse --git-path index) || exit 3
+s=$(mktemp -d) || exit 2
+trap 'rm -rf -- "$s"' EXIT
+if [ -f "$real" ]; then cp -- "$real" "$s/index" || exit 2; fi
+GIT_INDEX_FILE="$s/index"; export GIT_INDEX_FILE
+g() { git -c core.fsmonitor=false -c core.quotepath=false "$@"; }
+g add --update -- . || exit 3
+if [ -n "$keep" ]; then
+  printf '%s' "$keep" | { base64 -d 2>/dev/null || base64 -D; } >"$s/keep" || exit 2
+  g add --pathspec-from-file="$s/keep" --pathspec-file-nul -- || exit 3
+fi
+tree=$(g write-tree) || exit 3
+g diff --name-only -z --no-renames "$base" "$tree" >"$s/names" || exit 3
+tr -cd '\000' <"$s/names" | wc -c | tr -d ' '
+g diff --binary --full-index --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ "$base" "$tree" >"$s/patch" || exit 3
+size=$(wc -c <"$s/patch" | tr -d ' ')
+echo "$size"
+if [ "$size" -le "$max" ]; then base64 <"$s/patch" | tr -d '\n'; fi
+echo"#;
+
+fn decode(text: &str) -> Result<Vec<u8>> {
+    let text: String = text.chars().filter(|c| !c.is_ascii_whitespace()).collect();
+    Ok(base64::engine::general_purpose::STANDARD.decode(text)?)
 }
 
-fn text(bytes: Vec<u8>) -> String {
-    String::from_utf8_lossy(&bytes).trim().to_owned()
+fn failed(out: &RemoteOut, what: &str) -> anyhow::Error {
+    let last = out.stderr.lines().rfind(|l| !l.trim().is_empty()).unwrap_or("").trim();
+    anyhow!("{what} failed: {last}")
 }
 
-/// The uncommitted work of the checkout at `top`, read against its HEAD. The repository gains
-/// only unreferenced objects, as `git stash create` leaves; nothing the person sees changes.
-pub(crate) fn snapshot(top: &Path) -> Result<Carry> {
-    let real = PathBuf::from(text(git(top, None, &["rev-parse", "--git-path", "index"], None)?));
-    let real = if real.is_absolute() { real } else { top.join(real) };
-    let scratch = tempfile::tempdir().context("a scratch folder for the carried index")?;
-    let index = scratch.path().join("index");
-    if real.exists() {
-        std::fs::copy(&real, &index).context("copying the index")?;
+/// The uncommitted work of the checkout at `top`, read where it is through `exec`. `local`: the
+/// checkout is on this machine, so a registry file is read for a token; on another machine it
+/// stays behind unread. The repository gains only unreferenced objects, as `git stash create`
+/// leaves; nothing the person sees changes.
+pub(crate) fn snapshot(exec: Exec<'_>, top: &Path, local: bool) -> Result<Carry> {
+    let top_line = top.to_string_lossy();
+    if top_line.contains('\n') {
+        bail!("the checkout folder's name has a line break");
     }
-    let base = text(git(top, Some(&index), &["rev-parse", "HEAD"], None)?);
-    git(top, Some(&index), &["add", "--update", "--", "."], None)?;
-    let untracked =
-        git(top, Some(&index), &["ls-files", "-z", "--others", "--exclude-standard"], None)?;
+    let out = exec(LIST_SCRIPT, format!("{top_line}\n").as_bytes())?;
+    if !out.ok {
+        return Err(failed(&out, "listing the uncommitted changes"));
+    }
+    let mut lines = out.stdout.lines();
+    let base = lines.next().unwrap_or_default().trim().to_owned();
+    if base.len() < 40 || !base.bytes().all(|b| b.is_ascii_hexdigit()) {
+        bail!("the checkout answered no HEAD commit");
+    }
+    let untracked = decode(lines.next().unwrap_or_default()).context("the untracked list")?;
+    // A registry file elsewhere is read in a folder that has none, so it counts as a secret.
+    let unread = tempfile::tempdir().context("a scratch folder")?;
+    let read_in = if local { top } else { unread.path() };
     let (mut keep, mut left_out) = (Vec::new(), Vec::new());
     for path in untracked.split(|b| *b == 0).filter(|p| !p.is_empty()) {
         let why = if path.ends_with(b"/") {
             Some("a nested git repository")
         } else {
-            cmux_git::secrets::reason(top, path)
+            cmux_git::secrets::reason(read_in, path)
         };
         match why {
             Some(why) => left_out.push((String::from_utf8_lossy(path).into_owned(), why.into())),
@@ -140,35 +139,30 @@ pub(crate) fn snapshot(top: &Path) -> Result<Carry> {
             }
         }
     }
-    if !keep.is_empty() {
-        git(
-            top,
-            Some(&index),
-            &["add", "--pathspec-from-file=-", "--pathspec-file-nul", "--"],
-            Some(&keep),
-        )?;
+    let keep = base64::engine::general_purpose::STANDARD.encode(&keep);
+    let input = format!("{top_line}\n{base}\n{MAX_CARRY_BYTES}\n{keep}\n");
+    let out = exec(PATCH_SCRIPT, input.as_bytes())?;
+    if !out.ok {
+        return Err(failed(&out, "reading the uncommitted changes"));
     }
-    let tree = text(git(top, Some(&index), &["write-tree"], None)?);
-    let diff = ["diff", "--binary", "--full-index", "--no-color", "--no-ext-diff", "--no-textconv"];
-    let mut args = diff.to_vec();
-    args.extend(["--src-prefix=a/", "--dst-prefix=b/", &base, &tree]);
-    let patch = git(top, Some(&index), &args, None)?;
-    if patch.len() > MAX_CARRY_BYTES {
+    let mut lines = out.stdout.lines();
+    let mut number = || lines.next().and_then(|l| l.trim().parse::<usize>().ok());
+    let (Some(files), Some(size)) = (number(), number()) else {
+        bail!("reading the uncommitted changes answered no counts");
+    };
+    if size > MAX_CARRY_BYTES {
         bail!(
             "its uncommitted changes are {} MiB, more than the {} MiB a move carries: commit them",
-            patch.len() / (1024 * 1024),
+            size / (1024 * 1024),
             MAX_CARRY_BYTES / (1024 * 1024)
         );
     }
-    let names =
-        git(top, Some(&index), &["diff", "--name-only", "-z", "--no-renames", &base, &tree], None)?;
-    let files = names.split(|b| *b == 0).filter(|p| !p.is_empty()).count();
+    let patch = decode(lines.next().unwrap_or_default()).context("the patch")?;
+    if patch.len() != size {
+        bail!("the uncommitted changes came over cut short ({} of {size} bytes)", patch.len());
+    }
     Ok(Carry { base, patch, files, left_out })
 }
-
-/// The fixed script that reads a source machine's carry (`--from`): the checkout on stdin.
-pub(crate) const CARRY_OUT_SCRIPT: &str =
-    r#"PATH="$HOME/.local/bin:$PATH"; read -r top || exit 2; acpmux carry-out -- "$top""#;
 
 /// The fixed script that applies a carried patch in the chat's new folder on the target: the
 /// folder and the base commit on the first two lines of stdin, the patch after them. Exit 4:
