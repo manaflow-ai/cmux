@@ -173,7 +173,7 @@ struct RowMotion {
         // the rows it passes) is read and starts at that one instant: no step off the leaving view, one progress.
         let begin = flights.isEmpty ? nil : SidebarPinFlight.begin(in: list)
         SidebarDragSpring.move(frames.map { ($0.0 as NSView, $0.1) } + companions, in: list, token, travel: travel, begin: begin)
-        if let begin, SidebarDragSpring.moves(in: list) {
+        if let begin, SidebarDragSpring.animates(in: list) {
             for flight in flights { flight.start(token, now: begin) }
         }
         // The opening, closing and still-fading rows' opacity springs on the render server too, in this transaction, so

@@ -45,7 +45,7 @@ import QuartzCore
         // Out of a window nothing draws a spring (and none would end), and with movement off nothing moves: the
         // frames land at once, and a spring an earlier move left on any of these views ends with them (it would
         // keep carrying its offset over the frame, and keep the next snap from showing).
-        guard moves(in: host) else {
+        guard animates(in: host) else {
             stop(moves.map(\.0))
             let moving = moves.filter { $0.0.frame != $0.1 }
             if !moving.isEmpty { Motion.withoutAnimation { for (view, frame) in moving { view.animator().frame = frame } } }
@@ -79,7 +79,7 @@ import QuartzCore
     }
 
     /// Whether a move in `host` runs on springs (in a window, with movement on); else its frames land at once.
-    static func moves(in host: NSView) -> Bool {
+    static func animates(in host: NSView) -> Bool {
         Motion.sidebar.animatesMovement && host.window != nil && Motion.canAnimate(in: host)
     }
 
