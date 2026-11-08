@@ -109,7 +109,7 @@ fn ends_explained(o: &Outcome) -> Result<(), String> {
 }
 
 fn recovered(o: &Outcome) -> Result<(), String> {
-    for r in &o.recoveries {
+    for r in o.recoveries.iter().filter(|r| !r.interrupted) {
         match r.took {
             None => {
                 return Err(format!("{} healed at {:?} and never recovered", r.kind, r.healed_at));

@@ -117,6 +117,8 @@ pub struct Recovery {
     pub kind: String,
     pub healed_at: Duration,
     pub took: Option<Duration>,
+    /// Another fault began before this one's recovery was over, so its time is not this fault's.
+    pub interrupted: bool,
 }
 
 pub struct Outcome {
@@ -375,7 +377,7 @@ async fn app(app: App) -> Result<(), String> {
         }
         let session = SessionId(id);
         let config = client_config(session, expected)?;
-        let client = match ClientConnection::connect(group.clone(), config).await {
+        let client = match ClientConnection::connect(group.for_new_session(), config).await {
             Ok(client) => client,
             Err(e) => {
                 lock(&trace).push(format!("{:?} connect failed: {e}", start.elapsed()));
@@ -613,6 +615,14 @@ async fn run_world(seed: u64, faults: bool) -> Outcome {
         while let Some(step) = steps.next_if(|step| start + step.at <= now) {
             let step = *step;
             lock(&trace).push(format!("{:?} fault {:?}", step.at, step.fault));
+            for (kind, healed, _) in pending.drain(..) {
+                outcome.recoveries.push(Recovery {
+                    kind,
+                    healed_at: healed - start,
+                    took: None,
+                    interrupted: true,
+                });
+            }
             let kind = step.fault.kind();
             let lasts = step.fault.lasts();
             match step.fault {
@@ -733,6 +743,7 @@ async fn run_world(seed: u64, faults: bool) -> Outcome {
                         kind: kind.clone(),
                         healed_at: *healed - start,
                         took: Some(now - *healed),
+                        interrupted: false,
                     });
                     false
                 } else {
@@ -764,7 +775,12 @@ async fn run_world(seed: u64, faults: bool) -> Outcome {
         tokio::time::sleep(SAMPLE).await;
     };
     for (kind, healed, _) in pending {
-        outcome.recoveries.push(Recovery { kind, healed_at: healed - start, took: None });
+        outcome.recoveries.push(Recovery {
+            kind,
+            healed_at: healed - start,
+            took: None,
+            interrupted: false,
+        });
     }
     outcome.simulated = start.elapsed();
     outcome.error = result;

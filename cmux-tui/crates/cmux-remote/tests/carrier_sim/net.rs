@@ -292,6 +292,9 @@ pub struct SimGroup {
     /// The run's trace: each link the daemon refuses, with why.
     trace: Arc<Mutex<Vec<String>>>,
     start: Instant,
+    /// The route each generation's links take: the first link's, as one relay connection group
+    /// opens every lane of a generation through its one endpoint. A swap moves the next one.
+    pinned: Mutex<Option<(u64, usize)>>,
 }
 
 impl SimGroup {
@@ -310,7 +313,24 @@ impl SimGroup {
             accepts,
             trace,
             start: Instant::now(),
+            pinned: Mutex::new(None),
         }
+    }
+}
+
+impl SimGroup {
+    /// The group a new session dials: `cmux carrier dial` opens a connection group of its own.
+    pub fn for_new_session(&self) -> Arc<Self> {
+        Arc::new(Self {
+            routes: self.routes.clone(),
+            active: self.active.clone(),
+            daemon: self.daemon.clone(),
+            evidence: self.evidence.clone(),
+            accepts: self.accepts.clone(),
+            trace: self.trace.clone(),
+            start: self.start,
+            pinned: Mutex::new(None),
+        })
     }
 }
 
@@ -329,7 +349,18 @@ impl LinkGroup for SimGroup {
     }
 
     async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
-        let route = self.routes[*lock(&self.active)].clone();
+        let index = {
+            let mut pinned = lock(&self.pinned);
+            match *pinned {
+                Some((generation, index)) if generation == request.generation => index,
+                _ => {
+                    let index = *lock(&self.active);
+                    *pinned = Some((request.generation, index));
+                    index
+                }
+            }
+        };
+        let route = self.routes[index].clone();
         // A dial takes one round trip before it can fail or succeed.
         tokio::time::sleep(route.latency() * 2).await;
         // Both fail as the relay provider fails them: a carrier error the client retries
