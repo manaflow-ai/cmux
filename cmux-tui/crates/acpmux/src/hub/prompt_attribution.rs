@@ -350,6 +350,13 @@ mod tests {
         let mut msg = json!({"text": HANDOFF, "_meta": {"provenance": {"kind": "agent_message", "from": "x"}}});
         super::super::session::mark_pasted(&mut msg, &typed);
         assert!(msg.get("agentText").is_none());
+        // Follow-up to #37190 (F1): a prompt the daemon made from no person (an unverified
+        // client's, a suggested task's result, a fan-in or inbox digest) gets no note either.
+        for kind in ["unverified", "offer_result", "agent_digest", "inbox_digest"] {
+            let mut msg = json!({"text": HANDOFF, "_meta": {"provenance": {"kind": kind}}});
+            super::super::session::mark_pasted(&mut msg, &typed);
+            assert!(msg.get("agentText").is_none(), "{kind} got agentText");
+        }
         let mut msg = json!({"text": "Merge whenever."});
         super::super::session::mark_pasted(&mut msg, &[mine]);
         assert_eq!(msg, json!({"text": "Merge whenever."}));
