@@ -328,46 +328,80 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
   };
 }
 
+/** An awk function that reads one string field of a journalctl JSON line, past escaped quotes (`\"` reads as `"`). */
+export const JOURNAL_FIELD = `function field(name,   r) { if (match($0, "\\"" name "\\":\\"([^\\"\\\\\\\\]|\\\\\\\\.)*\\"")) { r = substr($0, RSTART, RLENGTH); sub(/^"[^"]*":"/, "", r); sub(/"$/, "", r); gsub(/\\\\"/, "\\"", r); return r } return "" }`;
+
 /**
- * When the guest set up its carrier, in the guest's own clock: the bind the host finished (bound.json; the platform's
- * bind.json is gone by now, since the host deletes it once bound.json is written, cmux-host cloud/client.rs), the
- * carrier.json and grant the host wrote from it, the session host's start (it is respawned with the relay flags; from
- * /proc/uptime, which keeps hundredths where btime is whole seconds), and the host's journal lines about them. Each line
- * is `<name> <epoch ms>`. The session host's pid and
- * the journal may need root: the pid falls back to `sudo -n`, and the journal tries it first (journalctl run without
- * root can exit 0 with nothing to show).
+ * When the guest set up its carrier: the bind the host finished (bound.json; the platform's bind.json is gone by now,
+ * since the host deletes it once bound.json is written, cmux-host cloud/client.rs), the carrier.json and grant the host
+ * wrote from it, the session host's start (it is respawned with the relay flags), and the host's journal lines about
+ * them. Times are on the guest's boot clock where it has one, so a wall clock stepped after boot (a machine resumed
+ * from a snapshot, then synced) moves nothing: `guest_now <wall ms> <uptime ms>` read together, `mono <name> <ms since
+ * boot>` (the session host), `journal <ms since boot> <message>`, `wall <name> <epoch ms>` (a file's mtime) and
+ * `clock <epoch ms> <boot's epoch ms>` each time the journal's wall clock moved against its boot clock. The pid and the
+ * journal may need root: each tries `sudo -n` (journalctl run without root can exit 0 with nothing to show).
  */
 export const GUEST_CARRIER_TIMELINE = [
-  'echo "guest_now $(date +%s%3N)"',
+  `echo "guest_now $(date +%s%3N) $(awk '{ printf "%.0f", $1 * 1000 }' /proc/uptime)"`,
   "for f in /var/lib/cmux/bound.json /var/lib/cmux/carrier.json /run/cmux/carrier-grant.json; do",
-  '  t=$(date -r "$f" +%s%3N 2>/dev/null || sudo -n date -r "$f" +%s%3N 2>/dev/null) && echo "$(basename "$f") $t"',
+  '  t=$(date -r "$f" +%s%3N 2>/dev/null || sudo -n date -r "$f" +%s%3N 2>/dev/null) && echo "wall $(basename "$f") $t"',
   "done",
   "pid=$(cat /run/cmux-host/daemon.pid 2>/dev/null || sudo -n cat /run/cmux-host/daemon.pid 2>/dev/null)",
   'if [ -n "$pid" ] && [ -r "/proc/$pid/stat" ]; then',
-  "  now=$(date +%s%3N); up=$(awk '{print $1}' /proc/uptime); st=$(awk '{print $22}' \"/proc/$pid/stat\"); hz=$(getconf CLK_TCK)",
-  "  awk -v n=\"$now\" -v u=\"$up\" -v s=\"$st\" -v h=\"$hz\" 'BEGIN { printf \"session_host_start %.0f\\n\", n - u * 1000 + s * 1000 / h }'",
+  "  st=$(awk '{print $22}' \"/proc/$pid/stat\"); hz=$(getconf CLK_TCK)",
+  "  awk -v s=\"$st\" -v h=\"$hz\" 'BEGIN { printf \"mono session_host_start %.0f\\n\", s * 1000 / h }'",
   "fi",
-  "{ sudo -n journalctl -u cmux-host.service -o short-unix --no-pager -n 200 2>/dev/null || journalctl -u cmux-host.service -o short-unix --no-pager -n 200 2>/dev/null; } \\",
-  "  | grep -iE 'carrier|session host|relay|regist' | tail -8 | awk '{ t = $1; $1 = \"\"; $2 = \"\"; sub(/^ +/, \"\"); printf \"journal %.0f %s\\n\", t * 1000, $0 }'",
+  "{ sudo -n journalctl -b -o json --no-pager 2>/dev/null || journalctl -b -o json --no-pager 2>/dev/null; } | head -n 4000 \\",
+  `  | awk '${JOURNAL_FIELD} { rt = field("__REALTIME_TIMESTAMP"); mo = field("__MONOTONIC_TIMESTAMP"); if (rt == "" || mo == "") next; bw = (rt - mo) / 1000; if (!n || bw - last > 500 || last - bw > 500) { printf "clock %.0f %.0f\\n", rt / 1000, bw; last = bw; n++ } }'`,
+  "{ sudo -n journalctl -b -u cmux-host.service -o json --no-pager -n 400 2>/dev/null || journalctl -b -u cmux-host.service -o json --no-pager -n 400 2>/dev/null; } \\",
+  `  | awk '${JOURNAL_FIELD} { m = field("MESSAGE"); if (tolower(m) ~ /carrier|session host|relay|regist/) line[++n] = sprintf("journal %.0f %s", field("__MONOTONIC_TIMESTAMP") / 1000, m) } END { for (i = (n > 8 ? n - 7 : 1); i <= n; i++) print line[i] }'`,
   "true",
 ].join("\n");
 
 /**
- * GUEST_CARRIER_TIMELINE's lines as ms after create's answer, corrected by the guest's clock offset: guest_now against the
- * midpoint of the exec (`before`, `after`, this computer's clock), so each offset is good to about half the exec's time.
+ * GUEST_CARRIER_TIMELINE's lines as ms after create's answer. Each time goes to the guest's boot clock (a file's mtime
+ * through the wall clock segment it was written in), then to this computer's clock through the uptime read at the
+ * exec's midpoint (`before`, `after`), so a time is good to about half the exec, whatever the guest's wall clock did.
  */
 export function guestTimeline(stdout: string, answeredAt: number, before: number, after: number): string {
-  const rows = stdout.split("\n").map((l) => l.trim()).filter(Boolean).map((l) => {
-    const [name, at, ...rest] = l.split(" ");
-    return { name, at: Number(at), rest: rest.join(" ") };
-  }).filter((r) => Number.isFinite(r.at) && r.at > 0);
-  const now = rows.find((r) => r.name === "guest_now");
-  const skew = now ? now.at - Math.round((before + after) / 2) : 0;
-  const parts = rows.filter((r) => r.name !== "guest_now").map((r) => {
-    const ms = r.at - skew - answeredAt;
-    return `${r.name}${r.rest ? ` "${r.rest.slice(0, 80)}"` : ""} ${ms >= 0 ? "+" : ""}${ms} ms`;
-  });
-  return `after create's answer (guest clock ${skew >= 0 ? "+" : ""}${skew} ms, ±${Math.round((after - before) / 2)} ms): ${parts.join("; ") || "nothing read"}`;
+  let wallNow = NaN;
+  let upNow = NaN;
+  const segments: Array<{ rt: number; boot: number }> = [];
+  const events: Array<{ name: string; mono?: number; wall?: number; text?: string }> = [];
+  for (const line of stdout.split("\n").map((l) => l.trim()).filter(Boolean)) {
+    const [kind, a, b, ...rest] = line.split(" ");
+    if (kind === "guest_now") [wallNow, upNow] = [Number(a), Number(b)];
+    else if (kind === "clock") segments.push({ rt: Number(a), boot: Number(b) });
+    else if (kind === "wall") events.push({ name: a, wall: Number(b) });
+    else if (kind === "mono") events.push({ name: a, mono: Number(b) });
+    else if (kind === "journal") events.push({ name: "journal", mono: Number(a), text: [b, ...rest].join(" ") });
+  }
+  const half = Math.round((after - before) / 2);
+  if (!Number.isFinite(wallNow) || !Number.isFinite(upNow)) return `after create's answer (±${half} ms): no guest clock read`;
+  const bootNow = wallNow - upNow;
+  const clock = segments.filter((c) => Number.isFinite(c.rt) && Number.isFinite(c.boot));
+  if (!clock.length || Math.abs(clock[clock.length - 1].boot - bootNow) > 500) clock.push({ rt: wallNow, boot: bootNow });
+  // A wall time in the boot clock, through the segment whose boot-clock span it falls in.
+  const toMono = (wall: number) => {
+    for (let i = 0; i < clock.length; i += 1) {
+      const mono = wall - clock[i].boot;
+      const start = i === 0 ? -Infinity : clock[i].rt - clock[i].boot;
+      const end = i + 1 < clock.length ? clock[i + 1].rt - clock[i + 1].boot : Infinity;
+      if (mono >= start && mono < end) return mono;
+    }
+    return wall - bootNow;
+  };
+  const mid = Math.round((before + after) / 2);
+  const rel = (mono: number) => {
+    const ms = Math.round(mid - (upNow - mono) - answeredAt);
+    return `${ms >= 0 ? "+" : ""}${ms} ms`;
+  };
+  const parts = [`guest boot ${rel(0)}`, ...events.flatMap((e) => {
+    const mono = e.mono ?? (e.wall !== undefined ? toMono(e.wall) : NaN);
+    return Number.isFinite(mono) ? [`${e.name}${e.text ? ` "${e.text.slice(0, 80)}"` : ""} ${rel(mono)}`] : [];
+  })];
+  const step = clock.length > 1 ? Math.round(clock[clock.length - 1].boot - clock[0].boot) : 0;
+  return `after create's answer (±${half} ms${step ? `; the guest's wall clock stepped ${step >= 0 ? "+" : ""}${step} ms after boot` : ""}): ${parts.join("; ")}`;
 }
 
 /** A carrier answer's `relay`, as the dial takes it (cmux-tui carrier/answer.rs relay_route): a bare `relay+do://<host>`. */

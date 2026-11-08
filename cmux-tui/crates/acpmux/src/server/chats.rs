@@ -74,7 +74,9 @@ use serde_json::{Value, json};
 use tokio::sync::broadcast::error::RecvError;
 
 use super::{Conn, Origin};
-use crate::chats::{ChatQuery, ChatService, activity_change, change_value, changes_activity};
+use crate::chats::{
+    ChatQuery, ChatService, activity_change, change_value, changes_activity, transcript_turns,
+};
 use crate::heap_future::heap;
 use crate::hub::Hub;
 use crate::hub::HubEvent;
@@ -497,41 +499,6 @@ async fn settled_page(
     let mut page = page(hub, service, query).await?;
     page.set("settled", Value::Bool(true));
     Ok(page)
-}
-
-/// A chat's turns: Claude Code and Codex through adopt's reader (`adopt_replay.rs`, the turns an
-/// adopted chat replays), every other harness through `cmux_chat_index::transcript`. Both come
-/// out with the same caps, and a file that cannot be read is an error, never "no turns".
-fn transcript_turns(
-    entry: &cmux_chat_index::ChatEntry,
-) -> Result<Vec<cmux_chat_index::transcript::Turn>, cmux_chat_index::transcript::TranscriptError> {
-    use cmux_chat_index::AdapterKind;
-    use cmux_chat_index::transcript::{TranscriptError, Turn, capped};
-    let family = match entry.harness {
-        AdapterKind::ClaudeCode => "claude",
-        AdapterKind::Codex => "codex",
-        kind => {
-            return cmux_chat_index::transcript::read_turns(
-                kind,
-                &entry.source_path,
-                &entry.session_id,
-            );
-        }
-    };
-    // adopt's reader answers an unreadable file with no turns.
-    std::fs::File::open(&entry.source_path)
-        .map_err(|e| TranscriptError::Unreadable(e.to_string()))?;
-    let turns = crate::adopt_replay::read(family, &entry.source_path);
-    Ok(turns
-        .into_iter()
-        .map(|t| Turn {
-            prompt: capped(t.prompt),
-            // No answer yet has no answer time (adopt's reader starts it at the prompt's).
-            answer_at: t.answer_at.filter(|_| !t.answer.is_empty()),
-            answer: capped(t.answer),
-            prompt_at: t.prompt_at,
-        })
-        .collect())
 }
 
 /// The index lock may be held by a scan: never wait for it on the executor.
