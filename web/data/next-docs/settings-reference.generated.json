@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 606,
+  "count": 607,
   "sections": [
     {
       "id": "general",
@@ -5862,6 +5862,19 @@
             "orb-spark",
             "orb-hood"
           ]
+        },
+        {
+          "key": "home.chiefZoom",
+          "title": "Chief Chat Zoom",
+          "help": "The display size for the Chief chat, apart from agent chats. Cmd-0 on Home resets it.",
+          "kind": "number",
+          "default": 1,
+          "group": "Chief Chat",
+          "range": {
+            "min": 0.5,
+            "max": 2,
+            "unit": "fraction"
+          }
         },
         {
           "key": "home.feedInChief",

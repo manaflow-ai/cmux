@@ -1381,6 +1381,7 @@
             "key" : "settings.group.chiefChat",
             "rows" : [
               "home.chiefBubbleStyle",
+              "home.chiefZoom",
               "home.feedInChief",
               "home.bubbleColors.sent",
               "home.bubbleColors.sentText",
@@ -86594,6 +86595,153 @@
       "title" : {
         "key" : "settings.home.chiefBubbleStyle",
         "text" : "Bubble Style"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0.5,
+        2,
+        1.25
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 1,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.chiefChat",
+        "text" : "Chief Chat"
+      },
+      "help" : {
+        "key" : "settings.home.chiefZoom.help",
+        "text" : "The display size for the Chief chat, apart from agent chats. Cmd-0 on Home resets it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.chiefZoom",
+      "keywords" : [
+        "chief",
+        "chat",
+        "zoom",
+        "text size",
+        "font",
+        "bigger",
+        "smaller",
+        "display",
+        "size",
+        "home"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "chiefZoom"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 2,
+        "min" : 0.5,
+        "placeholder" : 1,
+        "step" : 0.1,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        3.5,
+        "1"
+      ],
+      "section" : "home",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:home.chiefZoom"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.home.chiefZoom",
+        "text" : "Chief Chat Zoom"
       },
       "validation" : "portable"
     },

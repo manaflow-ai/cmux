@@ -2956,6 +2956,14 @@
       "title" : "Character",
       "type" : "string"
     },
+    "home.chiefZoom" : {
+      "default" : 1,
+      "description" : "The display size for the Chief chat, apart from agent chats. Cmd-0 on Home resets it.",
+      "maximum" : 2,
+      "minimum" : 0.5,
+      "title" : "Chief Chat Zoom",
+      "type" : "number"
+    },
     "home.feedInChief" : {
       "default" : true,
       "description" : "Feed notices, such as updates and pull requests, appear among your main Chief's messages. Only you see them; the Chief does not read them.",
