@@ -16,6 +16,11 @@ pub(crate) fn grant(vm_kind: Option<VmKind>, chats: Option<&[&str]>) -> CarrierG
     }
 }
 
+/// `future`'s output, or a test failure after 10 s instead of a hang.
+pub(crate) async fn within<F: std::future::Future>(future: F) -> F::Output {
+    tokio::time::timeout(Duration::from_secs(10), future).await.expect("timed out")
+}
+
 fn parsed(header: &str) -> Value {
     serde_json::from_str(header).unwrap()
 }
@@ -202,10 +207,11 @@ mod relay_tests {
         let mut lines = BufReader::new(client_reader).lines();
         // Every frame is recorded before its echo comes back.
         for _ in 0..4 {
-            lines.next_line().await.unwrap().unwrap();
+            within(lines.next_line()).await.unwrap().unwrap();
         }
-        drop(client_writer);
-        relay.await.unwrap().unwrap();
+        // Shut the pipe's write side: dropping a split half alone does not.
+        client_writer.shutdown().await.unwrap();
+        within(relay).await.unwrap().unwrap();
         let seen = fake.seen.lock().unwrap();
         assert_eq!(seen.headers.len(), 1, "one upgrade, the bridge's");
         assert_eq!(
@@ -234,13 +240,13 @@ mod relay_tests {
         for id in 1..=2 {
             let request = json!({"jsonrpc": "2.0", "id": id, "method": "initialize"}).to_string();
             client_writer.write_all(format!("{request}\n").as_bytes()).await.unwrap();
-            let answer = lines.next_line().await.unwrap().unwrap();
+            let answer = within(lines.next_line()).await.unwrap().unwrap();
             assert_eq!(parsed(&answer), json!({"echo": request}));
         }
         // The client closes: acpmux sees the close.
-        drop(client_writer);
-        relay_task.await.unwrap().unwrap();
-        tokio::time::timeout(Duration::from_secs(10), fake.closed.recv()).await.unwrap().unwrap();
+        client_writer.shutdown().await.unwrap();
+        within(relay_task).await.unwrap().unwrap();
+        within(fake.closed.recv()).await.unwrap();
 
         // acpmux closes: the client's reader ends.
         let ws = connect(&fake.path, &header(Some(&owner)).unwrap()).await.unwrap();
@@ -250,8 +256,8 @@ mod relay_tests {
         let (client_reader, _client_writer) = tokio::io::split(client);
         fake.close.send(()).await.unwrap();
         let mut lines = BufReader::new(client_reader).lines();
-        assert_eq!(lines.next_line().await.unwrap(), None);
-        relay_task.await.unwrap().unwrap();
+        assert_eq!(within(lines.next_line()).await.unwrap(), None);
+        within(relay_task).await.unwrap().unwrap();
     }
 
     #[tokio::test]

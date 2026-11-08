@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use super::tests::endpoint_pair;
 use super::*;
 use crate::acpmux_bridge::tests::fake;
-use crate::acpmux_bridge::tests::grant;
+use crate::acpmux_bridge::tests::{grant, within};
 use crate::service::{EndpointRole, ServiceMultiplexer};
 
 /// Open the acpmux service and run the daemon's handler next to `client`,
@@ -28,7 +28,7 @@ where
         let control = serde_json::from_slice::<ServiceControl>(&response.payload).unwrap();
         client(stream, control).await;
     };
-    let (served, ()) = tokio::join!(serve, run_client);
+    let (served, ()) = within(async { tokio::join!(serve, run_client) }).await;
     served.unwrap();
     client_mux.shutdown().await;
     daemon_mux.shutdown().await;

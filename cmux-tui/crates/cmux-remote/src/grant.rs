@@ -12,8 +12,8 @@
 //! never re-checked against the grant's expiry, and it ends only by the
 //! session's own rules (its resume lease, or a retire pushed to it). A resume
 //! (generation 1 and up) carries no grant: the daemon re-admits the Noise key
-//! a grant admitted before ([`AdmittedGrants`]), with the same device id and
-//! services. Its generation fence admits that only into the key's existing
+//! a grant admitted before into the same session ([`AdmittedGrants`]), with
+//! that session's own grant, device id and services. Its generation fence admits that only into the key's existing
 //! session, so a resume never opens a new one.
 
 use std::collections::{HashMap, VecDeque};
@@ -59,10 +59,12 @@ pub fn link_group(session: SessionId, generation: u64, attempt: ConnectionAttemp
     digest.finalize().into()
 }
 
-/// The grants this daemon admitted, by Noise key, for resumes. Bounded and
-/// least recently used first: an admission or a resume makes a key the
-/// newest, so a key in use is forgotten only after [`MAX_ADMITTED_GRANTS`]
-/// other keys were used since. A forgotten key needs a new grant.
+/// The grants this daemon admitted, by Noise key and session, for resumes:
+/// each session resumes with the grant that opened it, so a later session of
+/// the same key with a fresh grant leaves it as it was. Bounded and least
+/// recently used first: an admission or a resume makes an entry the newest,
+/// so one in use is forgotten only after [`MAX_ADMITTED_GRANTS`] others were
+/// used since. A forgotten one needs a new grant.
 #[derive(Debug, Default)]
 pub(crate) struct AdmittedGrants {
     inner: Mutex<Admitted>,
@@ -71,17 +73,20 @@ pub(crate) struct AdmittedGrants {
 
 #[derive(Debug, Default)]
 struct Admitted {
-    by_key: HashMap<[u8; 32], GrantAdmission>,
+    by_key: HashMap<AdmittedKey, GrantAdmission>,
     /// Oldest use first.
-    order: VecDeque<[u8; 32]>,
+    order: VecDeque<AdmittedKey>,
 }
 
+/// A client's Noise key and the session its grant opened.
+type AdmittedKey = ([u8; 32], SessionId);
+
 impl Admitted {
-    fn touch(&mut self, noise_key: [u8; 32]) {
-        if let Some(at) = self.order.iter().position(|key| *key == noise_key) {
+    fn touch(&mut self, key: AdmittedKey) {
+        if let Some(at) = self.order.iter().position(|held| *held == key) {
             self.order.remove(at);
         }
-        self.order.push_back(noise_key);
+        self.order.push_back(key);
     }
 }
 
@@ -91,11 +96,16 @@ impl AdmittedGrants {
         Self { inner: Mutex::default(), capacity: Some(capacity) }
     }
 
-    pub(crate) fn remember(&self, noise_key: [u8; 32], admission: GrantAdmission) {
+    pub(crate) fn remember(
+        &self,
+        noise_key: [u8; 32],
+        session: SessionId,
+        admission: GrantAdmission,
+    ) {
         let capacity = self.capacity.unwrap_or(MAX_ADMITTED_GRANTS);
         let mut guard = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        guard.by_key.insert(noise_key, admission);
-        guard.touch(noise_key);
+        guard.by_key.insert((noise_key, session), admission);
+        guard.touch((noise_key, session));
         while guard.order.len() > capacity {
             if let Some(oldest) = guard.order.pop_front() {
                 guard.by_key.remove(&oldest);
@@ -103,11 +113,13 @@ impl AdmittedGrants {
         }
     }
 
-    /// The admission of `noise_key` for a resume, which makes it the newest.
-    pub(crate) fn get(&self, noise_key: &[u8; 32]) -> Option<GrantAdmission> {
+    /// The admission of `noise_key` in `session` for a resume, which makes it
+    /// the newest.
+    pub(crate) fn get(&self, noise_key: &[u8; 32], session: SessionId) -> Option<GrantAdmission> {
+        let key = (*noise_key, session);
         let mut guard = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let admission = guard.by_key.get(noise_key).cloned()?;
-        guard.touch(*noise_key);
+        let admission = guard.by_key.get(&key).cloned()?;
+        guard.touch(key);
         Some(admission)
     }
 }
@@ -433,26 +445,43 @@ mod tests {
         }
     }
 
+    const S: SessionId = SessionId([9; 16]);
+
     /// #37211 review F3: a key re-admitted or resumed while in use kept its
     /// old place and was forgotten first, so its grant-free resume failed.
     #[test]
     fn a_key_in_use_is_the_newest_and_is_forgotten_last() {
         let admitted = AdmittedGrants::with_capacity(2);
-        admitted.remember([1; 32], admission(1));
-        admitted.remember([2; 32], admission(2));
+        admitted.remember([1; 32], S, admission(1));
+        admitted.remember([2; 32], S, admission(2));
         // Key 1 re-admits: key 2 is now the oldest.
-        admitted.remember([1; 32], admission(1));
-        admitted.remember([3; 32], admission(3));
-        assert_eq!(admitted.get(&[2; 32]), None);
-        assert_eq!(admitted.get(&[1; 32]), Some(admission(1)));
+        admitted.remember([1; 32], S, admission(1));
+        admitted.remember([3; 32], S, admission(3));
+        assert_eq!(admitted.get(&[2; 32], S), None);
+        assert_eq!(admitted.get(&[1; 32], S), Some(admission(1)));
         // A resume of key 3 makes key 1 the oldest.
-        assert_eq!(admitted.get(&[3; 32]), Some(admission(3)));
-        admitted.remember([4; 32], admission(4));
-        assert_eq!(admitted.get(&[1; 32]), None);
-        assert_eq!(admitted.get(&[3; 32]), Some(admission(3)));
-        assert_eq!(admitted.get(&[4; 32]), Some(admission(4)));
+        assert_eq!(admitted.get(&[3; 32], S), Some(admission(3)));
+        admitted.remember([4; 32], S, admission(4));
+        assert_eq!(admitted.get(&[1; 32], S), None);
+        assert_eq!(admitted.get(&[3; 32], S), Some(admission(3)));
+        assert_eq!(admitted.get(&[4; 32], S), Some(admission(4)));
         let guard = admitted.inner.lock().unwrap();
         assert_eq!(guard.order.len(), guard.by_key.len());
+    }
+
+    /// #38420 review F1: a second session of one Noise key with a fresh
+    /// grant replaced the first session's admission, so the first one's
+    /// resume came back with another grant and was refused as a changed
+    /// authority. Each session resumes with its own.
+    #[test]
+    fn each_session_of_one_key_resumes_with_its_own_grant() {
+        let admitted = AdmittedGrants::default();
+        let (a, b) = (SessionId([1; 16]), SessionId([2; 16]));
+        admitted.remember([1; 32], a, admission(1));
+        admitted.remember([1; 32], b, admission(2));
+        assert_eq!(admitted.get(&[1; 32], a), Some(admission(1)));
+        assert_eq!(admitted.get(&[1; 32], b), Some(admission(2)));
+        assert_eq!(admitted.get(&[1; 32], SessionId([3; 16])), None);
     }
 
     mod file_verifier {
