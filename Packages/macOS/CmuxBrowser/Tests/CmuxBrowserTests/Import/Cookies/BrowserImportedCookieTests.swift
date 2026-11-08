@@ -8,13 +8,16 @@ struct BrowserImportedCookieTests {
     // 2027-11-08T15:54:15.176Z in milliseconds, as current Firefox-family cookie databases store it.
     private let expiryMilliseconds: Int64 = 1_825_694_055_176
     private let expiryDate = Date(timeIntervalSince1970: 1_825_694_055.176)
+    // 2023-11-14, before every fixture expiry.
+    private let now = Date(timeIntervalSince1970: 1_700_000_000)
 
     private func firefoxRow(
         expiry: Int64 = 1_825_694_055_176,
         isHTTPOnly: Bool = false,
         sameSite: Int64 = 0,
         originAttributes: String = "",
-        schemaVersion: Int64 = 17
+        schemaVersion: Int64 = 17,
+        now: Date? = nil
     ) -> BrowserImportedCookie? {
         BrowserImportedCookie.firefox(
             host: ".example.test",
@@ -26,11 +29,13 @@ struct BrowserImportedCookieTests {
             isHTTPOnly: isHTTPOnly,
             sameSite: sameSite,
             originAttributes: originAttributes,
-            schemaVersion: schemaVersion
+            schemaVersion: schemaVersion,
+            now: now ?? self.now
         )
     }
 
     private func chromiumRow(
+        expiresUTC: Int64 = 13_407_167_655_176_000,
         isHTTPOnly: Bool = false,
         sameSite: Int64 = -1,
         topFrameSiteKey: String = ""
@@ -40,11 +45,12 @@ struct BrowserImportedCookieTests {
             name: "session",
             value: "abc",
             path: "/",
-            expiresUTC: 13_407_167_655_176_000,
+            expiresUTC: expiresUTC,
             isSecure: true,
             isHTTPOnly: isHTTPOnly,
             sameSite: sameSite,
-            topFrameSiteKey: topFrameSiteKey
+            topFrameSiteKey: topFrameSiteKey,
+            now: now
         )
     }
 
@@ -64,9 +70,22 @@ struct BrowserImportedCookieTests {
 
     @Test("reads a long-expired millisecond expiry as milliseconds")
     func firefoxSmallMillisecondExpiry() throws {
-        let cookie = try #require(firefoxRow(expiry: 2_000_000_000, schemaVersion: 16))
+        let cookie = try #require(firefoxRow(expiry: 2_000_000_000, schemaVersion: 16, now: Date(timeIntervalSince1970: 0)))
         let expires = try #require(cookie.expiresDate)
         #expect(abs(expires.timeIntervalSince1970 - 2_000_000) < 1)
+    }
+
+    @Test("does not import an expired Firefox cookie", arguments: [Int64(0), -1, 1_600_000_000_000])
+    func firefoxExpiredSkipped(expiry: Int64) {
+        #expect(firefoxRow(expiry: expiry) == nil)
+    }
+
+    @Test("does not import an expired Chromium cookie, and keeps a session cookie")
+    func chromiumExpiredSkipped() {
+        // 2020-09-13 in microseconds since 1601.
+        #expect(chromiumRow(expiresUTC: 13_244_473_600_000_000) == nil)
+        #expect(chromiumRow(expiresUTC: 0)?.expiresDate == nil)
+        #expect(chromiumRow(expiresUTC: 0) != nil)
     }
 
     @Test("keeps a Firefox cookie HttpOnly")
@@ -90,6 +109,54 @@ struct BrowserImportedCookieTests {
     func firefoxPartitionedSkipped() {
         #expect(firefoxRow(originAttributes: "^partitionKey=%28https%2Cembedder.test%29") == nil)
         #expect(firefoxRow(originAttributes: "^userContextId=2&partitionKey=%28https%2Cembedder.test%29") == nil)
+    }
+
+    @Test("does not import a first-party-isolated Firefox cookie as an ordinary cookie")
+    func firefoxFirstPartyIsolatedSkipped() {
+        #expect(firefoxRow(originAttributes: "^firstPartyDomain=embedder.test") == nil)
+    }
+
+    // Cookie schema 8 added `originAttributes`, and schema 9 `sameSite`.
+    @Test("reads a Firefox moz_cookies table with or without sameSite and originAttributes", arguments: [
+        "sameSite INTEGER DEFAULT 0, originAttributes TEXT NOT NULL DEFAULT '',",
+        "",
+    ])
+    func firefoxCookiesQuery(newerColumns: String) throws {
+        var database: OpaquePointer?
+        try #require(sqlite3_open(":memory:", &database) == SQLITE_OK)
+        defer { sqlite3_close(database) }
+        let schema = """
+        CREATE TABLE moz_cookies (
+            id INTEGER PRIMARY KEY, \(newerColumns) name TEXT, value TEXT, host TEXT, path TEXT,
+            expiry INTEGER, isSecure INTEGER, isHttpOnly INTEGER
+        );
+        INSERT INTO moz_cookies (name, value, host, path, expiry, isSecure, isHttpOnly)
+        VALUES ('session', 'abc', '.example.test', '/', 1825694055, 1, 1);
+        PRAGMA user_version = 7;
+        """
+        try #require(sqlite3_exec(database, schema, nil, nil, nil) == SQLITE_OK)
+        let columns = try tableColumns(database, table: "moz_cookies")
+
+        var statement: OpaquePointer?
+        let query = BrowserImportedCookie.firefoxCookiesQuery(columns: columns)
+        try #require(sqlite3_prepare_v2(database, query, -1, &statement, nil) == SQLITE_OK)
+        defer { sqlite3_finalize(statement) }
+        try #require(sqlite3_step(statement) == SQLITE_ROW)
+        #expect(sqlite3_column_count(statement) == 10)
+        #expect(sqlite3_column_int64(statement, 7) == 0)
+        #expect(String(cString: sqlite3_column_text(statement, 8)).isEmpty)
+        #expect(sqlite3_column_int64(statement, 9) == 7)
+    }
+
+    private func tableColumns(_ database: OpaquePointer?, table: String) throws -> Set<String> {
+        var columns: Set<String> = []
+        var info: OpaquePointer?
+        try #require(sqlite3_prepare_v2(database, "SELECT name FROM pragma_table_info('\(table)')", -1, &info, nil) == SQLITE_OK)
+        defer { sqlite3_finalize(info) }
+        while sqlite3_step(info) == SQLITE_ROW {
+            columns.insert(String(cString: sqlite3_column_text(info, 0)))
+        }
+        return columns
     }
 
     @Test("keeps a Chromium cookie HttpOnly")
@@ -132,13 +199,7 @@ struct BrowserImportedCookieTests {
         VALUES ('.example.test', 'session', 'abc', x'', '/', 0, 1, 1, 1);
         """
         try #require(sqlite3_exec(database, schema, nil, nil, nil) == SQLITE_OK)
-        var columns: Set<String> = []
-        var info: OpaquePointer?
-        try #require(sqlite3_prepare_v2(database, "SELECT name FROM pragma_table_info('cookies')", -1, &info, nil) == SQLITE_OK)
-        while sqlite3_step(info) == SQLITE_ROW {
-            columns.insert(String(cString: sqlite3_column_text(info, 0)))
-        }
-        sqlite3_finalize(info)
+        let columns = try tableColumns(database, table: "cookies")
 
         var statement: OpaquePointer?
         let query = BrowserImportedCookie.chromiumCookiesQuery(columns: columns)

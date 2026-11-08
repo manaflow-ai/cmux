@@ -66,7 +66,8 @@ public struct BrowserImportedCookie: Sendable, Equatable {
         isHTTPOnly: Bool,
         sameSite: Int64,
         originAttributes: String,
-        schemaVersion: Int64
+        schemaVersion: Int64,
+        now: Date = Date()
     ) -> BrowserImportedCookie? {
         guard !name.isEmpty else { return nil }
         // A partitioned (CHIPS) cookie belongs to one embedding site; importing it
@@ -97,7 +98,8 @@ public struct BrowserImportedCookie: Sendable, Equatable {
         isSecure: Bool,
         isHTTPOnly: Bool,
         sameSite: Int64,
-        topFrameSiteKey: String
+        topFrameSiteKey: String,
+        now: Date = Date()
     ) -> BrowserImportedCookie? {
         guard !name.isEmpty else { return nil }
         guard topFrameSiteKey.isEmpty else { return nil }
@@ -111,6 +113,17 @@ public struct BrowserImportedCookie: Sendable, Equatable {
             isHTTPOnly: isHTTPOnly,
             sameSite: sameSite == 1 ? .lax : (sameSite == 2 ? .strict : .none)
         )
+    }
+
+    /// The query that reads a Firefox-family `moz_cookies` table with the given
+    /// columns, in the order ``firefox(host:name:value:path:expiry:isSecure:isHTTPOnly:sameSite:originAttributes:schemaVersion:now:)``
+    /// takes them.
+    public static func firefoxCookiesQuery(columns: Set<String>) -> String {
+        """
+        SELECT host, name, value, path, expiry, isSecure, isHttpOnly, sameSite, originAttributes,
+               (SELECT user_version FROM pragma_user_version)
+        FROM moz_cookies
+        """
     }
 
     /// The query that reads a Chromium-family `cookies` table with the given
