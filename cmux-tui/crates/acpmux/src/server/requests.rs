@@ -3234,7 +3234,9 @@ pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
 /// CLI declares, never by the text. An agent in an acpmux session holds a caller token
 /// (`hub/person.rs` (a)), proven or not, and its send is that session's. An agent harness's own
 /// shell outside acpmux (Claude Code, Codex, an `AI_AGENT` tool) names itself and its harness
-/// (`cli/sender.rs` `implicit`, `harness_of`: `fromAgent`, `fromHarness`). A relay names what it
+/// (`cli/sender.rs` `implicit`, `harness_of`: `fromAgent`, `fromHarness`), and a send whose
+/// environment or process chain shows a harness, an MCP client or an app that is no terminal
+/// says so (`sender_harness.rs`: `senderHarness`; a shell under a terminal or cmux claims none). A relay names what it
 /// carries (`fromRelay`, `via`: the lane-gh broker, the Cloud mobile carrier). A trigger, the
 /// app's own transport (`LocalApp`, whose pane proves the person instead) and every non-unix
 /// transport are no terminal. Any of those stays `unverified`. What is left is a plain unix
@@ -3245,9 +3247,15 @@ pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
 /// the person's (`attest_person` reads `person_admitted` only).
 fn owner_terminal(conn: &Conn, params: &Value) -> bool {
     let claims = params.pointer("/_meta/acpmux").and_then(Value::as_object).is_some_and(|mux| {
-        ["fromAgent", crate::prompt_provenance::FROM_HARNESS, "fromRelay", "via"]
-            .iter()
-            .any(|key| mux.get(*key).is_some_and(|v| !v.is_null()))
+        [
+            "fromAgent",
+            crate::prompt_provenance::FROM_HARNESS,
+            crate::sender_harness::META_KEY,
+            "fromRelay",
+            "via",
+        ]
+        .iter()
+        .any(|key| mux.get(*key).is_some_and(|v| !v.is_null()))
     });
     conn.origin == super::Origin::Local
         && !conn.is_trigger()

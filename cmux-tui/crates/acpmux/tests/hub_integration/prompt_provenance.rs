@@ -230,6 +230,9 @@ async fn the_owners_plain_terminal_send_is_theirs_and_every_claim_keeps_one_off_
     let named = json!({"fromAgent": "Claude Code on my-mac", "fromHarness": "claude"});
     owner.call("session/prompt", with("p-named", named)).await;
     owner.call("session/prompt", with("p-harness", json!({"fromHarness": "codex"}))).await;
+    // A send whose process chain shows a harness but names no one (`sender_harness.rs`).
+    let found = json!({"senderHarness": {"harness": "claude-code", "source": "process"}});
+    owner.call("session/prompt", with("p-chain", found)).await;
     // A relay's label: it passes on another client's prompt (`remote_guard::mark_forwarded`).
     owner.call("session/prompt", with("p-via", json!({"via": "device"}))).await;
     // A caller token the daemon could not prove: an agent's shell that kept a stale token.
@@ -253,9 +256,13 @@ async fn the_owners_plain_terminal_send_is_theirs_and_every_claim_keeps_one_off_
     let named = owner.user_message(&receiver, "p-named").await;
     assert_eq!(named.pointer("/_meta/provenance/kind"), Some(&json!("agent_message")), "{named}");
     assert_eq!(named.pointer("/_meta/provenance/verified"), Some(&json!(false)), "{named}");
-    for (id, transport) in
-        [("p-harness", "unix"), ("p-via", "unix"), ("p-stale", "unix"), ("p-app", "app")]
-    {
+    for (id, transport) in [
+        ("p-harness", "unix"),
+        ("p-chain", "unix"),
+        ("p-via", "unix"),
+        ("p-stale", "unix"),
+        ("p-app", "app"),
+    ] {
         let message = owner.user_message(&receiver, id).await;
         assert_eq!(
             message.pointer("/_meta/provenance/kind"),
