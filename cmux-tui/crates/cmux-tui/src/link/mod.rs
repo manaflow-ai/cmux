@@ -14,7 +14,9 @@ mod enrollment;
 mod ensure;
 mod inbound;
 mod key_lock;
-#[cfg(target_os = "macos")]
+// Also in tests elsewhere: its plist rewrite needs no launchd.
+#[cfg(any(test, target_os = "macos"))]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod launchd;
 mod lines;
 pub(crate) mod machine_gate;
@@ -400,6 +402,16 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     // This machine's WireGuard key, for the link's whole life, before the key
     // is read: while another process holds it, this link does not serve.
     let explicit = flags.get(key_lock::FLAG).map(PathBuf::from);
+    // launchd gives `serve` none of the app's environment: without the flag,
+    // the lock directory below is a guess (`key_lock.rs`).
+    #[cfg(target_os = "macos")]
+    if explicit.is_none() && crate::launchd_refresh::run_by_launchd(launchd::LABEL) {
+        eprintln!(
+            "warning: launchd runs this link without {}: its WireGuard key lock directory is \
+             guessed; run `cmux link ensure` or `cmux link install-agent` from the app to fix the agent",
+            key_lock::FLAG
+        );
+    }
     let key = key_lock::take(&state, explicit.as_deref(), &mut ready)?;
     let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
     tokio_runtime()?.block_on(serve(state, &key, session_socket, owner, ready, served, watch))

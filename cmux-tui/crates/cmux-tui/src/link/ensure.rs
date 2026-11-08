@@ -308,6 +308,17 @@ fn init_or_check(state: &LinkState, flags: &Flags, handoff: bool) -> anyhow::Res
 pub(super) fn run_ensure(flags: &Flags, handoff: bool) -> anyhow::Result<()> {
     let state = super::state(flags)?;
     let _lock = ensure_lock(&state)?;
+    // An agent installed before `--key-lock-dir` gets it (`launchd.rs`).
+    #[cfg(target_os = "macos")]
+    if let Err(error) = super::launchd::refresh_key_lock_dir(
+        state.dir(),
+        super::key_lock::FLAG,
+        &super::key_lock::lock_dir(&state),
+    ) {
+        eprintln!(
+            "warning: could not give the link's launchd agent its key lock directory: {error}"
+        );
+    }
     let mut restarted = init_or_check(&state, flags, handoff)?;
     let wanted = Served::wanted(flags)?;
     if let Some(live) = live(&state) {
