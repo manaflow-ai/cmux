@@ -1165,6 +1165,8 @@ export type AcpmuxSnapshot = {
     stuckReason?: string;
     stuckSince?: number;
     stuckError?: string;
+    /** Existing daemon silence signal; no client-side threshold or timer. */
+    stalledSince?: number;
     loopEpisode?: { episodeId: number; since: number; count: number; diagnosis: string; hint: string };
     enforcement?: Enforcement;
     modes?: {

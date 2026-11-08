@@ -60,7 +60,6 @@ export type ChiefDockProps = {
   onSelect(sessionId: string): void;
   onNewChat(): void;
   onMoveToTab(sessionId: string): void;
-  onNudge?(sessionId: string, diagnosis: string): void;
   queueCounts?: ReadonlyMap<string, number>;
   steeringIds?: ReadonlySet<string>;
   mascot?: ChiefMascot;
@@ -72,6 +71,7 @@ const MAX_CARDS = 4;
 type ChiefStatus = "streaming" | "attention" | "error" | "complete" | "unread" | "idle";
 
 const urgency = (session: AcpmuxSessionEntry, selected: boolean): number => {
+  if (session.stuck) return 4;
   switch (sessionMark(session, selected)) {
     case "input":
       return 5;
@@ -87,6 +87,7 @@ const urgency = (session: AcpmuxSessionEntry, selected: boolean): number => {
 };
 
 const status = (session: AcpmuxSessionEntry, selected: boolean): ChiefStatus => {
+  if (session.stuck) return "attention";
   const mark = sessionMark(session, selected);
   if (session.indicator === "done") return "complete";
   if (mark === "input") return "attention";
@@ -119,7 +120,6 @@ export function ChiefDock({
   onSelect,
   onNewChat,
   onMoveToTab,
-  onNudge,
   queueCounts,
   steeringIds,
   mascot = "orb",
@@ -216,7 +216,7 @@ export function ChiefDock({
                       className="acpmux-chief-card-main"
                       aria-current={selected ? "true" : undefined}
                       aria-haspopup="menu"
-                      aria-label={[title, markLabel, queueLabel].filter(Boolean).join(", ") || undefined}
+                      aria-label={[title, stuck ? t("stuck.title") : markLabel, queueLabel].filter(Boolean).join(", ") || undefined}
                       disabled={!expanded}
                       onClick={() => onSelect(session.sessionId)}
                     >
@@ -239,21 +239,10 @@ export function ChiefDock({
                             />
                           </span>
                         </strong>
-                        <small>{stuck?.diagnosis || session.preview || session.branch || session.cwd || t("sidebar.sessions")}</small>
+                        <small>{stuck ? stuck.diagnosis || t("stuck.silentDiagnosis") : session.preview || session.branch || session.cwd || t("sidebar.sessions")}</small>
                       </span>
                       {queued > 0 && <span className="acpmux-chief-card-queue">{queued}</span>}
                     </button>
-                    {stuck && onNudge && (
-                      <button
-                        type="button"
-                        className="acpmux-chief-card-nudge"
-                        disabled={!expanded}
-                        aria-label="Nudge with hint"
-                        onClick={() => onNudge(session.sessionId, stuck.diagnosis || "The agent appears stuck.")}
-                      >
-                        Nudge
-                      </button>
-                    )}
                     <div className="acpmux-chief-card-actions">
                       <button
                         type="button"

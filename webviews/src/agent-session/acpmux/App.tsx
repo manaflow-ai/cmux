@@ -10009,6 +10009,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // the pane's own subagent id (a workflow agent's run and id). Never the relay target, whose harness
   // id, task name and connected chat arrive or change later and would remount the composer empty.
   const subagentDraftKey = `${subagentDraftChat}\u0000${shownSubagentId ?? ""}`;
+  const stuckDiagnosis =
+    snapshot.summary?.loopEpisode?.diagnosis ||
+    (snapshot.summary?.stalledSince != null ? t("stuck.silentDiagnosis") : undefined) ||
+    (snapshot.summary?.state === "stuck" ? snapshot.summary.stuckError : undefined);
   const composer = readOnlySubagent ? (
     <SubagentComposer
       key={subagentDraftKey}
@@ -10021,14 +10025,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     !reviewing && (
       <>
         <PaneNotices onAction={(id) => void callNative("pane.noticeAction", { id }).catch(() => undefined)} />
-        {snapshot.summary?.state === "stuck" && (snapshot.summary.loopEpisode?.diagnosis || snapshot.summary.stuckError) && (
+        {stuckDiagnosis && (
           <StuckBanner
-            diagnosis={snapshot.summary.loopEpisode?.diagnosis || snapshot.summary.stuckError!}
-            onNudge={() =>
-              composerHandle.current?.prefill(
-                `I’m stuck because ${snapshot.summary?.loopEpisode?.hint || snapshot.summary?.stuckError}. Please try a different approach.`,
-              )
-            }
+            diagnosis={stuckDiagnosis}
+            onNudge={() => composerHandle.current?.prefill(`${t("stuck.nudgePrompt", { diagnosis: stuckDiagnosis })}\n\n`)}
           />
         )}
         <Notice id="dictation" tier="error" when={dictation.notice?.message}>
@@ -10815,13 +10815,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // page already read of it, which rememberTail handed over when it was left.
           directClient.current?.handOverCurrentTail();
           void callNative("chat.openTab", { sessionId, placement: "tab" }).catch(() => undefined);
-        },
-        onNudge: (sessionId: string, diagnosis: string) => {
-          if (sessionId !== snapshot.sessionId) {
-            selectSession(sessionId);
-            return;
-          }
-          composerHandle.current?.prefill(`I’m stuck because ${diagnosis}. Please try a different approach.`);
         },
       }
     : undefined;

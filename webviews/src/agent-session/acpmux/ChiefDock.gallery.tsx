@@ -87,7 +87,6 @@ const mascotOption = (mascot: ChiefMascot, note: string) => ({
     onSelect: () => undefined,
     onNewChat: () => undefined,
     onMoveToTab: () => undefined,
-    onNudge: () => undefined,
   },
 });
 
@@ -139,7 +138,6 @@ export default componentEntry({
         onSelect: () => undefined,
         onNewChat: () => undefined,
         onMoveToTab: () => undefined,
-        onNudge: () => undefined,
       },
     },
     "wallpaper-glass": {
@@ -151,7 +149,6 @@ export default componentEntry({
         onSelect: () => undefined,
         onNewChat: () => undefined,
         onMoveToTab: () => undefined,
-        onNudge: () => undefined,
       },
       play: wallpaperGlassPlay,
     },

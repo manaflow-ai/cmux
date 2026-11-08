@@ -2,6 +2,7 @@
 // by project. It follows the acpmux TUI sidebar (crates/acpmux/src/tui/render),
 // so a session reads the same in the terminal and in the pane.
 import { type Translate, translate } from "./i18n";
+import { readLoopEpisode } from "./loopEpisode";
 import { readRetry, type RetryState } from "./subagents/retryState";
 import { senderSessionName } from "./senderIdentity";
 import { type SessionUsageStats, usageStatsOf } from "./usageStats";
@@ -322,7 +323,9 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
       session.status !== "running" &&
       session.status !== "waiting",
     worked: session.lastTurn?.status === "completed",
-    ...(session.loopEpisode && typeof session.loopEpisode === "object"
+    ...(session.status === "closed" || session.state === "stopping"
+      ? {}
+      : readLoopEpisode(session.loopEpisode) && session.turn
       ? {
           stuck: {
             reason: "loop",
@@ -330,7 +333,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
             diagnosis: text(session.loopEpisode.diagnosis),
           },
         }
-      : session.state === "stuck" || text(session.stuckReason)
+      : session.state === "stuck"
       ? {
           stuck: {
             reason: text(session.stuckReason) ?? "loop",
@@ -338,6 +341,8 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
             diagnosis: text(session.stuckError),
           },
         }
+      : time(session.turn?.stalledSince)
+      ? { stuck: { reason: "silent", since: session.turn.stalledSince, diagnosis: translate("stuck.silentDiagnosis") } }
       : {}),
     lifecycleReceipt: lifecycleReceipt(session.lifecycleReceipt),
     trustPending: trustPending(session.tags),

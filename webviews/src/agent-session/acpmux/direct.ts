@@ -1,4 +1,5 @@
 import { sentFrom, type SentFrom } from "./conversation/sentFromHarness";
+import { readLoopEpisode } from "./loopEpisode";
 import { externalAccessFromRequest } from "./permissions/externalAccess";
 import { markAgentProgressSource } from "./subagents/agentProgressSource";
 import { projectLiveProgress, type LiveProgress } from "./liveProgress";
@@ -5741,7 +5742,7 @@ export class AcpmuxDirectClient {
     // A chat read ahead ran on: read it again once the list settles (``readAhead`` throttles it).
     if (this.readAheadAt.has(session.sessionId)) this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     if (session.sessionId === this.selectedSessionId) {
-      this.summary = { ...this.summary, ...session };
+      this.summary = { ...this.summary, ...session, loopEpisode: session.loopEpisode ?? null };
       // Built when sent, after the record it follows: it settles the turn the records folded.
       this.settleTurnWithHost();
       // A harness restart or a new conversation names a new native root without a rebuild: the
@@ -8174,9 +8175,10 @@ export class AcpmuxDirectClient {
           stuckReason: text(summary.stuckReason),
           stuckSince: typeof summary.stuckSince === "number" ? summary.stuckSince : undefined,
           stuckError: text(summary.stuckError),
-          ...(summary.loopEpisode && typeof summary.loopEpisode === "object"
-            ? { loopEpisode: summary.loopEpisode }
-            : {}),
+          stalledSince: typeof summary.turn?.stalledSince === "number" ? summary.turn.stalledSince : undefined,
+          loopEpisode: summary.status !== "closed" && summary.state !== "stopping" && summary.turn
+            ? readLoopEpisode(summary.loopEpisode)
+            : undefined,
           enforcement: sessionEnforcement(summary.enforcement),
           modes: summary.modes,
           configOptions: summary.configOptions,
