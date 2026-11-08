@@ -120,17 +120,17 @@ impl Surface {
         Ok(pty.stream_progress.revision())
     }
 
-    /// Capture the live screen (whatever the viewport scroll), generic
-    /// terminal metadata, and stream revision
-    /// while the parser lock is held. This is the only screen-read path that
-    /// can safely use the revision as a scheduling watermark.
+    /// [`Self::terminal_screen_snapshot_with`] of the live screen's rows.
+    #[cfg(test)]
     pub(crate) fn terminal_screen_snapshot(&self) -> anyhow::Result<TerminalScreenSnapshot> {
         self.terminal_screen_snapshot_with(ScreenText::Rows)
     }
 
-    /// [`Self::terminal_screen_snapshot`] carrying the `text` a
-    /// `terminal.screen.read` asked for; the cursor and revision still
-    /// describe the live screen at the same parser boundary.
+    /// Capture the live screen's `text` (whatever the viewport scroll; rows,
+    /// logical lines, or the last N lines a `terminal.screen.read` asked
+    /// for), generic terminal metadata, and stream revision while the parser
+    /// lock is held. This is the only screen-read path that can safely use
+    /// the revision as a scheduling watermark.
     pub(crate) fn terminal_screen_snapshot_with(
         &self,
         text: ScreenText,

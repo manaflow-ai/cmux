@@ -217,7 +217,7 @@ fn send_command(global: &GlobalArgs, request: &SendRequest) -> i32 {
         Err(failure) => return fail(global, &failure.failure, failure.exit),
     };
     let timed_out = receipt["timed_out"] == true;
-    let status = receipt["exit_status"].as_i64();
+    let status = receipt.get("exit_status").and_then(Value::as_i64);
     match global.output {
         OutputMode::Human => {
             let output = receipt["output"].as_str().unwrap_or_default();
@@ -231,7 +231,7 @@ fn send_command(global: &GlobalArgs, request: &SendRequest) -> i32 {
                 );
             } else if receipt["state"] == "waiting-for-input" {
                 eprintln!("cmux: the agent now waits on a dialog (terminal screen read shows it)");
-            } else if receipt["matched"] == false {
+            } else if receipt.get("matched") == Some(&Value::Bool(false)) {
                 eprintln!("cmux: the command finished without output that matches --pattern");
             } else if request.exit_with_status && status.is_none() {
                 eprintln!(
@@ -250,16 +250,16 @@ fn send_command(global: &GlobalArgs, request: &SendRequest) -> i32 {
 /// `--pattern` that did not match, then with `exit_with_status` the
 /// command's own status (125 when the shell reported none), else 0.
 pub(in crate::cli) fn send_exit_code(receipt: &Value, exit_with_status: bool) -> i32 {
-    if receipt["timed_out"] == true {
+    if receipt.get("timed_out") == Some(&Value::Bool(true)) {
         return TIMEOUT_EXIT;
     }
-    if receipt["matched"] == false {
+    if receipt.get("matched") == Some(&Value::Bool(false)) {
         return NO_MATCH_EXIT;
     }
     if !exit_with_status {
         return 0;
     }
-    match receipt["exit_status"].as_i64() {
+    match receipt.get("exit_status").and_then(Value::as_i64) {
         // A shell reports the status as $? (0..=255); a signal is 128 + N.
         Some(code) => i32::try_from(code.rem_euclid(256)).unwrap_or(1),
         None => UNKNOWN_STATUS_EXIT,

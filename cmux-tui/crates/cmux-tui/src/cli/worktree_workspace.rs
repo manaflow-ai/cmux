@@ -253,7 +253,7 @@ pub(in crate::cli) fn create<B: Daemon + ?Sized>(
             .request(None, plan(&create, Some(step_key(command_key, "worktree")))?)
             .map_err(|failure| StepFailure::step(failure, "worktree", command_key, Value::Null))?;
     let worktree = worktree.get("value").cloned().unwrap_or(worktree);
-    let root = worktree["root"].as_str().unwrap_or_default().to_owned();
+    let root = worktree.get("root").and_then(Value::as_str).unwrap_or_default().to_owned();
     let made = json!({"worktree": worktree});
     let mut workspace_words = request.workspace_words.clone();
     let argv =
@@ -306,8 +306,10 @@ pub(in crate::cli) fn close<B: Daemon + ?Sized>(
     let shown = backend
         .request(None, plan(&words(&["workspace", &request.target, "show"]), None)?)
         .map_err(|failure| StepFailure::step(failure, "show", command_key, Value::Null))?;
-    let id = shown["id"].as_str().unwrap_or_default().to_owned();
-    let Some(folder) = shown["extra"]["agent_folder"].as_str().map(str::to_owned) else {
+    let id = shown.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
+    let Some(folder) =
+        shown.pointer("/extra/agent_folder").and_then(Value::as_str).map(str::to_owned)
+    else {
         return Err(StepFailure {
             error: json!({
                 "code": "worktree.not_recorded",
@@ -356,7 +358,7 @@ fn create_command(global: &GlobalArgs, request: &CreateRequest) -> i32 {
     let backend = super::mcp::cli_backend(global.clone());
     let outcome = command_key(global).and_then(|key| create(&backend, request, &key));
     finish(global, outcome, |result| {
-        if result["worktree"]["workspace_folder"] == false {
+        if result.pointer("/worktree/workspace_folder") == Some(&Value::Bool(false)) {
             eprintln!(
                 "cmux: the workspace did not record its worktree folder; close it with \
                  cmux git worktree remove --path <root>, then cmux workspace <ws> close"

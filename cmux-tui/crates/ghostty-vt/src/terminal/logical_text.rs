@@ -63,12 +63,12 @@ impl Terminal {
         let wanted = u64::try_from(count).unwrap_or(u64::MAX);
         let mut span = wanted.saturating_add(u64::from(rows)).min(total);
         loop {
-            let start = total - span;
+            let start = total.saturating_sub(span);
             let text = self
                 .selection_text_with_tag_options(
                     sys::GHOSTTY_POINT_TAG_SCREEN,
                     (0, start),
-                    (cols.saturating_sub(1), total - 1),
+                    (cols.saturating_sub(1), total.saturating_sub(1)),
                     unwrap,
                     true,
                 )
@@ -118,7 +118,7 @@ impl Terminal {
                 sys::GHOSTTY_ROW_DATA_WRAP_CONTINUATION,
             ) == Some(true)
         {
-            start += 1;
+            start = start.saturating_add(1);
         }
         if start >= total {
             return Ok(String::new());
@@ -126,7 +126,7 @@ impl Terminal {
         self.selection_text_with_tag_options(
             sys::GHOSTTY_POINT_TAG_SCREEN,
             (0, start),
-            (cols.saturating_sub(1), total - 1),
+            (cols.saturating_sub(1), total.saturating_sub(1)),
             true,
             true,
         )

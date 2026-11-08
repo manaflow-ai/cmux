@@ -389,7 +389,7 @@ pub(in crate::cli) fn sample(
 
 /// The terminal record's last finished shell command (`extra.last_command`).
 pub(in crate::cli) fn last_command(terminal: &Value) -> Option<&Value> {
-    terminal["extra"].get("last_command").filter(|last| last.is_object())
+    terminal.get("extra")?.get("last_command").filter(|last| last.is_object())
 }
 
 /// The command the shell finished after the send: the record's last command
@@ -603,13 +603,17 @@ impl Reads {
 /// A daemon without the field refuses it as invalid (it names no field it
 /// does not know), so any validation refusal of the first read falls back.
 fn is_unknown_field(failure: &CallFailure) -> bool {
-    failure.error["code"].as_str().is_some_and(|code| code.starts_with("validation"))
+    failure
+        .error
+        .get("code")
+        .and_then(Value::as_str)
+        .is_some_and(|code| code.starts_with("validation"))
 }
 
 /// The output after the message's echo on `screen`: the lines after the
 /// echo, or the whole screen once the echo scrolled off it.
 fn new_output(screen: &Value, message: &str) -> String {
-    let lines = reply::lines(screen["text"].as_str().unwrap_or_default());
+    let lines = reply::lines(screen.get("text").and_then(Value::as_str).unwrap_or_default());
     match reply::anchor(&lines, message) {
         Some(start) => lines.get(start..).unwrap_or_default().join("\n"),
         None => lines.join("\n"),
@@ -683,7 +687,10 @@ fn reply_lines<B: Daemon + ?Sized>(
         while reply::anchor(&lines, message).is_none() {
             let count_text = count.to_string();
             match reads.screen(backend, session, id, &["--lines", &count_text]) {
-                Ok(read) => lines = reply::lines(read["text"].as_str().unwrap_or_default()),
+                Ok(read) => {
+                    lines =
+                        reply::lines(read.get("text").and_then(Value::as_str).unwrap_or_default());
+                }
                 Err(_) => break,
             }
             if count >= most {
