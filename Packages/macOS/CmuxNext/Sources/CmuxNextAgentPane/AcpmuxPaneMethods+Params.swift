@@ -133,6 +133,8 @@ nonisolated extension AcpmuxPaneMethods {
         // `model`: the side session's model when the page names one; acpmux picks a fast one otherwise.
         "_acpmux/btw": (["sessionId", "question", "model", "inline"], []),
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
+        // `accept` and `dismiss`: the offer's own one-line facts, which acpmux matches against it.
+        "_acpmux/memory_resolve": (["sessionId", "offerId", "file", "accept", "dismiss"], []),
         "_acpmux/context": (["sessionId"], []),
         // `text: null` removes the saved text; `partId`: a verified local preset prompt's id.
         "_acpmux/context_override": (["sessionId", "scope", "text", "partId"], []),

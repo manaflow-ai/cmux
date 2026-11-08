@@ -1,7 +1,8 @@
 public import CmuxNextActions
+public import CmuxNextDaemon
 import Foundation
 
-/// `cloud resize-machine`'s grow (POST /api/vm/{id}/resize): `--size small|medium|large|xlarge`
+/// `cloud resize-machine`'s grow (the app server's `cloud.machine.resize`): `--size small|medium|large|xlarge`
 /// (vCPUs and memory), `--disk GIB` (the disk's new size in whole GiB), or both in one call.
 /// The disk must be a whole number of GiB in 4 GiB steps up to 256, as the server takes it (so
 /// the MiB conversion never overflows); growing only is the server's check.
@@ -44,5 +45,14 @@ public struct CloudResizeRequest: Equatable, Sendable {
         if let size { fields["size"] = .string(size) }
         if let diskGiB { fields["disk_gib"] = .int(diskGiB) }
         return fields
+    }
+
+    /// The app server's `cloud.machine.resize` args: `{machine, size: {cpu?, memory_mb?, disk_mb?}}`, only what was given.
+    public func appServerArgs(machine: String) -> [String: JSONValue] {
+        var size: [String: JSONValue] = [:]
+        if let cpu { size["cpu"] = .number(Double(cpu)) }
+        if let memoryMb { size["memory_mb"] = .number(Double(memoryMb)) }
+        if let storageMb { size["disk_mb"] = .number(Double(storageMb)) }
+        return ["machine": .string(machine), "size": .object(size)]
     }
 }

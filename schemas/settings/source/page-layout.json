@@ -448,7 +448,9 @@
           "id": "advanced",
           "title": {"section": "advanced"},
           "symbol": "curlybraces",
-          "groups": [],
+          "groups": [
+            {"group": "settings.group.developerTools", "note": "Inspect Element and developer tools for cmux's own pages."}
+          ],
           "lead": ["advancedInfo"],
           "trail": ["advancedActions"],
           "actions": ["advanced"],
