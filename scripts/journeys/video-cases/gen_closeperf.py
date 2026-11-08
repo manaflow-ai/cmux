@@ -46,11 +46,21 @@ def close(f, i, k):
             "title": f"close {i} of {f}: {'+'.join(k[1])}-{k[0]}"}
 
 
-def cell(f, kind, case, n):
-    """(steps, movie seconds) of one cell: set-up once, then N times: set-up, focus, close."""
+def cell(f, kind, case, n, base=None):
+    """(steps, movie seconds) of one cell: set-up once, then N times: set-up, focus, close. With `base` (full STRESS),
+    A and B close in the measured workspace's pane `base` (no new workspace); C and D make their own workspaces."""
     eng = {"cef": "cef", "wk": "webkit"}.get(kind)
     once, steps = [], []
-    if case == "A":
+    if base and case in ("A", "bsplit", "bcol") and not eng:
+        act = {"bsplit": "splitRight", "bcol": "newColumn"}.get(case)
+        for i in range(n):
+            if case == "A":
+                steps += [X.focus(base)] + X.new_tab(base) + [X.focus(base)]
+            else:
+                p = f"{f}-p1-{i}"
+                steps += [X.focus(base)] + X.new_pane(p, act) + [X.focus(p)]
+            steps += [G.settle(0.3), close(f, i, W)]
+    elif case == "A":
         once = new_ws(f"{f}-p0") + X.new_pane(f"{f}-p1", "splitRight")
         for i in range(n):
             if eng:
@@ -92,8 +102,8 @@ def journeys(n):
     """Cells packed into journeys of at most LIMIT s (estimate), one journey per lease (budget >= 135 s)."""
     out = {}
     for kind in ("term", "cef", "wk"):
-        for load in ("light", "stress"):
-            base = 40.0 + (50.0 if load == "stress" else 0.0)
+        for load in ("light", "stress") + (("full",) if kind == "term" else ()):
+            base = 40.0 + {"stress": 50.0, "full": 110.0}.get(load, 0.0)
             groups, cur, used = [], [], base
             for c in CASES:
                 sec = cell(f"x", kind, c, n)[1]
@@ -120,9 +130,14 @@ def journey(jid, kind, load, cells, n):
         steps += [{"do": "grow_workspaces", "count": 60, "busy": 10, "settle": 2.0,
                    "title": "STRESS-lite: 60 workspaces, 10 busy terminals (perf-stress-session.py BUSY_COMMAND)"}]
         est += 50.0
+    if load == "full":
+        steps += [{"do": "stress_full", "settle": 2.0, "title": "STRESS (perf-lead.md, perf-stress-session.py): 60 workspaces, "
+                   "measured 4x3 workspace of 14 panes x 6 tabs, 10 Chromium workspaces, 10 busy terminals"},
+                  {"do": "adopt_pane", "as": "stress-m", "title": "the measured workspace's focused terminal pane"}]
+        est += 110.0
     names = []
     for f, case in cells:
-        s, sec = cell(f, kind, case, n)
+        s, sec = cell(f, kind, case, n, "stress-m" if load == "full" else None)
         steps += s
         est += sec
         names.append(f)

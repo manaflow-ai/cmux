@@ -378,6 +378,7 @@ def kit_tar(specs):
         for ext in sorted(HERE.glob("ext_*.py")):  # step and condition groups the driver loads
             tar.add(ext, arcname=ext.name)
         tar.add(BUILD_NAMES, arcname="build_names.py")
+        tar.add(HERE / "perf_stress_session.py", arcname="perf_stress_session.py")  # ext_stressfull (local kit)
         tar.add(HERE / "smoke_hog.py", arcname="smoke_hog.py")  # run only with --hog-swap-gb
         tar.add(HERE / "vdisplay120.m", arcname="vdisplay120.m")  # built only with --vdisplay
         tar.add(HERE / "sck_probe.swift", arcname="sck_probe.swift")  # built only by ext_video's sck_probe step

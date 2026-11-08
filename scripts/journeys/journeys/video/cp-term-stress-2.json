@@ -1,12 +1,13 @@
 {
  "id": "cp-term-stress-2",
  "priority": "P1",
- "title": "CLOSE PERF term stress: cp-term-stress-d",
+ "title": "CLOSE PERF term stress: cp-term-stress-bcol, cp-term-stress-c",
  "why": "cmux-ad m56 (Lawrence 2026-11-07): measure the perf of a close and the motion after it (light and STRESS-lite).",
  "source": "close-perf task kit (video-cases/gen_closeperf.py)",
- "budget_seconds": 135,
+ "budget_seconds": 218,
  "recordings": [
-  "cp-term-stress-d"
+  "cp-term-stress-bcol",
+  "cp-term-stress-c"
  ],
  "options": {
   "key_path": "real"
@@ -139,49 +140,66 @@
    "title": "STRESS-lite: 60 workspaces, 10 busy terminals (perf-stress-session.py BUSY_COMMAND)"
   },
   {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (cp-term-stress-bcol-p0)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-bcol-p0"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "action",
+   "action": "newColumn",
+   "title": "set-up: newColumn (cp-term-stress-bcol-p2)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-bcol-p2"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
    "do": "wait",
    "seconds": 0.5,
    "title": "the layout and the load settle (nothing observable to wait on)"
   },
   {
    "do": "video_start",
-   "name": "cp-term-stress-d",
-   "seconds": 34.0,
+   "name": "cp-term-stress-bcol",
+   "seconds": 62.0,
    "mbps": 24,
    "rows": [],
    "columns": [],
    "require_hz": 120,
    "lead": 0.8,
-   "title": "start the 120 Hz movie of cell cp-term-stress-d (no scan lines)"
+   "title": "start the 120 Hz movie of cell cp-term-stress-bcol (no scan lines)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p0",
+   "title": "set-up: focus cp-term-stress-bcol-p0 (cmux pane focus)"
   },
   {
    "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-term-stress-d-d0a)"
+   "action": "newColumn",
+   "title": "set-up: newColumn (cp-term-stress-bcol-p1-0)"
   },
   {
    "do": "adopt_pane",
-   "as": "cp-term-stress-d-d0a"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "action",
-   "action": "splitRight",
-   "title": "set-up: splitRight (cp-term-stress-d-d0b)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-term-stress-d-d0b"
+   "as": "cp-term-stress-bcol-p1-0"
   },
   {
    "do": "neutral_prompt"
   },
   {
    "do": "rk_focus",
-   "pane": "cp-term-stress-d-d0b",
-   "title": "set-up: focus cp-term-stress-d-d0b (cmux pane focus)"
+   "pane": "cp-term-stress-bcol-p1-0",
+   "title": "set-up: focus cp-term-stress-bcol-p1-0 (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -190,44 +208,36 @@
   },
   {
    "do": "cp_close",
-   "film": "cp-term-stress-d",
+   "film": "cp-term-stress-bcol",
    "i": 0,
    "key": "w",
    "modifiers": [
-    "cmd",
-    "shift"
+    "cmd"
    ],
    "rest": 1.2,
-   "title": "close 0 of cp-term-stress-d: cmd+shift-w"
+   "title": "close 0 of cp-term-stress-bcol: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p0",
+   "title": "set-up: focus cp-term-stress-bcol-p0 (cmux pane focus)"
   },
   {
    "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-term-stress-d-d1a)"
+   "action": "newColumn",
+   "title": "set-up: newColumn (cp-term-stress-bcol-p1-1)"
   },
   {
    "do": "adopt_pane",
-   "as": "cp-term-stress-d-d1a"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "action",
-   "action": "splitRight",
-   "title": "set-up: splitRight (cp-term-stress-d-d1b)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-term-stress-d-d1b"
+   "as": "cp-term-stress-bcol-p1-1"
   },
   {
    "do": "neutral_prompt"
   },
   {
    "do": "rk_focus",
-   "pane": "cp-term-stress-d-d1b",
-   "title": "set-up: focus cp-term-stress-d-d1b (cmux pane focus)"
+   "pane": "cp-term-stress-bcol-p1-1",
+   "title": "set-up: focus cp-term-stress-bcol-p1-1 (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -236,44 +246,36 @@
   },
   {
    "do": "cp_close",
-   "film": "cp-term-stress-d",
+   "film": "cp-term-stress-bcol",
    "i": 1,
    "key": "w",
    "modifiers": [
-    "cmd",
-    "shift"
+    "cmd"
    ],
    "rest": 1.2,
-   "title": "close 1 of cp-term-stress-d: cmd+shift-w"
+   "title": "close 1 of cp-term-stress-bcol: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p0",
+   "title": "set-up: focus cp-term-stress-bcol-p0 (cmux pane focus)"
   },
   {
    "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-term-stress-d-d2a)"
+   "action": "newColumn",
+   "title": "set-up: newColumn (cp-term-stress-bcol-p1-2)"
   },
   {
    "do": "adopt_pane",
-   "as": "cp-term-stress-d-d2a"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "action",
-   "action": "splitRight",
-   "title": "set-up: splitRight (cp-term-stress-d-d2b)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-term-stress-d-d2b"
+   "as": "cp-term-stress-bcol-p1-2"
   },
   {
    "do": "neutral_prompt"
   },
   {
    "do": "rk_focus",
-   "pane": "cp-term-stress-d-d2b",
-   "title": "set-up: focus cp-term-stress-d-d2b (cmux pane focus)"
+   "pane": "cp-term-stress-bcol-p1-2",
+   "title": "set-up: focus cp-term-stress-bcol-p1-2 (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -282,44 +284,36 @@
   },
   {
    "do": "cp_close",
-   "film": "cp-term-stress-d",
+   "film": "cp-term-stress-bcol",
    "i": 2,
    "key": "w",
    "modifiers": [
-    "cmd",
-    "shift"
+    "cmd"
    ],
    "rest": 1.2,
-   "title": "close 2 of cp-term-stress-d: cmd+shift-w"
+   "title": "close 2 of cp-term-stress-bcol: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p0",
+   "title": "set-up: focus cp-term-stress-bcol-p0 (cmux pane focus)"
   },
   {
    "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-term-stress-d-d3a)"
+   "action": "newColumn",
+   "title": "set-up: newColumn (cp-term-stress-bcol-p1-3)"
   },
   {
    "do": "adopt_pane",
-   "as": "cp-term-stress-d-d3a"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "action",
-   "action": "splitRight",
-   "title": "set-up: splitRight (cp-term-stress-d-d3b)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-term-stress-d-d3b"
+   "as": "cp-term-stress-bcol-p1-3"
   },
   {
    "do": "neutral_prompt"
   },
   {
    "do": "rk_focus",
-   "pane": "cp-term-stress-d-d3b",
-   "title": "set-up: focus cp-term-stress-d-d3b (cmux pane focus)"
+   "pane": "cp-term-stress-bcol-p1-3",
+   "title": "set-up: focus cp-term-stress-bcol-p1-3 (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -328,44 +322,36 @@
   },
   {
    "do": "cp_close",
-   "film": "cp-term-stress-d",
+   "film": "cp-term-stress-bcol",
    "i": 3,
    "key": "w",
    "modifiers": [
-    "cmd",
-    "shift"
+    "cmd"
    ],
    "rest": 1.2,
-   "title": "close 3 of cp-term-stress-d: cmd+shift-w"
+   "title": "close 3 of cp-term-stress-bcol: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p0",
+   "title": "set-up: focus cp-term-stress-bcol-p0 (cmux pane focus)"
   },
   {
    "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-term-stress-d-d4a)"
+   "action": "newColumn",
+   "title": "set-up: newColumn (cp-term-stress-bcol-p1-4)"
   },
   {
    "do": "adopt_pane",
-   "as": "cp-term-stress-d-d4a"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "action",
-   "action": "splitRight",
-   "title": "set-up: splitRight (cp-term-stress-d-d4b)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-term-stress-d-d4b"
+   "as": "cp-term-stress-bcol-p1-4"
   },
   {
    "do": "neutral_prompt"
   },
   {
    "do": "rk_focus",
-   "pane": "cp-term-stress-d-d4b",
-   "title": "set-up: focus cp-term-stress-d-d4b (cmux pane focus)"
+   "pane": "cp-term-stress-bcol-p1-4",
+   "title": "set-up: focus cp-term-stress-bcol-p1-4 (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -374,44 +360,36 @@
   },
   {
    "do": "cp_close",
-   "film": "cp-term-stress-d",
+   "film": "cp-term-stress-bcol",
    "i": 4,
    "key": "w",
    "modifiers": [
-    "cmd",
-    "shift"
+    "cmd"
    ],
    "rest": 1.2,
-   "title": "close 4 of cp-term-stress-d: cmd+shift-w"
+   "title": "close 4 of cp-term-stress-bcol: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p0",
+   "title": "set-up: focus cp-term-stress-bcol-p0 (cmux pane focus)"
   },
   {
    "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-term-stress-d-d5a)"
+   "action": "newColumn",
+   "title": "set-up: newColumn (cp-term-stress-bcol-p1-5)"
   },
   {
    "do": "adopt_pane",
-   "as": "cp-term-stress-d-d5a"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "action",
-   "action": "splitRight",
-   "title": "set-up: splitRight (cp-term-stress-d-d5b)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-term-stress-d-d5b"
+   "as": "cp-term-stress-bcol-p1-5"
   },
   {
    "do": "neutral_prompt"
   },
   {
    "do": "rk_focus",
-   "pane": "cp-term-stress-d-d5b",
-   "title": "set-up: focus cp-term-stress-d-d5b (cmux pane focus)"
+   "pane": "cp-term-stress-bcol-p1-5",
+   "title": "set-up: focus cp-term-stress-bcol-p1-5 (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -420,44 +398,36 @@
   },
   {
    "do": "cp_close",
-   "film": "cp-term-stress-d",
+   "film": "cp-term-stress-bcol",
    "i": 5,
    "key": "w",
    "modifiers": [
-    "cmd",
-    "shift"
+    "cmd"
    ],
    "rest": 1.2,
-   "title": "close 5 of cp-term-stress-d: cmd+shift-w"
+   "title": "close 5 of cp-term-stress-bcol: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p0",
+   "title": "set-up: focus cp-term-stress-bcol-p0 (cmux pane focus)"
   },
   {
    "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-term-stress-d-d6a)"
+   "action": "newColumn",
+   "title": "set-up: newColumn (cp-term-stress-bcol-p1-6)"
   },
   {
    "do": "adopt_pane",
-   "as": "cp-term-stress-d-d6a"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "action",
-   "action": "splitRight",
-   "title": "set-up: splitRight (cp-term-stress-d-d6b)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-term-stress-d-d6b"
+   "as": "cp-term-stress-bcol-p1-6"
   },
   {
    "do": "neutral_prompt"
   },
   {
    "do": "rk_focus",
-   "pane": "cp-term-stress-d-d6b",
-   "title": "set-up: focus cp-term-stress-d-d6b (cmux pane focus)"
+   "pane": "cp-term-stress-bcol-p1-6",
+   "title": "set-up: focus cp-term-stress-bcol-p1-6 (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -466,44 +436,36 @@
   },
   {
    "do": "cp_close",
-   "film": "cp-term-stress-d",
+   "film": "cp-term-stress-bcol",
    "i": 6,
    "key": "w",
    "modifiers": [
-    "cmd",
-    "shift"
+    "cmd"
    ],
    "rest": 1.2,
-   "title": "close 6 of cp-term-stress-d: cmd+shift-w"
+   "title": "close 6 of cp-term-stress-bcol: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p0",
+   "title": "set-up: focus cp-term-stress-bcol-p0 (cmux pane focus)"
   },
   {
    "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-term-stress-d-d7a)"
+   "action": "newColumn",
+   "title": "set-up: newColumn (cp-term-stress-bcol-p1-7)"
   },
   {
    "do": "adopt_pane",
-   "as": "cp-term-stress-d-d7a"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "action",
-   "action": "splitRight",
-   "title": "set-up: splitRight (cp-term-stress-d-d7b)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-term-stress-d-d7b"
+   "as": "cp-term-stress-bcol-p1-7"
   },
   {
    "do": "neutral_prompt"
   },
   {
    "do": "rk_focus",
-   "pane": "cp-term-stress-d-d7b",
-   "title": "set-up: focus cp-term-stress-d-d7b (cmux pane focus)"
+   "pane": "cp-term-stress-bcol-p1-7",
+   "title": "set-up: focus cp-term-stress-bcol-p1-7 (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -512,44 +474,36 @@
   },
   {
    "do": "cp_close",
-   "film": "cp-term-stress-d",
+   "film": "cp-term-stress-bcol",
    "i": 7,
    "key": "w",
    "modifiers": [
-    "cmd",
-    "shift"
+    "cmd"
    ],
    "rest": 1.2,
-   "title": "close 7 of cp-term-stress-d: cmd+shift-w"
+   "title": "close 7 of cp-term-stress-bcol: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p0",
+   "title": "set-up: focus cp-term-stress-bcol-p0 (cmux pane focus)"
   },
   {
    "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-term-stress-d-d8a)"
+   "action": "newColumn",
+   "title": "set-up: newColumn (cp-term-stress-bcol-p1-8)"
   },
   {
    "do": "adopt_pane",
-   "as": "cp-term-stress-d-d8a"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "action",
-   "action": "splitRight",
-   "title": "set-up: splitRight (cp-term-stress-d-d8b)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-term-stress-d-d8b"
+   "as": "cp-term-stress-bcol-p1-8"
   },
   {
    "do": "neutral_prompt"
   },
   {
    "do": "rk_focus",
-   "pane": "cp-term-stress-d-d8b",
-   "title": "set-up: focus cp-term-stress-d-d8b (cmux pane focus)"
+   "pane": "cp-term-stress-bcol-p1-8",
+   "title": "set-up: focus cp-term-stress-bcol-p1-8 (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -558,44 +512,36 @@
   },
   {
    "do": "cp_close",
-   "film": "cp-term-stress-d",
+   "film": "cp-term-stress-bcol",
    "i": 8,
    "key": "w",
    "modifiers": [
-    "cmd",
-    "shift"
+    "cmd"
    ],
    "rest": 1.2,
-   "title": "close 8 of cp-term-stress-d: cmd+shift-w"
+   "title": "close 8 of cp-term-stress-bcol: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p0",
+   "title": "set-up: focus cp-term-stress-bcol-p0 (cmux pane focus)"
   },
   {
    "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-term-stress-d-d9a)"
+   "action": "newColumn",
+   "title": "set-up: newColumn (cp-term-stress-bcol-p1-9)"
   },
   {
    "do": "adopt_pane",
-   "as": "cp-term-stress-d-d9a"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "action",
-   "action": "splitRight",
-   "title": "set-up: splitRight (cp-term-stress-d-d9b)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-term-stress-d-d9b"
+   "as": "cp-term-stress-bcol-p1-9"
   },
   {
    "do": "neutral_prompt"
   },
   {
    "do": "rk_focus",
-   "pane": "cp-term-stress-d-d9b",
-   "title": "set-up: focus cp-term-stress-d-d9b (cmux pane focus)"
+   "pane": "cp-term-stress-bcol-p1-9",
+   "title": "set-up: focus cp-term-stress-bcol-p1-9 (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -604,21 +550,1082 @@
   },
   {
    "do": "cp_close",
-   "film": "cp-term-stress-d",
+   "film": "cp-term-stress-bcol",
    "i": 9,
    "key": "w",
    "modifiers": [
-    "cmd",
-    "shift"
+    "cmd"
    ],
    "rest": 1.2,
-   "title": "close 9 of cp-term-stress-d: cmd+shift-w"
+   "title": "close 9 of cp-term-stress-bcol: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p0",
+   "title": "set-up: focus cp-term-stress-bcol-p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "newColumn",
+   "title": "set-up: newColumn (cp-term-stress-bcol-p1-10)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-bcol-p1-10"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p1-10",
+   "title": "set-up: focus cp-term-stress-bcol-p1-10 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-bcol",
+   "i": 10,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 10 of cp-term-stress-bcol: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p0",
+   "title": "set-up: focus cp-term-stress-bcol-p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "newColumn",
+   "title": "set-up: newColumn (cp-term-stress-bcol-p1-11)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-bcol-p1-11"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p1-11",
+   "title": "set-up: focus cp-term-stress-bcol-p1-11 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-bcol",
+   "i": 11,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 11 of cp-term-stress-bcol: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p0",
+   "title": "set-up: focus cp-term-stress-bcol-p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "newColumn",
+   "title": "set-up: newColumn (cp-term-stress-bcol-p1-12)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-bcol-p1-12"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p1-12",
+   "title": "set-up: focus cp-term-stress-bcol-p1-12 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-bcol",
+   "i": 12,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 12 of cp-term-stress-bcol: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p0",
+   "title": "set-up: focus cp-term-stress-bcol-p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "newColumn",
+   "title": "set-up: newColumn (cp-term-stress-bcol-p1-13)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-bcol-p1-13"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p1-13",
+   "title": "set-up: focus cp-term-stress-bcol-p1-13 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-bcol",
+   "i": 13,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 13 of cp-term-stress-bcol: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p0",
+   "title": "set-up: focus cp-term-stress-bcol-p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "newColumn",
+   "title": "set-up: newColumn (cp-term-stress-bcol-p1-14)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-bcol-p1-14"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p1-14",
+   "title": "set-up: focus cp-term-stress-bcol-p1-14 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-bcol",
+   "i": 14,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 14 of cp-term-stress-bcol: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p0",
+   "title": "set-up: focus cp-term-stress-bcol-p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "newColumn",
+   "title": "set-up: newColumn (cp-term-stress-bcol-p1-15)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-bcol-p1-15"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p1-15",
+   "title": "set-up: focus cp-term-stress-bcol-p1-15 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-bcol",
+   "i": 15,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 15 of cp-term-stress-bcol: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p0",
+   "title": "set-up: focus cp-term-stress-bcol-p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "newColumn",
+   "title": "set-up: newColumn (cp-term-stress-bcol-p1-16)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-bcol-p1-16"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p1-16",
+   "title": "set-up: focus cp-term-stress-bcol-p1-16 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-bcol",
+   "i": 16,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 16 of cp-term-stress-bcol: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p0",
+   "title": "set-up: focus cp-term-stress-bcol-p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "newColumn",
+   "title": "set-up: newColumn (cp-term-stress-bcol-p1-17)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-bcol-p1-17"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p1-17",
+   "title": "set-up: focus cp-term-stress-bcol-p1-17 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-bcol",
+   "i": 17,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 17 of cp-term-stress-bcol: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p0",
+   "title": "set-up: focus cp-term-stress-bcol-p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "newColumn",
+   "title": "set-up: newColumn (cp-term-stress-bcol-p1-18)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-bcol-p1-18"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p1-18",
+   "title": "set-up: focus cp-term-stress-bcol-p1-18 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-bcol",
+   "i": 18,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 18 of cp-term-stress-bcol: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p0",
+   "title": "set-up: focus cp-term-stress-bcol-p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "newColumn",
+   "title": "set-up: newColumn (cp-term-stress-bcol-p1-19)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-bcol-p1-19"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-bcol-p1-19",
+   "title": "set-up: focus cp-term-stress-bcol-p1-19 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-bcol",
+   "i": 19,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 19 of cp-term-stress-bcol: cmd-w"
   },
   {
    "do": "video_stop",
-   "name": "cp-term-stress-d",
+   "name": "cp-term-stress-bcol",
    "tail": 0.3,
-   "title": "the motion ends; stop the recording (cp-term-stress-d)"
+   "title": "the motion ends; stop the recording (cp-term-stress-bcol)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.5,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "video_start",
+   "name": "cp-term-stress-c",
+   "seconds": 62.0,
+   "mbps": 24,
+   "rows": [],
+   "columns": [],
+   "require_hz": 120,
+   "lead": 0.8,
+   "title": "start the 120 Hz movie of cell cp-term-stress-c (no scan lines)"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (cp-term-stress-c-c0)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-c-c0"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-c-c0",
+   "title": "set-up: focus cp-term-stress-c-c0 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-c",
+   "i": 0,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 0 of cp-term-stress-c: cmd-w"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (cp-term-stress-c-c1)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-c-c1"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-c-c1",
+   "title": "set-up: focus cp-term-stress-c-c1 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-c",
+   "i": 1,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 1 of cp-term-stress-c: cmd-w"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (cp-term-stress-c-c2)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-c-c2"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-c-c2",
+   "title": "set-up: focus cp-term-stress-c-c2 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-c",
+   "i": 2,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 2 of cp-term-stress-c: cmd-w"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (cp-term-stress-c-c3)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-c-c3"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-c-c3",
+   "title": "set-up: focus cp-term-stress-c-c3 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-c",
+   "i": 3,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 3 of cp-term-stress-c: cmd-w"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (cp-term-stress-c-c4)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-c-c4"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-c-c4",
+   "title": "set-up: focus cp-term-stress-c-c4 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-c",
+   "i": 4,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 4 of cp-term-stress-c: cmd-w"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (cp-term-stress-c-c5)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-c-c5"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-c-c5",
+   "title": "set-up: focus cp-term-stress-c-c5 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-c",
+   "i": 5,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 5 of cp-term-stress-c: cmd-w"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (cp-term-stress-c-c6)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-c-c6"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-c-c6",
+   "title": "set-up: focus cp-term-stress-c-c6 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-c",
+   "i": 6,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 6 of cp-term-stress-c: cmd-w"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (cp-term-stress-c-c7)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-c-c7"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-c-c7",
+   "title": "set-up: focus cp-term-stress-c-c7 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-c",
+   "i": 7,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 7 of cp-term-stress-c: cmd-w"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (cp-term-stress-c-c8)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-c-c8"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-c-c8",
+   "title": "set-up: focus cp-term-stress-c-c8 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-c",
+   "i": 8,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 8 of cp-term-stress-c: cmd-w"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (cp-term-stress-c-c9)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-c-c9"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-c-c9",
+   "title": "set-up: focus cp-term-stress-c-c9 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-c",
+   "i": 9,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 9 of cp-term-stress-c: cmd-w"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (cp-term-stress-c-c10)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-c-c10"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-c-c10",
+   "title": "set-up: focus cp-term-stress-c-c10 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-c",
+   "i": 10,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 10 of cp-term-stress-c: cmd-w"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (cp-term-stress-c-c11)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-c-c11"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-c-c11",
+   "title": "set-up: focus cp-term-stress-c-c11 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-c",
+   "i": 11,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 11 of cp-term-stress-c: cmd-w"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (cp-term-stress-c-c12)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-c-c12"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-c-c12",
+   "title": "set-up: focus cp-term-stress-c-c12 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-c",
+   "i": 12,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 12 of cp-term-stress-c: cmd-w"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (cp-term-stress-c-c13)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-c-c13"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-c-c13",
+   "title": "set-up: focus cp-term-stress-c-c13 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-c",
+   "i": 13,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 13 of cp-term-stress-c: cmd-w"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (cp-term-stress-c-c14)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-c-c14"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-c-c14",
+   "title": "set-up: focus cp-term-stress-c-c14 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-c",
+   "i": 14,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 14 of cp-term-stress-c: cmd-w"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (cp-term-stress-c-c15)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-c-c15"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-c-c15",
+   "title": "set-up: focus cp-term-stress-c-c15 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-c",
+   "i": 15,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 15 of cp-term-stress-c: cmd-w"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (cp-term-stress-c-c16)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-c-c16"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-c-c16",
+   "title": "set-up: focus cp-term-stress-c-c16 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-c",
+   "i": 16,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 16 of cp-term-stress-c: cmd-w"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (cp-term-stress-c-c17)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-c-c17"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-c-c17",
+   "title": "set-up: focus cp-term-stress-c-c17 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-c",
+   "i": 17,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 17 of cp-term-stress-c: cmd-w"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (cp-term-stress-c-c18)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-c-c18"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-c-c18",
+   "title": "set-up: focus cp-term-stress-c-c18 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-c",
+   "i": 18,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 18 of cp-term-stress-c: cmd-w"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (cp-term-stress-c-c19)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-term-stress-c-c19"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-term-stress-c-c19",
+   "title": "set-up: focus cp-term-stress-c-c19 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-term-stress-c",
+   "i": 19,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 19 of cp-term-stress-c: cmd-w"
+  },
+  {
+   "do": "video_stop",
+   "name": "cp-term-stress-c",
+   "tail": 0.3,
+   "title": "the motion ends; stop the recording (cp-term-stress-c)"
   }
  ],
  "finally": [

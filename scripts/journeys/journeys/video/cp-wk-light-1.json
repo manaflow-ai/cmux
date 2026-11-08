@@ -1,14 +1,12 @@
 {
  "id": "cp-wk-light-1",
  "priority": "P1",
- "title": "CLOSE PERF wk light: cp-wk-light-a, cp-wk-light-bsplit, cp-wk-light-bcol",
+ "title": "CLOSE PERF wk light: cp-wk-light-a",
  "why": "cmux-ad m56 (Lawrence 2026-11-07): measure the perf of a close and the motion after it (light and STRESS-lite).",
  "source": "close-perf task kit (video-cases/gen_closeperf.py)",
- "budget_seconds": 214,
+ "budget_seconds": 148,
  "recordings": [
-  "cp-wk-light-a",
-  "cp-wk-light-bsplit",
-  "cp-wk-light-bcol"
+  "cp-wk-light-a"
  ],
  "options": {
   "key_path": "real"
@@ -165,7 +163,7 @@
   {
    "do": "video_start",
    "name": "cp-wk-light-a",
-   "seconds": 56.0,
+   "seconds": 106.0,
    "mbps": 24,
    "rows": [],
    "columns": [],
@@ -454,1222 +452,290 @@
    "title": "close 9 of cp-wk-light-a: cmd-w"
   },
   {
+   "do": "cm_browser",
+   "pane": "cp-wk-light-a-p1",
+   "engine": "webkit",
+   "bg": "#FFFF00",
+   "settle": 0.8
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-wk-light-a-p1",
+   "title": "set-up: focus cp-wk-light-a-p1 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-wk-light-a",
+   "i": 10,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 10 of cp-wk-light-a: cmd-w"
+  },
+  {
+   "do": "cm_browser",
+   "pane": "cp-wk-light-a-p1",
+   "engine": "webkit",
+   "bg": "#FFFF00",
+   "settle": 0.8
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-wk-light-a-p1",
+   "title": "set-up: focus cp-wk-light-a-p1 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-wk-light-a",
+   "i": 11,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 11 of cp-wk-light-a: cmd-w"
+  },
+  {
+   "do": "cm_browser",
+   "pane": "cp-wk-light-a-p1",
+   "engine": "webkit",
+   "bg": "#FFFF00",
+   "settle": 0.8
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-wk-light-a-p1",
+   "title": "set-up: focus cp-wk-light-a-p1 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-wk-light-a",
+   "i": 12,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 12 of cp-wk-light-a: cmd-w"
+  },
+  {
+   "do": "cm_browser",
+   "pane": "cp-wk-light-a-p1",
+   "engine": "webkit",
+   "bg": "#FFFF00",
+   "settle": 0.8
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-wk-light-a-p1",
+   "title": "set-up: focus cp-wk-light-a-p1 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-wk-light-a",
+   "i": 13,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 13 of cp-wk-light-a: cmd-w"
+  },
+  {
+   "do": "cm_browser",
+   "pane": "cp-wk-light-a-p1",
+   "engine": "webkit",
+   "bg": "#FFFF00",
+   "settle": 0.8
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-wk-light-a-p1",
+   "title": "set-up: focus cp-wk-light-a-p1 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-wk-light-a",
+   "i": 14,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 14 of cp-wk-light-a: cmd-w"
+  },
+  {
+   "do": "cm_browser",
+   "pane": "cp-wk-light-a-p1",
+   "engine": "webkit",
+   "bg": "#FFFF00",
+   "settle": 0.8
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-wk-light-a-p1",
+   "title": "set-up: focus cp-wk-light-a-p1 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-wk-light-a",
+   "i": 15,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 15 of cp-wk-light-a: cmd-w"
+  },
+  {
+   "do": "cm_browser",
+   "pane": "cp-wk-light-a-p1",
+   "engine": "webkit",
+   "bg": "#FFFF00",
+   "settle": 0.8
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-wk-light-a-p1",
+   "title": "set-up: focus cp-wk-light-a-p1 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-wk-light-a",
+   "i": 16,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 16 of cp-wk-light-a: cmd-w"
+  },
+  {
+   "do": "cm_browser",
+   "pane": "cp-wk-light-a-p1",
+   "engine": "webkit",
+   "bg": "#FFFF00",
+   "settle": 0.8
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-wk-light-a-p1",
+   "title": "set-up: focus cp-wk-light-a-p1 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-wk-light-a",
+   "i": 17,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 17 of cp-wk-light-a: cmd-w"
+  },
+  {
+   "do": "cm_browser",
+   "pane": "cp-wk-light-a-p1",
+   "engine": "webkit",
+   "bg": "#FFFF00",
+   "settle": 0.8
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-wk-light-a-p1",
+   "title": "set-up: focus cp-wk-light-a-p1 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-wk-light-a",
+   "i": 18,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 18 of cp-wk-light-a: cmd-w"
+  },
+  {
+   "do": "cm_browser",
+   "pane": "cp-wk-light-a-p1",
+   "engine": "webkit",
+   "bg": "#FFFF00",
+   "settle": 0.8
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-wk-light-a-p1",
+   "title": "set-up: focus cp-wk-light-a-p1 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-wk-light-a",
+   "i": 19,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 19 of cp-wk-light-a: cmd-w"
+  },
+  {
    "do": "video_stop",
    "name": "cp-wk-light-a",
    "tail": 0.3,
    "title": "the motion ends; stop the recording (cp-wk-light-a)"
-  },
-  {
-   "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-wk-light-bsplit-p0)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bsplit-p0"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "action",
-   "action": "splitRight",
-   "title": "set-up: splitRight (cp-wk-light-bsplit-p2)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bsplit-p2"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.5,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "video_start",
-   "name": "cp-wk-light-bsplit",
-   "seconds": 56.0,
-   "mbps": 24,
-   "rows": [],
-   "columns": [],
-   "require_hz": 120,
-   "lead": 0.8,
-   "title": "start the 120 Hz movie of cell cp-wk-light-bsplit (no scan lines)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bsplit-p0",
-   "title": "set-up: focus cp-wk-light-bsplit-p0 (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "splitRight",
-   "title": "set-up: splitRight (cp-wk-light-bsplit-p1-0)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bsplit-p1-0"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-wk-light-bsplit-p1-0",
-   "engine": "webkit",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-wk-light-bsplit-p1-0",
-   "which": "first",
-   "title": "set-up: cp-wk-light-bsplit-p1-0's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bsplit-p1-0",
-   "title": "set-up: focus cp-wk-light-bsplit-p1-0 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-wk-light-bsplit",
-   "i": 0,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 0 of cp-wk-light-bsplit: cmd-w"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bsplit-p0",
-   "title": "set-up: focus cp-wk-light-bsplit-p0 (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "splitRight",
-   "title": "set-up: splitRight (cp-wk-light-bsplit-p1-1)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bsplit-p1-1"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-wk-light-bsplit-p1-1",
-   "engine": "webkit",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-wk-light-bsplit-p1-1",
-   "which": "first",
-   "title": "set-up: cp-wk-light-bsplit-p1-1's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bsplit-p1-1",
-   "title": "set-up: focus cp-wk-light-bsplit-p1-1 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-wk-light-bsplit",
-   "i": 1,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 1 of cp-wk-light-bsplit: cmd-w"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bsplit-p0",
-   "title": "set-up: focus cp-wk-light-bsplit-p0 (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "splitRight",
-   "title": "set-up: splitRight (cp-wk-light-bsplit-p1-2)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bsplit-p1-2"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-wk-light-bsplit-p1-2",
-   "engine": "webkit",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-wk-light-bsplit-p1-2",
-   "which": "first",
-   "title": "set-up: cp-wk-light-bsplit-p1-2's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bsplit-p1-2",
-   "title": "set-up: focus cp-wk-light-bsplit-p1-2 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-wk-light-bsplit",
-   "i": 2,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 2 of cp-wk-light-bsplit: cmd-w"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bsplit-p0",
-   "title": "set-up: focus cp-wk-light-bsplit-p0 (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "splitRight",
-   "title": "set-up: splitRight (cp-wk-light-bsplit-p1-3)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bsplit-p1-3"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-wk-light-bsplit-p1-3",
-   "engine": "webkit",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-wk-light-bsplit-p1-3",
-   "which": "first",
-   "title": "set-up: cp-wk-light-bsplit-p1-3's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bsplit-p1-3",
-   "title": "set-up: focus cp-wk-light-bsplit-p1-3 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-wk-light-bsplit",
-   "i": 3,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 3 of cp-wk-light-bsplit: cmd-w"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bsplit-p0",
-   "title": "set-up: focus cp-wk-light-bsplit-p0 (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "splitRight",
-   "title": "set-up: splitRight (cp-wk-light-bsplit-p1-4)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bsplit-p1-4"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-wk-light-bsplit-p1-4",
-   "engine": "webkit",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-wk-light-bsplit-p1-4",
-   "which": "first",
-   "title": "set-up: cp-wk-light-bsplit-p1-4's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bsplit-p1-4",
-   "title": "set-up: focus cp-wk-light-bsplit-p1-4 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-wk-light-bsplit",
-   "i": 4,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 4 of cp-wk-light-bsplit: cmd-w"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bsplit-p0",
-   "title": "set-up: focus cp-wk-light-bsplit-p0 (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "splitRight",
-   "title": "set-up: splitRight (cp-wk-light-bsplit-p1-5)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bsplit-p1-5"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-wk-light-bsplit-p1-5",
-   "engine": "webkit",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-wk-light-bsplit-p1-5",
-   "which": "first",
-   "title": "set-up: cp-wk-light-bsplit-p1-5's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bsplit-p1-5",
-   "title": "set-up: focus cp-wk-light-bsplit-p1-5 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-wk-light-bsplit",
-   "i": 5,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 5 of cp-wk-light-bsplit: cmd-w"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bsplit-p0",
-   "title": "set-up: focus cp-wk-light-bsplit-p0 (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "splitRight",
-   "title": "set-up: splitRight (cp-wk-light-bsplit-p1-6)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bsplit-p1-6"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-wk-light-bsplit-p1-6",
-   "engine": "webkit",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-wk-light-bsplit-p1-6",
-   "which": "first",
-   "title": "set-up: cp-wk-light-bsplit-p1-6's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bsplit-p1-6",
-   "title": "set-up: focus cp-wk-light-bsplit-p1-6 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-wk-light-bsplit",
-   "i": 6,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 6 of cp-wk-light-bsplit: cmd-w"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bsplit-p0",
-   "title": "set-up: focus cp-wk-light-bsplit-p0 (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "splitRight",
-   "title": "set-up: splitRight (cp-wk-light-bsplit-p1-7)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bsplit-p1-7"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-wk-light-bsplit-p1-7",
-   "engine": "webkit",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-wk-light-bsplit-p1-7",
-   "which": "first",
-   "title": "set-up: cp-wk-light-bsplit-p1-7's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bsplit-p1-7",
-   "title": "set-up: focus cp-wk-light-bsplit-p1-7 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-wk-light-bsplit",
-   "i": 7,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 7 of cp-wk-light-bsplit: cmd-w"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bsplit-p0",
-   "title": "set-up: focus cp-wk-light-bsplit-p0 (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "splitRight",
-   "title": "set-up: splitRight (cp-wk-light-bsplit-p1-8)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bsplit-p1-8"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-wk-light-bsplit-p1-8",
-   "engine": "webkit",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-wk-light-bsplit-p1-8",
-   "which": "first",
-   "title": "set-up: cp-wk-light-bsplit-p1-8's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bsplit-p1-8",
-   "title": "set-up: focus cp-wk-light-bsplit-p1-8 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-wk-light-bsplit",
-   "i": 8,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 8 of cp-wk-light-bsplit: cmd-w"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bsplit-p0",
-   "title": "set-up: focus cp-wk-light-bsplit-p0 (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "splitRight",
-   "title": "set-up: splitRight (cp-wk-light-bsplit-p1-9)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bsplit-p1-9"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-wk-light-bsplit-p1-9",
-   "engine": "webkit",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-wk-light-bsplit-p1-9",
-   "which": "first",
-   "title": "set-up: cp-wk-light-bsplit-p1-9's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bsplit-p1-9",
-   "title": "set-up: focus cp-wk-light-bsplit-p1-9 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-wk-light-bsplit",
-   "i": 9,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 9 of cp-wk-light-bsplit: cmd-w"
-  },
-  {
-   "do": "video_stop",
-   "name": "cp-wk-light-bsplit",
-   "tail": 0.3,
-   "title": "the motion ends; stop the recording (cp-wk-light-bsplit)"
-  },
-  {
-   "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-wk-light-bcol-p0)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bcol-p0"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (cp-wk-light-bcol-p2)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bcol-p2"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.5,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "video_start",
-   "name": "cp-wk-light-bcol",
-   "seconds": 56.0,
-   "mbps": 24,
-   "rows": [],
-   "columns": [],
-   "require_hz": 120,
-   "lead": 0.8,
-   "title": "start the 120 Hz movie of cell cp-wk-light-bcol (no scan lines)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bcol-p0",
-   "title": "set-up: focus cp-wk-light-bcol-p0 (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (cp-wk-light-bcol-p1-0)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bcol-p1-0"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-wk-light-bcol-p1-0",
-   "engine": "webkit",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-wk-light-bcol-p1-0",
-   "which": "first",
-   "title": "set-up: cp-wk-light-bcol-p1-0's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bcol-p1-0",
-   "title": "set-up: focus cp-wk-light-bcol-p1-0 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-wk-light-bcol",
-   "i": 0,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 0 of cp-wk-light-bcol: cmd-w"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bcol-p0",
-   "title": "set-up: focus cp-wk-light-bcol-p0 (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (cp-wk-light-bcol-p1-1)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bcol-p1-1"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-wk-light-bcol-p1-1",
-   "engine": "webkit",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-wk-light-bcol-p1-1",
-   "which": "first",
-   "title": "set-up: cp-wk-light-bcol-p1-1's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bcol-p1-1",
-   "title": "set-up: focus cp-wk-light-bcol-p1-1 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-wk-light-bcol",
-   "i": 1,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 1 of cp-wk-light-bcol: cmd-w"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bcol-p0",
-   "title": "set-up: focus cp-wk-light-bcol-p0 (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (cp-wk-light-bcol-p1-2)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bcol-p1-2"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-wk-light-bcol-p1-2",
-   "engine": "webkit",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-wk-light-bcol-p1-2",
-   "which": "first",
-   "title": "set-up: cp-wk-light-bcol-p1-2's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bcol-p1-2",
-   "title": "set-up: focus cp-wk-light-bcol-p1-2 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-wk-light-bcol",
-   "i": 2,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 2 of cp-wk-light-bcol: cmd-w"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bcol-p0",
-   "title": "set-up: focus cp-wk-light-bcol-p0 (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (cp-wk-light-bcol-p1-3)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bcol-p1-3"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-wk-light-bcol-p1-3",
-   "engine": "webkit",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-wk-light-bcol-p1-3",
-   "which": "first",
-   "title": "set-up: cp-wk-light-bcol-p1-3's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bcol-p1-3",
-   "title": "set-up: focus cp-wk-light-bcol-p1-3 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-wk-light-bcol",
-   "i": 3,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 3 of cp-wk-light-bcol: cmd-w"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bcol-p0",
-   "title": "set-up: focus cp-wk-light-bcol-p0 (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (cp-wk-light-bcol-p1-4)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bcol-p1-4"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-wk-light-bcol-p1-4",
-   "engine": "webkit",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-wk-light-bcol-p1-4",
-   "which": "first",
-   "title": "set-up: cp-wk-light-bcol-p1-4's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bcol-p1-4",
-   "title": "set-up: focus cp-wk-light-bcol-p1-4 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-wk-light-bcol",
-   "i": 4,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 4 of cp-wk-light-bcol: cmd-w"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bcol-p0",
-   "title": "set-up: focus cp-wk-light-bcol-p0 (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (cp-wk-light-bcol-p1-5)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bcol-p1-5"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-wk-light-bcol-p1-5",
-   "engine": "webkit",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-wk-light-bcol-p1-5",
-   "which": "first",
-   "title": "set-up: cp-wk-light-bcol-p1-5's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bcol-p1-5",
-   "title": "set-up: focus cp-wk-light-bcol-p1-5 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-wk-light-bcol",
-   "i": 5,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 5 of cp-wk-light-bcol: cmd-w"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bcol-p0",
-   "title": "set-up: focus cp-wk-light-bcol-p0 (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (cp-wk-light-bcol-p1-6)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bcol-p1-6"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-wk-light-bcol-p1-6",
-   "engine": "webkit",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-wk-light-bcol-p1-6",
-   "which": "first",
-   "title": "set-up: cp-wk-light-bcol-p1-6's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bcol-p1-6",
-   "title": "set-up: focus cp-wk-light-bcol-p1-6 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-wk-light-bcol",
-   "i": 6,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 6 of cp-wk-light-bcol: cmd-w"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bcol-p0",
-   "title": "set-up: focus cp-wk-light-bcol-p0 (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (cp-wk-light-bcol-p1-7)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bcol-p1-7"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-wk-light-bcol-p1-7",
-   "engine": "webkit",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-wk-light-bcol-p1-7",
-   "which": "first",
-   "title": "set-up: cp-wk-light-bcol-p1-7's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bcol-p1-7",
-   "title": "set-up: focus cp-wk-light-bcol-p1-7 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-wk-light-bcol",
-   "i": 7,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 7 of cp-wk-light-bcol: cmd-w"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bcol-p0",
-   "title": "set-up: focus cp-wk-light-bcol-p0 (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (cp-wk-light-bcol-p1-8)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bcol-p1-8"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-wk-light-bcol-p1-8",
-   "engine": "webkit",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-wk-light-bcol-p1-8",
-   "which": "first",
-   "title": "set-up: cp-wk-light-bcol-p1-8's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bcol-p1-8",
-   "title": "set-up: focus cp-wk-light-bcol-p1-8 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-wk-light-bcol",
-   "i": 8,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 8 of cp-wk-light-bcol: cmd-w"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bcol-p0",
-   "title": "set-up: focus cp-wk-light-bcol-p0 (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (cp-wk-light-bcol-p1-9)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-wk-light-bcol-p1-9"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-wk-light-bcol-p1-9",
-   "engine": "webkit",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-wk-light-bcol-p1-9",
-   "which": "first",
-   "title": "set-up: cp-wk-light-bcol-p1-9's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-wk-light-bcol-p1-9",
-   "title": "set-up: focus cp-wk-light-bcol-p1-9 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-wk-light-bcol",
-   "i": 9,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 9 of cp-wk-light-bcol: cmd-w"
-  },
-  {
-   "do": "video_stop",
-   "name": "cp-wk-light-bcol",
-   "tail": 0.3,
-   "title": "the motion ends; stop the recording (cp-wk-light-bcol)"
   }
  ],
  "finally": [

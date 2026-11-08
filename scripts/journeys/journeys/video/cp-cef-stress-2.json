@@ -1,13 +1,12 @@
 {
  "id": "cp-cef-stress-2",
  "priority": "P1",
- "title": "CLOSE PERF cef stress: cp-cef-stress-bcol, cp-cef-stress-c",
+ "title": "CLOSE PERF cef stress: cp-cef-stress-bsplit",
  "why": "cmux-ad m56 (Lawrence 2026-11-07): measure the perf of a close and the motion after it (light and STRESS-lite).",
  "source": "close-perf task kit (video-cases/gen_closeperf.py)",
- "budget_seconds": 206,
+ "budget_seconds": 198,
  "recordings": [
-  "cp-cef-stress-bcol",
-  "cp-cef-stress-c"
+  "cp-cef-stress-bsplit"
  ],
  "options": {
   "key_path": "real"
@@ -142,23 +141,23 @@
   {
    "do": "action",
    "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-cef-stress-bcol-p0)"
+   "title": "set-up: a new workspace (cp-cef-stress-bsplit-p0)"
   },
   {
    "do": "adopt_pane",
-   "as": "cp-cef-stress-bcol-p0"
+   "as": "cp-cef-stress-bsplit-p0"
   },
   {
    "do": "neutral_prompt"
   },
   {
    "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (cp-cef-stress-bcol-p2)"
+   "action": "splitRight",
+   "title": "set-up: splitRight (cp-cef-stress-bsplit-p2)"
   },
   {
    "do": "adopt_pane",
-   "as": "cp-cef-stress-bcol-p2"
+   "as": "cp-cef-stress-bsplit-p2"
   },
   {
    "do": "neutral_prompt"
@@ -170,44 +169,44 @@
   },
   {
    "do": "video_start",
-   "name": "cp-cef-stress-bcol",
-   "seconds": 56.0,
+   "name": "cp-cef-stress-bsplit",
+   "seconds": 106.0,
    "mbps": 24,
    "rows": [],
    "columns": [],
    "require_hz": 120,
    "lead": 0.8,
-   "title": "start the 120 Hz movie of cell cp-cef-stress-bcol (no scan lines)"
+   "title": "start the 120 Hz movie of cell cp-cef-stress-bsplit (no scan lines)"
   },
   {
    "do": "rk_focus",
-   "pane": "cp-cef-stress-bcol-p0",
-   "title": "set-up: focus cp-cef-stress-bcol-p0 (cmux pane focus)"
+   "pane": "cp-cef-stress-bsplit-p0",
+   "title": "set-up: focus cp-cef-stress-bsplit-p0 (cmux pane focus)"
   },
   {
    "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (cp-cef-stress-bcol-p1-0)"
+   "action": "splitRight",
+   "title": "set-up: splitRight (cp-cef-stress-bsplit-p1-0)"
   },
   {
    "do": "adopt_pane",
-   "as": "cp-cef-stress-bcol-p1-0"
+   "as": "cp-cef-stress-bsplit-p1-0"
   },
   {
    "do": "neutral_prompt"
   },
   {
    "do": "cm_browser",
-   "pane": "cp-cef-stress-bcol-p1-0",
+   "pane": "cp-cef-stress-bsplit-p1-0",
    "engine": "cef",
    "bg": "#FFFF00",
    "settle": 0.8
   },
   {
    "do": "cm_close_tab",
-   "pane": "cp-cef-stress-bcol-p1-0",
+   "pane": "cp-cef-stress-bsplit-p1-0",
    "which": "first",
-   "title": "set-up: cp-cef-stress-bcol-p1-0's terminal tab closed (the page stays)"
+   "title": "set-up: cp-cef-stress-bsplit-p1-0's terminal tab closed (the page stays)"
   },
   {
    "do": "wait",
@@ -216,8 +215,8 @@
   },
   {
    "do": "rk_focus",
-   "pane": "cp-cef-stress-bcol-p1-0",
-   "title": "set-up: focus cp-cef-stress-bcol-p1-0 (cmux pane focus)"
+   "pane": "cp-cef-stress-bsplit-p1-0",
+   "title": "set-up: focus cp-cef-stress-bsplit-p1-0 (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -226,44 +225,44 @@
   },
   {
    "do": "cp_close",
-   "film": "cp-cef-stress-bcol",
+   "film": "cp-cef-stress-bsplit",
    "i": 0,
    "key": "w",
    "modifiers": [
     "cmd"
    ],
    "rest": 1.2,
-   "title": "close 0 of cp-cef-stress-bcol: cmd-w"
+   "title": "close 0 of cp-cef-stress-bsplit: cmd-w"
   },
   {
    "do": "rk_focus",
-   "pane": "cp-cef-stress-bcol-p0",
-   "title": "set-up: focus cp-cef-stress-bcol-p0 (cmux pane focus)"
+   "pane": "cp-cef-stress-bsplit-p0",
+   "title": "set-up: focus cp-cef-stress-bsplit-p0 (cmux pane focus)"
   },
   {
    "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (cp-cef-stress-bcol-p1-1)"
+   "action": "splitRight",
+   "title": "set-up: splitRight (cp-cef-stress-bsplit-p1-1)"
   },
   {
    "do": "adopt_pane",
-   "as": "cp-cef-stress-bcol-p1-1"
+   "as": "cp-cef-stress-bsplit-p1-1"
   },
   {
    "do": "neutral_prompt"
   },
   {
    "do": "cm_browser",
-   "pane": "cp-cef-stress-bcol-p1-1",
+   "pane": "cp-cef-stress-bsplit-p1-1",
    "engine": "cef",
    "bg": "#FFFF00",
    "settle": 0.8
   },
   {
    "do": "cm_close_tab",
-   "pane": "cp-cef-stress-bcol-p1-1",
+   "pane": "cp-cef-stress-bsplit-p1-1",
    "which": "first",
-   "title": "set-up: cp-cef-stress-bcol-p1-1's terminal tab closed (the page stays)"
+   "title": "set-up: cp-cef-stress-bsplit-p1-1's terminal tab closed (the page stays)"
   },
   {
    "do": "wait",
@@ -272,8 +271,8 @@
   },
   {
    "do": "rk_focus",
-   "pane": "cp-cef-stress-bcol-p1-1",
-   "title": "set-up: focus cp-cef-stress-bcol-p1-1 (cmux pane focus)"
+   "pane": "cp-cef-stress-bsplit-p1-1",
+   "title": "set-up: focus cp-cef-stress-bsplit-p1-1 (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -282,44 +281,44 @@
   },
   {
    "do": "cp_close",
-   "film": "cp-cef-stress-bcol",
+   "film": "cp-cef-stress-bsplit",
    "i": 1,
    "key": "w",
    "modifiers": [
     "cmd"
    ],
    "rest": 1.2,
-   "title": "close 1 of cp-cef-stress-bcol: cmd-w"
+   "title": "close 1 of cp-cef-stress-bsplit: cmd-w"
   },
   {
    "do": "rk_focus",
-   "pane": "cp-cef-stress-bcol-p0",
-   "title": "set-up: focus cp-cef-stress-bcol-p0 (cmux pane focus)"
+   "pane": "cp-cef-stress-bsplit-p0",
+   "title": "set-up: focus cp-cef-stress-bsplit-p0 (cmux pane focus)"
   },
   {
    "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (cp-cef-stress-bcol-p1-2)"
+   "action": "splitRight",
+   "title": "set-up: splitRight (cp-cef-stress-bsplit-p1-2)"
   },
   {
    "do": "adopt_pane",
-   "as": "cp-cef-stress-bcol-p1-2"
+   "as": "cp-cef-stress-bsplit-p1-2"
   },
   {
    "do": "neutral_prompt"
   },
   {
    "do": "cm_browser",
-   "pane": "cp-cef-stress-bcol-p1-2",
+   "pane": "cp-cef-stress-bsplit-p1-2",
    "engine": "cef",
    "bg": "#FFFF00",
    "settle": 0.8
   },
   {
    "do": "cm_close_tab",
-   "pane": "cp-cef-stress-bcol-p1-2",
+   "pane": "cp-cef-stress-bsplit-p1-2",
    "which": "first",
-   "title": "set-up: cp-cef-stress-bcol-p1-2's terminal tab closed (the page stays)"
+   "title": "set-up: cp-cef-stress-bsplit-p1-2's terminal tab closed (the page stays)"
   },
   {
    "do": "wait",
@@ -328,8 +327,8 @@
   },
   {
    "do": "rk_focus",
-   "pane": "cp-cef-stress-bcol-p1-2",
-   "title": "set-up: focus cp-cef-stress-bcol-p1-2 (cmux pane focus)"
+   "pane": "cp-cef-stress-bsplit-p1-2",
+   "title": "set-up: focus cp-cef-stress-bsplit-p1-2 (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -338,44 +337,44 @@
   },
   {
    "do": "cp_close",
-   "film": "cp-cef-stress-bcol",
+   "film": "cp-cef-stress-bsplit",
    "i": 2,
    "key": "w",
    "modifiers": [
     "cmd"
    ],
    "rest": 1.2,
-   "title": "close 2 of cp-cef-stress-bcol: cmd-w"
+   "title": "close 2 of cp-cef-stress-bsplit: cmd-w"
   },
   {
    "do": "rk_focus",
-   "pane": "cp-cef-stress-bcol-p0",
-   "title": "set-up: focus cp-cef-stress-bcol-p0 (cmux pane focus)"
+   "pane": "cp-cef-stress-bsplit-p0",
+   "title": "set-up: focus cp-cef-stress-bsplit-p0 (cmux pane focus)"
   },
   {
    "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (cp-cef-stress-bcol-p1-3)"
+   "action": "splitRight",
+   "title": "set-up: splitRight (cp-cef-stress-bsplit-p1-3)"
   },
   {
    "do": "adopt_pane",
-   "as": "cp-cef-stress-bcol-p1-3"
+   "as": "cp-cef-stress-bsplit-p1-3"
   },
   {
    "do": "neutral_prompt"
   },
   {
    "do": "cm_browser",
-   "pane": "cp-cef-stress-bcol-p1-3",
+   "pane": "cp-cef-stress-bsplit-p1-3",
    "engine": "cef",
    "bg": "#FFFF00",
    "settle": 0.8
   },
   {
    "do": "cm_close_tab",
-   "pane": "cp-cef-stress-bcol-p1-3",
+   "pane": "cp-cef-stress-bsplit-p1-3",
    "which": "first",
-   "title": "set-up: cp-cef-stress-bcol-p1-3's terminal tab closed (the page stays)"
+   "title": "set-up: cp-cef-stress-bsplit-p1-3's terminal tab closed (the page stays)"
   },
   {
    "do": "wait",
@@ -384,8 +383,8 @@
   },
   {
    "do": "rk_focus",
-   "pane": "cp-cef-stress-bcol-p1-3",
-   "title": "set-up: focus cp-cef-stress-bcol-p1-3 (cmux pane focus)"
+   "pane": "cp-cef-stress-bsplit-p1-3",
+   "title": "set-up: focus cp-cef-stress-bsplit-p1-3 (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -394,44 +393,44 @@
   },
   {
    "do": "cp_close",
-   "film": "cp-cef-stress-bcol",
+   "film": "cp-cef-stress-bsplit",
    "i": 3,
    "key": "w",
    "modifiers": [
     "cmd"
    ],
    "rest": 1.2,
-   "title": "close 3 of cp-cef-stress-bcol: cmd-w"
+   "title": "close 3 of cp-cef-stress-bsplit: cmd-w"
   },
   {
    "do": "rk_focus",
-   "pane": "cp-cef-stress-bcol-p0",
-   "title": "set-up: focus cp-cef-stress-bcol-p0 (cmux pane focus)"
+   "pane": "cp-cef-stress-bsplit-p0",
+   "title": "set-up: focus cp-cef-stress-bsplit-p0 (cmux pane focus)"
   },
   {
    "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (cp-cef-stress-bcol-p1-4)"
+   "action": "splitRight",
+   "title": "set-up: splitRight (cp-cef-stress-bsplit-p1-4)"
   },
   {
    "do": "adopt_pane",
-   "as": "cp-cef-stress-bcol-p1-4"
+   "as": "cp-cef-stress-bsplit-p1-4"
   },
   {
    "do": "neutral_prompt"
   },
   {
    "do": "cm_browser",
-   "pane": "cp-cef-stress-bcol-p1-4",
+   "pane": "cp-cef-stress-bsplit-p1-4",
    "engine": "cef",
    "bg": "#FFFF00",
    "settle": 0.8
   },
   {
    "do": "cm_close_tab",
-   "pane": "cp-cef-stress-bcol-p1-4",
+   "pane": "cp-cef-stress-bsplit-p1-4",
    "which": "first",
-   "title": "set-up: cp-cef-stress-bcol-p1-4's terminal tab closed (the page stays)"
+   "title": "set-up: cp-cef-stress-bsplit-p1-4's terminal tab closed (the page stays)"
   },
   {
    "do": "wait",
@@ -440,8 +439,8 @@
   },
   {
    "do": "rk_focus",
-   "pane": "cp-cef-stress-bcol-p1-4",
-   "title": "set-up: focus cp-cef-stress-bcol-p1-4 (cmux pane focus)"
+   "pane": "cp-cef-stress-bsplit-p1-4",
+   "title": "set-up: focus cp-cef-stress-bsplit-p1-4 (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -450,44 +449,44 @@
   },
   {
    "do": "cp_close",
-   "film": "cp-cef-stress-bcol",
+   "film": "cp-cef-stress-bsplit",
    "i": 4,
    "key": "w",
    "modifiers": [
     "cmd"
    ],
    "rest": 1.2,
-   "title": "close 4 of cp-cef-stress-bcol: cmd-w"
+   "title": "close 4 of cp-cef-stress-bsplit: cmd-w"
   },
   {
    "do": "rk_focus",
-   "pane": "cp-cef-stress-bcol-p0",
-   "title": "set-up: focus cp-cef-stress-bcol-p0 (cmux pane focus)"
+   "pane": "cp-cef-stress-bsplit-p0",
+   "title": "set-up: focus cp-cef-stress-bsplit-p0 (cmux pane focus)"
   },
   {
    "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (cp-cef-stress-bcol-p1-5)"
+   "action": "splitRight",
+   "title": "set-up: splitRight (cp-cef-stress-bsplit-p1-5)"
   },
   {
    "do": "adopt_pane",
-   "as": "cp-cef-stress-bcol-p1-5"
+   "as": "cp-cef-stress-bsplit-p1-5"
   },
   {
    "do": "neutral_prompt"
   },
   {
    "do": "cm_browser",
-   "pane": "cp-cef-stress-bcol-p1-5",
+   "pane": "cp-cef-stress-bsplit-p1-5",
    "engine": "cef",
    "bg": "#FFFF00",
    "settle": 0.8
   },
   {
    "do": "cm_close_tab",
-   "pane": "cp-cef-stress-bcol-p1-5",
+   "pane": "cp-cef-stress-bsplit-p1-5",
    "which": "first",
-   "title": "set-up: cp-cef-stress-bcol-p1-5's terminal tab closed (the page stays)"
+   "title": "set-up: cp-cef-stress-bsplit-p1-5's terminal tab closed (the page stays)"
   },
   {
    "do": "wait",
@@ -496,8 +495,8 @@
   },
   {
    "do": "rk_focus",
-   "pane": "cp-cef-stress-bcol-p1-5",
-   "title": "set-up: focus cp-cef-stress-bcol-p1-5 (cmux pane focus)"
+   "pane": "cp-cef-stress-bsplit-p1-5",
+   "title": "set-up: focus cp-cef-stress-bsplit-p1-5 (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -506,44 +505,44 @@
   },
   {
    "do": "cp_close",
-   "film": "cp-cef-stress-bcol",
+   "film": "cp-cef-stress-bsplit",
    "i": 5,
    "key": "w",
    "modifiers": [
     "cmd"
    ],
    "rest": 1.2,
-   "title": "close 5 of cp-cef-stress-bcol: cmd-w"
+   "title": "close 5 of cp-cef-stress-bsplit: cmd-w"
   },
   {
    "do": "rk_focus",
-   "pane": "cp-cef-stress-bcol-p0",
-   "title": "set-up: focus cp-cef-stress-bcol-p0 (cmux pane focus)"
+   "pane": "cp-cef-stress-bsplit-p0",
+   "title": "set-up: focus cp-cef-stress-bsplit-p0 (cmux pane focus)"
   },
   {
    "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (cp-cef-stress-bcol-p1-6)"
+   "action": "splitRight",
+   "title": "set-up: splitRight (cp-cef-stress-bsplit-p1-6)"
   },
   {
    "do": "adopt_pane",
-   "as": "cp-cef-stress-bcol-p1-6"
+   "as": "cp-cef-stress-bsplit-p1-6"
   },
   {
    "do": "neutral_prompt"
   },
   {
    "do": "cm_browser",
-   "pane": "cp-cef-stress-bcol-p1-6",
+   "pane": "cp-cef-stress-bsplit-p1-6",
    "engine": "cef",
    "bg": "#FFFF00",
    "settle": 0.8
   },
   {
    "do": "cm_close_tab",
-   "pane": "cp-cef-stress-bcol-p1-6",
+   "pane": "cp-cef-stress-bsplit-p1-6",
    "which": "first",
-   "title": "set-up: cp-cef-stress-bcol-p1-6's terminal tab closed (the page stays)"
+   "title": "set-up: cp-cef-stress-bsplit-p1-6's terminal tab closed (the page stays)"
   },
   {
    "do": "wait",
@@ -552,8 +551,8 @@
   },
   {
    "do": "rk_focus",
-   "pane": "cp-cef-stress-bcol-p1-6",
-   "title": "set-up: focus cp-cef-stress-bcol-p1-6 (cmux pane focus)"
+   "pane": "cp-cef-stress-bsplit-p1-6",
+   "title": "set-up: focus cp-cef-stress-bsplit-p1-6 (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -562,44 +561,44 @@
   },
   {
    "do": "cp_close",
-   "film": "cp-cef-stress-bcol",
+   "film": "cp-cef-stress-bsplit",
    "i": 6,
    "key": "w",
    "modifiers": [
     "cmd"
    ],
    "rest": 1.2,
-   "title": "close 6 of cp-cef-stress-bcol: cmd-w"
+   "title": "close 6 of cp-cef-stress-bsplit: cmd-w"
   },
   {
    "do": "rk_focus",
-   "pane": "cp-cef-stress-bcol-p0",
-   "title": "set-up: focus cp-cef-stress-bcol-p0 (cmux pane focus)"
+   "pane": "cp-cef-stress-bsplit-p0",
+   "title": "set-up: focus cp-cef-stress-bsplit-p0 (cmux pane focus)"
   },
   {
    "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (cp-cef-stress-bcol-p1-7)"
+   "action": "splitRight",
+   "title": "set-up: splitRight (cp-cef-stress-bsplit-p1-7)"
   },
   {
    "do": "adopt_pane",
-   "as": "cp-cef-stress-bcol-p1-7"
+   "as": "cp-cef-stress-bsplit-p1-7"
   },
   {
    "do": "neutral_prompt"
   },
   {
    "do": "cm_browser",
-   "pane": "cp-cef-stress-bcol-p1-7",
+   "pane": "cp-cef-stress-bsplit-p1-7",
    "engine": "cef",
    "bg": "#FFFF00",
    "settle": 0.8
   },
   {
    "do": "cm_close_tab",
-   "pane": "cp-cef-stress-bcol-p1-7",
+   "pane": "cp-cef-stress-bsplit-p1-7",
    "which": "first",
-   "title": "set-up: cp-cef-stress-bcol-p1-7's terminal tab closed (the page stays)"
+   "title": "set-up: cp-cef-stress-bsplit-p1-7's terminal tab closed (the page stays)"
   },
   {
    "do": "wait",
@@ -608,8 +607,8 @@
   },
   {
    "do": "rk_focus",
-   "pane": "cp-cef-stress-bcol-p1-7",
-   "title": "set-up: focus cp-cef-stress-bcol-p1-7 (cmux pane focus)"
+   "pane": "cp-cef-stress-bsplit-p1-7",
+   "title": "set-up: focus cp-cef-stress-bsplit-p1-7 (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -618,44 +617,44 @@
   },
   {
    "do": "cp_close",
-   "film": "cp-cef-stress-bcol",
+   "film": "cp-cef-stress-bsplit",
    "i": 7,
    "key": "w",
    "modifiers": [
     "cmd"
    ],
    "rest": 1.2,
-   "title": "close 7 of cp-cef-stress-bcol: cmd-w"
+   "title": "close 7 of cp-cef-stress-bsplit: cmd-w"
   },
   {
    "do": "rk_focus",
-   "pane": "cp-cef-stress-bcol-p0",
-   "title": "set-up: focus cp-cef-stress-bcol-p0 (cmux pane focus)"
+   "pane": "cp-cef-stress-bsplit-p0",
+   "title": "set-up: focus cp-cef-stress-bsplit-p0 (cmux pane focus)"
   },
   {
    "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (cp-cef-stress-bcol-p1-8)"
+   "action": "splitRight",
+   "title": "set-up: splitRight (cp-cef-stress-bsplit-p1-8)"
   },
   {
    "do": "adopt_pane",
-   "as": "cp-cef-stress-bcol-p1-8"
+   "as": "cp-cef-stress-bsplit-p1-8"
   },
   {
    "do": "neutral_prompt"
   },
   {
    "do": "cm_browser",
-   "pane": "cp-cef-stress-bcol-p1-8",
+   "pane": "cp-cef-stress-bsplit-p1-8",
    "engine": "cef",
    "bg": "#FFFF00",
    "settle": 0.8
   },
   {
    "do": "cm_close_tab",
-   "pane": "cp-cef-stress-bcol-p1-8",
+   "pane": "cp-cef-stress-bsplit-p1-8",
    "which": "first",
-   "title": "set-up: cp-cef-stress-bcol-p1-8's terminal tab closed (the page stays)"
+   "title": "set-up: cp-cef-stress-bsplit-p1-8's terminal tab closed (the page stays)"
   },
   {
    "do": "wait",
@@ -664,8 +663,8 @@
   },
   {
    "do": "rk_focus",
-   "pane": "cp-cef-stress-bcol-p1-8",
-   "title": "set-up: focus cp-cef-stress-bcol-p1-8 (cmux pane focus)"
+   "pane": "cp-cef-stress-bsplit-p1-8",
+   "title": "set-up: focus cp-cef-stress-bsplit-p1-8 (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -674,44 +673,44 @@
   },
   {
    "do": "cp_close",
-   "film": "cp-cef-stress-bcol",
+   "film": "cp-cef-stress-bsplit",
    "i": 8,
    "key": "w",
    "modifiers": [
     "cmd"
    ],
    "rest": 1.2,
-   "title": "close 8 of cp-cef-stress-bcol: cmd-w"
+   "title": "close 8 of cp-cef-stress-bsplit: cmd-w"
   },
   {
    "do": "rk_focus",
-   "pane": "cp-cef-stress-bcol-p0",
-   "title": "set-up: focus cp-cef-stress-bcol-p0 (cmux pane focus)"
+   "pane": "cp-cef-stress-bsplit-p0",
+   "title": "set-up: focus cp-cef-stress-bsplit-p0 (cmux pane focus)"
   },
   {
    "do": "action",
-   "action": "newColumn",
-   "title": "set-up: newColumn (cp-cef-stress-bcol-p1-9)"
+   "action": "splitRight",
+   "title": "set-up: splitRight (cp-cef-stress-bsplit-p1-9)"
   },
   {
    "do": "adopt_pane",
-   "as": "cp-cef-stress-bcol-p1-9"
+   "as": "cp-cef-stress-bsplit-p1-9"
   },
   {
    "do": "neutral_prompt"
   },
   {
    "do": "cm_browser",
-   "pane": "cp-cef-stress-bcol-p1-9",
+   "pane": "cp-cef-stress-bsplit-p1-9",
    "engine": "cef",
    "bg": "#FFFF00",
    "settle": 0.8
   },
   {
    "do": "cm_close_tab",
-   "pane": "cp-cef-stress-bcol-p1-9",
+   "pane": "cp-cef-stress-bsplit-p1-9",
    "which": "first",
-   "title": "set-up: cp-cef-stress-bcol-p1-9's terminal tab closed (the page stays)"
+   "title": "set-up: cp-cef-stress-bsplit-p1-9's terminal tab closed (the page stays)"
   },
   {
    "do": "wait",
@@ -720,8 +719,8 @@
   },
   {
    "do": "rk_focus",
-   "pane": "cp-cef-stress-bcol-p1-9",
-   "title": "set-up: focus cp-cef-stress-bcol-p1-9 (cmux pane focus)"
+   "pane": "cp-cef-stress-bsplit-p1-9",
+   "title": "set-up: focus cp-cef-stress-bsplit-p1-9 (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -730,552 +729,580 @@
   },
   {
    "do": "cp_close",
-   "film": "cp-cef-stress-bcol",
+   "film": "cp-cef-stress-bsplit",
    "i": 9,
    "key": "w",
    "modifiers": [
     "cmd"
    ],
    "rest": 1.2,
-   "title": "close 9 of cp-cef-stress-bcol: cmd-w"
+   "title": "close 9 of cp-cef-stress-bsplit: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-cef-stress-bsplit-p0",
+   "title": "set-up: focus cp-cef-stress-bsplit-p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "splitRight",
+   "title": "set-up: splitRight (cp-cef-stress-bsplit-p1-10)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-cef-stress-bsplit-p1-10"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "cm_browser",
+   "pane": "cp-cef-stress-bsplit-p1-10",
+   "engine": "cef",
+   "bg": "#FFFF00",
+   "settle": 0.8
+  },
+  {
+   "do": "cm_close_tab",
+   "pane": "cp-cef-stress-bsplit-p1-10",
+   "which": "first",
+   "title": "set-up: cp-cef-stress-bsplit-p1-10's terminal tab closed (the page stays)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-cef-stress-bsplit-p1-10",
+   "title": "set-up: focus cp-cef-stress-bsplit-p1-10 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-cef-stress-bsplit",
+   "i": 10,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 10 of cp-cef-stress-bsplit: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-cef-stress-bsplit-p0",
+   "title": "set-up: focus cp-cef-stress-bsplit-p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "splitRight",
+   "title": "set-up: splitRight (cp-cef-stress-bsplit-p1-11)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-cef-stress-bsplit-p1-11"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "cm_browser",
+   "pane": "cp-cef-stress-bsplit-p1-11",
+   "engine": "cef",
+   "bg": "#FFFF00",
+   "settle": 0.8
+  },
+  {
+   "do": "cm_close_tab",
+   "pane": "cp-cef-stress-bsplit-p1-11",
+   "which": "first",
+   "title": "set-up: cp-cef-stress-bsplit-p1-11's terminal tab closed (the page stays)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-cef-stress-bsplit-p1-11",
+   "title": "set-up: focus cp-cef-stress-bsplit-p1-11 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-cef-stress-bsplit",
+   "i": 11,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 11 of cp-cef-stress-bsplit: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-cef-stress-bsplit-p0",
+   "title": "set-up: focus cp-cef-stress-bsplit-p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "splitRight",
+   "title": "set-up: splitRight (cp-cef-stress-bsplit-p1-12)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-cef-stress-bsplit-p1-12"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "cm_browser",
+   "pane": "cp-cef-stress-bsplit-p1-12",
+   "engine": "cef",
+   "bg": "#FFFF00",
+   "settle": 0.8
+  },
+  {
+   "do": "cm_close_tab",
+   "pane": "cp-cef-stress-bsplit-p1-12",
+   "which": "first",
+   "title": "set-up: cp-cef-stress-bsplit-p1-12's terminal tab closed (the page stays)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-cef-stress-bsplit-p1-12",
+   "title": "set-up: focus cp-cef-stress-bsplit-p1-12 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-cef-stress-bsplit",
+   "i": 12,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 12 of cp-cef-stress-bsplit: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-cef-stress-bsplit-p0",
+   "title": "set-up: focus cp-cef-stress-bsplit-p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "splitRight",
+   "title": "set-up: splitRight (cp-cef-stress-bsplit-p1-13)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-cef-stress-bsplit-p1-13"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "cm_browser",
+   "pane": "cp-cef-stress-bsplit-p1-13",
+   "engine": "cef",
+   "bg": "#FFFF00",
+   "settle": 0.8
+  },
+  {
+   "do": "cm_close_tab",
+   "pane": "cp-cef-stress-bsplit-p1-13",
+   "which": "first",
+   "title": "set-up: cp-cef-stress-bsplit-p1-13's terminal tab closed (the page stays)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-cef-stress-bsplit-p1-13",
+   "title": "set-up: focus cp-cef-stress-bsplit-p1-13 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-cef-stress-bsplit",
+   "i": 13,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 13 of cp-cef-stress-bsplit: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-cef-stress-bsplit-p0",
+   "title": "set-up: focus cp-cef-stress-bsplit-p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "splitRight",
+   "title": "set-up: splitRight (cp-cef-stress-bsplit-p1-14)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-cef-stress-bsplit-p1-14"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "cm_browser",
+   "pane": "cp-cef-stress-bsplit-p1-14",
+   "engine": "cef",
+   "bg": "#FFFF00",
+   "settle": 0.8
+  },
+  {
+   "do": "cm_close_tab",
+   "pane": "cp-cef-stress-bsplit-p1-14",
+   "which": "first",
+   "title": "set-up: cp-cef-stress-bsplit-p1-14's terminal tab closed (the page stays)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-cef-stress-bsplit-p1-14",
+   "title": "set-up: focus cp-cef-stress-bsplit-p1-14 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-cef-stress-bsplit",
+   "i": 14,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 14 of cp-cef-stress-bsplit: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-cef-stress-bsplit-p0",
+   "title": "set-up: focus cp-cef-stress-bsplit-p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "splitRight",
+   "title": "set-up: splitRight (cp-cef-stress-bsplit-p1-15)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-cef-stress-bsplit-p1-15"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "cm_browser",
+   "pane": "cp-cef-stress-bsplit-p1-15",
+   "engine": "cef",
+   "bg": "#FFFF00",
+   "settle": 0.8
+  },
+  {
+   "do": "cm_close_tab",
+   "pane": "cp-cef-stress-bsplit-p1-15",
+   "which": "first",
+   "title": "set-up: cp-cef-stress-bsplit-p1-15's terminal tab closed (the page stays)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-cef-stress-bsplit-p1-15",
+   "title": "set-up: focus cp-cef-stress-bsplit-p1-15 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-cef-stress-bsplit",
+   "i": 15,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 15 of cp-cef-stress-bsplit: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-cef-stress-bsplit-p0",
+   "title": "set-up: focus cp-cef-stress-bsplit-p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "splitRight",
+   "title": "set-up: splitRight (cp-cef-stress-bsplit-p1-16)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-cef-stress-bsplit-p1-16"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "cm_browser",
+   "pane": "cp-cef-stress-bsplit-p1-16",
+   "engine": "cef",
+   "bg": "#FFFF00",
+   "settle": 0.8
+  },
+  {
+   "do": "cm_close_tab",
+   "pane": "cp-cef-stress-bsplit-p1-16",
+   "which": "first",
+   "title": "set-up: cp-cef-stress-bsplit-p1-16's terminal tab closed (the page stays)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-cef-stress-bsplit-p1-16",
+   "title": "set-up: focus cp-cef-stress-bsplit-p1-16 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-cef-stress-bsplit",
+   "i": 16,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 16 of cp-cef-stress-bsplit: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-cef-stress-bsplit-p0",
+   "title": "set-up: focus cp-cef-stress-bsplit-p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "splitRight",
+   "title": "set-up: splitRight (cp-cef-stress-bsplit-p1-17)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-cef-stress-bsplit-p1-17"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "cm_browser",
+   "pane": "cp-cef-stress-bsplit-p1-17",
+   "engine": "cef",
+   "bg": "#FFFF00",
+   "settle": 0.8
+  },
+  {
+   "do": "cm_close_tab",
+   "pane": "cp-cef-stress-bsplit-p1-17",
+   "which": "first",
+   "title": "set-up: cp-cef-stress-bsplit-p1-17's terminal tab closed (the page stays)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-cef-stress-bsplit-p1-17",
+   "title": "set-up: focus cp-cef-stress-bsplit-p1-17 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-cef-stress-bsplit",
+   "i": 17,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 17 of cp-cef-stress-bsplit: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-cef-stress-bsplit-p0",
+   "title": "set-up: focus cp-cef-stress-bsplit-p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "splitRight",
+   "title": "set-up: splitRight (cp-cef-stress-bsplit-p1-18)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-cef-stress-bsplit-p1-18"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "cm_browser",
+   "pane": "cp-cef-stress-bsplit-p1-18",
+   "engine": "cef",
+   "bg": "#FFFF00",
+   "settle": 0.8
+  },
+  {
+   "do": "cm_close_tab",
+   "pane": "cp-cef-stress-bsplit-p1-18",
+   "which": "first",
+   "title": "set-up: cp-cef-stress-bsplit-p1-18's terminal tab closed (the page stays)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-cef-stress-bsplit-p1-18",
+   "title": "set-up: focus cp-cef-stress-bsplit-p1-18 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-cef-stress-bsplit",
+   "i": 18,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 18 of cp-cef-stress-bsplit: cmd-w"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-cef-stress-bsplit-p0",
+   "title": "set-up: focus cp-cef-stress-bsplit-p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "splitRight",
+   "title": "set-up: splitRight (cp-cef-stress-bsplit-p1-19)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "cp-cef-stress-bsplit-p1-19"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "cm_browser",
+   "pane": "cp-cef-stress-bsplit-p1-19",
+   "engine": "cef",
+   "bg": "#FFFF00",
+   "settle": 0.8
+  },
+  {
+   "do": "cm_close_tab",
+   "pane": "cp-cef-stress-bsplit-p1-19",
+   "which": "first",
+   "title": "set-up: cp-cef-stress-bsplit-p1-19's terminal tab closed (the page stays)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.4,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "cp-cef-stress-bsplit-p1-19",
+   "title": "set-up: focus cp-cef-stress-bsplit-p1-19 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.3,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "cp_close",
+   "film": "cp-cef-stress-bsplit",
+   "i": 19,
+   "key": "w",
+   "modifiers": [
+    "cmd"
+   ],
+   "rest": 1.2,
+   "title": "close 19 of cp-cef-stress-bsplit: cmd-w"
   },
   {
    "do": "video_stop",
-   "name": "cp-cef-stress-bcol",
+   "name": "cp-cef-stress-bsplit",
    "tail": 0.3,
-   "title": "the motion ends; stop the recording (cp-cef-stress-bcol)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.5,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "video_start",
-   "name": "cp-cef-stress-c",
-   "seconds": 56.0,
-   "mbps": 24,
-   "rows": [],
-   "columns": [],
-   "require_hz": 120,
-   "lead": 0.8,
-   "title": "start the 120 Hz movie of cell cp-cef-stress-c (no scan lines)"
-  },
-  {
-   "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-cef-stress-c-c0)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-cef-stress-c-c0"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-cef-stress-c-c0",
-   "engine": "cef",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-cef-stress-c-c0",
-   "which": "first",
-   "title": "set-up: cp-cef-stress-c-c0's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-cef-stress-c-c0",
-   "title": "set-up: focus cp-cef-stress-c-c0 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-cef-stress-c",
-   "i": 0,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 0 of cp-cef-stress-c: cmd-w"
-  },
-  {
-   "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-cef-stress-c-c1)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-cef-stress-c-c1"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-cef-stress-c-c1",
-   "engine": "cef",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-cef-stress-c-c1",
-   "which": "first",
-   "title": "set-up: cp-cef-stress-c-c1's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-cef-stress-c-c1",
-   "title": "set-up: focus cp-cef-stress-c-c1 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-cef-stress-c",
-   "i": 1,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 1 of cp-cef-stress-c: cmd-w"
-  },
-  {
-   "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-cef-stress-c-c2)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-cef-stress-c-c2"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-cef-stress-c-c2",
-   "engine": "cef",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-cef-stress-c-c2",
-   "which": "first",
-   "title": "set-up: cp-cef-stress-c-c2's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-cef-stress-c-c2",
-   "title": "set-up: focus cp-cef-stress-c-c2 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-cef-stress-c",
-   "i": 2,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 2 of cp-cef-stress-c: cmd-w"
-  },
-  {
-   "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-cef-stress-c-c3)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-cef-stress-c-c3"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-cef-stress-c-c3",
-   "engine": "cef",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-cef-stress-c-c3",
-   "which": "first",
-   "title": "set-up: cp-cef-stress-c-c3's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-cef-stress-c-c3",
-   "title": "set-up: focus cp-cef-stress-c-c3 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-cef-stress-c",
-   "i": 3,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 3 of cp-cef-stress-c: cmd-w"
-  },
-  {
-   "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-cef-stress-c-c4)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-cef-stress-c-c4"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-cef-stress-c-c4",
-   "engine": "cef",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-cef-stress-c-c4",
-   "which": "first",
-   "title": "set-up: cp-cef-stress-c-c4's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-cef-stress-c-c4",
-   "title": "set-up: focus cp-cef-stress-c-c4 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-cef-stress-c",
-   "i": 4,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 4 of cp-cef-stress-c: cmd-w"
-  },
-  {
-   "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-cef-stress-c-c5)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-cef-stress-c-c5"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-cef-stress-c-c5",
-   "engine": "cef",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-cef-stress-c-c5",
-   "which": "first",
-   "title": "set-up: cp-cef-stress-c-c5's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-cef-stress-c-c5",
-   "title": "set-up: focus cp-cef-stress-c-c5 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-cef-stress-c",
-   "i": 5,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 5 of cp-cef-stress-c: cmd-w"
-  },
-  {
-   "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-cef-stress-c-c6)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-cef-stress-c-c6"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-cef-stress-c-c6",
-   "engine": "cef",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-cef-stress-c-c6",
-   "which": "first",
-   "title": "set-up: cp-cef-stress-c-c6's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-cef-stress-c-c6",
-   "title": "set-up: focus cp-cef-stress-c-c6 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-cef-stress-c",
-   "i": 6,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 6 of cp-cef-stress-c: cmd-w"
-  },
-  {
-   "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-cef-stress-c-c7)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-cef-stress-c-c7"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-cef-stress-c-c7",
-   "engine": "cef",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-cef-stress-c-c7",
-   "which": "first",
-   "title": "set-up: cp-cef-stress-c-c7's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-cef-stress-c-c7",
-   "title": "set-up: focus cp-cef-stress-c-c7 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-cef-stress-c",
-   "i": 7,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 7 of cp-cef-stress-c: cmd-w"
-  },
-  {
-   "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-cef-stress-c-c8)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-cef-stress-c-c8"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-cef-stress-c-c8",
-   "engine": "cef",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-cef-stress-c-c8",
-   "which": "first",
-   "title": "set-up: cp-cef-stress-c-c8's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-cef-stress-c-c8",
-   "title": "set-up: focus cp-cef-stress-c-c8 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-cef-stress-c",
-   "i": 8,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 8 of cp-cef-stress-c: cmd-w"
-  },
-  {
-   "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (cp-cef-stress-c-c9)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "cp-cef-stress-c-c9"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "cm_browser",
-   "pane": "cp-cef-stress-c-c9",
-   "engine": "cef",
-   "bg": "#FFFF00",
-   "settle": 0.8
-  },
-  {
-   "do": "cm_close_tab",
-   "pane": "cp-cef-stress-c-c9",
-   "which": "first",
-   "title": "set-up: cp-cef-stress-c-c9's terminal tab closed (the page stays)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "cp-cef-stress-c-c9",
-   "title": "set-up: focus cp-cef-stress-c-c9 (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.3,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cp-cef-stress-c",
-   "i": 9,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.2,
-   "title": "close 9 of cp-cef-stress-c: cmd-w"
-  },
-  {
-   "do": "video_stop",
-   "name": "cp-cef-stress-c",
-   "tail": 0.3,
-   "title": "the motion ends; stop the recording (cp-cef-stress-c)"
+   "title": "the motion ends; stop the recording (cp-cef-stress-bsplit)"
   }
  ],
  "finally": [
