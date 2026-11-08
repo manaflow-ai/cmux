@@ -104,3 +104,27 @@ test("the card's height depends on width and build count, never on a diff", () =
   const one = planBuildHeight({ ...build, builds: build.builds.slice(0, 1) }, STACK_WIDTH - 100);
   expect(one).toBe(wide);
 });
+
+test("a build's turn that ended before its started record still finishes it", () => {
+  const rows = new Map<string, AcpmuxRow>();
+  const builds = new PlanBuildRows();
+  // A fast build: its turn ends before the plan's chat records the build.
+  builds.child(rows, { event: "started", childSessionId: "c1" });
+  builds.child(rows, { event: "turn_ended", childSessionId: "c1", state: "done" });
+  builds.reduce(rows, { seq: 9, at: 20 }, started);
+  const row = rows.get(planBuildRowId("b1"))!;
+  expect(row.planBuild?.builds.map((b) => b.state)).toEqual(["done", "running"]);
+  expect(row.planBuild?.turnsEnded).toBe(1);
+});
+
+test("a compare that started only one build says which harness did not start", () => {
+  const rows = new Map<string, AcpmuxRow>();
+  new PlanBuildRows().reduce(rows, { seq: 1, at: 1 }, {
+    ...started,
+    builds: [started.builds[0]],
+    failed: [{ harness: "codex", error: "width limit reached" }, { error: "no harness" }],
+  });
+  expect(rows.get(planBuildRowId("b1"))?.planBuild?.failed).toEqual([
+    { harness: "codex", error: "width limit reached" },
+  ]);
+});

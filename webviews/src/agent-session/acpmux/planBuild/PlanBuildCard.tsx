@@ -68,7 +68,8 @@ export function PlanBuildCard({
     );
   }, [given, sessionId, build.buildId, build.turnsEnded, build.keptSessionId]);
   const kept = build.keptSessionId ?? read?.keptSessionId;
-  const compared = build.target === "compare" && build.builds.length > 1;
+  const compared = build.target === "compare";
+  const notStarted = build.failed ?? [];
   const onKeep = (child: string) => {
     if (!sessionId || keeping || kept) return;
     setKeeping(child);
@@ -98,7 +99,15 @@ export function PlanBuildCard({
           {t(compared ? "planBuild.title.compare" : "planBuild.title.worktree")}
         </span>
         <span className="acpmux-plan-builds-note" role={error ? "alert" : undefined}>
-          {error ? t("planBuild.keepFailed", { error }) : kept ? t("planBuild.keptNote") : ""}
+          {error
+            ? t("planBuild.keepFailed", { error })
+            : kept
+              ? t("planBuild.keptNote")
+              : notStarted.length
+                ? notStarted
+                    .map((f) => t("planBuild.notStarted", { harness: f.harness, error: f.error ?? "" }))
+                    .join(" ")
+                : ""}
         </span>
       </header>
       <div className="acpmux-plan-builds-columns" data-count={build.builds.length}>
@@ -117,7 +126,7 @@ export function PlanBuildCard({
                     ? "archived"
                     : undefined
             }
-            canKeep={compared && !kept && Boolean(sessionId)}
+            canKeep={compared && build.builds.length > 1 && !kept && Boolean(sessionId)}
             keeping={keeping === child.sessionId}
             busy={keeping !== undefined}
             onOpen={onOpen}
@@ -129,9 +138,16 @@ export function PlanBuildCard({
   );
 }
 
+/// A build's state: its sub-session records, or, while they still say running, acpmux's own read of
+/// the chat (a turn that ended before this chat recorded the build, or a page that left it out).
+function liveState(child: PlanBuildChild, diff: PlanBuildDiff | undefined): PlanBuildChild["state"] {
+  if (child.state !== "running" || !diff?.status) return child.state;
+  return diff.status === "done" ? "done" : diff.status === "failed" ? "failed" : diff.status === "closed" ? "cancelled" : "running";
+}
+
 function statusText(t: Translate, child: PlanBuildChild, diff: PlanBuildDiff | undefined): string {
   if (diff?.error) return t("planBuild.status.failed");
-  switch (child.state) {
+  switch (liveState(child, diff)) {
     case "running":
       return t("planBuild.status.running");
     case "failed":
@@ -169,7 +185,7 @@ function PlanBuildColumn({
   const shown = files.slice(0, SHOWN_FILES);
   const total = files.length + (diff?.moreFiles ?? 0);
   const more = total - shown.length;
-  const state = diff?.error ? "failed" : child.state;
+  const state = diff?.error ? "failed" : liveState(child, diff);
   return (
     <article className="acpmux-plan-builds-column" data-state={state} data-outcome={outcome}>
       <div className="acpmux-plan-builds-agent">
@@ -229,7 +245,7 @@ function PlanBuildColumn({
           <button
             type="button"
             className="acpmux-plan-builds-keep"
-            disabled={busy || child.state === "running"}
+            disabled={busy || state === "running"}
             aria-busy={keeping || undefined}
             onClick={() => onKeep(child.sessionId)}
           >

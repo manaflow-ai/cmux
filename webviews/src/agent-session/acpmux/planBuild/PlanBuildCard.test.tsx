@@ -64,3 +64,19 @@ test("a worktree build has Open and no Keep", () => {
   expect(html).toContain("Open");
   expect(html).not.toContain("Keep this one");
 });
+
+test("a build acpmux reads as done is done, though its records still say running", () => {
+  const html = render({
+    diffs: { ...diffs, builds: [diffs.builds[0]!, { ...diffs.builds[1]!, status: "done" }] },
+  });
+  expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*>Keep this one/);
+});
+
+test("a compare with one build started says the other did not start, and offers no Keep", () => {
+  const html = render({
+    build: { ...build, builds: [build.builds[0]!], failed: [{ harness: "codex", error: "width limit reached" }] },
+  });
+  expect(html).toContain("codex did not start: width limit reached");
+  expect(html).toContain("Two agents, one plan");
+  expect(html).not.toContain("Keep this one");
+});

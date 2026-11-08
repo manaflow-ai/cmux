@@ -31,6 +31,8 @@ export type PlanBuild = {
   builds: PlanBuildChild[];
   keptSessionId?: string;
   archived: string[];
+  /// Harnesses whose build was refused at the start, with acpmux's reason.
+  failed?: { harness: string; error?: string }[];
   /// Bumped on every build's turn end: the card refetches its diffs when it changes.
   turnsEnded: number;
 };
@@ -82,7 +84,13 @@ export function planBuildStarted(msg: Record<string, unknown>): PlanBuild | unde
     });
   }
   if (!builds.length) return undefined;
-  return { buildId, target, permissionId: text(msg.permissionId), builds, archived: [], turnsEnded: 0 };
+  const failed = Array.isArray(msg.failed)
+    ? msg.failed.flatMap((raw) => {
+        const harness = text(object(raw)?.harness);
+        return harness ? [{ harness, error: text(object(raw)?.error) }] : [];
+      })
+    : [];
+  return { buildId, target, permissionId: text(msg.permissionId), builds, archived: [], failed, turnsEnded: 0 };
 }
 
 /// `build` after a `kept` record.

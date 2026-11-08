@@ -144,9 +144,9 @@ async fn handle(
                 }),
             );
             // The plan's own chat stops: it is built elsewhere. A refusal here (answered
-            // meanwhile) leaves the builds running, and says so.
-            let answered = hub
-                .respond_permission_annotated(
+            // meanwhile) is the reply's error, so the card stays and says so; the builds run on
+            // and the record above shows them.
+            hub.respond_permission_annotated(
                     &session,
                     permission_id,
                     Some(reject),
@@ -156,13 +156,25 @@ async fn handle(
                     answerer,
                     control,
                 )
-                .await;
+                .await
+                .map_err(|e| {
+                    let data = json!({
+                        "reason": "plan_build.answer_refused",
+                        "buildId": build_id,
+                        "builds": builds,
+                        "answerReason": e.data.as_ref().and_then(|d| d.get("reason")).cloned(),
+                    });
+                    RpcError::invalid_params(format!(
+                        "the plan's builds started, but its approval was not answered: {}",
+                        e.message
+                    ))
+                    .with_data(data)
+                })?;
             Ok(json!({
                 "target": target.as_str(),
                 "buildId": build_id,
                 "builds": builds,
                 "failed": failed,
-                "answerError": answered.err().map(|e| e.message),
             }))
         }
         method::MUX_PLAN_COMPARE => hub.plan_compare(&session, required(params, "buildId")?).await,
