@@ -572,6 +572,8 @@
     "setting.home.chiefDock.edge": "left",
     "setting.home.chiefDock.openBeside": true,
     "setting.home.chiefEngine": "auto",
+    "setting.home.chiefPanel.seesScreen": true,
+    "setting.home.chiefPanel.style": "composeBar",
     "setting.home.chiefPetEnabled": false,
     "setting.home.chiefPetMascot": "orb",
     "setting.home.feedInChief": true,

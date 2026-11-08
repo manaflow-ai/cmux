@@ -33,6 +33,8 @@ import { BackgroundTaskRow } from "./BackgroundTaskRow";
 import { CompactionRow } from "./CompactionRow";
 import { FailoverRow } from "./FailoverRow";
 import { ReadOnlyRecapRow, ReadOnlySinceRow, RecapRow, SinceRow } from "./RecapRow";
+import { MemoryOfferRow } from "./MemoryOfferRow";
+import { MEMORY_OFFER } from "../conversation/memoryInbox";
 import { PolicyUnenforcedRow } from "./PolicyUnenforcedRow";
 import { AgentPairRow } from "./AgentPairRow";
 import { SessionStartRow } from "./SessionStartRow";
@@ -82,6 +84,7 @@ export const defaultRegistry: NativeRegistry = {
   failover: FailoverRow,
   recap: RecapRow,
   [SINCE_DIVIDER]: SinceRow,
+  [MEMORY_OFFER]: MemoryOfferRow,
   policyUnenforced: PolicyUnenforcedRow,
   agentPair: AgentPairRow,
   sessionStart: SessionStartRow,
@@ -119,6 +122,8 @@ export const readOnlyRegistry: NativeRegistry = {
   agentPair: ReadOnlyAgentPairRow,
   recap: ReadOnlyRecapRow,
   [SINCE_DIVIDER]: ReadOnlySinceRow,
+  // An offer to write the owner's instructions file is the owner's own.
+  [MEMORY_OFFER]: NoRow,
   sessionOffer: NoRow,
   [OFFER_RESULT]: NoRow,
   [STARTED_SESSIONS]: NoRow,

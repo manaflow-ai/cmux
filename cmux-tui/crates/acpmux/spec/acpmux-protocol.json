@@ -387,6 +387,36 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/race/cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/race/get",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/race/list",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/race/start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/race/stats",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/forum/ack",
       "params": true,
       "result": true
@@ -502,6 +532,14 @@
       "name": "_acpmux/bookmark_set",
       "params": {
         "$ref": "#/types/BookmarkSetParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/memory_resolve",
+      "params": {
+        "$ref": "#/types/MemoryResolveParams"
       },
       "result": true
     },
@@ -1311,6 +1349,12 @@
     {
       "kind": "request",
       "name": "_acpmux/chat_open",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_resolve",
       "params": true,
       "result": true
     },
@@ -3767,6 +3811,20 @@
         "decisionNonce",
         "approverDecision"
       ],
+      "type": "object"
+    },
+    "MemoryResolveParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "accept": true,
+        "dismiss": true,
+        "file": true,
+        "offerId": true,
+        "sessionId": true
+      },
       "type": "object"
     },
     "MessageEvent": {

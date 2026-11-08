@@ -122,6 +122,36 @@ def rate_limit_aware(github):
     return Aware()
 
 
+# The fields this script reads from each REST list it reads, as a `gh api --jq` projection. On an agent host the gh
+# shim answers a REST read over GraphQL while the REST quota is under its floor, and GraphQL's answer has REST's
+# common fields only, so a read with no --jq (a whole object) was refused there: manaflow-ai/cmux#38416's merge check
+# stopped on "GraphQL could not answer `gh api repos/manaflow-ai/cmux/actions/runs/42476982159/jobs?...`: a whole REST
+# object ...; add --jq naming fields" (2026-11-08). Naming the fields lets it answer, and on REST the projection
+# keeps every field read here (a job's runner and labels are never read). A field added to a reader of these lists
+# goes here too: a missing one reads as null, never as a refusal. Reads GraphQL can't answer whatever the fields
+# (a single job, a compare's merge base, a run's check suite node id, artifacts, workflow runs) stay whole.
+JOB_FIELDS = ("id, name, run_id, run_attempt, head_sha, head_branch, workflow_name, status, conclusion, started_at, "
+              "completed_at, html_url, url, check_run_url")
+STEP_FIELDS = "name, status, conclusion, number, started_at, completed_at"
+PROJECTIONS = (
+    # A run's jobs (filter=all or latest), one page each.
+    (re.compile(r"repos/[^/]+/[^/]+/actions/runs/\d+(?:/attempts/\d+)?/jobs(?:\?.*)?"),
+     f"{{total_count, jobs: [.jobs[] | {{{JOB_FIELDS}, steps: [.steps[]? | {{{STEP_FIELDS}}}]}}]}}"),
+    # A commit's combined status.
+    (re.compile(r"repos/[^/]+/[^/]+/commits/[^/?]+/status(?:\?.*)?"),
+     "{state, sha, total_count, statuses: [.statuses[] | {context, state, description, target_url, created_at, "
+     "updated_at}]}"),
+    # A branch's commit history.
+    (re.compile(r"repos/[^/]+/[^/]+/commits\?(?:.*&)?sha=.*"),
+     "[.[] | {sha, commit: {committer: {date: .commit.committer.date}}, parents: [.parents[]? | {sha}]}]"),
+)
+
+
+def projection(route: str) -> str | None:
+    """The `--jq` projection for ROUTE (PROJECTIONS), or None to read it whole."""
+    return next((jq for pattern, jq in PROJECTIONS if pattern.fullmatch(route)), None)
+
+
 ESCAPE_FLAG = "--allow-escape-sequences"
 UNKNOWN_ESCAPE_FLAG = f"unknown flag: {ESCAPE_FLAG}"
 REQUEST_FAILED = "GitHub evidence request failed: "
@@ -162,7 +192,18 @@ class GitHub(_evidence.GitHub):
         # A run's job list carries every job's steps; see JOBS_PAGE.
         if paginate and "/jobs?" in route:
             per_page = min(per_page, JOBS_PAGE)
-        return super().json(route, paginate=paginate, per_page=per_page)
+        jq = projection(route)
+        if jq is None:
+            return super().json(route, paginate=paginate, per_page=per_page)
+
+        def fetch(url: str):
+            return json.loads(self.run(["api", url, "--jq", jq]))
+        if not paginate:
+            return fetch(route)
+        try:
+            return _evidence.gh_pages.pages(fetch, route, per_page=per_page)
+        except _evidence.gh_pages.PageCapError as error:
+            raise Refused(str(error)) from None
 
     def dispatch(self, repo: str, workflow: str, ref: str) -> int | None:
         """Start a workflow_dispatch run of WORKFLOW (a file name) on REF; its run id, or None when GitHub named none.
@@ -1351,8 +1392,10 @@ def last_real_jobs(repo: str, run: int, github) -> list[dict]:
     jobs = [job for page in github.json(f"repos/{repo}/actions/runs/{run}/jobs?filter=all&per_page=100", paginate=True)
             for job in page.get("jobs") or []]
     for job in jobs:
-        # glaeda's slim job list names no run_id; the run read is the job's run (superseding_check reads it)
-        job.setdefault("run_id", run)
+        # glaeda's slim job list names no run_id (and a --jq projection of it reads null); the run read is the job's
+        # run (superseding_check reads it)
+        if job.get("run_id") is None:
+            job["run_id"] = run
     newest: dict[str, int] = {}
     for job in jobs:
         newest[job.get("name", "")] = max(newest.get(job.get("name", ""), 0), job.get("run_attempt") or 1)
@@ -1466,6 +1509,9 @@ def base_run_jobs(repo: str, run: dict, github) -> list[dict]:
     jobs = [found for page in github.json(f"repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100",
                                           paginate=True)
             for found in page.get("jobs") or []]
+    for job in jobs:  # a --jq projection of glaeda's slim list reads a null run_id; the cache check above needs it
+        if job.get("run_id") is None:
+            job["run_id"] = run["id"]
     if key is not None:
         try:
             key.parent.mkdir(parents=True, exist_ok=True)
