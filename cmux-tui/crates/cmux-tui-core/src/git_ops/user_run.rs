@@ -99,18 +99,31 @@ impl UserGit<'_> {
         arguments: &[S],
         extra: &[(&str, &str)],
     ) -> Result<UserRun, GitFailure> {
+        self.run_program(OsStr::new("git"), arguments, extra, None)
+    }
+
+    /// Runs another of the user's programs (`gh` for a pull request review)
+    /// the way git runs: in the repository, in the user's environment, never
+    /// prompting, under the same deadline. `input` is written to its stdin.
+    pub(super) fn run_program<S: AsRef<OsStr>>(
+        &self,
+        program: &OsStr,
+        arguments: &[S],
+        extra: &[(&str, &str)],
+        input: Option<Vec<u8>>,
+    ) -> Result<UserRun, GitFailure> {
         let remaining = self.deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             return Err(GitFailure::TimedOut);
         }
-        let mut command = Command::new("git");
+        let mut command = Command::new(program);
         command
             .args(arguments)
             .current_dir(self.root)
             .env_clear()
             .envs(environment())
             .envs(extra.iter().copied())
-            .stdin(Stdio::null())
+            .stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         #[cfg(unix)]
@@ -128,9 +141,17 @@ impl UserGit<'_> {
         }
         let mut child =
             command.spawn().map_err(|error| GitFailure::Unavailable(error.to_string()))?;
+        // The input is written on its own thread, so a program that answers
+        // before reading all of it never holds the deadline.
+        if let (Some(input), Some(mut stdin)) = (input, child.stdin.take()) {
+            thread::spawn(move || {
+                use std::io::Write as _;
+                let _ = stdin.write_all(&input);
+            });
+        }
         let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
             terminate(&mut child);
-            return Err(GitFailure::Unavailable("git started without its output pipes".into()));
+            return Err(GitFailure::Unavailable("the program started without its output pipes".into()));
         };
         let stdout = Pipe::read(stdout, MAX_STDOUT_BYTES);
         let stderr = Pipe::read(stderr, MAX_STDERR_BYTES);

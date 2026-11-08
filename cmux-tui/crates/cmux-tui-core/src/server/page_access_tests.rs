@@ -134,6 +134,9 @@ const FILE_SYSTEM: &[&str] = &[
     "diff.comments.list",
     "diff.comments.save",
     "diff.comments.delete",
+    "git.review.start",
+    "git.review.comment",
+    "git.review.post",
     "session.journal.hook.put",
 ];
 

@@ -44,9 +44,9 @@ const MAX_SUFFIX: usize = 99;
 
 /// A started create, as the journal keeps it.
 #[derive(Debug, Serialize, Deserialize)]
-struct Attempt {
-    root: PathBuf,
-    branch: String,
+pub(super) struct Attempt {
+    pub(super) root: PathBuf,
+    pub(super) branch: String,
     base: String,
     base_commit: String,
 }
@@ -103,7 +103,7 @@ pub(super) fn dispatch(
 }
 
 /// The base, and the first free name in this project's worktree folder.
-fn plan(
+pub(super) fn plan(
     repository: &Repository,
     common_dir: &Path,
     fields: &Map<String, Value>,
@@ -162,7 +162,7 @@ fn plan(
 
 /// Makes the attempt's worktree and records its base, unless a lost
 /// reply's run already made it.
-fn create(
+pub(super) fn create(
     repository: &Repository,
     git: &UserGit<'_>,
     attempt: &Attempt,
@@ -211,7 +211,7 @@ fn create(
 
 /// Starts the new worktree's setup from the project's recipe; what the
 /// reply says of it.
-fn setup(mux: &Mux, attempt: &Attempt, common_dir: &Path) -> Value {
+pub(super) fn setup(mux: &Mux, attempt: &Attempt, common_dir: &Path) -> Value {
     let main = main_root(common_dir).map(Path::to_path_buf);
     let Some(git_dir) = admin_dir(&attempt.root) else { return json!({"state": "none"}) };
     let resolved =
