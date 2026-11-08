@@ -727,3 +727,12 @@ fn only_a_claude_start_that_copies_conflicts_with_a_warm_copy() {
     assert!(!decide(&none).warm_copy_conflict);
     assert!(!decide(&Inputs { caller_owns: Some(false), ..cached(owner()) }).warm_copy_conflict);
 }
+
+#[test]
+fn a_refused_start_never_waits_on_a_warm_copy() {
+    // A headless Claude start with no login choice refuses at once (`cloud start-session`): it copies nothing,
+    // so it never waits for the warm's copy onto its machine.
+    let refused = decide(&Inputs { headless: true, ..owner() });
+    assert_eq!(refused.step, Step::Refuse);
+    assert!(!refused.warm_copy_conflict);
+}
