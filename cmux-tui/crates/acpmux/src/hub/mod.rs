@@ -2329,6 +2329,10 @@ impl Hub {
                         if let Some(err) = e.msg.get("error") {
                             t.insert("error".into(), err.clone());
                         }
+                        // Why a failed turn ended: a restart's cut is `outcome_unknown`.
+                        if let Some(detail) = e.msg.get("detail") {
+                            t.insert("detail".into(), detail.clone());
+                        }
                     }
                 }
                 "turn_end" | "turn_error" => {
