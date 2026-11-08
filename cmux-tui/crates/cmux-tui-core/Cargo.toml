@@ -35,6 +35,7 @@ cmux-flow-trace.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
 cmux-git.workspace = true
+cmux-classic-import.workspace = true
 cmux-conductor-import.workspace = true
 cmux-palette-ranker.workspace = true
 cmux-config.workspace = true
