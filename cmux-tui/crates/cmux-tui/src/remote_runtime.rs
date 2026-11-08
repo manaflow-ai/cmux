@@ -6709,7 +6709,10 @@ mod tests {
 
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("mux.sock");
-        let stale = tokio::net::UnixListener::bind(&path).unwrap();
+        let stale = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        // Another thread of the test process can fork while the stale socket
+        // is open; the child keeps a copy of its descriptor until exec.
+        let _forked_copy = stale.try_clone().unwrap();
         drop(stale);
 
         let lock_path = directory.path().join("mux.sock.lock");
@@ -6746,7 +6749,10 @@ mod tests {
     async fn concurrent_stale_client_socket_takeover_has_one_owner() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("mux.sock");
-        let stale = tokio::net::UnixListener::bind(&path).unwrap();
+        let stale = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        // Another thread of the test process can fork while the stale socket
+        // is open; the child keeps a copy of its descriptor until exec.
+        let _forked_copy = stale.try_clone().unwrap();
         drop(stale);
 
         let start = Arc::new(tokio::sync::Barrier::new(2));
