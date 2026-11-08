@@ -213,9 +213,10 @@ struct AgentPaneGitPullRequestTests {
         #expect(writes.values.count == 1)
         let expectedHead = try Self.git(rig.repo, "rev-parse", "HEAD")
         guard let (write, folder) = writes.values.first else { Issue.record("Create PR did not send git.push"); return }
-        guard case .push(let sessionId, let actualHead, _) = write else { Issue.record("Create PR sent \(write.operation), not git.push"); return }
+        guard case .push(let sessionId, let actualHead, let setUpstream, _) = write else { Issue.record("Create PR sent \(write.operation), not git.push"); return }
         #expect(sessionId == "session")
         #expect(actualHead == expectedHead)
+        #expect(setUpstream)
         #expect(folder == rig.repo)
         #expect(rig.calls == ["pr view --json url,number,state", "repo view --json url,defaultBranchRef", "pr create --web"])
     }

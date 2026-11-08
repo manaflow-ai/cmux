@@ -274,7 +274,7 @@ extension AgentPaneGitPullRequest {
             let pushKey = UUID().uuidString
             let pushFolder = sessionFolder.cwd
             push = { @MainActor _, expectedHead in
-                _ = try await onGitWrite(.push(sessionId: sessionId, expectedHead: expectedHead, key: pushKey), pushFolder)
+                _ = try await onGitWrite(.push(sessionId: sessionId, expectedHead: expectedHead, setUpstream: true, key: pushKey), pushFolder)
             }
             runRoots = [sessionFolder.cwd]
         }

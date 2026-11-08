@@ -13,7 +13,7 @@ extension DiffAgentGit: DiffGitPullRequestRunning {
         let link = link
         let key = UUID().uuidString
         return await AgentPaneGitPullRequest.open(in: repository) { @MainActor _, expectedHead in
-            _ = try await link.write(.push(sessionId: DiffPageProvider.gitSession, expectedHead: expectedHead, key: key),
+            _ = try await link.write(.push(sessionId: DiffPageProvider.gitSession, expectedHead: expectedHead, setUpstream: true, key: key),
                                      in: repository)
         }
     }
