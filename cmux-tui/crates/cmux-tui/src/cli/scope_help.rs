@@ -187,7 +187,8 @@ USAGE
 pub(super) const GIT_HELP: &str = "\
 USAGE
   cmux git status [TARGET]
-  cmux git diff [TARGET] [--scope <scope>] [--patch] [--max-patch-bytes <n>]
+  cmux git diff [TARGET] [--scope <scope> | --scope commits --base <commit> --head <commit>]
+    [--patch] [--max-patch-bytes <n>]
     [--max-files <n>] [--context-lines <n>] [--after-path <path>]
     [--patch-offset <n> [--patch-revision <revision>]] [<path>...]
   cmux git branches [TARGET] [--limit <n>]
@@ -231,6 +232,9 @@ SCOPES
   committed    HEAD against its first parent
   branch       The working tree against the merge base with the base branch,
                with untracked files
+  commits      --head against its merge base with --base (a pull request's
+               change), both full commit ids already in the repository;
+               nothing is fetched
 
 status prints the branch, upstream, how far it is ahead and behind, the base
 branch (the one a worktree create recorded for the branch, else origin's

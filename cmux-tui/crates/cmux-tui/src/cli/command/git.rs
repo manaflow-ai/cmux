@@ -11,7 +11,7 @@ use super::{
     validate_one_of,
 };
 
-const SCOPES: &[&str] = &["uncommitted", "unstaged", "staged", "committed", "branch"];
+const SCOPES: &[&str] = &["uncommitted", "unstaged", "staged", "committed", "branch", "commits"];
 const TARGETS: &[(&str, &str)] = &[
     ("workspace", "ws"),
     ("screen", "screen"),
@@ -52,6 +52,7 @@ pub(super) fn parse_git(words: &[&str], flags: &mut Flags) -> Result<CommandPlan
         ["diff", paths @ ..] => {
             let scope = flags.take("scope").unwrap_or_else(|| "uncommitted".to_string());
             validate_one_of("--scope", &scope, SCOPES)?;
+            commit_range(flags, &mut params, scope == "commits")?;
             params.insert("scope".into(), Value::String(scope));
             if flags.boolean("patch") {
                 params.insert("include_patch".into(), Value::Bool(true));
@@ -90,6 +91,36 @@ pub(super) fn parse_git(words: &[&str], flags: &mut Flags) -> Result<CommandPlan
         _ => return usage("git action"),
     };
     request(operation, &selectors, flags, params)
+}
+
+/// `--base` and `--head` of `git diff --scope commits` (a pull request's change): the full
+/// commit ids of the branch it goes into and of the change, both required there and
+/// refused with any other scope.
+fn commit_range(
+    flags: &mut Flags,
+    params: &mut Map<String, Value>,
+    commits: bool,
+) -> Result<(), UsageError> {
+    for name in ["base", "head"] {
+        match (flags.take(name), commits) {
+            (Some(id), true) => {
+                if !(40..=64).contains(&id.len()) || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    return Err(UsageError::new(format!(
+                        "--{name} must be a full commit id (40 to 64 hex digits)"
+                    )));
+                }
+                params.insert(name.into(), Value::String(id));
+            }
+            (None, true) => {
+                return Err(UsageError::new(format!("--scope commits needs --{name}")));
+            }
+            (Some(_), false) => {
+                return Err(UsageError::new(format!("--{name} is only for --scope commits")));
+            }
+            (None, false) => {}
+        }
+    }
+    Ok(())
 }
 
 /// The paging flags `git diff` and `git checkpoint diff` share: `--after-path`

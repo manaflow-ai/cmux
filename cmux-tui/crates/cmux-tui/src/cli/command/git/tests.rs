@@ -333,3 +333,23 @@ fn git_comments_refuse_what_the_session_host_would() {
     assert!(rejects(&versions).contains("--versions-json"));
     assert!(rejects(&["git", "comments", "list", "--root", ""]).contains("--root"));
 }
+
+#[test]
+fn git_diff_commits_takes_both_full_commit_ids_and_only_with_that_scope() {
+    let base = "0123456789abcdef0123456789abcdef01234567";
+    let head = "89abcdef0123456789abcdef0123456789abcdef";
+    let (operation, params) = sent(&[
+        "git", "diff", "--path", "/repo", "--scope", "commits", "--base", base, "--head", head,
+    ]);
+    assert_eq!(operation, "git.diff");
+    assert_eq!(
+        (&params["scope"], &params["base"], &params["head"]),
+        (&json!("commits"), &json!(base), &json!(head))
+    );
+    assert!(rejects(&["git", "diff", "--scope", "commits", "--base", base]).contains("--head"));
+    assert!(
+        rejects(&["git", "diff", "--scope", "commits", "--base", "abc", "--head", head])
+            .contains("--base")
+    );
+    assert!(rejects(&["git", "diff", "--base", base]).contains("--scope commits"));
+}

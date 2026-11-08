@@ -718,7 +718,7 @@ attention clear --tab <tab_…>
 attention next [--after <tab_…>] [--focus]
 attention list
 git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector>]
-git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch] [--patch]
+git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch | --scope commits --base <commit> --head <commit>] [--patch]
   [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>] [--after-path <path>]
   [--patch-offset <n> [--patch-revision <revision>]] [<path>...]
 git branches [TARGET] [--limit <n>]
