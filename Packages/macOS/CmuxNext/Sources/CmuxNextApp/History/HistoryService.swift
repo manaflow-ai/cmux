@@ -185,7 +185,7 @@ final class HistoryService {
         let owned = kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appOwned) : kinds.subtracting(appOwned)
         if !owned.isEmpty { daemonMutation { try await $0.clear(kinds: owned, since: since, until: now, key: $1) } }
         if owned.contains(.agent) { hidden.hideLocally { $0.hide(since: since, now: now, kind: "agent") } }
-        if wants(.command) { commands.delete(since: since) }
+        if wants(.command) { commands.delete(since: since, until: now) }
         if wants(.page) {
             for profile in [BrowserProfileID.default] + services.browserProfiles.ordered.map(\.engineProfile) {
                 services.cache.history(for: profile).forget(since: since)

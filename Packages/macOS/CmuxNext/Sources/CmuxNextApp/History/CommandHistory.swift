@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextHistoryDaemon
 import CmuxNextSettings
 import Foundation
 import Observation
@@ -16,6 +17,8 @@ import os
 final class CommandHistory {
     private unowned let services: AppServices
     var mirrors: [String: TerminalCommandMirror] = [:]  // Each machine's rows; set directly only by tests.
+    /// Each other machine's history writes (``writes(_:)``).
+    private var queues: [String: HistoryWriteQueue<DaemonHistoryClient>] = [:]
     /// Repeated successful commands for one exact machine and directory, rebuilt from the mirrors
     /// (``TerminalCommandSuggestionStore``). The projection is opt-in with command history and never runs a command.
     var suggestions = TerminalCommandSuggestionStore()
@@ -97,7 +100,7 @@ final class CommandHistory {
                                                     body: HistoryAppStrings.deleteCommandsBody(retentionDays),
                                                     button: HistoryAppStrings.deleteCommandsButton)
         DestructiveConfirmation.present(prompt, in: services.windows.active?.window) { [weak self] delete in
-            if delete { self?.delete(since: nil) }
+            if delete { self?.delete(since: nil, until: Date()) }
         }
     }
 
@@ -133,7 +136,7 @@ final class CommandHistory {
                 mirrors[machine] = mirror
             } catch {
                 logger.info("command history: list on \(machine, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-                mirrors[machine] = nil
+                mirrors[machine]?.reset()
             }
         }
         suggestions.replace(mirrors.values.flatMap(\.commands))
@@ -159,37 +162,47 @@ final class CommandHistory {
 
     // MARK: Deleting
 
-    /// Deletes, in every connected daemon, the commands that started at or
-    /// after `since` (nil: all).
-    func delete(since: Date?) {
-        for machine in mirrors.keys { mirrors[machine]?.remove(startedSince: since) }
-        suggestions.replace(mirrors.values.flatMap(\.commands))
-        let selection: DeleteTerminalCommandsRequest.Selection = since.map { .startedSince($0) } ?? .all
-        for daemon in daemons() {
-            let machine = daemon.machineID
-            daemon.send("delete-terminal-commands", onFailure: { [weak self] _ in self?.forget(machine) }) {
-                _ = try await $0.request(DeleteTerminalCommandsRequest(selection))
-            }
+    /// Deletes the commands that started at or after `since` (nil: all) and at or before `until` (the click) in every daemon,
+    /// one that is away once it connects. The rows leave the mirror now and stay out of every read until the daemon applied it.
+    func delete(since: Date?, until: Date) {
+        for machine in Set(services.machines.daemons.map(\.machineID)).union(mirrors.keys) {
+            send(.started(since: since, until: until), on: machine) { try await $0.clear(kinds: [.command], since: since, until: until, key: $1) }
         }
     }
 
-    /// Deletes one command in its daemon.
+    /// Deletes one command in its daemon (`command:local/<row id>` there).
     func delete(_ command: TerminalCommand) {
-        mirrors[command.machine]?.remove(ids: [command.id])
-        suggestions.replace(mirrors.values.flatMap(\.commands))
-        guard let daemon = daemons().first(where: { $0.machineID == command.machine }) else { return }
-        let id = String(command.id)
-        let machine = command.machine
-        daemon.send("delete-terminal-commands", onFailure: { [weak self] _ in self?.forget(machine) }) {
-            _ = try await $0.request(DeleteTerminalCommandsRequest(.ids([id])))
-        }
+        let id = "command:local/\(command.id)"
+        send(.ids([command.id]), on: command.machine) { try await $0.remove(ids: [id], key: $1) }
     }
 
-    /// A delete the daemon refused: drop the machine's mirror so the next
-    /// read lists what the daemon still holds, instead of showing the rows
-    /// as deleted.
-    private func forget(_ machine: String) {
-        mirrors[machine] = nil
+    /// Drops `deletion`'s rows from `machine`'s mirror until its daemon applied `write`, queued in that daemon's history writes
+    /// (the local one's are the history's one queue): ordered, retried with one key, a clear bounded by its click.
+    private func send(_ deletion: TerminalCommandMirror.Deletion, on machine: String, _ write: @escaping HistoryWriteQueue<DaemonHistoryClient>.Write) {
+        var mirror = mirrors[machine] ?? TerminalCommandMirror(machine: machine)
+        let token = mirror.delete(deletion)
+        mirrors[machine] = mirror
+        suggestions.replace(mirrors.values.flatMap(\.commands))
+        writes(machine).enqueue(write) { [weak self] in self?.mirrors[machine]?.settle(token) }
+    }
+
+    /// Another machine's history writes, waiting for its daemon to connect and serve history.
+    private func writes(_ machine: String) -> HistoryWriteQueue<DaemonHistoryClient> {
+        if machine == MachineRegistry.localID { return services.history.writes }
+        if let queue = queues[machine] { return queue }
+        let machines = services.machines
+        let queue = HistoryWriteQueue<DaemonHistoryClient>(retryable: DaemonHistoryClient.isLinkDrop) {
+            for await client in ObservationStream({ Self.historyClient(machine, in: machines) }) { if let client { return client } }
+            return nil
+        }
+        queues[machine] = queue
+        return queue
+    }
+
+    private static func historyClient(_ machine: String, in machines: MachineRegistry) -> DaemonHistoryClient? {
+        guard let daemon = machines.daemons.first(where: { $0.machineID == machine }), case .connected = daemon.store.connectionState,
+              let connection = daemon.connection, daemon.supports(DaemonHistoryClient.capability) else { return nil }
+        return DaemonHistoryClient(connection: connection)
     }
 
     private func daemons() -> [DaemonService] {

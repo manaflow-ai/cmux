@@ -1,9 +1,11 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextHistoryDaemon
 import Foundation
+import Observation
 import Testing
 
 /// cmux#38186 review: the daemon history's writes (visits and clears alike) wait in one ordered
@@ -270,7 +272,7 @@ import Testing
         try Data("legacy".utf8).write(to: log)
         let offline = DaemonHistoryClient(connection: DaemonConnection(endpoint: .init(socketPath: "/tmp/cmux-history-import-\(UUID().uuidString).sock")))
         var thrown: (any Error)?
-        do { try await HistoryService.handOver(log, supportDirectory: support, profile: "default", to: offline) } catch { thrown = error }
+        do { try await offline.importLegacyLog(log, supportDirectory: support, profile: "default") } catch { thrown = error }
         let error = try #require(thrown, "a failed import looked like a finished one")
         #expect(DaemonHistoryClient.isLinkDrop(error), "\(error)")
         #expect(FileManager.default.fileExists(atPath: log.path))
@@ -303,6 +305,51 @@ import Testing
             queue.read({ await $0.list() }, use: { seeded.resume(returning: $0) })
         }
         #expect(seeded.isEmpty, "a read answered before the clear was used after it")
+    }
+
+    /// A link the client waits on, as the app's `connectedDaemonHistory` waits on the daemon's connection state.
+    @MainActor @Observable final class Link {
+        var up = true
+    }
+
+    /// cmux#38186 review: a daemon that is already connected when the queue starts takes a write at once,
+    /// with no state change (an `ObservationStream`'s first `next()` evaluates now; the app's wait has this shape).
+    @Test func aDaemonAlreadyUpTakesAWriteWithoutAStateChange() async {
+        let daemon = Daemon()
+        daemon.up = true
+        let link = Link()
+        let queue = HistoryWriteQueue<Daemon>(retryable: DaemonHistoryClient.isLinkDrop) {
+            for await up in ObservationStream({ link.up }) where up { return daemon }
+            return nil
+        }
+        await Self.sent(queue) { client, _ in try await client.send { $0.append("https://a.example/") } }
+        #expect(daemon.stored == ["https://a.example/"])
+    }
+
+    /// cmux#38186 review: a command clear made while the daemon is away goes on the history's write queue (with
+    /// the click as its end) and stays applied to every read until the daemon took it, so a refresh does not bring
+    /// the rows back, and a command started after the click stays.
+    @Test func anOfflineCommandClearSurvivesARefreshAndKeepsALaterCommand() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let local = MachineRegistry.localID
+        let before = TerminalCommand(id: 1, machine: local, terminal: "term_1", command: "make", cwd: nil, exitCode: 0,
+                                     startedAt: Date().addingTimeInterval(-60), duration: 1)
+        var mirror = TerminalCommandMirror(machine: local)
+        let applied = mirror.apply([before], version: "v1", truncated: false, after: nil)
+        #expect(applied)
+        services.history.commands.mirrors[local] = mirror
+        let queued = services.history.writes.count
+        services.history.clear(kinds: [.command], range: .all)
+        #expect(services.history.writes.count == queued + 1, "the command clear did not go on the write queue")
+        var read = try #require(services.history.commands.mirrors[local])
+        #expect(read.commands.isEmpty)
+        // A refresh (the daemon has not taken the clear yet) lists the old row again, and one started after the click.
+        let later = TerminalCommand(id: 2, machine: local, terminal: "term_1", command: "make test", cwd: nil, exitCode: 0,
+                                    startedAt: Date().addingTimeInterval(60), duration: 1)
+        let reread = read.apply([before, later], version: "v1", truncated: false, after: nil)
+        #expect(reread)
+        #expect(read.commands.map(\.id) == [later.id], "the refresh brought the cleared row back, or the clear took a later one")
     }
 
     /// The app's own wiring: the omnibox seed's read, an omnibox visit and a Clear History wait in the same
