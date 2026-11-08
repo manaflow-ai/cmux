@@ -9,7 +9,7 @@
 //! once and in order across any number of reconnects; a session that cannot resume ends with
 //! the typed `SessionUnavailable`, so the app knows to start a new one.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -35,6 +35,9 @@ use crate::rng::Rng;
 
 /// The app's own stream on each lane (stream 0 of Control is the connection's).
 const APP_STREAM: u64 = 1;
+/// How often the app pings the daemon: a recovery counts only once a ping sent after the heal is
+/// answered (the staging leg's identify has the same cadence).
+const PING: Duration = Duration::from_millis(250);
 /// After the plan ends, how long the run may take to converge before it fails.
 const CONVERGE: Duration = Duration::from_secs(20 * 60);
 /// How often the monitor samples the connection for the recovery times.
@@ -108,6 +111,8 @@ pub struct Seen {
     pub sessions: u32,
     /// An end that was not the typed `SessionUnavailable`.
     pub untyped_ends: Vec<String>,
+    /// When the newest answered ping was sent.
+    pub answered_ping_sent: Option<Instant>,
 }
 
 /// One fault's recovery: from the end of its cause until the app is connected and has every
@@ -305,7 +310,10 @@ async fn serve_connection(
             continue;
         }
         let text = String::from_utf8_lossy(&frame.payload).into_owned();
-        if let Some(after) = text.strip_prefix("attach ").and_then(|n| n.parse().ok()) {
+        if let Some(n) = text.strip_prefix("ping ") {
+            let pong = Bytes::from(format!("pong {n}"));
+            let _ = connection.send(Lane::Control, APP_STREAM, pong, FrameFlags::empty()).await;
+        } else if let Some(after) = text.strip_prefix("attach ").and_then(|n| n.parse().ok()) {
             cursor.send_replace(Some(after));
         } else if let Some(id) = text.strip_prefix("prompt ").and_then(|n| n.parse().ok()) {
             let mut d = lock(&disk);
@@ -435,16 +443,45 @@ async fn run_session(
     seen: &Arc<Mutex<Seen>>,
     asked: &watch::Sender<u32>,
     connected: &watch::Sender<bool>,
+    done: watch::Receiver<bool>,
+) -> SessionEnd {
+    let last = lock(seen).last;
+    let attach = Bytes::from(format!("attach {last}"));
+    if let Err(e) = client.send(Lane::Control, APP_STREAM, attach, FrameFlags::empty()).await {
+        return ended(e);
+    }
+    connected.send_replace(true);
+    // Pings from a task of their own, so a send held by a recovery does not stop the receives.
+    let pings: Arc<Mutex<BTreeMap<u64, Instant>>> = Arc::default();
+    let pinger = tokio::spawn({
+        let (client, pings) = (client.clone(), pings.clone());
+        async move {
+            for n in 1_u64.. {
+                tokio::time::sleep(PING).await;
+                lock(&pings).insert(n, Instant::now());
+                let ping = Bytes::from(format!("ping {n}"));
+                if client.send(Lane::Control, APP_STREAM, ping, FrameFlags::empty()).await.is_err()
+                {
+                    return;
+                }
+            }
+        }
+    });
+    let end = serve_app(client, seen, asked, &pings, done).await;
+    pinger.abort();
+    end
+}
+
+async fn serve_app(
+    client: &Arc<ClientConnection>,
+    seen: &Arc<Mutex<Seen>>,
+    asked: &watch::Sender<u32>,
+    pings: &Arc<Mutex<BTreeMap<u64, Instant>>>,
     mut done: watch::Receiver<bool>,
 ) -> SessionEnd {
     let send = |text: String| async move {
         client.send(Lane::Control, APP_STREAM, Bytes::from(text), FrameFlags::empty()).await
     };
-    let last = lock(seen).last;
-    if let Err(e) = send(format!("attach {last}")).await {
-        return ended(e);
-    }
-    connected.send_replace(true);
     // Prompts asked for and not seen started: sent once per session (the session's own replay
     // carries them across reconnects; a new session needs them again).
     let mut sent_here = 0_u32;
@@ -469,6 +506,18 @@ async fn run_session(
             _ = done.changed() => {}
             frame = client.receive() => match frame {
                 Ok(Some(frame)) => {
+                    if frame.lane == Lane::Control && frame.stream == APP_STREAM {
+                        let text = String::from_utf8_lossy(&frame.payload);
+                        let sent = text
+                            .strip_prefix("pong ")
+                            .and_then(|n| n.parse::<u64>().ok())
+                            .and_then(|n| lock(pings).remove(&n));
+                        if let Some(sent) = sent {
+                            let mut s = lock(seen);
+                            s.answered_ping_sent = s.answered_ping_sent.max(Some(sent));
+                        }
+                        continue;
+                    }
                     if frame.lane != Lane::Interactive || frame.stream != APP_STREAM {
                         continue;
                     }
@@ -733,12 +782,16 @@ async fn run_world(seed: u64, faults: bool) -> Outcome {
                 traced = Some(state);
             }
         }
-        // A recovery is over once the app is connected and has what the log held at the heal.
+        // A recovery is over once the app is connected, has what the log held at the heal, and has
+        // an answer to a ping it sent after the heal (the session works again, not only a flag).
         {
-            let caught_up = lock(&seen).last;
+            let (caught_up, answered) = {
+                let s = lock(&seen);
+                (s.last, s.answered_ping_sent)
+            };
             let up = *connected.borrow();
             pending.retain(|(kind, healed, target)| {
-                if up && caught_up >= *target {
+                if up && caught_up >= *target && answered.is_some_and(|sent| sent >= *healed) {
                     outcome.recoveries.push(Recovery {
                         kind: kind.clone(),
                         healed_at: *healed - start,

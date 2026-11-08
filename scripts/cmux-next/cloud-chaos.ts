@@ -89,7 +89,8 @@ export const NOT_INJECTED: Array<{ name: string; why: string }> = [
 
 /**
  * Drop the machine's 443 traffic both ways for `secs`, undone by a timer on the machine. iptables when the image has
- * it, else an nft table of its own (deleted by the timer).
+ * it, else an nft table of its own (deleted by the timer). The timer is armed before any rule goes in, a rule set that
+ * goes in only partly is taken out at once, and `@@ok` is printed only once every rule is in.
  */
 export function dropCommand(secs: number): string {
   const ipt = [
@@ -98,14 +99,19 @@ export function dropCommand(secs: number): string {
   ];
   const undo = ["iptables -D OUTPUT -p tcp --dport 443 -j DROP", "iptables -D INPUT -p tcp --sport 443 -j DROP"];
   const nft = "nft add table inet cmuxchaos && nft add chain inet cmuxchaos out '{ type filter hook output priority 0; }' && nft add rule inet cmuxchaos out tcp dport 443 drop && nft add chain inet cmuxchaos in '{ type filter hook input priority 0; }' && nft add rule inet cmuxchaos in tcp sport 443 drop";
-  const script = `if command -v iptables >/dev/null 2>&1; then ${ipt.join(" && ")} && (sleep ${secs}; ${undo.join("; ")}) >/dev/null 2>&1 & echo @@ok iptables; ` +
-    `elif command -v nft >/dev/null 2>&1; then ${nft} && (sleep ${secs}; nft delete table inet cmuxchaos) >/dev/null 2>&1 & echo @@ok nft; else echo @@none; fi`;
+  const restore = undo.join("; ");
+  const script = `if command -v iptables >/dev/null 2>&1; then (sleep ${secs}; ${restore}) >/dev/null 2>&1 & ` +
+    `if ${ipt.join(" && ")}; then echo @@ok iptables; else ${restore}; echo @@failed iptables; fi; ` +
+    `elif command -v nft >/dev/null 2>&1; then (sleep ${secs}; nft delete table inet cmuxchaos) >/dev/null 2>&1 & ` +
+    `if ${nft}; then echo @@ok nft; else nft delete table inet cmuxchaos; echo @@failed nft; fi; else echo @@none; fi`;
   return `sudo -n sh -c ${shq(script)}`;
 }
 
 /** One open carrier dial, pinged; every answer's time kept. A dial that ends is replaced at once. */
 class Carrier {
-  answers: number[] = [];
+  /** Each answered identify: when its request went out, and when the answer came. */
+  answers: Array<{ sent: number; at: number }> = [];
+  private sentAt = new Map<number, number>();
   routeLines: string[] = [];
   dials = 0;
   ended: string[] = [];
@@ -121,7 +127,9 @@ class Carrier {
     this.pinger = setInterval(() => {
       const child = this.child;
       if (!child?.stdin?.writable) return;
-      child.stdin.write(`${JSON.stringify({ cmd: "identify", id: ++this.id })}\n`);
+      const id = ++this.id;
+      this.sentAt.set(id, Date.now());
+      child.stdin.write(`${JSON.stringify({ cmd: "identify", id })}\n`);
     }, PING_MS);
   }
 
@@ -146,7 +154,11 @@ class Carrier {
     lines(child.stdout!, (line) => {
       try {
         const answer = JSON.parse(line);
-        if (typeof answer?.id === "number" && answer.ok === true) this.answers.push(Date.now());
+        const sent = typeof answer?.id === "number" ? this.sentAt.get(answer.id) : undefined;
+        if (sent !== undefined && answer.ok === true) {
+          this.sentAt.delete(answer.id);
+          this.answers.push({ sent, at: Date.now() });
+        }
       } catch { /* a pushed event that is not an answer */ }
     });
     lines(child.stderr!, (line) => {
@@ -161,12 +173,15 @@ class Carrier {
     });
   }
 
-  /** The first answer at or after `t`, waiting up to `budgetMs` for it. */
+  /**
+   * When the first identify sent at or after `t` was answered, waiting up to `budgetMs`. Only a request sent after `t`
+   * counts: an answer to one sent before (held back by the fault, delivered after) does not show the carrier works.
+   */
   async answeredAfter(t: number, budgetMs: number): Promise<number | null> {
     const until = Date.now() + budgetMs;
     for (;;) {
-      const hit = this.answers.find((a) => a >= t);
-      if (hit !== undefined) return hit;
+      const hit = this.answers.find((a) => a.sent >= t);
+      if (hit !== undefined) return hit.at;
       if (Date.now() > until) return null;
       await sleep(50);
     }
@@ -181,32 +196,38 @@ class Carrier {
 }
 
 /** How many turns of the session started with this marker, and whether the last one ended. */
-async function turnState(ctx: ChaosContext, marker: string): Promise<{ started: number; running: boolean; status: string }> {
+async function turnState(ctx: ChaosContext, marker: string): Promise<{ started: number; running: boolean; status: string; detail: string }> {
   const r = await ctx.exec(`${ctx.guest}"$c" acp --json history ${shq(ctx.session)} --limit 20 2>&1`, 45_000);
   let turns: any[] = [];
   try { turns = JSON.parse(r.stdout.slice(r.stdout.indexOf("{"))).turns ?? []; } catch { /* unreadable: counted as 0 */ }
   const mine = turns.filter((t: any) => typeof t?.prompt === "string" && t.prompt.startsWith(marker));
   // `acp history` rows carry `status`: "running" while the turn is open (acpmux cli/orchestrate.rs).
   const running = mine.some((t: any) => t.status === "running");
-  return { started: mine.length, running, status: mine.map((t: any) => String(t.status)).join(",") };
+  return {
+    started: mine.length,
+    running,
+    status: mine.map((t: any) => String(t.status)).join(","),
+    detail: mine.map((t: any) => String(t.detail ?? "")).join(","),
+  };
 }
 
 async function turnOutcome(ctx: ChaosContext, marker: string): Promise<{ ok: boolean; text: string }> {
   const until = Date.now() + TURN_DEADLINE_MS;
-  let last = { started: 0, running: false, status: "" };
+  let last = { started: 0, running: false, status: "", detail: "" };
   while (Date.now() < until) {
     try {
       last = await turnState(ctx, marker);
     } catch { /* the exec route itself recovering: try again */ }
     if (last.started > 1) return { ok: false, text: `started ${last.started} times (a duplicated prompt)` };
+    // The turn's own terminal row decides (`acp wait` exits non-zero for a turn a restart cut short).
     if (last.started === 1 && !last.running) {
-      const w = await ctx.exec(`${ctx.guest}"$c" acp wait ${shq(ctx.session)} --timeout 20 >/dev/null 2>&1; echo "@@wait $?"`, 45_000).catch(() => null);
-      if (/@@wait 0/.test(w?.stdout ?? "")) {
-        // A turn a restart cut short ends as acpmux's interrupted outcome, which the person sees as such.
-        return /outcome_unknown|interrupted|error/.test(last.status)
-          ? { ok: true, text: `ended once (${last.status})` }
-          : { ok: true, text: "completed once" };
+      if (last.status === "completed") return { ok: true, text: "completed once" };
+      // A turn a restart cut short ends as acpmux's interrupted outcome (status failed, detail outcome_unknown), which
+      // the person sees as such: it ran once and ended, nothing was lost or doubled.
+      if (/outcome_unknown|interrupted/.test(`${last.status} ${last.detail}`)) {
+        return { ok: true, text: `ended once, interrupted (${last.status}: ${last.detail})` };
       }
+      return { ok: false, text: `ended once as ${last.status}${last.detail ? ` (${last.detail})` : ""}` };
     }
     await sleep(2_000);
   }
@@ -233,12 +254,15 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
       await sleep(300);
       const dialsBefore = carrier.dials;
       const resumesBefore = carrier.routeLines.filter((l) => /phase=resume .*outcome=ok/.test(l)).length;
-      const injected = await ctx.exec(`${ctx.guest}${f.command}`, 60_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
+      // The cause starts when the command runs, which is after this moment: timing from here makes recovery an upper
+      // bound. A drop may hold the exec's own answer until it ends, so its budget covers the drop.
+      const injectedAt = Date.now();
+      const injected = await ctx.exec(`${ctx.guest}${f.command}`, f.secs * 1000 + 60_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
       if (!/@@ok/.test(injected.stdout)) {
         out.push({ fault: f.name, outcome: "not run", recover_ms: null, carrier: "", turn: "", detail: `could not inject: ${(injected.stdout + injected.stderr).trim().slice(-200)}` });
         continue;
       }
-      const healed = Date.now() + f.secs * 1000;
+      const healed = injectedAt + f.secs * 1000;
       await sleep(Math.max(0, healed - Date.now()));
       const back = await carrier.answeredAfter(healed, RECOVER_DEADLINE_MS);
       const recover = back === null ? null : back - healed;

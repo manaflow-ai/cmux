@@ -92,8 +92,13 @@ fn seeds_hold() {
                 })
             })
             .collect();
-        handles.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
+        // A worker that panicked fails the run with its own panic, never as a sweep short of seeds.
+        handles
+            .into_iter()
+            .flat_map(|h| h.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)))
+            .collect()
     });
+    assert_eq!(results.len() as u64, seeds, "every requested seed ran");
     let wall = started.elapsed();
     let mut failures = Vec::new();
     let mut by_invariant: BTreeMap<String, u64> = BTreeMap::new();

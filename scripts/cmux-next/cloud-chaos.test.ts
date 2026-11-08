@@ -34,6 +34,13 @@ describe("faults", () => {
     expect(cmd).toContain("nft delete table inet cmuxchaos");
   });
 
+  test("a drop arms its restore before any rule goes in, and says ok only once every rule is in", () => {
+    const cmd = dropCommand(5);
+    expect(cmd.indexOf("sleep 5")).toBeLessThan(cmd.indexOf("iptables -I OUTPUT"));
+    expect(cmd).toContain("then echo @@ok iptables; else iptables -D OUTPUT");
+    expect(cmd).toContain("then echo @@ok nft; else nft delete table inet cmuxchaos");
+  });
+
   test("the session host is found without matching the shell that looks for it", () => {
     const restart = FAULTS.find((f) => f.name === "session host restart")!;
     expect(restart.command).toContain("'--relay-slo[t]'");

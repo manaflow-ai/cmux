@@ -319,17 +319,32 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
   return async (command, timeoutMs = 60_000) => {
     const env = { ...process.env, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer };
     const args = ["--json", "machine", "access", "exec", "--target", `machine:${machine}`, "--timeout-ms", String(Math.min(timeoutMs, 300_000)), ...(api.team ? ["--team", api.team] : []), "--", command];
-    const done = spawnSync(cmux, args, { env, encoding: "utf8", timeout: timeoutMs + 30_000 });
-    if (done.error) throw new Error(`${cmux}: ${done.error.message}`);
+    // Asynchronous, so a carrier dial this process holds (the chaos leg's) keeps being read while a command runs.
+    const done = await new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve, reject) => {
+      const child = spawn(cmux, args, { env, stdio: ["ignore", "pipe", "pipe"] });
+      let stdout = "";
+      let stderr = "";
+      child.stdout!.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
+      child.stderr!.setEncoding("utf8").on("data", (chunk: string) => (stderr += chunk));
+      const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs + 30_000);
+      child.on("error", (error) => {
+        clearTimeout(timer);
+        reject(new Error(`${cmux}: ${error.message}`));
+      });
+      child.on("close", (status) => {
+        clearTimeout(timer);
+        resolve({ status, stdout, stderr });
+      });
+    });
     try {
-      const result = JSON.parse(done.stdout ?? "");
+      const result = JSON.parse(done.stdout);
       if (Number.isInteger(result?.exit_code)) {
         return { code: Number(result.exit_code), stdout: String(result.stdout ?? ""), stderr: String(result.stderr ?? "") };
       }
     } catch {
       // Preserve the raw CLI answer below when it did not produce its JSON contract.
     }
-    return { code: done.status ?? 1, stdout: done.stdout ?? "", stderr: done.stderr ?? "" };
+    return { code: done.status ?? 1, stdout: done.stdout, stderr: done.stderr };
   };
 }
 
