@@ -1,4 +1,4 @@
-
+public import Foundation
 
 public struct PaletteWorkspace: Identifiable, Sendable, Hashable {
     public let id: String
@@ -19,6 +19,9 @@ public struct PaletteWorkspace: Identifiable, Sendable, Hashable {
     public var keywords: [String]
     /// The row's place in the active window's sidebar, top first (0), nil when the sidebar does not draw it.
     public var sidebarRank: Int?
+    /// When the person last focused or used one of the workspace's tabs, nil when never: a recent
+    /// workspace wins equal and near-equal matches (``PaletteRecencyPrior``).
+    public var lastUsed: Date?
 
     /// The words that find a workspace whose one tab Go to Workspace folds into its row (a lone
     /// tab is its workspace; Leo 2026-11-03: "some of these are way too duplicated"): the tab's
@@ -30,7 +33,8 @@ public struct PaletteWorkspace: Identifiable, Sendable, Hashable {
 
     public init(id: String, title: String, directory: String? = nil, isSelected: Bool = false, unreadCount: Int = 0,
                 groupName: String? = nil, machineName: String? = nil, agentID: String? = nil, keywords: [String] = [],
-                sidebarRank: Int? = nil) {
+                sidebarRank: Int? = nil, lastUsed: Date? = nil) {
+        self.lastUsed = lastUsed
         self.keywords = keywords
         self.sidebarRank = sidebarRank
         self.machineName = machineName

@@ -18,7 +18,8 @@ nonisolated struct PaletteNavigationGroup: Hashable {
 /// lone tab (not in a Home, `WorkspaceModel.isAnyHome`). Tabs closing now are left out, as in Search Tabs.
 nonisolated enum PaletteNavigationEntries {
     static func entries(_ topology: ControlTopology, groups: [PaletteNavigationGroup], lastActive: [String: Date],
-                        closing: Set<String> = [], sidebarRanks: [String: Int] = [:]) -> [PaletteNavigationEntry] {
+                        closing: Set<String> = [], sidebarRanks: [String: Int] = [:],
+                        workspaceNames: [String: String] = [:]) -> [PaletteNavigationEntry] {
         var groupOfWorkspace: [String: String] = [:]
         var entries: [PaletteNavigationEntry] = groups.map { group in
             for workspace in group.workspaceIDs where groupOfWorkspace[workspace] == nil { groupOfWorkspace[workspace] = group.name }
