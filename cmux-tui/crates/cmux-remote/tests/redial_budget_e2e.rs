@@ -20,12 +20,13 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bytes::Bytes;
 use cmux_remote::connection::{
-    ClientConnection, ClientConnectionConfig, ReconnectPolicy,
+    ClientConnection, ClientConnectionConfig, ConnectionError, ReconnectPolicy,
 };
 use cmux_remote::crypto::{ClientAuthMode, NetworkPeer, StaticIdentity};
 use cmux_remote::daemon::{DaemonSessionPolicy, InboundLink, RemoteDaemon};
 use cmux_remote::identity::AuthDatabase;
 use cmux_remote::link::{FrameLink, LinkError};
+use cmux_remote::observability::ConnectionState;
 use cmux_remote::provider::{
     CarrierEvidence, LinkGroup, LinkRequest, ProviderCapabilities, ProviderError,
 };
@@ -274,6 +275,11 @@ fn policy() -> ReconnectPolicy {
     ReconnectPolicy { full_jitter: false, ..ReconnectPolicy::default() }
 }
 
+async fn wait_state(client: &ClientConnection, want: ConnectionState, within: Duration) -> bool {
+    let mut state = client.subscribe_state();
+    tokio::time::timeout(within, state.wait_for(|state| *state == want)).await.is_ok()
+}
+
 /// A link that comes up and dies again right away (a flapping carrier) must not make the
 /// connection dial as fast as each reconnect succeeds: every redial spends a token, and
 /// tokens come back one per 2 s. The old code cleared its backoff on every success and so
@@ -305,6 +311,67 @@ async fn a_silent_link_is_redialed_within_6_s() {
     let first = h.group.first_dial_since(start).expect("the silent link was never redialed");
     let took = first - start;
     assert!(took <= Duration::from_secs(6), "a silent link took {took:?} to be declared dead");
+}
+
+/// An action passes its deadline; the recovery it waits on ends by then with the typed
+/// answer, however long the outage lasts. The link itself keeps trying afterwards.
+#[tokio::test(start_paused = true)]
+async fn an_action_deadline_bounds_the_recovery() {
+    let h = harness(policy()).await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    h.group.down.store(true, Ordering::Release);
+    h.group.cut_all();
+    // The reader sees the cut and starts the link's own recovery.
+    tokio::time::sleep(Duration::from_millis(1)).await;
+    let start = Instant::now();
+    let deadline = start + Duration::from_millis(1_500);
+    let result = h.client.await_ready(deadline).await;
+    assert!(matches!(result, Err(ConnectionError::ReconnectDeadlineExceeded { .. })), "{result:?}");
+    assert!(Instant::now() <= deadline, "the answer came {:?} late", Instant::now() - deadline);
+    // The link did not give up: it redials once the network is back.
+    h.group.down.store(false, Ordering::Release);
+    h.client.network_changed();
+    assert!(wait_state(&h.client, ConnectionState::Connected, Duration::from_secs(1)).await);
+    assert!(h.client.await_ready(Instant::now() + Duration::from_secs(1)).await.is_ok());
+}
+
+/// After a burst fails the link parks; a network change wakes it at once instead of at the
+/// end of its 5 s park.
+#[tokio::test(start_paused = true)]
+async fn a_parked_link_redials_on_a_network_change() {
+    let h = harness(policy()).await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    let start = Instant::now();
+    h.group.down.store(true, Ordering::Release);
+    h.group.cut_all();
+    // The burst (at once, then 150 ms and 600 ms later) has failed; the link is parked.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(*h.client.subscribe_state().borrow(), ConnectionState::Disconnected);
+    assert_eq!(h.group.dials_since(start), 3);
+    h.group.down.store(false, Ordering::Release);
+    let changed = Instant::now();
+    h.client.network_changed();
+    assert!(wait_state(&h.client, ConnectionState::Connected, Duration::from_secs(5)).await);
+    let took = changed.elapsed();
+    assert!(took < Duration::from_millis(100), "reconnected {took:?} after the network change");
+}
+
+/// A dial hung on the network that went away is dropped and dialed again when the network
+/// changes, instead of waiting out its 15 s attempt timeout.
+#[tokio::test(start_paused = true)]
+async fn a_network_change_drops_a_hung_dial() {
+    let h = harness(policy()).await;
+    tokio::time::sleep(Duration::from_secs(10)).await;
+    h.group.hang.store(true, Ordering::Release);
+    h.group.cut_all();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(*h.client.subscribe_state().borrow(), ConnectionState::Reconnecting);
+    h.group.hang.store(false, Ordering::Release);
+    let changed = Instant::now();
+    h.client.network_changed();
+    assert!(wait_state(&h.client, ConnectionState::Connected, Duration::from_secs(20)).await);
+    let took = changed.elapsed();
+    assert!(took < Duration::from_millis(100), "reconnected {took:?} after the network change");
 }
 
 /// A healthy link that dies is redialed at once, not after a backoff.
