@@ -233,7 +233,10 @@ async fn only_the_person_stashes_and_a_stashed_draft_comes_back_whole() {
     }
     let mut person = Client::person(&hub).await;
     let r = person
-        .call("_acpmux/stash_push", json!({"chat": chat, "text": "aside", "attachments": [chip.clone()]}))
+        .call(
+            "_acpmux/stash_push",
+            json!({"chat": chat, "text": "aside", "attachments": [chip.clone()]}),
+        )
         .await;
     let id = r["result"]["draft"]["id"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
     let listed = person.call("_acpmux/stash_list", json!({"chat": chat})).await;
