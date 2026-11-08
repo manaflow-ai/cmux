@@ -206,17 +206,12 @@ test("the turn ending lands the chase within BURST_S, no frame more than a line"
   }
   expect(drawn()).toBe(0);
   expect(frames).toBeLessThanOrEqual(Math.ceil(BURST_S * 120) + 1);
-  // Within a line of home it lands within BURST_S too, never at once.
+  // A quiet frame within CHASE_LAND_LINES of home lands at once: nothing moves after the turn
+  // settles (agent-pane-stream-jitter).
   chase.shift(node, -0.5 * line);
   chase.land();
-  expect(drawn()).toBeCloseTo(0.5 * line);
-  frames = 0;
-  while (pending() > 0 && frames < 240) {
-    frame();
-    frames += 1;
-  }
   expect(drawn()).toBe(0);
-  expect(frames).toBeLessThanOrEqual(Math.ceil(BURST_S * 120) + 1);
+  expect(pending()).toBe(0);
 });
 
 test("a turn that ends in a frame that already moved adds no snap: that frame moves at most a line", () => {
