@@ -471,14 +471,17 @@ impl DaemonServices {
         if authority.allows(incoming.service) {
             return Ok(Some(incoming));
         }
-        let service = serde_json::to_string(&incoming.service)?;
-        incoming
-            .stream
-            .reject(
-                "permission-denied".into(),
-                format!("the client grant does not allow {}", service.trim_matches('"')),
-            )
-            .await?;
+        let message = if incoming.service == Service::Acpmux {
+            // The bridge's own reason: no grant, or a grant without acpmux.
+            acpmux_bridge::header(authority.grant().map(Arc::as_ref))
+                .err()
+                .unwrap_or("acpmux.not_granted")
+                .to_owned()
+        } else {
+            let service = serde_json::to_string(&incoming.service)?;
+            format!("the client grant does not allow {}", service.trim_matches('"'))
+        };
+        incoming.stream.reject("permission-denied".into(), message).await?;
         Ok(None)
     }
 
