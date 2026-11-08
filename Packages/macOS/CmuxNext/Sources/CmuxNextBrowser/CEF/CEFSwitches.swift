@@ -25,6 +25,10 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Chromium's AsyncLiveResize (below fork API 27): off only for the Debug Settings "Synced live"
     /// drag resize (a Synced live drag resize, removed 2026-11-06), which lets Chromium hold a frame for the page again.
     var asyncLiveResize = true
+    /// The profile Chromium opens at startup (`profile-directory`), a directory name under the root
+    /// cache: the default cmux profile's (`CEFProfileStorage.initialProfileDirectory`). Nil leaves
+    /// Chromium's own choice (its last-used profile, `Default` on a first launch).
+    var initialProfileDirectory: String?
 
     /// The longest one Chromium pump pass runs before it returns to the main run loop: a quarter
     /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass.
@@ -110,6 +114,17 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // built-in entry Chromium keeps in the profile. The shim merges this
         // into CEF's list.
         if keepsUnpackedEnabled { result.append("disable-features=ExtensionDisableUnsupportedDeveloper") }
+        // Chrome style opens one startup profile and makes it the global request context
+        // (ChromeBrowserMainExtraPartsCef::PostProfileInit); CefSettings.cache_path does not choose
+        // it. Without this switch that profile is `Default`, which no cmux tab uses, yet every regular
+        // profile loads the --load-extension extensions: `Default` ran its own uBlock Origin
+        // background page, an extension renderer of about 105 MB, from launch on (hq#7860).
+        // Starting in the default cmux profile leaves one regular profile at idle. An incognito
+        // context still derives from `Default` (CEF's GetPrimaryUserProfile), so `Default` loads
+        // only when the first incognito window opens.
+        if let initialProfileDirectory, !initialProfileDirectory.isEmpty {
+            result.append("profile-directory=" + initialProfileDirectory)
+        }
         result.append(contentsOf: extraSwitches)
         return result
     }
@@ -176,7 +191,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         environment: [String: String],
         builtInExtensions: [String] = [],
         keepsUnpackedEnabled: Bool = false,
-        asyncLiveResize: Bool = true
+        asyncLiveResize: Bool = true,
+        initialProfileDirectory: String? = nil
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
         let dev = bundle.contains(".debug") || bundle.hasSuffix(".dev") || environment["CMUX_MOCK_KEYCHAIN"] == "1"
@@ -197,7 +213,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             builtInExtensions: builtInExtensions,
             keepsUnpackedEnabled: keepsUnpackedEnabled,
             extraSwitches: extra,
-            asyncLiveResize: asyncLiveResize
+            asyncLiveResize: asyncLiveResize,
+            initialProfileDirectory: initialProfileDirectory
         )
     }
 
