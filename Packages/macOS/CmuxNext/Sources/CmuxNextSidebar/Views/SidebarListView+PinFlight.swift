@@ -99,7 +99,9 @@ extension SidebarListViewComponents {
         }
         for region in blockRegions {
             for view in region.itemViews.values where view.superview != nil && !view.isHidden {
-                guard let id = view.info.workspace, !pinned.contains(id), old.row(for: .workspace(id)) == nil,
+                // The block may still draw it: the app sends an unpin's rows before its blocks (the film's revision 18).
+                // A workspace a block draws that gets a new list row moves from the block to the list either way.
+                guard let id = view.info.workspace, old.row(for: .workspace(id)) == nil,
                       layout.row(for: .workspace(id)) != nil else { continue }
                 sources.unpins[id] = source(of: view)
             }
@@ -155,10 +157,20 @@ extension SidebarListViewComponents {
         }
     }
 
-    /// After an apply: the held items whose row now shows (it flew from them) go.
+    /// After an apply: the held items whose row now shows (it flew from them) go. An item its block still lists (the
+    /// blocks' update comes later) hides until that update takes it out; if none comes in `pinHoldLimit`, it shows again.
     func releaseUnpinnedItems(_ ids: some Sequence<WorkspaceID>) {
         for id in ids {
-            for region in blockRegions where region.heldWorkspaces.contains(id) { region.releaseHeld(id) }
+            for region in blockRegions {
+                if region.heldWorkspaces.contains(id) { region.releaseHeld(id) }
+                guard let item = region.itemView(workspace: id) else { continue }
+                item.alphaValue = 0
+                // concurrency-allow: asyncAfter only schedules the fallback on the main queue; no thread waits for it
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.pinHoldLimit) { [weak item] in
+                    guard let item, item.superview != nil else { return }
+                    item.alphaValue = 1
+                }
+            }
         }
     }
 

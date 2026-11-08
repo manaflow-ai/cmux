@@ -1702,6 +1702,8 @@ An empty group now keeps only its header at rest. The header's existing + appear
   stays where it is drawn until the block's item takes over its frame (at most 250 ms, then it goes at once).
 - In the app the document's pin state comes with the blocks, so at the rows' update the row closes as usual (no wait
   at the key); when the block comes, its item flies from where the closing row is drawn and the row goes.
+- The app can also send an unpin's rows first while the block still lists the item: the row moves from the item and
+  the item hides until the blocks' update takes it out (it shows again after 250 ms if none comes).
 - An unpin reaches it the other way (the blocks, then the rows): the block's item stays where it is drawn
   (`SidebarRegionView.heldWorkspaces`) until the row takes over its frame (at most 250 ms, then it goes at once).
 - Gap: the first pin, which creates the Pinned block, still opens that block with its own fade.
