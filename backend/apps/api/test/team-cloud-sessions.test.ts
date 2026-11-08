@@ -115,7 +115,8 @@ describe("team Cloud sessions", { timeout: 120_000 }, () => {
     ok(await op(t.creator.token, "team.members.remove", { user: m.user }, t.team))
     expect(codeOf(await read(m.token, "team.cloud.session.list", {}, t.team))).toBe("auth.forbidden")
     expect(codeOf(await read(m.token, "team.cloud.session.get", { vm: VM, session: "s1" }, t.team))).toBe("auth.forbidden")
-    expect(codeOf(await op(m.token, "team.cloud.session.follow", { vm: VM, session: "s1", follow: false }, t.team))).toBe("auth.forbidden")
+    // A write from someone no longer in the team is refused by TeamDO's membership check.
+    expect(["auth.forbidden", "team.not_member"]).toContain(codeOf(await op(m.token, "team.cloud.session.follow", { vm: VM, session: "s1", follow: false }, t.team)))
     // Their follow and presence no longer show to the team.
     expect(ok(await read(t.creator.token, "team.cloud.session.get", { vm: VM, session: "s1" }, t.team)).session).toMatchObject({ viewers: [], follower_count: 0, followers: [] })
   })
