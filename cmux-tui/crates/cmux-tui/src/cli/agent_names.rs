@@ -402,11 +402,11 @@ pub(in crate::cli) fn rewrite_words(
     let mut rewritten = words.to_vec();
     let mut changed = false;
     for target in targets(words) {
-        let named = lookup(snapshot, &target);
-        if matches!(named, Ok(None)) || found_by_selector_rules(&target) {
+        let Some(id) = lookup(snapshot, &target).transpose() else { continue };
+        if found_by_selector_rules(&target) {
             continue;
         }
-        let id = named?.expect("a name that stays was skipped above");
+        let id = id?;
         replace(&mut rewritten, &target, &id);
         changed = true;
     }
