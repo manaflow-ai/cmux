@@ -590,6 +590,11 @@ pub struct Hub {
     pub(super) inline_btw: StdMutex<HashMap<String, InlineBtwOwner>>,
     /// Every change watchers hear of, counted for the session list guard (`list_guard.rs`).
     pub(super) events: list_guard::Events,
+    /// Live edited-file index for conflict radar. Entries are updated by edit records, so an
+    /// overlap lookup visits only sessions that share one of the newly edited files.
+    pub(super) overlap_files: StdMutex<HashMap<(String, String), HashSet<String>>>,
+    /// Session pairs that already received a durable overlap event.
+    pub(super) overlap_pairs: StdMutex<HashSet<String>>,
     /// The shared, paced full session list (`list_guard.rs`).
     pub(crate) list_guard: list_guard::ListGuard,
     /// Each chat's spend and context as its harness recorded them (`usage_view.rs`).
@@ -976,6 +981,8 @@ impl Hub {
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             inline_btw: StdMutex::new(HashMap::new()),
             events,
+            overlap_files: StdMutex::new(HashMap::new()),
+            overlap_pairs: StdMutex::new(HashSet::new()),
             list_guard: Default::default(),
             usage_stats: Default::default(),
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
@@ -1535,6 +1542,7 @@ impl Hub {
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
             touch_queue: StdMutex::new(Default::default()),
+            changed_hunks: StdMutex::new(Default::default()),
             overlaps_told: StdMutex::new(Default::default()),
             start_calls: StdMutex::new(Default::default()),
             composers: StdMutex::new(Default::default()),

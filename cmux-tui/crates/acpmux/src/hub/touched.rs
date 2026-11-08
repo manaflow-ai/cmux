@@ -56,12 +56,75 @@ pub(super) fn absorb(session: &Session, update: &Value, m: &mut SessionMeta, rep
         let (repo, path) = tf::key_of(&abs);
         if edited {
             queued.push((repo.clone(), path.clone()));
+            let ranges = edit_ranges(update, &path, &m.cwd);
+            let mut hunks = session.changed_hunks.lock().unwrap_or_else(|e| e.into_inner());
+            let entry = hunks.entry((repo.clone(), path.clone())).or_default();
+            for range in ranges {
+                if !entry.contains(&range) {
+                    entry.push(range);
+                }
+            }
+            if entry.len() > 64 {
+                let keep_from = entry.len() - 64;
+                entry.drain(..keep_from);
+            }
         }
         tf::merge(&mut m.touched_files, TouchedFile { repo, path, edited, at, edited_at: 0 });
     }
     if !queued.is_empty() {
         session.touch_queue.lock().unwrap_or_else(|e| e.into_inner()).extend(queued);
     }
+}
+
+/// A diff block may carry an explicit line start; otherwise its changed text gives us a useful
+/// conservative range. The fallback is one line, which still catches two agents editing the same
+/// file when a harness only sends a path.
+fn edit_ranges(update: &Value, path: &str, cwd: &std::path::Path) -> Vec<(u32, u32)> {
+    let mut ranges = Vec::new();
+    for block in update.get("content").and_then(Value::as_array).into_iter().flatten() {
+        if block.get("type").and_then(Value::as_str) != Some("diff") {
+            continue;
+        }
+        let Some(raw) = block.get("path").and_then(Value::as_str) else { continue };
+        let Some(abs) = canonical_path(raw, Some(cwd)) else { continue };
+        let (_, candidate) = tf::key_of(&abs);
+        if candidate != path {
+            continue;
+        }
+        let start = [
+            "newStart",
+            "new_start",
+            "startLine",
+            "start_line",
+            "lineStart",
+            "line_start",
+            "oldStart",
+            "old_start",
+        ]
+        .iter()
+        .find_map(|key| block.get(*key).and_then(Value::as_u64))
+        .unwrap_or(1)
+        .max(1) as u32;
+        let count = block
+            .get("newText")
+            .and_then(Value::as_str)
+            .or_else(|| block.get("oldText").and_then(Value::as_str))
+            .map(|text| text.lines().count().max(1) as u32)
+            .unwrap_or(1);
+        ranges.push((start, start.saturating_add(count.saturating_sub(1))));
+    }
+    if ranges.is_empty() {
+        ranges.push((1, 1));
+    }
+    ranges
+}
+
+fn ranges_overlap(left: (u32, u32), right: (u32, u32)) -> bool {
+    left.0 <= right.1 && right.0 <= left.1
+}
+
+fn pair_key(left: &str, right: &str) -> String {
+    if left < right { format!("{left}\0{right}") } else { format!("{right}\0{left}") }
 }
 
 /// The notice's words for a session that shares files with `other` (an answer row).
@@ -120,13 +183,27 @@ impl Hub {
         }
         let now = crate::store::now_ms();
         let since = now.saturating_sub(NOTICE_WINDOW_MS);
-        // Only the sessions that edited one of these files lately are read whole: an edit costs
-        // a look at each session's index under its lock, not a copy of every session's meta.
-        let sessions: Vec<Arc<Session>> =
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
+        // The index is updated once per edit and bounds the lookup to sessions that share a file.
+        let candidate_ids: std::collections::HashSet<String> = {
+            let mut index = self.overlap_files.lock().unwrap_or_else(|e| e.into_inner());
+            let mut ids = std::collections::HashSet::new();
+            for key in &edited {
+                let owners = index.entry(key.clone()).or_default();
+                ids.extend(owners.iter().filter(|id| *id != &session.id).cloned());
+                owners.insert(session.id.clone());
+            }
+            ids
+        };
+        let sessions: Vec<Arc<Session>> = self
+            .sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .filter(|s| candidate_ids.contains(&s.id))
+            .cloned()
+            .collect();
         let all: Vec<(Arc<Session>, Candidate)> = sessions
             .into_iter()
-            .filter(|s| !Arc::ptr_eq(s, session))
             .filter_map(|s| {
                 let m = {
                     let m = s.meta.lock().unwrap_or_else(|e| e.into_inner());
@@ -140,6 +217,10 @@ impl Hub {
                 Some((s, c))
             })
             .collect();
+        // Durable overlap records use the same indexed candidates as the steering notice. This
+        // keeps the edit path proportional to the files just changed even when no candidate can
+        // be steered (for example, an idle session without a running turn).
+        self.record_worktree_overlaps(session, &candidate_ids, &edited, since);
         if all.is_empty() {
             return;
         }
@@ -179,6 +260,103 @@ impl Hub {
             if let Some(mine) = tf::row(&back, &me, now) {
                 self.overlap_notice(other, &session.id, &mine);
             }
+        }
+    }
+
+    /// Emits one durable event for a newly discovered pair. The client folds this event into a
+    /// quiet header chip, so it survives reconnects and is visible even when neither agent can be
+    /// steered. The pair index prevents repeated edits from producing a stream of notices.
+    fn record_worktree_overlaps(
+        &self,
+        session: &Arc<Session>,
+        candidate_ids: &std::collections::HashSet<String>,
+        edited: &[(String, String)],
+        since: u64,
+    ) {
+        let sessions: Vec<Arc<Session>> = self
+            .sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .filter(|s| candidate_ids.contains(&s.id))
+            .cloned()
+            .collect();
+        let mine = session.meta();
+        let mine_hunks = session.changed_hunks.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        for other in sessions {
+            if !matches!(
+                other.status(),
+                crate::store::SessionStatus::Idle
+                    | crate::store::SessionStatus::Ready
+                    | crate::store::SessionStatus::Running
+                    | crate::store::SessionStatus::Waiting
+            ) {
+                continue;
+            }
+            let other_meta = other.meta();
+            let other_files: std::collections::HashSet<(&str, &str)> = other_meta
+                .touched_files
+                .iter()
+                .filter(|file| file.edited_since(since))
+                .map(|file| (file.repo.as_str(), file.path.as_str()))
+                .collect();
+            let mut files = Vec::new();
+            let other_hunks = other.changed_hunks.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            for (repo, path) in edited {
+                if !other_files.contains(&(repo.as_str(), path.as_str())) {
+                    continue;
+                }
+                let left = mine_hunks
+                    .get(&(repo.clone(), path.clone()))
+                    .cloned()
+                    .unwrap_or_else(|| vec![(1, 1)]);
+                let right = other_hunks
+                    .get(&(repo.clone(), path.clone()))
+                    .cloned()
+                    .unwrap_or_else(|| vec![(1, 1)]);
+                let mut overlaps = Vec::new();
+                for left_range in &left {
+                    for right_range in &right {
+                        if ranges_overlap(*left_range, *right_range) {
+                            overlaps.push(json!({
+                                "mine": {"start": left_range.0, "end": left_range.1},
+                                "theirs": {"start": right_range.0, "end": right_range.1},
+                            }));
+                        }
+                    }
+                }
+                if !overlaps.is_empty() {
+                    files.push(json!({"repo": repo, "path": path, "ranges": overlaps}));
+                }
+            }
+            if files.is_empty() {
+                continue;
+            }
+            let key = pair_key(&session.id, &other.id);
+            let fresh = self.overlap_pairs.lock().unwrap_or_else(|e| e.into_inner()).insert(key);
+            if !fresh {
+                continue;
+            }
+            let smaller =
+                if mine.name <= other_meta.name { mine.id.clone() } else { other_meta.id.clone() };
+            let event = json!({
+                "peerSessionId": other.id,
+                "peerName": other_meta.name,
+                "peerBranch": other_meta.git_branch,
+                "files": files,
+                "suggestedOrder": "smallerFirst",
+                "smallerSessionId": smaller,
+            });
+            let _ = self.append_logged(session, "mux", "worktree_overlap", event.clone(), None);
+            let reciprocal = json!({
+                "peerSessionId": mine.id,
+                "peerName": mine.name,
+                "peerBranch": mine.git_branch,
+                "files": event["files"].clone(),
+                "suggestedOrder": "smallerFirst",
+                "smallerSessionId": smaller,
+            });
+            let _ = self.append_logged(&other, "mux", "worktree_overlap", reciprocal, None);
         }
     }
 

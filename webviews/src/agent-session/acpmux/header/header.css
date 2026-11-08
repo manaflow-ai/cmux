@@ -103,6 +103,22 @@
 .acpmux-header-worktree>svg{flex:none}
 .acpmux-header-worktree-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .acpmux-header-worktree-detail{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+/* Conflict radar: a quiet file-shaped signal; details stay in the popover so the header does not
+   grow with the number of overlapping worktrees. */
+.acpmux-header-tool.acpmux-header-overlap{width:auto;gap:4px;min-width:0;max-width:190px;padding:0 6px;color:var(--agent-muted);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-header-overlap>svg{flex:none;color:var(--agent-status-warning)}
+.acpmux-header-overlap-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.acpmux-overlap-status{width:300px}
+.acpmux-overlap-files{display:grid;gap:5px;margin:0;padding:8px 6px 4px;list-style:none;border-top:.5px solid var(--acpmux-composer-edge);color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-overlap-files li{display:flex;justify-content:space-between;gap:10px;min-width:0}
+.acpmux-overlap-files code{min-width:0;overflow:hidden;color:var(--agent-text);text-overflow:ellipsis;white-space:nowrap}
+.acpmux-overlap-files span{flex:none;font-variant-numeric:tabular-nums}
+.acpmux-overlap-action{display:flex;flex-direction:column;gap:6px;margin:4px 6px 0;padding-top:8px;border-top:.5px solid var(--acpmux-composer-edge);font-size:var(--text-detail)}
+.acpmux-overlap-action button{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit}
+.acpmux-overlap-action button:hover:not(:disabled){background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
+.acpmux-overlap-action button:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
+.acpmux-overlap-action button:disabled{color:var(--agent-muted)}
+.acpmux-overlap-action output{color:var(--agent-status-failure)}
 /* The pill's popover (cx-lyqio.4): the branch, what it is a worktree of, then Apply and where it stands. */
 .acpmux-worktree-status{width:280px}
 .acpmux-worktree-apply{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:2px;padding:8px 6px 2px;border-top:.5px solid var(--acpmux-composer-edge);font-size:var(--text-detail);overflow-wrap:anywhere;letter-spacing:var(--text-detail--letter-spacing)}
