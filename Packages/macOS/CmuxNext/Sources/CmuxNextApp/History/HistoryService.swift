@@ -176,10 +176,9 @@ final class HistoryService {
 
     // MARK: Clearing
 
-    /// Clears `kinds` (empty: all) in `range`. Pages clear in every profile.
+    /// Clears `kinds` (empty: all) in `range` from its start at the click (the daemon clear may wait in `writes`). Pages clear in every profile.
     func clear(kinds: Set<HistoryEntry.Kind>, range: HistoryRange) {
         let wants = { (kind: HistoryEntry.Kind) in kinds.isEmpty || kinds.contains(kind) }
-        // The absolute start, taken now: the daemon clear may wait in `writes` past this hour or day.
         let since = range.start(now: Date())
         if wants(.page) { Task { [sync = services.onboarding.historySync] in await sync.forget(profile: nil, since: since) } }  // task-owner: imported pages too
         // The daemon removes page visits, trail entries and closed items and hides agents; terminal

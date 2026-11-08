@@ -81,10 +81,8 @@ extension HistoryService {
         writes.enqueue(body) { [weak self] in self?.onChange?() }
     }
 
-    /// Seeds a profile's omnibox from the daemon's visit summaries once the local daemon serves
-    /// history, after the daemon imported the profile's app-local log from an older build. The import
-    /// goes in ``writes`` ahead of every waiting write, so a clear made before the daemon came back (or
-    /// one whose own profile walk attached this profile) reaches the daemon after it and clears it too.
+    /// Seeds a profile's omnibox from the daemon's visit summaries once the daemon imported its older build's log,
+    /// which goes in ``writes`` ahead of every waiting write, so a clear made while the daemon was away still clears it.
     func seedWhenConnected(_ history: InMemoryBrowserHistory, profile: BrowserProfileID) {
         let wireID = BrowserProfileRecord.wireID(for: profile)
         let seed: @MainActor () -> Void = { [weak self, weak history] in
@@ -101,12 +99,9 @@ extension HistoryService {
                 history?.merge(entries)
             }
         }
-        guard let supportDirectory else {
-            seed()
-            return
-        }
-        let legacy = LegacyHistoryFile.visitLogURL(profile: wireID, supportDirectory: supportDirectory)
-        writes.enqueue(ahead: true, { await Self.handOver(legacy, supportDirectory: supportDirectory, profile: wireID, to: $0) }, done: seed)
+        guard let supportDirectory else { return seed() }
+        writes.enqueue(ahead: true, { await Self.handOver(LegacyHistoryFile.visitLogURL(profile: wireID, supportDirectory: supportDirectory),
+                                                          supportDirectory: supportDirectory, profile: wireID, to: $0) }, done: seed)
     }
 
     /// Imports `log` (an app-local `History.sqlite`) into the daemon's store of `profile`, then
