@@ -457,6 +457,9 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                     "generation":generation,
                     "force":force,
                     "end_terminals":end_terminals,
+                    // An attached TUI reconnects after a restart and exits
+                    // after a stop (the daemon repeats it on its notice).
+                    "restart":restart,
                 }),
                 deadline,
             ) {
