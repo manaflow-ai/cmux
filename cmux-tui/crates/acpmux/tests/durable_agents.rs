@@ -1302,11 +1302,13 @@ async fn an_adopted_agent_without_a_recorded_token_restarts_after_its_turn() {
 
     daemon.sigterm();
     drop(client);
-    // What an older host's record looks like: no caller token.
+    // What an older host's record looks like: no caller token. An older daemon kept no
+    // registry of the tokens it gave out either (`caller_registry.rs`).
     let mut record = host.clone();
     assert!(record.as_object_mut().unwrap().remove("caller_token").is_some());
     let path = daemon.home.join("hosts").join(format!("{session}.json"));
     std::fs::write(&path, record.to_string()).unwrap();
+    std::fs::remove_file(daemon.home.join("caller-tokens.json")).unwrap();
     daemon.start();
     daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
     daemon.wait_event(&kept, "host_adopted", |e| e["kind"] == "host_adopted");
