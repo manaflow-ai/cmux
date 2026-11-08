@@ -528,3 +528,24 @@ fn a_host_the_registry_status_marks_off_is_never_a_placement_candidate() {
     assert_eq!(v["pick"], "small", "{v:#}");
 }
 
+/// A peer is a candidate only while its link is up: the `connected` flag and the live `state`
+/// both say so (`degraded` is slow, not gone). A flag still set while the link reconnects is
+/// down. Each down peer is listed in the verdict as passed over, and never picked.
+#[test]
+fn a_peer_whose_link_is_not_up_is_passed_over_with_why() {
+    let row = |connected: bool, state: &str| json!({"name": "vm", "connected": connected, "state": state});
+    assert_eq!(peer_down(&row(true, "connected")), None);
+    assert_eq!(peer_down(&row(true, "degraded")), None);
+    assert_eq!(peer_down(&json!({"name": "vm", "connected": true})), None, "no state: the flag");
+    for state in ["reconnecting", "offline", "connecting", "restarting"] {
+        assert_eq!(peer_down(&row(true, state)), Some(format!("not connected ({state})")));
+        assert_eq!(peer_down(&row(false, state)), Some(format!("not connected ({state})")));
+    }
+    assert_eq!(peer_down(&json!({"name": "vm"})), Some("not connected (down)".into()));
+
+    let v = place(&[c("small", health(40.0, 16, 1.0, 300.0, 0))], Some(&registry()), Work::Agent);
+    let v = with_down(v, &[("vm".into(), "not connected (reconnecting)".into())]);
+    assert_eq!(v["pick"], "small", "{v:#}");
+    assert_eq!(host(&v, "vm")["ok"], false, "{v:#}");
+    assert_eq!(host(&v, "vm")["refused"], "not connected (reconnecting)", "{v:#}");
+}
