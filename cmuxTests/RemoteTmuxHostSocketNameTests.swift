@@ -156,6 +156,21 @@ import Testing
             from: ["session": namedQuoted, "socket_name": "alpha"], transport: .ssh, mode: .attach) == namedQuoted)
     }
 
+    /// tmux reports a socket path past the AF_UNIX limit as `error connecting to … (File name
+    /// too long)`. A long `-L <name>` under a long `TMUX_TMPDIR` is how a user reaches that, and
+    /// the server behind it can never be contacted, so it must surface as the command failure it
+    /// is rather than be read as an idle server and become an empty session list.
+    @Test func anOverlongSocketPathIsNotMisreadAsNoServer() {
+        let name = String(repeating: "n", count: 64)
+        let directory = "/Users/dev/Library/Caches/cmux/remote-tmux-et/some-host/tmux/tmux-501"
+        #expect(!RemoteTmuxSSHTransport.indicatesNoServer(
+            "error connecting to \(directory)/\(name) (File name too long)"))
+        // The idle-server shapes keep their meaning for a named socket.
+        #expect(RemoteTmuxSSHTransport.indicatesNoServer("no server running on /tmp/tmux-501/\(name)"))
+        #expect(RemoteTmuxSSHTransport.indicatesNoServer(
+            "error connecting to /tmp/tmux-501/\(name) (No such file or directory)"))
+    }
+
     @Test func socketBoundaryBuildsAndRefusesSocketNames() {
         let host = TerminalController.remoteTmuxHost(
             from: ["host": "dev@host", "socket_name": "alpha"], selectBroker: { _ in .none })

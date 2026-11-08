@@ -644,13 +644,16 @@ import Testing
     }
 }
 
-/// A named et server mirrors end to end through `remote.tmux.window` (#15022): the handler
-/// builds the socket-named host, discovery runs `tmux -L alpha …` over the one-shot ssh lane,
-/// and the session becomes a workspace keyed by that endpoint. The cached control connection
-/// keeps the et control stream off the network, as the focus-policy test above does for ssh.
+/// A named et server mirrors end to end through `remote.tmux.mirror` and `remote.tmux.window`
+/// (#15022): the handler builds the socket-named host, discovery runs `tmux -L alpha …` over the
+/// one-shot ssh lane, and the session becomes a workspace keyed by that endpoint. The cached
+/// control connection keeps the et control stream off the network, as the focus-policy test
+/// above does for ssh. `remote.tmux.attach` has no positive case here: it waits for the control
+/// stream to report connected, which a cached connection without a process never does.
 @MainActor
 @Suite(.serialized, .exclusiveAppContext) struct RemoteTmuxSocketNameWindowMirrorTests {
-    @Test func namedETServerMirrorsThroughTheWindowHandler() async throws {
+    @Test(arguments: ["remote.tmux.mirror", "remote.tmux.window"])
+    func namedETServerMirrorsThroughTheHandler(method: String) async throws {
         let support = RemoteTmuxMirrorCloseDetachTests()
         let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("remote-tmux-socket-name-\(UUID().uuidString)", isDirectory: true)
@@ -684,7 +687,7 @@ import Testing
         let harness = try RemoteTmuxMirrorCloseDetachTests.Harness()
         var targetWindowID: UUID?
         defer {
-            if let targetWindowID { harness.closeWindow(targetWindowID) }
+            if let targetWindowID, targetWindowID != harness.windowId { harness.closeWindow(targetWindowID) }
             harness.tearDown()
         }
         let destination = "socket-\(UUID().uuidString)@example.test"
@@ -696,20 +699,31 @@ import Testing
         defer { harness.controller.detach(host: host, sessionName: "one") }
         harness.cacheConnection(host: host, session: "one")
 
+        // `mirror` is aimed at the harness window; `window` opens a dedicated one.
+        var params: [String: Any] = [
+            "host": destination, "transport": "et", "socket_name": "alpha", "session": "one",
+        ]
+        if method == "remote.tmux.mirror" { params["window_id"] = harness.windowId.uuidString }
+        let requestData = try JSONSerialization.data(withJSONObject: [
+            "jsonrpc": "2.0", "id": 1, "method": method, "params": params,
+        ])
+        let request = try #require(String(data: requestData, encoding: .utf8))
         let responseText = await Task.detached {
-            TerminalController.shared.v2RemoteTmuxWindow(
-                id: 1,
-                params: ["host": destination, "transport": "et", "socket_name": "alpha", "session": "one"]
-            )
+            TerminalController.shared.handleSocketLine(request)
         }.value
         let responseData = try #require(responseText.data(using: .utf8))
         let response = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
-        let result = try #require(response["result"] as? [String: Any], "\(responseText)")
+        let result = try #require(response["result"] as? [String: Any], "\(method): \(responseText)")
         #expect(result["mirrored"] as? Bool == true)
         #expect((result["workspace_ids"] as? [String])?.count == 1)
         targetWindowID = try #require(
             (result["window_id"] as? String).flatMap(UUID.init(uuidString:))
         )
+        if method == "remote.tmux.mirror" {
+            #expect(targetWindowID == harness.windowId)
+        } else {
+            #expect(targetWindowID != harness.windowId)
+        }
 
         // Every tmux command discovery ran carried the socket flag.
         let calls = try String(contentsOf: callsURL, encoding: .utf8)

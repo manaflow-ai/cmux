@@ -331,8 +331,14 @@ actor RemoteTmuxSSHTransport {
     // MARK: - Heuristics
 
     /// Whether stderr indicates the remote tmux server simply isn't running.
+    ///
+    /// `error connecting to <socket> (File name too long)` is excluded: tmux prints it when the
+    /// socket path (`$TMUX_TMPDIR/tmux-<uid>/<name>`) exceeds the AF_UNIX limit, which a long
+    /// `-L <name>` under a long `TMUX_TMPDIR` can reach. That server can never be contacted, so
+    /// reading it as idle would turn tmux's explanation into an empty session list.
     static func indicatesNoServer(_ stderr: String) -> Bool {
         let lowered = stderr.lowercased()
+        if lowered.contains("file name too long") { return false }
         return lowered.contains("no server running")
             || lowered.contains("no sessions")
             || (lowered.contains("error connecting to /") && lowered.contains("/tmux-"))
