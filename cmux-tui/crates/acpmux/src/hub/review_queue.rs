@@ -26,6 +26,7 @@
 //!   `sessionId`, `permissionId` and an option, as Needs you does); each item carries them.
 
 use super::*;
+use cmux_json::JsonSet as _;
 use std::collections::HashMap;
 
 /// A pull request older than this leaves the queue (and the index).
@@ -355,7 +356,7 @@ impl Row {
             "impact": impact, "impactReasons": reasons, "score": score(impact, age),
         });
         if let Some(w) = &self.workspace_id {
-            v["workspaceId"] = json!(w);
+            v.set("workspaceId", json!(w));
         }
         v
     }
@@ -432,16 +433,16 @@ impl Hub {
                     at,
                     now,
                 );
-                item["permissionId"] = json!(permission_id);
-                item["options"] = json!(options(&request));
+                item.set("permissionId", json!(permission_id));
+                item.set("options", json!(options(&request)));
                 if let Some(t) = note.and_then(|n| n.turn_id.as_ref()) {
-                    item["turnId"] = json!(t);
+                    item.set("turnId", json!(t));
                 }
                 if let Some(d) = detail(&request) {
-                    item["detail"] = json!(d);
+                    item.set("detail", json!(d));
                 }
                 if kind != Kind::Approval {
-                    item["question"] = request;
+                    item.set("question", request);
                 }
                 items.push(item);
             }
@@ -469,7 +470,7 @@ impl Hub {
                     pr.at,
                     now,
                 );
-                item["prUrl"] = json!(pr.url);
+                item.set("prUrl", json!(pr.url));
                 items.push(item);
             }
         }

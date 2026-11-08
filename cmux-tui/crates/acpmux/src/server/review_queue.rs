@@ -10,6 +10,7 @@
 //! daemon alone, so two daemons that list each other ask each other once and never in a cycle
 //! (the `_acpmux/models` rule, `models_fanout.rs`).
 
+use cmux_json::JsonSet as _;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -106,7 +107,7 @@ async fn queue(
                     continue;
                 }
                 let mut item = item.clone();
-                item["host"] = json!(peer.name);
+                item.set("host", json!(peer.name));
                 items.push(item);
             }
         }

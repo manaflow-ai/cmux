@@ -5,6 +5,7 @@
 
 use super::review_queue::{ASK_CHARS, Ask, Kind, Settled, ask_text, line, vendor};
 use super::*;
+use cmux_json::JsonSet as _;
 
 /// How long a purge waits for the audit log's rewrite.
 const AUDIT_PURGE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -55,15 +56,15 @@ pub(crate) fn answered_by(decided: &str, by: Option<&Value>, settled_by: Option<
     let ancestor = by.and_then(|b| b.get("session")).is_some();
     let mut out = json!({"person": matches!(decided, "allow" | "answer") && !ancestor});
     if ancestor {
-        out["via"] = json!("ancestor");
+        out.set("via", json!("ancestor"));
     }
     for key in ["device", "feedItem"] {
         if let Some(v) = by.and_then(|b| b.get(key)).and_then(Value::as_str) {
-            out[key] = json!(v);
+            out.set(key, json!(v));
         }
     }
     if out.get("device").is_some() && !ancestor {
-        out["via"] = json!("device");
+        out.set("via", json!("device"));
     }
     out
 }
@@ -112,14 +113,17 @@ impl Hub {
         let kind = Kind::of(&ask.request);
         let (option, decided) = decision(kind, &ask.request, msg, ask.settled_by)?;
         let mut entry = self.entry_base(session, at);
-        entry["kind"] = json!(kind.as_str());
-        entry["permissionId"] = json!(permission_id);
-        entry["ask"] = json!(ask_text(kind, &ask.request));
-        entry["decision"] = match option {
-            Some(o) => json!({"optionId": o, "kind": decided}),
-            None => json!({"kind": decided}),
-        };
-        entry["answeredBy"] = answered_by(decided, msg.get("answeredBy"), ask.settled_by);
+        entry.set("kind", json!(kind.as_str()));
+        entry.set("permissionId", json!(permission_id));
+        entry.set("ask", json!(ask_text(kind, &ask.request)));
+        entry.set(
+            "decision",
+            match option {
+                Some(o) => json!({"optionId": o, "kind": decided}),
+                None => json!({"kind": decided}),
+            },
+        );
+        entry.set("answeredBy", answered_by(decided, msg.get("answeredBy"), ask.settled_by));
         Some(entry)
     }
 
@@ -150,14 +154,17 @@ impl Hub {
             return;
         }
         let mut entry = self.entry_base(session, now_ms());
-        entry["kind"] = json!("queued");
-        entry["promptId"] = json!(prompt_id);
-        entry["ask"] = json!(queued_ask(text));
-        entry["decision"] = json!({"kind": if approved { "allow" } else { "deny" }});
-        entry["answeredBy"] = match control {
-            Some(c) => json!({"person": false, "via": c.as_str()}),
-            None => json!({"person": false}),
-        };
+        entry.set("kind", json!("queued"));
+        entry.set("promptId", json!(prompt_id));
+        entry.set("ask", json!(queued_ask(text)));
+        entry.set("decision", json!({"kind": if approved { "allow" } else { "deny" }}));
+        entry.set(
+            "answeredBy",
+            match control {
+                Some(c) => json!({"person": false, "via": c.as_str()}),
+                None => json!({"person": false}),
+            },
+        );
         self.audit.record(entry);
     }
 
@@ -182,12 +189,14 @@ impl Hub {
             )));
         }
         let mut entry = self.entry_base(session, now_ms());
-        entry["kind"] = json!("review");
-        entry["prUrl"] = json!(url);
-        entry["ask"] = json!(line(&format!("Review {url}"), ASK_CHARS));
-        entry["decision"] = json!({"kind": if accepted { "accept" } else { "changes" }});
-        entry["answeredBy"] =
-            json!({"person": true, "via": if from_app { "app" } else { "local" }});
+        entry.set("kind", json!("review"));
+        entry.set("prUrl", json!(url));
+        entry.set("ask", json!(line(&format!("Review {url}"), ASK_CHARS)));
+        entry.set("decision", json!({"kind": if accepted { "accept" } else { "changes" }}));
+        entry.set(
+            "answeredBy",
+            json!({"person": true, "via": if from_app { "app" } else { "local" }}),
+        );
         self.audit
             .record_durable(entry)
             .map_err(|e| RpcError::internal(format!("audit: the verdict was not recorded: {e}")))

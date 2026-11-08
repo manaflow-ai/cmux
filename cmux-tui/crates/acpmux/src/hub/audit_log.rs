@@ -46,6 +46,7 @@
 //!   not entries. The chain proves the file was not edited by anything but this daemon.
 //! - A memory store (tests) keeps the entries in memory, chained the same way.
 
+use cmux_json::JsonSet as _;
 use std::collections::HashSet;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -336,10 +337,10 @@ impl AuditLog {
         }
         let mut out = json!({"entries": entries, "writeErrors": self.write_errors()});
         if let Some(n) = next {
-            out["next"] = json!(n);
+            out.set("next", json!(n));
         }
         if q.verify {
-            out["verify"] = verify(&all);
+            out.set("verify", verify(&all));
         }
         Ok(out)
     }
@@ -603,7 +604,7 @@ fn seal(head: &Head, mut entry: Value) -> Option<(Value, Head)> {
     o.insert("seq".into(), json!(head.seq + 1));
     o.insert("prevHash".into(), json!(head.hash));
     let hash = entry_hash(&head.hash, &entry);
-    entry["hash"] = json!(hash);
+    entry.set("hash", json!(hash));
     Some((entry, Head { seq: head.seq + 1, hash }))
 }
 
