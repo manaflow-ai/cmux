@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42474879712",
+  "recorded_at": "2026-11-08T11:22:22Z",
+  "reason": "cmux-tui 2a548772984e changes the image's cmux-tui (pinned 385c0eeccc83)",
+  "dry_run": false,
+  "cmux_tui": "2a548772984e78458e5e538d6ee40aa503a46b2c",
+  "fixes": [
+    {
+      "sha": "2a548772984e78458e5e538d6ee40aa503a46b2c",
+      "mergedAt": "2026-11-08T02:57:41-08:00",
+      "subject": "cmux-tui: show agent state by default (sidebar rollup, tab chips, agents section, done-until-seen) (#38273)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T11:22:22Z",
+    "snapshot_id": "sh-9713fdc951b24f978bfa6983e0a181d8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42474879712): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4159570eda730074f700744cff2aaff0828e4b4f",
+    "image": "cloud-native-auto-2a548772-42474879712-1",
+    "revision": "ci-42474879712-1",
+    "at": "2026-11-08T11:22:22Z"
+  },
+  "rolled_back": false
+}
