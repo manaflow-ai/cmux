@@ -20,7 +20,7 @@ import { ToolRun } from "./ToolRun";
 import { ToolRunSteps } from "./ToolRunSteps";
 import { visibleToolItems } from "./mcpPresentation";
 import { ThoughtRow } from "./ThoughtRow";
-import { groupId, runStretches, toolGroups, type ToolGroup } from "./toolGroups";
+import { groupId, runStretches, toolGroups, type RunStretch, type ToolGroup } from "./toolGroups";
 import type { RetryNote } from "../subagents/retryState";
 import { RowReplyButton } from "./SelectionReply";
 import { RetryTargetContext, TurnActionsContext } from "./turnActions";
@@ -32,6 +32,7 @@ import {
   NO_RETRY_TARGET,
   offersRetry,
   retryPlacement,
+  workedCallsText,
   workedLabel,
   workedMessagesText,
 } from "./turns";
@@ -79,8 +80,8 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   const t = useT();
   if (row.previous !== undefined || row.durationMs === undefined) return workedLabel(t, row);
   const key = row.status === "cancelled" ? "turn.stopped" : "turn.worked";
-  const messages = workedMessagesText(t, row);
-  return <TimedLabel text={(time) => t(key, { time }) + messages} time={row.durationMs} />;
+  const after = workedCallsText(t, row) + workedMessagesText(t, row);
+  return <TimedLabel text={(time) => t(key, { time }) + after} time={row.durationMs} />;
 }
 
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls. It says the time alone,
@@ -125,6 +126,7 @@ function groupNode(
   live: boolean,
   folded = false,
   thoughts = 0,
+  inherits?: readonly string[],
 ): ReactNode {
   switch (group.type) {
     case "group":
@@ -134,7 +136,8 @@ function groupNode(
           kind={group.kind}
           items={group.items}
           folded={folded}
-          disclosureKey={`group:${group.kind}:${groupId(group.items) || `${rowId}:${index}`}`}
+          disclosureKey={groupDisclosureKey(group, index, rowId)!}
+          inherits={inherits}
           thoughtId={(n) => `${rowId}:thought:${thoughts + n}`}
         />
       );
@@ -143,7 +146,7 @@ function groupNode(
         <McpCallRows
           key={group.items[0]!.tool!.id || index}
           items={group.items}
-          disclosureKey={`group:mcp:${group.items[0]!.tool!.id || `${rowId}:${index}`}`}
+          disclosureKey={groupDisclosureKey(group, index, rowId)!}
         />
       );
     case "message":
@@ -218,6 +221,24 @@ function groupNode(
   }
 }
 
+/// The open state's key of a group's line: its kind and its first call's id, never its place, count
+/// or words, so the line keeps the reader's choice while calls join it, its words change ("Ran 2
+/// commands" to "Finished a background task and ran 4 commands") and its row is shaped anew (the
+/// turn's end, a short aside that joins two rows). Undefined for an entry with no line of its own.
+export function groupDisclosureKey(group: ToolGroup, index: number, rowId: string): string | undefined {
+  if (group.type === "group") return `group:${group.kind}:${groupId(group.items) || `${rowId}:${index}`}`;
+  if (group.type === "mcp") return `group:mcp:${group.items[0]!.tool!.id || `${rowId}:${index}`}`;
+  return undefined;
+}
+
+/// The open state's key of a stretch's summary line: its first call's id, as a group's is, so a
+/// run's line keeps the reader's choice when the row it sits in changes id (an ended turn's edits
+/// row, two runs joined around an aside) or a card splits the run.
+export function runDisclosureKey(stretch: Pick<RunStretch, "items" | "from">, rowId: string): string {
+  const first = stretch.items.find((item) => item.tool)?.tool?.id;
+  return first ? `run:${first}` : `run:${rowId}:${stretch.from}`;
+}
+
 /// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). The
 /// Codex-style runs fold a finished run (`foldRun`) of two or more entries under one summary line
 /// (toolRunSummary.ts: "Read 6 files, ran 4 commands"), and a run that is one group under that
@@ -253,6 +274,10 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
   const stretches = useMemo(() => runStretches({ foldRun }, groups), [foldRun, groups]);
   const thoughts = useMemo(() => thoughtIds(groups), [groups]);
   const nodes = stretches.map((stretch) => {
+    // A stretch's line and its groups' lines take each other's place as calls arrive (one group
+    // grows into a run of two kinds; a run loses its line when a call in it runs again): each opens
+    // where the reader opened the other, so a line the reader opened never closes on its own.
+    const key = runDisclosureKey(stretch, row.id);
     const drawn =
       !stretch.fold &&
       stretch.groups.map((group, offset) => {
@@ -265,14 +290,15 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
           row.live === true && at === groups.length - 1,
           row.foldRun === true && !stretch.fold,
           thoughts[at],
+          [key],
         );
       });
     if (!stretch.fold) return drawn;
-    // The first stretch keeps the run's own key, so a run that grew a card keeps its open state.
-    const first = stretch.items.find((item) => item.tool)?.tool?.id;
-    const key = stretch.from === 0 ? `run:${row.id}` : `run:${row.id}:${first || stretch.from}`;
+    const inherits = stretch.groups.flatMap(
+      (group, offset) => groupDisclosureKey(group, stretch.from + offset, row.id) ?? [],
+    );
     return (
-      <ToolRun key={key} disclosureKey={key} items={stretch.items}>
+      <ToolRun key={key} disclosureKey={key} inherits={inherits} items={stretch.items}>
         <ToolRunSteps items={stretch.items} rowId={row.id} thoughtsBefore={thoughts[stretch.from] ?? 0} />
       </ToolRun>
     );

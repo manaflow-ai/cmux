@@ -40,10 +40,13 @@ export function ToolRun({
   items,
   children,
   disclosureKey,
+  inherits,
 }: {
   items: readonly AcpmuxActivity[];
   children: ReactNode;
   disclosureKey: string;
+  /// The keys of the group lines this run's line took the place of: one the reader opened opens it.
+  inherits?: readonly string[];
 }) {
   const t = useT();
   const look = useToolRunLook();
@@ -51,7 +54,7 @@ export function ToolRun({
   // thought, so the thought it opens is on screen.
   const thinking = useTranscriptViewContext() === "thinking";
   const holdsThought = useMemo(() => thinking && items.some(isThought), [thinking, items]);
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, holdsThought, true);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, holdsThought, true, inherits);
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const list = useId();
