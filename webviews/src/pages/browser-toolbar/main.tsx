@@ -9,12 +9,12 @@ import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { setDocumentLanguage, type Strings } from "../shared/i18n";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
-import { AddressText, BrowserToolbar } from "../../browser-chrome/ui/BrowserToolbar";
+import { BrowserToolbar } from "../../browser-chrome/ui/BrowserToolbar";
 import { toolbarStrings } from "../../browser-chrome/ui/strings";
 import { resolveLayout, type BrowserToolbarCommand } from "../../browser-chrome/ui/toolbarModel";
-import type { OmnibarPresentation } from "../../browser-chrome/omnibox/presentation";
+import { OmniboxField } from "../../browser-chrome/toolbar/OmniboxField";
 import { ToolbarSession } from "../../browser-chrome/toolbar/session";
-import { barFills, chipFor, emphasisFor, starFor, wireCommand } from "../../browser-chrome/toolbar/view";
+import { barFills, chipFor, starFor, wireCommand } from "../../browser-chrome/toolbar/view";
 import { TOOLBAR_PAGE, type OmnibarLookWire, type ToolbarHostState } from "../../browser-chrome/toolbar/wire";
 import "../../ui/ui.css";
 import "../shared/pageBase.css";
@@ -34,42 +34,6 @@ function useViewportWidth(): number {
     return () => window.removeEventListener("resize", update);
   }, []);
   return width;
-}
-
-/** The real input, always mounted; at rest the styled address is drawn over its invisible text. */
-function OmniboxField({
-  inputRef,
-  presentation,
-  placeholder,
-}: {
-  inputRef: (input: HTMLInputElement | null) => void;
-  presentation: OmnibarPresentation;
-  placeholder: string;
-}) {
-  const resting = !presentation.hasFocus;
-  const host = emphasisFor(presentation);
-  return (
-    <div className="bc-omnibox-field" data-resting={resting || undefined}>
-      <input
-        ref={inputRef}
-        id="browser.toolbar.omnibar"
-        className="bc-omnibox-input"
-        type="text"
-        tabIndex={-1}
-        spellCheck={false}
-        autoComplete="off"
-        autoCorrect="off"
-        autoCapitalize="off"
-        aria-label={placeholder}
-        placeholder={placeholder}
-      />
-      <span className="bc-omnibox-overlay" aria-hidden="true">
-        {resting && presentation.text && (
-          <AddressText text={presentation.text} host={host ?? undefined} editing={host === null} />
-        )}
-      </span>
-    </div>
-  );
 }
 
 function ToolbarRow({ session, strings }: { session: ToolbarSession; strings: Strings }) {

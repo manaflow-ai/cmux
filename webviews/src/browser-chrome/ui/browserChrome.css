@@ -270,9 +270,17 @@ img.bc-extension-icon {
 .bc-omnibox-input::selection {
   background: var(--ds-color-selection);
 }
+.bc-omnibox-input::placeholder {
+  color: var(--ds-color-faint);
+  opacity: 1;
+}
 .bc-omnibox-field[data-resting] .bc-omnibox-input {
   color: transparent;
   caret-color: transparent;
+}
+/* At rest the overlay draws the placeholder (the static row's), so the input's own stays hidden. */
+.bc-omnibox-field[data-resting] .bc-omnibox-input::placeholder {
+  color: transparent;
 }
 .bc-omnibox-overlay {
   position: absolute;
