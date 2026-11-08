@@ -380,6 +380,11 @@ describe("the viewer in the split", () => {
     expect(position()).toBeUndefined();
     expect(document.querySelector(".viewer-bar")).toBeNull();
     expect(document.querySelector(".filmstrip")).toBeNull();
+    // Nothing to show full screen: F stays a plain key, not taken from the page.
+    const f = new window.KeyboardEvent("keydown", { key: "f", bubbles: true, cancelable: true });
+    await act(async () => window.dispatchEvent(f));
+    expect(f.defaultPrevented).toBe(false);
+    expect(document.querySelector(".viewer[data-full]")).toBeNull();
   });
 });
 

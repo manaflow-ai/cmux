@@ -74,21 +74,22 @@ function useInView(): [(element: Element | null) => void, boolean] {
  * moves with the arrows: in the split layout and in the dialog over the timeline or grid alike (only
  * one viewer is ever shown). F turns Full Screen on or off and Escape leaves it. A chord stays the
  * host's. */
-function useFrameKeys(step: (delta: number) => void, full: boolean, setFull: (on: boolean) => void) {
+function useFrameKeys(step: (delta: number) => void, full: boolean, setFull: ((on: boolean) => void) | undefined) {
   const latest = useRef({ step, full, setFull });
   latest.current = { step, full, setFull };
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.defaultPrevented || ownsArrows(event.target)) return;
       const chord = event.metaKey || event.ctrlKey || event.altKey;
-      if (!chord && (event.key === "f" || event.key === "F")) {
+      const { setFull } = latest.current;
+      if (!chord && setFull && (event.key === "f" || event.key === "F")) {
         event.preventDefault();
-        latest.current.setFull(!latest.current.full);
+        setFull(!latest.current.full);
         return;
       }
       if (!chord && event.key === "Escape" && latest.current.full) {
         event.preventDefault();
-        latest.current.setFull(false);
+        setFull?.(false);
         return;
       }
       const delta = frameKeyStep(event);
@@ -291,7 +292,8 @@ export function FrameViewer({
     if (next && next.seq !== event?.seq) dispatch({ type: "scrub", seq: next.seq });
   };
   const step = (delta: number) => goTo(index + delta);
-  useFrameKeys(step, full, setFull);
+  // With no frame there is nothing to fill the page with, so F stays a plain key (unless it is on).
+  useFrameKeys(step, full, event || full ? setFull : undefined);
   const drag = useDragScrub(frames.length, index, goTo);
   const shownSrc = src ?? thumb;
   // The frame's own shape, fitted in the stage at no more than its own width: the thumbnail and the

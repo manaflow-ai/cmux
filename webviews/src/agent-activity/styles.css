@@ -328,7 +328,6 @@ section h3 {
 
 .activity-viewer-dialog:has(.viewer[data-full]) {
   inset: 0;
-  border-radius: 0;
 }
 
 .viewer-empty {
