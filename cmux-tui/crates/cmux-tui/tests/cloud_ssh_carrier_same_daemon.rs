@@ -9,8 +9,12 @@
 //! that same in-process daemon: a second sidecar would have its own clients
 //! and no acpmux bridge, so a relay→ssh failover could not resume the acpmux
 //! sessions by seq.
+//!
+//! Linux only: Cloud machines are Linux, and the fixture reads the session
+//! host's state from the Linux remote-state path (macOS keeps it under
+//! Application Support).
 
-#![cfg(unix)]
+#![cfg(target_os = "linux")]
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
