@@ -21,6 +21,11 @@ public nonisolated enum ExternalOpenRoute: Equatable, Sendable {
     /// A link in this build's scheme (`cmux://tab/…`): the caller runs the
     /// `link.open` action with it, which only navigates.
     case deepLink(URL)
+    /// A chat share link (`https://<host>/g/<id>#<secret>`, `/i/<id>`, or this build's
+    /// `<scheme>://share?link=...#<secret>` from the guest page): the daemon checks it and answers the
+    /// page to open in a browser tab, signed in as the person's cmux account. A link it refuses opens
+    /// as a plain browser tab when it is a web address.
+    case shareLink(URL)
     /// Not something cmux opens; the caller refuses it.
     case unsupported
 }
@@ -40,6 +45,19 @@ public nonisolated struct ExternalOpenRouter: Sendable {
 
     /// The sign-in callback's target, as host or path.
     static let authCallbackTarget = "auth-callback"
+    /// The guest page's open-in-app link: `<scheme>://share?link=<page>#<secret>`.
+    static let shareLinkTarget = "share"
+
+    /// A path shaped like a chat share page (`/g/<id>` or `/i/<id>`); the daemon decides whether its host
+    /// is a share room's, so any other site's page of that shape still opens as a browser tab.
+    static func isSharePagePath(_ path: String) -> Bool {
+        var parts = path.split(separator: "/", omittingEmptySubsequences: false)
+        if parts.last == "", parts.count == 4 { parts.removeLast() }
+        guard parts.count == 3, parts[0].isEmpty, parts[1] == "g" || parts[1] == "i" else { return false }
+        let id = parts[2]
+        return (16...128).contains(id.count)
+            && id.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-" || $0 == "_") }
+    }
 
     /// The sign-in callback in any form auth accepts: `<scheme>://auth-callback`,
     /// `<scheme>:auth-callback` and `<scheme>:///auth-callback`.
@@ -78,9 +96,11 @@ public nonisolated struct ExternalOpenRouter: Sendable {
             // The sign-in callback shares the scheme; it stays auth's, in
             // every form auth accepts.
             if isAuthCallback(url) { return .unsupported }
+            if url.host(percentEncoded: false)?.lowercased() == Self.shareLinkTarget { return .shareLink(url) }
             return .deepLink(url)
         }
         switch url.scheme?.lowercased() {
+        case "https" where Self.isSharePagePath(url.path(percentEncoded: true)): return .shareLink(url)
         case "http", "https": return .browserTab(url)
         case "file": return routeFile(url.path)
         case "ssh": return ssh(url)
@@ -96,16 +116,18 @@ public nonisolated struct ExternalOpenRouter: Sendable {
         switch route(url) {
         case .browserTab(let page) where page.scheme?.lowercased() != "file": .browserTab(page)
         case .deepLink(let link): .deepLink(link)
+        case .shareLink(let link): .shareLink(link)
         default: .unsupported
         }
     }
 
     /// A web page continued from another device (Handoff,
-    /// `NSUserActivityTypeBrowsingWeb`): a browser tab for its `http(s)` URL.
-    /// Any other activity or URL is refused.
+    /// `NSUserActivityTypeBrowsingWeb`): a browser tab for its `http(s)` URL,
+    /// or a chat share page's own route. Any other activity or URL is refused.
     public func route(continuing activityType: String, webpageURL: URL?) -> ExternalOpenRoute {
         guard activityType == NSUserActivityTypeBrowsingWeb, let url = webpageURL,
               let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return .unsupported }
+        if scheme == "https", Self.isSharePagePath(url.path(percentEncoded: true)) { return .shareLink(url) }
         return .browserTab(url)
     }
 

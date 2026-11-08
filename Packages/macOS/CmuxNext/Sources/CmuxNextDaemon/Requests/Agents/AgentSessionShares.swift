@@ -77,6 +77,40 @@ public struct AgentSessionShareRoom: Decodable, Sendable, Equatable {
     }
 }
 
+/// `agent-session-share-open-link`: a chat share link this app was handed (a click on a share page, or the
+/// guest page's `<scheme>://share?link=...#<secret>`) as the page to open in a browser tab. The daemon checks
+/// the link and, with `token` (the person's cmux access token, spent only on the configured room's own
+/// deployment), gets the room's one-time hand-off so the tab joins as the person's account
+/// (cmux-tui `agent_session_share_link.rs`). The secret stays in the page URL's fragment.
+public struct AgentSessionShareOpenLinkRequest: DaemonRequest {
+    public typealias Response = AgentSessionShareOpenedLink
+    public static let command = "agent-session-share-open-link"
+
+    public var link: String
+    public var token: String?
+
+    public init(link: String, token: String?) {
+        self.link = link
+        self.token = token
+    }
+}
+
+/// `agent-session-share-open-link`'s answer: the page to open, and whether it arrives signed in.
+public struct AgentSessionShareOpenedLink: Decodable, Sendable, Equatable {
+    public var url: String
+    public var signedIn: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case url
+        case signedIn = "signed_in"
+    }
+
+    public init(url: String, signedIn: Bool) {
+        self.url = url
+        self.signedIn = signedIn
+    }
+}
+
 /// `agent-session-share-revoke`: the link stops working and its guests leave.
 public struct AgentSessionShareRevokeRequest: DaemonRequest {
     public typealias Response = JSONValue
