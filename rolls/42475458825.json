@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42475458825",
+  "recorded_at": "2026-11-08T11:35:06Z",
+  "reason": "cmux-tui d35bf3a7deca changes the image's cmux-tui (pinned 2a548772984e)",
+  "dry_run": false,
+  "cmux_tui": "d35bf3a7decaa505f218c90b7fede8013fb66ee4",
+  "fixes": [
+    {
+      "sha": "8e66a29a6bb6c4142355c6285e6c9b0ee1fd03ab",
+      "mergedAt": "2026-11-08T11:03:23Z",
+      "subject": "fix(tabs): every app tab close selects the tab before it (FFI repin, one shared rule) (#38328)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T11:35:06Z",
+    "snapshot_id": "sh-51a2728bb9144f47b3d5e2dd5a8b6b6e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42475458825): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c8d16a2d6e23d65e4ca461fc494f2fdd8d4ceca4",
+    "image": "cloud-native-auto-d35bf3a7-42475458825-1",
+    "revision": "ci-42475458825-1",
+    "at": "2026-11-08T11:35:06Z"
+  },
+  "rolled_back": false
+}
