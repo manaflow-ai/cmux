@@ -95,16 +95,20 @@ pub fn status_link(status: MachineStatus) -> Shown {
     use MachineStatus as S;
     let link = match status {
         S::Connected | S::UpdateAvailable => LinkState::Connected,
-        S::Connecting | S::Reconnecting | S::Installing | S::Pausing | S::Resuming | S::Deleting => {
-            LinkState::Connecting
-        }
+        S::Connecting
+        | S::Reconnecting
+        | S::Installing
+        | S::Pausing
+        | S::Resuming
+        | S::Deleting => LinkState::Connecting,
         S::Offline | S::Unreachable | S::AuthFailed | S::Failed | S::UpdateRequired => {
             LinkState::Offline
         }
         S::Paused | S::PausedIdle => LinkState::Paused,
         S::InstallRequired | S::Disconnected => LinkState::Attention,
     };
-    let reconnects_on_use = matches!(status, S::Offline | S::Unreachable | S::Failed | S::Disconnected);
+    let reconnects_on_use =
+        matches!(status, S::Offline | S::Unreachable | S::Failed | S::Disconnected);
     Shown { link, reconnects_on_use }
 }
 
@@ -164,7 +168,11 @@ mod tests {
         for (link, (word, dot, reconnects)) in PeerLink::ALL.iter().zip(table) {
             let parsed: PeerLink = serde_json::from_value(serde_json::json!(word)).unwrap();
             assert_eq!(parsed, *link, "{word}");
-            assert_eq!(peer_link(parsed), Shown { link: dot, reconnects_on_use: reconnects }, "{word}");
+            assert_eq!(
+                peer_link(parsed),
+                Shown { link: dot, reconnects_on_use: reconnects },
+                "{word}"
+            );
         }
     }
 

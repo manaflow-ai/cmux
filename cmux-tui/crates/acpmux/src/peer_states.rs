@@ -157,15 +157,7 @@ fn key(note: &PeerStateChanged) -> Key {
 impl Observed {
     /// `link` with no carrier, cause or retry, since now.
     pub fn new(link: MachineLink, last_seen: Option<u64>, error: Option<String>) -> Self {
-        Self {
-            link,
-            carrier: None,
-            cause: None,
-            since: 0,
-            next_retry_at: None,
-            last_seen,
-            error,
-        }
+        Self { link, carrier: None, cause: None, since: 0, next_retry_at: None, last_seen, error }
     }
 
     fn key(&self) -> Key {

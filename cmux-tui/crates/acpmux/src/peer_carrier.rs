@@ -102,7 +102,10 @@ mod tests {
             Some(DownCause::LocalNetwork)
         );
         assert_eq!(
-            cause(down, Some("ssh: Could not resolve hostname box: nodename nor servname provided")),
+            cause(
+                down,
+                Some("ssh: Could not resolve hostname box: nodename nor servname provided")
+            ),
             Some(DownCause::LocalNetwork)
         );
         assert_eq!(cause(down, Some("connect timed out after 5s")), Some(DownCause::PeerDown));

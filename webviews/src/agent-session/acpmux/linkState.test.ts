@@ -55,14 +55,21 @@ test("the row says this Mac's network is down when acpmux says so", () => {
 
 test("an older daemon's state word still draws, and its whole state wins when sent", () => {
   expect(peerLink({ summary: { peer: "a" }, peerStates: { a: "reconnecting" } })?.link).toBe("connecting");
-  expect(peerLink({ summary: { peer: "a" }, peerStates: { a: "offline" }, peerLinks: { a: { link: "authFailed" } } })).toEqual(
-    { machine: "a", link: "offline", why: "authFailed", stuck: true },
-  );
+  expect(
+    peerLink({ summary: { peer: "a" }, peerStates: { a: "offline" }, peerLinks: { a: { link: "authFailed" } } }),
+  ).toEqual({ machine: "a", link: "offline", why: "authFailed", stuck: true });
 });
 
 test("a note's whole state is read field by field, and a word acpmux never sends is none", () => {
   expect(
-    readPeerLinkDetail({ state: "reconnecting", link: "restarting", carrier: "ssh", cause: "peerDown", since: 3, nextRetryAt: 9 }),
+    readPeerLinkDetail({
+      state: "reconnecting",
+      link: "restarting",
+      carrier: "ssh",
+      cause: "peerDown",
+      since: 3,
+      nextRetryAt: 9,
+    }),
   ).toEqual({ link: "restarting", carrier: "ssh", cause: "peerDown", since: 3, nextRetryAt: 9 });
   expect(readPeerLinkDetail({ state: "connected" })).toEqual({ link: "connected" });
   expect(readPeerLinkDetail({ link: "sideways", carrier: "pigeon" })).toBeUndefined();
@@ -71,7 +78,9 @@ test("a note's whole state is read field by field, and a word acpmux never sends
   events.configure({ _meta: { acpmux: { origin: "local", features: ["peerStateEvents"] } } });
   expect(events.changed({ peer: "b", state: "reconnecting", link: "restarting", since: 1, at: 2 })).toBe(true);
   // Only `nextRetryAt` moved: still news, the row may count down to it.
-  expect(events.changed({ peer: "b", state: "reconnecting", link: "restarting", since: 1, nextRetryAt: 7, at: 3 })).toBe(true);
+  expect(
+    events.changed({ peer: "b", state: "reconnecting", link: "restarting", since: 1, nextRetryAt: 7, at: 3 }),
+  ).toBe(true);
   const [[, link]] = [...events.entries()];
   expect(link.state).toBe("reconnecting");
   expect(link.detail).toEqual({ link: "restarting", since: 1, nextRetryAt: 7 });
