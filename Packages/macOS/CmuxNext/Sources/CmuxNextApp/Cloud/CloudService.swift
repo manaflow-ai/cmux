@@ -168,7 +168,8 @@ final class CloudService {
         paths = configuration.runtimeSelection?.storageNamespace.map { CloudPaths(root: basePaths.root.appendingPathComponent($0, isDirectory: true)) } ?? basePaths
         installIDs = CloudInstallIDs(machine: basePaths, backend: paths, work: work)
         let auth = auth
-        apiCaller = .daemon { @MainActor [weak machines] in machines?.local.connection }
+        // A call made while the local daemon still starts (auth restored first) waits for it.
+        apiCaller = .daemon { @MainActor [weak machines] in try? await machines?.local.connected(within: .seconds(20), owner: "CloudAPI.daemon") }
         api = CloudAPIClient(configuration: configuration, tokens: { try await auth.tokens() }, teamID: { await auth.teamID }, caller: apiCaller)
         let configuration = self.configuration, paths = self.paths, deviceName = Self.deviceName
         let clientVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
