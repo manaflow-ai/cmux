@@ -64,8 +64,9 @@ async fn a_cut_direct_path_moves_to_the_relay_without_a_long_stall() {
     });
     let phone_id = uuid::Uuid::new_v4().to_string();
     let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
-    let connected =
-        dial::connect(&phone, &mac_id, TransportKind::WireGuard, &options, LinkConfig::default()).await.unwrap();
+    let connected = dial::connect(&phone, &mac_id, TransportKind::WireGuard, &options, LinkConfig::default())
+        .await
+        .unwrap();
     let channel = connected.link.open("echo", serde_json::json!({})).await.unwrap();
     let (sender, mut receiver) = channel.split();
     let writer = tokio::spawn(async move {

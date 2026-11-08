@@ -720,7 +720,9 @@ impl HybridUnderlay {
             relayed.sort();
             for addr in self.candidates.iter().copied().chain(relayed) {
                 let route = Route { carrier: Carrier::Udp, addr };
-                if !self.refused.contains(&addr) && !wanted.iter().any(|want: &paths::Wanted| want.route == route) {
+                if !self.refused.contains(&addr)
+                    && !wanted.iter().any(|want: &paths::Wanted| want.route == route)
+                {
                     wanted.push(paths::Wanted { route, relayed: self.labels.peer_relayed.contains(&addr) });
                 }
             }

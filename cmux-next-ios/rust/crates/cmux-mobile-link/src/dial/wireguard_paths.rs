@@ -22,7 +22,8 @@
 
 use cmux_transport::selector::default_medium;
 use cmux_transport::{
-    LocalNetwork, Medium, PathId, PathKind, PathState, ProbeOutcome, Selector, SelectorConfig, local_networks, medium_of,
+    LocalNetwork, Medium, PathId, PathKind, PathState, ProbeOutcome, Selector, SelectorConfig,
+    local_networks, medium_of,
 };
 use cmux_wg::{DueProbes, PathWatch, ProbeConfig};
 use tokio::time::Instant;
@@ -126,8 +127,12 @@ impl Paths {
     /// Every path on `carrier` is gone (a new TURN allocation replaced the
     /// old one); the next [`Paths::sync`] adds fresh ones.
     pub fn forget_carrier(&mut self, carrier: Carrier) {
-        let ids: Vec<PathId> =
-            self.entries.iter().filter(|entry| entry.route.carrier == carrier).map(|entry| entry.id).collect();
+        let ids: Vec<PathId> = self
+            .entries
+            .iter()
+            .filter(|entry| entry.route.carrier == carrier)
+            .map(|entry| entry.id)
+            .collect();
         for id in ids {
             self.remove_id(id);
         }
@@ -141,10 +146,7 @@ impl Paths {
             .entries
             .iter()
             .map(|entry| {
-                let relayed = self
-                    .selector
-                    .path(entry.id)
-                    .is_some_and(|view| !view.kind.class().is_direct());
+                let relayed = self.selector.path(entry.id).is_some_and(|view| !view.kind.class().is_direct());
                 (entry.id, self.rank_of(Wanted { route: entry.route, relayed }).1)
             })
             .collect();
