@@ -446,18 +446,19 @@ impl Hub {
         };
         let forked = context.is_none();
         if target_harness.is_some() {
-            let target_mode = with_inline_deadline(
+            let target_mode = match with_inline_deadline(
                 inline_deadline,
                 Box::pin(self.read_only_mode(&side.meta())),
             )
-            .await?;
-            match target_mode {
-                Ok((next_mode, next_read_only)) => (mode, read_only) = (next_mode, next_read_only),
-                Err(e) => {
+            .await
+            {
+                Ok(Ok(mode)) => mode,
+                Ok(Err(e)) | Err(e) => {
                     Box::pin(self.btw_cleanup(&side, &family, &harness_env)).await;
                     return Err(e);
                 }
-            }
+            };
+            (mode, read_only) = target_mode;
         }
         let settled = match with_inline_deadline(
             inline_deadline,
