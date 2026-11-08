@@ -546,6 +546,13 @@ impl Translator {
                     }
                     // An MCP server's form, asked as a question (elicitation.rs).
                     Some("elicitation") => out.extend(self.elicit(&sid, &rid, &req).await),
+                    // The policy gate's hook asks the hub, or answers at once (policy_gate.rs).
+                    Some("hook_callback")
+                        if req.get("callback_id").and_then(Value::as_str)
+                            == Some(policy_gate::GATE_CALLBACK) =>
+                    {
+                        out.extend(self.gate_hook(&sid, &rid, &req).await);
+                    }
                     // A registered hook fired: answered with no decision (hook_callback.rs).
                     Some("hook_callback") => self.answer_hook_callback(&rid, &req).await,
                     // Anything else (mcp_message) is declined with an error
@@ -556,6 +563,8 @@ impl Translator {
             // Claude Code no longer needs the answer to one of its requests.
             "control_cancel_request" => {
                 let rid = line.get("request_id").and_then(Value::as_str).unwrap_or("");
+                // A gate hook Claude Code stopped waiting on: its late answer is dropped.
+                self.forget_gate(rid).await;
                 if let Some(id) = self.cancel_control_request(rid).await {
                     out.push(Message::notification(
                         method::CANCEL_REQUEST,
@@ -587,7 +596,7 @@ impl Translator {
                     }
                     out.push(Message::ok(id, json!({
                         "protocolVersion": 1,
-                        "agentInfo": {"name": AGENT_NAME, "title": "Claude Code", "version": inner.get("version").cloned().unwrap_or(Value::Null)},
+                        "agentInfo": {"name": AGENT_NAME, "title": "Claude Code", "version": inner.get("version").cloned().unwrap_or(Value::Null), "_meta": {"acpmux": {"toolGate": cfg!(unix)}}},
                         "agentCapabilities": {"loadSession": true, "promptCapabilities": {"image": true, "embeddedContext": true}, "sessionCapabilities": {"fork": {}, "list": {}, "close": {}}},
                         "authMethods": [],
                         "_meta": {"steering": {"supported": true}, "claude": {"commands": inner.get("commands"), "capabilities": inner.get("capabilities")}}

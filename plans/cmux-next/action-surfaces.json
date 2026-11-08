@@ -6686,6 +6686,19 @@
         {
           "keys" : [
             {
+              "key" : "",
+              "modifiers" : [
+                "ctrl",
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "!codeEditorFocused"
+        },
+        {
+          "keys" : [
+            {
               "key" : "]",
               "modifiers" : [
                 "opt",
@@ -6698,7 +6711,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "",
+        "key" : "l",
         "modifiers" : [
           "ctrl",
           "opt",
@@ -6735,6 +6748,19 @@
         {
           "keys" : [
             {
+              "key" : "",
+              "modifiers" : [
+                "ctrl",
+                "opt",
+                "cmd"
+              ]
+            }
+          ],
+          "when" : "!codeEditorFocused"
+        },
+        {
+          "keys" : [
+            {
               "key" : "[",
               "modifiers" : [
                 "opt",
@@ -6747,7 +6773,7 @@
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "",
+        "key" : "h",
         "modifiers" : [
           "ctrl",
           "opt",
@@ -14048,7 +14074,7 @@
       "id" : "home.archiveChief",
       "main_menu" : null,
       "mcp" : "offered",
-      "palette" : "noTargetSurface",
+      "palette" : "offered",
       "palette_section" : {
         "id" : "category.window",
         "order" : 100,
@@ -14083,7 +14109,7 @@
       "id" : "home.setPrimaryChief",
       "main_menu" : null,
       "mcp" : "offered",
-      "palette" : "noTargetSurface",
+      "palette" : "offered",
       "palette_section" : {
         "id" : "category.window",
         "order" : 100,
@@ -14123,7 +14149,7 @@
       "id" : "home.deleteChief",
       "main_menu" : null,
       "mcp" : "offered",
-      "palette" : "noTargetSurface",
+      "palette" : "offered",
       "palette_section" : {
         "id" : "category.window",
         "order" : 100,
@@ -15071,6 +15097,46 @@
       "title" : "Stop All Agents",
       "title_key" : "action.home.stopAllAgents",
       "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "agent",
+          "required" : true
+        },
+        {
+          "kind" : "string",
+          "name" : "conversation",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "home start-agent",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.startQueuedAgent",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Start Queued Agent Now",
+      "title_key" : "action.home.startQueuedAgent",
+      "title_table" : "HomeActions"
     },
     {
       "args" : [
