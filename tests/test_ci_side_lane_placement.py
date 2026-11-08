@@ -1000,6 +1000,31 @@ class GatewayRoute(unittest.TestCase):
                 self.assertEqual(lines["gateway_runner"], LIGHT_SIDE)
                 self.assertEqual(lines["fleet_jobs"], listed)
 
+    def test_a_persons_rerun_places_the_fast_tier_on_an_idle_gateway(self):
+        # #38130 (run 42434830670): attempt 2, a person's re-run of failed jobs, carried attempt 1's placement,
+        # so the fast tier took Blacksmith 6 vCPU's cold build again and ran out its 20 minutes. The re-run's
+        # own placement reads the gateway now and lists the tier for its build-fleet client.
+        rerun = {"PLACEMENT": "rerun-fleet", "GITHUB_RUN_ATTEMPT": "2", "GITHUB_TRIGGERING_ACTOR": "someone",
+                 "FAST_TIER_STATUS": "queued", "GATEWAY_LABEL": LIGHT_SIDE}
+        lines = self.run_main(self.light(True, False), **rerun)
+        self.assertEqual((lines["fleet_jobs"], lines["gateway_runner"], lines["gateway_attempt"]),
+                         (" fast-tier ", LIGHT_SIDE, "2"))
+        # A busy light gateway spills to an idle std side runner, as gateway_route() does.
+        self.assertEqual(placement.rerun_fleet({**rerun, "GITHUB_RUN_ATTEMPT": "3"},
+                                               self.light(True) + self.std(False))[0], SIDE)
+        for why, values, runners in (
+                ("no idle gateway runner", rerun, self.light(True, True)),
+                ("runners unread", rerun, None),
+                ("the tier's earlier result is carried", {**rerun, "FAST_TIER_STATUS": "completed"}, self.light(False)),
+                ("the tier's status is unread", {**rerun, "FAST_TIER_STATUS": ""}, self.light(False)),
+                ("attempt 1", {**rerun, "GITHUB_RUN_ATTEMPT": "1"}, self.light(False)),
+                ("the rescue's re-run", {**rerun, "GITHUB_TRIGGERING_ACTOR": "github-actions[bot]"}, self.light(False)),
+                ("no gateway variable", {**rerun, "GATEWAY_LABEL": ""}, self.light(False))):
+            with self.subTest(why=why):
+                self.assertEqual(placement.rerun_fleet(values, runners)[0], "")
+        lines = self.run_main(self.light(True, True), **rerun)
+        self.assertEqual((lines["fleet_jobs"], lines["gateway_runner"], lines["gateway_attempt"]), ("", "", ""))
+
     def test_a_rerun_lists_no_fleet_job(self):
         self.assertEqual(placement.fleet_gateway(self.fleet_placed("fast-tier"), {}, self.light(False, False), "")
                          .fleet_jobs, ())
