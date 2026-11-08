@@ -22,6 +22,8 @@ export function OverlapChip({
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const trigger = usePopoverTrigger(open, setOpen);
   const label = `Overlaps with ${overlap.peerName}${additional > 0 ? ` (+${additional})` : ""}`;
+  const fileLevelOverlap = (file: AcpmuxOverlap["files"][number]) =>
+    file.ranges.some((range) => range.mine === null || range.theirs === null);
   const tell = () => {
     if (!onTell) return;
     setFailed(false);
@@ -71,9 +73,9 @@ export function OverlapChip({
             <li key={`${file.repo}\0${file.path}`}>
               <code>{file.path}</code>
               <span>
-                {file.ranges
-                  .map((range) => `${range.mine.start}-${range.mine.end}`)
-                  .join(", ")}
+                {fileLevelOverlap(file)
+                  ? "file-level overlap"
+                  : file.ranges.map((range) => `${range.mine!.start}-${range.mine!.end}`).join(", ")}
               </span>
             </li>
           ))}

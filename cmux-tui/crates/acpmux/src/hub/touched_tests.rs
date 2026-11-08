@@ -189,6 +189,62 @@ async fn overlapping_hunks_emit_one_durable_pair_event_and_ignore_other_ranges()
     }
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn file_only_edits_report_unknown_ranges_and_still_overlap_known_edits() {
+    let f = fixture().await;
+    let a = f.session(&f.main).await;
+    let b = f.session(&f.linked).await;
+    let mut events = f.hub.subscribe();
+
+    // A path-only edit has no trustworthy line metadata. It must still overlap a known edit,
+    // while the event keeps the unknown side explicit instead of fabricating line 1.
+    f.tool_call(&b, "b-a-1", "edit", &f.linked.join("src/a.rs"));
+    f.diff_call(&a, "a-a-1", &f.main.join("src/a.rs"), 20, "known\n");
+
+    let mut overlaps = Vec::new();
+    while let Ok(Ok(event)) = tokio::time::timeout(Duration::from_millis(200), events.recv()).await
+    {
+        if event.record.kind == "worktree_overlap" {
+            overlaps.push(event);
+            if overlaps.len() == 2 {
+                break;
+            }
+        }
+    }
+    assert_eq!(overlaps.len(), 2, "expected one record per side: {overlaps:?}");
+    assert!(overlaps.iter().all(|event| {
+        let range = &event.record.msg["files"][0]["ranges"][0];
+        range["mine"] == json!(null) || range["theirs"] == json!(null)
+    }));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn two_file_only_edits_report_file_level_overlap() {
+    let f = fixture().await;
+    let a = f.session(&f.main).await;
+    let b = f.session(&f.linked).await;
+    let mut events = f.hub.subscribe();
+
+    f.tool_call(&b, "b-a-1", "edit", &f.linked.join("src/a.rs"));
+    f.tool_call(&a, "a-a-1", "edit", &f.main.join("src/a.rs"));
+
+    let mut overlaps = Vec::new();
+    while let Ok(Ok(event)) = tokio::time::timeout(Duration::from_millis(200), events.recv()).await
+    {
+        if event.record.kind == "worktree_overlap" {
+            overlaps.push(event);
+            if overlaps.len() == 2 {
+                break;
+            }
+        }
+    }
+    assert_eq!(overlaps.len(), 2, "expected one record per side: {overlaps:?}");
+    assert!(overlaps.iter().all(|event| {
+        let range = &event.record.msg["files"][0]["ranges"][0];
+        range["mine"] == json!(null) && range["theirs"] == json!(null)
+    }));
+}
+
 /// Waits until session `id` streams text containing `want`, and answers with that text.
 #[cfg(unix)]
 async fn said(

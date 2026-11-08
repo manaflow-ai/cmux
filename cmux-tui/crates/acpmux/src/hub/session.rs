@@ -419,7 +419,8 @@ pub struct Session {
     pub(super) touch_queue: StdMutex<Vec<(String, String)>>,
     /// Line ranges of the latest edits, keyed by repository and path. This is process-local
     /// overlap detail; durable `worktree_overlap` records carry the user-facing copy.
-    pub(super) changed_hunks: StdMutex<HashMap<(String, String), Vec<(u32, u32)>>>,
+    /// Changed line ranges, or `None` when the edit only identified a file.
+    pub(super) changed_hunks: StdMutex<HashMap<(String, String), Vec<Option<(u32, u32)>>>>,
     /// The sessions it was told share its files, once each (`touched.rs`).
     pub(super) overlaps_told: StdMutex<std::collections::HashSet<String>>,
     /// Its agent's `start_session` tool calls that run, with their input (`lineage.rs`).

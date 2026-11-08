@@ -573,6 +573,13 @@ const manyOverlaps = [
       ],
     },
   ]),
+  overlap("session-4", "rename-model", [
+    {
+      repo: "github.com/manaflow-ai/cmux",
+      path: "cmux-tui/crates/acpmux/src/hub/touched.rs",
+      ranges: [{ mine: null, theirs: null }],
+    },
+  ]),
 ];
 const tellOverlap = async (_value: AcpmuxOverlap) => undefined;
 

@@ -1043,7 +1043,8 @@ export function linkUp(connection: string): boolean {
   return connection !== "disconnected" && !connection.startsWith("connecting");
 }
 
-/// A live pair of worktrees edited the same repository lines. The daemon persists this as a
+/// A live pair of worktrees edited the same repository lines (or the same file when line metadata
+/// was unavailable). The daemon persists this as a
 /// `worktree_overlap` event, so reconnecting a pane restores the quiet header chip without a diff
 /// scan.
 export type AcpmuxOverlap = {
@@ -1053,7 +1054,7 @@ export type AcpmuxOverlap = {
   files: {
     repo: string;
     path: string;
-    ranges: { mine: { start: number; end: number }; theirs: { start: number; end: number } }[];
+    ranges: { mine: { start: number; end: number } | null; theirs: { start: number; end: number } | null }[];
   }[];
   suggestedOrder: "smallerFirst";
   smallerSessionId: string;

@@ -76,10 +76,9 @@ pub(super) fn absorb(session: &Session, update: &Value, m: &mut SessionMeta, rep
     }
 }
 
-/// A diff block may carry an explicit line start; otherwise its changed text gives us a useful
-/// conservative range. The fallback is one line, which still catches two agents editing the same
-/// file when a harness only sends a path.
-fn edit_ranges(update: &Value, path: &str, cwd: &std::path::Path) -> Vec<(u32, u32)> {
+/// A diff block may carry an explicit line start. When it does not, the line range is unknown;
+/// retaining that uncertainty lets overlap detection stay conservative without inventing line 1.
+fn edit_ranges(update: &Value, path: &str, cwd: &std::path::Path) -> Vec<Option<(u32, u32)>> {
     let mut ranges = Vec::new();
     for block in update.get("content").and_then(Value::as_array).into_iter().flatten() {
         if block.get("type").and_then(Value::as_str) != Some("diff") {
@@ -121,24 +120,27 @@ fn edit_ranges(update: &Value, path: &str, cwd: &std::path::Path) -> Vec<(u32, u
             }
             None
         })
-        .unwrap_or(1)
-        .max(1) as u32;
+        .map(|line| line.max(1) as u32);
         let count = block
             .get("newText")
             .and_then(Value::as_str)
             .or_else(|| block.get("oldText").and_then(Value::as_str))
             .map(|text| text.lines().count().max(1) as u32)
             .unwrap_or(1);
-        ranges.push((start, start.saturating_add(count.saturating_sub(1))));
+        ranges.push(start.map(|line| (line, line.saturating_add(count.saturating_sub(1)))));
     }
     if ranges.is_empty() {
-        ranges.push((1, 1));
+        ranges.push(None);
     }
     ranges
 }
 
-fn ranges_overlap(left: (u32, u32), right: (u32, u32)) -> bool {
-    left.0 <= right.1 && right.0 <= left.1
+fn ranges_overlap(left: Option<(u32, u32)>, right: Option<(u32, u32)>) -> bool {
+    match (left, right) {
+        (Some(left), Some(right)) => left.0 <= right.1 && right.0 <= left.1,
+        // A file-only edit may overlap any line in the other edit, so report it at file level.
+        _ => true,
+    }
 }
 
 fn pair_key(left: &str, right: &str) -> String {
@@ -152,7 +154,9 @@ fn change_size(session: &Session) -> u64 {
         .unwrap_or_else(|e| e.into_inner())
         .values()
         .flat_map(|ranges| ranges.iter())
-        .map(|(start, end)| u64::from(end.saturating_sub(*start).saturating_add(1)))
+        .map(|range| {
+            range.map_or(1, |(start, end)| u64::from(end.saturating_sub(start).saturating_add(1)))
+        })
         .sum()
 }
 
@@ -338,18 +342,18 @@ impl Hub {
                 let left = mine_hunks
                     .get(&(repo.clone(), path.clone()))
                     .cloned()
-                    .unwrap_or_else(|| vec![(1, 1)]);
+                    .unwrap_or_else(|| vec![None]);
                 let right = other_hunks
                     .get(&(repo.clone(), path.clone()))
                     .cloned()
-                    .unwrap_or_else(|| vec![(1, 1)]);
+                    .unwrap_or_else(|| vec![None]);
                 let mut overlaps = Vec::new();
                 for left_range in &left {
                     for right_range in &right {
                         if ranges_overlap(*left_range, *right_range) {
                             overlaps.push(json!({
-                                "mine": {"start": left_range.0, "end": left_range.1},
-                                "theirs": {"start": right_range.0, "end": right_range.1},
+                                "mine": left_range.map(|(start, end)| json!({"start": start, "end": end})),
+                                "theirs": right_range.map(|(start, end)| json!({"start": start, "end": end})),
                             }));
                         }
                     }
