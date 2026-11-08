@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 613,
+  "count": 612,
   "sections": [
     {
       "id": "general",
@@ -1268,14 +1268,6 @@
             "top",
             "bottom"
           ]
-        },
-        {
-          "key": "tabs.cmdWClosesPinnedTabs",
-          "title": "Cmd-W Closes Pinned Tabs",
-          "help": "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
-          "kind": "toggle",
-          "default": true,
-          "group": "Tabs"
         },
         {
           "key": "tabs.hideLoneChatTab",
