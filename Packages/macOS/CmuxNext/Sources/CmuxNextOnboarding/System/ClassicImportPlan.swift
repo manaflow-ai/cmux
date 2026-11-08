@@ -9,6 +9,17 @@ public nonisolated struct ClassicImportPlan: Sendable {
         case staging
         case debug
 
+        /// The classic app's name as its Dock shows it.
+        public var appName: String {
+            switch self {
+            case .stable: "cmux"
+            case .nightly: "cmux NIGHTLY"
+            case .releaseCandidate: "cmux RC"
+            case .staging: "cmux STAGING"
+            case .debug: "cmux DEV"
+            }
+        }
+
         /// A fixed technical identifier, never the untrusted source filename.
         public var fileName: String {
             switch self {
@@ -22,12 +33,18 @@ public nonisolated struct ClassicImportPlan: Sendable {
     }
 
     public let source: Source
+    /// When classic saved the session this imports (seconds since 1970).
+    public let savedAt: Double
+    /// Whether that classic app is open now: this is its last autosave, not its quit save.
+    public let classicRunning: Bool
     public let workspaces: [ClassicSessionWorkspace]
     public let skippedCloudVMs: Int
     public let cleanupWorkspaces: Int
 
-    public init(source: ClassicMigrationSource, migration: ClassicMigrationPlan) {
+    public init(source: ClassicMigrationSource, migration: ClassicMigrationPlan, classicRunning: Bool = false) {
         self.source = Self.source(source.bundleID)
+        savedAt = source.modifiedAt
+        self.classicRunning = classicRunning
         workspaces = migration.windows.flatMap(\.workspaces)
         skippedCloudVMs = migration.skipped.values.count { $0 == .cloudVM }
         cleanupWorkspaces = migration.cleanup.count
@@ -44,7 +61,8 @@ public nonisolated struct ClassicImportPlan: Sendable {
     }
     private var tabs: [ClassicSessionTab] { workspaces.flatMap(\.layout.tabs) }
 
-    private static func source(_ bundle: String) -> Source {
+    /// The classic app that saves under `bundle` (a classic bundle id).
+    public static func source(_ bundle: String) -> Source {
         if bundle == ClassicSessionImporter.stableBundleIdentifier { return .stable }
         if bundle == "com.cmuxterm.app.nightly" || bundle.hasPrefix("com.cmuxterm.app.nightly.") { return .nightly }
         if bundle == "com.cmuxterm.app.rc" || bundle.hasPrefix("com.cmuxterm.app.rc.") { return .releaseCandidate }

@@ -50,7 +50,13 @@ SCAN = {
 
 LABEL = r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?"
 URL = re.compile(rf"(?<![\w.+-])(?:https?|wss?)://(?:[^\s/@\"'`<>()\\]+@)?((?:{LABEL}\.)+{LABEL})(?![\w-])", re.I)
-BARE_TLDS = ("com", "net", "org", "dev", "io", "ai", "app", "sh", "so", "gg", "co", "edu")
+# Bare literals need a known TLD: any TLD would match thousands of string keys ("accounts.teams.new"). `.me`,
+# `.in`, `.to`, `.run`, `.page`, `.link`, `.info`, `.one`, `.live` and `.cloud` are left out for that reason (string
+# keys end in them); a host there is still found in URL form. Measured on feat-cmux-next 2026-11-08: this list adds
+# one host (twitch.tv), ten public suffixes and one file name over the first twelve.
+BARE_TLDS = ("com", "net", "org", "dev", "io", "ai", "app", "sh", "so", "gg", "co", "edu", "tv", "us", "uk", "de",
+             "jp", "fr", "ca", "cn", "ru", "br", "gov", "xyz", "ly", "fm", "eu", "nl", "se", "ch", "au", "nz", "kr",
+             "tw", "hk", "sg")
 BARE = re.compile(rf"""(?<![\w\\])(["'`])((?:{LABEL}\.)+(?:{"|".join(BARE_TLDS)}))(?:\1|[/:])""")
 RESERVED = re.compile(r"(^|\.)(example|test|invalid|localhost|local|lan|internal|home\.arpa)$"
                       r"|(^|\.)example\.(com|net|org)$|^\d+(\.\d+){3}$")
@@ -162,6 +168,8 @@ class Matcher(unittest.TestCase):
                          {"relay.chatmux.dev"})
         self.assertEqual(self.hosts('const HOSTS: [&str; 2] = ["ssh.github.com", "hf.co"];', "cmux-tui/x/src/a.rs"),
                          {"ssh.github.com", "hf.co"})
+        self.assertEqual(self.hosts('export const TOP_SITES = ["twitch.tv", "bbc.co.uk"];', "webviews/src/a.ts"),
+                         {"twitch.tv", "bbc.co.uk"})
         self.assertEqual(self.hosts('let u = "http://cmux-lawrences-mac-mini.tail137216.ts.net:31415"'),
                          {"cmux-lawrences-mac-mini.tail137216.ts.net"})
 

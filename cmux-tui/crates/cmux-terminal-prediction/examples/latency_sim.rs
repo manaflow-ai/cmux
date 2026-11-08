@@ -4,7 +4,10 @@
 //! `cargo run --release -p cmux-terminal-prediction --example latency_sim`
 //!
 //! A shell prompt echoes every byte after one round trip (half up, half
-//! down, plus uniform jitter, never reordered). 200 printable keystrokes
+//! down, plus uniform jitter, never reordered). Each leg is lost with the
+//! given probability and then arrives one retransmit timeout later
+//! (max(200 ms, 2 x rtt)), holding the echoes behind it, as one in-order
+//! stream does. 200 printable keystrokes
 //! arrive about every 120 ms (uniform 80..160 ms, a space every 4 to 8
 //! letters), and the host presents a frame every 16.7 ms. A glyph counts as
 //! visible one frame (16.7 ms) after it is first on screen:
@@ -67,7 +70,7 @@ fn speculative_count(engine: &TerminalPredictionEngine) -> usize {
     engine.glyphs().iter().filter(|g| g.standing == Standing::Speculative).count()
 }
 
-fn simulate(rtt_ms: i64, jitter_ms: i64, seed: u64) -> Outcome {
+fn simulate(rtt_ms: i64, jitter_ms: i64, loss_percent: u64, seed: u64) -> Outcome {
     let mut random = Random(seed);
     let mut typed_at = Vec::with_capacity(KEYS);
     let mut bytes = Vec::with_capacity(KEYS);
@@ -84,7 +87,14 @@ fn simulate(rtt_ms: i64, jitter_ms: i64, seed: u64) -> Outcome {
             word_left -= 1;
             b'a' + u8::try_from(random.range(0, 25)).unwrap_or(0)
         };
-        let trip = (rtt_ms * 1000 + random.range(-jitter_ms * 1000, jitter_ms * 1000)).max(1000);
+        let mut trip =
+            (rtt_ms * 1000 + random.range(-jitter_ms * 1000, jitter_ms * 1000)).max(1000);
+        let retransmit = (rtt_ms * 2000).max(200_000);
+        for _leg in 0..2 {
+            while random.next() % 100 < loss_percent {
+                trip += retransmit;
+            }
+        }
         // The remote reads and replies in order: an echo never overtakes the
         // one before it.
         let arrival = (clock + u64::try_from(trip).unwrap_or(0)).max(last_echo + 1);
@@ -209,9 +219,11 @@ fn main() {
         "{:<12} {:<13} {:>7} {:>7} {:>7} {:>7}  {:>9} {:>11}",
         "rtt", "mode", "p50", "p95", "p99", "max", "predicted", "withdrawals"
     );
-    for (rtt, jitter) in [(20, 5), (70, 15), (150, 30)] {
-        let outcome = simulate(rtt, jitter, 0x5EED ^ u64::try_from(rtt).unwrap_or(0));
-        let label = format!("{rtt}±{jitter} ms");
+    for (rtt, jitter, loss) in
+        [20, 50, 150, 300].into_iter().flat_map(|rtt| [0, 2, 5].map(|loss| (rtt, rtt / 10, loss)))
+    {
+        let outcome = simulate(rtt, jitter, loss, 0x5EED ^ u64::try_from(rtt).unwrap_or(0));
+        let label = format!("{rtt}±{jitter} {loss}%");
         println!(
             "{label:<12} {:<13} {}  {:>9} {:>11}",
             "no predict",

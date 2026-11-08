@@ -12,6 +12,7 @@ pub mod grant;
 pub mod http;
 pub mod identity;
 pub mod link;
+pub mod network_watch;
 pub use mux_client::MuxLineClient;
 mod mux_client;
 mod mux_codec;

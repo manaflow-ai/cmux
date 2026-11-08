@@ -8,6 +8,8 @@
 //! workspace lands),
 //! auto-archive's plan (`auto_archive_plan`: which idle workspaces are due
 //! and when to look again),
+//! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
+//! hold off idle sleep and when to look again),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
 //! confirmed listing with the pending ops applied by the daemon's rules),
 //! `cmux-cloud-start-core`'s Cloud start decisions (`cloud_harness_login`,
@@ -204,6 +206,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: auto_archive::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&auto_archive::plan(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"keep_awake_plan" => {
+                use cmux_layout_reducer::keep_awake;
+                let request: keep_awake::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&keep_awake::plan(&request)).map_err(|_| ERR_INVALID)?
             }
             b"sidebar_edits" => {
                 let request: sidebar_edits::Request =
