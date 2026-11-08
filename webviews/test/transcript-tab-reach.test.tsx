@@ -68,6 +68,9 @@ const BOXES: Record<string, { top: number; height: number }> = {
   region: { top: 40, height: 600 },
   // A control inside text collapsed to no height (a sent message's preview before it opens), in view.
   collapsed: { top: 300, height: 0 },
+  // A frame in view and a control scrolled out of view below it, for the frame test below.
+  frame: { top: 200, height: 100 },
+  "out-of-view": { top: 1_400, height: 24 },
 };
 win.HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
   const own = BOXES[this.id];
@@ -279,4 +282,27 @@ test("the stops are every control the browser tabs to, and only those", () => {
     "later",
     "link",
   ]);
+});
+
+test("Tab from inside a frame or player is left to the browser", () => {
+  // The document's focus stays on a frame or a player while Tab moves through what is inside it, so
+  // the guard cannot tell its last control from its first: it leaves those presses alone, even with
+  // the next listed stop out of view (#38230 review F1, second round).
+  const doc = win.document;
+  const host = doc.getElementById("root")!;
+  host.innerHTML =
+    '<div id="region"><iframe id="frame" title="Frame"></iframe><button id="out-of-view" type="button">Below</button></div>' +
+    '<textarea id="composer" aria-label="Message"></textarea>';
+  const stop = keepTabOnScreen(doc.getElementById("region")!);
+  try {
+    act(() => doc.getElementById("frame")!.focus());
+    expect(win.document.activeElement?.id).toBe("frame");
+    const event = new win.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+    act(() => {
+      doc.getElementById("frame")!.dispatchEvent(event);
+    });
+    expect(event.defaultPrevented).toBe(false);
+  } finally {
+    stop();
+  }
 });

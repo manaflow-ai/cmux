@@ -4,6 +4,11 @@ import { keepTabOnScreen } from "../../src/ui/tabReach";
 
 const region = document.getElementById("region")!;
 keepTabOnScreen(region);
-const video = document.getElementById("video")!;
-region.scrollTop = video.offsetTop - region.offsetTop - 40;
+const back = document.getElementById("back")!;
+region.scrollTop = back.offsetTop - region.offsetTop - 40;
+// Whether the page took the last Tab press: read after the guard, which was installed first.
+const record = window as unknown as { lastTabPrevented?: boolean };
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Tab") record.lastTabPrevented = event.defaultPrevented;
+});
 document.documentElement.dataset.harnessReady = "1";

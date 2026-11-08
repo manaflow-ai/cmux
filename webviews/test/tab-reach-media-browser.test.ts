@@ -43,6 +43,7 @@ await requireBrowserLane("tab-reach-media-browser.test.ts", async () => {
   }
   const active = () => page.evaluate(() => document.activeElement?.id ?? "none");
   const scrollTop = () => page.evaluate(() => document.getElementById("region")!.scrollTop);
+  const prevented = () => page.evaluate(() => (window as unknown as { lastTabPrevented?: boolean }).lastTabPrevented);
 
   test("the harness puts the players in view and the outer controls out of it", async () => {
     await open();
@@ -52,9 +53,9 @@ await requireBrowserLane("tab-reach-media-browser.test.ts", async () => {
         const box = document.getElementById(id)!.getBoundingClientRect();
         return box.top >= view.top && box.bottom <= view.bottom;
       };
-      return Object.fromEntries(["above", "video", "mid", "audio", "below"].map((id) => [id, inside(id)]));
+      return Object.fromEntries(["above", "back", "mid", "audio", "below"].map((id) => [id, inside(id)]));
     });
-    expect(seen).toEqual({ above: false, video: true, mid: true, audio: true, below: false });
+    expect(seen).toEqual({ above: false, back: true, mid: true, audio: true, below: false });
   });
 
   test("Tab from a control in view goes to the audio player after it", async () => {
@@ -66,12 +67,47 @@ await requireBrowserLane("tab-reach-media-browser.test.ts", async () => {
     expect(await scrollTop()).toBe(top);
   });
 
-  test("Shift-Tab from a control in view goes to the video player before it", async () => {
+  test("Shift-Tab from a control in view goes to the audio player before it", async () => {
     await open();
     await page.focus("#mid");
     const top = await scrollTop();
     await page.keyboard.press("Shift+Tab");
-    expect(await active()).toBe("video");
+    expect(await active()).toBe("back");
     expect(await scrollTop()).toBe(top);
+  });
+
+  // Inside a player, Tab moves through its own controls (play, timeline, volume, ...), and the
+  // document's focus stays on the player the whole time. The guard sees only the player, listed once,
+  // with the control scrolled out of view after it: it must leave those presses to the browser, not
+  // send focus to the composer and skip the player's other controls (#38230 review F1, second round).
+  test("Tab inside an audio player moves through its own controls, not to the composer", async () => {
+    await open();
+    await page.focus("#mid");
+    const top = await scrollTop();
+    await page.keyboard.press("Tab");
+    expect(await active()).toBe("audio");
+    await page.keyboard.press("Tab");
+    expect(await prevented()).toBe(false);
+    expect(await active()).toBe("audio");
+    expect(await scrollTop()).toBe(top);
+  });
+
+  // Shift-Tab enters a player at its last control, and Chromium keeps some presses inside the player
+  // without a keydown reaching the page, so press until focus leaves it: none taken by the guard.
+  test("Shift-Tab inside an audio player moves through its own controls, not to the header", async () => {
+    await open();
+    await page.focus("#mid");
+    const top = await scrollTop();
+    await page.keyboard.press("Shift+Tab");
+    expect(await active()).toBe("back");
+    const taken: boolean[] = [];
+    for (let press = 0; press < 4 && (await active()) === "back"; press++) {
+      await page.evaluate(() => delete (window as unknown as { lastTabPrevented?: boolean }).lastTabPrevented);
+      expect(await scrollTop()).toBe(top);
+      await page.keyboard.press("Shift+Tab");
+      taken.push((await prevented()) === true);
+    }
+    expect(taken).not.toContain(true);
+    expect(await active()).not.toBe("header");
   });
 });
