@@ -17,7 +17,6 @@
 use super::Hub;
 use crate::claude_peers::Peer;
 use serde_json::{Value, json};
-use std::collections::HashSet;
 use std::sync::{Arc, Weak};
 use std::time::{Duration, SystemTime};
 
@@ -30,8 +29,6 @@ impl Hub {
     /// Lists live desktop sessions as watched chats until the daemon shuts down.
     pub async fn desktop_bridge_loop(hub: Weak<Hub>) {
         let mut seen: Option<SystemTime> = None;
-        // Sessions a create was refused for: not tried again every scan.
-        let mut refused: HashSet<String> = HashSet::new();
         loop {
             let Some(h) = hub.upgrade() else { return };
             if h.shutting_down() {
@@ -59,15 +56,14 @@ impl Hub {
                 })
                 .await
                 .unwrap_or_default();
+                // A session with no transcript yet (no turn so far) is not found: it is tried
+                // again at the registry's next change, which its first turn makes.
                 for peer in peers {
-                    if !refused.contains(&peer.session_id)
-                        && let Err(e) = h.list_desktop_session(&peer).await
-                    {
-                        tracing::warn!(
-                            "desktop bridge: could not list Claude session {}: {e}",
+                    if let Err(e) = h.list_desktop_session(&peer).await {
+                        tracing::debug!(
+                            "desktop bridge: Claude session {} not listed yet: {e}",
                             peer.session_id
                         );
-                        refused.insert(peer.session_id.clone());
                     }
                 }
             }
