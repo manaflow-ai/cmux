@@ -55,6 +55,52 @@ struct TabDragGhostFollowsThemeTests {
         f.frame()
     }
 
+    /// The redrawn image is the tab as the strip draws it, the right way up: a lone cell has no flipped
+    /// ancestor, and drawn without one its title and icon came out upside down (">_" as ">‾").
+    @Test
+    func theRedrawnImageMatchesTheStripsOwnDrawing() async throws {
+        let original = ThemeScope.app.store.input
+        defer { _ = ThemeScope.app.store.apply(original) }
+        _ = ThemeScope.app.store.apply(ThemeInput(background: Self.dark, foreground: Self.light, backgroundOpacity: 1, backgroundBlur: 0))
+        let f = try await TabDragFollowsPointerTests.fixture(tabCount: 3)
+        defer { f.close() }
+        let source = try #require(f.controller.content?.panes.values.first)
+        let strip = source.view.stripView
+        let id = CmuxNextTabs.TabID(source.pane.tabs[1].id)
+        let cell = try #require(strip.cells[id])
+        cell.isWindowMain = true
+        cell.isLifted = true
+        cell.setFrame(cell.frame, laysOut: true)
+        f.frame()
+        let live = try #require(strip.snapshot(of: [cell.layer], frame: cell.frame).image?.cgImage)
+        let redrawn = try #require(strip.dragImage(of: id, size: cell.frame.size)?.image?.cgImage)
+        let differing = try #require(Self.differingFraction(live, redrawn))
+        #expect(differing < 0.004, "the redrawn ghost tab differs from the strip's own drawing in \(differing * 100)% of its pixels")
+    }
+
+    /// The fraction of pixels whose channels differ by more than a quarter between two same-size images.
+    static func differingFraction(_ a: CGImage, _ b: CGImage) -> Double? {
+        guard a.width == b.width, a.height == b.height, let pa = rgba(a), let pb = rgba(b) else { return nil }
+        var differing = 0
+        for i in stride(from: 0, to: pa.count, by: 4) where (0..<4).contains(where: { abs(Int(pa[i + $0]) - Int(pb[i + $0])) > 64 }) {
+            differing += 1
+        }
+        return Double(differing) / Double(pa.count / 4)
+    }
+
+    static func rgba(_ image: CGImage) -> [UInt8]? {
+        let (w, h) = (image.width, image.height)
+        var pixels = [UInt8](repeating: 0, count: w * h * 4)
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                          space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+            return true
+        }
+        return drawn ? pixels : nil
+    }
+
     /// The tab image the ghost draws: its layer that stretches its contents to the tab (the thumbnail fills).
     static func tabImage(of ghost: TabDragGhostPanel) -> CGImage? {
         func walk(_ layer: CALayer) -> CGImage? {
