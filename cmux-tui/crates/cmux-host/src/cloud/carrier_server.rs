@@ -374,14 +374,16 @@ impl Warm {
     }
 }
 
-/// What the fetch thread does next.
+/// What the fetch thread does next, with the generation it is of, read
+/// under the lock that picked it: a request it starts is of that generation,
+/// also when a bind or resume comes before the request starts.
 enum Job<H: Http> {
-    Bind(Box<Next<H>>),
-    Resume,
-    Wanted,
-    Refresh,
+    Bind(Box<Next<H>>, u64),
+    Resume(u64),
+    Wanted(u64),
+    Refresh(u64),
     /// A request came back; `current` when it is of this generation.
-    Done(Box<Done<H>>, bool),
+    Done(Box<Done<H>>, bool, u64),
 }
 
 /// One request: the bind's bearer mint, a ticket, or both.
@@ -439,7 +441,7 @@ impl<H: Http + Send + 'static> Fetcher<'_, H> {
     fn run(&mut self) {
         while let Some(job) = self.next_job() {
             match job {
-                Job::Bind(next) => {
+                Job::Bind(next, generation) => {
                     let Next { client, prefetch } = *next;
                     self.client = Some(client);
                     self.spare = None;
@@ -447,23 +449,23 @@ impl<H: Http + Send + 'static> Fetcher<'_, H> {
                     self.prefetch = prefetch;
                     self.refreshes = 0;
                     let ticket = prefetch.then_some(("prefetched", false));
-                    self.start(Task { mint: true, ticket });
+                    self.start(Task { mint: true, ticket }, generation);
                 }
-                Job::Resume => self.resume(),
-                Job::Wanted => {
+                Job::Resume(generation) => self.resume(generation),
+                Job::Wanted(generation) => {
                     #[cfg(test)]
                     TestPoints::run(&self.shared.test_points.before_wanted);
-                    self.start(Task::ticket("fetched for an ask", true));
+                    self.start(Task::ticket("fetched for an ask", true), generation);
                 }
-                Job::Refresh => {
+                Job::Refresh(generation) => {
                     if self.refreshes >= MAX_REFRESHES {
                         (self.hooks.log)("carrier ticket: the unused ticket lapses");
                         continue;
                     }
                     self.refreshes += 1;
-                    self.start(Task::ticket("refreshed", false));
+                    self.start(Task::ticket("refreshed", false), generation);
                 }
-                Job::Done(done, current) => self.done(*done, current),
+                Job::Done(done, current, generation) => self.done(*done, current, generation),
             }
         }
         for request in self.requests.drain(..) {
@@ -492,8 +494,10 @@ impl<H: Http + Send + 'static> Fetcher<'_, H> {
             if state.stopping {
                 return None;
             }
+            // Read under the state's lock: a bind or resume bumps it only under it.
+            let generation = shared.generation.load(Ordering::SeqCst);
             if let Some(done) = state.done.pop() {
-                let current = done.generation == self.shared.generation.load(Ordering::SeqCst);
+                let current = done.generation == generation;
                 if current {
                     state.fetching = false;
                     if let (Some(reply), Some((_, wanted))) = (&done.reply, done.task.ticket) {
@@ -505,37 +509,38 @@ impl<H: Http + Send + 'static> Fetcher<'_, H> {
                     }
                     shared.changed.notify_all();
                 }
-                return Some(Job::Done(Box::new(done), current));
+                return Some(Job::Done(Box::new(done), current, generation));
             }
             if let Some(next) = state.next.take() {
                 state.bound = true;
                 state.fetching = true;
-                return Some(Job::Bind(Box::new(next)));
+                return Some(Job::Bind(Box::new(next), generation));
             }
             let resumes = self.resumes.count();
             if resumes != self.seen {
                 self.seen = resumes;
                 self.refreshes = 0;
                 shared.new_generation(&mut state);
+                let generation = shared.generation.load(Ordering::SeqCst);
                 // A fresh ticket is asked for at once on a carrier machine;
                 // otherwise an asker waiting on a request from before the
                 // pause asks again.
                 state.fetching = self.prefetch && (self.client.is_some() || self.spare.is_some());
                 shared.changed.notify_all();
-                return Some(Job::Resume);
+                return Some(Job::Resume(generation));
             }
             // `fetching` is set here, under the lock that took the want, so
             // an asker woken before the request starts does not ask again.
             if state.want && self.client.is_some() {
                 state.want = false;
                 state.fetching = true;
-                return Some(Job::Wanted);
+                return Some(Job::Wanted(generation));
             }
             let refresh = state.warm.as_ref().map(|warm| warm.refresh_in((self.hooks.now)()));
             if refresh.is_some_and(|left| left.is_zero()) && self.client.is_some() {
                 state.warm = None;
                 state.fetching = self.refreshes < MAX_REFRESHES;
-                return Some(Job::Refresh);
+                return Some(Job::Refresh(generation));
             }
             state = shared.wait(state, refresh.filter(|_| self.client.is_some()));
         }
@@ -544,7 +549,7 @@ impl<H: Http + Send + 'static> Fetcher<'_, H> {
     /// The machine resumed: a request from before the pause is abandoned (a
     /// spare client on its own transport asks now), the pooled connection
     /// dropped, and on a carrier machine a fresh ticket asked for.
-    fn resume(&mut self) {
+    fn resume(&mut self, generation: u64) {
         if self.client.is_none() {
             self.client = self.spare.take();
         }
@@ -556,13 +561,13 @@ impl<H: Http + Send + 'static> Fetcher<'_, H> {
         self.resume_waits = false;
         client.reset_transport();
         if self.prefetch {
-            self.start(Task::ticket("prefetched after resume", false));
+            self.start(Task::ticket("prefetched after resume", false), generation);
         }
     }
 
     /// A request came back. One from an earlier generation is dropped; its
     /// client is used again only when there is no other.
-    fn done(&mut self, done: Done<H>, current: bool) {
+    fn done(&mut self, done: Done<H>, current: bool, generation: u64) {
         let Done { client, task, reply, took, .. } = done;
         if self.client.is_none() && (current || self.spare.is_none() || self.resume_waits) {
             self.client = Some(client);
@@ -578,7 +583,7 @@ impl<H: Http + Send + 'static> Fetcher<'_, H> {
                 ));
             }
             if self.resume_waits {
-                self.resume();
+                self.resume(generation);
             }
             return;
         }
@@ -590,18 +595,20 @@ impl<H: Http + Send + 'static> Fetcher<'_, H> {
     }
 
     /// Runs `task` on the client, on a thread of its own, keeping a spare
-    /// client for a resume while it is in flight. Nothing is asked once the
-    /// role stops.
-    fn start(&mut self, task: Task) {
+    /// client for a resume while it is in flight. The request is of
+    /// `generation`, the one its job was picked in: when a bind or resume
+    /// came since, its reply is dropped. Nothing is asked once the role stops.
+    fn start(&mut self, task: Task, generation: u64) {
         let Some(mut client) = self.client.take() else {
             return;
         };
         self.spare = client.fresh();
-        let generation = {
+        {
             let mut state = self.shared.lock();
-            state.fetching = true;
-            self.shared.generation.load(Ordering::SeqCst)
-        };
+            if self.shared.generation.load(Ordering::SeqCst) == generation {
+                state.fetching = true;
+            }
+        }
         self.requests.retain(|request| !request.is_finished());
         let (shared, stop, hooks) = (Arc::clone(&self.shared), Arc::clone(&self.stop), self.hooks);
         let spawned = std::thread::Builder::new()
