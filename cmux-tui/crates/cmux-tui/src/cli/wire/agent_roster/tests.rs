@@ -465,3 +465,61 @@ fn w5q_agent_list_rows_carry_the_agent_name() {
     assert!(header.starts_with("NAME"), "{text}");
     assert!(text.lines().any(|line| line.starts_with("pong ")), "{text}");
 }
+
+/// W5-Q (bench round 4 orchestration #9): one state word. `state` is a
+/// deprecated alias of `status` (`ended` for a session that ended), as in
+/// `terminal list --agents`, so `state: idle` never sits beside
+/// `status: done`.
+#[test]
+fn w5q_agent_list_state_is_the_one_status_word() {
+    let rows = json!([
+        agent("agent_finished", "idle", NOW - 1_000, "term_1"),
+        agent("agent_seen", "idle", NOW - 2_000, "term_2"),
+        agent("agent_ended", "done", NOW - 3_000, "term_3"),
+        agent("agent_blocked", "blocked", NOW - 4_000, "term_4"),
+    ]);
+    let unseen = HashSet::from(["term_1"]);
+    let result = shape(rows, &[], &unseen, AgentRosterView::default(), NOW);
+    let row = |id: &str| {
+        result["agents"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|row| row["id"] == id)
+            .cloned()
+            .unwrap_or_default()
+    };
+    for (id, word) in [
+        ("agent_finished", "done"),
+        ("agent_seen", "idle"),
+        ("agent_ended", "ended"),
+        ("agent_blocked", "blocked"),
+    ] {
+        assert_eq!(row(id)["state"], word, "{id}: {result}");
+        let status = if word == "ended" { Value::Null } else { json!(word) };
+        assert_eq!(row(id)["status"], status, "{id}: {result}");
+    }
+}
+
+/// W5-Q (bench round 4 orchestration #9): an ended agent whose terminal is
+/// closed is not listed; `--state ended` still lists it. When the
+/// terminals could not be read, nothing is left out.
+#[test]
+fn w5q_agent_list_leaves_out_ended_agents_of_closed_terminals() {
+    let rows = || {
+        json!([
+            agent("agent_open_ended", "done", NOW - 1_000, "term_open"),
+            agent("agent_closed_ended", "done", NOW - 2_000, "term_closed"),
+            agent("agent_idle", "idle", NOW - 3_000, "term_idle"),
+        ])
+    };
+    let terminals = [json!({"id": "term_open"}), json!({"id": "term_idle"})];
+    let result = shape(rows(), &terminals, &HashSet::new(), AgentRosterView::default(), NOW);
+    assert_eq!(ids(&result), ["agent_idle", "agent_open_ended"], "{result}");
+    assert_eq!(result["counts"]["ended"], 1, "{result}");
+    let ended = AgentRosterView { status: Some("ended"), ..AgentRosterView::default() };
+    let result = shape(rows(), &terminals, &HashSet::new(), ended, NOW);
+    assert_eq!(ids(&result), ["agent_open_ended", "agent_closed_ended"], "{result}");
+    let unread = shape(rows(), &[], &HashSet::new(), AgentRosterView::default(), NOW);
+    assert_eq!(unread["counts"]["total"], 3, "{unread}");
+}
