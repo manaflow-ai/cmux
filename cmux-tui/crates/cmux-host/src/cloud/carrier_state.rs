@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use super::{HAND_OUT_MARGIN, REFRESH_BEFORE};
+use super::{HAND_OUT_MARGIN, MAX_REFRESHES, REFRESH_BEFORE};
 
 /// A ticket asked for ahead and kept for the next ask: the reply line, and
 /// its expiry (Unix seconds).
@@ -85,6 +85,93 @@ pub(super) struct Done<C> {
     pub(super) took: Duration,
 }
 
+/// The fetch thread's clients: the bound one while no request is on it, and
+/// the spare a request leaves behind when the transport can make one (a
+/// resume asks on it while the request from before the pause hangs). Each
+/// method is one step of the fetch thread, which alone holds them.
+pub(super) struct Hands<C> {
+    pub(super) client: Option<C>,
+    pub(super) spare: Option<C>,
+    /// The latest bind has a relay carrier: tickets are asked for ahead.
+    pub(super) prefetch: bool,
+    /// Refreshes of an unused ticket since the last bind or resume.
+    pub(super) refreshes: u32,
+}
+
+impl<C> Default for Hands<C> {
+    fn default() -> Self {
+        Hands { client: None, spare: None, prefetch: false, refreshes: 0 }
+    }
+}
+
+impl<C> Hands<C> {
+    /// What [`Core::next_job`] picks by.
+    pub(super) fn view(&self) -> View {
+        View {
+            has_client: self.client.is_some(),
+            can_resume: self.client.is_some() || self.spare.is_some(),
+            prefetch: self.prefetch,
+            may_refresh: self.refreshes < MAX_REFRESHES,
+        }
+    }
+
+    /// A bind's client replaces everything held for the binding before it.
+    pub(super) fn bound(&mut self, client: C, prefetch: bool) {
+        *self = Hands { client: Some(client), spare: None, prefetch, refreshes: 0 };
+    }
+
+    /// The client a resume asks on: the free one, else the spare; `None`
+    /// when a request has the only client (the resume waits for it,
+    /// [`Core::defer_resume`]).
+    pub(super) fn for_resume(&mut self) -> Option<&C> {
+        if self.client.is_none() {
+            self.client = self.spare.take();
+        }
+        self.client.as_ref()
+    }
+
+    /// A request takes the free client, leaving behind the spare `fresh`
+    /// makes from it.
+    pub(super) fn take(&mut self, fresh: impl FnOnce(&C) -> Option<C>) -> Option<C> {
+        let client = self.client.take()?;
+        self.spare = fresh(&client);
+        Some(client)
+    }
+
+    /// A request could not start: its spare is the free client.
+    pub(super) fn not_started(&mut self) {
+        self.client = self.spare.take();
+    }
+
+    /// A request came back with its client. A current one's client is the
+    /// free one again; a stale one's only when it is of the latest binding
+    /// and nothing else is left or a resume waits for it. An older binding's
+    /// client is dropped.
+    pub(super) fn returned(&mut self, client: C, back: Back) {
+        if self.client.is_none()
+            && back.same_binding
+            && (back.current || self.spare.is_none() || back.resume)
+        {
+            self.client = Some(client);
+            if back.current {
+                self.spare = None;
+            }
+        }
+    }
+}
+
+/// How a request came back, read under the lock with its generation.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Back {
+    /// It is of this generation.
+    pub(super) current: bool,
+    /// It ran on the latest binding's client (it started at or after the
+    /// latest bind).
+    pub(super) same_binding: bool,
+    /// A resume of this generation waited for a client, and this one is it.
+    pub(super) resume: bool,
+}
+
 /// What the fetch thread holds, for [`Core::next_job`] to pick by.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct View {
@@ -107,8 +194,8 @@ pub(super) enum Job<B, C> {
     Resume(u64),
     Wanted(u64),
     Refresh(u64),
-    /// A request came back; `current` when it is of this generation.
-    Done(Box<Done<C>>, bool, u64),
+    /// A request came back.
+    Done(Box<Done<C>>, Back, u64),
     /// Nothing to do: wait for a change, at most this long (a kept ticket's
     /// refresh, the only timer).
     Wait(Option<Duration>),
@@ -151,6 +238,12 @@ pub(super) struct Core<B, C> {
     pub(super) next: Option<B>,
     /// A resume the fetch thread has not acted on.
     pub(super) resumed: bool,
+    /// A resume that found no client waits for one, in its generation; a
+    /// bind or another resume ends the wait.
+    pub(super) waiting_resume: Option<u64>,
+    /// The generation the latest bind started: a request of an earlier one
+    /// ran on an older binding's client.
+    pub(super) bound_at: u64,
     /// Requests that came back, for the fetch thread.
     pub(super) done: Vec<Done<C>>,
 }
@@ -167,6 +260,8 @@ impl<B, C> Default for Core<B, C> {
             answered: None,
             next: None,
             resumed: false,
+            waiting_resume: None,
+            bound_at: 0,
             done: Vec::new(),
         }
     }
@@ -180,12 +275,14 @@ impl<B, C> Core<B, C> {
         self.warm = None;
         self.answered = None;
         self.fetching = false;
+        self.waiting_resume = None;
     }
 
     /// The machine is bound (again): the bind's generation starts now, not
     /// when the fetch thread takes it.
     pub(super) fn bind(&mut self, next: B) {
         self.new_generation();
+        self.bound_at = self.generation;
         self.next = Some(next);
     }
 
@@ -264,7 +361,13 @@ impl<B, C> Core<B, C> {
                     }
                 }
             }
-            return Job::Done(Box::new(done), current, generation);
+            // A returning client serves a resume that waits for one only in
+            // that resume's own generation, and only a client of the latest
+            // binding.
+            let same_binding = done.generation >= self.bound_at;
+            let resume =
+                same_binding && self.waiting_resume.take_if(|waits| *waits == generation).is_some();
+            return Job::Done(Box::new(done), Back { current, same_binding, resume }, generation);
         }
         if let Some(next) = self.next.take() {
             // The bind's own request supersedes a resume noted before it.
@@ -305,6 +408,14 @@ impl<B, C> Core<B, C> {
     pub(super) fn starting(&mut self, generation: u64) {
         if generation == self.generation {
             self.fetching = true;
+        }
+    }
+
+    /// A resume of `generation` found no client: it waits for the next one
+    /// that comes back, unless a bind or another resume comes first.
+    pub(super) fn defer_resume(&mut self, generation: u64) {
+        if generation == self.generation {
+            self.waiting_resume = Some(generation);
         }
     }
 
