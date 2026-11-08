@@ -442,7 +442,7 @@ final class TerminalSurfaceView: UIView {
         outputQueue.async {
             let bytes = transform?(data) ?? data
             // What the remote sent (not the row shift), before Ghostty parses it.
-            let predictionChanged = predictor?.prediction.output(bytes: data, nowUs: TerminalSurfacePrediction.now()) ?? false
+            let predictionChanged = predictor?.output(bytes: data, nowUs: TerminalSurfacePrediction.now()) ?? false
             bytes.withUnsafeBytes { raw in
                 guard let base = raw.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
                 ghostty_surface_process_output(ref.surface, base, UInt(raw.count))

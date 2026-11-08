@@ -105,14 +105,14 @@ import UIKit
     }
 
     /// Latencies in milliseconds, one per echoed key.
-    static func run(roundTripMs: Int, loss: Double, predict: Bool, seed: UInt64) async throws -> [Double] {
+    static func run(roundTripMs: Int, loss: Double, predict: Bool, seed: UInt64, diagnostics: inout [String]) async throws -> [Double] {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         window.isHidden = false
         let surface = TerminalSurfaceView(frame: CGRect(x: 0, y: 0, width: 390, height: 800))
         window.addSubview(surface)
         try #require(surface.surface != nil, "libghostty created no surface")
         let prediction = try #require(surface.prediction)
-        _ = prediction.engine.prediction.set(enabled: predict, remote: true)
+        _ = prediction.engine.set(enabled: predict, remote: true)
         let remote = Remote(surface: surface, roundTrip: .milliseconds(roundTripMs), loss: loss, seed: seed)
         surface.onInput = { remote.receive($0) }
         // An echo is on screen with the first Ghostty frame presented after it was parsed.
@@ -128,12 +128,21 @@ import UIKit
         var typed: [ContinuousClock.Instant] = []
         var predictedAt: [Int: ContinuousClock.Instant] = [:]
         var rng = seed
+        var noCursor = 0, held = 0, engineLayouts = 0
+        var statuses: [UInt8: Int] = [:]
         for (index, key) in keys.enumerated() {
             typed.append(.now)
             let before = prediction.drawnLayout
             surface.perform([.text(key)])
             if let after = prediction.drawnLayout, after != before {
                 predictedAt[index] = await nextCommit()
+            }
+            if predict {
+                let now = TerminalSurfacePrediction.now()
+                if surface.predictionCursor() == nil { noCursor += 1 }
+                if prediction.engine.holdsLayout() { held += 1 }
+                if prediction.engine.layout(nowUs: now, cursorColumn: Int32(surface.predictionCursor()?.column ?? 0), columns: Int32(surface.predictionCursor()?.columns ?? 0)) != nil { engineLayouts += 1 }
+                statuses[prediction.engine.status(nowUs: now), default: 0] += 1
             }
             if key == "\r" {
                 // A person reads the output before typing the next command.
@@ -158,6 +167,12 @@ import UIKit
             let shown = min(echo, predictedAt[index] ?? echo)
             latencies.append(milliseconds(typed[index].duration(to: shown)))
         }
+        if predict {
+            diagnostics.append("PREDICTION-DIAG rtt=\(roundTripMs)ms loss=\(Int(loss * 100))% predicted=\(predictedAt.count) "
+                + "noCursor=\(noCursor) held=\(held) engineLayouts=\(engineLayouts) statuses=\(statuses.sorted { $0.key < $1.key }) "
+                + "echoLatencyUs=\(prediction.engine.echoLatencyUs().map(String.init) ?? "nil") columns=\(surface.predictionCursor()?.columns ?? -1)")
+            print(diagnostics.last ?? "")
+        }
         surface.onInput = nil
         surface.onPresent = nil
         return latencies
@@ -170,21 +185,25 @@ import UIKit
 
     @Test(arguments: [50, 150, 300])
     func keystrokeToGlyph(roundTripMs: Int) async throws {
+        var report: [String] = []
+        defer { Attachment.record(report.joined(separator: "\n"), named: "prediction-latency-\(roundTripMs)ms.txt") }
         for loss in [0.0, 0.02, 0.05] {
             var before: [Double] = []
             var after: [Double] = []
             for seed in UInt64(1)...1 {
-                before += try await Self.run(roundTripMs: roundTripMs, loss: loss, predict: false, seed: seed)
-                after += try await Self.run(roundTripMs: roundTripMs, loss: loss, predict: true, seed: seed)
+                before += try await Self.run(roundTripMs: roundTripMs, loss: loss, predict: false, seed: seed, diagnostics: &report)
+                after += try await Self.run(roundTripMs: roundTripMs, loss: loss, predict: true, seed: seed, diagnostics: &report)
             }
             func fmt(_ value: Double) -> String { String(format: "%.1f", value) }
-            print("PREDICTION-LATENCY rtt=\(roundTripMs)ms loss=\(Int(loss * 100))% keys=\(after.count) "
+            report.append("PREDICTION-LATENCY rtt=\(roundTripMs)ms loss=\(Int(loss * 100))% keys=\(after.count) "
                 + "p50 \(fmt(Self.percentile(before, 0.5)))->\(fmt(Self.percentile(after, 0.5))) "
                 + "p95 \(fmt(Self.percentile(before, 0.95)))->\(fmt(Self.percentile(after, 0.95))) "
                 + "max \(fmt(before.max() ?? 0))->\(fmt(after.max() ?? 0)) ms")
-            #expect(Self.percentile(after, 0.5) <= Self.percentile(before, 0.5))
+            print(report.last ?? "")
+            let seen = Comment(rawValue: report.suffix(4).joined(separator: " | "))
+            #expect(Self.percentile(after, 0.5) <= Self.percentile(before, 0.5), seen)
             if roundTripMs >= 150 {
-                #expect(Self.percentile(after, 0.5) < Double(roundTripMs) / 2, "most keys show before their echo")
+                #expect(Self.percentile(after, 0.5) < Double(roundTripMs) / 2, seen)
             }
         }
     }

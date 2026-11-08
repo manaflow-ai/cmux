@@ -335,6 +335,17 @@ fn run(rtt_ms: u64, loss: f64, predict: bool, seed: u64) -> Run {
                 .map(|layout| layout.glyphs.iter().filter(|glyph| glyph.standing == 0).count())
                 .unwrap_or(0);
             if remote.mode != Mode::Shell || screen.alternate {
+                if drawn > 0 && drawn_where_unsafe == 0 {
+                    let typed: Vec<String> = keys.iter().rev().take(6).map(|key| format!("{:?}", String::from_utf8_lossy(&key.bytes))).collect();
+                    eprintln!(
+                        "UNSAFE rtt={rtt_ms} seed={seed} remote_password={} remote_full={} phone_alt={} status={} last_keys={typed:?} layout={:?}",
+                        remote.mode == Mode::Password,
+                        remote.mode == Mode::FullScreen,
+                        screen.alternate,
+                        prediction.status(now),
+                        prediction.layout(now, screen.cursor_column, COLUMNS),
+                    );
+                }
                 drawn_where_unsafe += drawn;
             }
         }
