@@ -133,6 +133,7 @@ test("an older app that refuses `tips.state` shows no hint", async () => {
     read: () => Promise.reject(new Error("unsupported")),
     write: () => Promise.reject(new Error("unsupported")),
     claim: async () => false,
+    reserve: async () => false,
   };
   const hint = await mountHint(refusing);
   expect(hint.current().record).toBe("done");
