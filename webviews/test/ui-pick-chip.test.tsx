@@ -10,6 +10,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import type { PromptContentPart } from "../src/agent-session/acpmux/model";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -168,6 +169,41 @@ test("a sent message draws the pick as the chip, opening in place in its body", 
   expect(host.querySelector("pre")).toBeNull();
   expect(chip!.querySelector(".acpmux-paste-chip__title")!.textContent).toStartWith("span · “the Cloud version-check");
   opensAndFolds(chip!);
+});
+
+test("a pick placed in the prompt's text draws as the chip in the sent message's inline parts", async () => {
+  const { designSelectionChips } = await import("../src/agent-session/acpmux/designSelection");
+  const { inlineToken } = await import("../src/agent-session/acpmux/attachments");
+  const { inlinePrompt } = await import("../src/agent-session/acpmux/inlinePrompt");
+  const { InlinePromptContent } = await import("../src/agent-session/acpmux/conversation/InlinePromptContent");
+  const [pick] = designSelectionChips(SELECTION);
+  // The default send: the composer placed the pick in the text, so the bubble draws its parts.
+  const built = inlinePrompt(`Why is this cut off? ${inlineToken(pick!.id)} thanks`, [pick!])!;
+  expect(built).toBeTruthy();
+  // As acpmux gives it back after a reload too: the part carries its name and stored text only.
+  for (const parts of [built.parts, built.parts.map((part) => ({ ...part, attachmentId: undefined }))]) {
+    await render(
+      <div className="cv-user">
+        <InlinePromptContent
+          rowId="pick-row"
+          parts={parts as PromptContentPart[]}
+          show={(text) => text}
+          renderImage={() => null}
+        />
+      </div>,
+    );
+    const chip = host.querySelector<HTMLElement>('.cv-user [data-chip-kind="ui"]');
+    expect(chip).toBeTruthy();
+    expect(host.textContent).toContain("Why is this cut off?");
+    expect(host.textContent).toContain("thanks");
+    // Not a file or paste chip of the report, and no fence drawn beside it.
+    expect(host.querySelector(".cv-user__file-open")).toBeNull();
+    expect(host.querySelector("pre")).toBeNull();
+    expect(chip!.querySelector(".acpmux-paste-chip__title")!.textContent).toStartWith(
+      "span · “the Cloud version-check",
+    );
+    opensAndFolds(chip!);
+  }
 });
 
 test("text that is not a pick draws as it did", async () => {
