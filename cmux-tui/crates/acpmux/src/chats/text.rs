@@ -79,6 +79,10 @@ struct Doc {
     stamp: Stamp,
     text: String,
     messages: Vec<Message>,
+    /// The text holds a letter that lowercases to ASCII (`İ`, the Kelvin sign): the ASCII
+    /// case-blind pass would miss what `Needle` finds there, so this doc takes `Needle`'s.
+    #[serde(skip)]
+    folds_to_ascii: bool,
 }
 
 impl Doc {
@@ -98,14 +102,25 @@ impl Doc {
                 newest_first.push((u32::try_from(turn).unwrap_or(u32::MAX), answer, flat));
             }
         }
-        let mut doc = Self { stamp, text: String::with_capacity(bytes), messages: Vec::new() };
+        let mut doc = Self {
+            stamp,
+            text: String::with_capacity(bytes),
+            messages: Vec::new(),
+            folds_to_ascii: false,
+        };
         for (turn, answer, flat) in newest_first.into_iter().rev() {
             let start = u32::try_from(doc.text.len()).unwrap_or(u32::MAX);
             doc.messages.push(Message { start, turn, answer });
             doc.text.push_str(&flat);
             doc.text.push('\n');
         }
+        doc.read_folds();
         doc
+    }
+
+    fn read_folds(&mut self) {
+        self.folds_to_ascii = !self.text.is_ascii()
+            && self.text.chars().any(|c| !c.is_ascii() && c.to_lowercase().any(|l| l.is_ascii()));
     }
 
     /// Message `i`'s byte range in `text`, its newline left out.
@@ -128,7 +143,8 @@ impl Doc {
             let matches = found.map_or(0, |f| f.matches).saturating_add(1);
             found = Some(Matched { message, matches });
         };
-        let Some((first, rest)) = matcher.ascii.as_deref().and_then(<[_]>::split_first) else {
+        let ascii = matcher.ascii.as_deref().filter(|_| !self.folds_to_ascii);
+        let Some((first, rest)) = ascii.and_then(<[_]>::split_first) else {
             (0..self.messages.len())
                 .filter(|&i| needle.find(self.message(i)).is_some())
                 .for_each(hit);
@@ -249,7 +265,14 @@ impl ChatText {
             return;
         };
         let mut inner = lock(&self.inner);
-        inner.docs = saved.docs.into_iter().map(|(key, doc)| (key, Arc::new(doc))).collect();
+        inner.docs = saved
+            .docs
+            .into_iter()
+            .map(|(key, mut doc)| {
+                doc.read_folds();
+                (key, Arc::new(doc))
+            })
+            .collect();
         inner.saved_at = Some(Instant::now());
         self.publish(&mut inner);
         inner.dirty = false;

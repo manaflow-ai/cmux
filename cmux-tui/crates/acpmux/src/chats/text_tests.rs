@@ -70,6 +70,25 @@ fn every_word_in_one_message_any_case_the_newest_message_is_the_hit() {
 }
 
 #[test]
+fn an_ascii_query_finds_a_letter_that_lowercases_to_ascii_also_after_a_restart() {
+    // Review of #38431, F2: the ASCII pass is case-blind for ASCII only; `Needle` lowercases the
+    // Kelvin sign to `k` and `İ` to `i` plus a dot, so these docs are read as `Needle` reads them.
+    let text = index();
+    text.update(&[chat("a", 1)], &|_| Some(vec![turn("x", "300 \u{212A}elvin")]));
+    let kelvin = needle("kelvin");
+    assert!(Matcher::new(&kelvin).ascii.is_some(), "an ASCII query");
+    assert_eq!(text.search(&kelvin).len(), 1);
+    let again = ChatText::new(text.path.clone());
+    again.load();
+    assert_eq!(again.search(&kelvin).len(), 1, "the flag is read again on load");
+    // A doc with other non-ASCII text keeps the fast pass.
+    let plain =
+        Doc::new(Stamp { updated_ms: 0, messages: None }, &[turn("caf\u{e9} \u{2014} ok", "")]);
+    assert!(!plain.folds_to_ascii);
+    let _ = std::fs::remove_file(&text.path);
+}
+
+#[test]
 fn a_long_chat_keeps_its_newest_messages() {
     let big = "w ".repeat(CHAT_BYTES / 4);
     let turns: Vec<Turn> = (0..4).map(|i| turn(&format!("prompt{i} {big}"), "")).collect();

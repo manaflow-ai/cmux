@@ -242,11 +242,13 @@ import Testing
             if filling { message["filling"] = true }
             return try #require(AcpmuxChatWindows.Update(params: message))
         }
+        // The page buffers only the newest answer: each is taken before the next update comes.
+        var answers = stream.makeAsyncIterator()
         windows.apply(try update(1, keys: [], filling: true))
+        #expect(await answers.next()?.map(\.id) == [], "the empty first answer shows")
         windows.apply(try update(2, keys: ["codex:1"], filling: false))
-        var answers: [[String]] = []
-        for await answer in stream { answers.append(answer.map(\.id)) }
-        #expect(answers == [[], ["chat:codex:1"]], "the empty first answer, then the chat read later: \(answers)")
+        #expect(await answers.next()?.map(\.id) == ["chat:codex:1"], "then the chat read later")
+        #expect(await answers.next() == nil, "the answer that is no longer filling ends the stream")
     }
 
     /// The empty query lists the newest page and says how many more chats there are (R-L5).
