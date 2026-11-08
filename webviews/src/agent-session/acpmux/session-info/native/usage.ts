@@ -2,21 +2,10 @@
 // The page formats and orders values; the App only draws rows and forwards actions.
 import type { Translate } from "../../i18n";
 import type { AcpmuxSessionEntry } from "../../sessionList";
-import {
-  byUsage,
-  cacheUsageRows,
-  type SessionUsageStats,
-  UNKNOWN,
-  usageCost,
-  usageTokens,
-} from "../../usageStats";
+import { byUsage, cacheUsageRows, type SessionUsageStats, UNKNOWN, usageCost, usageTokens } from "../../usageStats";
 import type { AcpmuxTimeBreakdown, AcpmuxUsageLimits } from "../../model";
 import { planLimitRows } from "../../usageLimits";
-import type {
-  NativeInfoActions,
-  NativeInfoRow,
-  NativeInfoSection,
-} from "./model";
+import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 
 export const USAGE_SYMBOL = "waveform.path";
 export const USAGE_SHOWN = 5;
@@ -31,15 +20,7 @@ const elapsed = (ms: number) => {
   const seconds = Math.floor((ms % 60_000) / 1_000);
   return minutes ? `${minutes}m ${seconds}s` : `${seconds}s`;
 };
-const timeLabel = (id: string) =>
-  ({
-    read: "Reading",
-    edit: "Editing",
-    run: "Commands",
-    think: "Thinking",
-    person: "You",
-    model: "Model",
-  })[id] ?? id;
+const timeLabel = (id: string) => ({ read: "Reading", edit: "Editing", run: "Commands", think: "Thinking", person: "You", model: "Model" })[id] ?? id;
 
 function ownRows(
   stats: SessionUsageStats,
@@ -50,11 +31,7 @@ function ownRows(
   onShowSubagents?: () => void,
 ): NativeInfoRow[] {
   const tokens = (value: number) => usageTokens(value, locale);
-  const subagents = [
-    stats.subagentsLive,
-    stats.subagents1h,
-    stats.subagents24h,
-  ];
+  const subagents = [stats.subagentsLive, stats.subagents1h, stats.subagents24h];
   const rows: Array<{
     id: string;
     name: string;
@@ -116,45 +93,43 @@ function ownRows(
       name: t("sessionInfo.usage.launcher"),
       value: stats.launcher,
     });
-  return rows.map(
-    ({ id, name, value, action }): NativeInfoRow => ({
-      id: `own:${id}`,
-      title: name,
-      trailing: value,
-      ...(action === "compact" && onCompact
-        ? {
-            buttons: [
-              {
-                label: t("context.compact"),
-                action: actions.add("usage.compact", onCompact),
-              },
-            ],
-          }
-        : {}),
-      ...(action === "subagents" && onShowSubagents
-        ? {
-            buttons: [
-              {
-                label: t("sessionInfo.usage.showSubagents"),
-                action: actions.add("usage.subagents", onShowSubagents),
-              },
-            ],
-          }
-        : {}),
-      ...(action === "cap"
-        ? {
-            buttons: [
-              {
-                label: t("sessionInfo.usage.restartWithCap"),
-                action: actions.add("usage.restartWithCap", () => undefined),
-                disabled: true,
-              },
-            ],
-            help: t("sessionInfo.usage.restartWithCapSoon"),
-          }
-        : {}),
-    }),
-  );
+  return rows.map(({ id, name, value, action }): NativeInfoRow => ({
+    id: `own:${id}`,
+    title: name,
+    trailing: value,
+    ...(action === "compact" && onCompact
+      ? {
+          buttons: [
+            {
+              label: t("context.compact"),
+              action: actions.add("usage.compact", onCompact),
+            },
+          ],
+        }
+      : {}),
+    ...(action === "subagents" && onShowSubagents
+      ? {
+          buttons: [
+            {
+              label: t("sessionInfo.usage.showSubagents"),
+              action: actions.add("usage.subagents", onShowSubagents),
+            },
+          ],
+        }
+      : {}),
+    ...(action === "cap"
+      ? {
+          buttons: [
+            {
+              label: t("sessionInfo.usage.restartWithCap"),
+              action: actions.add("usage.restartWithCap", () => undefined),
+              disabled: true,
+            },
+          ],
+          help: t("sessionInfo.usage.restartWithCapSoon"),
+        }
+      : {}),
+  }));
 }
 
 export type UsageInput = {
@@ -185,58 +160,26 @@ export function usageSection(
   actions: NativeInfoActions,
   t: Translate,
 ): NativeInfoSection | undefined {
-  const hasSessionUsage =
-    input.hasSessionUsage ??
-    input.sessions.some((entry) => Boolean(entry.usageStats));
+  const hasSessionUsage = input.hasSessionUsage ?? input.sessions.some((entry) => Boolean(entry.usageStats));
   const planRows = planLimitRows(input.planLimits, t, Date.now(), input.locale);
-  if (
-    !input.own &&
-    !input.timeBreakdown &&
-    !hasSessionUsage &&
-    !planRows.length
-  )
-    return undefined;
-  const ranked =
-    input.ranked ??
-    (input.open ? byUsage(input.sessions, input.sort ?? "cost") : []);
+  if (!input.own && !input.timeBreakdown && !hasSessionUsage && !planRows.length) return undefined;
+  const ranked = input.ranked ?? (input.open ? byUsage(input.sessions, input.sort ?? "cost") : []);
   const expanded = input.expanded === true;
   const sort = input.sort ?? "cost";
   const folds = ranked.length > USAGE_SHOWN;
   const shown = folds && !expanded ? ranked.slice(0, USAGE_SHOWN) : ranked;
   const rows: NativeInfoRow[] = [];
-  if (input.own)
-    rows.push(
-      ...ownRows(
-        input.own,
-        t,
-        input.locale,
-        actions,
-        input.onCompact,
-        input.onShowSubagents,
-      ),
-    );
+  if (input.own) rows.push(...ownRows(input.own, t, input.locale, actions, input.onCompact, input.onShowSubagents));
   if (input.timeBreakdown) {
-    rows.push({
-      id: "time:head",
-      title: "Where the time went",
-      trailing: elapsed(input.timeBreakdown.totalMs),
-    });
-    for (const category of input.timeBreakdown.categories.filter(
-      (category) => category.wallMs > 0,
-    )) {
-      const turnId = input.timeBreakdown.spans.find(
-        (span) => span.category === category.id,
-      )?.turnId;
+    rows.push({ id: "time:head", title: "Where the time went", trailing: elapsed(input.timeBreakdown.totalMs) });
+    for (const category of input.timeBreakdown.categories.filter((category) => category.wallMs > 0)) {
+      const turnId = input.timeBreakdown.spans.find((span) => span.category === category.id)?.turnId;
       rows.push({
         id: `time:${category.id}`,
         title: timeLabel(category.id),
         trailing: elapsed(category.wallMs),
         ...(turnId && input.onShowTurn
-          ? {
-              action: actions.add(`time.show:${category.id}`, () =>
-                input.onShowTurn!(turnId),
-              ),
-            }
+          ? { action: actions.add(`time.show:${category.id}`, () => input.onShowTurn!(turnId)) }
           : {}),
       });
     }
@@ -244,8 +187,7 @@ export function usageSection(
   // The plan's limits, as the composer ring's plan usage popover shows them (PlanUsageCard.tsx).
   if (planRows.length) {
     rows.push({ id: "plan", title: t("sessionInfo.usage.planLimits") });
-    for (const row of planRows)
-      rows.push({ id: `plan:${row.id}`, title: row.name, trailing: row.value });
+    for (const row of planRows) rows.push({ id: `plan:${row.id}`, title: row.name, trailing: row.value });
   }
   if (ranked.length && input.onSortChange) {
     rows.push({
@@ -254,16 +196,12 @@ export function usageSection(
       buttons: [
         {
           label: t("sessionInfo.usage.sortCost"),
-          action: actions.add("usage.sort:cost", () =>
-            input.onSortChange!("cost"),
-          ),
+          action: actions.add("usage.sort:cost", () => input.onSortChange!("cost")),
           disabled: sort === "cost",
         },
         {
           label: t("sessionInfo.usage.sortContext"),
-          action: actions.add("usage.sort:context", () =>
-            input.onSortChange!("context"),
-          ),
+          action: actions.add("usage.sort:context", () => input.onSortChange!("context")),
           disabled: sort === "context",
         },
       ],
@@ -273,12 +211,8 @@ export function usageSection(
     const stats = entry.usageStats;
     if (!stats) continue;
     const place = entry.peer ?? entry.host;
-    const named =
-      entry.displayTitle || entry.title || entry.name || entry.sessionId;
-    const title =
-      entry.peer && named.startsWith(`${entry.peer}/`)
-        ? named.slice(entry.peer.length + 1)
-        : named;
+    const named = entry.displayTitle || entry.title || entry.name || entry.sessionId;
+    const title = entry.peer && named.startsWith(`${entry.peer}/`) ? named.slice(entry.peer.length + 1) : named;
     const value = sort === "context" ? stats.contextTokens : stats.costUsd24h;
     rows.push({
       id: `session:${entry.sessionId}`,
@@ -294,9 +228,7 @@ export function usageSection(
             : usageCost(value, input.locale),
       ...(entry.sessionId !== input.chatId && input.onOpen
         ? {
-            action: actions.add(`usage.open:${entry.sessionId}`, () =>
-              input.onOpen!(entry.sessionId),
-            ),
+            action: actions.add(`usage.open:${entry.sessionId}`, () => input.onOpen!(entry.sessionId)),
           }
         : {}),
     });
@@ -324,12 +256,8 @@ export function usageSection(
     ...(folds && input.onExpandedChange
       ? {
           more: {
-            label: expanded
-              ? t("summary.showFewer")
-              : t("summary.viewAll", { n: ranked.length }),
-            action: actions.add("usage.more", () =>
-              input.onExpandedChange!(!expanded),
-            ),
+            label: expanded ? t("summary.showFewer") : t("summary.viewAll", { n: ranked.length }),
+            action: actions.add("usage.more", () => input.onExpandedChange!(!expanded)),
           },
         }
       : {}),
