@@ -18,6 +18,7 @@ import { ChangelogStore, compareVersions, type UpdateSpan } from "./store";
 import type { ReleaseNotes } from "./types";
 import type { UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
 import { UpdatedCard, UpdateReadyHighlights } from "./UpdateSurfaces";
+import { rememberRow, type CardDragHost, type CardPlace, type CardRow } from "./updatedCardDrag";
 import "../shared/pageBase.css";
 import "../../ui/glass/composerMaterial.css";
 import "./updateSurfaces.css";
@@ -33,7 +34,20 @@ export const SurfaceOps = {
   stream: "cmux.changelog.surface.changes",
   /** The sidebar host's word on where the pointer is: `{inside: boolean}` (the Updated card). */
   pointer: "cmux.changelog.surface.pointer",
+  /** The Updated card's drag: `{x, y, anchor?}`, CSS px from its rest; `anchor` on its release. */
+  cardDrag: "cmux.changelog.surface.card.drag",
+  /** Where the host rests the card: `{anchor, above, below, zoom}` (updatedCardDrag.ts CardPlace). */
+  cardPlace: "cmux.changelog.surface.card.place",
 } as const;
+
+function isCardPlace(value: unknown): value is CardPlace {
+  const place = value as Partial<CardPlace> | null;
+  return (
+    (place?.anchor === "top" || place?.anchor === "bottom") &&
+    typeof place.above === "number" &&
+    typeof place.below === "number"
+  );
+}
 
 /** `#/surface/ready` -> "ready"; null for any other route. */
 export function parseSurface(hash: string): SurfaceKind | null {
@@ -74,9 +88,25 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
   // preview asks for above the card's slot (reported with the card's height).
   let hostPointer: boolean | undefined;
   let overlay = 0;
+  let glass = 0;
+  // The card's drag (updatedCardDrag.ts): the host says where the card rests and moves its view.
+  let place: CardPlace | undefined;
+  const drop = (row: CardRow, offset: { x: number; y: number }) =>
+    call(SurfaceOps.cardDrag, { x: offset.x, y: offset.y, anchor: row });
+  const drag: CardDragHost = {
+    place: () => place,
+    move: (offset) => call(SurfaceOps.cardDrag, { x: offset.x, y: offset.y }),
+    drop,
+    dismiss: () => actions.dismiss?.(),
+  };
   const previewSize = (height: number) => {
     if (height === overlay) return;
     overlay = height;
+    report();
+  };
+  const previewGlass = (height: number) => {
+    if (height === glass) return;
+    glass = height;
     report();
   };
   const render = (data: UpdateHighlights | null) => {
@@ -99,6 +129,9 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
               glass={false}
               hostPointer={hostPointer}
               onPreviewSize={previewSize}
+              onPreviewGlass={previewGlass}
+              anchor={place?.anchor}
+              drag={place ? drag : undefined}
             />
           )}
         </UiProvider>,
@@ -121,13 +154,16 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
     if (!settled()) return;
     if (kind === "updated") {
       // The card's own height, without its hover preview (the slot keeps the card's room while the
-      // preview opens over the list), and the room the open preview asks for (`overlay`, 0 closed).
-      const preview = root.querySelector<HTMLElement>(".wn-preview")?.getBoundingClientRect().height ?? 0;
-      const height = Math.ceil(root.getBoundingClientRect().height - preview);
-      const key = `${height}x0x${overlay}`;
+      // preview opens over the list), the room the open preview asks for (`overlay`, 0 closed), and
+      // the preview's height once open (`preview`, 0 closing), the host's glass behind the page.
+      // Rounded, not ceiled: mid-motion the preview's height is fractional, and a ceiled difference
+      // read one pixel over the card's (49 for 48), so the slot grew a pixel and moved the list.
+      const open = root.querySelector<HTMLElement>(".wn-preview")?.getBoundingClientRect().height ?? 0;
+      const height = Math.round(root.getBoundingClientRect().height - open);
+      const key = `${height}x0x${overlay}x${glass}`;
       if (key === reported) return;
       reported = key;
-      call(SurfaceOps.size, { height, width: 0, overlay });
+      call(SurfaceOps.size, { height, width: 0, overlay, preview: glass });
       return;
     }
     const card = root.querySelector<HTMLElement>(`[${CARD_SCROLL_ATTRIBUTE}]`);
@@ -155,6 +191,20 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
         if (typeof event?.inside !== "boolean" || event.inside === hostPointer) return;
         hostPointer = event.inside;
         render(latest);
+      })
+      .catch(() => undefined);
+    // An older host sends no place: the card stays at the bottom and does not drag.
+    void client
+      .subscribe<unknown>(SurfaceOps.cardPlace, (event) => {
+        if (!isCardPlace(event)) return;
+        const moved = event.anchor !== place?.anchor;
+        place = event;
+        document.documentElement.dataset.cardAnchor = event.anchor;
+        // The host's place is the card's: its copy (cmux.sidebar.updatedCard.anchor) outlives the
+        // page, whose storage does not (a non-persistent website data store). The page's copy (the
+        // toasts' anchorMemory) mirrors it and never moves the card (review F1 of #37669).
+        rememberRow(event.anchor);
+        if (moved) render(latest);
       })
       .catch(() => undefined);
   }

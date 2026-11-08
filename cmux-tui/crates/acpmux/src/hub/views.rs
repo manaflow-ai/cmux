@@ -539,7 +539,8 @@ impl Hub {
                     // Another agent's message the person's Stop holds (`cancel.rs`): it waits for
                     // their next completed turn or a resume, not for the turn to end.
                     held_by_stop: q.held
-                        && q.run.agent.is_some()
+                        && (q.run.agent.is_some()
+                            || super::inbox::is_notice(q.run.provenance.as_ref()))
                         && session.stop_hold.load(Ordering::SeqCst) != 0,
                     from_agent: q.run.agent.clone(),
                     // The sending session and its harness, as the daemon bound them.
@@ -549,6 +550,15 @@ impl Hub {
                     class: q.run.class,
                     author: crate::author::listed(q.run.provenance.as_ref()),
                     subagent_retry: super::subagent_retry::listed(q.run.provenance.as_ref()),
+                    provenance: super::digest::listed_provenance(
+                        q.run.provenance.as_ref(),
+                        q.run.agent.as_deref(),
+                    ),
+                    inbox_notice: q
+                        .run
+                        .provenance
+                        .clone()
+                        .filter(|p| super::inbox::is_notice(Some(p))),
                     // By attachment id: `_acpmux/attachment` reads each back.
                     images: super::prompt_images::named_sourced(
                         &q.run.blocks,

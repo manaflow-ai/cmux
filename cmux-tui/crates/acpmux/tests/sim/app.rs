@@ -239,6 +239,16 @@ fn due(app: &Shared) -> (Vec<Prompt>, Option<Duration>) {
     (owed, next.map(|t| ready + t))
 }
 
+/// The daemon's own word that the app's chat is done: no turn running and nothing queued.
+async fn chat_settled(app: &Shared, conn: &mut Conn) -> std::io::Result<bool> {
+    let session = app.borrow().session.clone().unwrap_or_default();
+    let listed = conn.call(app, acpmux::rpc::method::MUX_SESSIONS, json!({})).await?;
+    let row = listed["sessions"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|r| r["sessionId"] == json!(session)));
+    Ok(row.is_some_and(|r| r["turn"].is_null() && r["queued"].as_u64().unwrap_or(0) == 0))
+}
+
 fn all_answered(app: &Shared) -> bool {
     app.borrow().items.iter().all(|(_, i)| i.outcome.is_some())
 }
@@ -307,11 +317,19 @@ async fn session(app: &Shared, conn: &mut Conn, resend_flag: bool) -> std::io::R
                     Ok(msg) => conn.handle(app, &msg),
                     Err(e) if e.to_string() == QUIET_ERROR => {
                         let calm = app.borrow().ready_at.map(|r| r + app.borrow().calm_after);
-                        if calm.is_some_and(|c| now() >= c) {
+                        if calm.is_none_or(|c| now() < c) {
+                            // A fault may still hide the daemon: drop this connection, open
+                            // another.
+                            return Err(e);
+                        }
+                        // A quiet connection is not a settled daemon: one a partition cut can
+                        // miss the daemon's crash, and with it the restart's continuation
+                        // (seeds 2663130, 3000166). Ask the daemon: a dead connection fails
+                        // the call and another is opened; a turn still running, or a prompt
+                        // still queued, is waited for.
+                        if chat_settled(app, conn).await? || now() > GIVE_UP {
                             return Ok(());
                         }
-                        // A fault may still hide the daemon: drop this connection, open another.
-                        return Err(e);
                     }
                     Err(e) => return Err(e),
                 }

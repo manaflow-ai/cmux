@@ -51,3 +51,8 @@ html[data-surface="updated"] body {
 html[data-surface="updated"] #root {
   flex: none;
 }
+/* Dropped at the top of the sidebar's list (updatedCardDrag.ts), the card stands on its view's top
+   edge and the host grows the view downward for its preview. */
+html[data-surface="updated"][data-card-anchor="top"] body {
+  justify-content: flex-start;
+}

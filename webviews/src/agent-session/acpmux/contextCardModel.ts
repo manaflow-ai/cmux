@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Breakdown, BreakdownRow } from "./session-info/ContextSection";
+import type { Breakdown, BreakdownRow } from "./session-info/contextSectionModel";
 
 /// One stretch of the stacked bar, as a share of the whole window (0-100).
 export type ContextSegment = {

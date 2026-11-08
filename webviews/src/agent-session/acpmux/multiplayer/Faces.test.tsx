@@ -5,7 +5,8 @@ import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { AnsweredBy, AuthorChip, PresenceStack, TypingLine } from "./Faces";
+import { setChipHost } from "../chips/host";
+import { AnsweredBy, AuthorChip, Face, PresenceStack, TypingLine } from "./Faces";
 import { ANA, JORDAN, MEI, SAM } from "./people.fixtures";
 
 let dom: JSDOM | undefined;
@@ -99,4 +100,47 @@ test("the typing line names one, two, or several people", () => {
 
 test("answered by names the person", () => {
   expect(render(<AnsweredBy person={MEI} />).textContent).toBe("MAnswered by Mei Lin");
+});
+
+const settle = () =>
+  act(async () => {
+    for (let tick = 0; tick < 6; tick += 1) await Promise.resolve();
+  });
+
+test("an https picture the page cannot load is loaded inline by the host", async () => {
+  const asked: unknown[] = [];
+  setChipHost(async (method, params) => {
+    asked.push([method, params]);
+    return { src: "data:image/png;base64,AAAA" };
+  });
+  try {
+    const host = render(
+      <Face person={{ id: "guest:s.g1", name: "Priya Raman", avatar: "https://a.example/ok.png" }} />,
+    );
+    const img = host.querySelector("img")!;
+    expect(img.getAttribute("src")).toBe("https://a.example/ok.png");
+    expect(img.getAttribute("referrerpolicy")).toBe("no-referrer");
+    // The page's policy refused the link (the app's `img-src data:`): the host loads it, no click spent.
+    await act(async () => void img.dispatchEvent(new dom!.window.Event("error")));
+    await settle();
+    expect(host.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,AAAA");
+    expect(asked).toEqual([["image.load", { src: "https://a.example/ok.png", auto: true }]]);
+  } finally {
+    setChipHost(undefined);
+  }
+});
+
+test("an https picture neither the page nor the host loads draws the initials", async () => {
+  setChipHost(async () => ({ ok: false }));
+  try {
+    const refused = render(
+      <Face person={{ id: "guest:s.g2", name: "Tomás Ortega", avatar: "https://a.example/no.png" }} />,
+    );
+    await act(async () => void refused.querySelector("img")!.dispatchEvent(new dom!.window.Event("error")));
+    await settle();
+    expect(refused.querySelector("img")).toBeNull();
+    expect(refused.querySelector(".cv-face")?.textContent).toBe("T");
+  } finally {
+    setChipHost(undefined);
+  }
 });

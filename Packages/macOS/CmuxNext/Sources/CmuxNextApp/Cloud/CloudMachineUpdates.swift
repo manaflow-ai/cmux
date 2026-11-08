@@ -49,10 +49,10 @@ final class CloudMachineUpdates {
         }
     }
 
-    /// A key that changes with every new daemon connection of `session`: the connection object,
-    /// the daemon process and boot; `refused` while the app refuses its daemon. Nil while none.
+    /// A key that changes with every new live daemon handshake of `session` (``DaemonService/liveIdentity``): the
+    /// connection object, the daemon process and boot; `refused` while the app refuses its daemon. Nil while none.
     static func handshake(_ session: CloudMachineSession, machines: MachineRegistry) -> String? {
-        if let identity = session.daemon.identity, let connection = session.daemon.connection {
+        if let identity = session.daemon.liveIdentity, let connection = session.daemon.connection {
             return "\(ObjectIdentifier(connection)):\(identity.pid):\(identity.generation)"
         }
         return machines.compatibility(of: session.daemon)?.level == .incompatible ? "refused" : nil
@@ -136,12 +136,12 @@ final class CloudMachineUpdates {
         session?.machine.allows(.exec) == true
     }
 
-    /// The machine's daemon as the app sees it: connected (its build and level), refused
-    /// (`incompatible`, no build), or nil.
+    /// The machine's daemon as the app sees it: on a live handshake (its build and level), refused
+    /// (`incompatible`, no build: also a dropped link whose last handshake was refused), or nil.
     static func daemon(of session: CloudMachineSession?, machines: MachineRegistry?) -> CloudMachineUpdateTarget.Daemon? {
         guard let session, let machines else { return nil }
         let level = machines.compatibility(of: session.daemon)?.level
-        if let identity = session.daemon.identity, session.daemon.connection != nil {
+        if let identity = session.daemon.liveIdentity {
             return CloudMachineUpdateTarget.Daemon(build: identity.buildCommit, level: level ?? .current)
         }
         return level == .incompatible ? CloudMachineUpdateTarget.Daemon(build: nil, level: .incompatible) : nil

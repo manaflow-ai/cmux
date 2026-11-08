@@ -1048,6 +1048,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/uploads_keep",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/dispatch",
       "params": true,
       "result": true
@@ -1269,6 +1275,12 @@
     {
       "kind": "request",
       "name": "_acpmux/secret_run",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/elevation_request",
       "params": true,
       "result": true
     },
@@ -2045,6 +2057,8 @@
         "requireFullAccess": true,
         "resend": true,
         "route": true,
+        "senderHarness": true,
+        "senderHarnessChecked": true,
         "spawnToolCallId": true,
         "startLater": true,
         "steer": true,
@@ -4470,8 +4484,15 @@
     "QueuedAuthor": {
       "description": "The person who queued a prompt in a shared chat.",
       "properties": {
+        "avatar": {
+          "description": "Their profile picture (`_meta.provenance` `fromAvatar`, an `https://` URL), left out when\nthey have none (and from an older acpmux).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "id": {
-          "description": "`tailnet:<login>` or `user_…`.",
+          "description": "`tailnet:<login>`, `user_…` or `guest:<share>.<guest>`.",
           "type": "string"
         },
         "name": {
@@ -4584,11 +4605,19 @@
           },
           "type": "array"
         },
+        "inboxNotice": {
+          "default": null,
+          "description": "acpmux's inbox notice of other agents' messages (`_meta.provenance` `inbox_notice`,\n`hub/inbox.rs`): that provenance, `{kind, noticeId, threads}`, so an app draws it as the\nmessages it carries and never as the person's queued prompt, also when it has not read\nits `queued` record (a chat reopened on a recent page). Null for any other prompt, and\nonce edited (an edit drops the provenance)."
+        },
         "prompt": {
           "type": "string"
         },
         "promptId": {
           "type": "string"
+        },
+        "provenance": {
+          "default": null,
+          "description": "Its `_meta.provenance` when it names a sender that is no agent's to act on: another agent's\nmessage the person edited (`editedBy`, still that agent's words to read) or a prompt no\nproof attributes (`unverified`). An app draws its card from it while `fromAgent` is null.\nNull otherwise. Display only, never authority."
         },
         "queuedAt": {
           "format": "uint64",
@@ -4629,8 +4658,10 @@
         "held",
         "heldByStop",
         "images",
+        "inboxNotice",
         "prompt",
         "promptId",
+        "provenance",
         "queuedAt",
         "revision",
         "subagentRetry",

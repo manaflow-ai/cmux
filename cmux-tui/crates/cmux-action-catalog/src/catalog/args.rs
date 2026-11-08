@@ -429,6 +429,8 @@ pub const MACHINE_CONFIG: Argument = Argument { name: "machineConfig", title: t(
 #[rustfmt::skip]
 pub const REPO: Argument = Argument { name: "repo", title: t("Localizable", "argument.repo", "Repository"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
+pub const ENVIRONMENT: Argument = Argument { name: "environment", title: t("Localizable", "argument.environment", "Cloud Environment"), kind: ArgKind::String, required: false, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
+#[rustfmt::skip]
 pub const SNAPSHOT: Argument = Argument { name: "snapshot", title: t("Localizable", "argument.snapshot", "Snapshot"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };
 #[rustfmt::skip]
 pub const CONTENTS: Argument = Argument { name: "contents", title: t("Localizable", "argument.contents", "Contents"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false };

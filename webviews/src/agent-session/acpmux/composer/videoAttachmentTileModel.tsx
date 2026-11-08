@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { callChipHost } from "../chips/host";
-import { VideoViewer, loadPlayableMedia } from "../chips/ReplyMedia";
+import { VideoViewer } from "../chips/ReplyMedia";
+import { loadPlayableMedia } from "../chips/replyMediaModel";
 
 /// Plays the attached video at `path` in the pane: `play` asks the host for its streamed URL
 /// (`media.load`) and opens `viewer`, the large player, playing; a video the host will not grant
