@@ -1,8 +1,8 @@
 //! `cmux carrier serve` end to end, on the same stand-in platform, real
-//! relay and real daemon as `carrier_dial.rs`: each connection to the
-//! served socket is its own carrier dial and its own session, a refused
-//! dial closes only its connection, and the socket is 0600 and gone once
-//! serve exits.
+//! relay and real daemon as `carrier_dial.rs`: the first connection to the
+//! served socket dials the machine's session and every later one rides it
+//! on its own mux stream, a refused dial closes only its connection, and
+//! the socket is 0600 and gone once serve exits.
 #![cfg(target_os = "linux")]
 
 mod carrier_support;
@@ -34,6 +34,10 @@ fn serve(world: &World, socket: &Path) -> Child {
 }
 
 fn serve_with_token(world: &World, socket: &Path, token: &str) -> Child {
+    serve_env(world, socket, token, &[])
+}
+
+fn serve_env(world: &World, socket: &Path, token: &str, env: &[(&str, &str)]) -> Child {
     Command::new(BIN)
         .args(["carrier", "serve", "--machine", MACHINE, "--deadline-ms", "30000"])
         .args(["--socket", socket.to_str().unwrap()])
@@ -41,6 +45,7 @@ fn serve_with_token(world: &World, socket: &Path, token: &str) -> Child {
         .env_clear()
         .env("HOME", world.dir.path())
         .env("CMUX_CLOUD_ACCESS_TOKEN", token)
+        .envs(env.iter().copied())
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -82,7 +87,7 @@ fn connect_log(world: &World) -> String {
 }
 
 #[test]
-fn two_connections_each_get_their_own_session_on_an_owner_only_socket() {
+fn later_connections_ride_the_first_one_s_session_on_an_owner_only_socket() {
     let asked = Arc::new(AtomicUsize::new(0));
     let world = world(200, asked.clone());
     let socket = socket_path(&world);
@@ -93,47 +98,80 @@ fn two_connections_each_get_their_own_session_on_an_owner_only_socket() {
     assert_eq!(mode, 0o600, "the socket is the person's alone");
 
     let mut first = open(&socket);
-    let mut second = open(&socket);
     let a = ask(&mut first, 1);
+    let mut second = open(&socket);
+    let mut third = open(&socket);
     let b = ask(&mut second, 2);
-    assert_ne!(a, b, "each connection is its own session");
-    assert_eq!(ask(&mut first, 3), a, "a connection keeps its session");
-    assert!(asked.load(Ordering::SeqCst) >= 2, "each connection dialed with its own grant");
+    let c = ask(&mut third, 3);
+    assert!(a != b && b != c && a != c, "each connection is its own mux stream");
+    assert_eq!(ask(&mut first, 4), a, "a connection keeps its stream");
+    assert_eq!(asked.load(Ordering::SeqCst), 1, "one dial, one grant, for all three");
 
     drop(child.stdin.take());
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0), "serve ends with its stdin");
     assert!(!socket.exists(), "the socket is removed on exit");
-    assert_served(&mut stderr, None);
-    assert_served(&mut stderr, None);
+    for _ in 0..3 {
+        assert_served(&mut stderr, None);
+    }
     let mut rest = String::new();
     stderr.read_to_string(&mut rest).unwrap();
     assert_eq!(rest, "", "one line per connection and nothing else");
     let log = connect_log(&world);
-    let connects: Vec<_> = log.lines().collect();
-    assert_eq!(connects.len(), 2, "{log}");
-    for route in connects {
+    let routes: Vec<_> = log.lines().filter(|l| l.starts_with("cloud.connect ")).collect();
+    assert_eq!(routes.len(), 1, "{log}");
+    assert!(
+        routes[0].starts_with(&format!(
+            "cloud.connect route=carrier machine={MACHINE} phase=connect outcome=ok ms="
+        )),
+        "{log}"
+    );
+    let phases: Vec<_> = log.lines().filter(|l| l.starts_with("carrier.phases ")).collect();
+    let prefix = format!("carrier.phases machine={MACHINE} phase=");
+    assert_eq!(phases.len(), 3, "{log}");
+    assert!(
+        phases[0].starts_with(&format!("{prefix}connect carrier=relay:0 outcome=ok ")),
+        "{log}"
+    );
+    assert!(phases[0].contains(" lanes="), "{log}");
+    for stream in &phases[1..] {
         assert!(
-            route.starts_with(&format!(
-                "cloud.connect route=carrier machine={MACHINE} phase=connect outcome=ok ms="
-            )),
-            "{route}"
+            stream.starts_with(&format!("{prefix}stream carrier=relay:0 outcome=ok ")),
+            "{log}"
         );
     }
 }
 
 #[test]
+fn an_idle_session_is_closed_and_the_next_connection_dials_again() {
+    let asked = Arc::new(AtomicUsize::new(0));
+    let world = world(200, asked.clone());
+    let socket = socket_path(&world);
+    let mut child = serve_env(&world, &socket, TOKEN, &[("CMUX_CARRIER_SERVE_IDLE_MS", "200")]);
+    let (ready, mut stderr) = first_line(&mut child);
+    assert_eq!(ready["ok"], true, "{ready}");
+    let mut first = open(&socket);
+    ask(&mut first, 1);
+    assert_served(&mut stderr, None);
+    drop(first);
+    std::thread::sleep(Duration::from_millis(1500));
+    let mut later = open(&socket);
+    ask(&mut later, 2);
+    assert_served(&mut stderr, None);
+    assert_eq!(asked.load(Ordering::SeqCst), 2, "the idle session was closed: a new dial");
+    let log = connect_log(&world);
+    assert_eq!(log.lines().filter(|l| l.contains("phase=connect outcome=ok")).count(), 2, "{log}");
+    drop(child.stdin.take());
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+}
+
+#[test]
 fn a_refused_dial_closes_only_its_connection_and_serve_goes_on() {
-    let world = world(200, Arc::new(AtomicUsize::new(0)));
+    let world = world(403, Arc::new(AtomicUsize::new(0)));
     let socket = socket_path(&world);
     let mut child = serve(&world, &socket);
     let (ready, mut stderr) = first_line(&mut child);
     assert_eq!(ready["ok"], true, "{ready}");
 
-    let mut kept = open(&socket);
-    let session = ask(&mut kept, 1);
-    assert_served(&mut stderr, None);
-
-    world.status.store(403, Ordering::SeqCst);
     let mut refused = open(&socket);
     let mut read = Vec::new();
     refused.read_to_end(&mut read).unwrap();
@@ -145,16 +183,24 @@ fn a_refused_dial_closes_only_its_connection_and_serve_goes_on() {
     assert_eq!(failed["error_code"], "ticket", "{failed}");
     assert_eq!(failed["route"], "carrier", "{failed}");
     assert!(failed["error_detail"].as_str().unwrap().contains("auth.forbidden"), "{failed}");
-    assert_eq!(ask(&mut kept, 2), session, "the other connection is untouched");
-
-    world.status.store(200, Ordering::SeqCst);
-    let mut later = open(&socket);
-    ask(&mut later, 3);
     assert!(
         connect_log(&world).contains("phase=connect outcome=ticket"),
         "{}",
         connect_log(&world)
     );
+
+    world.status.store(200, Ordering::SeqCst);
+    let mut kept = open(&socket);
+    let session = ask(&mut kept, 1);
+    assert_served(&mut stderr, None);
+
+    // Once a session is held, a later connection rides it: the platform is
+    // not asked, so its refusal now reaches no one.
+    world.status.store(403, Ordering::SeqCst);
+    let mut later = open(&socket);
+    assert_ne!(ask(&mut later, 2), session, "its own stream");
+    assert_served(&mut stderr, None);
+    assert_eq!(ask(&mut kept, 3), session, "the other connection is untouched");
 
     let pid = i32::try_from(child.id()).unwrap();
     assert_eq!(unsafe { libc::kill(pid, libc::SIGTERM) }, 0);
@@ -271,27 +317,33 @@ fn apply(stdin: &mut std::process::ChildStdin, stderr: &mut BufReader<ChildStder
 }
 
 #[test]
-fn a_carrier_answer_on_stdin_starts_the_next_connection_without_asking_for_it() {
+fn a_carrier_answer_on_stdin_starts_the_next_dial_without_asking_for_it() {
     let asked = Arc::new(AtomicUsize::new(0));
     let world = world(200, asked.clone());
     let socket = socket_path(&world);
-    let mut child = serve(&world, &socket);
+    // A short idle close, so each connection below dials its own session.
+    let mut child = serve_env(&world, &socket, TOKEN, &[("CMUX_CARRIER_SERVE_IDLE_MS", "100")]);
     let (ready, mut stderr) = first_line(&mut child);
     assert_eq!(ready["ok"], true, "{ready}");
+    let idle = || std::thread::sleep(Duration::from_millis(1000));
     // A first connection asks as usual; its ask names this serve's device key.
     let mut first = open(&socket);
     ask(&mut first, 1);
     assert_served(&mut stderr, None);
+    drop(first);
     let device = world.keys.lock().unwrap()[0].clone().expect("a dial asks with its key");
     let mut stdin = child.stdin.take().unwrap();
+    idle();
 
-    // A spare claim's answer has the daemon key: the connection asks nothing.
+    // A spare claim's answer has the daemon key: the dial asks nothing.
     apply(&mut stdin, &mut stderr, &world.answer_line(&device, true));
     let before = asked.load(Ordering::SeqCst);
     let mut spare = open(&socket);
     ask(&mut spare, 2);
     assert_served(&mut stderr, None);
     assert_eq!(asked.load(Ordering::SeqCst), before, "the handed-over answer was enough");
+    drop(spare);
+    idle();
 
     // A fresh create's has none yet: one ticket-only ask for the key while
     // the relay holds the connect, and the handshake is pinned to it.
@@ -301,8 +353,10 @@ fn a_carrier_answer_on_stdin_starts_the_next_connection_without_asking_for_it() 
     assert_served(&mut stderr, None);
     assert_eq!(asked.load(Ordering::SeqCst), before + 1, "one ask, for the daemon key");
     assert_eq!(world.keys.lock().unwrap().last(), Some(&None), "a ticket-only ask mints no grant");
+    drop(fresh);
+    idle();
 
-    // One connection takes it: the next asks as before, with its key.
+    // One dial takes it: the next asks as before, with its key.
     let mut later = open(&socket);
     ask(&mut later, 4);
     assert_served(&mut stderr, None);

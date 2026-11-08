@@ -248,6 +248,22 @@ impl HttpSource {
             None => self.credential.current(),
         }
     }
+
+    /// The person the current credential names ([`token_subject`]).
+    pub(super) fn subject(&self) -> Option<String> {
+        self.current().ok().and_then(|token| token_subject(&token))
+    }
+}
+
+/// The `sub` claim of a JWT credential, read without checking its
+/// signature (the platform checks the credential; this only tells whether a
+/// refreshed credential is the same person's). `None` for anything that is
+/// not a JWT with a string `sub`.
+pub(super) fn token_subject(token: &str) -> Option<String> {
+    let payload = token.split('.').nth(1)?;
+    let bytes = Zeroizing::new(URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).ok()?);
+    let claims: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    claims.get("sub")?.as_str().filter(|sub| !sub.is_empty()).map(str::to_owned)
 }
 
 #[async_trait]
