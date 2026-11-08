@@ -295,3 +295,29 @@ test("a declarative native menu the host refuses opens the page's own at the rig
   expect(menu!.style.left).toBe("40px");
   expect(target.getAttribute("data-popup-open")).toBe("");
 });
+
+test("asChild puts the menu on the child itself: no wrapper, its siblings stay its own", async () => {
+  const ran: string[] = [];
+  const container = installDom();
+  root = createRoot(container);
+  act(() =>
+    root!.render(
+      <div id="row">
+        <ContextMenu asChild items={items(ran)}>
+          <button type="button" id="target">
+            Send
+          </button>
+        </ContextMenu>
+        <span id="mic" />
+      </div>,
+    ),
+  );
+  const target = container.querySelector<HTMLElement>("#target")!;
+  expect(target.parentElement?.id).toBe("row");
+  expect(container.querySelector("#row > #target + #mic")).not.toBeNull();
+  expect(container.querySelector(".ui-context-menu-host")).toBeNull();
+  await rightClick(target);
+  expect(document.querySelector(".ui-context-menu")).not.toBeNull();
+  act(() => document.querySelector<HTMLElement>('[role="menuitem"]')!.click());
+  expect(ran).toEqual(["rename"]);
+});

@@ -1,9 +1,5 @@
-/* The send button's menu (SendMenu.tsx). Its hosts draw no box: the composer's action slot lays
-   out Send itself, as before the menu. */
-.acpmux-send-menu,
-.acpmux-send-menu-press {
-  display: contents;
-}
+/* The send button's menu (SendMenu.tsx). It draws no element around Send: the composer's action
+   slot lays out Send itself, as before the menu. */
 
 /* Each row's key on the menu's right edge, one column for every row (as the queued row's menu,
    composerStates.css .acpmux-queued-more). */

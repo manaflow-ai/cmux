@@ -2,8 +2,15 @@
 // (Send, Queue for later, Send in side chat), each with the key that sends it that way from the
 // prompt (sendMenuModel.ts). It is the house context menu (ui/ContextMenu), so in the app the host
 // draws it natively with the same rows and shortcut text, and Shift-F10 or the context-menu key on
-// a focused Send opens it too. Only Send itself is wrapped: Stop has no menu.
-import { useEffect, useRef, type ReactNode } from "react";
+// a focused Send opens it too. Only Send has the menu: Stop has none.
+import {
+  cloneElement,
+  useEffect,
+  useRef,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent,
+  type ReactElement,
+} from "react";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { contextDescription } from "../../../ui/popupDescriptors";
 import { experimentArm } from "../../../experiments/experiment";
@@ -24,7 +31,8 @@ export function SendMenu({
   /** The rows, in order (sendMenuChoices); none keeps the slot's ordinary right-click. */
   choices: readonly SendChoice[];
   onChoose(choice: SendChoice): void;
-  children: ReactNode;
+  /** Send itself. It takes the menu's handlers and stays where it was, no wrapper around it. */
+  children: ReactElement<SendPress>;
 }) {
   const t = useT();
   const look = experimentArm(sendMenuLook);
@@ -72,46 +80,48 @@ export function SendMenu({
       ...(look === "icons" ? { icon: SEND_ICONS[choice] } : {}),
     })),
   );
+  const onPointerDown = (event: PointerEvent<Element>) => {
+    pressed.current = false;
+    stopTimer();
+    if (event.button !== 0 || items.length === 0) return;
+    const target = event.target as Element;
+    const at = { clientX: event.clientX, clientY: event.clientY };
+    timer.current = setTimeout(() => {
+      timer.current = undefined;
+      if (!target.isConnected) return;
+      pressed.current = true;
+      // The same path as a right-click at the pointer, so the menu opens where it is held.
+      target.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, ...at }));
+    }, LONG_PRESS_MS);
+  };
+  const onClickCapture = (event: ReactMouseEvent<Element>) => {
+    const longPress = pressed.current;
+    pressed.current = false;
+    // A click from the keys (detail 0) never ends a press: Return or Space on Send sends.
+    if (!longPress || event.detail === 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+  };
   return (
-    <ContextMenu
-      className="acpmux-send-menu"
-      popupClassName="acpmux-send-menu-popup"
-      items={items}
-      selection="menu"
-      native={{ model }}
-    >
-      {/* The press's own wrapper (display: contents): the slot's layout sees Send alone. */}
-      {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- relays Send's own press. */}
-      <span
-        className="acpmux-send-menu-press"
-        onPointerDown={(event) => {
-          pressed.current = false;
-          stopTimer();
-          if (event.button !== 0 || items.length === 0) return;
-          const target = event.target as Element;
-          const at = { clientX: event.clientX, clientY: event.clientY };
-          timer.current = setTimeout(() => {
-            timer.current = undefined;
-            if (!target.isConnected) return;
-            pressed.current = true;
-            // The same path as a right-click at the pointer, so the menu opens where it is held.
-            target.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, ...at }));
-          }, LONG_PRESS_MS);
-        }}
-        onPointerUp={stopTimer}
-        onPointerLeave={stopTimer}
-        onPointerCancel={stopTimer}
-        onClickCapture={(event) => {
-          const longPress = pressed.current;
-          pressed.current = false;
-          // A click from the keys (detail 0) never ends a press: Return or Space on Send sends.
-          if (!longPress || event.detail === 0) return;
-          event.preventDefault();
-          event.stopPropagation();
-        }}
-      >
-        {children}
-      </span>
+    // Send keeps its own place in the composer's action slot (Send right before the mic), as
+    // before the menu: the menu and the press add handlers to it, no element around it.
+    <ContextMenu asChild popupClassName="acpmux-send-menu-popup" items={items} selection="menu" native={{ model }}>
+      {cloneElement(children, {
+        onPointerDown,
+        onPointerUp: stopTimer,
+        onPointerLeave: stopTimer,
+        onPointerCancel: stopTimer,
+        onClickCapture,
+      })}
     </ContextMenu>
   );
 }
+
+/** The press handlers SendMenu puts on Send. */
+type SendPress = {
+  onPointerDown?(event: PointerEvent<Element>): void;
+  onPointerUp?(): void;
+  onPointerLeave?(): void;
+  onPointerCancel?(): void;
+  onClickCapture?(event: ReactMouseEvent<Element>): void;
+};
