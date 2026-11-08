@@ -185,6 +185,9 @@ extension ScreenContentView {
             return (rank(view) * 2 + (closing ? 0 : 1)) * 100_000 + index
         }
         guard ranks != ranks.sorted() else { return }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        MotionTrace.interval("zk.tree.sort") {}
+        #endif
         let table = StackingTable(ranks: Dictionary(uniqueKeysWithValues: zip(subviews.map(ObjectIdentifier.init), ranks)))
         withExtendedLifetime(table) {
             sortSubviews(compareStacking, context: Unmanaged.passUnretained(table).toOpaque())
