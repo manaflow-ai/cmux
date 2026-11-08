@@ -112,12 +112,30 @@ public nonisolated struct CLIPathCheck: Equatable, Sendable {
     public var runsThisApp: Bool { status == .thisApp }
 
     /// Where Replace points `cmux` at this app: the entry that runs (or
-    /// dangles) instead, else the plain install's place.
+    /// dangles) instead, else the plain install's place. Never a file inside
+    /// an app bundle (a PATH folder in another app's Contents): replacing it
+    /// would break that app's signature and its own CLI.
     public var replaceDestination: URL {
+        guard let entry, !entryIsInsideApp else { return installDestination }
         switch status {
-        case .otherApp, .foreign, .dangling: entry ?? installDestination
-        case .thisApp, .missing: installDestination
+        case .otherApp, .foreign, .dangling: return entry
+        case .thisApp, .missing: return installDestination
         }
+    }
+
+    /// The entry is a file inside an `.app` (its PATH folder is in a bundle),
+    /// not a link a person or an installer put in a bin folder.
+    public var entryIsInsideApp: Bool {
+        entry.map { Self.appBundle(containing: $0.path) != nil } ?? false
+    }
+
+    /// What Uninstall removes: /usr/local/bin/cmux, as before, and the link
+    /// on PATH that runs this app when it is elsewhere (a repointed
+    /// /opt/homebrew/bin/cmux).
+    public var uninstallDestinations: [URL] {
+        let standard = CLIPathInstaller.Name.cmux.destination
+        guard status == .thisApp, let entry, entry != standard, !entryIsInsideApp else { return [standard] }
+        return [standard, entry]
     }
 
     /// Whether `id` is a cmux app's bundle identifier (classic, NIGHTLY, a DEV build).

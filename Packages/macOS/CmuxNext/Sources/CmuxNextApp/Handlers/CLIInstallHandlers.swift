@@ -27,9 +27,10 @@ enum CLIInstallHandlers {
         registry.bind("palette.uninstallCLI", run: { _ in
             let window = context.activeWindow?.window
             Task { // task-owner: one uninstall, ended by its toast
-                do {
-                    let outcome = try await CLIPathInstaller().uninstall()
-                    show(CLIInstallReport.uninstalled(outcome).message, in: window)
+                do { // /usr/local/bin/cmux, and the link on PATH that runs this app when it is elsewhere
+                    var outcomes: [CLIPathInstaller.UninstallOutcome] = []
+                    for path in await pathCheck(CLIPathInstaller().source).uninstallDestinations { outcomes.append(try await CLIPathInstaller(destination: path).uninstall()) }
+                    show(CLIInstallReport.uninstalled(outcomes).message, in: window)
                 } catch {
                     show(CLIInstallReport.failed(installing: false, error), in: window)
                 }
@@ -51,7 +52,7 @@ enum CLIInstallHandlers {
         let replaceCmux: @MainActor () -> Void = { Task { @MainActor in await install(.cmux, replacing: true, in: window) } }
         do {
             let path = try await CLIPathInstaller(destination: plan.destination).install(replacing: plan.replaces).destination.path
-            guard name == .cmux else { return show(CLIInstallReport.installed(path: path).message, in: window) }
+            guard name == .cmux else { show(CLIInstallReport.installed(path: path).message, in: window); return }
             let after = await pathCheck(source)
             if after.runsThisApp {
                 show((plan.repointedFrom.map { CLIInstallReport.repointed(path: path, from: $0) } ?? CLIInstallReport.installed(path: path)).message, in: window)
@@ -71,7 +72,7 @@ enum CLIInstallHandlers {
                 show(CLIInstallReport.failed(installing: true, error), action: replace, in: window, run: replaceCmux)
             }
         } catch let failure as CLIPathInstaller.Failure {
-            guard case .occupied = failure else { return show(CLIInstallReport.failed(installing: true, failure), in: window) }
+            guard case .occupied = failure else { show(CLIInstallReport.failed(installing: true, failure), in: window); return }
             show(CLIInstallReport.failed(installing: true, failure), action: replace, in: window) {
                 Task { @MainActor in await install(name, replacing: true, in: window) }
             }
@@ -80,17 +81,15 @@ enum CLIInstallHandlers {
         }
     }
 
-    /// Once per app channel, after the first-run steps: the first launch at which `cmux` in a new
-    /// shell would not run this app offers the fix (`CLIInstallReport.launchOffer`). Never in Debug
-    /// (DEV) builds or captures. Classic's link is named as classic's and replaced only on a click.
+    /// Once per channel, after the first-run steps, the first launch whose `cmux` would not run this app offers the fix
+    /// (`CLIInstallReport.launchOffer`); remembered once shown. Never in Debug (DEV) builds or captures.
     @MainActor static func offerAtLaunch(skipsOnboarding: Bool, defaults: UserDefaults = .standard) async {
         #if !DEBUG
         guard !skipsOnboarding, !defaults.bool(forKey: offeredAtLaunchKey), Bundle.main.bundleIdentifier?.contains(".debug") != true,
               let offer = CLIInstallReport.launchOffer(await pathCheck(CLIPathInstaller().source)) else { return }
-        defaults.set(true, forKey: offeredAtLaunchKey)
-        show(offer.report.message, action: CmuxToast.Action(title: offer.button.title), in: nil) {
+        if show(offer.report.message, action: CmuxToast.Action(title: offer.button.title), in: nil, run: {
             Task { @MainActor in await install(.cmux, replacing: offer.replacing, in: nil) }
-        }
+        }) { defaults.set(true, forKey: offeredAtLaunchKey) }
         #endif
     }
 
@@ -99,16 +98,16 @@ enum CLIInstallHandlers {
         await CLIPathCheck.current(path: LoginEnvironment.shared.rememberedPath(), source: source)
     }
 
-    /// A toast on the window (else the key or main window); a long one with
-    /// an action stays 12 s.
-    @MainActor private static func show(_ message: String, action: CmuxToast.Action? = nil, in window: NSWindow?,
-                                        run: (@MainActor () -> Void)? = nil) {
+    /// A toast on the window (else the key or main window), false with none; one with an action stays 12 s.
+    @discardableResult @MainActor private static func show(_ message: String, action: CmuxToast.Action? = nil, in window: NSWindow?,
+                                                           run: (@MainActor () -> Void)? = nil) -> Bool {
         guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else {
             Logger(subsystem: "com.cmuxterm.app.next", category: "cli.install").info("cli install result with no window: \(message, privacy: .public)")
-            return
+            return false
         }
         let toast = CmuxToast(id: toastID, message: message, action: action, duration: .seconds(action == nil ? 6 : 12))
         let handle = CmuxToastCenter.shared.show(toast, in: window)
         handle.onAction = run
+        return true
     }
 }

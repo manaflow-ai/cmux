@@ -50,7 +50,8 @@ public nonisolated enum CLIInstallReport: Equatable, Sendable {
     case shadowed(path: String, entry: String, classic: Bool)
     /// Installed at `path`, whose folder is not on the login PATH.
     case notOnPath(path: String)
-    case uninstalled(CLIPathInstaller.UninstallOutcome)
+    /// Each link Uninstall looked at (``CLIPathCheck/uninstallDestinations``).
+    case uninstalled([CLIPathInstaller.UninstallOutcome])
     /// At launch: no `cmux` on PATH.
     case offerMissing
     /// At launch: `entry` links to `target`, an app that is gone.
@@ -69,7 +70,10 @@ public nonisolated enum CLIInstallReport: Equatable, Sendable {
         case .thisApp, .foreign: return nil
         case .missing: return (.offerMissing, .install, false)
         case .dangling(let target): return (.offerDangling(entry: entry, target: target), .repoint, false)
-        case .otherApp(let bundle, let classic): return (.offerOther(entry: entry, bundle: bundle, classic: classic), .replace, true)
+        case .otherApp(let bundle, let classic) where !check.entryIsInsideApp:
+            return (.offerOther(entry: entry, bundle: bundle, classic: classic), .replace, true)
+        // A CLI inside another app's bundle on PATH is never replaced, so there is nothing to offer.
+        case .otherApp: return nil
         }
     }
 
@@ -89,10 +93,12 @@ public nonisolated enum CLIInstallReport: Equatable, Sendable {
             Self.format("cli.toast.shadowed", "Installed at %1$@, but %2$@ comes first on PATH, so `cmux` runs that one.", path, entry)
         case .notOnPath(let path):
             Self.format("cli.toast.notOnPath", "Installed at %@, but its folder is not on your shell's PATH.", path)
-        case .uninstalled(let outcome):
-            outcome.removedExistingEntry
-                ? Self.format("cli.uninstall.removed", "Removed %@.", outcome.destination.path)
-                : Self.format("cli.uninstall.notFound", "No cmux CLI symlink was found at %@.", outcome.destination.path)
+        case .uninstalled(let outcomes):
+            outcomes.contains(where: \.removedExistingEntry)
+                ? Self.format("cli.uninstall.removed", "Removed %@.",
+                              outcomes.filter(\.removedExistingEntry).map(\.destination.path).formatted(.list(type: .and)))
+                : Self.format("cli.uninstall.notFound", "No cmux CLI symlink was found at %@.",
+                              outcomes.first?.destination.path ?? CLIPathInstaller.Name.cmux.destination.path)
         case .offerMissing:
             Self.text("cli.offer.missing", "No `cmux` command in Terminal. Install the cmux CLI in PATH?")
         case .offerDangling(let entry, let target):

@@ -63,4 +63,24 @@ struct CLIInstallPlanTests {
         #expect(offer.button == .install)
         #expect(!offer.replacing)
     }
+
+    @Test func anotherAppsBinFolderOnPathIsNeverReplacedOrOffered() throws {
+        let scratch = try Scratch()
+        let bin = scratch.classicCLI.deletingLastPathComponent()
+        let check = CLIPathCheck(path: "\(bin.path):\(scratch.late.path)", source: scratch.source)
+        #expect(check.status.isClassic)
+        #expect(check.entryIsInsideApp)
+        #expect(check.replaceDestination == check.installDestination)
+        #expect(CLIInstallPlan(name: .cmux, replacing: true, check: check).destination != scratch.classicCLI)
+        #expect(CLIInstallReport.launchOffer(check) == nil)
+    }
+
+    @Test func uninstallAlsoRemovesThisAppsLinkWhereItRuns() throws {
+        let scratch = try Scratch()
+        try scratch.link(scratch.early, to: scratch.source.path)
+        #expect(scratch.check().uninstallDestinations == [CLIPathInstaller.Name.cmux.destination, scratch.early.appendingPathComponent("cmux")])
+        let classic = try Scratch()
+        try classic.link(classic.early, to: classic.classicCLI.path)
+        #expect(classic.check().uninstallDestinations == [CLIPathInstaller.Name.cmux.destination])
+    }
 }
