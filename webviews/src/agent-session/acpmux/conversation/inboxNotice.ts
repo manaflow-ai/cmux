@@ -226,11 +226,12 @@ export function inboxCounts(notice: InboxNotice): { messages: number; senders: s
 /// A thread's newest sender: its newest message's, else its last named.
 const newestFrom = (thread: InboxThread): string => thread.messages?.at(-1)?.from ?? thread.from.at(-1) ?? "";
 
-/// A thread's sender as acpmux identified it: its session id, else its record's label.
-const senderIdentity = (thread: InboxThread) => ({
-  session: thread.sender?.session || thread.fromSession,
-  label: thread.sender?.label,
-});
+/// A thread's sender as acpmux identified it: its session id, else its record's label, from the
+/// thread's record, else its newest message's own (acpmux may name it only there).
+const senderIdentity = (thread: InboxThread) => {
+  const record = thread.sender ?? thread.messages?.at(-1)?.sender;
+  return { session: record?.session || thread.fromSession, label: record?.label };
+};
 
 /// Whether the later thread's newest sender is the earlier one's own chat, not only its name: the
 /// later one names no identity of its own, or both name the same session (else the same record).
@@ -264,12 +265,15 @@ export function joinNotices(first: InboxNotice, later: InboxNotice): InboxNotice
       promptIds: [...held.promptIds, ...next.promptIds],
     };
     // The later notice names the newest sender; when it is the earlier one's own chat and says less
-    // of it, the earlier one's record, session, family and unverified mark still hold.
+    // of it, the earlier one's record, session, family and unverified mark still hold. A record of
+    // its own (the thread's, or its newest message's) says whether that sender is verified, so the
+    // earlier mark never reaches a newest message its own notice did not mark (cmux#38642 review).
     if (sameSender(held, next)) {
       if (!next.sender && held.sender) joined.sender = held.sender;
       if (!next.fromSession && held.fromSession) joined.fromSession = held.fromSession;
       if (!next.fromHarness && held.fromHarness) joined.fromHarness = held.fromHarness;
-      if (!next.unverified && held.unverified && !next.sender) joined.unverified = held.unverified;
+      const ownRecord = next.sender ?? next.messages?.at(-1)?.sender;
+      if (!next.unverified && held.unverified && !ownRecord) joined.unverified = held.unverified;
     }
     if (held.sentFrom || next.sentFrom) joined.sentFrom = { ...held.sentFrom, ...next.sentFrom };
     // Whole only when both notices held their messages whole.
