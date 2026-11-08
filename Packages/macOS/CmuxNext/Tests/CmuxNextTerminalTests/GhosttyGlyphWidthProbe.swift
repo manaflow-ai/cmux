@@ -1,5 +1,6 @@
 import CoreText
 import Foundation
+@testable import CmuxNextTerminal
 
 /// A CI-runnable probe for the metrics Ghostty uses for terminal cells.
 /// It measures the chosen face and CoreText's fallback face rather than an AppKit label: a
