@@ -101,7 +101,7 @@ public final class PairInviteCardProvider: WebCard {
         generation += 1
         stopSocket()
         // A result from this opening never greets the next one.
-        approver.perform(.cancel)
+        approver.dismissApproval()
         (mint, failure, invite, frames, arrivedCode, typedName) = (.idle, nil, nil, [], nil, nil)
         changed()
     }
@@ -115,7 +115,7 @@ public final class PairInviteCardProvider: WebCard {
         generation += 1
         let mine = generation
         // A new code starts clean: the last machine's result or refusal never shows on it.
-        approver.perform(.cancel)
+        approver.dismissApproval()
         (mint, failure, invite, frames, arrivedCode, typedName) = (.minting, nil, nil, [], nil, nil)
         changed()
         let result = await service.mint()
