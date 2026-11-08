@@ -30,7 +30,9 @@ struct TabStripMove {
     /// A reveal's scroll spring: it moves every layer alike and carries no closing tab.
     var isScroll = false
     /// The media time every animation of the change starts at (set on each, so `MotionPath` sums the
-    /// moves in flight exactly; Core Animation would otherwise start them at the commit).
+    /// moves in flight exactly; Core Animation would otherwise start them at the commit). The strip sets it to the
+    /// first frame that can show the change (`MotionFrameClock`) when it writes the frames, so that frame shows the
+    /// change at its start and the next one curve(1 refresh) (Chrome: an animation starts at its first frame's time).
     var begin = CACurrentMediaTime()
 
     /// Key prefix of every animation a strip move adds (`cancel(_:)`).
@@ -110,9 +112,10 @@ struct TabStripMove {
         return moved
     }
 
-    /// Adds `animation` under this move's key `name`, starting at `begin`.
+    /// Adds `animation` under this move's key `name`, starting at `begin`; it holds its start until then.
     func add(_ animation: CAAnimation, to layer: CALayer, as name: String) {
         animation.beginTime = layer.convertTime(begin, from: nil)
+        animation.fillMode = animation.fillMode == .forwards || animation.fillMode == .both ? .both : .backwards
         layer.add(animation, forKey: key + name)
     }
 

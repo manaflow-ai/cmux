@@ -51,12 +51,12 @@ struct SidebarPinFlight {
         for layer in revealed.compactMap(\.layer) { SidebarDragSpring.appear(layer, token, now: now) }
     }
 
-    /// The begin of a move with flights: the first frame that can show it, one refresh of `view`'s screen from now
-    /// (a frame already due shows no change made after its commit). Before it the springs hold their start
-    /// (`fillMode` backwards), so the first frame that shows the change shows the workspace where it was, at rest.
-    static func begin(in view: NSView, now: CFTimeInterval = CACurrentMediaTime()) -> CFTimeInterval {
-        let refresh = view.window?.screen?.minimumRefreshInterval ?? 1.0 / 60
-        return now + (refresh > 0 ? refresh : 1.0 / 60)
+    /// The begin of a move with flights: the begin-frame time of the first frame that can show it, the next vsync of
+    /// `view`'s display (`MotionFrameClock`; `clock` for tests). That frame shows the workspace where it was, and the
+    /// next one curve(1 refresh), however far into a refresh the change was made. Before it the springs hold their
+    /// start (`fillMode` backwards).
+    static func begin(in view: NSView, clock: MotionFrameClock? = nil) -> CFTimeInterval {
+        (clock ?? MotionFrameClock.forView(view)).firstFrameBegin()
     }
 }
 

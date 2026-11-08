@@ -1743,3 +1743,5 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   workspace vanished at once.
   Then a flying list row keeps its opaque ground through its own display pass (`SidebarRowView.flightGround`: the fill is
   painted over the ground, opaque); the p1j films showed the passed titles through a flying selected row.
+  Then the pin flight begins on the display's frame grid: the next vsync after the apply (`MotionFrameClock`, the
+  window's `FrameScheduler` grid; one refresh on with none), so the first moved frame shows curve(1 refresh) on any phase.

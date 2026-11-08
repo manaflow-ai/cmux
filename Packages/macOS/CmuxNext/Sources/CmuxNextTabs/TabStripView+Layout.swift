@@ -304,6 +304,9 @@ extension TabStripView {
     /// of each move runs under its own key (`TabStripMove.addScroll`), so a wheel ends it alone.
     func applyFrames(move: TabStripMove? = nil, scrollFrom: TabScrollMapping? = nil) {
         rowPasses.frames &+= 1
+        // The curve starts at the first frame that can show the change, read as late as the frames are written.
+        var move = move
+        move?.begin = (frameClock ?? MotionFrameClock.forView(self)).firstFrameBegin()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if let move {

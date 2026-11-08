@@ -171,7 +171,7 @@ struct RowMotion {
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { springsEnded() } } // main-proof: CATransaction.h: the completion block is called on the main thread
         // A pin's or an unpin's move begins on the first frame that can show it, and every view in it (the flight,
         // the rows it passes) is read and starts at that one instant: no step off the leaving view, one progress.
-        let begin = flights.isEmpty ? nil : SidebarPinFlight.begin(in: list)
+        let begin = flights.isEmpty ? nil : SidebarPinFlight.begin(in: list, clock: list.frameClock)
         SidebarDragSpring.move(frames.map { ($0.0 as NSView, $0.1) } + companions, in: list, token, travel: travel, begin: begin)
         if let begin, SidebarDragSpring.animates(in: list) {
             for flight in flights { flight.start(token, now: begin) }
