@@ -301,20 +301,21 @@ final class OverlayDialogProvider: PageProvider, CmuxDialogRendering {
 
 /// One shown dialog: the window's glass at the card's rect, under the transparent overlay page that
 /// draws the card's contents. The page in the overlay panel cannot blur the window under it, so the
-/// glass (Liquid Glass, opaque under Reduce Transparency) stays the window's own.
+/// card's glass and shadow (``OverlayDialogCard``: the blur of what is behind the window, opaque under
+/// Reduce Transparency) are native.
 @MainActor
 final class OverlayDialogView: NSView {
     let page: PageWebView
-    private let glass: OverlaySurfaceView
+    /// The card's glass, under the page.
+    let card: OverlayDialogCard
 
     init(page: PageWebView, activeLook: ActiveLookScope?) {
         self.page = page
-        // The card keeps the key-window glass: its panel gives key back as the close fade starts.
-        glass = Glass.makeSurface(.sheet, content: NSView(), activeLook: activeLook)
+        card = OverlayDialogCard(activeLook: activeLook)
         super.init(frame: .zero)
-        glass.isHidden = true
-        glass.translatesAutoresizingMaskIntoConstraints = true
-        addSubview(glass)
+        card.isHidden = true
+        card.translatesAutoresizingMaskIntoConstraints = true
+        addSubview(card)
         page.removeFromSuperview()
         page.frame = bounds
         page.autoresizingMask = [.width, .height]
@@ -327,8 +328,8 @@ final class OverlayDialogView: NSView {
 
     /// The card's rect in this view, as the page laid it out: the glass goes there, in the same frame.
     func placeCard(_ rect: CGRect) {
-        glass.frame = rect
-        glass.isHidden = false
+        card.frame = rect
+        card.isHidden = false
     }
 
     private var offScreen: (() -> Void)?
