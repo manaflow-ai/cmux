@@ -26,7 +26,7 @@ public final class HistoryWriteQueue<Client: Sendable> {
     /// The write being sent: never dropped for room.
     private var sending: UInt64?
     private var draining: Task<Void, Never>?
-    private var backoff: Backoff
+    private let backoff: Backoff
     private let retryable: @Sendable (any Error) -> Bool
     private let client: @MainActor () async -> Client?
 
@@ -59,6 +59,7 @@ public final class HistoryWriteQueue<Client: Sendable> {
 
     private func drain() async {
         defer { draining = nil }
+        var backoff = self.backoff
         while let item = items.first {
             sending = item.id
             guard let client = await client() else {
