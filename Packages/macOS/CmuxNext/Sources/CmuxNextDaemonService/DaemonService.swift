@@ -326,11 +326,14 @@ public final class DaemonService {
     /// socket (``DaemonEndpoint/bridge``). `onEnd` runs on each drop (EOF, heartbeat).
     /// `stream`: the route for every other connection to that daemon (``remoteEndpoint``), when
     /// asking `endpoint` again means this connection dropped (a Cloud app link's ticket); nil uses `endpoint`.
+    /// `handshake`: a longer deadline for each handshake and for the first connection (a Cloud carrier's
+    /// dial of a cold machine); nil keeps the request deadline and ``startupDeadline``.
     public func start(remote endpoint: @escaping @Sendable () async throws -> String, bridge: DaemonBridge? = nil,
                requiredCapabilities: [String] = DaemonCapability.required,
                admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil, onEnd: (@MainActor () -> Void)? = nil,
-               stream: (@Sendable () async throws -> String)? = nil) {
+               stream: (@Sendable () async throws -> String)? = nil, handshake: Duration? = nil) {
         guard runTask == nil, !policyBlock.isBlocked else { return }
+        if let handshake { startupDeadline = max(startupDeadline, handshake) }
         let streamEndpoint = stream ?? endpoint
         remoteEndpoint = { DaemonEndpoint(socketPath: try await streamEndpoint()) }
         let store = store
@@ -349,6 +352,7 @@ public final class DaemonService {
         var configuration = DaemonConnection.Configuration(requiredCapabilities: requiredCapabilities,
                                                            retryWake: wake, terminalEnvironment: nil, sessionEvents: true)
         configuration.echoesPlacementShift = echoesPlacementShift
+        configuration.handshakeTimeout = handshake
         runTask = Task { [weak self, drainScheduler, logger, configuration] in
             weak let weakSelf = self
             var ends = RetryPacer(.firstConnect)
@@ -645,6 +649,8 @@ public final class DaemonService {
         keptLayoutRelaunch = nil
         let connected = connection
         connection = nil
+        // No first connection follows a teardown: whoever waits for one goes on without it.
+        resumeConnectionWaiters()
         return connected
     }
 }

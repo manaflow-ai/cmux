@@ -176,7 +176,7 @@ fn send_command(global: &GlobalArgs, request: &SendRequest) -> i32 {
                     humantime(request.timeout)
                 );
             } else if receipt["state"] == "waiting-for-input" {
-                eprintln!("cmux: the agent now waits on a dialog (agents_dialog_list shows it)");
+                eprintln!("cmux: the agent now waits on a dialog (terminal screen read shows it)");
             }
         }
         OutputMode::Quiet => {}

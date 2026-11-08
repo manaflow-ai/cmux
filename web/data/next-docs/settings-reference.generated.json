@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 610,
+  "count": 614,
   "sections": [
     {
       "id": "general",
@@ -2007,6 +2007,45 @@
           ]
         },
         {
+          "key": "agentPane.display.senderIcon.badge",
+          "title": "Sender Badge",
+          "help": "The small colored glyph on a sender's icon that tells sessions of one model family apart.",
+          "kind": "choice",
+          "default": "diamond",
+          "group": "Agent Chat",
+          "values": [
+            "diamond",
+            "robot",
+            "none"
+          ]
+        },
+        {
+          "key": "agentPane.display.senderIcon.corner",
+          "title": "Sender Badge Corner",
+          "help": "Where the small glyph sits on a sender's icon.",
+          "kind": "choice",
+          "default": "bottom-right",
+          "group": "Agent Chat",
+          "values": [
+            "bottom-right",
+            "bottom-left",
+            "top-right",
+            "top-left"
+          ]
+        },
+        {
+          "key": "agentPane.display.senderIcon.lead",
+          "title": "Sender Icon Emphasis",
+          "help": "Which is big in a sender's icon: the model family's mark, or the session's own colored badge.",
+          "kind": "choice",
+          "default": "family",
+          "group": "Agent Chat",
+          "values": [
+            "family",
+            "session"
+          ]
+        },
+        {
           "key": "agentPane.display.sessionInfo.placement",
           "title": "Session Info",
           "help": "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
@@ -3654,6 +3693,20 @@
           ]
         },
         {
+          "key": "sidebar.groupGradient",
+          "title": "Group Gradient",
+          "help": "The gradient that Group Colors set to Gradient steps through: each colored group takes the color at its place in the list, so neighbors step through it and a group you move recolors.",
+          "kind": "choice",
+          "default": "sunset",
+          "group": "Sidebar",
+          "values": [
+            "sunset",
+            "aurora",
+            "lagoon",
+            "twoTone"
+          ]
+        },
+        {
           "key": "sidebar.groupHeader.background",
           "title": "Group Background",
           "help": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.",
@@ -3685,7 +3738,7 @@
         {
           "key": "sidebar.groupPalette",
           "title": "Group Colors",
-          "help": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked.",
+          "help": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient.",
           "kind": "choice",
           "default": "glass",
           "group": "Sidebar",
@@ -3694,7 +3747,8 @@
             "theme",
             "wallpaper",
             "grayscale",
-            "vibrant"
+            "vibrant",
+            "gradient"
           ]
         },
         {

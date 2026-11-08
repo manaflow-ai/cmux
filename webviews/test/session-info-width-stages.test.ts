@@ -20,7 +20,7 @@ import {
   sessionInfoPopover,
   sessionInfoStage,
   type SessionInfoPlacement,
-} from "../src/agent-session/acpmux/session-info/SessionInfo";
+} from "../src/agent-session/acpmux/session-info/sessionInfoModel";
 import { SESSION_INFO_WIDTH } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 import { transcriptColumn } from "../src/agent-session/acpmux/model";
 import type { ChatColumn } from "../src/agent-session/acpmux/chatWidth";
