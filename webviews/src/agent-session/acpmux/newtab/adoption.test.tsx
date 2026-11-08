@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import type { NewTabHost } from "../NewTabPage";
+import type { NewTabHost } from "../newTabModel";
 import { EMPTY_OMNIBAR } from "../omnibar";
 import {
   injectedNewTabContext,

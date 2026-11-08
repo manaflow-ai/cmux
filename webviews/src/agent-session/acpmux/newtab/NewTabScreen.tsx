@@ -8,7 +8,7 @@ import { useScrollEdges } from "../../../ui/scrollEdges";
 import type { ConnectKind } from "../environments";
 import type { CloudMachine } from "../cloudMachines";
 import { isActive, type Dictation, type DictationField } from "../dictation";
-import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
+import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../newTabModel";
 import { acpmuxPerf } from "../perf";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, stepSelection, type OmnibarContext } from "../omnibar";
@@ -18,8 +18,10 @@ import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
-import { BrowseFailure, browseFailureMessage } from "../BrowseFailure";
-import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "../AddProjectPanel";
+import { BrowseFailure } from "../BrowseFailure";
+import { browseFailureMessage } from "../browseFailureModel";
+import { type BrowseRequest } from "../AddProjectPanel";
+import { BROWSE_BUSY, type BrowseResult } from "../addProjectPanelModel";
 import { errorMessage, isStartCancelled } from "../transportErrors";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
@@ -35,19 +37,17 @@ import {
 } from "../attachments";
 import { composerCommand } from "../cmuxCommands";
 import type { UploadResult } from "../cloudUploads";
-import {
-  AttachmentStrip,
-  backspacedAttachment,
-  useAttachmentIntake,
-  useSendWhenAttached,
-} from "../composer/attachmentIntake";
+import { AttachmentStrip } from "../composer/attachmentIntake";
+import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "../composer/attachmentIntakeModel";
 import { isPasteAsPlainTextKey, usePastedChips } from "../composer/pastedChips";
 import { DropOverlay } from "../composer/DropOverlay";
-import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
+import { AllChatsList } from "./AllChatsList";
+import { type LoadChatsPage } from "./allChatsListModel";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
-import { type NowPlayingCommand, NowPlayingPlayer } from "./NowPlayingPlayer";
+import { NowPlayingPlayer } from "./NowPlayingPlayer";
+import { type NowPlayingCommand } from "./nowPlayingPlayerModel";
 import { ArrowUpIcon } from "../ComposerPickers";
 import { Spinner } from "../conversation/icons";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
@@ -84,7 +84,8 @@ import {
   type PageWidgets,
   type WidgetEdit,
 } from "./pageWidgets";
-import { useWidgetEditing, WidgetEditBar, WidgetFrame } from "./WidgetEditing";
+import { WidgetEditBar, WidgetFrame } from "./WidgetEditing";
+import { useWidgetEditing } from "./widgetEditingModel";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { AmbientWidgets } from "./AmbientWidgets";
@@ -103,7 +104,7 @@ import { tabsToComposer } from "../composerFocus";
 import { useEscapingPopup } from "../../../ui/popupHost";
 import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
-import { useComposerChrome } from "../composerChrome";
+import { useComposerChrome } from "../composerChromeModel";
 import { useComposerSettings } from "../composerSettings";
 import { useComposerLook } from "../composerLook";
 import { MarkdownField, type MarkdownFieldHandle } from "../MarkdownField";
@@ -132,6 +133,8 @@ import { openHarnessesPage } from "../harnesses/harnessesPage";
 import { NewTabExtras } from "./NewTabExtras";
 import type { SuggestionOrder } from "./suggestionOrder";
 import { newTabComposerTrailingGapArm } from "./composerGap.experiment";
+import { newTabIconColumnArm } from "./iconColumn.experiment";
+import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = NewTabCommandActions & {
@@ -139,7 +142,7 @@ export type NewTabScreenActions = NewTabCommandActions & {
   onSetup?(continueWith: (harness: string) => void): void;
   /// Enter on a prompt: a chat with `harness` in `cwd` (the project picked on the page).
   /// `model`: the one the chip names, so the chat starts on what the page showed.
-  /// `noProject`: Do not work in a project was picked, so the chat starts in no project.
+  /// `noProject`: No folder was picked, so the chat starts in no project.
   /// `attachments`: what was pasted or dropped on the page (composer/attachmentIntake.tsx), sent
   /// with the chat's first prompt.
   /// `saved`: a saved environment picked the place. `cwd` is its folder, used even when it is the
@@ -398,7 +401,7 @@ export function NewTabScreen(props: Props) {
   // A tab with no project of its own (none, the home folder or a private agent-home folder) and no
   // start folder from the host starts on the most recent project (Leo 2026-10-18), until a pick.
   const [picked, setPicked] = useState(false);
-  // Do not work in a project (Leo 2026-10-18): no project, no start folder, until a folder pick.
+  // No folder (Leo 2026-10-18): no project, no start folder, until a folder pick.
   const [none, setNone] = useState(false);
   // Another machine acpmux lists, picked in the location row's machine list: the chat starts there
   // (screenActions onAsk with its `peer`), in a folder on it once one is picked.
@@ -481,8 +484,14 @@ export function NewTabScreen(props: Props) {
   });
   // A paste on the field (an image, a copied file, a screenshot) and a file drop anywhere on the
   // page stage attachments, as a chat's composer does (composer/attachmentIntake.tsx).
+  // `kind`: what brought them (a paste, a drop, the chooser), which says whether they replace a
+  // selection (inlineAttachments.tsx `place`): only a paste does.
   const inlinePlace = useRef<
-    ((chips: readonly import("../composer/attachmentIntake").PendingAttachment[]) => void) | undefined
+    | ((
+        chips: readonly import("../composer/attachmentIntakeModel").PendingAttachment[],
+        kind: DroppedKind | undefined,
+      ) => void)
+    | undefined
   >(undefined);
   const {
     attachments,
@@ -499,7 +508,7 @@ export function NewTabScreen(props: Props) {
     dropLanded,
     attach,
   } = useAttachmentIntake({
-    place: (chips) => inlinePlace.current?.(chips),
+    place: (chips, kind) => inlinePlace.current?.(chips, kind),
     allowImages: snapshot.summary?.promptCapabilities?.image !== false,
     dropZone: () => fieldElement()?.closest(".acpmux-main") ?? null,
     locked: () => props.cloudStarting === true,
@@ -777,7 +786,7 @@ export function NewTabScreen(props: Props) {
     placing: () => attachmentView !== "strip" && !shell,
   });
   pastedChips.opens.current = inline.expand;
-  inlinePlace.current = (chips) => inline.place(chips, "paste");
+  inlinePlace.current = (chips, kind) => inline.place(chips, kind);
   const parentSignIn = useSignIn();
   const offMachine =
     (props.runMode?.mode === "cloud" && props.onCloud) || (props.runMode?.mode === "sandboxed" && props.onSandbox);
@@ -969,6 +978,7 @@ export function NewTabScreen(props: Props) {
   const chatBox = props.chips !== undefined;
   const split = chatBox;
   const trailingGap = newTabComposerTrailingGapArm();
+  const iconColumn = newTabIconColumnArm();
   // Footer look and template can change while this screen stays mounted.
   useRowFit(foot, `${split}:${plainFooter}:${look}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
@@ -1065,6 +1075,9 @@ export function NewTabScreen(props: Props) {
   // under the whole composer instead, so they never cover those controls (a press there would pick
   // a row).
   const [composer, setComposer] = useState<HTMLDivElement | null>(null);
+  // At the page's foot (the stage layout) the app's toasts lift above the composer card and never
+  // cover it (toastAvoidance.ts). Elsewhere it sits at the top or the middle, clear of them.
+  useEffect(() => (stage && composer ? reportToastAvoidance(composer, elementBox) : undefined), [stage, composer]);
   const anchor = split ? (composer ?? box) : box;
   useEscapingPopup(host, shown, () => anchor, {
     // At the foot of the page (the stage layout) the rows open over the composer.
@@ -1608,7 +1621,7 @@ export function NewTabScreen(props: Props) {
     saved.pick(undefined);
     touch();
     // A machine picked with a folder there (the location row picks its first known folder) is a
-    // project pick: the chat starts in that folder, so Do not work in a project ends, and the
+    // project pick: the chat starts in that folder, so No folder ends, and the
     // headline, the location row and the send all name it. A machine alone keeps the choice.
     if (next?.folder) setNone(false);
     setMachine(next);
@@ -1976,6 +1989,7 @@ export function NewTabScreen(props: Props) {
         data-cloud-starting={props.cloudStarting === true ? "true" : undefined}
         data-composer-look={look === "codex" ? "codex" : undefined}
         data-trailing-gap={trailingGap}
+        data-icon-column={iconColumn}
         data-attachment-view={attachmentView}
       >
         {authBlocksSend(targetAuth) ? (

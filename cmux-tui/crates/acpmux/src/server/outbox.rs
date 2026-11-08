@@ -785,7 +785,7 @@ pub(super) async fn attempt_once(
         .to_owned();
     let (in_tx, in_rx) = mpsc::channel(16);
     let (out_tx, mut out_rx) = mpsc::channel(1024);
-    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
+    tokio::spawn(super::serve_outbox_connection(hub.clone(), in_rx, out_tx, origin));
     let mut hello = json!({
         "protocolVersion": 1,
         "clientCapabilities": {},
@@ -1177,6 +1177,8 @@ mod forward_projection_tests {
         let before = receiver.meta().event_count;
         original.detach_child(&sender).await;
         original.store.flush().unwrap();
+        // The first daemon's shutdown seal: the journal's lock passes to the restarted one.
+        original.seal();
         // Reopen the source state as daemon startup does: the outbox resumes before the saved
         // sessions load (`daemon.rs`). No original callback survives.
         let restarted = Hub::new_loading(

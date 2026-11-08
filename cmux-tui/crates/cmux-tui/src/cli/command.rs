@@ -32,7 +32,9 @@ mod session_reset;
 pub(super) use session_reset::run_session_reset_state;
 mod server_ensure;
 mod settings;
-pub(super) use settings::{SettingsList, human_rows as settings_human_rows};
+#[cfg(test)]
+pub(super) use settings::KEY_ALIASES;
+pub(super) use settings::{SettingsList, human_rows as settings_human_rows, resolve_alias};
 mod sidebar_doc;
 mod state;
 mod workspace;
@@ -222,6 +224,7 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         ["stats"] => super::lifecycle::ServerAction::Stats,
         ["ensure"] => server_ensure::parse(flags)?,
         ["stop"] => stop_action(flags)?,
+        ["restart"] => restart_action(flags)?,
         ["reload-config"] => super::lifecycle::ServerAction::ReloadConfig,
         ["compact-registry"] => super::lifecycle::ServerAction::CompactRegistry {
             state_dir: flags.take("state-dir").map(PathBuf::from),
@@ -243,6 +246,7 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
                         "ensure",
                         "status",
                         "stop",
+                        "restart",
                         "reload-config",
                         "compact-registry",
                     ],
@@ -263,23 +267,40 @@ fn parse_server(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
 /// defaults to the bound `server ensure` gives a restore
 /// (`local_owner::RESTORE_DEADLINE`), and is at most an hour.
 fn stop_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, UsageError> {
-    const MAX_RESTORE_WAIT_SECONDS: u64 = 3600;
-    let restore_wait = match flags.take("restore-wait-seconds") {
-        None => crate::local_owner::RESTORE_DEADLINE,
-        Some(value) => match value.parse::<u64>() {
-            Ok(seconds @ 1..=MAX_RESTORE_WAIT_SECONDS) => std::time::Duration::from_secs(seconds),
-            _ => {
-                return Err(UsageError::new(
-                    crate::localization::catalog().local_server.stop_restore_wait_invalid,
-                ));
-            }
-        },
-    };
     Ok(super::lifecycle::ServerAction::Stop {
+        restore_wait: restore_wait(flags)?,
         force: flags.boolean("force"),
         end_terminals: flags.boolean("end-terminals"),
-        restore_wait,
     })
+}
+
+/// `server restart`: `[--force] [--restore-wait-seconds <n>]`, the stop's
+/// options. A restart keeps every terminal, so `--end-terminals` is refused.
+fn restart_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, UsageError> {
+    if flags.boolean("end-terminals") {
+        return Err(UsageError::new(
+            crate::localization::catalog().local_server.restart_end_terminals,
+        ));
+    }
+    Ok(super::lifecycle::ServerAction::Restart {
+        restore_wait: restore_wait(flags)?,
+        force: flags.boolean("force"),
+    })
+}
+
+fn restore_wait(flags: &mut Flags) -> Result<std::time::Duration, UsageError> {
+    const MAX_RESTORE_WAIT_SECONDS: u64 = 3600;
+    match flags.take("restore-wait-seconds") {
+        None => Ok(crate::local_owner::RESTORE_DEADLINE),
+        Some(value) => match value.parse::<u64>() {
+            Ok(seconds @ 1..=MAX_RESTORE_WAIT_SECONDS) => {
+                Ok(std::time::Duration::from_secs(seconds))
+            }
+            _ => Err(UsageError::new(
+                crate::localization::catalog().local_server.stop_restore_wait_invalid,
+            )),
+        },
+    }
 }
 
 fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
@@ -3186,6 +3207,22 @@ mod tests {
         let literal = protocol(&["settings", "set", "--", "custom.label", "--literal"]);
         assert_eq!(literal.params["key"], "custom.label");
         assert_eq!(literal.params["value"], "--literal");
+    }
+
+    /// `cmux config set on cloud` sets `chat.on` through the daemon, the route CRUD takes.
+    #[cfg(unix)]
+    #[test]
+    fn settings_crud_reads_a_key_alias_as_its_key() {
+        assert!(super::super::daemon_settings_scope(&strings(&["config", "set", "on", "cloud"])));
+        let set = protocol(&["config", "set", "on", "cloud"]);
+        assert_eq!(operation(&set), "settings.set");
+        assert_eq!(
+            set.params,
+            serde_json::json!({"key": "chat.on", "value": "cloud", "machine": "current", "session": "current"})
+        );
+        for verb in ["get", "reset", "unset"] {
+            assert_eq!(protocol(&["settings", verb, "on"]).params["key"], "chat.on", "{verb}");
+        }
     }
 
     #[test]

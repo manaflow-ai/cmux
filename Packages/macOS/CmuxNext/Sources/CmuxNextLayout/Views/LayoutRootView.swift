@@ -310,8 +310,10 @@ public final class LayoutRootView: NSView {
     /// the content or synced to the overlay here. The next tick presents once (`advanceFrame`), and it is asked for.
     /// The key's own turn stays a model change. A root that runs
     /// no frames (parked, out of its window) syncs as ``syncWithModel()`` does. A screen the change did not put on a
-    /// spring (Reduce Motion, pane animations off: its frames snapped) presents in this turn: no tick moves it, so it
-    /// must not wait for one.
+    /// spring (Reduce Motion, pane animations off: its frames snapped) is asked to present in this turn. When the snap
+    /// resizes a pane's host, that screen gives the host its size ahead in this turn and presents at the next frame
+    /// tick (``ScreenContentView/holdsSnapForContent()``, #37330), so `applyPresentation` here returns at once. Only a
+    /// snap that resizes no host presents in this turn.
     public func syncWithModelForNextFrame() {
         guard isLive, driver.isAttached else { return syncWithModel() }
         let held = context.holdsPresentations
@@ -371,14 +373,15 @@ public final class LayoutRootView: NSView {
                 isNew = true
                 view = ScreenContentView(screenID: screen.id, layout: screen.layout, context: context)
                 view.isHidden = !isActive
-                // In the window before its first frame: the frame reconciles the screen, which takes
-                // its panes' hosts, so a pane the old screen shows moves inside the window, never out.
+                // At its size and in the window before its one first pass (`update(layout:)` below): that pass takes
+                // its panes' hosts, so a pane the old screen shows moves inside the window, never out. Neither the size
+                // nor the join lays it out (`ScreenContentView.setFrameSize`, `viewDidChangeBackingProperties`).
+                view.frame = bounds
                 if overlayPlane.isHome {
                     addSubview(view, positioned: .below, relativeTo: overlayPlane)
                 } else {
                     addSubview(view)
                 }
-                view.frame = bounds
                 screenViews[screen.id] = view
                 screenFrames[screen.id] = AnimatedFrame(bounds, alpha: isActive ? 1 : 0)
             }
@@ -396,7 +399,7 @@ public final class LayoutRootView: NSView {
                 // spring started there (a restore, a daemon echo) froze its panes mid-motion, their
                 // content held wider than the pane and pinned to its edge (Leo 2026-10-21).
                 if view.update(layout: screen.layout, zoomed: screen.zoomed, canvas: canvas,
-                               animated: (animated || reflows) && !view.isHidden) {
+                               animated: (animated || reflows) && !view.isHidden, snapWaitsForFrame: isLive && driver.isAttached) {
                     needsFrames = true
                 }
                 // The focus ring of a split's new pane appears with the pane; the focus flash still
@@ -564,7 +567,8 @@ public final class LayoutRootView: NSView {
     func updateVisibility() {
         var visible: Set<PaneID> = []
         var keepAlive: Set<PaneID> = []
-        if isLive, let active = model.activeScreenID, let view = screenViews[active] {
+        let reads = model.layoutPassReads
+        if isLive, let active = reads.activeScreenID, let view = screenViews[active] {
             visible = view.visiblePanes()
             keepAlive = view.keepAlivePanes().union(visible)
         }
@@ -583,8 +587,8 @@ public final class LayoutRootView: NSView {
         // layout order: the app makes one new surface per frame in this order, and the pane the
         // person types into must not wait behind the others (REOPEN-F4: in a Set's hash order, the
         // first key after a reopen was lost in 10 of 15 cycles).
-        let focused = model.focusedPane
-        let order = Dictionary((model.activeScreen?.layout.panes ?? []).enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        let focused = reads.focusedPane
+        let order = Dictionary((reads.activeScreen?.layout.panes ?? []).enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         func place(_ pane: PaneID) -> (Int, Int, String) { (pane == focused ? 0 : 1, order[pane] ?? .max, pane.rawValue) }
         for (pane, presence) in changes.sorted(by: { $0.1.rank != $1.1.rank ? $0.1.rank < $1.1.rank : place($0.0) < place($1.0) }) {
             context.provider?.panePresenceDidChange(pane, presence: presence)

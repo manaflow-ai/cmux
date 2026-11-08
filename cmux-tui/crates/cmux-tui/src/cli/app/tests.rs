@@ -310,6 +310,21 @@ fn unknown_words_run_the_action_with_that_cli_name() {
     );
 }
 
+/// `cmux app remote-views` reads the app's release remote view state, all tabs
+/// or one; it is a read, never an `action.run`, and takes no other word.
+#[test]
+fn remote_views_reads_the_release_remote_view_state() {
+    let (method, params) = call(parse(&args(&["app", "remote-views"])).unwrap().unwrap());
+    assert_eq!(method, "remote_view.state");
+    assert_eq!(params, json!({}));
+    let (method, params) =
+        call(parse(&args(&["app", "remote-views", "--tab", "tab_1"])).unwrap().unwrap());
+    assert_eq!(method, REMOTE_VIEWS_METHOD);
+    assert_eq!(params, json!({ "tab": "tab_1" }));
+    assert!(parse(&args(&["app", "remote-views", "connect"])).is_err());
+    assert!(parse(&args(&["app", "remote-views", "--mode", "control"])).is_err());
+}
+
 #[test]
 fn action_describe_accepts_an_unquoted_cli_name() {
     let (_, params) =
@@ -1469,6 +1484,29 @@ fn config_is_the_settings_scope() {
     );
 }
 
+/// `cmux config set on cloud` (Leo's walkthrough): `on` is the CLI's short name for `chat.on`.
+#[test]
+fn on_is_the_default_chat_target_key() {
+    let sent = |words: &[&str]| call(parse(&args(words)).unwrap().unwrap());
+    assert_eq!(
+        sent(&["config", "set", "on", "cloud"]),
+        ("settings.set", json!({ "path": "chat.on", "value": "cloud" }))
+    );
+    assert_eq!(sent(&["settings", "get", "on"]), ("settings.get", json!({ "path": "chat.on" })));
+    assert_eq!(sent(&["config", "reset", "on"]), ("settings.reset", json!({ "path": "chat.on" })));
+    assert_eq!(sent(&["config", "unset", "on"]), ("settings.unset", json!({ "path": "chat.on" })));
+    // The key itself still works, and an alias never shadows a schema key.
+    assert_eq!(sent(&["config", "get", "chat.on"]), ("settings.get", json!({ "path": "chat.on" })));
+    for (alias, key) in super::super::command::KEY_ALIASES {
+        assert!(cmux_config::Schema::embedded().row(alias).is_none(), "{alias} is a key");
+        assert_eq!(super::super::command::resolve_alias(alias), *key);
+        // The key is in the embedded export (settings-schema.json), which the CLI's list and
+        // validate and MCP's settings_* tools read; agents may set it (agent-policy.json).
+        let row = cmux_config::Schema::embedded().row(key);
+        assert!(row.is_some_and(|row| row.agent_settable), "{key} is not an agent-settable key");
+    }
+}
+
 #[test]
 fn settings_list_keys_and_schema_answer_without_the_app() {
     let keys = local(parse(&args(&["settings", "list", "--keys"])).unwrap().unwrap()).unwrap();
@@ -1997,4 +2035,105 @@ fn a_persons_new_machine_opens_the_machine_it_made() {
     assert_eq!(open["action"], "cloud open-machine");
     assert!(open.to_string().contains("machine:vm_1"), "{open}");
     assert_eq!(open["focus"], true, "a CLI run shows the workspace only when it asks to: {open}");
+}
+
+/// `exchange_within` keeps one deadline: an app that sends a byte now and then, never a whole
+/// line, ends the read at the deadline, not when it stops (#37485's review, F1).
+#[test]
+fn exchange_within_ends_at_its_deadline_for_an_app_that_trickles() {
+    let (mut ours, mut app) = UnixStream::pair().unwrap();
+    let trickle = std::thread::spawn(move || {
+        let mut request = [0_u8; 256];
+        let _ = app.read(&mut request);
+        for _ in 0..40 {
+            if app.write_all(b" ").is_err() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    });
+    let started = std::time::Instant::now();
+    let answer = exchange_within(
+        &mut ours,
+        "settings.get",
+        json!({ "path": "chat.on" }),
+        Duration::from_millis(300),
+    );
+    let took = started.elapsed();
+    assert!(answer.is_err(), "{answer:?}");
+    assert!(took < Duration::from_millis(1000), "took {took:?}, the app trickled for 2 s");
+    drop(ours);
+    trickle.join().unwrap();
+}
+
+/// A whole line within the deadline is the answer.
+#[test]
+fn exchange_within_reads_a_whole_line() {
+    let (mut ours, mut app) = UnixStream::pair().unwrap();
+    let answer = std::thread::spawn(move || {
+        let mut request = [0_u8; 256];
+        let _ = app.read(&mut request);
+        app.write_all(b"{\"id\":1,\"ok\":true,\"result\":{\"value\":\"cloud\"}}\n").unwrap();
+    });
+    let reply = exchange_within(
+        &mut ours,
+        "settings.get",
+        json!({ "path": "chat.on" }),
+        Duration::from_secs(5),
+    );
+    answer.join().unwrap();
+    assert_eq!(reply, Ok(Ok(json!({ "value": "cloud" }))));
+}
+
+/// `exchange_within` asks the app to catch up with the daemon first (`after: "sync"`), as every
+/// app request does, so `cmux chat` right after `cmux config set on cloud` reads the new
+/// `chat.on` (#37485's review at 7103f6c0, F1; #37663).
+#[test]
+fn exchange_within_reads_after_the_daemon_sync() {
+    let (mut ours, mut app) = UnixStream::pair().unwrap();
+    let request = std::thread::spawn(move || {
+        let mut line = Vec::new();
+        let mut byte = [0_u8; 1];
+        while app.read(&mut byte).unwrap_or(0) == 1 && byte != [b'\n'] {
+            line.extend_from_slice(&byte);
+        }
+        app.write_all(b"{\"id\":1,\"ok\":true,\"result\":{\"value\":\"cloud\"}}\n").unwrap();
+        serde_json::from_slice::<Value>(&line).unwrap()
+    });
+    let reply = exchange_within(
+        &mut ours,
+        "settings.get",
+        json!({ "path": "chat.on" }),
+        Duration::from_secs(5),
+    );
+    let sent = request.join().unwrap();
+    assert_eq!(reply, Ok(Ok(json!({ "value": "cloud" }))));
+    assert_eq!(sent.get("params"), Some(&json!({ "path": "chat.on", "after": "sync" })), "{sent}");
+}
+
+/// An optional read's `--socket` kind probe ends at its deadline: a socket that takes the request
+/// and never answers is `socket.wrong_kind` within the deadline, not after the app timeout that
+/// waits out a busy app (#37485's review at 20fdfedd, F1).
+#[test]
+fn a_bounded_socket_probe_ends_at_its_deadline() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("silent.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+    let silent = std::thread::spawn(move || {
+        let (mut peer, _) = listener.accept().unwrap();
+        let mut request = [0_u8; 256];
+        let _ = peer.read(&mut request);
+        std::thread::sleep(Duration::from_secs(3));
+    });
+    let global =
+        GlobalArgs { socket: Some(path), output: OutputMode::Quiet, ..GlobalArgs::default() };
+    let started = std::time::Instant::now();
+    let connected = connect_command_within(&global, Some(Duration::from_millis(300)));
+    let took = started.elapsed();
+    let code = connected
+        .err()
+        .and_then(|error| error.get("code").and_then(Value::as_str).map(str::to_owned));
+    assert_eq!(code.as_deref(), Some("socket.wrong_kind"));
+    assert!(took < Duration::from_millis(1500), "the probe took {took:?}");
+    silent.join().unwrap();
 }

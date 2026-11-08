@@ -516,9 +516,11 @@ impl Rows {
 #[derive(Default)]
 pub(crate) struct ListGuard {
     state: Arc<tokio::sync::Mutex<State>>,
-    /// The last build's window (ns) and row count, read without waiting for a build.
+    /// The last build's window (ns), row count and whole list's bytes, read without waiting for
+    /// a build.
     window_nanos: AtomicU64,
     rows: std::sync::atomic::AtomicUsize,
+    bytes: std::sync::atomic::AtomicUsize,
     /// Every connection's lists together (`reserve`).
     replies: StdMutex<Pacer>,
     /// Builds begun: a request shares any build begun after it arrived.
@@ -540,6 +542,13 @@ impl ListGuard {
     pub(crate) fn share(&self, limit: Option<u64>) -> f64 {
         let rows = self.rows.load(Ordering::Relaxed).max(1) as f64;
         limit.map_or(1.0, |limit| (limit as f64 / rows).clamp(PAGE_MIN, 1.0))
+    }
+
+    /// The share of the list a page of at most `budget` bytes costs: a whole list cut into
+    /// byte pages costs about one list in all, not one per page.
+    pub(crate) fn share_bytes(&self, budget: usize) -> f64 {
+        let bytes = self.bytes.load(Ordering::Relaxed).max(1) as f64;
+        (budget as f64 / bytes).clamp(PAGE_MIN, 1.0)
     }
 
     /// Reserves `share` of a list on a connection's `pace`, then on every connection's
@@ -607,6 +616,7 @@ impl ListGuard {
         let nanos = u64::try_from(window.as_nanos()).unwrap_or(u64::MAX);
         self.window_nanos.store(nanos, Ordering::Relaxed);
         self.rows.store(built.1.len(), Ordering::Relaxed);
+        self.bytes.store(built.0.len(), Ordering::Relaxed);
         let snapshot =
             Arc::new(Snapshot { started, ..Snapshot::new(key, serial, window, live_only, built) });
         state.last = Some(snapshot.clone());

@@ -95,7 +95,9 @@ function expectFullCard(card: HTMLElement | null) {
   expect(card!.querySelector(".acpmux-pr-card__checks .acpmux-pr-card__sr")?.textContent).toBe(
     "7 of 9 checks passed, 2 failing",
   );
-  expect(card!.querySelector(".acpmux-pr-card__failed")?.textContent).toBe("✗ 2");
+  // In words, as CI checks (Leo 2026-11-07: "The check mark, the X mark, whatever. What does that mean?").
+  expect(card!.querySelector(".acpmux-pr-card__checksName")?.textContent).toBe("Checks");
+  expect(card!.querySelector(".acpmux-pr-card__failed")?.textContent).toBe("2 failed");
 }
 
 /** The card's text as it shows: no svg titles and no screen-reader-only words. */
@@ -167,9 +169,11 @@ test("an inline link opens the same card: favicon, page title, host, the address
   expect(card.querySelector(".cv-link-preview__target")?.textContent).toBe(
     "https://docs.example.test/guide?page=2&token=•••",
   );
-  expect([...card.querySelectorAll("button")].map((button) => button.textContent)).toEqual(
-    expect.arrayContaining([expect.stringContaining("Open"), expect.stringContaining("Open in")]),
-  );
+  // One split button: Open, and its chevron named Open in (Leo 2026-11-07: "why don't we just combine both").
+  expect(card.querySelectorAll(".cv-link-preview__split")).toHaveLength(1);
+  expect(card.querySelector(".cv-link-preview__split .cv-link-preview__open")?.textContent).toContain("Open");
+  expect(card.querySelector(".cv-link-preview__split .acpmux-open-in")?.getAttribute("aria-label")).toBe("Open in");
+  expect(card.querySelector(".cv-link-preview__split .acpmux-open-in")?.textContent).toBe("");
   // No pull request, no gh read.
   expect(host.calls.some((call) => call.method === "pr.inspect")).toBe(false);
   await act(async () => root.unmount());
@@ -192,12 +196,10 @@ test("the card's chrome is quiet: borderless buttons, no divider, no underline, 
   expect(rule(".cv-link-preview__head")).not.toContain("border");
   expect(rule(".acpmux-pr-card__lines")).toContain("display:inline-flex");
   // Glass: the shared liquid glass (.ui-glass) paints the card, so the card itself sets no fill;
-  // plain glass and Reduce Transparency get the tooltip's tint and blur through the glass tokens.
+  // its level is the popover glass every hover card wears (glass.css GLASS LEVELS), never its own.
   const card = rule(".cv-link-preview");
   expect(card).not.toContain("background");
   expect(card).not.toContain("box-shadow");
   expect(rule(".cv-link-preview.ui-card")).toContain("--glass-elevation:");
-  const fallback = rule(':root:not([data-glass="lens"], [data-glass="spectrum"]) .cv-link-preview.ui-card.ui-glass');
-  expect(fallback).toContain("--glass-tint:var(--tooltip-tint");
-  expect(fallback).toContain("--glass-backdrop:var(--tooltip-blur");
+  expect(styles).not.toMatch(/\.cv-link-preview[^{}]*\{[^}]*--glass-(tint|backdrop):/);
 });

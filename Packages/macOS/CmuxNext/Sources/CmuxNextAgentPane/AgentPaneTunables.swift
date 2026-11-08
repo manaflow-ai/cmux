@@ -3,6 +3,30 @@ public import CmuxNextDesign
 import CmuxNextPages
 import Foundation
 
+/// How the chat header's top-right icons move (webviews header/headerMotion.ts), Thunderdome B
+/// "animated and expressive" (Leo 2026-11-05: should the top-right icons be "a little more animated?"):
+/// `agentChat.headerMotion`. `still`, the default, is the shipped header; each other style adds to
+/// the one before it. Pushed with the header state; every motion obeys the agent pane's Motion gate.
+public nonisolated enum AgentPaneHeaderMotion: String, Sendable, CaseIterable, TunableChoice {
+    /// The shipped header: nothing moves.
+    case still
+    /// The pressed plate grows out of its glyph and back; a dot on Changes breathes while the turn runs.
+    case animatedCue = "animated-cue"
+    /// The cue, plus an icon that becomes relevant springs in and its neighbours glide over.
+    case animatedSpring = "animated-spring"
+    /// The spring, plus an opening click turns the glyph into the pane's tab, and hover previews it.
+    case animatedMorph = "animated-morph"
+
+    public var tunableTitle: String {
+        switch self {
+        case .still: "Still (shipped)"
+        case .animatedCue: "Animated: cue (plate grows, activity dot)"
+        case .animatedSpring: "Animated: spring (icons arrive, neighbours glide)"
+        case .animatedMorph: "Animated: morph (icon becomes the tab, hover preview)"
+        }
+    }
+}
+
 /// The look of what stands on the composer card's top edge (the location strip of a new chat, the
 /// queued prompts of a started one), for comparing designs: `agentPane.debug.topStripStyle`.
 public nonisolated enum AgentPaneTopStripStyle: String, Sendable, CaseIterable, TunableChoice {
@@ -199,36 +223,11 @@ public nonisolated struct AgentPaneTunables {
         help: "Each click of an agent chat's Terminal button opens a new terminal right of the last one and focuses it, instead of closing the terminal it opened. Off: the button toggles its terminal.",
         default: true, code: "AgentPaneTunables.terminalButtonAdds")
 
-    /// Leo 2026-10-20, "these buttons are kind of weird": one globe instead of Preview beside Browser.
-    /// On (the default), the chat header's Browser opens the chat's local page beside the chat when its
-    /// last turns named one, and Preview is not a button of its own. Off: Preview shows as its own
-    /// button and Browser always opens a plain browser, as before. Pushed with the header state.
-    public static let browserOpensPreview = Tunable<Bool>.toggle(
-        "agentChat.browserOpensPreview", .panes, "Browser button opens the chat's page",
-        help: "An agent chat's Browser button opens the local page the chat named (its preview) beside the chat, and Preview is not a separate button. Off: separate Preview and Browser buttons.",
-        default: true, code: "AgentPaneTunables.browserOpensPreview")
-
-    /// How wide the chat's column draws on a wide pane (cx-ncc.107, a trial before real Settings).
-    /// The page gets it with the theme (`AgentPaneTheme`, `chatWidth`), again on each change.
-    public static let chatWidth = Tunable<ChatWidth>.choice(
-        "agent.chatWidth", PageTunables.section, "Agent chat width",
-        help: "Standard: 800px. Wide: 960px. Wide blocks: code, tables and tools 1120px, prose 800px.",
-        default: .standard, code: "AgentPaneTunables.chatWidth")
-
-    /// The chat column choices (the page's acpmux chatWidth.ts).
-    public nonisolated enum ChatWidth: String, Sendable, CaseIterable, TunableChoice {
-        case standard
-        case wide
-        case wideBlocks
-
-        public var tunableTitle: String {
-            switch self {
-            case .standard: "Standard"
-            case .wide: "Wide"
-            case .wideBlocks: "Wide blocks"
-            }
-        }
-    }
+    /// The chat header's top-right icon motion (``AgentPaneHeaderMotion``), pushed with the header state.
+    public static let headerMotion = Tunable<AgentPaneHeaderMotion>.choice(
+        "agentChat.headerMotion", .panes, "Chat header icon motion",
+        help: "How the agent chat's top-right icons move: still (shipped), a cue (the pressed plate grows, a dot while the turn runs), a spring (icons arrive and make room), or a morph (an icon becomes the pane's tab, hover previews it). Follows the agent pane's Motion setting.",
+        default: .still, code: "AgentPaneTunables.headerMotion")
 
     /// Claude Code desktop's in-session status in an agent chat: the live plan card and the recap
     /// card. Off by default; each open agent page follows a change (``AgentPaneView/sessionStatus``).
@@ -253,14 +252,6 @@ public nonisolated struct AgentPaneTunables {
         help: "A folded thought reads how long the agent thought, or Thought and its first line. New agent tabs.",
         default: .duration, code: "AgentPaneTunables.thoughtHeader")
 
-    /// A turn that started or mentioned a local web page gets a preview card under its answer
-    /// (webviews conversation/PreviewCard.tsx: the address, Load preview, Open in tab, Open in). Off
-    /// by default (Leo 2026-10-20: a mentioned dev server is not worth a card nobody asked for); the
-    /// address stays a link in the reply. New agent tabs read it.
-    public static let turnPreviewCards = Tunable<Bool>.toggle(
-        "agentPane.debug.turnPreviewCards", PageTunables.section, "Local page preview cards in the agent pane",
-        help: "A turn that started or mentioned a local web page shows a card under its answer with Load preview. New agent tabs.",
-        default: false, code: "AgentPaneTunables.turnPreviewCards")
 
     /// The top strip's look (webviews composerLocation.css): `default` sets nothing, so the page
     /// draws as before; the others set `data-top-strip` on `<html>`. New agent tabs read it.
@@ -290,30 +281,15 @@ public nonisolated struct AgentPaneTunables {
                      defaultValue: "Compare a named left rail, a wrapping top strip and a compact left rail.", bundle: .module),
         default: .symbols, code: "AgentPaneTunables.harnessPlacement")
 
-    /// Tool runs fold as the Codex desktop app folds them (webviews conversation/turns.ts
-    /// `codexRuns`, cx-ncc.108): each finished run is one summary line between the paragraphs
-    /// ("Read files, ran commands", "Ran 3 commands") that opens on a click, in a running turn and
-    /// in an open "Worked for" alike, and the call in flight is the turn's live line, which each
-    /// step replaces in place. Off keeps every call's row. The page gets it with the theme
-    /// (`AgentPaneTheme`, `codexToolRuns`), again on each change. On by default (Leo and Lawrence
-    /// 2026-10-21: the turn should look and behave like the ChatGPT/Codex app). The earlier "we're
-    /// swallowing up a few too many of these" (Leo 2026-10-20) was the run in flight shrinking to
-    /// its newest call; finished work now stays one click away and nothing live is hidden.
-    public static let codexToolRuns = Tunable<Bool>.toggle(
-        "agentPane.debug.codexToolRuns", PageTunables.section, "Codex-style tool runs in the agent pane",
-        help: "Each finished run of tool calls is one summary line that opens on a click; the call in flight is the turn's live line.",
-        default: true, code: "AgentPaneTunables.codexToolRuns")
-
-    /// Repaints every window when ``codexToolRuns``, ``turnActionsPlacement`` or ``liveLineBelow``
-    /// changes, so open agent pages get it with the theme at once (as AppServices.observeBorders
-    /// does for ``chatWidth``). The first theme push starts it
-    /// (``AgentPaneTheme/values(_:motion:surface:)``).
-    @MainActor static func followCodexToolRuns() {
-        guard codexToolRunsFollow == nil else { return }
+    /// Repaints every window when ``turnActionsPlacement`` changes, so open agent pages get it with
+    /// the theme at once (as AppServices.observeBorders does for `appearance.borders`). The first theme push
+    /// starts it (``AgentPaneTheme/values(_:motion:surface:)``).
+    @MainActor static func followTurnActionsPlacement() {
+        guard turnActionsPlacementFollow == nil else { return }
         // task-owner: lives as long as the app; event-driven (Observation)
-        codexToolRunsFollow = Task {
-            var last = (codexToolRuns.value, turnActionsPlacement.value, liveLineBelow.value)
-            for await on in ObservationStream({ (codexToolRuns.value, turnActionsPlacement.value, liveLineBelow.value) })
+        turnActionsPlacementFollow = Task {
+            var last = turnActionsPlacement.value
+            for await on in ObservationStream({ turnActionsPlacement.value })
             where on != last {
                 last = on
                 ThemeScope.app.store.repaintAll()
@@ -321,22 +297,20 @@ public nonisolated struct AgentPaneTunables {
         }
     }
 
-    @MainActor private static var codexToolRunsFollow: Task<Void, Never>?
+    @MainActor private static var turnActionsPlacementFollow: Task<Void, Never>?
 
     /// The page's `<html>` `data-*` attributes from these tunables and the Needs you App Store item.
     @MainActor static var documentAttributes: [String: String] {
         attributes(topStripStyle: topStripStyle.value, thoughtHeader: thoughtHeader.value,
                    thoughtFoldThreshold: thoughtFoldThreshold.value,
                    needsYou: needsYouStyle(installed: needsYouInstalled(), debug: needsYou.value),
-                   needsYouPill: needsYouPill.value, turnPreviewCards: turnPreviewCards.value,
-                   iconFamily: IconFamily.tunable.value)
+                   needsYouPill: needsYouPill.value, iconFamily: IconFamily.tunable.value)
     }
 
     static func attributes(topStripStyle: AgentPaneTopStripStyle,
                            thoughtHeader: AgentPaneThoughtHeader = .duration,
                            thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .every,
                            needsYou: AgentPaneNeedsYouStyle = .pinned, needsYouPill: Bool = true,
-                           turnPreviewCards: Bool = false,
                            iconFamily: IconFamily = .pack) -> [String: String] {
         var attributes: [String: String] = [:]
         if needsYou != .pinned { attributes["needs-you"] = needsYou.rawValue }
@@ -344,7 +318,6 @@ public nonisolated struct AgentPaneTunables {
         if thoughtFoldThreshold != .every { attributes["thought-fold-threshold"] = thoughtFoldThreshold.rawValue }
         if thoughtHeader != .duration { attributes["thought-header"] = thoughtHeader.rawValue }
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
-        if turnPreviewCards { attributes["turn-preview-cards"] = "on" }
         // Debug Settings `icons.family`: the page lays the same overlay over its icon pack (iconPack.ts).
         if let overlay = iconFamily.overlay { attributes["icon-family"] = overlay }
         return attributes
@@ -394,15 +367,6 @@ public nonisolated struct AgentPaneTunables {
         help: "A chat with a message keeps the model menu's harness rail and Add harness…, and a pick in another harness starts a new chat there.",
         default: false, code: "AgentPaneTunables.harnessSwitchInStartedChat")
 
-    /// Whether Esc on an empty composer stops a running turn only on a second press inside a short
-    /// window, as in Claude Code. On (the default), the first press shows "Press Esc again to stop"
-    /// in the prompt; off, one press stops the turn. It applies live, as the `composer` event's
-    /// `escapeDoublePress` (AgentPaneComposerSetting, webviews composerSettings.ts, escapeStop.ts).
-    public static let escapeStopDoublePress = Tunable<Bool>.toggle(
-        "agent.escapeStopDoublePress", PageTunables.section, "Esc stops a turn on a double press",
-        help: "Esc on an empty composer stops a running turn only when pressed twice in a row. Off, one press stops it.",
-        default: true, code: "AgentPaneTunables.escapeStopDoublePress")
-
     /// The session sidebar's latest-reply hover preview treatment. User layout customization may
     /// still override this choice with `layout.sidebarPreviewVariant` for a prototype.
     public static let sidebarPreviewVariant = Tunable<AgentPaneSidebarPreviewVariant>.choice(
@@ -415,19 +379,14 @@ public nonisolated struct AgentPaneTunables {
             agentPairGuard.descriptor,
             agentPairCap.descriptor,
             agentPairWindow.descriptor,
-            chatWidth.descriptor,
             chromium.descriptor,
-            codexToolRuns.descriptor,
             composerPlainFooter.descriptor,
-            escapeStopDoublePress.descriptor,
             harnessSwitchInStartedChat.descriptor,
-            liveLineBelow.descriptor,
             modelMenu.descriptor,
             harnessPlacement.descriptor,
             needsYou.descriptor,
             needsYouPill.descriptor,
             newTabPicksFollowLinks.descriptor,
-            newTabPrivateChatLists.descriptor,
             newTabWidgets.descriptor,
             openOutsideChatsViewOnly.descriptor,
             pageHost.descriptor,
@@ -437,16 +396,15 @@ public nonisolated struct AgentPaneTunables {
             sessionStatus.descriptor,
             nativeSessionInfo.descriptor,
             sidebarPreviewVariant.descriptor,
-            scrollerFade.descriptor,
             subagentTray.descriptor,
             suggestedTasks.descriptor,
             systemDictation.descriptor,
             terminalButtonAdds.descriptor,
-            browserOpensPreview.descriptor,
+            headerControls.descriptor,
+            headerMotion.descriptor,
             thoughtFoldThreshold.descriptor,
             thoughtHeader.descriptor,
             topStripStyle.descriptor,
-            turnPreviewCards.descriptor,
             turnActionsPlacement.descriptor,
             agentLinks.descriptor,
             pointerInspector.descriptor,

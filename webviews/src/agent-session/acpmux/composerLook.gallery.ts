@@ -12,6 +12,7 @@ import { GALLERY_NOW } from "../../gallery/clock";
 import { agentPaneEntry } from "../../gallery/format";
 import type { PlayContext } from "../../gallery/play";
 import { assistant, chat, CWD, manySessions, noChat, user } from "../../gallery/fixtures/acpmux";
+import wallpaper from "../../gallery/fixtures/assets/liquid-glass-wallpaper.jpg?inline";
 import { setComposerLook, type ComposerLook } from "./composerLook";
 import type { TaskGoal } from "./goal";
 
@@ -72,7 +73,8 @@ const goalChat = (status: "running" | "stalled" | "paused" | "done", provider: "
 };
 
 /// A Claude Code /loop between its runs (acpmux reads it from ScheduleWakeup and CronCreate,
-/// `claude_stdio/loops.rs`): the goal strip shows its prompt, that it loops, and when it next runs.
+/// `claude_stdio/loops.rs`): the goal strip says when it checks back, or its schedule; its prompt
+/// only on demand.
 const loopChat = (goal: Omit<TaskGoal, "kind" | "status">) => {
   const snapshot = startedChat();
   return {
@@ -179,6 +181,44 @@ async function glassLevel(ctx: PlayContext, which: ComposerLook, level: Composer
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-box"));
 }
 
+type MaterialStage = "plain" | "lens" | "reduce";
+/// The shared glass material (glass.css, "GLASS MATERIAL"; Leo 2026-11-05 on the Dock beside our
+/// composer: "the glass is a pretty big deal"), on a see-through window over the colorful wallpaper
+/// fixture, as a window over art draws it: the picture and a light window wash behind a clear page,
+/// and the same still sent to the glass lens. Plain is what ships; Lens is the opt-in Debug choice
+/// that bends the picture at the rim; Reduce Transparency is the solid fallback. A capture's "before"
+/// removes .ui-glass-material from the card (scripts/agent-pane/capture-composer-material.mjs).
+async function materialStage(ctx: PlayContext, mode: MaterialStage) {
+  await look(ctx, "claude");
+  ctx.document.getElementById("composer-material-gallery")?.remove();
+  const root = ctx.document.documentElement;
+  root.setAttribute("data-cmux-see-through", "");
+  root.setAttribute("data-glass", mode === "reduce" ? "plain" : mode);
+  root.toggleAttribute("data-reduce-transparency", mode === "reduce");
+  root.style.setProperty("--cmux-surface-background", "transparent");
+  root.style.setProperty("--agent-page-bg", "transparent");
+  const style = ctx.document.createElement("style");
+  style.id = "composer-material-gallery";
+  style.textContent = `
+    html {
+      background:
+        linear-gradient(light-dark(rgb(255 255 255 / 0.16), rgb(0 0 0 / 0.18))),
+        url("${wallpaper}") center / cover no-repeat fixed !important;
+    }
+    body, .acpmux-shell { background: transparent !important; }
+  `;
+  ctx.document.head.append(style);
+  const host = ctx.document.defaultView as unknown as { cmuxTheme?: { backdrop?: (value: unknown) => void } };
+  host.cmuxTheme?.backdrop?.({
+    image: wallpaper,
+    key: "gallery-composer-material",
+    rect: { x: 0, y: 0, width: root.clientWidth, height: root.clientHeight },
+    blur: 0,
+    tint: "transparent",
+  });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-box.ui-glass-material"));
+}
+
 /// Alternate B: the strip stays plain text over the box, as Claude's look draws it; only the row moves.
 const ALT_PLAIN_STRIP = `
 .acpmux-composer[data-composer-look="codex"] > .acpmux-composer-strip,
@@ -208,7 +248,7 @@ const ALT_IN_BOX_ROW = `
 /// BUTTON FOR CLAUDE BUT / WE CAN THINK ABOUT WHAT'S BEST"). The pick, one control in both looks: a
 /// slot that is Stop while a turn runs and the prompt is empty, and Send (steer or queue, as Return
 /// does) from the first letter. Claude's look draws it before the mic with Claude desktop's ↵ (the
-/// mic keeps the right edge through a turn); Codex's draws Send's ↑ after the mic, as Codex does.
+/// mic keeps the right edge through a turn); Codex's draws Send's ↑ on a disc after the mic, as Codex does.
 /// The alternates are gallery-only CSS over it. Stop beside a second send control (the two-button
 /// state this replaced) is never drawn.
 const runningChat = () => {
@@ -218,9 +258,16 @@ const runningChat = () => {
 const DRAFT = { draft: "Also cover the 503 path" };
 const ALT_AFTER_MIC = `
 .acpmux-composer-actions > :is(.acpmux-send, .acpmux-cancel) { order: 1; }`;
-const ALT_FILLED_DISC = `
-.acpmux-composer-actions > .acpmux-send.acpmux-send-ready:not(.acpmux-cancel) {
-  border-radius: 999px; background: var(--agent-text); color: var(--agent-bg, Canvas);
+/// Codex's Send (composerLook.css, the pick: the accent disc after the mic). The alternates: ChatGPT's
+/// disc in the text colour, and the plain ↑ glyph Codex's look drew before (#23763's no-disc rule).
+const ALT_TEXT_DISC = `
+.acpmux-composer[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled) {
+  background: var(--agent-text); color: var(--agent-page-bg, Canvas);
+}`;
+const ALT_PLAIN_GLYPH = `
+.acpmux-composer[data-composer-look="codex"] .acpmux-send,
+.acpmux-composer[data-composer-look="codex"] .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, :disabled) {
+  background: transparent; color: var(--agent-muted);
 }`;
 
 const chatHeight = 360;
@@ -269,16 +316,30 @@ export default agentPaneEntry({
       },
     },
     "loop-wakeup": {
-      note: "A self-paced Claude Code /loop (ScheduleWakeup): its prompt, Looping, and when it next runs. No controls: Claude stops a loop only from its own turn.",
+      note: "A self-paced Claude Code /loop (ScheduleWakeup), cmux#38051: one quiet chip in the composer's column, \"Checking back in 15 min.\". The agent's wake prompt (job ids, links, steps) is only in the tooltip and behind the chip's button. No controls: Claude stops a loop only from its own turn.",
       snapshot: loopChat({
-        objective: "check the deploy and fix anything red",
-        reason: "the rollout takes a few minutes",
-        nextRunAt: GALLERY_NOW + 4 * 60_000,
+        objective:
+          "Check background job b2mqa7gwr (fleet build 38051-hide-looping-wake-prompt) and https://github.com/manaflow-ai/cmux/pull/38052. Steps: 1. read the job log 2. if green, run the second bun run check 3. post the receipt on the PR 4. schedule the next wakeup",
+        reason: "watching the fleet build",
+        nextRunAt: GALLERY_NOW + 15 * 60_000,
       }),
       play: (ctx) => look(ctx, "claude"),
     },
+    "loop-wakeup-open": {
+      note: "The same loop with its prompt opened on demand: it wraps inside the column and scrolls past six lines.",
+      snapshot: loopChat({
+        objective:
+          "Check background job b2mqa7gwr (fleet build 38051-hide-looping-wake-prompt) and https://github.com/manaflow-ai/cmux/pull/38052. Steps: 1. read the job log 2. if green, run the second bun run check 3. post the receipt on the PR 4. schedule the next wakeup",
+        reason: "watching the fleet build",
+        nextRunAt: GALLERY_NOW + 15 * 60_000,
+      }),
+      play: async (ctx) => {
+        await look(ctx, "claude");
+        await ctx.click({ selector: ".acpmux-goal[data-kind=loop] .acpmux-goal-action" });
+      },
+    },
     "loop-cron": {
-      note: "An interval /loop (CronCreate): its schedule as Claude Code words it, and its first run.",
+      note: 'An interval /loop (CronCreate): its schedule as Claude Code words it, "Repeats every 5 minutes".',
       snapshot: loopChat({ objective: "/babysit-prs", schedule: "every 5 minutes", nextRunAt: GALLERY_NOW + 90_000 }),
       play: (ctx) => look(ctx, "claude"),
     },
@@ -324,7 +385,7 @@ export default agentPaneEntry({
       },
     },
     "codex-chat": {
-      note: "The second dot, Codex's look: ChatGPT's full-width prompt over one lower controls row, with + left and the mic and Send right. Every mode, model and context control stays inside the box.",
+      note: "The second dot, Codex's look: ChatGPT's full-width prompt over one lower controls row, with + left and the mic, then Codex's round Send, right. Every mode, model and context control stays inside the box.",
       snapshot: startedChat(),
       play: (ctx) => look(ctx, "codex"),
     },
@@ -392,6 +453,21 @@ export default agentPaneEntry({
       snapshot: startedChat(),
       play: (ctx) => glassLevel(ctx, "codex", "balanced"),
     },
+    "composer-material-plain": {
+      note: "The shared glass material (Plain, what ships) over the colorful wallpaper on a see-through window: the specular rim lit from above-left, the sheen under the top edge, the soft shadow, and a frost that keeps the colors vivid.",
+      snapshot: startedChat(),
+      play: (ctx) => materialStage(ctx, "plain"),
+    },
+    "composer-material-lens": {
+      note: "The same card in the opt-in Lens (Debug choice glass.lens): the lens bends the wallpaper at the rim and draws its own specular light; the material adds the depth.",
+      snapshot: startedChat(),
+      play: (ctx) => materialStage(ctx, "lens"),
+    },
+    "composer-material-reduce-transparency": {
+      note: "Reduce Transparency over the same wallpaper: the solid card with its hairline ring, no frost and no specular band.",
+      snapshot: startedChat(),
+      play: (ctx) => materialStage(ctx, "reduce"),
+    },
     "codex-new-chat": {
       note: "Codex's look on a new chat (the pick): the folder and computer strip a tray tucked under the box's top edge, as Codex's.",
       ready: { newSession: true, cwd: CWD },
@@ -422,12 +498,12 @@ export default agentPaneEntry({
       play: (ctx) => look(ctx, "claude"),
     },
     "send-one-slot-codex-running": {
-      note: "The pick, Codex's look: the same one slot before the mic as Claude's, Stop while the prompt is empty.",
+      note: "The pick, Codex's look: the one slot after the mic on its disc, Stop while the prompt is empty.",
       snapshot: runningChat(),
       play: (ctx) => look(ctx, "codex"),
     },
     "send-one-slot-codex-typed": {
-      note: "The pick, Codex's look: Send (↵) in the same slot once a prompt is typed.",
+      note: "The pick, Codex's look: Send (↑ on the accent disc) in the same slot once a prompt is typed.",
       snapshot: runningChat(),
       ready: DRAFT,
       play: (ctx) => look(ctx, "codex"),
@@ -438,11 +514,33 @@ export default agentPaneEntry({
       ready: DRAFT,
       play: (ctx) => look(ctx, "claude", ALT_AFTER_MIC),
     },
-    "send-alt-filled-disc": {
-      note: "Alternate (not shipped): Codex's filled disc after the mic. Not picked: the composer draws plain glyphs, no discs (Leo 2026-10-21), and the slot stays before the mic.",
-      snapshot: runningChat(),
+    "codex-send-accent-disc": {
+      note: "Codex's Send (the pick): the ↑ on the accent disc after the mic, as Codex and ChatGPT draw it (Leo 2026-11-04: \"our codex style composer should look like codex's/chatgpt's\"). Ref codex/live/composer-codex-empty-input-controls.",
+      snapshot: startedChat(),
       ready: DRAFT,
-      play: (ctx) => look(ctx, "codex", ALT_FILLED_DISC),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "codex-send-empty": {
+      note: "Codex's Send with nothing to send: the soft disc and the dimmed ↑ stay after the mic, so the mic never steps.",
+      snapshot: startedChat(),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "codex-send-stop": {
+      note: "Codex's slot mid-turn with an empty prompt: Stop's square on the soft disc.",
+      snapshot: runningChat(),
+      play: (ctx) => look(ctx, "codex"),
+    },
+    "codex-send-alt-text-disc": {
+      note: "Alternate (not shipped): ChatGPT's disc in the text colour. Not picked: Codex's own composer, the look's namesake, uses its accent.",
+      snapshot: startedChat(),
+      ready: DRAFT,
+      play: (ctx) => look(ctx, "codex", ALT_TEXT_DISC),
+    },
+    "codex-send-alt-plain-glyph": {
+      note: "Replaced: Codex's look drew Send as a plain glyph (no disc, #23763). Kept for comparison.",
+      snapshot: startedChat(),
+      ready: DRAFT,
+      play: (ctx) => look(ctx, "codex", ALT_PLAIN_GLYPH),
     },
     "newtab-claude": {
       note: "New Tab, the first dot (Claude Minimal, the default): the Minimal page as it was, with the three dots under it.",

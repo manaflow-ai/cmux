@@ -32,7 +32,7 @@ export type NextStepAsk = {
   rest: string;
 };
 
-const TAGS = ["taste", "outward", "irreversible", "physical", "for you"];
+const TAGS = ["taste", "outward", "irreversible", "physical", "check-in", "for you"];
 // A line that starts with the tag, after an optional list marker or bold: `- **[outward]** ...`.
 const TAGGED = new RegExp(
   String.raw`^\s{0,3}(?:[-*+]\s+|\d{1,2}[.)]\s+)?(?:\*\*|__)?\[(${TAGS.join("|")})\](?:\*\*|__)?:?\s+(.+?)\s*$`,

@@ -21,6 +21,10 @@ extension SidebarStyle {
 
     static var trailingSlotSide: CGFloat { controlSize }
 
+    /// The room right of the titlebar row's + when it centers on the trailing column (`SidebarView.layout`): the
+    /// column's distance from the sidebar's edge less half the button, never under the row's old `space3` inset.
+    static var titlebarPlusTrailingInset: CGFloat { max(Metrics.space3, trailingCenterFromEdge - toolbarButtonSize / 2) }
+
     /// How far inside a row's fill the trailing column centers: a status glyph's box (`statusGlyphSize`, the
     /// spinner's and the band's marks' side) ends the row's leading inset short of the fill's end, as a row's leading
     /// glyph box starts that inset after its start (11 compact, 14 comfortable). Lawrence 2026-11-05: "padding on

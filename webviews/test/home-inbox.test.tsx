@@ -11,7 +11,7 @@
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxPermission } from "../src/agent-session/acpmux/model";
-import type { HomeInboxOutcome } from "../src/agent-session/acpmux/HomeInbox";
+import type { HomeInboxOutcome } from "../src/agent-session/acpmux/homeInboxModel";
 import type { NeedsYouItem, WatchedAsk } from "../src/agent-session/acpmux/needsYou/model";
 import type { AttentionTab } from "../src/agent-session/acpmux/needsYou/attentionTabs";
 
@@ -47,7 +47,7 @@ afterAll(() => {
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { HomeLists } = await import("../src/agent-session/acpmux/HomeLists");
-const { answerFromHome } = await import("../src/agent-session/acpmux/HomeInbox");
+const { answerFromHome } = await import("../src/agent-session/acpmux/homeInboxModel");
 const { NativeError } = await import("../src/agent-session/acpmux/nativeError");
 const { callPageHost } = await import("../src/agent-session/acpmux/pageHost");
 const { pageError } = await import("../src/pages/shared/pageClient");

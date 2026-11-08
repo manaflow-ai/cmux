@@ -15,10 +15,8 @@ import { SubsessionCallCard } from "../src/agent-session/acpmux/conversation/Sub
 import { AgentRunTranscriptCard } from "../src/agent-session/acpmux/subagents/AgentRunCard";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { SubsessionContext, SubsessionStore } from "../src/agent-session/acpmux/subagents/subsessions";
-import {
-  resetTranscriptDisclosure,
-  TranscriptDisclosureProvider,
-} from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
+import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { SubsessionCall } from "../src/agent-session/acpmux/conversation/subsessionCalls";
