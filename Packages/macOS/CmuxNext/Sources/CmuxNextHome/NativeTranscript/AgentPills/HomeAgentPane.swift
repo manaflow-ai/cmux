@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import CmuxNextDesignTokens
 import Foundation
 import Observation
 
@@ -59,15 +60,17 @@ final class HomeAgentPane {
         threads.markAgentSeen(peer, in: conversation)
     }
 
-    /// Closes agent `peer`'s tab; the next one (else the previous) shows, none left hides the pane.
+    /// Closes agent `peer`'s tab; the tab before it (else the one after it) shows
+    /// (`FocusAfterClose.tab`, every tab close's rule), none left hides the pane.
     func close(_ peer: String) {
-        guard let index = tabs.firstIndex(of: peer) else { return }
-        tabs.remove(at: index)
+        guard tabs.contains(peer) else { return }
+        let old = tabs
+        tabs.removeAll { $0 == peer }
         guard selected == peer else { return }
-        if tabs.isEmpty {
-            selected = nil
+        if let next = FocusAfterClose.tab(selected: peer, old: old, surviving: tabs, shown: Set(tabs)) {
+            select(next)
         } else {
-            select(tabs[min(index, tabs.count - 1)])
+            selected = nil
         }
     }
 

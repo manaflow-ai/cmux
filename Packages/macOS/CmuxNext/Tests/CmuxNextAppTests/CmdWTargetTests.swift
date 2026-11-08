@@ -13,13 +13,14 @@ struct CmdWTargetTests {
 
     /// A Chromium tab whose page decides its close (its beforeunload runs; the tab stays until
     /// Chromium closes the page) is closing: the next quick Cmd-W closes the tab after it, never
-    /// the same tab again (which closed nothing: the page was already closing).
-    @Test func aPressWhileAPageDecidesItsCloseClosesTheNextTab() {
+    /// the same tab again (which closed nothing: the page was already closing). The tab it closes is
+    /// the one that close selects: the tab before it, else the one after it (Lawrence 2026-11-08).
+    @Test func aPressWhileAPageDecidesItsCloseClosesTheTabItSelects() {
         let strip = Self.strip(["a", "b", "c"], selected: "b")
         let closing: Set<String> = ["b"]
-        #expect(strip.cmdWTarget(StripTabID("b"), closing: { closing.contains($0.rawValue) }) == StripTabID("c"))
-        // The last tab closing: the one before it.
-        #expect(strip.cmdWTarget(StripTabID("c"), closing: { ["b", "c"].contains($0.rawValue) }) == StripTabID("a"))
+        #expect(strip.cmdWTarget(StripTabID("b"), closing: { closing.contains($0.rawValue) }) == StripTabID("a"))
+        // The first tab closing: the one after it.
+        #expect(strip.cmdWTarget(StripTabID("a"), closing: { ["a", "b"].contains($0.rawValue) }) == StripTabID("c"))
         // Nothing else open: nil (the press says why).
         #expect(strip.cmdWTarget(StripTabID("b"), closing: { _ in true }) == nil)
         // Not closing: the selected tab itself.
