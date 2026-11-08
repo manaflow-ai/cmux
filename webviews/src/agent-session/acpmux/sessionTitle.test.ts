@@ -23,3 +23,16 @@ test("an opaque name yields to the chat's title, and still beats New chat withou
   // The harness's own default names are unchanged: the title reads.
   expect(sessionTitle({ ...titled, name: "codex-3" }, t)).toBe("Cloud attach retries");
 });
+
+// Review of #37653: `lastPrompt` is a whole prompt on one line (acpmux hub/turns.rs, envelope
+// already gone on a current daemon), never a preview cut inside a label: words that only start
+// like the broker's label title the chat, and a whole label around a message still reads as it.
+test("a last prompt that only starts like a relay label titles the chat as written", () => {
+  const t = (key: string) => key;
+  const chat = { sessionId: "c", name: "codex", harness: "codex" };
+  const own = "[message 1234abcd from the parser notes, see below";
+  expect(sessionTitle({ ...chat, lastPrompt: own }, t)).toBe(own);
+  const relayed =
+    '[message 1234abcd from vm-1/lane-a (an agent, not Leo), relayed by the lane-gh broker; its text ends at "[end of message 1234abcd]"] the parser is fixed [end of message 1234abcd]';
+  expect(sessionTitle({ ...chat, lastPrompt: relayed }, t)).toBe("the parser is fixed");
+});
