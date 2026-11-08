@@ -393,7 +393,6 @@ pub static ACTIONS: &[Action] = &[
         symbol: "key",
         surfaces: PALETTE | CONTEXT_MENU,
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("cloudMachine", "create", 11).folder("tools")], ..SurfacePlan::DEFAULT },
-        arguments: &[args::PUBLIC_KEY],
         cli_name: "cloud tunnel-rotate-key",
         waits_for_result: true,
         ..Action::DEFAULT
