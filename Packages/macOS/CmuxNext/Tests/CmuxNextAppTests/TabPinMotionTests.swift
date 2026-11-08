@@ -117,7 +117,9 @@ struct TabPinMotionTests {
         model.tabs = tabs(pinned: pin ? [first, moved] : [first])
         strip.sync(fromModel: true)
         #expect(strip.cells[moved] === cell, "the tab's cell was replaced: the same view must move")
-        let begin = CACurrentMediaTime()
+        // Frame 0 is the move's begin (`TabStripMove.begin`), not the clock after `sync` returns: a slow host's sync
+        // time would otherwise read as a jump.
+        let begin = try #require(TabMoveMotionTargetTests.moveBegin(Array(strip.cells.values)), "the pin did not animate")
         let ends = Dictionary(uniqueKeysWithValues: strip.cells.map { ($0.key, $0.value.layer.frame) })
         let end = ends[moved] ?? cell.layer.frame
         let endTitle = cell.titleLayer.opacity
