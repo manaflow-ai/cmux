@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import type { AcpmuxSnapshot } from "./model";
+import type { AcpmuxOverlap, AcpmuxSnapshot } from "./model";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -129,7 +129,7 @@ async function fixture(origin: string | undefined, supported = true, holdPeers =
 test("a durable worktree overlap event becomes a reconnect-safe snapshot chip", async () => {
   const f = await fixture("local");
   try {
-    const overlap = {
+    const overlap: AcpmuxOverlap = {
       peerSessionId: "peer-session",
       peerName: "fix-login",
       peerBranch: "lane/fix-login",
