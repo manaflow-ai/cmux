@@ -194,6 +194,27 @@ import Testing
         #expect(fake.socketClosed, "the socket closes once the machine is paired")
     }
 
+    /// A paired machine's result belongs to its own invite: closing the card or a New Code never
+    /// shows the next machine as already added, and the next one still gets Confirm.
+    @Test(arguments: [false, true]) func aPairingsResultNeverGreetsTheNextInvite(newCode: Bool) async {
+        let fake = Fake()
+        let source = MockServerSource()
+        let provider = fake.provider(source)
+        await provider.mintInvite()
+        fake.push(.arrived(code: MockServerScenario.offerCode))
+        await settle()
+        provider.confirm(name: "build box")
+        fake.push(.paired(host: "h_1"))
+        await settle()
+        #expect(provider.approver.lastApproved == "build box")
+        if !newCode { provider.closed() }
+        await provider.mintInvite()
+        await settle()
+        #expect(provider.approver.lastApproved == nil, "the last pairing's result is gone")
+        #expect(provider.approver.lastReject == nil)
+        #expect(provider.status()["approver"]?["lastApproved"] == nil)
+    }
+
     /// SECURITY: Confirm from a key, a script or the page's own call approves nothing: only the
     /// person's own click on the panel's native Confirm (WebCardPanel's PersonControl) reaches the approve.
     @Test func confirmIsRefusedWithoutThePersonsClick() async {
