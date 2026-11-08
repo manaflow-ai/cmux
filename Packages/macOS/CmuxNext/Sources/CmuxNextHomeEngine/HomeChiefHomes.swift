@@ -14,6 +14,8 @@ public final class HomeChiefHomes {
     public static let startQueuedAgent: ActionID = "home.startQueuedAgent"
     /// Every live Home's turn actions.
     private let homes = NSHashTable<HomeChiefTurnActions>.weakObjects()
+    /// Transcripts with no Chief that start their own agents (``startsOwnAgents(_:)``).
+    private let ownStarters = NSHashTable<HomeNativeTranscriptView>.weakObjects()
     /// The registry ``bind(into:)`` bound; the Homes' rows and Stop run its actions.
     private(set) weak var registry: ActionRegistry?
 
@@ -26,6 +28,18 @@ public final class HomeChiefHomes {
         return actions
     }
 
+    /// `transcript` starts its own queued agents through its `onStartAgent` (the DEBUG fixture and Agent Messages
+    /// Playground over the mock owner): its pill's menu gets the registered Start now row, and the action starts
+    /// the agent there when `conversation` names it.
+    public func startsOwnAgents(_ transcript: HomeNativeTranscriptView) {
+        ownStarters.add(transcript)
+        let conversation = transcript.conversationID.rawValue
+        transcript.startAgentMenuItem = { [weak self] peer in
+            self?.registry?.makeContextMenuItem(for: Self.startQueuedAgent, in: .agentChat,
+                                                arguments: ["agent": .string(peer), "conversation": .string(conversation)])
+        }
+    }
+
     public func bind(into registry: ActionRegistry) {
         self.registry = registry
         registry.bindEffect(Self.startQueuedAgent, effect: { [weak self] invocation in
@@ -33,19 +47,27 @@ public final class HomeChiefHomes {
             guard let chief = self?.startingChief(of: text.isEmpty ? nil : ConversationID(text)) else {
                 return .refused(HomeChiefHomesStrings.noChiefHome)
             }
-            let control = chief.control
+            let start = chief.start
             let agent = invocation["agent"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
             guard !agent.isEmpty, chief.transcript.isQueued(agent) else { return .refused(HomeChiefHomesStrings.notQueued) }
             // action-wait-allow: the Chief's own process starts the agent (chief.stop {start}); its session shows only once that process made it
             return .waiting(.externalProcess) {
-                await control.startNow(agent).map { ActionWorkFailure(refusal: .unavailable, reason: $0.text) }
+                await start(agent).map { ActionWorkFailure(refusal: .unavailable, reason: $0) }
             }
         })
     }
 
-    /// The Chief Home that can start queued agents of `conversation` (nil: the key window's, else any one).
-    private func startingChief(of conversation: ConversationID?) -> (transcript: HomeNativeTranscriptView, control: HomeChiefTurnControl)? {
-        let open = homes.allObjects.compactMap(\.startingChief)
+    /// The Chief Home (or own starter) that can start queued agents of `conversation` (nil: the key window's,
+    /// else any one), and how it starts one: nil on a start, else why not.
+    private func startingChief(of conversation: ConversationID?) -> (transcript: HomeNativeTranscriptView, start: @MainActor (String) async -> String?)? {
+        let chiefs = homes.allObjects.compactMap(\.startingChief).map { chief in
+            (transcript: chief.transcript, start: { @MainActor (agent: String) async -> String? in await chief.control.startNow(agent)?.text })
+        }
+        let own = ownStarters.allObjects.compactMap { transcript -> (transcript: HomeNativeTranscriptView, start: @MainActor (String) async -> String?)? in
+            guard let onStartAgent = transcript.onStartAgent else { return nil }
+            return (transcript, { agent in await onStartAgent(agent) ? nil : HomeChiefHomesStrings.notQueued })
+        }
+        let open = chiefs + own
         if let conversation { return open.first { $0.transcript.conversationID == conversation } }
         return open.first { $0.transcript.window?.isKeyWindow == true } ?? open.first
     }
