@@ -20,6 +20,7 @@ cmux wg hub --config <wg-quick file | -> --socket <unix socket> [--client-token-
 cmux wg dial --hub <unix socket> <host> <port>
 cmux carrier dial --machine <vm_id> [--service mux|desktop] [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…] [--answer-fd N]
 cmux carrier key --public
+cmux carrier capabilities [--json]
 cmux carrier serve --machine <vm_id> --socket <absolute path> [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…]
 cmux link dial --host <install or host id> [--service daemon|ssh|owner_session|desktop|acpmux] [--socket <absolute path>]
 cmux link ensure --state-dir <dir> [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH] [--cloud-token-file PATH] [--handoff]
@@ -100,6 +101,16 @@ request, and exits 0. It is the key dial and serve use: on a Mac the login Keych
 missing. Nothing private is printed. Elsewhere no key lasts past one dial, so it prints
 nothing and writes the dial's failure line (`handshake`, exit 5); other arguments are
 `bad_request` (64).
+
+`carrier capabilities` prints one JSON object on stdout and exits 0, with no network,
+sign-in or app: `routes` (the carriers this build can carry a Cloud session over, today
+`["relay"]`), `faults` (the faults a probe can inject, `["kill-route"]`), and `carriers.relay`
+and `carriers.ssh`, each `{available, probe, faults, reason?}`. ssh is `available: false`
+until the build has an ssh route to a Cloud machine. The probe account's fault drill,
+`cmux cloud start-chat … --carrier-fault kill-route=relay,after-events=N`, is refused unless
+`CMUX_CARRIER_PROBE_FAULTS=1` is set and the app is signed in to a probe account; a fault
+that leaves no other carrier is `carrier_fault.no_other_route` before anything starts, with
+the drill record (`capabilities`, `fault`, `kill`, `events`, `resumes`) in `error.details`.
 
 `carrier serve` serves the same stream on a Unix socket, for callers that hand a
 daemon socket path on: each accepted connection is its own dial (a fresh grant,
