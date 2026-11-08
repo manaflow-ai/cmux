@@ -400,6 +400,42 @@ fn a_stdin_token_after_a_token_file_swap_never_rides_the_old_session() {
 }
 
 #[test]
+fn an_answer_handed_over_for_one_person_is_never_another_s_dial() {
+    let world = world(200, Arc::new(AtomicUsize::new(0)));
+    let socket = socket_path(&world);
+    let file = world.dir.path().join("token");
+    std::fs::write(&file, JWT_A).unwrap();
+    let mut child = serve_file(&world, &socket, &file);
+    let (ready, mut stderr) = first_line(&mut child);
+    assert_eq!(ready["ok"], true, "{ready}");
+    let mut first = open(&socket);
+    ask(&mut first, 1);
+    assert_served(&mut stderr, None);
+    let device = world.keys.lock().unwrap()[0].clone().expect("a dial asks with its key");
+
+    // A's answer is queued; a connection rides A's session and leaves it.
+    let mut stdin = child.stdin.take().unwrap();
+    apply(&mut stdin, &mut stderr, &world.answer_line(&device, true));
+    let mut second = open(&socket);
+    ask(&mut second, 2);
+    assert_served(&mut stderr, None);
+    assert_eq!(*world.bearers.lock().unwrap(), [JWT_A], "the second connection rode the session");
+
+    // B's credential: the next connection dials with it, not with A's answer.
+    std::fs::write(&file, JWT_B).unwrap();
+    let mut third = open(&socket);
+    ask(&mut third, 3);
+    assert_served(&mut stderr, None);
+    assert_eq!(
+        *world.bearers.lock().unwrap(),
+        [JWT_A, JWT_B],
+        "B's dial asked with B's credential instead of taking A's answer"
+    );
+    drop(stdin);
+    assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(0));
+}
+
+#[test]
 fn each_connected_connection_says_the_grant_s_vmk() {
     let world = world_signed(
         200,
