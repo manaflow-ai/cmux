@@ -59,6 +59,9 @@ const DELAY_ENV: &str = "CMUX_TUI_TEST_RESPAWN_DELAY_MS";
 /// Test override of the respawn gate's slots (default: available
 /// parallelism).
 const SLOTS_ENV: &str = "CMUX_TUI_TEST_RESPAWN_SLOTS";
+/// Fails this many respawn launches after the row reopened, as a launch that
+/// found no free PTY does (tests of a tab left `restart_failed`).
+const LAUNCH_FAILURES_ENV: &str = "CMUX_TUI_TEST_RESPAWN_LAUNCH_FAILURES";
 
 /// The respawn gate: first respawn attempts take turns in the order they
 /// were scheduled, at most one per CPU at once. A respawn replays its seed
@@ -113,6 +116,8 @@ pub(crate) struct TerminalRespawns {
     /// yet (Reopen Closed of an archived terminal, ARCHIVE-1). The launch
     /// takes it; the creator removes it when the creation fails.
     seeds: Mutex<HashMap<String, Vec<u8>>>,
+    /// Respawn launches still to fail on purpose ([`LAUNCH_FAILURES_ENV`]).
+    injected_launch_failures: AtomicU64,
 }
 
 /// At most this many command argvs are kept; the oldest goes first.
@@ -158,7 +163,20 @@ impl TerminalRespawns {
             wake: (Mutex::new(()), Condvar::new()),
             argv: Mutex::default(),
             seeds: Mutex::default(),
+            injected_launch_failures: AtomicU64::new(
+                std::env::var(LAUNCH_FAILURES_ENV)
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(0),
+            ),
         }
+    }
+
+    /// Whether this launch fails on purpose ([`LAUNCH_FAILURES_ENV`]).
+    fn take_injected_launch_failure(&self) -> bool {
+        self.injected_launch_failures
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |left| left.checked_sub(1))
+            .is_ok()
     }
 
     /// Give the launch of reserved terminal `terminal_id` the seed `seed`.
@@ -569,6 +587,9 @@ impl Mux {
         }
         let terminal_id = TerminalId::from_hex(&plan.terminal_id)
             .context("terminal id is not a canonical UUIDv4")?;
+        if self.terminal_respawns.take_injected_launch_failure() {
+            anyhow::bail!("terminal launch failed: injected: PTY capacity exhausted");
+        }
         let surface = Surface::respawn_hosted(
             plan.slot,
             launch.options,
