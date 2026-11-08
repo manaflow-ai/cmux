@@ -8,7 +8,7 @@ use std::path::{Component, Path};
 
 const MAX_FILE: u64 = 4 * 1024 * 1024;
 // Two Restore clicks must not race each other's compare/rename. Other programs do not take
-// this lock: their writes are checked again immediately before replacement, not serialized.
+// this lock: check their writes before replacement and retain the displaced inode afterward.
 static RESTORES: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn refused(reason: &str) -> RpcError {
@@ -118,8 +118,8 @@ pub(crate) fn restore(
         return Ok(json!({"restored": true, "alreadyRestored": true}));
     }
     let restored = replacement(&current, old, new)?;
-    anchored.replace(root, &path, &current, &restored, &metadata, || {})?;
-    Ok(json!({"restored": true}))
+    let recovery = anchored.replace(root, &path, &current, &restored, &metadata, |_| {})?;
+    Ok(json!({"restored": true, "recoveryPath": recovery}))
 }
 
 /// Keep the directory descriptor through read, staging and rename. Replacing any parent
@@ -193,8 +193,8 @@ impl Anchored {
         current: &str,
         restored: &str,
         metadata: &std::fs::Metadata,
-        before_check: impl FnOnce(),
-    ) -> Result<(), RpcError> {
+        mut interleave: impl FnMut(bool),
+    ) -> Result<std::path::PathBuf, RpcError> {
         use std::os::fd::{AsRawFd, FromRawFd};
         use std::os::unix::fs::MetadataExt;
         let name = std::ffi::CString::new(format!(".cmux-test-restore-{}", uuid::Uuid::now_v7()))
@@ -217,7 +217,7 @@ impl Anchored {
             staged.set_permissions(metadata.permissions()).map_err(|_| refused("write_failed"))?;
             staged.write_all(restored.as_bytes()).map_err(|_| refused("write_failed"))?;
             staged.sync_all().map_err(|_| refused("write_failed"))?;
-            before_check();
+            interleave(false);
             // Check that the named directory is still the pinned one, and the same inode
             // still has the bytes we read. This refuses a rename or edit while staging.
             target(root, path.to_str().ok_or_else(|| refused("not_text"))?)?;
@@ -242,20 +242,13 @@ impl Anchored {
             if bytes != current.as_bytes() {
                 return Err(refused("changed"));
             }
-            // SAFETY: both names refer to this same live directory descriptor. No parent
-            // pathname is followed at commit, including if it was swapped after the check.
-            if unsafe {
-                libc::renameat(
-                    self.parent.as_raw_fd(),
-                    name.as_ptr(),
-                    self.parent.as_raw_fd(),
-                    self.name.as_ptr(),
-                )
-            } != 0
-            {
-                return Err(refused("write_failed"));
-            }
-            Ok(())
+            interleave(true);
+            // A compare followed by rename can discard a writer racing this last check.
+            // Exchange keeps the actual displaced inode, including any writes through an
+            // already-open descriptor. Never unlink it or attempt a racy rollback. One
+            // recovery file remains per successful Restore (normally at most MAX_FILE).
+            self.exchange(&name)?;
+            Ok(path.with_file_name(name.to_string_lossy().as_ref()))
         })();
         if result.is_err() {
             // SAFETY: unlink only the unique staging name we created in the pinned parent.
@@ -264,6 +257,38 @@ impl Anchored {
             }
         }
         result
+    }
+
+    fn exchange(&self, staged: &std::ffi::CStr) -> Result<(), RpcError> {
+        use std::os::fd::AsRawFd;
+        let fd = self.parent.as_raw_fd();
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        // SAFETY: live directory fd and NUL-terminated names. The syscall also supports
+        // musl, which does not expose a renameat2 wrapper.
+        let result = unsafe {
+            libc::syscall(
+                libc::SYS_renameat2,
+                fd,
+                staged.as_ptr(),
+                fd,
+                self.name.as_ptr(),
+                libc::RENAME_EXCHANGE,
+            )
+        };
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        // SAFETY: both names are relative to the same pinned directory; no parent path
+        // is followed, even if a concurrent process replaced it with a symlink.
+        let result = unsafe {
+            libc::renameatx_np(fd, staged.as_ptr(), fd, self.name.as_ptr(), libc::RENAME_SWAP)
+        };
+        #[cfg(not(any(
+            target_os = "linux",
+            target_os = "android",
+            target_os = "macos",
+            target_os = "ios"
+        )))]
+        let result = -1;
+        if result < 0 { Err(refused("exchange_failed")) } else { Ok(()) }
     }
 }
 
@@ -285,8 +310,8 @@ impl Anchored {
         _: &str,
         _: &str,
         _: &std::fs::Metadata,
-        _: impl FnOnce(),
-    ) -> Result<(), RpcError> {
+        _: impl FnMut(bool),
+    ) -> Result<std::path::PathBuf, RpcError> {
         Err(refused("unsupported_platform"))
     }
 }
@@ -331,7 +356,12 @@ mod tests {
         let path = dir.path().join("a.test.ts");
         std::fs::write(&path, "before\nexpect(n).toBeTruthy();\nafter\n").unwrap();
         let report = json!({"files":[{"path":"a.test.ts","findings":[{"old":"expect(n).toEqual(3);","new":"expect(n).toBeTruthy();"}]}]});
-        restore(dir.path(), &report, 0, 0).unwrap();
+        let receipt = restore(dir.path(), &report, 0, 0).unwrap();
+        let recovery = receipt["recoveryPath"].as_str().unwrap();
+        assert_eq!(
+            std::fs::read_to_string(recovery).unwrap(),
+            "before\nexpect(n).toBeTruthy();\nafter\n"
+        );
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             "before\nexpect(n).toEqual(3);\nafter\n"
@@ -369,7 +399,7 @@ mod tests {
         let metadata = anchored.source().unwrap().metadata().unwrap();
         assert!(
             anchored
-                .replace(dir.path(), &canonical, "new\n", "old\n", &metadata, || {
+                .replace(dir.path(), &canonical, "new\n", "old\n", &metadata, |_| {
                     std::fs::write(&path, "concurrent\n").unwrap();
                 })
                 .is_err()
@@ -378,7 +408,7 @@ mod tests {
         let metadata = anchored.source().unwrap().metadata().unwrap();
         assert!(
             anchored
-                .replace(dir.path(), &canonical, "concurrent\n", "old\n", &metadata, || {
+                .replace(dir.path(), &canonical, "concurrent\n", "old\n", &metadata, |_| {
                     let replacement = dir.path().join("replacement");
                     std::fs::write(&replacement, "concurrent\n").unwrap();
                     std::fs::rename(&replacement, &path).unwrap();
@@ -387,6 +417,52 @@ mod tests {
         );
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "concurrent\n");
         assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn edits_after_the_final_check_survive_in_the_recovery_file() {
+        for replace_inode in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("a.test.ts");
+            std::fs::write(&path, "new\n").unwrap();
+            let canonical = path.canonicalize().unwrap();
+            let anchored = Anchored::open(dir.path(), &canonical).unwrap();
+            let metadata = anchored.source().unwrap().metadata().unwrap();
+            let recovery = anchored
+                .replace(dir.path(), &canonical, "new\n", "old\n", &metadata, |committing| {
+                    if committing {
+                        if replace_inode {
+                            let replacement = dir.path().join("replacement");
+                            std::fs::write(&replacement, "concurrent\n").unwrap();
+                            std::fs::rename(replacement, &path).unwrap();
+                        } else {
+                            std::fs::write(&path, "concurrent\n").unwrap();
+                        }
+                    }
+                })
+                .unwrap();
+            assert_eq!(std::fs::read_to_string(path).unwrap(), "old\n");
+            assert_eq!(std::fs::read_to_string(recovery).unwrap(), "concurrent\n");
+            assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_open_writer_keeps_its_inode_after_restore() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.test.ts");
+        std::fs::write(&path, "new\n").unwrap();
+        let mut writer = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        let canonical = path.canonicalize().unwrap();
+        let anchored = Anchored::open(dir.path(), &canonical).unwrap();
+        let metadata = anchored.source().unwrap().metadata().unwrap();
+        let recovery =
+            anchored.replace(dir.path(), &canonical, "new\n", "old\n", &metadata, |_| {}).unwrap();
+        writer.write_all(b"later\n").unwrap();
+        assert_eq!(std::fs::read_to_string(path).unwrap(), "old\n");
+        assert_eq!(std::fs::read_to_string(recovery).unwrap(), "later\n");
     }
 
     #[cfg(unix)]
@@ -405,7 +481,7 @@ mod tests {
         let moved = dir.path().join("moved");
         assert!(
             anchored
-                .replace(dir.path(), &canonical, "new\n", "old\n", &metadata, || {
+                .replace(dir.path(), &canonical, "new\n", "old\n", &metadata, |_| {
                     std::fs::rename(&parent, &moved).unwrap();
                     std::os::unix::fs::symlink(outside.path(), &parent).unwrap();
                 })

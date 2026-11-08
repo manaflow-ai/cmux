@@ -15,9 +15,14 @@ The chosen variant is the compact disclosure: it uses the existing edited-files 
 rhythm, a single status mark, and a one-line expansion affordance. The gallery also keeps an
 expanded evidence variant and a multi-file variant for review.
 
-Restore is available on authenticated local app connections on Unix hosts. Unproved remote
+Restore is available on authenticated local app connections on Linux and Apple hosts. Unproved remote
 connections keep the evidence and Ask why action. Missing context, changed files, ambiguous
 matching blocks, and paths escaping the session folder are refused without writing.
+At commit, Restore atomically exchanges the file with its replacement and retains the displaced
+inode beside it as `.cmux-test-restore-<id>`. The RPC returns that recovery path. A writer racing
+the final check, including one with an open descriptor, keeps its data in that recovery file.
+There is one retained file per successful Restore, normally bounded by the 4 MiB input limit;
+an external writer can still grow its own inode. There is no automatic deletion of recovery files.
 
 The transcript adds one stable alarm row outside folded tool groups as soon as an edit reports
 a finding. It keeps that row identity when the turn ends and is independent of edited-file
