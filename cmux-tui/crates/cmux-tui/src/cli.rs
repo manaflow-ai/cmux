@@ -161,9 +161,9 @@ mod shorthand;
 #[cfg(unix)]
 mod skew;
 mod skill;
-mod stream_output;
 #[cfg(unix)]
 mod status;
+mod stream_output;
 mod surface;
 mod tab_capabilities;
 #[cfg(unix)]

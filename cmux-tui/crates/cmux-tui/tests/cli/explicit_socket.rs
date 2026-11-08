@@ -390,6 +390,9 @@ fn cmux_socket_path_alone_fails_with_no_daemon_on_every_daemon_path() {
     }
 }
 
+/// One `cmux --json` call: its words and the variables it adds.
+type Case<'a> = (&'a [&'a str], Vec<(&'a str, &'a str)>);
+
 /// `cmux --json identify` on a session no app owns (a headless daemon on a
 /// runner) answered `socket.no_app` or `app.not_found`, although the agent
 /// guide's first step is `cmux --json identify` (agent-ergonomics scorecard,
@@ -399,7 +402,7 @@ fn cmux_socket_path_alone_fails_with_no_daemon_on_every_daemon_path() {
 fn identify_with_no_app_answers_from_the_session_daemon() {
     let world = World::start("identify-headless");
     let daemon = world.daemon.socket.to_str().unwrap().to_owned();
-    let cases: [(&[&str], Vec<(&str, &str)>); 3] = [
+    let cases: [Case<'_>; 3] = [
         (&["--session", "main", "identify"], vec![]),
         (&["identify"], vec![("CMUX_SOCKET_PATH", ""), ("CMUX_TUI_SOCKET", daemon.as_str())]),
         (&["identify"], vec![("CMUX_BUNDLE_ID", ""), ("CMUX_SOCKET_PATH", "")]),
