@@ -21,6 +21,8 @@ final class HistoryService {
     let pages = NSHashTable<HistoryCookieBackupsPageProvider>.weakObjects() // The open History pages (their shown rows).
     /// The omnibox persistence per profile: the daemon's visit store (`DaemonVisitSink`).
     private var routes: [BrowserProfileID: DaemonVisitSink] = [:]
+    /// Every daemon history write in order, visits, clears and removes alike, held while the local daemon is away.
+    private(set) lazy var writes = HistoryWriteQueue<DaemonHistoryClient>(retryable: DaemonHistoryClient.isLinkDrop) { [weak self] in await self?.connectedDaemonHistory() }
     let hidden: HiddenHistoryStore
     let agents: AgentHistory
     let commands: CommandHistory
@@ -63,9 +65,7 @@ final class HistoryService {
     /// Makes `history` (a profile's omnibar history) durable on the daemon and seeds it from the
     /// daemon's visit summaries once the local daemon serves `history-v1`.
     func attach(_ history: InMemoryBrowserHistory, profile: BrowserProfileID) {
-        let route = routes[profile] ?? DaemonVisitSink(profile: BrowserProfileRecord.wireID(for: profile)) { [weak self] in
-            await self?.connectedDaemonHistory()
-        }
+        let route = routes[profile] ?? DaemonVisitSink(profile: BrowserProfileRecord.wireID(for: profile), writes: writes)
         routes[profile] = route
         route.onRemove = { [weak self, wire = BrowserProfileRecord.wireID(for: profile)] url in
             guard let sync = self?.services.onboarding.historySync else { return }
@@ -186,6 +186,7 @@ final class HistoryService {
         let appOwned: Set<HistoryEntry.Kind> = [.command]
         let owned = kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appOwned) : kinds.subtracting(appOwned)
         if !owned.isEmpty { daemonMutation { try await $0.clear(kinds: owned, range: range) } }
+        if owned.contains(.agent) { hidden.hideLocally { $0.hide(since: since, now: Date(), kind: "agent") } }
         if wants(.command) { commands.delete(since: since) }
         if wants(.page) {
             for profile in [BrowserProfileID.default] + services.browserProfiles.ordered.map(\.engineProfile) {
@@ -218,6 +219,7 @@ final class HistoryService {
         case .location, .closed, .agent:
             let id = entry.id
             daemonMutation { try await $0.remove(ids: [id]) }
+            if case .agent(let session) = entry.payload { hidden.hideLocally { $0.hide(entry: session.qualifiedID) } }
             // The daemon removes every trail entry of the place; so do the app's Back/Forward steps.
             if case .location(let location, _) = entry.payload { services.locationTrail.remove(location.key) }
         }

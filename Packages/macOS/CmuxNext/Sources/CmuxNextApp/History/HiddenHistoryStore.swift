@@ -14,6 +14,7 @@ final class HiddenHistoryStore {
 
     private unowned let services: AppServices
     private(set) var document = HiddenHistory()
+    private var localHides = HiddenHistory()
     private var observation: Task<Void, Never>?
 
     init(services: AppServices) {
@@ -32,12 +33,16 @@ final class HiddenHistoryStore {
         observation?.cancel()
     }
 
+    /// Hides at once, kept across loads (the daemon's clear or remove writes `history.hidden`; a load before it lands keeps them).
+    func hideLocally(_ body: (inout HiddenHistory) -> Void) { body(&localHides); body(&document) }
+    func loaded(_ stored: HiddenHistory) { document = stored.merged(with: localHides) }
+
     private func load() {
         services.daemon.send("history-hidden-load") { [weak self] connection in
             let projection = try await connection.frontendProjection(subject: Self.subject)
             guard projection.schemaVersion == HiddenHistory.schemaVersion, projection.projection != .null,
                   let stored = try? JSONDecoder().decode(HiddenHistory.self, from: JSONEncoder().encode(projection.projection)) else { return }
-            await MainActor.run { self?.document = stored }
+            await MainActor.run { self?.loaded(stored) }
         }
     }
 }

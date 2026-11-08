@@ -12,7 +12,7 @@ import os
 /// cursor when a caller asks (`refresh`), so nothing polls.
 final class AgentHistory {
     private unowned let services: AppServices
-    private var folds: [String: AgentSessionFold] = [:]
+    var folds: [String: AgentSessionFold] = [:] // per machine (tests fill one)
     private var generations: [String: String] = [:]
     private var refreshing: Task<Void, Never>?
     /// Hidden by Clear History or Remove from History (the journal is

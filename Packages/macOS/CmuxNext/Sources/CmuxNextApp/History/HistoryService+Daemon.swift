@@ -12,19 +12,17 @@ import Foundation
 /// Back/Forward cursor (view state). The bundled daemon always serves it; while the local daemon
 /// (re)connects, writes wait for it (`connectedDaemonHistory`).
 extension HistoryService {
-    /// The local daemon's history module when it serves `history-v1`, else nil.
+    /// The local daemon's history module while its link is up (the store's state: a connection outlives a drop) and serves `history-v1`.
     var daemonHistory: DaemonHistoryClient? {
         let daemon = services.machines.local
-        guard let connection = daemon.connection, daemon.supports(DaemonHistoryClient.capability) else { return nil }
+        guard case .connected = daemon.store.connectionState, let connection = daemon.connection, daemon.supports(DaemonHistoryClient.capability) else { return nil }
         return DaemonHistoryClient(connection: connection)
     }
 
-    /// The local daemon's history module, once it is connected and serves `history-v1`: woken by the
+    /// The local daemon's history module, once its link is up and it serves `history-v1`: woken by the
     /// connection itself, never by polling. nil only when the waiting task is cancelled.
     func connectedDaemonHistory() async -> DaemonHistoryClient? {
-        if let daemon = daemonHistory { return daemon }
-        let local = services.machines.local
-        for await ready in ObservationStream({ local.connection != nil && local.supports(DaemonHistoryClient.capability) }) where ready {
+        for await _ in ObservationStream({ [weak self] in self?.daemonHistory != nil }) {
             if let daemon = daemonHistory { return daemon }
         }
         return nil
@@ -77,15 +75,10 @@ extension HistoryService {
         entry.reachable { services.locationTrail.isAvailable($0) }
     }
 
-    /// Runs a daemon mutation off the caller once the local daemon serves history (a clear made while it
-    /// reconnects still happens), then tells open pages (they also hear history-changed).
+    /// Queues a daemon mutation behind every earlier visit and mutation (``writes``; a clear made while it
+    /// reconnects still happens, after them), then tells open pages (they also hear history-changed).
     func daemonMutation(_ body: @escaping @Sendable (DaemonHistoryClient) async throws -> Void) {
-        // task-owner: one history mutation; ends with its reply
-        Task { [weak self] in
-            guard let daemon = await self?.connectedDaemonHistory() else { return }
-            try? await body(daemon)
-            self?.onChange?()
-        }
+        writes.enqueue(body) { [weak self] in self?.onChange?() }
     }
 
     /// Seeds a profile's omnibox from the daemon's visit summaries once the local daemon serves

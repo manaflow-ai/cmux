@@ -1,0 +1,97 @@
+public import CmuxNextDaemon
+public import CmuxNextWakeups
+
+/// The daemon history's one ordered queue of writes: every profile's visits, titles and removals and
+/// every clear and remove, in the order they were made. A clear made while the local daemon is away
+/// therefore reaches it after the visits made before it, so those visits never come back.
+///
+/// A write waits for a live client (`client`, which returns once the daemon serves history). One that
+/// fails because the link dropped under it (`retryable`) stays first and goes again, after a backoff
+/// that lets the next connect land; one the daemon answered and refused is done. At most `capacity`
+/// writes wait; past it the oldest waiting visit goes (a clear or remove is kept, so nothing removed
+/// comes back), else the oldest waiting write.
+@MainActor
+public final class HistoryWriteQueue<Client: Sendable> {
+    public typealias Write = @Sendable (Client) async throws -> Void
+    private struct Item {
+        let id: UInt64
+        let isVisit: Bool
+        let write: Write
+        let done: (@MainActor () -> Void)?
+    }
+
+    public let capacity: Int
+    private var items: [Item] = []
+    private var nextID: UInt64 = 0
+    /// The write being sent: never dropped for room.
+    private var sending: UInt64?
+    private var draining: Task<Void, Never>?
+    private var backoff: Backoff
+    private let retryable: @Sendable (any Error) -> Bool
+    private let client: @MainActor () async -> Client?
+
+    public init(capacity: Int = 4_096, backoff: Backoff = Backoff(initial: .milliseconds(200), maximum: .seconds(5)),
+                retryable: @escaping @Sendable (any Error) -> Bool, client: @escaping @MainActor () async -> Client?) {
+        self.capacity = max(1, capacity)
+        self.backoff = backoff
+        self.retryable = retryable
+        self.client = client
+    }
+
+    // The drain holds the queue while it runs; nothing else to stop (#23050: no isolated deinit on a generic class).
+    nonisolated deinit {}
+
+    /// Writes not yet sent (the one being sent included).
+    public var count: Int { items.count }
+
+    /// Queues `write` behind every earlier one; `done` runs once it was sent (or refused).
+    public func enqueue(visit: Bool = false, _ write: @escaping Write, done: (@MainActor () -> Void)? = nil) {
+        if items.count >= capacity {
+            let waiting = items.indices.filter { items[$0].id != sending }
+            if let index = waiting.first(where: { items[$0].isVisit }) ?? waiting.first { items.remove(at: index) }
+        }
+        nextID += 1
+        items.append(Item(id: nextID, isVisit: visit, write: write, done: done))
+        guard draining == nil else { return }
+        // task-owner: the queue's drain; ends when the queue is empty or the client wait is cancelled
+        draining = Task { [weak self] in await self?.drain() }
+    }
+
+    private func drain() async {
+        defer { draining = nil }
+        while let item = items.first {
+            sending = item.id
+            guard let client = await client() else {
+                sending = nil
+                return
+            }
+            do {
+                try await item.write(client)
+            } catch where retryable(error) {
+                // The link dropped under the write: it stays first and goes again on the next connect.
+                sending = nil
+                // concurrency-allow: Backoff.wait is an async clock sleep (the task suspends, no thread blocks), once per failed send
+                do { try await backoff.wait(owner: "history.writes") } catch { return }
+                continue
+            } catch {
+                // The daemon answered and refused it: a retry changes nothing.
+            }
+            backoff.reset()
+            sending = nil
+            items.removeAll { $0.id == item.id }
+            item.done?()
+        }
+    }
+}
+
+extension DaemonHistoryClient {
+    /// Whether a write failed because the link dropped under it (or the daemon asks for a retry), so it
+    /// goes again on the next connect; any other answer was the daemon's own refusal.
+    public nonisolated static func isLinkDrop(_ error: any Error) -> Bool {
+        switch error as? DaemonError {
+        case .notConnected?, .connectionClosed?, .daemonShutdown?, .connectFailed?: true
+        case .command(_, _, _, _, let retryable)?: retryable == true
+        default: false
+        }
+    }
+}
