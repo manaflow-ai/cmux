@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42453634094",
+  "recorded_at": "2026-11-08T06:16:48Z",
+  "reason": "cmux-tui c80039a52603 changes the image's cmux-tui (pinned 9b16f6b715b6)",
+  "dry_run": false,
+  "cmux_tui": "c80039a526038411f93fa6045691ce9e64dcb377",
+  "fixes": [
+    {
+      "sha": "c80039a526038411f93fa6045691ce9e64dcb377",
+      "mergedAt": "2026-11-07T21:55:22-08:00",
+      "subject": "acpmux: the owner's own CLI send is the owner's prompt again, not an unverified sender (#38260)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T06:16:48Z",
+    "snapshot_id": "sh-da6cd838cb3744dc83d5e604651db008",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42453634094): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "dea290d80ad04f16d8364a1e59795f1540cf695b",
+    "image": "cloud-native-auto-c80039a5-42453634094-1",
+    "revision": "ci-42453634094-1",
+    "at": "2026-11-08T06:16:48Z"
+  },
+  "rolled_back": false
+}
