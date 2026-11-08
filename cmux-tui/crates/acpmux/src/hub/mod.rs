@@ -42,6 +42,8 @@ pub(crate) mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
 pub(crate) use lane_reports::TAG as REPORTS_TO_TAG;
 pub(crate) use policy_mode::SetRequest;
+mod audit_entries;
+pub(crate) mod audit_log;
 mod bookmarks;
 pub(crate) mod cancel;
 mod catalog_reload;
@@ -66,6 +68,8 @@ mod ledger_hub_tests;
 mod peer_notice_cost_tests;
 #[cfg(test)]
 mod prompt_accept_tests;
+#[cfg(test)]
+mod review_queue_tests;
 #[cfg(test)]
 mod sender_claim_tests;
 #[cfg(test)]
@@ -139,9 +143,11 @@ pub use model_options::{
 };
 pub mod ledger;
 mod model_hint;
+mod model_probe;
 mod models_view;
 mod paging;
 mod personal_stats;
+mod policy_gate;
 mod policy_mode;
 mod policy_source;
 mod pool;
@@ -188,8 +194,10 @@ mod elevation;
 mod git_watch;
 mod github_owner;
 mod lane_report_reads;
+mod lane_report_subagents;
 mod lane_report_text;
 mod lane_reports;
+mod loop_detector;
 mod loop_goal;
 #[cfg(test)]
 mod loop_goal_tests;
@@ -208,6 +216,7 @@ mod silent_listing;
 mod silent_turn;
 mod stalled_turn;
 mod start_retry;
+mod start_watch;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
@@ -272,6 +281,7 @@ pub(crate) mod questions;
 mod remote_cwd;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
+pub(crate) mod review_queue;
 mod touched;
 pub mod vm_boundary;
 pub use vm_boundary::vm_boundary_peer_approves;
@@ -635,6 +645,10 @@ pub struct Hub {
     /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
     /// daemon's own catalog, so mutual peers cannot ping-pong.
     pub models_fanouts: std::sync::atomic::AtomicUsize,
+    /// The sessions that may hold an ask, and those with pull requests (`review_queue.rs`).
+    pub(crate) review_index: review_queue::Index,
+    /// The approvals audit trail (`audit_log.rs`).
+    pub(crate) audit: audit_log::AuditLog,
     pub shutdown: Notify,
     /// Latched daemon restart and drain shared by TCP and embedded-tailnet listeners.
     pub(crate) ws_shutdown: crate::server::WsShutdown,
@@ -1001,6 +1015,7 @@ impl Hub {
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
+        let audit = audit_log::AuditLog::open(store.audit_dir());
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
         let hub = Arc::new(Self {
             hub_ref: std::sync::OnceLock::new(),
@@ -1026,6 +1041,8 @@ impl Hub {
             usage_stats: Default::default(),
             ledger,
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
+            review_index: Default::default(),
+            audit,
             shutdown: Notify::new(),
             ws_shutdown: Default::default(),
             restart_requested: std::sync::atomic::AtomicBool::new(false),
@@ -1574,6 +1591,7 @@ impl Hub {
             heard_at: std::sync::atomic::AtomicI64::new(0),
             stalled_recheck: AtomicU64::new(0),
             open_tools: StdMutex::new(Default::default()),
+            loop_detector: StdMutex::new(Default::default()),
             stalled_counted: StdMutex::new(None),
             stalled_gen: AtomicU64::new(0),
             sign_in_refused_turn: StdMutex::new(None),
@@ -1599,6 +1617,8 @@ impl Hub {
         });
         // Found by its tags from now on (`permissions/display.rs`).
         self.child_tags.note(&session);
+        // Its pull requests wait for a review verdict (`review_queue.rs`).
+        self.note_session_prs(&session);
         session
     }
 
@@ -2169,6 +2189,8 @@ impl Hub {
         };
         if stored {
             session.note_transfer_event(&record);
+            // The review queue's index and the audit trail: O(1), never blocking on a write.
+            self.observe_for_review(session, &record);
         }
         // A closed session's log is not held open: its last records (`status`,
         // then the agent's `stopped`) each close it again (`store.rs` Writers).
@@ -2206,6 +2228,8 @@ impl Hub {
                 | "turn_error"
                 | "stopping"
                 | "unstuck"
+                | "loop_detected"
+                | "loop_cleared"
                 | work_below::RECORD_KIND
                 | asks_below::RECORD_KIND
                 | "queued"

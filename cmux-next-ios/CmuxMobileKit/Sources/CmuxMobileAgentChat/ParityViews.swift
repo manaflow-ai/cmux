@@ -151,7 +151,7 @@ struct SubagentGroupCard: View {
             }
         }
         .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
-        .animation(.cmuxMobileSnap, value: agents.map(\.state))
+        .animation(.cmuxMobileSnap.unlessReduceMotion, value: agents.map(\.state))
     }
 }
 
@@ -629,7 +629,7 @@ struct HandoffReviewScreen: View {
                 }
             }
         }
-        .animation(.cmuxMobileSmooth, value: receipt)
+        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: receipt)
         .chatDemoReceiver(store: store, surface: surface)
         .navigationTitle("Review continuation")
         .navigationBarTitleDisplayMode(.inline)
@@ -638,7 +638,7 @@ struct HandoffReviewScreen: View {
         .onChange(of: surface.demoHandoffFill) { _, value in
             guard let value else { return }
             checkpoint = value
-            withAnimation(.cmuxMobileSnap) { attested = true }
+            withAnimation(.cmuxMobileSnap.unlessReduceMotion) { attested = true }
         }
         .onChange(of: surface.demoHandoffStart) {
             if case .loaded(let draft) = load { start(draft) }
@@ -724,7 +724,7 @@ struct HandoffReviewScreen: View {
             .padding(.vertical, 10)
             .accessibilityIdentifier("handoff.start")
         }
-        .animation(.cmuxMobileSnap, value: error)
+        .animation(.cmuxMobileSnap.unlessReduceMotion, value: error)
     }
 
     private func canStart(_ draft: AgentHandoffDraft) -> Bool {

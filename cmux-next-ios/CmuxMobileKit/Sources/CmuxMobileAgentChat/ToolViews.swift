@@ -374,7 +374,7 @@ struct DiffSnippet: View {
             .trailingOverflowFade()
             if preview.remaining > 0 {
                 Button(preview.remaining == 1 ? "Show 1 more line" : "Show \(preview.remaining) more lines") {
-                    withAnimation(.cmuxMobileSmooth) {
+                    withAnimation(.cmuxMobileSmooth.unlessReduceMotion) {
                         if let disclosures { disclosures.set("diff-\(call.id)", true) } else { localShowAll = true }
                     }
                 }

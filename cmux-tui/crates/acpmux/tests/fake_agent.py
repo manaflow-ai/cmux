@@ -13,6 +13,9 @@ Behaviour per prompt text:
   "cancel-errors" -> streams "running", then answers session/cancel with an error
   "works-through-cancel" -> a tool call every 100 ms, titled "step N pid P", through every
                  session/cancel; answers end_turn after 60 s
+  "stuck-loop" -> three identical failed cargo test calls, then a ready marker while the
+                 turn stays open for at most 90 s; cancel ends it early, otherwise one
+                 successful call clears the episode before end_turn
   "works-through-cancel-beside-background" -> the same after starting background subagent bg-1
   "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
@@ -395,6 +398,41 @@ def run_gh_pr_create(rid, sid):
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
 
 
+def run_stuck_loop(rid, sid):
+    """Keep a detected loop visible long enough for a real-app capture, without running a command."""
+    for number in range(3):
+        if sid in cancelled:
+            cancelled.discard(sid)
+            send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+            return
+        call_id = f"stuck-cargo-{number}"
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": call_id, "title": "cargo test",
+                     "kind": "execute", "status": "in_progress", "rawInput": {"command": "cargo test"}})
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": call_id, "status": "failed",
+                     "rawOutput": {"exit_code": 1, "stderr": "auth.rs:88: assertion failed"}})
+    update(sid, {"sessionUpdate": "agent_message_chunk", "content": {
+        "type": "text", "text": "STUCK LOOP READY"}})
+    # Starting the next tool finalizes that assistant segment for the DEV capture's
+    # chat_state untilReplyContains wait, without clearing the still-running episode.
+    update(sid, {"sessionUpdate": "tool_call", "toolCallId": "stuck-progress", "title": "Check progress",
+                 "kind": "execute", "status": "in_progress", "rawInput": {"command": "true"}})
+    deadline = time.monotonic() + 90
+    while time.monotonic() < deadline:
+        if sid in cancelled:
+            cancelled.discard(sid)
+            send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+            return
+        time.sleep(min(0.1, max(0, deadline - time.monotonic())))
+    if sid in cancelled:
+        cancelled.discard(sid)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+        return
+    update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "stuck-progress", "status": "completed"})
+    update(sid, {"sessionUpdate": "agent_message_chunk", "content": {
+        "type": "text", "text": " STUCK LOOP CLEARED"}})
+    send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+
+
 def handle_prompt(rid, params):
     sid = params["sessionId"]
     # Model a harness that scopes an interrupt to the prompt it is processing.
@@ -436,6 +474,8 @@ def handle_prompt(rid, params):
         return run_hostname(rid, sid)
     if text == "gh-pr-create":
         return run_gh_pr_create(rid, sid)
+    if text == "stuck-loop":
+        return run_stuck_loop(rid, sid)
     # Connection-loss simulation for auto-resume tests. "net-fail-once: X" fails that prompt
     # with a transport error once per session; "net-down" fails it and every later prompt of
     # the session the same way. Any other prompt after a net-fail-once is answered as usual.

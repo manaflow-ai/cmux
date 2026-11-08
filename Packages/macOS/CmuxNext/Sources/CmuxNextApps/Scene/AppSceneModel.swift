@@ -6,6 +6,12 @@ public import Observation
 @MainActor
 public protocol AppSceneInteraction: AnyObject {
     func dispatch(node: String, event: String, payload: AppJSON)
+    /// Runs the app's script again from its saved files and draws it anew (a failed mount's Reload).
+    func reload()
+}
+
+extension AppSceneInteraction {
+    public func reload() {}
 }
 
 /// The observable mirror of one mounted contribution, for `AppSceneView`.
@@ -55,6 +61,11 @@ public final class AppSceneModel {
         scene = AppScene()
         status = .loading
         revision &+= 1
+    }
+
+    /// The error card's Reload: the mount's app runs its script again and every view of it redraws.
+    public func reload() {
+        interaction?.reload()
     }
 
     func send(_ node: String, _ event: String, _ payload: AppJSON = .object([:])) {

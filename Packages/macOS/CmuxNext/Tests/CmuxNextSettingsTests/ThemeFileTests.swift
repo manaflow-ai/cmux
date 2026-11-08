@@ -242,6 +242,26 @@ import Testing
         #expect(settings.applied.accent == .blue)
     }
 
+    /// Hovering a Theme File previews its whole look, the terminal font included (`lookFollowed`); any
+    /// other preview (a font size slider's ticks) leaves the font on the loaded settings.
+    @Test func aThemeFilePreviewCarriesItsTerminalFont() async throws {
+        let home = try Home()
+        defer { withExtendedLifetime(home) {} }
+        try home.write(#"{ "terminal.fontFamily": "Menlo", "terminal.fontSize": 15 }"#, theme: "harbor")
+        let settings = try Self.controller(home, config: #"{ "terminal": { "fontSize": 12 } }"#)
+        await settings.reload()
+        let themeFile = try #require(SettingsSchema.descriptor(for: ThemeFileSetting.configPath))
+        #expect(settings.preview(themeFile, "harbor"))
+        #expect(settings.lookFollowed.terminalFontSize == 15)
+        #expect(settings.lookFollowed.terminalFontFamily == "Menlo")
+        settings.endPreview()
+        #expect(settings.lookFollowed.terminalFontSize == 12)
+        let size = try #require(SettingsSchema.descriptor(for: ["terminal", "fontSize"]))
+        #expect(settings.preview(size, 20))
+        #expect(settings.lookFollowed.terminalFontSize == 12)
+        settings.endPreview()
+    }
+
     /// Saving the active theme file re-applies it with no other step; the p50 and max of save to
     /// applied settings are printed (the native half of save-to-pixels).
     @Test func savingTheActiveFileReappliesItLive() async throws {

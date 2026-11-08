@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 
-use super::super::terminal_talk::{self, roster, send};
+use super::super::terminal_talk::{self, roster_names, send};
 use super::agent_wait_tool::{Progress, Ticker};
 use super::{Backend, envelope, failure_result, success, tool_error, v2_tools};
 
@@ -173,11 +173,11 @@ pub(super) fn call_list<B: Backend>(backend: &B, arguments: &Map<String, Value>)
     match send::snapshot(backend, session.as_deref()) {
         Ok(snapshot) => {
             let now = terminal_talk::now_ms();
-            let rows = roster::agent_rows(&snapshot);
-            success(
-                json!({"items": rows.iter().map(|row| row.to_json(now)).collect::<Vec<_>>()}),
-                false,
-            )
+            let rows = roster_names::rows(&snapshot);
+            let facts = roster_names::facts(&snapshot);
+            let items: Vec<Value> =
+                rows.iter().map(|row| roster_names::row_json(row, &facts, now)).collect();
+            success(json!({"items": items}), false)
         }
         Err(failure) => failure_result(failure),
     }

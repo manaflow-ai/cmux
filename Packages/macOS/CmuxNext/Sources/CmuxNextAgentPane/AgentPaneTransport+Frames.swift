@@ -396,7 +396,7 @@ extension AgentPaneTransport {
                 } ?? false
                 let redeemed = redeemedQuestion || gestures.redeem(ticket, connection: id, pick: facts.pick, sessionId: facts.sessionId)
                 granted = redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
-                    && facts.sessionId.map(sessions.contains) == true
+                    && (facts.method == "chat.fix_from_link" || facts.sessionId.map(sessions.contains) == true)
                 ticketPick = granted
                 // A prompt that goes with its own ticket spends the start's credit too, as one
                 // without a ticket does: the credit never grants a later prompt (#23031).
