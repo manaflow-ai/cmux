@@ -9,7 +9,7 @@
 //! The listener is the one the running daemon recorded in its home's
 //! `listener.json`, and only after it proved itself: the recorded process
 //! runs with the recorded start time and this user's uid, and the listener
-//! answers the probe with the record's nonce (`acpmux::listener_record`).
+//! answers a fresh challenge under the record's key (`acpmux::listener_record`).
 //! Nothing else names it: `websocket.listen` in config.json outlives the
 //! daemon, and a stale port there could reach any local service bound to it
 //! later. Without a proven listener the stream closes before any of the

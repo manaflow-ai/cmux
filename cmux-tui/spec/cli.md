@@ -129,8 +129,8 @@ serves it; refused with `desktop_unavailable` when it does not) or `acpmux`
 (a paired install's acpmux WebSocket listener on its loopback: only the one
 its running acpmux daemon recorded in `listener.json` in its acpmux home, after
 the far link checked that the recorded process still runs, as the same user
-and with the recorded start time, and that the listener answers with the
-record's random nonce; `config.json`'s `websocket.listen` is never used. acpmux
+and with the recorded start time, and that the listener answers a fresh
+challenge with an HMAC under the record's key; `config.json`'s `websocket.listen` is never used. acpmux
 checks its own token on the upgrade, so pairing grants nothing more. Without a
 proven listener the stream closes before any of its bytes are sent on).
 `--socket`
