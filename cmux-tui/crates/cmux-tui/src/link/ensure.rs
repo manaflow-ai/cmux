@@ -408,6 +408,8 @@ fn start(state: &LinkState, flags: &Flags) -> anyhow::Result<Option<Value>> {
     }
     let mut command = std::process::Command::new(std::env::current_exe()?);
     command.args(["link", "serve", "--state-dir"]).arg(state.dir());
+    // Resolved here, with this process's environment (`key_lock.rs`).
+    command.arg(super::key_lock::FLAG).arg(super::key_lock::lock_dir(state));
     for name in ["--session-socket", "--server-config"] {
         if let Some(value) = flags.get(name) {
             command.arg(name).arg(value);

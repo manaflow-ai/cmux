@@ -692,3 +692,35 @@ fn link_ensure_reports_a_held_wireguard_key_and_does_not_serve() {
         Err(cmux_link::key_holder::KeyHolderError::KeyHeld { .. })
     ));
 }
+
+/// A `serve` that launchd starts has no `CMUX_TUI_STATE_DIR` and no
+/// `ACPMUX_HOME`: the lock directory it was given (`--key-lock-dir`, resolved
+/// by the app) still decides, so it contends with the app's acpmux.
+#[test]
+fn link_serve_without_the_app_env_locks_the_dir_it_was_given() {
+    let base = Scratch::new("flag");
+    let app = base.app("a");
+    let dir = app.state_dir();
+    let dir = dir.to_str().unwrap();
+    let init =
+        app.cmux(&["link", "init", "--state-dir", dir, "--install", "inst_app_a", "--port", "0"]);
+    assert!(init.status.success(), "{}", String::from_utf8_lossy(&init.stderr));
+    let acpmux = base.root.join("acpmux");
+    let held = cmux_link::key_holder::KeyHolder::acquire(&acpmux).unwrap();
+    let lock = acpmux.to_str().unwrap();
+    let refused = app
+        .command(
+            &base.root.join("run"),
+            &["link", "serve", "--state-dir", dir, "--key-lock-dir", lock],
+        )
+        .env_remove("CMUX_TUI_STATE_DIR")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(!refused.status.success(), "the link served: {stderr}");
+    assert!(
+        stderr.contains("key_held") && stderr.contains(&format!("process {}", std::process::id())),
+        "{stderr}"
+    );
+    drop(held);
+}
