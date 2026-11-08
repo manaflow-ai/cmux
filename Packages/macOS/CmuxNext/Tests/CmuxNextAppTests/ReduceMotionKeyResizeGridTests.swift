@@ -53,25 +53,36 @@ struct ReduceMotionKeyResizeGridTests {
         await TerminalKeyResizeFrameTests.commit()
         let resized = panes.indices.filter { hosts[$0].frame.size != frames[$0].size }
         try #require(!resized.isEmpty, "no pane changed size by the first frame after the press")
+        // What the first frame showed, read before the terminals settle: the grids sent by then and each resized
+        // terminal's layer in its area.
+        let firstFrameGrids = TerminalSurfaceView.gridReports - reports
+        let shown = resized.map { index in
+            let session = screen.sessions[index], view = session.surfaceView, host = session.view
+            return (layer: view.layer?.bounds.size ?? .zero, area: host.surfaceSize(forHostSize: host.bounds.size),
+                    scale: view.layer?.contentsScale ?? 2)
+        }
+        // The press must give some terminal a new grid at rest, or it tests nothing: read where the terminals rest (no
+        // size waits for its frame), not at the first frame, which is what the expectations below judge.
+        let presenter = TerminalFramePresenter.forWindow(screen.window)
+        _ = await ReduceMotionPaneCloseFrameTests.commits(screen, seconds: 1) { screen in
+            !screen.sessions.contains { presenter.isWaiting($0.surfaceView) }
+        }
         let changedGrid = resized.filter { screen.sessions[$0].surfaceView.fittedGrid != grids[$0] }
         try #require(!changedGrid.isEmpty, """
-            no resized terminal fits a new grid: the press is too small to test (\(resized.map { index in
-                "\(panes[index].rawValue): host \(frames[index].size) -> \(hosts[index].frame.size), grid \(String(describing: grids[index])) -> \(String(describing: screen.sessions[index].surfaceView.fittedGrid)), surface \(screen.sessions[index].surfaceView.frame.size)"
-            }.joined(separator: "; ")); the key's turn sent \(keyTurnGrids) grids)
+            no resized terminal rests at a new grid: the press is too small to test (\(resized.map { index in
+                "\(panes[index].rawValue): host \(frames[index].size) -> \(hosts[index].frame.size), grid \(String(describing: grids[index])) -> \(String(describing: screen.sessions[index].surfaceView.fittedGrid))"
+            }.joined(separator: "; ")))
             """)
 
         #expect(movedInKeyTurn.isEmpty,
                 "the key's turn showed \(movedInKeyTurn) at their new frames before their programs had their grids: a Reduce Motion press shows at the next frame tick")
         #expect(keyTurnGrids == UInt64(changedGrid.count),
-                "the key's turn sent \(keyTurnGrids) grids for \(changedGrid.count) terminals with a new grid: each goes with its size drawn ahead, in the key's turn")
-        #expect(TerminalSurfaceView.gridReports - reports == keyTurnGrids,
-                "the first frame sent \(TerminalSurfaceView.gridReports - reports - keyTurnGrids) more grids after the key's turn")
-        for index in resized {
-            let session = screen.sessions[index], view = session.surfaceView, host = session.view
-            let area = host.surfaceSize(forHostSize: host.bounds.size), layer = view.layer?.bounds.size ?? .zero
-            let scale = view.layer?.contentsScale ?? 2
-            #expect(abs(layer.width - area.width) * scale <= 1 && abs(layer.height - area.height) * scale <= 1,
-                    "the first frame showed \(panes[index].rawValue)'s terminal layer at \(layer) in a \(area) area")
+                "the key's turn sent \(keyTurnGrids) grids for \(changedGrid.count) terminals with a new grid: each goes with its size drawn ahead, in the key's turn, and only once (a size drawn ahead and then dropped sends the old grid back)")
+        #expect(firstFrameGrids == keyTurnGrids,
+                "the first frame sent \(firstFrameGrids - keyTurnGrids) more grids after the key's turn")
+        for (index, frame) in zip(resized, shown) {
+            #expect(abs(frame.layer.width - frame.area.width) * frame.scale <= 1 && abs(frame.layer.height - frame.area.height) * frame.scale <= 1,
+                    "the first frame showed \(panes[index].rawValue)'s terminal layer at \(frame.layer) in a \(frame.area) area")
         }
     }
 }
