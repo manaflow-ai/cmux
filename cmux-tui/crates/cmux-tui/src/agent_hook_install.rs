@@ -3811,8 +3811,8 @@ mod tests {
     }
 
     /// Runs `command` with `sh -c`. The tests that run hook commands share
-    /// this one spawn line (the daemon's raw-spawn ratchet counts test lines
-    /// in this file by their text).
+    /// this one spawn line: the clone-local pre-push raw-spawn gate matches
+    /// the lines of this file (tests included) by their text.
     #[cfg(unix)]
     #[allow(clippy::let_and_return, clippy::needless_borrows_for_generic_args)]
     fn sh_c(command: &str) -> Output {

@@ -461,7 +461,7 @@ fn any_launcher_claude_reports_to_the_pane_session() {
             format!(
                 "{}CLAUDE_CONFIG_DIR='{}' '{}'; sleep 600",
                 common("full-path", 1),
-                root.join("config-full").display(),
+                root.join("config-full-path").display(),
                 claude.display()
             ),
         ),
