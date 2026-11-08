@@ -33,10 +33,16 @@ pub(super) fn parse_open(args: &[String]) -> Result<AppCommand, UsageError> {
     let environment = std::env::vars().collect::<std::collections::HashMap<_, _>>();
     parse_open_with(
         args,
-        std::io::stdin().is_terminal() && std::io::stdout().is_terminal(),
+        open_is_interactive(args, std::io::stdin().is_terminal(), std::io::stdout().is_terminal()),
         &environment,
         &mut std::io::stdin().lock(),
     )
+}
+
+/// Whether a person runs this `cmux open` in a terminal, which makes the tab it opens take
+/// the focus (``default_focus_for_user_open``).
+pub(super) fn open_is_interactive(_args: &[String], stdin_tty: bool, stdout_tty: bool) -> bool {
+    stdin_tty && stdout_tty
 }
 
 /// `cmux open <path|url>...`, or `cmux open -`: one URL per stdin line, so a
