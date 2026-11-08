@@ -45,6 +45,9 @@ pub(crate) struct Scheduler {
     settle: StdMutex<HashMap<String, u64>>,
     /// A chat's sends refused in a row, cleared by one that goes in.
     refused: StdMutex<HashMap<String, u32>>,
+    /// A chat whose schedule's last run is in flight, by its schedule id: a refusal gives that
+    /// run back only while this still names it (a set or clear since removes it).
+    pub(super) last_run: StdMutex<HashMap<String, String>>,
     wall: StdMutex<WallClock>,
 }
 
@@ -56,6 +59,7 @@ impl Default for Scheduler {
             chats: StdMutex::default(),
             settle: StdMutex::default(),
             refused: StdMutex::default(),
+            last_run: StdMutex::default(),
             wall: StdMutex::new(Arc::new(crate::store::now_ms)),
         }
     }
@@ -92,6 +96,7 @@ impl Hub {
         let value = schedule.to_value();
         locked(&session.meta).prompt_schedule = Some(schedule);
         locked(&self.prompt_schedules.refused).remove(&session.id);
+        locked(&self.prompt_schedules.last_run).remove(&session.id);
         self.publish_schedule(session)?;
         locked(&self.prompt_schedules.chats).insert(session.id.clone());
         self.wake_scheduler();
@@ -120,6 +125,7 @@ impl Hub {
     pub(crate) fn schedule_clear(&self, session: &Session) -> Result<bool, RpcError> {
         let had = locked(&session.meta).prompt_schedule.take().is_some();
         locked(&self.prompt_schedules.chats).remove(&session.id);
+        locked(&self.prompt_schedules.last_run).remove(&session.id);
         if had {
             self.publish_schedule(session)?;
         }
@@ -296,6 +302,22 @@ impl Hub {
             && session.queued() == 0
             && session.pending_permissions().is_empty()
             && !self.continuation_pending(session)
+            && !self.schedule_waits_for_person(session)
+    }
+
+    /// LAUNCH-NO-TCC-PROMPTS (`protected_hold.rs`): a chat in a privacy-protected folder that no
+    /// client shows never starts its agent for a schedule, after a daemon start or at any other
+    /// time; its run waits, due, until the person shows the chat. Nor does one whose restored
+    /// work is held for the person.
+    fn schedule_waits_for_person(&self, session: &Session) -> bool {
+        if session.protected_hold.load(Ordering::SeqCst) {
+            return true;
+        }
+        if self.shown(session) {
+            return false;
+        }
+        let cwd = locked(&session.meta).cwd.clone();
+        crate::protected_folders::unasked_refusal(&cwd).is_some()
     }
 
     /// Sends one run, counting it first, so a restart mid-send never sends it twice. A send
@@ -324,7 +346,16 @@ impl Hub {
         };
         if done {
             locked(&self.prompt_schedules.chats).remove(&session.id);
+            locked(&self.prompt_schedules.last_run).insert(session.id.clone(), id.clone());
         }
+        // A retry of a refused run goes under its own id, or the prompt ledger would answer it
+        // with the first attempt's refusal.
+        let attempt = locked(&self.prompt_schedules.refused).get(&session.id).copied().unwrap_or(0);
+        let prompt_id = if attempt == 0 {
+            format!("{id}-run-{run}")
+        } else {
+            format!("{id}-run-{run}-try-{}", attempt + 1)
+        };
         // The run is counted on disk before it goes, so a restart never sends it twice; one that
         // could not be counted is not sent.
         if let Err(e) = self.publish_schedule(session) {
@@ -337,7 +368,7 @@ impl Hub {
         tokio::spawn(async move {
             let blocks = vec![json!({"type": "text", "text": prompt})];
             let opts = PromptOptions {
-                prompt_id: Some(format!("{id}-run-{run}")),
+                prompt_id: Some(prompt_id),
                 provenance: Some(json!({"kind": "schedule", "scheduleId": id, "run": run})),
                 trust_gate,
                 ..PromptOptions::default()
@@ -345,6 +376,10 @@ impl Hub {
             match hub.prompt_with(&session, blocks, "acpmux", false, opts).await {
                 Ok(_) => {
                     locked(&hub.prompt_schedules.refused).remove(&session.id);
+                    let mut last = locked(&hub.prompt_schedules.last_run);
+                    if last.get(&session.id) == Some(&id) {
+                        last.remove(&session.id);
+                    }
                 }
                 Err(e) => {
                     tracing::warn!(session = %session.id, schedule = %id, run, error = %e.message,
@@ -378,7 +413,11 @@ impl Hub {
                 Some(s) => {
                     s.id == before.id && s.runs == before.runs.saturating_add(1) && !s.paused
                 }
-                None => done,
+                // Its last run: given back only while nothing set or cleared the chat's schedule since.
+                None => {
+                    done && locked(&self.prompt_schedules.last_run).remove(&session.id).as_ref()
+                        == Some(&before.id)
+                }
             };
             if !unchanged {
                 return;

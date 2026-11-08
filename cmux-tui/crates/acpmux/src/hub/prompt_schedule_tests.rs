@@ -220,7 +220,11 @@ async fn a_schedule_from_the_pane_keeps_its_folder_trust_check() {
 
 /// What `fire_schedule` does before it sends: the run counted, and the schedule gone when that
 /// run was its last. The schedule as it was before.
-fn count_a_run(session: &Session, now: u64) -> (crate::prompt_schedule::PromptSchedule, bool) {
+fn count_a_run(
+    hub: &Hub,
+    session: &Session,
+    now: u64,
+) -> (crate::prompt_schedule::PromptSchedule, bool) {
     let mut m = session.meta.lock().unwrap();
     let s = m.prompt_schedule.as_mut().unwrap();
     let before = s.clone();
@@ -228,6 +232,7 @@ fn count_a_run(session: &Session, now: u64) -> (crate::prompt_schedule::PromptSc
     let done = s.finished(now);
     if done {
         m.prompt_schedule = None;
+        hub.prompt_schedules.last_run.lock().unwrap().insert(session.id.clone(), before.id.clone());
     }
     (before, done)
 }
@@ -238,7 +243,7 @@ async fn a_refused_send_gives_its_run_back_until_it_is_refused_too_often() {
     hub.schedule_set(&session, every(5, Some(1)), false).unwrap();
     clocks.advance(5 * MIN);
     for refusal in 1..MAX_REFUSALS {
-        let (before, done) = count_a_run(&session, clocks.now());
+        let (before, done) = count_a_run(&hub, &session, clocks.now());
         assert!(done, "its only run ends it");
         hub.schedule_refused(&session, before, done);
         let back = session.meta().prompt_schedule.expect("the refused run is given back");
@@ -246,7 +251,7 @@ async fn a_refused_send_gives_its_run_back_until_it_is_refused_too_often() {
         assert_eq!(back.next_run_at, Some(clocks.now() + BUSY_RECHECK_MS), "it goes again later");
         clocks.advance(BUSY_RECHECK_MS);
     }
-    let (before, done) = count_a_run(&session, clocks.now());
+    let (before, done) = count_a_run(&hub, &session, clocks.now());
     hub.schedule_refused(&session, before, done);
     assert_eq!(
         session.meta().prompt_schedule,
@@ -261,10 +266,39 @@ async fn a_refused_run_leaves_a_schedule_changed_since_alone() {
     let (hub, session, clocks) = chat().await;
     hub.schedule_set(&session, every(5, None), false).unwrap();
     clocks.advance(5 * MIN);
-    let (before, done) = count_a_run(&session, clocks.now());
+    let (before, done) = count_a_run(&hub, &session, clocks.now());
     let newer = hub.schedule_set(&session, every(10, None), false).unwrap();
     hub.schedule_refused(&session, before, done);
     let kept = session.meta().prompt_schedule.unwrap();
     assert_eq!(json!(kept.id), newer["id"], "the schedule set since stays as it was");
     assert_eq!(kept.next_run_at, Some(clocks.now() + 10 * MIN));
+}
+
+#[tokio::test]
+async fn a_cleared_schedule_stays_cleared_when_its_last_run_is_refused() {
+    let (hub, session, clocks) = chat().await;
+    hub.schedule_set(&session, every(5, Some(1)), false).unwrap();
+    clocks.advance(5 * MIN);
+    let (before, done) = count_a_run(&hub, &session, clocks.now());
+    assert!(done);
+    hub.schedule_clear(&session).unwrap();
+    hub.schedule_refused(&session, before, done);
+    assert_eq!(session.meta().prompt_schedule, None, "the person's Cancel wins over the give-back");
+}
+
+#[tokio::test]
+async fn a_chat_held_for_the_person_keeps_its_run_waiting() {
+    let (hub, session, clocks) = chat().await;
+    hub.schedule_set(&session, every(5, Some(1)), false).unwrap();
+    session.protected_hold.store(true, Ordering::SeqCst);
+    clocks.advance(5 * MIN);
+    assert_eq!(
+        hub.run_due_schedules(clocks.now()),
+        Some(clocks.now() + BUSY_RECHECK_MS),
+        "a held chat (a protected folder after a daemon start) starts no agent for the schedule"
+    );
+    assert_eq!(session.meta().prompt_schedule.unwrap().runs, 0, "the run still waits");
+    session.protected_hold.store(false, Ordering::SeqCst);
+    assert_eq!(hub.run_due_schedules(clocks.now()), None, "it goes once the person shows the chat");
+    turns_reach(&session, 1).await;
 }
