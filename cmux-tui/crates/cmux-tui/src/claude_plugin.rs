@@ -36,6 +36,9 @@ use crate::agent_hook_install;
 pub(crate) const PLUGIN_DIRS_ENV: &str = "CLAUDE_CODE_PLUGIN_DIRS";
 /// The plugin's name; also how a folder is recognized as a cmux-tui plugin.
 const PLUGIN_NAME: &str = "cmux-tui";
+/// The folder a build writes its plugin into, inside its build folder
+/// (`<data>/cmux-tui/builds/<build>/claude-plugin`, own_build_helpers.rs).
+pub(crate) const PLUGIN_FOLDER: &str = "claude-plugin";
 const MANIFEST: &str = ".claude-plugin/plugin.json";
 const HOOKS: &str = "hooks/hooks.json";
 /// The policy key that makes Claude Code refuse plugin folders from the
@@ -106,11 +109,27 @@ fn kept_folders(value: &OsStr, keep: impl Fn(&Path) -> bool) -> Vec<PathBuf> {
         .collect()
 }
 
-/// Whether `folder` holds a plugin whose manifest names it `cmux-tui`.
+/// Whether `folder` is a cmux-tui plugin: a build's plugin folder by its
+/// place (which also holds for a build deleted since, whose folder is gone),
+/// or a folder whose manifest names it `cmux-tui`.
 fn is_cmux_plugin(folder: &Path) -> bool {
-    read_small(&folder.join(MANIFEST))
-        .and_then(|data| serde_json::from_slice::<Value>(&data).ok())
-        .is_some_and(|manifest| manifest.get("name").and_then(Value::as_str) == Some(PLUGIN_NAME))
+    is_build_plugin_folder(folder)
+        || read_small(&folder.join(MANIFEST))
+            .and_then(|data| serde_json::from_slice::<Value>(&data).ok())
+            .is_some_and(|manifest| {
+                manifest.get("name").and_then(Value::as_str) == Some(PLUGIN_NAME)
+            })
+}
+
+/// Whether `folder` is `…/cmux-tui/builds/<build>/claude-plugin`.
+fn is_build_plugin_folder(folder: &Path) -> bool {
+    let builds = folder.parent().and_then(Path::parent);
+    let named = |path: Option<&Path>, name: &str| {
+        path.and_then(Path::file_name).is_some_and(|file| file == name)
+    };
+    named(Some(folder), PLUGIN_FOLDER)
+        && named(builds, "builds")
+        && named(builds.and_then(Path::parent), "cmux-tui")
 }
 
 fn read_small(path: &Path) -> Option<Vec<u8>> {

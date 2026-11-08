@@ -93,8 +93,11 @@ Claude Code 2.1 reads under any config directory and beside any
 - The server writes the plugin to
   `$XDG_DATA_HOME/cmux-tui/builds/<build>/claude-plugin` and appends that
   folder to the `CLAUDE_CODE_PLUGIN_DIRS` the server inherited. Folders of
-  other cmux-tui plugins are dropped, so a server started in another
-  build's terminal does not load two.
+  other cmux-tui plugins are dropped (found by their manifest, or by the
+  `cmux-tui/builds/<build>/claude-plugin` place, which also finds the folder
+  of a build deleted since), so a server started in another build's terminal
+  does not load two. An acpmux daemon started in a terminal drops them from
+  the environment of its agents, which run in no terminal.
 - The plugin's hooks are the installed hooks plus the `SessionStart` session
   context. They run `CMUX_TUI_HOOK`, or this build's helper when a launcher
   removed that variable.
@@ -102,6 +105,24 @@ Claude Code 2.1 reads under any config directory and beside any
   settings of the config directory Claude runs with already hold the hooks
   from `agent hook install claude`, the plugin's copy of each such event does
   nothing.
+- Limit: when Claude is started with `--setting-sources` that leaves `user`
+  out, the installed copy does not load, but the plugin's copy still does
+  nothing beside it (no hook tells the plugin which settings loaded). That
+  terminal then gets no hook events, so `agent list` shows no hook state for
+  it (only what screen detection finds). Remove the installed hooks
+  (`agent hook uninstall claude`) or keep `user` in the sources to get the
+  plugin's hooks.
+- Claude Code gives its tool commands its environment, the plugin folder too.
+  A Claude that a tool command starts (`claude -p` in a Bash call) would
+  report to the same terminal and take the messages queued for the
+  terminal's agent. So the plugin's `SessionStart` appends
+  `export CMUX_TUI_CLAUDE_OWNER=<terminal>/<session>` to Claude Code's
+  `CLAUDE_ENV_FILE`, which Claude Code sources before each Bash tool command.
+  The plugin's hooks do nothing in a Claude whose environment names its
+  terminal and another session, so the terminal's session, last reply and
+  messages stay the outer Claude's. A Claude started with
+  `cmux agent start` from a tool command runs in its own terminal and
+  reports there.
 - The wrapper removes the plugin from the folders it passes on, because its
   `--settings` already carries the same hooks. Other plugin folders stay.
 - `CMUX_TUI_CLAUDE_HOOKS_DISABLED=1` turns the plugin's hooks off. Set in the

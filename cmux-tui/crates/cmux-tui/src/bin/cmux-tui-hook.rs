@@ -113,10 +113,15 @@ fn run_reading(
     payload: impl FnOnce() -> anyhow::Result<Value>,
 ) -> anyhow::Result<()> {
     let native = payload()?;
-    if plugin_copy::stands_down(&args.source, &args.native_event, |name| env::var_os(name)) {
+    let session = native.get("session_id").and_then(Value::as_str);
+    if plugin_copy::stands_down(&args.source, &args.native_event, session, |name| env::var_os(name))
+    {
         inbox::print_nothing(inbox::Delivery::for_event(&args.source, &args.native_event));
         return Ok(());
     }
+    plugin_copy::claim_terminal(&args.source, &args.native_event, session, |name| {
+        env::var_os(name)
+    });
     #[cfg(unix)]
     if let Err(error) = cmux_git::native_hook::wait(
         &args.source,
