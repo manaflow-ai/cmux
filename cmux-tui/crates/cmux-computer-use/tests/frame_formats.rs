@@ -242,3 +242,46 @@ fn frame_formats_table() {
         );
     }
 }
+
+// ---- scratch survey (uncommitted) ----
+fn survey_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from(std::env::var("SURVEY_DIR").expect("SURVEY_DIR"))
+}
+
+#[test]
+#[ignore]
+fn survey_dump() {
+    std::fs::create_dir_all(survey_dir()).unwrap();
+    for (name, w, h, px) in inputs() {
+        std::fs::write(survey_dir().join(format!("{name}.png")), frame::encode_png(w, h, &px).unwrap()).unwrap();
+    }
+}
+
+#[test]
+#[ignore]
+fn survey_score() {
+    println!("| frame | encoding | bytes | vs png | wall ms (CLI) | SSIM | edge PSNR dB |");
+    println!("|---|---|---:|---:|---:|---:|---:|");
+    let dir = survey_dir();
+    for (name, w, h, px) in inputs() {
+        let orig = luma(&px, 4);
+        let png_len = frame::encode_png(w, h, &px).unwrap().len();
+        let mut labels: Vec<String> = std::fs::read_dir(&dir).unwrap().filter_map(|e| {
+            let f = e.ok()?.file_name().to_string_lossy().into_owned();
+            Some(f.strip_prefix(&format!("{name}."))?.strip_suffix(".bytes")?.to_string())
+        }).collect();
+        labels.sort();
+        for label in labels {
+            let bytes: usize = std::fs::read_to_string(dir.join(format!("{name}.{label}.bytes"))).unwrap().trim().parse().unwrap();
+            let ms = std::fs::read_to_string(dir.join(format!("{name}.{label}.ms"))).unwrap_or_default();
+            let (s, p) = match load_png(&dir.join(format!("{name}.{label}.dec.png"))) {
+                Some((dw, dh, d)) if dw == w && dh == h => {
+                    let back = luma(&d, 4);
+                    (ssim(&orig, &back, w as usize, h as usize), edge_psnr(&orig, &back, w as usize, h as usize))
+                }
+                _ => (f64::NAN, f64::NAN),
+            };
+            println!("| {name} | {label} | {bytes} | {:.0}% | {} | {s:.4} | {p:.1} |", 100.0 * bytes as f64 / png_len as f64, ms.trim());
+        }
+    }
+}
