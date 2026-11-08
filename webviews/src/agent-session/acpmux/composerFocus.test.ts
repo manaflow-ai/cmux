@@ -164,6 +164,71 @@ describe("composer click-away focus", () => {
     expect(dom!.window.document.activeElement).not.toBe(editor);
   });
 
+  // https://github.com/manaflow-ai/cmux/issues/38193: a header tool clicked before the person left
+  // the workspace kept the page's focus, so on every return the browser handed focus back to it and
+  // its focus ring drew around the pane's top-right tools. Leaving the pane releases it, and the
+  // return lands the keyboard in the composer.
+  function HeaderToolHarness() {
+    useComposerKeyboard(() => {
+      document.querySelector<HTMLElement>(".acpmux-composer-box [contenteditable]")?.focus();
+      return true;
+    });
+    return React.createElement(
+      "main",
+      null,
+      React.createElement(
+        "div",
+        { className: "acpmux-header-tools" },
+        React.createElement("button", { className: "acpmux-header-tool", id: "tool" }, "list"),
+        React.createElement("button", { className: "acpmux-header-tool", id: "open-tool", "aria-expanded": "true" }, "menu"),
+      ),
+      React.createElement("input", { id: "field" }),
+      React.createElement(
+        "div",
+        { className: "acpmux-composer-box" },
+        React.createElement("div", { contentEditable: true, tabIndex: 0 }),
+      ),
+    );
+  }
+
+  test("leaving the pane releases a focused header tool, and the return lands in the composer", async () => {
+    const container = installDom();
+    await act(async () => {
+      root = createRoot(container);
+      root.render(React.createElement(HeaderToolHarness));
+    });
+    const document = dom!.window.document;
+    const tool = document.getElementById("tool")!;
+    tool.focus();
+    expect(document.activeElement).toBe(tool);
+    await act(async () => {
+      dom!.window.dispatchEvent(new dom!.window.Event("blur"));
+    });
+    expect(document.activeElement).not.toBe(tool);
+    await act(async () => {
+      dom!.window.dispatchEvent(new dom!.window.Event("focus"));
+      // fixed-wait: the activation claim fires after its settle (120 ms), the behavior under test.
+      await new Promise((resolve) => setTimeout(resolve, ACTIVATION_SETTLE_MS + 30));
+    });
+    expect(document.activeElement).toBe(container.querySelector("[contenteditable]"));
+  });
+
+  for (const id of ["field", "open-tool"])
+    test(`leaving the pane keeps focus on ${id === "field" ? "a field" : "a tool whose popup is open"}`, async () => {
+      const container = installDom();
+      await act(async () => {
+        root = createRoot(container);
+        root.render(React.createElement(HeaderToolHarness));
+      });
+      const document = dom!.window.document;
+      const kept = document.getElementById(id)!;
+      kept.focus();
+      await act(async () => {
+        dom!.window.dispatchEvent(new dom!.window.Event("blur"));
+      });
+      expect(document.activeElement).toBe(kept);
+    });
+
   // Two chats side by side (agent-pane.subagent-split-pair): each pane's activation claim fired
   // after the other pane had taken the keyboard, took it back, and the other's did the same, every
   // 120 ms for as long as both were open.

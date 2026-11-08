@@ -183,6 +183,25 @@ await requireBrowserLane("agent-pane-focus-content.test.ts", async () => {
     await page.close();
   });
 
+  // https://github.com/manaflow-ai/cmux/issues/38193: a header tool clicked before the person went to
+  // another workspace kept the page's focus. On every return the browser gave focus back to it, its
+  // focus ring drew around the pane's top-right tools, and the composer's claim saw a focused page and
+  // stood down. Leaving the pane releases the tool; the return puts the keyboard in the prompt.
+  test("a header tool clicked before leaving the pane holds no focus on return", async () => {
+    const page = await chat();
+    const tool = page.locator(".acpmux-header-tool:not(:disabled)").first();
+    await tool.waitFor();
+    await tool.focus();
+    expect(await page.evaluate(() => document.activeElement?.classList.contains("acpmux-header-tool"))).toBe(true);
+    await page.evaluate(() => window.dispatchEvent(new FocusEvent("blur")));
+    expect(await page.evaluate(() => document.activeElement?.closest(".acpmux-header-tool") != null)).toBe(false);
+    await page.evaluate(() => window.dispatchEvent(new FocusEvent("focus")));
+    await pastClaim(page);
+    expect(await promptFocused(page)).toBe(true);
+    expect(await page.evaluate(() => document.querySelector(".acpmux-header-tool:focus-visible") == null)).toBe(true);
+    await page.close();
+  });
+
   test("focusContent keeps a focused field in the chat", async () => {
     const page = await chat();
     await page.evaluate(() => {
