@@ -1238,8 +1238,9 @@ async fn read_until_allocation(
                 return Err(if relay_authentication_error(&code) {
                     AllocationError::Authentication(relay_rejection())
                 } else if retryable {
-                    AllocationError::Reconnect(relay_carrier_error(
+                    AllocationError::Reconnect(relay_unavailable(
                         "relay allocation is temporarily unavailable",
+                        &code,
                     ))
                 } else {
                     AllocationError::Terminal(relay_rejection())
@@ -1986,7 +1987,7 @@ fn relay_operation_rejection(
     retryable_message: &'static str,
 ) -> ProviderError {
     if retryable && !relay_authentication_error(code) {
-        relay_carrier_error(retryable_message)
+        relay_unavailable(retryable_message, code)
     } else {
         relay_rejection()
     }
@@ -2003,6 +2004,15 @@ fn relay_reconnect_error(
     } else {
         ProviderError::Transport(message)
     }
+}
+
+/// A retryable refusal, naming the relay's error code: a short word the
+/// relay sets (`slot-busy`), kept only when it looks like one.
+fn relay_unavailable(message: &str, code: &str) -> ProviderError {
+    let word = code.len() <= 32
+        && !code.is_empty()
+        && code.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    relay_carrier_error(format!("{message} (relay code {})", if word { code } else { "other" }))
 }
 
 fn relay_rejection() -> ProviderError {
@@ -2038,7 +2048,13 @@ async fn read_control(socket: &mut RelaySocket) -> Result<RelayControl, Provider
                     .map_err(|_| relay_carrier_error("relay WebSocket write failed"))?;
             }
             Some(Ok(Message::Pong(_))) => {}
-            Some(Ok(Message::Close(_))) | None => {
+            Some(Ok(Message::Close(Some(frame)))) => {
+                return Err(relay_carrier_error(format!(
+                    "relay WebSocket closed (close {})",
+                    u16::from(frame.code)
+                )));
+            }
+            Some(Ok(Message::Close(None))) | None => {
                 return Err(relay_carrier_error("relay WebSocket closed"));
             }
             Some(Ok(Message::Binary(_))) => {

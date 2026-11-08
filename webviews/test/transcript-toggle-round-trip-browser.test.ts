@@ -142,6 +142,10 @@ await requireBrowserLane("transcript-toggle-round-trip-browser.test.ts", async (
     row: string;
     /// Its toggle, by structure (the harness loads no string table, so labels are keys).
     toggle: string;
+    /// Where the pointer clicks, when not the toggle's own box: a received message's toggle holds
+    /// only its first line, which is gone while it is open, and the whole line toggles (the one
+    /// message row, AgentMessageRow.tsx), so the pointer clicks the line's chevron.
+    aim?: string;
     text?: string;
     not?: string;
   };
@@ -158,7 +162,12 @@ await requireBrowserLane("transcript-toggle-round-trip-browser.test.ts", async (
     { name: "Ran 2 commands", row: "k-run", toggle: `${run}:not(.cv-thought):not(.cv-command)`, not: "k-read" },
     { name: "a thought", row: "k-run", toggle: `${run}.cv-thought` },
     { name: "a tool call", row: "k-run", toggle: `${run}:not(.cv-thought):not(.cv-command)`, text: "k-read" },
-    { name: "a received message", row: "msg", toggle: '[data-row-id="msg"] .cv-disclosure__toggle' },
+    {
+      name: "a received message",
+      row: "msg",
+      toggle: '[data-row-id="msg"] .cv-agentmsg__toggle',
+      aim: '[data-row-id="msg"] .cv-agentmsg__chevron',
+    },
   ];
 
   /// Resolves once the view is at rest: no fold running, and three painted frames in a row draw the
@@ -247,10 +256,12 @@ await requireBrowserLane("transcript-toggle-round-trip-browser.test.ts", async (
       await settle(page);
       return;
     }
-    const point = await page.evaluate(() => {
-      const box = document.querySelector<HTMLElement>("[data-toggle]")!.getBoundingClientRect();
+    const point = await page.evaluate((aim) => {
+      const target =
+        (aim && document.querySelector<HTMLElement>(aim)) || document.querySelector<HTMLElement>("[data-toggle]")!;
+      const box = target.getBoundingClientRect();
       return { x: box.left + Math.min(24, box.width / 2), y: box.top + box.height / 2 };
-    });
+    }, kind.aim);
     await page.mouse.click(point.x, point.y);
     await settle(page);
   };
@@ -426,7 +437,12 @@ await requireBrowserLane("transcript-toggle-round-trip-browser.test.ts", async (
           toggle: '[data-row-id="live-user"] .cv-user__paste, [data-row-id="live-user"] .cv-user__more',
         },
         { name: "Ran 2 commands", row: "run-b", toggle: '[data-row-id="run-b"] button.cv-tool.is-toggle' },
-        { name: "a received message", row: "msg", toggle: '[data-row-id="msg"] .cv-disclosure__toggle' },
+        {
+          name: "a received message",
+          row: "msg",
+          toggle: '[data-row-id="msg"] .cv-agentmsg__toggle',
+          aim: '[data-row-id="msg"] .cv-agentmsg__chevron',
+        },
       ];
       for (const kind of liveCases) {
         const page = await open(browsers[name]!);
