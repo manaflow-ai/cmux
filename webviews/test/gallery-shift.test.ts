@@ -3,6 +3,7 @@ import { Window } from "happy-dom";
 import { judgeStep } from "../src/gallery/play";
 import {
   REST_FRAMES,
+  bottomFoldOf,
   isExpansionShift,
   sampleBoxes,
   scoreBoxFrames,
@@ -152,6 +153,27 @@ test("toggles the play clicked itself are the next step's targets too: their pus
   // With no step target and nothing clicked, a wait's moves all count.
   expect(isExpansionShift([down], [])).toBe(false);
   expect([...sampleBoxes(doc, []).values()].every((sample) => !sample.targeted && !sample.after)).toBe(true);
+  window.close();
+});
+
+test("the running tray over the composer is a fold at the bottom only over the running turn's live line", () => {
+  // VirtualTranscript `trayBase`: what the tray opens moves no row, save over the live line, where
+  // the rows rise with it for the rest of the line's rest gap.
+  const window = new Window({ width: 800, height: 600 });
+  const doc = window.document as unknown as Document;
+  doc.body.innerHTML = `
+    <article class="acpmux-row" data-row-id="reply">reply</article>
+    <article class="acpmux-row acpmux-row--below" data-row-id="line">Thinking</article>
+    <div class="acpmux-dock"><section class="acpmux-running-tray"><button class="head">2 running</button></section></div>`;
+  const head = doc.querySelector(".head")!;
+  expect(bottomFoldOf(head)).toBe(doc.querySelector(".acpmux-running-tray"));
+  const rect = (y: number) => ({ x: 0, y, width: 800, height: 40 });
+  const rise = { node: doc.querySelector("[data-row-id=reply]"), previousRect: rect(100), currentRect: rect(80) };
+  expect(isExpansionShift([rise], head)).toBe(true);
+  // With any other last row, a row that rises when the tray opens is a shift.
+  doc.querySelector("[data-row-id=line]")!.classList.remove("acpmux-row--below");
+  expect(bottomFoldOf(head)).toBeNull();
+  expect(isExpansionShift([rise], head)).toBe(false);
   window.close();
 });
 

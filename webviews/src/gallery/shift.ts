@@ -45,6 +45,26 @@ export type BoxShift = { score: number; moves: BoxMove[] };
  *  `expand-after-latest`); away from the end it opens below the view and nothing above it moves. */
 export const BOTTOM_FOLD = "[data-bottom-stack-fold], .acpmux-transcript-after-latest";
 
+/** The running tray over the composer (`.acpmux-running-tray` in the dock). What it opens moves no
+ *  row, save over the running turn's live line: while that line is the transcript's last row, the
+ *  tray lies over at most half the line's rest gap and the rows rise with it for the rest, so the
+ *  line stays in sight (VirtualTranscript `trayBase`; Leo, 2026-11-04: "why does it not display
+ *  Thinking or anything here???"). Only then is it a fold at the bottom; with any other last row a
+ *  row that rises is still a shift. */
+const RUNNING_TRAY = ".acpmux-running-tray";
+const LIVE_LINE_ROW = "acpmux-row--below";
+
+/** The fold at the very bottom that `target` opens or closes, if it is one (`BOTTOM_FOLD`, or the
+ *  running tray over the live line). */
+export function bottomFoldOf(target: Element): Element | null {
+  const fold = target.closest(BOTTOM_FOLD);
+  if (fold) return fold;
+  const tray = target.closest(RUNNING_TRAY);
+  if (!tray) return null;
+  const rows = target.ownerDocument.querySelectorAll(".acpmux-row");
+  return rows[rows.length - 1]?.classList.contains(LIVE_LINE_ROW) ? tray : null;
+}
+
 /** Frames a box must hold still before its moves count. */
 export const REST_FRAMES = 2;
 /** Moves under this many CSS px are layout rounding. */
@@ -184,7 +204,7 @@ const targetList = (target: StepTargets): readonly Element[] =>
   !target ? [] : "nodeType" in target ? [target as Element] : (target as readonly Element[]);
 
 function expandedBy({ node, previousRect: was, currentRect: now }: LayoutShiftSource, target: Element): boolean {
-  const folding = target.closest(BOTTOM_FOLD);
+  const folding = bottomFoldOf(target);
   const element = node && node.nodeType === 1 ? (node as Element) : (node?.parentElement ?? null);
   if (!element || !was || !now) return false;
   if (element === target || element.contains(target) || target.contains(element) || folding?.contains(element))
@@ -226,7 +246,7 @@ export function sampleBoxes(doc: Document, target: StepTargets, extra: Element[]
   const height = view?.innerHeight ?? 0;
   // The row opening at the very bottom moves as one: what it holds (a batch's message rows) rises
   // with its toggle and the text above, so it is the target's as much as the toggle's line is.
-  const targets = targetList(target).map((each) => ({ each, folding: each.closest(BOTTOM_FOLD) }));
+  const targets = targetList(target).map((each) => ({ each, folding: bottomFoldOf(each) }));
   for (const element of new Set([...doc.querySelectorAll(TRACK_SELECTOR), ...extra])) {
     const rect = element.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) continue;
