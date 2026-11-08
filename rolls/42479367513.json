@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42479367513",
+  "recorded_at": "2026-11-08T12:23:15Z",
+  "reason": "cmux-tui aad5e805adaf changes the image's cmux-tui (pinned 92575dcdcd84)",
+  "dry_run": false,
+  "cmux_tui": "aad5e805adaf91da9a223af902b669ea590cd75b",
+  "fixes": [
+    {
+      "sha": "ffb1a082d10a9acfb3d9e41912ec3755b4f4a75b",
+      "mergedAt": "2026-11-08T12:00:01Z",
+      "subject": "cmux-remote: one budgeted redialer with caller deadlines, network-change redial and 6 s death (#38360)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T12:23:15Z",
+    "snapshot_id": "sh-e3f1ff65952348a3b750b7f20664d789",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42479367513): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8c9f910d6a762895d26f3937ec1a9db4ad5ccd09",
+    "image": "cloud-native-auto-aad5e805-42479367513-1",
+    "revision": "ci-42479367513-1",
+    "at": "2026-11-08T12:23:15Z"
+  },
+  "rolled_back": false
+}
