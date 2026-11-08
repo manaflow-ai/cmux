@@ -126,14 +126,21 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
     if (!threadId) continue;
     const promptIds = strings(p.promptIds);
     const count = typeof p.new === "number" && p.new > 0 ? p.new : Math.max(1, promptIds.length);
-    const messages = Array.isArray(p.messages) ? inboxMessages(p.messages) : undefined;
-    const newest = messages?.at(-1)?.text;
+    const held = Array.isArray(p.messages) ? inboxMessages(p.messages) : undefined;
+    const newest = held?.at(-1)?.text;
     const senders = strings(p.from).map(bareSender);
     const record = senderRecord(p.sender);
     const sender = senderRef(record);
-    const harness = text(p.fromHarness) || record?.harness || messages?.at(-1)?.harness;
+    const harness = text(p.fromHarness) || record?.harness || held?.at(-1)?.harness;
     const unverified =
-      senderUnverified(record, senders.at(-1)?.declared ?? false) || messages?.at(-1)?.unverified === true;
+      senderUnverified(record, senders.at(-1)?.declared ?? false) || held?.at(-1)?.unverified === true;
+    // The thread's flag is its newest sender's (its record, or an older acpmux's suffix on its
+    // `from`), which acpmux may say only on the thread: that message is marked too, so its row and
+    // the group's hover show it (laneNoticeBatches.ts, MessageGroupHover.tsx).
+    const messages =
+      unverified && held?.length && !held.at(-1)!.unverified
+        ? [...held.slice(0, -1), { ...held.at(-1)!, unverified: true as const }]
+        : held;
     threads.push({
       threadId,
       label: shownLabel(text(p.label), threadId),
