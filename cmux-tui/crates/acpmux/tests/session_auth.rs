@@ -678,7 +678,9 @@ async fn fake_peer(features: Value, session: &'static str, close_after: usize) -
         let Ok((tcp, _)) = l.accept().await else { return };
         let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { return };
         let mut asked = 0;
-        while let Some(Ok(Ws::Text(text))) = ws.next().await {
+        // Non-text frames (the client's pings, #38015) are not requests: skip them.
+        while let Some(Ok(frame)) = ws.next().await {
+            let Ws::Text(text) = frame else { continue };
             let Ok(Message::Request { id, method: m, params }) = Message::parse(&text) else {
                 continue;
             };

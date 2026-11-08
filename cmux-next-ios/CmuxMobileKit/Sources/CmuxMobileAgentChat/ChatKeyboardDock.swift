@@ -762,7 +762,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
                                           maxOffsetY: bottomOffset.y, keyboardDragging: keyboardDragging)
         }
         guard surface.showJump != shown else { return }
-        withAnimation(.cmuxMobileSnap) { surface.showJump = shown }
+        withAnimation(.cmuxMobileSnap.unlessReduceMotion) { surface.showJump = shown }
         jumpHost?.view.isUserInteractionEnabled = shown
     }
 

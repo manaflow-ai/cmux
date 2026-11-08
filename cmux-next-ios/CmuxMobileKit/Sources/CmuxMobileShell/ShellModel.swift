@@ -537,7 +537,7 @@ final class ShellModel {
         }
         theme.haptics.selection()
         sidebar.crossfadeContent()
-        withAnimation(theme.motion.snap.animation) {
+        withAnimation(theme.motion.snap.animation.unlessReduceMotion) {
             store.selectTeam(id)
         }
         closeTeamScreens()

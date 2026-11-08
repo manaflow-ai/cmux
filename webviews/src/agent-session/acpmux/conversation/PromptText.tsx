@@ -33,6 +33,8 @@ import { githubRefLabel } from "../chips/linkChipsModel";
 import { withForeignFiles } from "../chips/linkedText";
 import { foreignFileIds, textLinks } from "../chips/paths";
 import { deeplinks } from "../composer/deeplinks";
+import { CmuxLinkChip } from "../chips/CmuxLinkChip";
+import { cmuxLinkTarget } from "./cmuxLinks";
 import { SkillWordsContext } from "./skillWords";
 import { withSkillWords } from "./withSkillWords";
 import { Bot } from "./icons";
@@ -304,16 +306,23 @@ function LiteralText({ text }: { text: string }) {
   let at = 0;
   links.forEach((link, index) => {
     if (link.start > at) out.push(...withForeignFiles(text.slice(at, link.start), `t${index}`, softBreaks));
+    const plain = link.app ? (
+      // A plain anchor, so the click takes the host's link path (opened in the app).
+      <a key={`a${index}`} className="cv-link is-app" href={link.value}>
+        <SoftBroken text={link.value} />
+      </a>
+    ) : (
+      <UrlChip key={`u${index}`} href={link.value}>
+        {githubRefLabel(link.value) ?? link.value}
+      </UrlChip>
+    );
+    // A cmux link (a workspace, a tab, a chat; cmux.com's agent link too) draws as what it names
+    // once the page knows it, else as the link (chips/CmuxLinkChip.tsx).
     out.push(
-      link.app ? (
-        // A plain anchor, so the click takes the host's link path (opened in the app).
-        <a key={`a${index}`} className="cv-link is-app" href={link.value}>
-          <SoftBroken text={link.value} />
-        </a>
+      link.app || isCmuxLink(link.value) ? (
+        <CmuxLinkChip key={`c${index}`} href={link.value} fallback={plain} />
       ) : (
-        <UrlChip key={`u${index}`} href={link.value}>
-          {githubRefLabel(link.value) ?? link.value}
-        </UrlChip>
+        plain
       ),
     );
     at = link.end;
@@ -321,6 +330,9 @@ function LiteralText({ text }: { text: string }) {
   if (at < text.length) out.push(...withForeignFiles(text.slice(at), "tail", softBreaks));
   return <>{out}</>;
 }
+
+/// Whether a web link is one of cmux's (`https://cmux.com/deeplink/agent?…`), which names a chat.
+const isCmuxLink = (href: string) => href.includes("/deeplink/") && cmuxLinkTarget(href) !== undefined;
 
 /// The links of a literal prompt, in order: its web addresses and its cmux app links.
 function promptLinks(text: string): { start: number; end: number; value: string; app: boolean }[] {
