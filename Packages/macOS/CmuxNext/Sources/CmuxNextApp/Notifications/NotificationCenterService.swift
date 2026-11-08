@@ -668,9 +668,9 @@ final class NotificationCenterService {
         let owner = owner ?? tab
         // An OSC 7501 alert reads in the app's language; the daemon's English is the fallback.
         let headline = headline ?? program?.title(localizations: localizations) ?? notification.title
-        // An agent chat's permission prompt: Allow once and Deny, and what it asks as the body.
-        withApproval(of: notification, tab: owner) { [weak self] approval in
-            guard let self else { return }
+        // An agent chat's permission prompt: its answers and what it asks as the body; none in an incognito window.
+        withApproval(of: notification, tab: owner) { [weak self] asked in
+            guard let self else { return }; let incognito = workspace.map { self.services?.windows.isIncognito(workspace: $0) == true } ?? false, approval = incognito ? nil : asked
             let content = self.bannerFormatter.content(
                 headline: headline, posterSubtitle: notification.shownSubtitle,
                 body: approval?.summary ?? notification.bannerBody(previews: self.previews, screenLocked: self.screenLocked()),
@@ -678,7 +678,7 @@ final class NotificationCenterService {
             self.desktop.post(id: id, title: content.title, subtitle: content.subtitle, body: content.body,
                               surface: notification.surface?.rawValue, workspace: workspace, defaultSound: sound == "default",
                               attachment: program.flatMap { StatusNotificationImage.data($0.reason) },
-                              reply: notification.reply && owner?.kind == .pty, approval: approval != nil, alwaysAllow: approval?.alwaysOffered == true, incognito: workspace.map { self.services?.windows.isIncognito(workspace: $0) == true } ?? false)
+                              reply: notification.reply && owner?.kind == .pty, approval: approval != nil, alwaysAllow: approval?.alwaysOffered == true, incognito: incognito)
             if let sound, sound != "default" { self.soundGate.player.play(sound, volume: volume, banner: true) }
             if let owner {
                 self.banners[owner.id, default: []].append(id)
