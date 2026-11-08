@@ -93,6 +93,9 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "host_ended",
     // A plan built in new worktrees, and the build kept (`plan_build.rs`): the chat's card.
     "plan_build",
+    // A model race snapshot updates the parent's compare view and must travel with transcript
+    // subscriptions, including reconnect paging.
+    "race",
 ];
 
 /// Which records a page or a live event stream carries. `kinds` entries are
