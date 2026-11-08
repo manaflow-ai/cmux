@@ -41,7 +41,9 @@ use crate::provider::{
     CarrierEvidence, ConnectRequest, LinkGroup, LinkRequest, ProviderCapabilities, ProviderError,
     SupportedClientAuthModes, TransportProvider, sanitized_route,
 };
-use liveness::{Backoff, CHECK_INTERVAL, Check, Liveness, random_unit};
+use liveness::{
+    CHECK_INTERVAL, CLOCK_JUMP, Check, ClockWatch, Ended, Liveness, Retry, random_unit,
+};
 
 type RelaySocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type RelayCircuitSink = SplitSink<RelaySocket, Message>;
@@ -50,6 +52,12 @@ type RelayCircuitStream = SplitStream<RelaySocket>;
 const MAX_RELAY_CREDENTIAL_BYTES: usize = 4 * 1024;
 const MAX_RELAY_CONTROL_MESSAGE_BYTES: usize = 16 * 1024;
 const DEFAULT_CREDENTIAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+/// A daemon's relay ticket command's timeout ([`RelayCredentialSource::daemon_command`]).
+/// A Cloud machine's command (`cmux host cloud carrier-ticket`) waits up to
+/// 30 s for the Cloud agent's answer and then exits with its own error code;
+/// this leaves it 5 s more to start and exit, so a slow answer that still
+/// comes is used, not killed at 10 s and asked for again.
+pub const DAEMON_TICKET_COMMAND_TIMEOUT: Duration = Duration::from_secs(35);
 /// How much of a failed credential command's stderr its error keeps: the
 /// last bytes, where the reason usually is.
 const CREDENTIAL_COMMAND_STDERR_TAIL_BYTES: usize = 2 * 1024;
@@ -127,6 +135,16 @@ impl RelayCredentialSource {
         S: Into<OsString>,
     {
         Self::command_with_timeout(program, args, DEFAULT_CREDENTIAL_COMMAND_TIMEOUT)
+    }
+
+    /// [`RelayCredentialSource::command`] for a daemon's own relay
+    /// registration, with [`DAEMON_TICKET_COMMAND_TIMEOUT`].
+    pub fn daemon_command<I, S>(program: impl Into<OsString>, args: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<OsString>,
+    {
+        Self::command_with_timeout(program, args, DAEMON_TICKET_COMMAND_TIMEOUT)
     }
 
     pub fn command_with_timeout<I, S>(
@@ -1416,7 +1434,9 @@ pub async fn register_relay_daemon_with_credentials(
 /// [`RelayDaemonRegistration::shutdown`] or drop. Each failed attempt is
 /// written to stderr once, prefixed by `log_label`, with its reason. The
 /// wait between attempts is jittered and capped: 5 s after a relay failure,
-/// 60 s after a credential source failure. Only an invalid configuration is
+/// 60 s after a credential source failure. A resume (`relay_liveness.rs`)
+/// ends a registration from before the pause or a wait at once and
+/// registers again with no wait. Only an invalid configuration is
 /// an error here. A daemon uses this so that its local services start and
 /// stay up while the relay route is unavailable.
 pub fn spawn_relay_daemon_registration(
@@ -1453,8 +1473,7 @@ async fn run_registration_loop(
     mut first_ready: Option<oneshot::Sender<Result<(), ProviderError>>>,
     log: Option<String>,
 ) {
-    let mut backoff = Backoff::new();
-    let mut credential_backoff = Backoff::credential();
+    let mut retry = Retry::new();
     let mut log = RegisterLog::new(log, Instant::now());
     loop {
         if *shutdown.borrow() {
@@ -1463,7 +1482,7 @@ async fn run_registration_loop(
         if shutdown.has_changed().is_err() {
             return;
         }
-        let mut registered = false;
+        let mut attempt = Attempt::default();
         let result = run_registration_once(
             daemon.clone(),
             &config,
@@ -1471,15 +1490,14 @@ async fn run_registration_loop(
             &credentials,
             &mut shutdown,
             &mut first_ready,
-            &mut registered,
+            &mut attempt,
             &log,
         )
         .await;
         // A registration that got ready and later died (a pause, a relay
         // restart, an expired ticket) registers again from the first wait.
-        if registered {
-            backoff.reset();
-            credential_backoff.reset();
+        if attempt.registered {
+            retry.ready();
             log.dropped(Instant::now());
         }
         let credential_failure = result.as_ref().is_err_and(is_credential_source_error);
@@ -1494,11 +1512,14 @@ async fn run_registration_loop(
         if *shutdown.borrow() {
             return;
         }
-        let wait = if credential_failure {
-            credential_backoff.next(random_unit())
+        let ended = if attempt.resumed {
+            Ended::Resumed
+        } else if credential_failure {
+            Ended::Credential
         } else {
-            backoff.next(random_unit())
+            Ended::Relay
         };
+        let wait = retry.wait(ended, random_unit());
         if let (Some(label), Err(error)) = (&log.label, &result) {
             log.failures += 1;
             eprintln!(
@@ -1507,14 +1528,63 @@ async fn run_registration_loop(
                 wait.as_millis()
             );
         }
+        match wait_unless_resumed(wait, &mut shutdown).await {
+            Waited::Elapsed => {}
+            Waited::Resumed => {
+                // The pause outlived the reason for the wait: start over.
+                retry.ready();
+                if let Some(label) = &log.label {
+                    eprintln!("{label}: resumed during the wait; registering now");
+                }
+            }
+            Waited::Shutdown => return,
+        }
+    }
+}
+
+/// What one registration attempt got to.
+#[derive(Debug, Default)]
+struct Attempt {
+    /// It got ready (and may have ended since).
+    registered: bool,
+    /// It ended because the machine resumed from a pause it did not survive.
+    resumed: bool,
+}
+
+/// How [`wait_unless_resumed`] ended.
+#[derive(Debug, PartialEq, Eq)]
+enum Waited {
+    Elapsed,
+    /// The wall clock jumped past the monotonic one: the machine resumed.
+    Resumed,
+    Shutdown,
+}
+
+/// Waits `wait` (monotonic, so a pause does not count), looking at the
+/// clocks every [`CHECK_INTERVAL`]: a resume ends the wait at once. Ends at
+/// the latest when `wait` elapses or at shutdown.
+async fn wait_unless_resumed(wait: Duration, shutdown: &mut watch::Receiver<bool>) -> Waited {
+    if wait.is_zero() {
+        return Waited::Elapsed;
+    }
+    let sleep = tokio::time::sleep(wait);
+    tokio::pin!(sleep);
+    let mut clocks = ClockWatch::new(Instant::now(), std::time::SystemTime::now());
+    let mut interval = tokio::time::interval(CHECK_INTERVAL);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
         tokio::select! {
-            _ = tokio::time::sleep(wait) => {}
+            _ = &mut sleep => return Waited::Elapsed,
             changed = shutdown.changed() => {
                 if changed.is_err() || *shutdown.borrow() {
-                    return;
+                    return Waited::Shutdown;
                 }
-                continue;
-            },
+            }
+            _ = interval.tick() => {
+                if clocks.jump(Instant::now(), std::time::SystemTime::now()) > CLOCK_JUMP {
+                    return Waited::Resumed;
+                }
+            }
         }
     }
 }
@@ -1574,7 +1644,7 @@ async fn run_registration_once(
     credentials: &RelayCredentialSource,
     shutdown: &mut watch::Receiver<bool>,
     first_ready: &mut Option<oneshot::Sender<Result<(), ProviderError>>>,
-    registered: &mut bool,
+    attempt: &mut Attempt,
     log: &RegisterLog,
 ) -> Result<(), ProviderError> {
     let authentication = authenticate_daemon_control(config, credentials);
@@ -1589,7 +1659,7 @@ async fn run_registration_once(
         }
     };
     let heartbeat = Duration::from_secs(u64::from(lease_seconds).max(3) / 3);
-    *registered = true;
+    attempt.registered = true;
     if let Some(line) = log.registered_line(&config.slot, Instant::now()) {
         eprintln!("{line}");
     }
@@ -1623,6 +1693,12 @@ async fn run_registration_once(
                     Check::Dead => {
                         break Err(ProviderError::Transport(
                             "relay registration stopped answering".into(),
+                        ));
+                    }
+                    Check::Resumed => {
+                        attempt.resumed = true;
+                        break Err(ProviderError::Transport(
+                            "relay registration did not survive a pause".into(),
                         ));
                     }
                 }
