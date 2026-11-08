@@ -71,7 +71,7 @@ extension CmuxConfigSnapshot {
 extension QuitBehaviorSetting {
     /// `app.quitBehavior`.
     public nonisolated static let configPath = ["app", "quitBehavior"]
-    public nonisolated static let fallback: QuitBehavior = .ask
+    public nonisolated static let fallback: QuitBehavior = .keep
 }
 
 extension DefaultColumnWidthSetting {
@@ -363,6 +363,28 @@ extension GeneralSettingsSchema {
                 default: .bool(CmuxConfigSnapshot.showMenuBarIconDefault),
                 keywords: ["menu bar", "status item", "menubar", "tray", "icon", "raycast", "extra", "discord", "logs"]
             ),
+        ]
+    }
+}
+
+extension GeneralSettingsSchema {
+    static var quitting: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.quit", "Quitting")
+        return [
+            SettingDescriptor(
+                QuitBehaviorSetting.configPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.app.quitBehavior", "When Quitting"),
+                help: SettingsText.keyed("settings.app.quitBehavior.help", "Terminals run in cmux-tui and keep running after cmux quits unless you end them."),
+                kind: .choice([
+                    SettingChoice(QuitBehavior.keep.rawValue, SettingsText.keyed("settings.choice.quitKeep", "Keep Sessions Running")),
+                    SettingChoice(QuitBehavior.endKeepLayout.rawValue, SettingsText.keyed("settings.choice.quitEndKeepLayout", "End Sessions, Keep Layout")),
+                    SettingChoice(QuitBehavior.endEverything.rawValue, SettingsText.keyed("settings.choice.quitEndEverything", "End Everything")),
+                ]),
+                default: .string(QuitBehaviorSetting.fallback.rawValue),
+                keywords: ["quit", "exit", "sessions", "terminals", "cmux-tui", "daemon", "background"]
+            ).consumed(by: [.cmuxBrowser, .cmuxNext]),
         ]
     }
 }

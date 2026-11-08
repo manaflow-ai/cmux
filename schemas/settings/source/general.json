@@ -457,13 +457,6 @@
           "kind": "choice",
           "choices": [
             {
-              "value": "ask",
-              "title": {
-                "key": "settings.choice.quitAsk",
-                "text": "Ask"
-              }
-            },
-            {
               "value": "keep",
               "title": {
                 "key": "settings.choice.quitKeep",
@@ -485,7 +478,7 @@
               }
             }
           ],
-          "default": "ask",
+          "default": "keep",
           "keywords": [
             "quit",
             "exit",

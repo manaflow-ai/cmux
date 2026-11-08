@@ -45,6 +45,7 @@ import { agentMessage } from "./agentMessages";
 import { turnCopyParts } from "./turnCopy";
 import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
+import { hidesEveryCall } from "./mcpPresentation";
 import { isThought, thoughtDuration } from "./thoughts";
 import {
   BACKGROUND_TURN,
@@ -1288,7 +1289,8 @@ function shapeTurn(
   // The agent's own wrap-up call (wrapUp.ts) is the card, not a row of its work.
   const worked = turn.slice(0, end);
   const wrapUp = summary.status === "completed" ? lastWrapUp(worked) : undefined;
-  const body = withoutWrapUp(worked).filter((row) => !isVisiblyEmptyMessage(row));
+  // A run of nothing but hidden discovery (ToolSearch) is no work: it opens no "Worked for".
+  const body = withoutWrapUp(worked).filter((row) => !isVisiblyEmptyMessage(row) && !hidesEveryCall(row));
   // Each harness family ends a turn as its own app does (Leo, 2026-11-01: "separate it per
   // harness/model family. claude gets claude behaviour, codex gets codex"). Codex and ChatGPT fold
   // the whole turn's work under one "Worked for". Claude, as Claude desktop: no "Worked for"; each
@@ -1941,7 +1943,7 @@ function shapeLiveTurn(
   trayAgents = 0,
   turnStartedAtMs?: number,
 ): AcpmuxRow[] {
-  const drawn = turn.filter((row) => row.kind !== "typing" && !isVisiblyEmptyMessage(row));
+  const drawn = turn.filter((row) => row.kind !== "typing" && !isVisiblyEmptyMessage(row) && !hidesEveryCall(row));
   // A started chat's card that no row follows yet is not the turn's latest step. The latest step is
   // read before the Codex-style runs fold it: the call it runs is what the live line names.
   let last: AcpmuxRow | undefined;
