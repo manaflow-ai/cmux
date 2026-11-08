@@ -25,6 +25,18 @@ extension SidebarView {
         }
     }
 
+    /// The workspaces whose waiting session's one pending tool permission the App can answer: their
+    /// tray items get Allow and Deny, and y and n while focused. The App reads them (cmuxterm-hq#7794).
+    public func showAnswerable(_ workspaces: Set<WorkspaceID>) {
+        needsYouTray.setAnswerable(workspaces)
+    }
+
+    /// A tray item's Allow (true) or Deny. Nil drops them.
+    public var onAnswer: ((WorkspaceID, Bool) -> Void)? {
+        get { needsYouTray.onAnswer }
+        set { needsYouTray.onAnswer = newValue }
+    }
+
     func refreshNeedsYou() {
         let before = needsYouTray.preferredHeight
         needsYouTray.show(SidebarNeedsYou.make(model.sections, tree: SidebarSessionTree.shared.drawn))

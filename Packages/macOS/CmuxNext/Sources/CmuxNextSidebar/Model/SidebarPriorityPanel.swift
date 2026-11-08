@@ -42,10 +42,14 @@ public nonisolated struct SidebarPriorityEntry: Hashable, Sendable, Identifiable
     public var unread: Bool
     /// Pinned to the Priority view: first in its tier, and kept while idle.
     public var pinned: Bool
+    /// The chat's one pending tool permission can be answered from the row (Allow, Deny, y and n):
+    /// the App read it from this Mac's acpmux. False for a question, several prompts or another
+    /// machine's chat; those open the chat.
+    public var answerable: Bool
 
     public init(id: String, title: String, project: String? = nil, machine: String? = nil, preview: String? = nil,
                 state: State, unread: Bool = false, pinned: Bool = false, brand: String? = nil,
-                agentColor: GroupColor? = nil) {
+                agentColor: GroupColor? = nil, answerable: Bool = false) {
         self.id = id
         self.title = title
         self.project = project
@@ -56,6 +60,7 @@ public nonisolated struct SidebarPriorityEntry: Hashable, Sendable, Identifiable
         self.state = state
         self.unread = unread
         self.pinned = pinned
+        self.answerable = answerable
     }
 
     /// Needs the person: waiting on them, finished unseen, failed, lost or Red CI.
@@ -104,6 +109,9 @@ public nonisolated enum SidebarPriorityAction: Hashable, Sendable {
     /// Hide the row until its state changes or an hour passes.
     case snooze(String)
     case archive(String)
+    /// Allow (once) or Deny the chat's pending tool permission, from an answerable row's buttons or
+    /// its y and n keys.
+    case answer(String, allow: Bool)
     case setCollapsed(Bool)
     /// The person dragged the chat; the view now shows `order` (top first). It keeps that place.
     case place(String, order: [String])
