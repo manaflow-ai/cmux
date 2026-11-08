@@ -67,16 +67,21 @@ async fn one_probed_path_reports_its_kind_and_round_trip() {
     assert_eq!(event.max_datagram, 1152);
     assert_eq!(control.snapshot().path, event.path);
 
-    // The only path goes silent: once it is dead, events say so, but keep
-    // its kind and report its loss instead of a blank "no path" with 0 %.
+    // The only path goes silent: datagrams go on every path at once (the
+    // first "no path" event), and once it is dead a second event says so,
+    // keeping its kind and reporting its loss instead of a blank with 0 %.
     sim.set_link(addr(CLIENT), addr(SERVER), LinkProfile { cut: true, ..Default::default() });
     let dead = timeout(Duration::from_secs(30), async {
+        let mut pathless = 0;
         loop {
             ours.send_to(b"frame", peer, Priority::Media).await.unwrap();
-            if let Ok(event) = events.try_recv()
-                && event.path.is_none()
-            {
-                return event;
+            while let Ok(event) = events.try_recv() {
+                if event.path.is_none() {
+                    pathless += 1;
+                    if pathless == 2 {
+                        return event;
+                    }
+                }
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }

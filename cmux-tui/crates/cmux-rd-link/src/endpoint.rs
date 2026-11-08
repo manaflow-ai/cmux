@@ -354,10 +354,11 @@ impl Endpoint {
         let outstanding = self.probes.iter().find(|(_, (path, _))| *path == current);
         match outstanding {
             Some((&id, &(_, sent))) => {
-                if now_us.saturating_sub(sent) > window && self.flagged.insert(id) {
-                    if let Ok(Some(switch)) = self.selector.on_silence(current) {
-                        self.report_switch(switch.to);
-                    }
+                if now_us.saturating_sub(sent) > window
+                    && self.flagged.insert(id)
+                    && let Ok(Some(switch)) = self.selector.on_silence(current)
+                {
+                    self.report_switch(switch.to);
                 }
             }
             None => {

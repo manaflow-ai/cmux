@@ -127,6 +127,9 @@ struct Shared {
     /// The last path that carried the session, described by events while
     /// no path does.
     last_path: Option<PathId>,
+    /// The path the selector holds, sprayed around or not: its death while
+    /// datagrams already go on every path is still an event.
+    held: Option<PathId>,
     /// No path will ever be added: once every path failed, the underlay
     /// reports the last failure and the session ends, as a plain socket's
     /// would. Otherwise the endpoint may still add a path.
@@ -148,7 +151,10 @@ impl Shared {
         }
         let switched =
             self.current.send_if_modified(|seen| std::mem::replace(seen, current) != current);
-        if switched {
+        let held = self.selector.chosen();
+        let held_died = self.held.is_some() && held.is_none();
+        self.held = held;
+        if switched || held_died {
             self.emit(Instant::now());
         }
     }
@@ -275,6 +281,7 @@ impl Multipath {
             last_event: None,
             max_datagram: 0,
             last_path: None,
+            held: None,
             fixed_paths: false,
             networks: local_networks(),
         }));

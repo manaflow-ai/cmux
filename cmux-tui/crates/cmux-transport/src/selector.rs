@@ -341,7 +341,11 @@ impl Selector {
             }
         }
         let after = self.current();
-        (after != before).then_some(Switch { from: before, to: after })
+        // A held path that dies while it was being sprayed around changes
+        // nothing visible (`current()` stays None) but is still news: it is
+        // when callers learn the path is gone and what it lost.
+        let held_died = chosen.is_some() && self.current.is_none();
+        (after != before || held_died).then_some(Switch { from: before, to: after })
     }
 }
 
@@ -446,6 +450,11 @@ mod tests {
         selector.on_silence(LAN).unwrap();
         assert_eq!(selector.current(), None);
         assert_eq!(selector.chosen(), Some(LAN));
+        assert_eq!(lose(&mut selector, LAN), None, "still suspect, nothing visible changed");
+        lose(&mut selector, LAN);
+        let died = lose(&mut selector, LAN);
+        assert_eq!(died, Some(Switch { from: None, to: None }), "the held path's death is reported");
+        assert_eq!(selector.chosen(), None);
     }
 
     #[test]
