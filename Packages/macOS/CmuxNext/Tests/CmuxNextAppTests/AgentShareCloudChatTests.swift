@@ -27,7 +27,7 @@ import Testing
 
     static func cloudChat(owner: Bool?) -> AgentShareChat {
         AgentShareChat(surface: 3, session: "acp_1", connection: nil, isLocal: false, title: "Cloud chat",
-                       cloudOwner: owner.map { owned in { owned } })
+                       cloudOwner: owner.map { owned -> @MainActor @Sendable () async -> Bool in { owned } })
     }
 
     @Test func aChatOnAnotherMachineThatIsNoCloudMachineIsNotShareable() {
