@@ -66,7 +66,9 @@ TEST_NAME = re.compile(r"((?:^|[._-])[Mm]ocks?[._-]|^mock[A-Z]|(?:^|[._-])fixtur
 STRING_COMMON = r'"""[\s\S]*?"""|"(?:\\.|[^"\\\n])*"'
 COMMENT = r"//[^\n]*|/\*[\s\S]*?\*/"
 TOKENS = {
-    ".rs": re.compile(rf"{STRING_COMMON}|'(?:\\.|[^'\\\n])'|{COMMENT}"),  # a char literal, never a lifetime
+    # A raw string (r"..", r#".."#, br#".."#) ends at a quote and its own hashes; a backslash in it is literal.
+    ".rs": re.compile(rf"(?<![A-Za-z0-9_])b?r(?P<hashes>#*)\"[\s\S]*?\"(?P=hashes)|{STRING_COMMON}"
+                      rf"|'(?:\\.|[^'\\\n])'|{COMMENT}"),  # a char literal, never a lifetime
     ".swift": re.compile(rf"{STRING_COMMON}|{COMMENT}"),
 }
 TOKENS_JS = re.compile(rf"{STRING_COMMON}|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`|{COMMENT}")
