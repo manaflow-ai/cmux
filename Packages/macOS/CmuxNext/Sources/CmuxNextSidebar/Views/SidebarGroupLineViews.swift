@@ -98,9 +98,6 @@ final class SidebarGroupLineViews {
         return (changes, leaving.map(\.0), [], [])
     }
 
-    /// Group `group`'s shown line (a fold clips it with its members, `clipFold`).
-    func view(for group: GroupID) -> NSView? { views[group] }
-
     /// Shows at once, at its frame, the line of each group in `lines` that has
     /// none (a group whose rows a drag hid: the last apply left its line out),
     /// and leaves every other line, moving or not, as it is. The shown line joins `lines`: a fold keeps the lines
