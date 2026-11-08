@@ -17,7 +17,7 @@ pub(crate) fn grant(vm_kind: Option<VmKind>, chats: Option<&[&str]>) -> CarrierG
 }
 
 /// `future`'s output, or a test failure after 10 s instead of a hang.
-pub(crate) async fn within<F: std::future::Future>(future: F) -> F::Output {
+pub(crate) async fn within<F: Future>(future: F) -> F::Output {
     tokio::time::timeout(Duration::from_secs(10), future).await.expect("timed out")
 }
 
