@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42505694699",
+  "recorded_at": "2026-11-08T17:42:33Z",
+  "reason": "cmux-tui a2e4b46d418a changes the image's cmux-tui (pinned 94cbacb43005)",
+  "dry_run": false,
+  "cmux_tui": "a2e4b46d418aeb401d9de67285e7acd2c09e1fe7",
+  "fixes": [
+    {
+      "sha": "8b30b0c5a73691eb1ff9048286be34cd7e27c1c5",
+      "mergedAt": "2026-11-08T09:15:41-08:00",
+      "subject": "apps: test, every customize template mounts in the native QuickJS VM"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T17:42:33Z",
+    "snapshot_id": "sh-461fe81e4b354934a637d3a8ae6780e7",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42505694699): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4130e0d3127944344c55e29d3d0d10c77455bfca",
+    "image": "cloud-native-auto-a2e4b46d-42505694699-1",
+    "revision": "ci-42505694699-1",
+    "at": "2026-11-08T17:42:33Z"
+  },
+  "rolled_back": false
+}
