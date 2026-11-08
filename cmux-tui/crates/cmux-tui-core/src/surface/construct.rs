@@ -492,11 +492,11 @@ impl Surface {
             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
         };
         pty.request_frame(generation);
-        if let Some((offset, at_bottom)) = scroll_changed
+        if scroll_changed.is_some()
             && let Some(mux) = mux.upgrade()
         {
             // Drops a position output deferred, so it cannot follow this one.
-            pty.frame_requests.publish_scroll_now(&mux, surface.id, offset, at_bottom);
+            pty.frame_requests.flush_scroll(&mux, surface.id);
         }
     }
 }
