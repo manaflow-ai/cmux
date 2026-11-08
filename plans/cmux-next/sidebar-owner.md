@@ -10,6 +10,14 @@
   (`SidebarUpdatedCardHost.heldHeight`) keeps the scale it was taken at and is read at the scale now, so a scale
   decrease shrinks the card with its page instead of holding its old, larger height; #38107 made the page's
   points follow a live scale change. Regression: `UpdatedCardScaleDownTests`, `UpdatedCardLiveScaleTests`.
+- 2026-11-08: the Updated card's hover preview stays glass. Leo, verbatim: "it turns from glass when it's unhovered
+  into opaque when it does get hovered. I feel like we should be able to keep it as glass though, right?" A native
+  glass behind the card's page (`SidebarUpdatedCardHost.glass`), the card and its open preview, frosts the rows under
+  it, so the page keeps its tint open, at rest and dragged (takes back the solid fill of a72c0fd5c542, f1d36c5f77e3,
+  9205005b4340). The preview and the glass move on cubic-bezier(0.16, 1, 0.3, 1) over 265 ms on `Motion.web`. The rows
+  under the open card neither light nor open hover cards (`SidebarListView.hoverOccluded`), and the grown view takes
+  clicks only on the glass. Regression: `UpdatedCardHoverPreviewTests`, webviews `updated-card-hover-preview.test.tsx`,
+  `updated-card-native-glass.test.ts`.
 - 2026-11-07: a group drawn as its one row folds like any group. Leo, verbatim: "when you're collapsing a group, the
   text needs to fade faster". A group of one member titled as the group draws that row in the header's place
   (`standsForGroup`) and no header, so its collapse found no open header: the row faded over the whole `.move` spring and
