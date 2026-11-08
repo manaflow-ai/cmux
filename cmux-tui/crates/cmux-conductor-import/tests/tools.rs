@@ -199,7 +199,7 @@ fn tools_check_alias_targets_and_preserve_existing_canonical_identity() {
     assert!(denied.unreadable.is_empty(), "a refused target must not reach git inspection");
 
     let mut existing = f.conductor();
-    existing.workspaces[0].path = Some(alias.clone());
+    existing.workspaces[0].path = Some(alias);
     let direct = f.chat(AdapterKind::Codex, &f.worktree);
     let admitted = tools::catalog(existing.clone(), [&chat, &direct], &|_| true).unwrap();
     assert_eq!(admitted.catalog, existing);
@@ -272,7 +272,7 @@ fn grouped_folders_share_tool_provenance_without_inventing_chats() {
 #[test]
 fn grouped_folders_count_distinct_paths_instead_of_duplicate_rows() {
     let f = Fixture::new();
-    let row = (AdapterKind::Codex, f.worktree.clone());
+    let row = (AdapterKind::Codex, f.worktree);
     let rows = std::iter::repeat_n(&row, tools::MAX_FOLDERS + 1);
     let found = tools::folders(Catalog::default(), rows, &|_| true).unwrap();
     assert_eq!(found.catalog.workspaces.len(), 1);
@@ -363,6 +363,6 @@ fn grouped_folder_inspection_reuses_verified_listings_and_branches() {
     let serialized = serde_json::to_value(&found).unwrap();
     assert!(serialized.get("listings").is_none(), "verified Git metadata is not import output");
 
-    let fallback = tools::ToolCatalog::from(found.catalog.clone());
+    let fallback = tools::ToolCatalog::from(found.catalog);
     assert_eq!(fallback.inspect(&f.home), fresh, "Conductor fallback retains uncached inspection");
 }
