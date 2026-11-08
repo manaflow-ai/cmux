@@ -29,17 +29,20 @@ pub(super) const CAPABILITY: &str = "skills-v1";
 const MAX_TERMINALS: usize = 64;
 
 #[derive(Deserialize)]
-#[serde(tag = "cmd", rename_all = "kebab-case")]
+#[serde(tag = "cmd")]
 enum Command {
-    SkillsList {
+    #[serde(rename = "skills-list")]
+    List {
         #[serde(default)]
         projects: Option<Vec<String>>,
     },
-    SkillsSetEnabled {
+    #[serde(rename = "skills-set-enabled")]
+    SetEnabled {
         skill_id: String,
         enabled: bool,
     },
-    SkillsCreate {
+    #[serde(rename = "skills-create")]
+    Create {
         harness: String,
         scope: String,
         #[serde(default)]
@@ -48,7 +51,8 @@ enum Command {
         #[serde(default)]
         description: String,
     },
-    SkillsLocate {
+    #[serde(rename = "skills-locate")]
+    Locate {
         skill_id: String,
     },
 }
@@ -82,20 +86,20 @@ pub(super) fn try_handle(
 
 fn answer(mux: &Mux, env: &SkillsEnv, command: Command) -> Result<Value, &'static str> {
     match command {
-        Command::SkillsList { projects } => {
+        Command::List { projects } => {
             let projects = match projects {
                 Some(folders) => catalog::projects(folders.into_iter().map(PathBuf::from), &env.home),
                 None => terminal_projects(mux, env),
             };
             Ok(catalog::list_reply(env, &projects))
         }
-        Command::SkillsSetEnabled { skill_id, enabled } => {
+        Command::SetEnabled { skill_id, enabled } => {
             let projects = terminal_projects(mux, env);
             catalog::set_enabled(env, &projects, &skill_id, enabled)
                 .map(|skill| json!({ "skill": skill }))
                 .map_err(SkillsError::code)
         }
-        Command::SkillsCreate { harness, scope, project, name, description } => {
+        Command::Create { harness, scope, project, name, description } => {
             let mut projects = terminal_projects(mux, env);
             // A project the page listed from its own `projects` is one the person chose.
             if let Some(root) = &project
@@ -108,7 +112,7 @@ fn answer(mux: &Mux, env: &SkillsEnv, command: Command) -> Result<Value, &'stati
                 .map(|skill| json!({ "skill": skill }))
                 .map_err(SkillsError::code)
         }
-        Command::SkillsLocate { skill_id } => {
+        Command::Locate { skill_id } => {
             let projects = terminal_projects(mux, env);
             catalog::find(env, &projects, &skill_id)
                 .map(|skill| json!({ "file": skill.file, "dir": skill.dir }))
