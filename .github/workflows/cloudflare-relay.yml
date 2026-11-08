@@ -169,7 +169,7 @@ jobs:
       staging: ${{ steps.plan.outputs.staging }}
       production: ${{ steps.plan.outputs.production }}
       journeys: ${{ steps.plan.outputs.journeys }}
-      migrations_changed: ${{ steps.migrations.outputs.changed }}
+      migrations_changed: ${{ steps.plan.outputs.migrations_changed }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -179,7 +179,7 @@ jobs:
           sparse-checkout: |
             cmux-tui/relays/cloudflare-do
             cmux-tui/crates/cmux-remote-protocol
-            scripts/ci/api_call_log
+            scripts/ci
       - name: Plan
         id: plan
         env:
@@ -188,87 +188,22 @@ jobs:
           ACTION: ${{ inputs.action || 'deploy' }}
           TARGET: ${{ inputs.target || 'both' }}
           ROLLBACK_TO: ${{ inputs.rollback_to }}
+        # scripts/ci/relay_deploy_plan.py: a deploy never moves a relay to an older source, and a
+        # [[migrations]] change, or a relay whose served commit is unknown, waits on relay-migrations.
         run: |
           set -euo pipefail
-          fail() { echo "::error title=Cloudflare relay plan::$1"; exit 1; }
-          [ "$REF" = refs/heads/feat-cmux-next ] || fail "deploys and rollbacks run only from feat-cmux-next, not $REF"
           served() { # worker -> the commit its /version reports, or nothing
             curl -fsS --max-time 10 --retry 2 "https://$1.$RELAY_HOST_SUFFIX/version" 2>/dev/null \
-              | python3 -c 'import json,re,sys
-          v=json.load(sys.stdin).get("source_revision","")
-          print(v if re.fullmatch(r"[0-9a-f]{40}", v) else "")' 2>/dev/null || true
+              | python3 -c 'import json,sys; print(json.load(sys.stdin).get("source_revision",""))' 2>/dev/null || true
           }
-          sha="$GITHUB_SHA" version="" mode=deploy journeys=true
-          case "$TARGET" in
-            both) staging=true production=true ;;
-            staging) staging=true production=false ;;
-            production) staging=false production=true ;;
-            *) fail "unknown target '$TARGET'" ;;
-          esac
-          if [ "$EVENT" = workflow_dispatch ] && [ "$ACTION" = rollback ]; then
-            journeys=false
-            if [[ "$ROLLBACK_TO" =~ ^[0-9a-f]{40}$ ]]; then
-              mode=sha sha="$ROLLBACK_TO"
-              git cat-file -e "$sha^{commit}" 2>/dev/null || fail "commit $sha is not in this repository"
-              git merge-base --is-ancestor "$sha" "$GITHUB_SHA" || fail "commit $sha is not on feat-cmux-next"
-              git cat-file -e "$sha:cmux-tui/relays/cloudflare-do/wrangler.toml" 2>/dev/null || fail "commit $sha has no relay"
-            elif [[ "$ROLLBACK_TO" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
-              mode=version version="$ROLLBACK_TO"
-              [ "$TARGET" != both ] || fail "a version id names one Worker: pick target staging or production"
-            else
-              fail "rollback_to must be a Worker version id or a 40-hex commit, got '$ROLLBACK_TO'"
-            fi
-          elif [ "$EVENT" = workflow_dispatch ] && [ "$ACTION" != deploy ]; then
-            fail "unknown action '$ACTION'"
-          elif [ "$production" = true ] && [ "$staging" != true ]; then
-            fail "a deploy reaches production only through staging (target both); roll back with action=rollback"
+          if ! out="$(python3 scripts/ci/relay_deploy_plan.py plan --tip "$GITHUB_SHA" --event "$EVENT" --ref "$REF" \
+            --action "$ACTION" --target "$TARGET" --rollback-to "$ROLLBACK_TO" \
+            --served-staging "$(served "$RELAY_STAGING")" --served-production "$(served "$RELAY_PRODUCTION")")"; then
+            echo "$out"
+            exit 1
           fi
-          if [ "$EVENT" = push ]; then
-            # Nothing to ship when both relays serve this relay source already.
-            unchanged=true
-            for worker in "$RELAY_STAGING" "$RELAY_PRODUCTION"; do
-              at="$(served "$worker")"
-              if [ -z "$at" ] || ! git cat-file -e "$at^{commit}" 2>/dev/null \
-                || ! git diff --quiet "$at" "$sha" -- cmux-tui/relays/cloudflare-do cmux-tui/crates/cmux-remote-protocol; then
-                unchanged=false
-              fi
-            done
-            if [ "$unchanged" = true ]; then
-              echo "::notice title=Cloudflare relay::both relays already serve this relay source; nothing to deploy"
-              staging=false production=false journeys=false mode=skip
-            fi
-          fi
-          {
-            echo "mode=$mode"; echo "sha=$sha"; echo "version=$version"
-            echo "staging=$staging"; echo "production=$production"; echo "journeys=$journeys"
-          } >> "$GITHUB_OUTPUT"
-          echo "plan: mode=$mode sha=$sha version=${version:-none} staging=$staging production=$production journeys=$journeys"
-      # A Durable Object migration cannot be undone by a rollback, so a changed [[migrations]]
-      # list waits for a person (environment relay-migrations) before either relay deploys.
-      - name: Compare Durable Object migrations with production's
-        id: migrations
-        env:
-          MODE: ${{ steps.plan.outputs.mode }}
-          SHA: ${{ steps.plan.outputs.sha }}
-          BEFORE: ${{ github.event.before }}
-        run: |
-          set -euo pipefail
-          if [ "$MODE" = skip ] || [ "$MODE" = version ]; then echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0; fi
-          base="$(curl -fsS --max-time 10 --retry 2 "https://$RELAY_PRODUCTION.$RELAY_HOST_SUFFIX/version" 2>/dev/null \
-            | python3 -c 'import json,sys; print(json.load(sys.stdin).get("source_revision",""))' 2>/dev/null || true)"
-          git cat-file -e "${base:-0}^{commit}" 2>/dev/null || base="$BEFORE"
-          git cat-file -e "${base:-0}^{commit}" 2>/dev/null || base=""
-          python3 - "$SHA" "$base" >> "$GITHUB_OUTPUT" <<'PY'
-          import json, subprocess, sys, tomllib
-          def migrations(rev):
-              shown = subprocess.run(["git", "show", f"{rev}:cmux-tui/relays/cloudflare-do/wrangler.toml"],
-                                     capture_output=True, check=True)
-              return json.dumps(tomllib.loads(shown.stdout.decode()).get("migrations", []), sort_keys=True)
-          target, base = sys.argv[1], sys.argv[2]
-          changed = not base or migrations(target) != migrations(base)
-          print(f"changed={'true' if changed else 'false'}")
-          print(f"relay migrations: {'changed' if changed else 'unchanged'} (compared with {base or 'nothing: no serving commit, approval required'})", file=sys.stderr)
-          PY
+          echo "$out"
+          echo "$out" >> "$GITHUB_OUTPUT"
 
   migration-approval:
     needs: plan
@@ -327,13 +262,19 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.sha }}
           persist-credentials: false
-      # The release rails at this workflow's own commit, so a rollback to an old commit still has them.
+      # The release rails and the ordering guard at this workflow's own commit, so a rollback to an
+      # old commit still has them.
       - name: Checkout the release rails
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           path: .relay-tools
           persist-credentials: false
-          sparse-checkout: scripts/cmux-next/release
+          # Every commit (no trees or blobs beyond the sparse paths) for the ancestry check.
+          fetch-depth: 0
+          filter: tree:0
+          sparse-checkout: |
+            scripts/cmux-next/release
+            scripts/ci
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22.23.4"
@@ -364,6 +305,15 @@ jobs:
           echo "version=$previous" >> "$GITHUB_OUTPUT"
           printf '%s serves version `%s` before this run. Roll back to it: dispatch Cloudflare relay on feat-cmux-next with action=rollback, target=staging, rollback_to=%s\n' \
             "$WORKER" "$previous" "$previous" >> "$GITHUB_STEP_SUMMARY"
+      # Again here, not only in plan: a re-run of this job alone must not ship an older source.
+      - name: Refuse a source older than the one serving
+        working-directory: .
+        run: |
+          set -euo pipefail
+          served="$(curl -fsS --max-time 10 --retry 2 "https://$WORKER.$RELAY_HOST_SUFFIX/version" 2>/dev/null \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin).get("source_revision",""))' 2>/dev/null || true)"
+          python3 .relay-tools/scripts/ci/relay_deploy_plan.py guard --repo .relay-tools --worker "$WORKER" \
+            --mode "$MODE" --source "$SHA" --served "$served"
       - name: Deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -606,7 +556,12 @@ jobs:
         with:
           path: .relay-tools
           persist-credentials: false
-          sparse-checkout: scripts/cmux-next/release
+          # Every commit (no trees or blobs beyond the sparse paths) for the ancestry check.
+          fetch-depth: 0
+          filter: tree:0
+          sparse-checkout: |
+            scripts/cmux-next/release
+            scripts/ci
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22.23.4"
@@ -637,6 +592,15 @@ jobs:
           echo "version=$previous" >> "$GITHUB_OUTPUT"
           printf '%s serves version `%s` before this run. Roll back to it: dispatch Cloudflare relay on feat-cmux-next with action=rollback, target=production, rollback_to=%s\n' \
             "$WORKER" "$previous" "$previous" >> "$GITHUB_STEP_SUMMARY"
+      # Again here, not only in plan: a re-run of this job alone must not ship an older source.
+      - name: Refuse a source older than the one serving
+        working-directory: .
+        run: |
+          set -euo pipefail
+          served="$(curl -fsS --max-time 10 --retry 2 "https://$WORKER.$RELAY_HOST_SUFFIX/version" 2>/dev/null \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin).get("source_revision",""))' 2>/dev/null || true)"
+          python3 .relay-tools/scripts/ci/relay_deploy_plan.py guard --repo .relay-tools --worker "$WORKER" \
+            --mode "$MODE" --source "$SHA" --served "$served"
       - name: Deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
