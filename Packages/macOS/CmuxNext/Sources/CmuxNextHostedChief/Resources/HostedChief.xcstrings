@@ -394,6 +394,137 @@
         }
       }
     },
+    "cloud.computerControl.humanHasControl": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The person is using this machine's computer. Wait until they give it back."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンのコンピューターは本人が使用中です。返されるまで待ってください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الشخص يستخدم كمبيوتر هذا الجهاز. انتظر حتى يعيده."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Osoba koristi računar ove mašine. Sačekaj dok ga ne vrati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personen bruger denne maskines computer. Vent, til de giver den tilbage."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Person nutzt den Computer dieser Maschine. Warte, bis sie ihn zurückgibt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La persona está usando el ordenador de esta máquina. Espera a que lo devuelva."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La personne utilise l'ordinateur de cette machine. Attendez qu'elle le rende."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La persona sta usando il computer di questa macchina. Attendi che lo restituisca."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មនុស្សកំពុងប្រើកុំព្យូទ័ររបស់ម៉ាស៊ីននេះ។ រង់ចាំរហូតដល់គេប្រគល់វាវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자가 이 머신의 컴퓨터를 사용 중입니다. 돌려줄 때까지 기다리세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personen bruker denne maskinens datamaskin. Vent til de gir den tilbake."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Osoba używa komputera tej maszyny. Poczekaj, aż go odda."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pessoa está usando o computador desta máquina. Aguarde até que ela o devolva."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Человек использует компьютер этой машины. Дождитесь, пока он его вернёт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ผู้ใช้กำลังใช้คอมพิวเตอร์ของเครื่องนี้ รอจนกว่าจะส่งคืน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kişi bu makinenin bilgisayarını kullanıyor. Geri verene kadar bekleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Людина використовує комп'ютер цієї машини. Зачекайте, доки вона його поверне."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Người dùng đang dùng máy tính của máy này. Hãy đợi đến khi họ trả lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此人正在使用这台机器的电脑。请等待对方交还。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此人正在使用這台機器的電腦。請等待對方交還。"
+          }
+        }
+      }
+    },
     "cloud.computerControl.notHere": {
       "extractionState": "manual",
       "localizations": {

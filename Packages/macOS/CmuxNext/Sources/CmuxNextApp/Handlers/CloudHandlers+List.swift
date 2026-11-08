@@ -154,6 +154,19 @@ extension CloudHandlers {
         }
     }
 
+    /// Refuses an automated run (the Chief's tool, an agent, the CLI, MCP, a script, another client) that
+    /// would act on Cloud machine `machine` while the person holds its computer
+    /// (``ChiefComputerControlStore/checkNotHeld(machine:byPerson:)``): `cloud exec`, file writes and chats
+    /// wait until they give it back, as the Worker refuses a Cloud Chief's exec on its own sandbox then.
+    /// The person's own gesture in this app passes, as for take_over.
+    static func refuseWhileComputerHeld(machine: String, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
+        do throws(ChiefComputerControlStore.Refusal) {
+            try context.services.cloud.computerControl.checkNotHeld(machine: machine, byPerson: invocation.isPersonsOwnRun && origin(of: invocation) == .user)
+        } catch {
+            throw ActionFailure(message: error.message)
+        }
+    }
+
     /// The Chief's ask as a banner, by the agent source's notification rules (desktop, quiet hours,
     /// sounds, Dock bounce), as hand-offs and Runs post theirs; withdrawn when the ask ends.
     private static func postComputerAsk(_ services: AppServices, machine: String, reason: String?) {

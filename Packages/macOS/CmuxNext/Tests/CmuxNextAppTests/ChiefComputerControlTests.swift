@@ -152,6 +152,56 @@ struct ChiefComputerControlTests {
         #expect(services.cloud.computerControl.state(.machine(machine)) == .chief)
     }
 
+    /// While the person holds a machine's computer, automation (the Chief's tool runs as the CLI, an
+    /// agent as MCP) may not exec there, write its files or start a chat on it: refused with
+    /// `computer.human_has_control`, as the Worker refuses a Cloud Chief's exec on its own sandbox.
+    @Test func automationCannotExecWriteOrChatOnAComputerThePersonHolds() async throws {
+        let services = Self.services()
+        let machine = Self.machine()
+        _ = MachineIconTests.cloudMachine(services, id: machine)
+        let source = try #require(services.chiefComputerControlSource(agent: nil, machine: machine))
+        try await source.takeOver()
+        let runs: [(ActionID, [String: ActionValue])] = [
+            ("cloudExec", ["command": .string("echo hi")]),
+            ("cloudFileWrite", ["path": .string("/tmp/x"), "contents": .string("x")]),
+            ("cloudFileMkdir", ["path": .string("/tmp/d")]),
+            ("cloudFileRemove", ["path": .string("/tmp/x")]),
+            ("cloudStartSession", ["agent": .string("claude")]),
+        ]
+        for (id, arguments) in runs {
+            let invoke = try #require(services.registry.action(for: id)?.invoke, "\(id) is not bound")
+            for origin in [ActionOrigin.cli, .mcp] {
+                var work: [ActionWork] = []
+                let refusal = services.registry.capturingRefusal {
+                    work = services.registry.capturingRun {
+                        invoke(ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine), arguments: arguments, origin: origin))
+                    }.work
+                }
+                #expect(refusal?.hasPrefix("computer.human_has_control") == true, "\(id) from \(origin): \(refusal ?? "not refused")")
+                #expect(work.isEmpty, "\(id) from \(origin) started work")
+            }
+        }
+        // The relay chat from the CLI answers undelivered with the same words, and sends nothing.
+        let relay = try #require(services.registry.action(for: "cloudRelayChat")?.invoke)
+        let answered = services.registry.capturingRun {
+            relay(ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine), arguments: ["agent": .string("claude"), "prompt": .string("hi")], origin: .cli))
+        }
+        let task = try #require(answered.results.first)
+        guard case .success(let fields) = await task.value else { Issue.record("the relay chat failed"); return }
+        #expect(fields["delivered"] == .bool(false))
+        guard case .string(let message)? = fields["error_message"] else { Issue.record("no error_message"); return }
+        #expect(message.hasPrefix("computer.human_has_control"))
+
+        // The person's own gesture passes the lease; once given back, automation passes it too.
+        let store = services.cloud.computerControl
+        #expect(throws: Never.self) { try store.checkNotHeld(machine: machine, byPerson: true) }
+        #expect(throws: ChiefComputerControlStore.Refusal.humanHasControl) { try store.checkNotHeld(machine: machine, byPerson: false) }
+        try await source.handBack()
+        #expect(throws: Never.self) { try store.checkNotHeld(machine: machine, byPerson: false) }
+        // A machine nobody took over is the Chief's.
+        #expect(throws: Never.self) { try store.checkNotHeld(machine: Self.machine(), byPerson: false) }
+    }
+
     /// The Worker's since_ms only grows: a status read that left before a take-over's reply never
     /// writes the older lease back.
     @Test func anOlderSandboxAnswerNeverOverwritesANewerOne() {

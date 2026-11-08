@@ -39,6 +39,10 @@ public final class ChiefComputerControlStore {
         /// took over (a Chief's `hand_back` ends only its own `request_human`). The message starts
         /// with the code `computer.user_origin_required`, which the Chief's tool reads.
         case userOriginRequired
+        /// An automated run (the Chief, an agent, the CLI, MCP) on a machine whose computer the person
+        /// holds: exec, file writes and chats there wait until they give it back. The message starts
+        /// with the code `computer.human_has_control`, as the Worker's refusal for a Cloud Chief's sandbox.
+        case humanHasControl
 
         public var message: String {
             switch self {
@@ -46,6 +50,7 @@ public final class ChiefComputerControlStore {
             case .badAction: String(localized: "cloud.computerControl.badAction", defaultValue: "Say what to do: status, take_over, hand_back or request_human.", table: "HostedChief", bundle: .module)
             case .notHere: String(localized: "cloud.computerControl.notHere", defaultValue: "Who drives a Chief's computer changes only on this Mac.", table: "HostedChief", bundle: .module)
             case .userOriginRequired: "computer.user_origin_required: " + String(localized: "cloud.computerControl.userOriginRequired", defaultValue: "Only the person can take over this computer or give it back once they took it.", table: "HostedChief", bundle: .module)
+            case .humanHasControl: "computer.human_has_control: " + String(localized: "cloud.computerControl.humanHasControl", defaultValue: "The person is using this machine's computer. Wait until they give it back.", table: "HostedChief", bundle: .module)
             }
         }
     }
@@ -124,6 +129,15 @@ public final class ChiefComputerControlStore {
     }
 
     // MARK: Machine leases (this store owns them)
+
+    /// Refuses an automated run (`byPerson` false: the Chief, an agent, the CLI, MCP, a script, another
+    /// client) that would act on machine `raw` (exec, a file write, a chat) while the person holds its
+    /// computer, as the Worker refuses a Cloud Chief's exec on its own sandbox then. The person's own
+    /// gesture, and any run on a machine the Chief holds, pass.
+    public func checkNotHeld(machine raw: String, byPerson: Bool) throws(Refusal) {
+        guard !byPerson, let machine = Self.machineKey(raw), state(.machine(machine))?.holder == .human else { return }
+        throw .humanHasControl
+    }
 
     /// One `cloud computer-control` run from its raw arguments: the machine's key and its lease after.
     /// `fromAnotherClient`: a phone or another Mac asked (only `status` answers it, default deny).

@@ -59,6 +59,10 @@ struct CloudStartSession {
         CloudHandlers.bind(action, registry, reason: reason) { invocation in
             var request = try Self.request(invocation)
             let start = CloudStartSession(services: services), runs = services.cloud.startSessionRuns
+            // An agent's or the CLI's chat on a machine whose computer the person holds waits until they give it back.
+            if let held = request.machineID ?? request.name.flatMap({ name in services.machines.cloud.first(where: { $0.machine.title == name })?.machineID }) {
+                try CloudHandlers.refuseWhileComputerHeld(machine: held, invocation, context)
+            }
             guard !Self.isAgent(invocation) else { return try Self.agentAsk(request, invocation, context) }
             // A person's palette or menu run without a machine means the one they look at.
             if request.machineID == nil, request.name == nil, CloudHandlers.origin(of: invocation) == .user {
@@ -453,6 +457,8 @@ extension CloudStartSession {
             do {
                 guard !isAgent(invocation) else { throw ActionFailure(message: CloudStartSessionStrings.relayAgentRun) }
                 machineID = try CloudHandlers.machine(invocation, context).machineID
+                // A CLI chat on a machine whose computer the person holds waits until they give it back.
+                try CloudHandlers.refuseWhileComputerHeld(machine: machineID, invocation, context)
                 // The agent and the folder, checked as `cloud start-session` checks them.
                 started = try request(invocation)
                 prompt = invocation["prompt"]?.stringValue ?? ""
