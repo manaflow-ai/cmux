@@ -283,4 +283,22 @@ mod tests {
         // Written before registration numbers: current until replaced.
         assert!(current_registration(&registration(0, T), OPEN, []));
     }
+
+    /// Two daemons registered by the relay before registration numbers both
+    /// keep number 0, so the number cannot say which one is newer. After the
+    /// upgrade, a late Ping from the older socket must not make it current
+    /// (it would take over the slot's parked Connects and unjoined circuits).
+    #[test]
+    fn late_ping_from_the_older_of_two_legacy_registrations_is_not_current() {
+        let older = registration(0, T);
+        let newer = registration(0, T + 1_000);
+        let late_ping_ms = T + 2_000;
+        let older_after_ping = SlotAttachment { last_seen_ms: late_ping_ms, ..older };
+        assert!(
+            !current_registration(&older_after_ping, OPEN, [newer.clone()]),
+            "the older legacy registration's late Ping made it current"
+        );
+        // A numbered Register replaces every legacy registration.
+        assert!(current_registration(&registration(1, T + 3_000), OPEN, [older_after_ping, newer]));
+    }
 }
