@@ -259,6 +259,26 @@ async fn serve_connection(
     start: Instant,
 ) {
     let cursor: watch::Sender<Option<u64>> = watch::channel(None).0;
+    // The newest ping, answered from a task of its own so a pong held by a full window never
+    // stops the reads that bring the acks to free it.
+    let ping: watch::Sender<u64> = watch::channel(0).0;
+    let ponger = tokio::spawn({
+        let connection = connection.clone();
+        let mut ping = ping.subscribe();
+        async move {
+            while ping.changed().await.is_ok() {
+                let n = *ping.borrow_and_update();
+                let pong = Bytes::from(format!("pong {n}"));
+                if connection
+                    .send(Lane::Control, APP_STREAM, pong, FrameFlags::empty())
+                    .await
+                    .is_err()
+                {
+                    return;
+                }
+            }
+        }
+    });
     let pusher = tokio::spawn({
         let connection = connection.clone();
         let disk = disk.clone();
@@ -310,9 +330,8 @@ async fn serve_connection(
             continue;
         }
         let text = String::from_utf8_lossy(&frame.payload).into_owned();
-        if let Some(n) = text.strip_prefix("ping ") {
-            let pong = Bytes::from(format!("pong {n}"));
-            let _ = connection.send(Lane::Control, APP_STREAM, pong, FrameFlags::empty()).await;
+        if let Some(n) = text.strip_prefix("ping ").and_then(|n| n.parse().ok()) {
+            ping.send_replace(n);
         } else if let Some(after) = text.strip_prefix("attach ").and_then(|n| n.parse().ok()) {
             cursor.send_replace(Some(after));
         } else if let Some(id) = text.strip_prefix("prompt ").and_then(|n| n.parse().ok()) {
@@ -326,6 +345,7 @@ async fn serve_connection(
         }
     }
     pusher.abort();
+    ponger.abort();
 }
 
 fn client_config(session: SessionId, expected: [u8; 32]) -> Result<ClientConnectionConfig, String> {
@@ -520,10 +540,15 @@ async fn serve_app(
                 Ok(Some(frame)) => {
                     if frame.lane == Lane::Control && frame.stream == APP_STREAM {
                         let text = String::from_utf8_lossy(&frame.payload);
-                        let sent = text
-                            .strip_prefix("pong ")
-                            .and_then(|n| n.parse::<u64>().ok())
-                            .and_then(|n| lock(pings).remove(&n));
+                        // A pong answers the newest ping the daemon had; older ones are moot.
+                        let sent = text.strip_prefix("pong ").and_then(|n| n.parse::<u64>().ok()).and_then(
+                            |n| {
+                                let mut pings = lock(pings);
+                                let sent = pings.remove(&n);
+                                *pings = pings.split_off(&n);
+                                sent
+                            },
+                        );
                         if let Some(sent) = sent {
                             let mut s = lock(seen);
                             s.answered_ping_sent = s.answered_ping_sent.max(Some(sent));

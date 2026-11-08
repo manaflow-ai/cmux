@@ -361,6 +361,7 @@ impl LinkGroup for SimGroup {
             }
         };
         let route = self.routes[index].clone();
+        route.note(format!("{} open {:?} g{}", route.name, request.lane, request.generation));
         // A dial takes one round trip before it can fail or succeed.
         tokio::time::sleep(route.latency() * 2).await;
         // Both fail as the relay provider fails them: a carrier error the client retries
