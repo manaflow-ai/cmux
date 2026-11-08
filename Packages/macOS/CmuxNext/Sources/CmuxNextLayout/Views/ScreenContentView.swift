@@ -278,12 +278,19 @@ final class ScreenContentView: NSView {
                 (arrivals, handoff) = (played.arrivals, (giver, played.slide))
             }
         }
-        let departing = (zooming ? animate : splits) && structural && arrivals.isEmpty
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // ZOOM VARIANTS film selector (never merged): Z1-Z3 snap the zoom to its final frames (`ScreenContentView+FilmZoom`).
+        let filmZoom = structural && (zooming || unzooming) ? DesignSettings.shared.filmZoom.active : nil
+        let filmZoomSnaps = filmZoom != nil
+        #else
+        let filmZoomSnaps = false
+        #endif
+        let departing = (zooming ? animate : splits) && structural && arrivals.isEmpty && !filmZoomSnaps
             && PaneArrival.departing(paneFrames.keys, to: baseGeometry.panes.keys)
         // An unzoom: the other panes come back in place under the zoomed one, which springs back to its slot.
-        let returning = animate && structural && unzooming
+        let returning = animate && structural && unzooming && !filmZoomSnaps
         // A zoom: the zoomed pane covers the other panes, which stay as they are under it (`PaneZoomMotion`).
-        let covering = animate && structural && zooming
+        let covering = animate && structural && zooming && !filmZoomSnaps
         if structural { zoomMotion.begin(covering ? baseGeometry.panes.keys.first : returning ? paneFrames.keys.first { baseGeometry.panes[$0] != nil } : nil, in: baseGeometry, variant: motionState.current) }
         // A split still springing when the next structural update lands (the daemon's echo of the
         // split moves the tab into the new pane ~75 ms in) keeps springing from where it shows,
@@ -302,7 +309,7 @@ final class ScreenContentView: NSView {
         // snapped close takes the held-snap path (`holdsSnapForContent`): the sizes are drawn ahead in this turn, the old
         // picture (the closed pane included, `snapDeparted`) stays until the next tick, then the final layout in one pass.
         let film = departing ? filmCloseVariant : nil
-        let filmSnaps = film != nil
+        let filmSnaps = film != nil || filmZoomSnaps
         #else
         let filmSnaps = false
         #endif
@@ -374,6 +381,7 @@ final class ScreenContentView: NSView {
         } else if departing, DesignSettings.shared.filmClose.growsAndFades {
             addFilmFades(paneFrames.keys.filter { baseGeometry.panes[$0] == nil && !context.livePanes.contains($0) })
         }
+        if let filmZoom { prepareFilmZoom(filmZoom, zooming: zooming, before: before, after: baseGeometry) }
         #endif
         var closing: [(pane: PaneID, frame: AnimatedFrame?)] = []
         for pane in paneFrames.keys where baseGeometry.panes[pane] == nil {
@@ -386,6 +394,9 @@ final class ScreenContentView: NSView {
             // pane now and tears it down when the motion lands (`LayoutViewContext.retire`): its neighbours' first
             // frames carry no teardown.
             guard !context.livePanes.contains(pane) else { continue }
+            #if DEBUG || CMUX_BENCH_HOOKS
+            if frameInput.filmZoomRetire.contains(pane) { continue }
+            #endif
             if departing, animateFrames { closing.append((pane, frame)) } else if holdsSnap { frameInput.snapDeparted.append(pane) } else { context.release(pane) }
         }
         retireClosing(closing, before: before, carried: carried, offset: offset)
@@ -490,7 +501,9 @@ final class ScreenContentView: NSView {
         // alpha, clip range, covers, divider clips) is compared in the pass (`applyPresentation`).
         if structural { forcesPresentation = true }
         #if DEBUG || CMUX_BENCH_HOOKS
-        DesignSettings.shared.filmClose.snapSendsGrid = filmSnaps && holdsSnap
+        DesignSettings.shared.filmClose.snapSendsGrid = film != nil && holdsSnap
+        frameInput.filmSnapSendsGrid = filmZoomSnaps
+        defer { frameInput.filmSnapSendsGrid = false }
         #endif
         if holdsSnap, !holdsSnapForContent() { releaseSnapDeparted() }
         #if DEBUG || CMUX_BENCH_HOOKS

@@ -267,8 +267,8 @@ enum PaneHandlers {
         })
         registry.bind("toggleSplitZoom", invoke: { invocation in
             guard let pane = ctx.daemonPane(invocation) else { return }
-            let handle = pane.handle
-            ctx.send("zoom-pane") { _ = try await $0.zoomPane(handle) }
+            if ctx.daemon.filmZoomNow(pane, shown: { ctx.paneController(invocation)?.workspace?.applyLayoutIfChanged() }) { return }
+            ctx.send("zoom-pane") { [handle = pane.handle] in _ = try await $0.zoomPane(handle) }
         })
         ActionTargetTitles.setPaletteState("toggleSplitZoom", in: registry) { ctx.services.windows.active?.focusedPane.map { p in p.workspace?.workspace.screens.contains { $0.zoomedPane == p.pane.handle } ?? false } ?? false }
     }

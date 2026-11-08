@@ -62,6 +62,8 @@ public final class DebugFrameProbe {
         #if DEBUG || CMUX_BENCH_HOOKS
         case let film where film.hasPrefix("close_variant"):
             return FilmCloseVariant.select(film)
+        case let film where film.hasPrefix("zoom_variant"):
+            return FilmZoomVariant.select(film)
         #endif
         default:
             break

@@ -7,11 +7,11 @@ import CmuxNextDesign
 extension LayoutRootView {
     /// One display frame of the layout (``advanceFrameBatched(_:)``), its avoider re-checks batched.
     func advanceFrame(_ dt: Double) -> Bool {
-        WindowControlsAvoiders.batching(in: window) { advanceFrameBatched(dt) }
+        MotionTrace.interval("zk.frame") { WindowControlsAvoiders.batching(in: window) { advanceFrameBatched(dt) } }
     }
 
     /// A model change (``syncBatched(_:)``), its avoider re-checks batched as in a frame.
     func sync(_ snapshot: Snapshot) {
-        WindowControlsAvoiders.batching(in: window) { syncBatched(snapshot) }
+        MotionTrace.interval("zk.sync") { WindowControlsAvoiders.batching(in: window) { syncBatched(snapshot) } }
     }
 }

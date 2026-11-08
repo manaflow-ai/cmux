@@ -80,6 +80,12 @@ public enum Intent: Sendable, Hashable {
     /// public `paneID`, or the pane of Cmd-N's workspace `workspace` that holds its first tab), until the daemon's
     /// records drop it or the close fails. Leo 2026-11-03: "i should be able to just close immedeiately".
     case closeStandInPane(pane: PaneID, paneID: String?, workspace: WorkspaceKey?)
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// ZOOM VARIANTS film selector only (`FilmZoomVariant`, branch zoom-variants/film-selector-nomerge, never merged):
+    /// `zoom-pane` with `mode` on (`pane`) or off (nil): `screen` shows `pane` zoomed in the input's turn, until the
+    /// daemon's echo or a refusal.
+    case zoomPane(screen: ScreenID, pane: PaneID?)
+    #endif
 
     /// The stand-in tab a creation shows under a provisional id until the daemon's tab takes its place: a new tab, a new
     /// workspace's first tab, a conversation split's tab, a dock's fresh tab. A terminal split's tab is not one: it shows

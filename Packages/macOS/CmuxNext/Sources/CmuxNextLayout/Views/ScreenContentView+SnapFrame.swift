@@ -27,12 +27,16 @@ extension ScreenContentView {
                 .pixelEdges(scale)
             guard placed.size != host.frame.size else { continue }
             resized = true
+            #if DEBUG || CMUX_BENCH_HOOKS
+            let keyPress = frameInput.filmSnapSendsGrid
+            #else
+            let keyPress = false
+            #endif
             let change = CGSize(width: placed.width - host.frame.width, height: placed.height - host.frame.height)
-            host.drawAhead(sizeChange: change, keyPress: false)
+            host.drawAhead(sizeChange: change, keyPress: keyPress)
             #if DEBUG || CMUX_BENCH_HOOKS
             // CLOSE VARIANTS film snap (never ships): the final grid goes to the PTY now, in the close's turn, before its
-            // commit, straight to each terminal in the host. Through `drawAhead` alone (build 91816749) the grid still went
-            // at the next tick (key + 35-46 ms): the presenter's `applyAhead` did not send it (counters: `close_variant`).
+            // commit, straight to each terminal in the host (counters: `close_variant`).
             if DesignSettings.shared.filmClose.snapSendsGrid {
                 FilmCloseVariant.count("snap_hosts")
                 host.content.filmSendSnapGrids(sizeChange: change)
@@ -49,7 +53,7 @@ extension ScreenContentView {
     func presentHeldSnap() {
         guard frameInput.snapWaitsForContent else { return }
         frameInput.snapWaitsForContent = false
-        applyPresentation()
+        MotionTrace.interval("zk.present") { applyPresentation() }
     }
 
     /// In the presentation that shows the held snap: the panes it took out go, unless a later change took them back.

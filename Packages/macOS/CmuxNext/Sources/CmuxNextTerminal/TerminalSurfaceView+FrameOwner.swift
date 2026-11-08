@@ -131,6 +131,12 @@ extension TerminalSurfaceView {
     /// (``TerminalFrameOwnership/programMissedHold``) does not hold the next sizes.
     var programHoldTicks: UInt64 {
         guard followsKeyResize || isFollowingResizeGesture, !frameOwnership.programMissedHold else { return 0 }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // ZOOM VARIANTS films (m66, lead 03:2xZ): a film zoom (Z1-Z4) snaps the zoomed pane in the key's turn with its grid
+        // (`keyPress`, the key-resize path), so its new size waits for the program's redraw like a key resize's, at most 2
+        // refreshes (the shared hold's API with holdTicks 2). The panes it covers do not resize: no request, no grid.
+        if DesignSettings.shared.filmZoom.active != nil, !isFollowingResizeGesture { return min(2, TerminalFramePresenter.resizeHoldTicks) }
+        #endif
         return TerminalFramePresenter.resizeHoldTicks
     }
 

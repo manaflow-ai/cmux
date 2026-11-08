@@ -44,6 +44,10 @@ enum IntentUndo: Equatable {
     /// ``CancelledCreation/closeStandIn(_:in:)``): its overlay without the stand-in, then the daemon's fresh tab
     /// hidden once the records hold it.
     indirect case closedStandIn(overlay: IntentUndo?, hidden: HiddenTab?)
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The screen's zoomed pane before a film zoom (``Intent/zoomPane(screen:pane:)``).
+    case screenZoom(screen: ScreenID, pane: PaneID?)
+    #endif
 }
 
 struct PendingIntent {

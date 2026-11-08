@@ -62,6 +62,12 @@ extension ScreenContentView {
     func visiblePanes() -> Set<PaneID> {
         // A held snap's departed panes still show until it does (`ScreenContentView+SnapFrame`).
         var result = Set(frameInput.snapDeparted)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // A film zoom's covered panes stay shown until they fade out (Z4) or the zoom shows (Z1-Z3): no presence change,
+        // and no page hidden, in the key's turn (ZOOM VARIANTS 2).
+        result.formUnion(frameInput.filmZoomRetire)
+        result.formUnion(frameInput.filmZoomFading)
+        #endif
         let uncovered = uncoveredRect
         for (pane, frame) in paneFrames {
             // A strip pane wholly under a docked column is hidden.
