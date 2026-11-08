@@ -23,7 +23,8 @@ extension SettingsController {
             // The theme file applies (the last load's read: no disk read here), then the previewed
             // value over it, so a previewed key shows even where the file sets it.
             let overlay = name == themeFile?.name ? themeFile
-                : ThemeFileOverlay(name: name, source: themeFileSources[name].map { .success($0) }, base: root)
+                : ThemeFileOverlay(name: name, source: themeFileSources[name].map { .success($0) }, base: root,
+                                   folder: ThemeFileSetting.folder(configDirectory: file.url.deletingLastPathComponent()))
             if let overlay { root = edit(overlay.applied(to: root, managed: Set(managedKeys.keys))) }
         }
         let previewed = CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities,

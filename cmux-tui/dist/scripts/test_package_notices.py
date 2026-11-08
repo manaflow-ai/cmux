@@ -57,6 +57,21 @@ class ComposeTest(unittest.TestCase):
                     self.assertIn("Copyright (c) 2017 Ryan Caloras and contributors", text)
                     self.assertIn("based on Kitty", text)
 
+    def test_unix_notices_cover_the_agent_screen_detection_plugin(self) -> None:
+        # npm and wheel packages for macOS and Linux ship bin/cmux-agent-screen-detection
+        # (GPL-3.0-or-later AND Apache-2.0); the herdr Apache-2.0 text must ship with it.
+        apache = pn.SCREEN_DETECTION_APACHE.read_text(encoding="utf-8")
+        for target in ("aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"):
+            with self.subTest(target=target):
+                text = pn.compose("cmux-tui", target, CRATES, self.inputs)
+                self.assertIn("bin/cmux-agent-screen-detection", text.splitlines()[0])
+                self.assertIn("herdr agent-detection material", text)
+                self.assertIn(apache.rstrip("\n"), text)
+        for kind, target in (("cmux-tui", "x86_64-pc-windows-gnu"), ("relay", "aarch64-unknown-linux-musl")):
+            with self.subTest(kind=kind, target=target):
+                text = pn.compose(kind, target, CRATES, self.inputs)
+                self.assertNotIn("cmux-agent-screen-detection", text)
+
     def test_relay_notice_names_its_binaries(self) -> None:
         text = pn.compose("relay", "aarch64-unknown-linux-musl", CRATES, self.inputs)
         self.assertIn("bin/chatmux-relay", text)

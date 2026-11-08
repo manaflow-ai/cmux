@@ -214,12 +214,13 @@ impl LinkGroup for Tracked {
     async fn open(&self, request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
         self.step.advance(Step::Parked);
         self.step.mark(|marks| {
-            marks.lanes += 1;
             marks.first_open.get_or_insert_with(Instant::now);
         });
         let link = self.inner.open(request).await?;
         self.step.advance(Step::Handshake);
+        // A lane counts once the relay has allocated it, not on the ask.
         self.step.mark(|marks| {
+            marks.lanes += 1;
             marks.first_allocated.get_or_insert_with(Instant::now);
         });
         Ok(link)
@@ -442,7 +443,8 @@ pub(super) struct Resume {
 impl ResumeHooks for Resume {
     fn attempt_ended(&self, result: Result<(), &ConnectionError>, elapsed: Duration) {
         let outcome = result.err().map(resume_outcome);
-        (self.log)(route_line(&self.machine, Phase::Resume, outcome, elapsed));
+        let detail = result.err().map(ToString::to_string);
+        (self.log)(route_line(&self.machine, Phase::Resume, outcome, detail.as_deref(), elapsed));
     }
 }
 
@@ -467,7 +469,8 @@ pub(super) async fn dial(
         let phase = Phase::of_attempt(attempts);
         let outcome = result.as_ref().err().map(|f| f.step);
         let elapsed = started.elapsed();
-        (plan.log)(route_line(&plan.machine, phase, outcome, elapsed));
+        let detail = result.as_ref().err().map(|f| f.detail.as_str());
+        (plan.log)(route_line(&plan.machine, phase, outcome, detail, elapsed));
         (plan.phases)(phases_line(
             &plan.machine,
             PhasesOf::Attempt(phase),
