@@ -28,11 +28,16 @@ LABELS = {"CUR": "current zoom spring", "instant": "instant", "K1": "bezier 0.2,
           "K9": "spring 0.25 s damping 0.7", "K10": "linear 100 ms"}
 VNAMES = {"V0": "current", "Z1": "instant", "Z2": "grow", "Z3": "others slide out"}
 DEFAULT = "V0:CUR,Z1:instant,Z2:K2,Z2:K6,Z2:K8,Z3:K2,Z3:K6,Z3:K8"
-MODE = {"nvim": "ALT", "htop": "ALT", "claude": "MAIN", "zsh": "MAIN"}
+MODE = {"nvim": "ALT", "htop": "ALT", "claude": "MAIN", "zsh": "MAIN", "chromium": "PAGE", "webkit": "PAGE"}
+# PAGE films only V0 and Z1: the Z2/Z3 picture copies are layers of the window; a Chromium or WebKit page draws in its own
+# view or window, which the copies and masks do not hold (ScreenContentView+FilmZoom.swift).
+PAGE_VARIANTS = ("V0", "Z1")
 RESET = {"do": "rpc", "method": "debug.frames", "params": {"action": "zoom_variant V0 K2"}, "title": "clean-up: the zoom selector back to V0"}
 
 
 def modes(progs):
+    if MODE[progs[0]] == "PAGE":
+        return "PAGE"
     out = []
     for p in progs:
         if MODE[p] not in out:
@@ -40,9 +45,18 @@ def modes(progs):
     return "-".join(sorted(out))
 
 
-def layout(key):
+def layout(key, view=True):
     """Workspaces of KEY: [(steps, [(target pane, programs: target first)])], seconds of set-up."""
     k = key.lower()
+    if key == "PAGE":  # 2 columns: zoom the left pane, a page (Chromium, then WebKit); the right runs nvim
+        out = []
+        for engine, prog in (("cef", "chromium"), ("webkit", "webkit")):
+            l, r = f"page-{engine}-l", f"page-{engine}-r"
+            s = CL.new_ws(l, None, f"PAGE {engine}") + CL.split(l, "splitRight", r, "nvim")
+            s += [{"do": "cm_browser", "pane": l, "engine": engine, "bg": "#1E1F22" if view else "#FFFF00",
+                   "title": f"set-up: a {prog} page in {l} ({'dark' if view else 'detector yellow'})"}]
+            out.append((s, [(l, [prog, "nvim"])]))
+        return out, 30
     if key == "C2":    # 2 columns: zoom the left (nvim; the right runs Claude Code), then the right (Claude Code)
         l, r = "c2-l", "c2-r"
         s = CL.new_ws(l, "nvim", "C2") + CL.split(l, "splitRight", r, "claude")
@@ -79,7 +93,9 @@ def film(name, pane, direction, texts):
 
 
 def journey(jid, key, view, variants):
-    parts, setup = layout(key)
+    parts, setup = layout(key, view)
+    if key == "PAGE":
+        variants = [v for v in variants if v[0] in PAGE_VARIANTS]
     check = [{"do": "type", "text": "echo cv-ready-${nonce}", "enter": True, "mark": "ready"},
              {"do": "expect", "title": "set-up check: the app types", "since": "ready", "timeout": 10,
               "all": [{"daemon_line": "cv-ready-${nonce}"}, {"app_text_line": "cv-ready-${nonce}"}, {"frame_text": "cv-ready-${nonce}"}]}]
@@ -117,7 +133,7 @@ def journey(jid, key, view, variants):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=os.path.join(os.path.dirname(HERE), "journeys", "video"))
-    ap.add_argument("--layouts", default="C2,C3,R3,G4")
+    ap.add_argument("--layouts", default="C2,C3,R3,G4,PAGE")
     ap.add_argument("--variants", default=DEFAULT)
     ap.add_argument("--passes", default="view,meas")
     ap.add_argument("--tag", default="z")
