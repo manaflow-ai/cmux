@@ -54,6 +54,12 @@ function ended() {
   ];
 }
 
+/// A Claude chat: the family picks the turn's fold (turnFoldStyle.ts), whose outer line counts the calls.
+function claude(live: boolean) {
+  const base = chat(live ? work() : ended(), { title: "Land the approved fix", harness: "claude", isWorking: live });
+  return { ...base, summary: { ...base.summary!, family: "claude" } };
+}
+
 /// Opens the turn's "Worked for" line, so its inner run lines show.
 const openWorked: Play = async (ctx) => {
   const worked = () => ctx.document.querySelector<HTMLElement>(".cv-worked");
@@ -65,7 +71,7 @@ const openWorked: Play = async (ctx) => {
 
 const variant = (look: string | undefined, note: string, live = false): AgentPaneVariant => ({
   note,
-  snapshot: chat(live ? work() : ended(), { title: "Land the approved fix", harness: "claude", isWorking: live }),
+  snapshot: claude(live),
   ...(look ? { documentAttributes: { "turn-levels-look": look } } : {}),
   ...(live ? {} : { play: openWorked }),
 });
@@ -85,10 +91,7 @@ export default agentPaneEntry({
       undefined,
       "Shipped: the outer line counts the whole turn; opened, each run between the asides keeps its own line and count at its own weight.",
     ),
-    indented: variant(
-      "indented",
-      "Inner run lines set in by one icon box and dimmed under the opened outer line.",
-    ),
+    indented: variant("indented", "Inner run lines set in by one icon box and dimmed under the opened outer line."),
     guide: variant("guide", "Inner run lines hung on a rule from the outer line's glyph."),
     live: variant(undefined, "The same turn while it runs: each run between the asides counts its own calls.", true),
   },

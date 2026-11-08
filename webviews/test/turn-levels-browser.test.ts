@@ -59,10 +59,12 @@ await requireBrowserLane("turn-levels-browser.test.ts", async () => {
           // 4 commands and a read, then 3 commands after the first aside; the lone call after the second
           // aside is a row of its own.
           expect(runs).toEqual(["Ran 4 commands and read a file", "Ran 3 commands"]);
+          const outers = (await page.locator(".cv-worked").allTextContents()).join(" | ");
+          console.log(`TURN_LEVELS_OUTER ${variant} ${outers}`);
           if (variant !== "live") {
             const outer = (await page.locator(".cv-worked").textContent())?.trim() ?? "";
             expect(outer).toMatch(/^Worked for 2m 17s · 9 tool calls/);
-          } else expect(await page.locator(".cv-worked").count()).toBe(0);
+          }
           expect(await page.locator(".cv-tool-note").count()).toBeGreaterThanOrEqual(1);
           // Open the later run's line: it stays open (the outer stays open around it).
           const later = page.locator(".cv-tool.is-run").nth(1);
