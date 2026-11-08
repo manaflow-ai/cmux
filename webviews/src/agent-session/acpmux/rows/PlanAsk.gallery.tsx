@@ -1,3 +1,5 @@
+// l10n-allow-file: gallery fixtures (a sample plan and its options), not shipped UI.
+//
 // A plan approval as it waits in the bottom stack (PermissionAsk.tsx PlanAsk): the "Needs your input"
 // pill over the card, whose attention dot grows in as the agent asks and shrinks out as the person
 // answers, with the card. Answering here (any answer) plays the exit; Ask again plays the entrance.
