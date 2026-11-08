@@ -303,6 +303,23 @@ fn syncing_state(folder: &Path, marker: &File) -> io::Result<Syncing> {
     if lock(&owner, libc::LOCK_SH)? { Ok(Syncing::ShortOfHead) } else { Ok(Syncing::PastHead) }
 }
 
+impl Drop for Sync {
+    fn drop(&mut self) {
+        // The owner first: while it is held with the head lock free, a reader takes the
+        // head as in place, so it must not outlive the head lock or the marker.
+        self.owner = None;
+        self.head = None;
+    }
+}
+
+impl Drop for Ready {
+    fn drop(&mut self) {
+        // Closing releases each flock. This explicit clear documents that the
+        // otherwise opaque field is the lifetime of the write's read lease.
+        self.0.clear();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -342,22 +359,5 @@ mod tests {
         drop(legacy);
         assert!(matches!(probe(&repo).unwrap(), Probe::Ready(_)));
         let _ = std::fs::remove_dir_all(&dir);
-    }
-}
-
-impl Drop for Sync {
-    fn drop(&mut self) {
-        // The owner first: while it is held with the head lock free, a reader takes the
-        // head as in place, so it must not outlive the head lock or the marker.
-        self.owner = None;
-        self.head = None;
-    }
-}
-
-impl Drop for Ready {
-    fn drop(&mut self) {
-        // Closing releases each flock. This explicit clear documents that the
-        // otherwise opaque field is the lifetime of the write's read lease.
-        self.0.clear();
     }
 }
