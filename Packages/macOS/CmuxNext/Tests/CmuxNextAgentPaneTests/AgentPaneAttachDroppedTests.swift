@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextSettings
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -120,6 +121,43 @@ struct AgentPaneAttachDroppedTests {
         let items = try #require(Self.items(reply))
         #expect(items.compactMap { $0["path"] as? String } == [folder.path, file.path])
         #expect(items.compactMap { $0["folder"] as? Bool } == [true, false])
+    }
+
+    /// What a new chat's first send may carry to Cloud (``AgentPaneModel/cloudCarriedFiles(_:)``):
+    /// a file the person's own drop handed the page, and a file this app saved under Chat Uploads;
+    /// never a folder, a path page script made up, or a `saved` chip outside Chat Uploads.
+    @Test func aFirstCloudSendCarriesOnlyFilesThisPaneAuthorized() async throws {
+        let (base, folder, file) = try Self.dropped()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let uploads = base.appendingPathComponent("Chat Uploads")
+        let saved = uploads.appendingPathComponent("sessions/s1/\(UUID().uuidString)/notes.txt")
+        try FileManager.default.createDirectory(at: saved.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("notes".utf8).write(to: saved)
+        let outside = base.appendingPathComponent("outside.txt")
+        try Data("secret".utf8).write(to: outside)
+        let rig = Rig()
+        rig.model.chatUploadFolders = ChatUploadFolders(root: uploads)
+        func chip(_ path: String, saved: Bool = false) -> JSONValue {
+            var chip: [String: JSONValue] = ["id": .string("link:" + path), "kind": .string("link"), "name": .string((path as NSString).lastPathComponent), "path": .string(path)]
+            if saved { chip["saved"] = .bool(true) }
+            return .object(chip)
+        }
+        #expect(await rig.model.cloudCarriedFiles([chip(file.path)]).files.isEmpty, "a path the page named before any drop")
+        rig.model.droppedPaths.stash([folder, file], kind: .drop)
+        _ = await rig.ask("drop", ["docs", "build.zip"])
+        #expect(rig.model.droppedPaths.linkedFiles == [file.path], "files only, never the folder")
+        let carried = await rig.model.cloudCarriedFiles([
+            chip(file.path), chip(folder.path), chip(outside.path), chip(saved.path, saved: true), chip(outside.path, saved: true),
+            chip(uploads.path + "/../outside.txt", saved: true),
+        ])
+        #expect(carried.files == [file.path, saved.path])
+        #expect(carried.saved == [saved.path], "a Chat Uploads file is staged first: the upload CLI never reads ~/Library")
+        // A drop of more files than one batch held before still authorizes every one.
+        let many = (0..<1500).map { "/tmp/many-\($0).bin" }
+        rig.model.droppedPaths.linked(many)
+        #expect(Set(rig.model.droppedPaths.linkedFiles).isSuperset(of: many))
+        rig.model.droppedPaths.clearForSessionChange()
+        #expect(rig.model.droppedPaths.linkedFiles.isEmpty)
     }
 
     /// Files picked in + > Attach files are linked where they are, as a drop's are: a several-GB

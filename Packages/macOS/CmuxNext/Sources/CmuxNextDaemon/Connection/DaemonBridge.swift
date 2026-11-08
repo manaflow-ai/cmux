@@ -101,13 +101,21 @@ public struct DaemonBridge: Hashable, Sendable {
         throw .endpointBlocked("the link dial's answer is too long")
     }
 
-    /// The dial line: `"ok": true` passes; a refusal names its `error_code`.
+    /// The dial line: `"ok": true` passes; a refusal names its `error_code` (the stage) and its
+    /// `error_detail`, cut to `maxDetailCharacters`, so the session's end reason says why.
     static func check(_ reply: Data) throws(DaemonError) {
         let object = (try? JSONSerialization.jsonObject(with: reply)) as? [String: Any]
         guard let object else { throw .endpointBlocked("the link dial's answer is not JSON") }
         if object["ok"] as? Bool == true { return }
-        throw .endpointBlocked("the link refused the dial: \(object["error_code"] as? String ?? "refused")")
+        var refusal = object["error_code"] as? String ?? "refused"
+        if let detail = object["error_detail"] as? String, !detail.isEmpty {
+            refusal += ": \(detail.prefix(maxDetailCharacters))"
+        }
+        throw .endpointBlocked("the link refused the dial: \(refusal)")
     }
+
+    /// The longest refusal detail kept from the dial line.
+    static let maxDetailCharacters = 300
 }
 
 /// The bridge process of one connection: killed and reaped exactly once,
