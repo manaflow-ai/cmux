@@ -1966,6 +1966,7 @@ version = "0.1.0"
 name = "cmux-transport"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "proptest",
 ]
 

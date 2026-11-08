@@ -136,6 +136,12 @@ def counted(line: str, head: str, *, login: str | None, author: str | None, body
 
 
 TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
+# The cmux-bot App, which posts next-review's receipts (the review service any lane can ask for: `router-review
+# OWNER/REPO N --request`). A receipt line it posts counts as one from another account: no lane holds the App's key,
+# so a lane can neither write its verdict nor forge one. Its login alone never counts, only with this immutable node
+# id, and its APPROVED reviews never do (they mirror another account's receipt). defaults_guard.py reads the same.
+CMUX_BOT_LOGINS = frozenset(("cmux-bot", "cmux-bot[bot]"))
+CMUX_BOT_NODE_ID = "BOT_kgDOFMYsLQ"
 # A login whose author_association is not TRUSTED still counts with one of these roles on the repository.
 # The workflow's GITHUB_TOKEN and App token cannot see a private organization membership, so they read a
 # private member's association as CONTRIBUTOR (PR #38436, 2026-11-08: a valid SHIP read as no verdict).
@@ -663,7 +669,8 @@ def classify(files: list[str], patches: dict[str, str] | None = None, sources: d
 
 SIGN_OFF_HOW = (f"a line `Review (<reviewer>): SHIP at <full head sha>` from an independent review, in the "
                 f"description or leading a comment (from the author's own account it must be `Review (<reviewer "
-                f"agent id>, started by <agent id>)`, neither of them the description's `Author-agent: <agent id>`), "
+                f"agent id>, started by <agent id>)`, neither of them the description's `Author-agent: <agent id>`; "
+                f"an author lane gets one with `router-review OWNER/REPO N --request`, which cmux-bot posts), "
                 f"an approving review from someone other than the author, or "
                 f"`{HUMAN_OK_LABEL}` added by a maintainer (agents never add it)")
 
@@ -1057,7 +1064,8 @@ def head_verdicts(comments: list[dict], reviews: list[dict], head_sha: str,
     anywhere in the description. The description has no time of its own, so its lines rank below
     every comment and review (at ""): a later BLOCK comment still beats a SHIP line in it. Its author
     must be trusted the same way a commenter must: a TRUSTED author_association, or, through
-    `permission` (login -> repository role), a WRITE_ROLES role when the token reads it as less."""
+    `permission` (login -> repository role), a WRITE_ROLES role when the token reads it as less.
+    The cmux-bot App's receipt lines count too (next-review's, CMUX_BOT_NODE_ID), never its approvals."""
     found = []
     body = (pr or {}).get("body")
 
@@ -1078,11 +1086,22 @@ def head_verdicts(comments: list[dict], reviews: list[dict], head_sha: str,
             return True
         return permission is not None and bool(user.get("login")) and permission(user["login"]) in WRITE_ROLES
 
+    def service(item: dict) -> bool:
+        user = item.get("user") or {}
+        return (user.get("type") == "Bot" and user.get("login") in CMUX_BOT_LOGINS
+                and user.get("node_id") == CMUX_BOT_NODE_ID)
+
     if pr and trusted(pr):
         for text in strip_comments(pr.get("body") or "").splitlines():
             verdict(text, "", (pr.get("user") or {}).get("login") or "", " in the description")
 
     for review in reviews:
+        if service(review):
+            # Its receipt line only, and only in a plain review: an APPROVED (or dismissed) one mirrors another
+            # account's receipt, maybe a self-started one, so its body never counts either.
+            if review.get("state") == "COMMENTED":
+                receipt(review, review.get("submitted_at") or "")
+            continue
         if not trusted(review):
             continue
         at, login = review.get("submitted_at") or "", (review.get("user") or {}).get("login") or ""
@@ -1093,7 +1112,7 @@ def head_verdicts(comments: list[dict], reviews: list[dict], head_sha: str,
                 found.append((at, "block", f"@{login}"))
         receipt(review, at)
     for comment in comments:
-        if trusted(comment):
+        if trusted(comment) or service(comment):
             receipt(comment, comment.get("created_at") or "")
     return found
 
