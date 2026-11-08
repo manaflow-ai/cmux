@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextAgentPane
 import CmuxNextDesign
+import CmuxNextPages
 import Testing
 
 /// "make it possible to open chrome devtools in chat ui itself" (Lawrence, 2026-11-07): the agent
@@ -43,5 +44,30 @@ struct AgentPaneDevToolsMenuTests {
         let titles = menu.items.map(\.title)
         #expect(!titles.contains("Inspect Element"), "\(titles)")
         #expect(titles.contains("Inspect UI Element"), "\(titles)")
+    }
+
+    /// With the app's developer tools (``PageDeveloperTools``), the row is the app's own, in either
+    /// engine (a Chromium chat's menu has no WebKit item): one Inspect Element that opens them.
+    @Test func theDeveloperToolsRowRunsTheAppsInspector() throws {
+        let menu = Self.webKitMenu()
+        var ran = 0
+        AgentPaneContextMenu.rebuild(menu, target: nil, devTools: true, scope: ThemeScope.app.fullStrength,
+                                     actions: .init(copy: { _ in }, fork: { _ in }, inspectElement: {}, inspectWithDevTools: { ran += 1 }))
+        #expect(!menu.items.contains { $0.identifier?.rawValue == Self.webKitInspect })
+        let rows = menu.items.filter { $0.identifier == PageDeveloperTools.itemIdentifier }
+        let row = try #require(rows.first)
+        #expect(rows.count == 1)
+        #expect(row.title == PageDeveloperTools.title)
+        #expect(menu.items.contains { $0.title == AgentPaneMenuStrings.inspectUIElement })
+        _ = (row.target as? NSObject)?.perform(row.action)
+        #expect(ran == 1)
+    }
+
+    @Test func aChromiumChatMenuWithoutWebKitItemsStillOffersIt() {
+        _ = NSApplication.shared
+        let menu = NSMenu()
+        AgentPaneContextMenu.rebuild(menu, target: nil, devTools: true, scope: ThemeScope.app.fullStrength,
+                                     actions: .init(copy: { _ in }, fork: { _ in }, inspectWithDevTools: {}))
+        #expect(menu.items.map(\.title).contains(PageDeveloperTools.title))
     }
 }
