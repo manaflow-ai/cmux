@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42467103111",
+  "recorded_at": "2026-11-08T09:29:29Z",
+  "reason": "cmux-tui a2c2ee89e4d0 changes the image's cmux-tui (pinned 555cb8016293)",
+  "dry_run": false,
+  "cmux_tui": "a2c2ee89e4d07aaab942eb3f5a87ebb807f7cf88",
+  "fixes": [
+    {
+      "sha": "a2c2ee89e4d07aaab942eb3f5a87ebb807f7cf88",
+      "mergedAt": "2026-11-08T01:10:12-08:00",
+      "subject": "cmux NEXT: app calls read the Add Device join line and the sidebar's machines (#38310)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-08T09:29:29Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
