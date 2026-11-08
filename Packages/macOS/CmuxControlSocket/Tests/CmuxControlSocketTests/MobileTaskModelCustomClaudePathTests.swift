@@ -5,12 +5,18 @@ import Testing
 
 @Suite("Mobile task custom Claude executable")
 struct MobileTaskModelCustomClaudePathTests {
-    @Test(arguments: ["/bin/bash", "/bin/zsh"])
-    func configuredExecutableReceivesControlRequestAsLiteralPath(shellPath: String) async throws {
+    @Test(
+        arguments: ["/bin/bash", "/bin/zsh"],
+        ["Claude's $(printf INJECTED); tool", "Claude's v=2 $(printf INJECTED); tool"]
+    )
+    func configuredExecutableReceivesControlRequestAsLiteralPath(
+        shellPath: String,
+        executableName: String
+    ) async throws {
         let fixture = try MobileTaskClaudeExecutableFixture(shellPath: shellPath)
         defer { try? fixture.remove() }
         let executable = try fixture.executable(
-            named: "Claude's $(printf INJECTED); tool",
+            named: executableName,
             modelID: "custom-model"
         )
         let discovery = MobileTaskModelDiscovery.live(
@@ -59,22 +65,55 @@ struct MobileTaskModelCustomClaudePathTests {
         #expect(result.error == .queryFailed)
     }
 
-    @Test func missingCustomExecutableDoesNotUseAnotherClaudeOnPATH() async throws {
+    enum InvalidExecutable: CaseIterable, Sendable {
+        case missing, directory, nonExecutable
+    }
+
+    @Test(arguments: InvalidExecutable.allCases)
+    func invalidCustomExecutableFallsBackToClaudeOnPATH(kind: InvalidExecutable) async throws {
         let fixture = try MobileTaskClaudeExecutableFixture(shellPath: "/bin/bash")
         defer { try? fixture.remove() }
-        _ = try fixture.executable(named: "claude", modelID: "wrong-installation")
-        let missing = fixture.directory.appendingPathComponent("missing Claude").path
+        _ = try fixture.executable(named: "claude", modelID: "path-model")
+        let custom = fixture.directory.appendingPathComponent("invalid Claude")
+        switch kind {
+        case .missing:
+            break
+        case .directory:
+            try FileManager.default.createDirectory(at: custom, withIntermediateDirectories: true)
+        case .nonExecutable:
+            _ = try fixture.executable(named: custom.lastPathComponent, modelID: "custom-model")
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: custom.path)
+        }
         let discovery = MobileTaskModelDiscovery.live(
             homeDirectory: fixture.directory,
             shellPath: fixture.shell.path,
-            customClaudePath: { missing }
+            customClaudePath: { custom.path }
         )
 
         let result = await discovery.models(for: .claude)
 
-        #expect(result.models.isEmpty)
-        #expect(result.error == .providerUnavailable)
-        #expect(!FileManager.default.fileExists(atPath: fixture.defaultExecutable.path + ".request"))
+        #expect(result.models.map(\.id) == ["path-model"])
+        #expect(result.source == .discovered)
+        #expect(result.error == nil)
+        #expect(FileManager.default.fileExists(atPath: fixture.defaultExecutable.path + ".request"))
+        #expect(!FileManager.default.fileExists(atPath: custom.path + ".request"))
+    }
+
+    @Test func removedCustomExecutableFallsBackBeforeReturningCachedCatalog() async throws {
+        let fixture = try MobileTaskClaudeExecutableFixture(shellPath: "/bin/bash")
+        defer { try? fixture.remove() }
+        let custom = try fixture.executable(named: "custom Claude", modelID: "custom-model")
+        _ = try fixture.executable(named: "claude", modelID: "path-model")
+        let discovery = MobileTaskModelDiscovery.live(
+            homeDirectory: fixture.directory,
+            shellPath: fixture.shell.path,
+            customClaudePath: { custom.path }
+        )
+        try #require(await discovery.models(for: .claude).models.map(\.id) == ["custom-model"])
+
+        try FileManager.default.removeItem(at: custom)
+
+        #expect(await discovery.models(for: .claude).models.map(\.id) == ["path-model"])
     }
 
     @Test func settingChangesRefreshTheCatalogAndClearingItRestoresPATH() async throws {
