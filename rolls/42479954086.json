@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42479954086",
+  "recorded_at": "2026-11-08T12:30:59Z",
+  "reason": "cmux-tui 2fd0caccf0f0 changes the image's cmux-tui (pinned aad5e805adaf)",
+  "dry_run": false,
+  "cmux_tui": "2fd0caccf0f02720045f6cc03a86e5e50db83439",
+  "fixes": [
+    {
+      "sha": "2fd0caccf0f02720045f6cc03a86e5e50db83439",
+      "mergedAt": "2026-11-08T04:08:31-08:00",
+      "subject": "carrier: the session host logs each relay Register; a dial parked 20 s connects on its first attempt (#38373)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T12:30:59Z",
+    "snapshot_id": "sh-6c230d486dce412bbe672a2a80f30e1d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42479954086): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8c22cc2f8398398fff60ad30ea30c857eea1272f",
+    "image": "cloud-native-auto-2fd0cacc-42479954086-1",
+    "revision": "ci-42479954086-1",
+    "at": "2026-11-08T12:30:59Z"
+  },
+  "rolled_back": false
+}
