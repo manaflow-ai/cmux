@@ -120,7 +120,7 @@
       ]
     },
     "feed": {
-      "description": "Feed (plans/cmux-next/feed-page.md): the person's feed read from the daemon's feed client (feed-client-v1), in the Inbox tab, the Feed panel and the right sidebar. It reads the view, items, the Reports basket and Find Work's GitHub lists; an answer, decline, read, archive, snooze or Mark All Read (feed.intent), a GitHub refresh and a report reply need the person's gesture. It hears feed-view-changed and feed-reports-changed, so an open page re-reads on each change without polling. Posting, withdrawing, the GitHub setting and the presence stay with the verified app connection.",
+      "description": "Feed (plans/cmux-next/feed-page.md): the person's feed read from the daemon's feed client (feed-client-v1), in the Inbox tab and the right sidebar. It reads the view, items, the Reports basket and Find Work's GitHub lists; an answer, decline, read, archive, snooze or Mark All Read (feed.intent), a GitHub refresh and a report reply need the person's gesture. It hears feed-view-changed and feed-reports-changed, so an open page re-reads on each change without polling. Posting, withdrawing, the GitHub setting and the presence stay with the verified app connection.",
       "read": [
         "feed.view.read",
         "feed.item.get",

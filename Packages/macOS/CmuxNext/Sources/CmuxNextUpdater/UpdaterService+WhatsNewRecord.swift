@@ -50,11 +50,12 @@ extension UpdaterService {
     /// cx-urd.61.2): the changelog page for the span this update crossed,
     /// and the update counts as seen (the card goes; only the card's x,
     /// ``WhatsNewCenter/dismissUpdated()``, clears ``WhatsNewCenter/lastUpdate``).
+    /// A row of the card's list passes its change as `focus`: the page scrolls to it.
     @discardableResult
-    public func openWhatsNewForLastUpdate() -> Bool {
+    public func openWhatsNewForLastUpdate(focus: ChangelogFocus? = nil) -> Bool {
         let span = whatsNew.lastUpdate.map { ($0.fromVersion, $0.toVersion) }
         whatsNew.markUpdateSeen()
-        if let span, let open = openChangelogSpan { return open(span.0, span.1) }
+        if let span, let open = openChangelogSpan { return open(span.0, span.1, focus) }
         return openChangelog?() ?? false
     }
 }

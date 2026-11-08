@@ -3,13 +3,6 @@
 nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         [
-            ActionDescriptor(
-                id: "feed.show",
-                title: String(localized: "action.feed.show", defaultValue: "Show Feed", bundle: .module),
-                keywords: ["inbox", "requests", "notifications", "approvals"], defaultShortcut: Shortcut("i", modifiers: [.command, .shift]),
-                category: .notifications, symbol: "tray.full", surfaces: [.palette, .keyboard, .menu],
-                cliName: "feed show", mainMenu: .window
-            ),
             // The Feed page's native UI ops (feed-page.md 2): the page passes an item id; the item
             // itself is read from the daemon's feed client, never taken from the caller. Open Feed
             // Item without an item opens the Inbox.

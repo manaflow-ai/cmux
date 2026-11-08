@@ -14,10 +14,10 @@ all hands on deck here. don't just do baby steps. we can just... do it".
 | `InMemoryFeedSource` / `LocalFeedSourceAdapter` (GitHub items, update cards) | `cmux-feed-core::client::IntegrationOwner` in the daemon, in memory as today |
 | `GitHubFeedSource`, `GitHubCLIClient` (`gh api` polling) | the daemon (`gh api`, same queries, ETags, 120 s default interval) |
 | Reports basket mailbox reader and reply | the daemon (acpmux mailbox `reports:<user>`, reply through acpmux) |
-| `FeedHostView` in the Inbox page tab, the Feed panel (Shift-Cmd-I), the right sidebar section | `PageWebView(descriptor: .feed)` in the same three hosts |
+| `FeedHostView` in the Inbox page tab and the right sidebar section | `PageWebView(descriptor: .feed)` in the same two hosts (the Shift-Cmd-I Feed panel was removed on base, e5eef45664c4) |
 
 Stays native (glue or security): `FeedApproveProofCheck`, `AcpmuxPermissionFeedBridge`,
-`FeedInstallPrincipal`, `FeedPendingConfirm`, `FeedHandoff*`, the panel window (`FeedPanel`),
+`FeedInstallPrincipal`, `FeedPendingConfirm`, `FeedHandoff*`,
 `FeedGitHubActions` (types commands into a terminal), `FeedControl` socket verbs, notification
 banners. They read feed state through the daemon ops below, never a Swift mirror.
 
@@ -105,7 +105,7 @@ and on each `feed.view.changed`, a newer read supersedes an older reply; no poll
 | --- | --- | --- |
 | F1 | `cmux-feed-core::client` + daemon feed client, ops, GitHub poller, reports | cargo tests |
 | F2 | the React page against a mock provider, gallery variants | bun tests, tsc |
-| F3 | Swift hosts the page in the Inbox tab, the panel and the sidebar; native consumers read the daemon; delete `CmuxNextFeed`'s views, model, sources and their tests | compile check, Swift tests |
+| F3 | Swift hosts the page in the Inbox tab and the sidebar; native consumers read the daemon; delete `CmuxNextFeed`'s views, model, sources and their tests | compile check, Swift tests |
 
 ## 5. F1 as built
 

@@ -69,3 +69,42 @@ export function sourcesLine(sources: readonly WebSource[], count: number): { nam
   const named = [...new Set(sources.map((source) => source.host))].slice(0, count);
   return { named, more: sources.length - named.length };
 }
+
+/// The one page a finished fetch read, for its link card (WebSources.tsx `WebPageCard`); none for a
+/// search, a running or failed call, or a fetch whose title names no http(s) page.
+export function fetchedPage(tool: Tool | undefined): WebSource | undefined {
+  if (!tool || !FETCH.test(tool.title.trim())) return undefined;
+  const [page] = webSources(tool);
+  return page;
+}
+
+/// The most characters a page's path label keeps before it is cut with an ellipsis.
+const MAX_PATH_LABEL = 48;
+
+/// A page's place on its site in words, for a link card that has no title for it yet: the path's
+/// last two segments, decoded, without a trailing slash or a file extension
+/// ("https://docs.example.com/en/docs/claude-code/hooks" reads "claude-code/hooks"); empty for a
+/// site's front page or a link that does not parse.
+export function pagePathLabel(url: string): string {
+  let path: string;
+  try {
+    path = new URL(url).pathname;
+  } catch {
+    return "";
+  }
+  const segments = path
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    });
+  if (!segments.length) return "";
+  const last = segments.length - 1;
+  segments[last] = segments[last].replace(/\.(html?|php|aspx?)$/i, "");
+  const label = segments.slice(-2).filter(Boolean).join("/");
+  return label.length > MAX_PATH_LABEL ? `${label.slice(0, MAX_PATH_LABEL - 1)}…` : label;
+}

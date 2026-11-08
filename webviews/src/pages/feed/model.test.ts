@@ -48,7 +48,8 @@ const multi: FeedChoiceQuestion = { ...single, id: "q2", multi: true, allow_othe
 describe("route", () => {
   test("each view has its own surface by default; the query and the host's attributes set it", () => {
     expect(parseRoute("#/inbox")).toMatchObject({ view: "inbox", surface: "page", style: "rows", limit: 3 });
-    expect(parseRoute("#/list").surface).toBe("panel");
+    expect(parseRoute("#/list").surface).toBe("sidebar");
+    expect(parseRoute("#/list?surface=panel").surface).toBe("sidebar");
     expect(parseRoute("#/list", { surface: "sidebar" }).surface).toBe("sidebar");
     expect(parseRoute("#/list?surface=page", { surface: "sidebar" }).surface).toBe("page");
     expect(parseRoute("#/needs-you?style=bar&limit=5")).toMatchObject({ view: "needs-you", style: "bar", limit: 5 });

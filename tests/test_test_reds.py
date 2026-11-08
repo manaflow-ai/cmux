@@ -806,7 +806,8 @@ def web_job(*files, summary=True):
 def replay(charged=(), shared=()):
     """react-apps-base-check's log: guards_new_reds.py's verdicts on the head's reds replayed on the merge parent."""
     return log(*[f"##[error]{name}" for name in charged], *[f"##[warning]{name}" for name in shared],
-               f"{len(charged)} webview test steps red on this change, {len(shared)} red on the base too, 0 fixed")
+               f"{len(charged)} webview test steps red on this change, {len(shared)} red on the base too, 0 flaky on the base, "
+               "0 fixed")
 
 
 CAPSULES = "test/agent-pane-no-capsules.test.ts"
@@ -925,6 +926,45 @@ class WebviewTestsAcrossJobs(unittest.TestCase):
         unhandled = head.replace("### webviews tests:", f"##[group]FAIL {CAPSULES}\nerror: thrown outside a test\n"
                                  "##[endgroup]\n### webviews tests:")
         self.assertTrue(reds.classify_web_window([text, unhandled], iter([("run 1", base)])).own)
+
+    def test_a_replay_with_no_final_charged_test_verdict_is_never_judged_per_test(self):
+        # Review follow-up (1) on #38380: the head re-run ended (cut short, or its compare never ran) before
+        # guards_new_reds.py printed the final verdict. The failures it printed are no charged-test verdict: the
+        # replay is the head's own, never compared with the base per test.
+        named = f"{CAPSULES} > {CAPSULE_TEST}"
+        rerun = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        base = [web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))]
+        whole = "\n".join([replay(charged=[named]), log("re-running alone on the head:"), rerun,
+                           replay(charged=[named])])
+        self.assertFalse(reds.classify_web_window([whole, rerun], iter([("run 1", base)])).own)
+        for cut in ("\n".join([replay(charged=[named]), log("re-running alone on the head:"), rerun]),
+                    "\n".join([replay(charged=[named]), log("re-running alone on the head:"), rerun,
+                               log(f"##[error]{named}")]),
+                    "\n".join([log(f"##[error]{named}"), log("re-running alone on the head:"), rerun,
+                               replay(charged=[named])]).replace("1 webview test steps red", "webview test steps red")):
+            with self.subTest(log=cut[-120:]):
+                found = reds.web_failures(cut)
+                self.assertIn("no final charged-test verdict", " ".join(found.truncated))
+                verdict = reds.classify_web_window([cut, rerun], iter([("run 1", base)]))
+                self.assertTrue(verdict.own)
+                self.assertIn("no final charged-test verdict", " ".join(verdict.reasons))
+        # A replay with no head re-run needs its one verdict line too.
+        self.assertIn("no final charged-test verdict", " ".join(reds.web_failures(log(f"##[error]{named}")).truncated))
+        self.assertEqual(reds.web_failures(replay(charged=[named])).truncated, [])
+
+    def test_a_cut_off_final_verdict_line_is_no_verdict(self):
+        # Review F1 on #38434: a log cut off right after "red on the base too" printed no whole closing line.
+        named = f"{CAPSULES} > {CAPSULE_TEST}"
+        whole = "1 webview test steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"
+        for line, cut in ((whole, False),
+                          ("1 webview test steps red on this change, 0 red on the base too, 0 fixed", False),
+                          ("1 webview test steps red on this change, 0 red on the base too", True),
+                          ("1 webview test steps red on this change, 0 red on the base too, 0 flaky on the base", True),
+                          ("1 webview test steps red on this change, 0 red on the base too, 0 flaky on the base, 0", True),
+                          (whole + ", 2 more", True)):
+            with self.subTest(line=line):
+                found = reds.web_failures(log(f"##[error]{named}", line))
+                self.assertEqual("no final charged-test verdict" in " ".join(found.truncated), cut)
 
     def test_a_window_matches_each_test_on_any_one_run_and_reads_no_further(self):
         other = "test/composer-footer-plain.test.ts"

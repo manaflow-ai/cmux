@@ -1,5 +1,5 @@
 // The Feed page (plans/cmux-next/feed-page.md section 3): one page for the Inbox page tab
-// (`#/inbox`), the Feed panel and the right sidebar section (`#/list`), and Home's pinned Needs you
+// (`#/inbox`), the right sidebar section (`#/list`), and Home's pinned Needs you
 // (`#/needs-you`). State lives in `FeedStore`; this file picks the route's view, says when the
 // owner is unreachable, and shows refusals as the one toast stack's toast (FeedView).
 import { useSyncExternalStore } from "react";

@@ -127,9 +127,8 @@ export default componentEntry<Props>({
       note: "The owner lost its cloud link: the banner, and answers off.",
       props: { hash: "#/inbox", options: { connection: { state: "disconnected", reason: "" } } },
     },
-    "list-panel": { note: "The Feed panel: request cards with inline answers, then rows.", props: { hash: "#/list" } },
     "list-sidebar": {
-      note: "The same list in the sidebar, on a transparent background.",
+      note: "The list in the right sidebar: request cards with inline answers, then rows, on a transparent background.",
       props: { hash: "#/list?surface=sidebar" },
     },
     "list-refused": {

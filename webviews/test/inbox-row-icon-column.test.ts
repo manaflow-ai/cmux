@@ -73,13 +73,16 @@ await requireBrowserLane("inbox-row-icon-column.test.ts", async () => {
       // A group's head (MessageGroupHead.tsx; before it, the waiting group's and the delivered batch's
       // chevron lines).
       const GROUP = ".cv-message-group__head, .cv-pending__line, .cv-lane-batch__toggle";
-      const LINE = ".cv-received > .cv-disclosure__line";
+      // A received line (AgentMessageRow.tsx) or a notice's line (DisclosureRow.tsx).
+      const LINE = ".cv-received > :is(.cv-agentmsg__line, .cv-disclosure__line)";
       const TOOL = ".cv-tools .cv-tool";
       const rows = [...document.querySelectorAll<HTMLElement>(`${TOOL}, ${LINE}, ${GROUP}`)].filter(
         (row) =>
           visible(row) &&
           // Top level only: not a step of an opened tool group or a line inside an opened inbox group.
-          !row.closest(".cv-steps, .cv-inbox__body, .cv-pending__body, .cv-lane-batch__body, .cv-disclosure__panel") &&
+          !row.closest(
+            ".cv-steps, .cv-inbox__body, .cv-pending__body, .cv-lane-batch__body, .cv-disclosure__panel, .cv-agentmsg__card",
+          ) &&
           !(row.matches(TOOL) && !row.matches(GROUP) && row.closest(".cv-inbox")) &&
           // A head inside a waiting group's line is that group's row; measure the head.
           !(row.matches(".cv-pending__line") && row.querySelector(".cv-message-group__head")),

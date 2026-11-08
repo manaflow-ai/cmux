@@ -20,8 +20,8 @@ import type {
 // MARK: - Route
 
 export type FeedRouteView = "inbox" | "list" | "needs-you";
-/** Where the page is shown, which decides the ground it paints (FeedHostView.Surface). */
-export type FeedSurface = "page" | "panel" | "sidebar";
+/** Where the page is shown, which decides the ground it paints: a page tab or the right sidebar. */
+export type FeedSurface = "page" | "sidebar";
 /** How Home's pinned Needs you section draws (FeedTunables.needsYouStyle). */
 export type NeedsYouStyle = "rows" | "cards" | "bar";
 /** The Inbox's detail layout (gallery variants; `split` is the default). */
@@ -38,7 +38,7 @@ export interface FeedRoute {
 
 export const NEEDS_YOU_LIMIT = 3;
 
-const DEFAULT_SURFACE: Record<FeedRouteView, FeedSurface> = { inbox: "page", list: "panel", "needs-you": "page" };
+const DEFAULT_SURFACE: Record<FeedRouteView, FeedSurface> = { inbox: "page", list: "sidebar", "needs-you": "page" };
 
 function oneOf<T extends string>(value: string | null | undefined, allowed: readonly T[], fallback: T): T {
   return value && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
@@ -59,7 +59,7 @@ export function parseRoute(hash: string, attributes: { surface?: string; style?:
     view,
     surface: oneOf(
       params.get("surface") ?? attributes.surface,
-      ["page", "panel", "sidebar"] as const,
+      ["page", "sidebar"] as const,
       DEFAULT_SURFACE[view],
     ),
     style: oneOf(params.get("style") ?? attributes.style, ["rows", "cards", "bar"] as const, "rows"),

@@ -393,7 +393,7 @@ describe("reports basket", () => {
   });
 
   test("a page that opened on the list and moves to the Inbox reads and follows the basket", async () => {
-    const { provider, store } = setup({}, "#/list?surface=panel");
+    const { provider, store } = setup({}, "#/list?surface=sidebar");
     await store.start();
     expect(store.getSnapshot().reports).toHaveLength(0);
     store.applyRoute("#/inbox");

@@ -166,7 +166,27 @@ def prompt_text(params):
     blocks = params.get("prompt", [])
     if os.environ.get("FAKE_ECHO_GUIDANCE") != "1":
         blocks = [b for b in blocks if not is_cmux_guidance(b)]
+    # Who wrote it (hub/prompt_attribution.rs): fixtures match the prompt, opt in to the marks.
+    if os.environ.get("FAKE_ECHO_ATTRIBUTION") != "1":
+        blocks = [unwrapped(b) for b in blocks if not is_attribution(b)]
     return "".join(b.get("text", "") for b in blocks)
+
+
+def unwrapped(block):
+    """A paste acpmux wrapped in its marks (attributionWrap), as the composer sent it."""
+    wrap = ((block.get("_meta") or {}).get("acpmux") or {}).get("attributionWrap") if isinstance(block, dict) else None
+    text = block.get("text", "") if isinstance(block, dict) else ""
+    if not wrap or not isinstance(text, str):
+        return block
+    head, tail = wrap.get("open", "") + "\n", "\n" + wrap.get("close", "")
+    if text.startswith(head) and text.endswith(tail):
+        return {**block, "text": text[len(head):len(text) - len(tail)]}
+    return block
+
+
+def is_attribution(block):
+    """A mark of who wrote the prompt, which acpmux adds ahead of or around its blocks."""
+    return isinstance(block, dict) and (block.get("_meta") or {}).get("acpmux", {}).get("attribution") is True
 
 
 # The hidden guidance blocks (`context_inventory::override_block`), and only those: the
@@ -1147,6 +1167,12 @@ def handle_prompt(rid, params):
         threading.Thread(target=late, daemon=True).start()
         return
     # "codex-fail" reports a terminal Codex error in-band, then ends the turn.
+    # "usage-probe" answers with a Gemini-style ACP usage: its 100K input counts the 90K read from
+    # the prompt cache (its total is input plus output).
+    if text == "usage-probe":
+        usage = {"inputTokens": 100000, "cachedReadTokens": 90000, "outputTokens": 2000, "totalTokens": 102000}
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn", "usage": usage}})
+        return
     if text == "codex-fail":
         update(sid, {"sessionUpdate": "session_info_update", "_meta": {"codex": {"error": {"message": "Error", "willRetry": False, "additionalDetails": "Selected model is at capacity.", "codexErrorInfo": {"serverOverloaded": {}}}}}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})

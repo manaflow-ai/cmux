@@ -1,4 +1,4 @@
-// The Feed panel and the right sidebar section (FeedListPane): the title, the badge and Mark All
+// The right sidebar section (FeedListPane): the title, the badge and Mark All
 // Read; open requests as cards with inline answers, pinned on top; then every other item, newest
 // first. The owner orders both; this view never sorts.
 import type { KeyboardEvent } from "react";

@@ -37,6 +37,29 @@ fn reads_pass() {
     }
 }
 
+/// A reviewer reads part of a file with `sed -n` (the review policy's own list): only printing
+/// by line number passes; a write, a run, an edit in place or a later option asks.
+#[test]
+fn review_policy_sed_n_prints_only() {
+    for script in
+        ["sed -n '1,40p' src/main.rs", "sed -n -e '$p' a", "sed -n '5p;10,12p' a b", "sed -En 3p x"]
+    {
+        assert!(is_read_only(script), "{script}");
+    }
+    for script in [
+        "sed '1,40p' a",
+        "sed -n '1w out' a",
+        "sed -n '1e ls' a",
+        "sed -n 's/a/b/w out' a",
+        "sed -i -n 1p a",
+        "sed -n 1p a -i",
+        "sed -n '/x/p' a",
+        "sed -n",
+    ] {
+        assert!(!is_read_only(script), "{script}");
+    }
+}
+
 #[test]
 fn anything_else_refuses() {
     for script in [
@@ -242,6 +265,19 @@ fn a_substitutions_git_reads_a_checked_repository() {
     let hostile = repo(&[("core.fsmonitor", "/tmp/x")]);
     assert!(!request_is_read_only(&execute(json!(inner)), &hostile, &system_env()));
     std::fs::remove_dir_all(hostile).unwrap();
+}
+
+/// A subagent's command with acpmux's mark line (`bg_hook.rs` `subagent_mark`) is judged by
+/// what it runs: the mark alone runs nothing, and any other line before a read still asks.
+#[test]
+fn caller_identity_a_marked_read_is_still_a_read() {
+    let dir = repo(&[]);
+    let reads = |script: &str| request_is_read_only(&execute(json!(script)), &dir, &system_env());
+    assert!(reads("export ACPMUX_CALLER_SUBAGENT=general-purpose:a0a68e7a\ncat acpmux.log"));
+    assert!(!reads("export ACPMUX_CALLER_SUBAGENT=general-purpose:a0a68e7a\nrm -rf x"));
+    assert!(!reads("export ACPMUX_CALLER_SUBAGENT=$(touch x):a1\nls"));
+    assert!(!reads("export OTHER=1\nls"));
+    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
