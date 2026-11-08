@@ -15123,13 +15123,6 @@
           "required" : false
         },
         {
-          "kind" : "int",
-          "max" : 6,
-          "min" : 0,
-          "name" : "open",
-          "required" : false
-        },
-        {
           "kind" : "string",
           "name" : "peer",
           "required" : false
