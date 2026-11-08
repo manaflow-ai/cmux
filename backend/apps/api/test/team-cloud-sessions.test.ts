@@ -19,8 +19,11 @@ const chat = (session: string, extra: Record<string, unknown> = {}) => ({
   last_activity_at: 1_000,
   ...extra
 })
+// An op answers `{ok: true, value}`; a read answers `{op, value, stream, revision}`. Either way a
+// success has a value and no error code.
 const ok = (r: { body: any }) => {
-  expect(r.body?.ok, JSON.stringify(r.body)).toBe(true)
+  expect(codeOf(r), JSON.stringify(r.body)).toBeUndefined()
+  expect(r.body?.value, JSON.stringify(r.body)).toBeDefined()
   return r.body.value
 }
 
