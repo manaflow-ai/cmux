@@ -517,13 +517,7 @@ mod tests {
             [("old", CLOSING, chosen.clone()), ("new", OPEN, registration(2, T + 1_500))];
         assert!(!still_allocated_to(replaced, SLOT, connect_ms + 1_000, &"old", 1));
 
-        assert!(!still_allocated_to(
-            [("old", CLOSED, chosen.clone())],
-            SLOT,
-            connect_ms,
-            &"old",
-            1
-        ));
+        assert!(!still_allocated_to([("old", CLOSED, chosen)], SLOT, connect_ms, &"old", 1));
 
         // The same socket registered again: a different registration.
         let again = [("old", OPEN, registration(2, T + 1_500))];
