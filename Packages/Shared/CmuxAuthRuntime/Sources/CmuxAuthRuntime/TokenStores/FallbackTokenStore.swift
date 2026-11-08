@@ -52,6 +52,10 @@ public actor FallbackTokenStore: StackAuthTokenStoreProtocol {
         let primary = await keychain.readStoredTokens()
         guard keychainWorks else { return await file.readStoredTokens() }
         if primary.accessToken != nil || primary.refreshToken != nil { return primary }
+        // A temporarily unreadable Keychain is not a miss: its empty answer
+        // must not promote a stale file snapshot or switch later writes to
+        // the file for the rest of the process.
+        guard primary.isAvailable else { return primary }
         let fallback = await file.readStoredTokens()
         if fallback.accessToken != nil || fallback.refreshToken != nil {
             keychainWorks = false

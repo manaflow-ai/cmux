@@ -22,6 +22,18 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     private let accessGroup: String?
     private let legacyProjectID: String?
     private let log = AuthDebugLog()
+#if canImport(Security)
+    /// One Keychain lookup, returning its status and item.
+    typealias CopyMatching = @Sendable (CFDictionary) -> (status: OSStatus, result: CFTypeRef?)
+    /// The lookup every read and probe uses; tests replace it to simulate a
+    /// locked Keychain, which a real test host cannot produce on demand.
+    private let copyMatching: CopyMatching
+    private static let systemCopyMatching: CopyMatching = { query in
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query, &result)
+        return (status, result)
+    }
+#endif
 
     private var cachedAccessToken: String?
     private var cachedRefreshToken: String?
@@ -42,7 +54,23 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         self.service = service
         self.accessGroup = accessGroup
         self.legacyProjectID = legacyProjectID
+#if canImport(Security)
+        self.copyMatching = Self.systemCopyMatching
+#endif
     }
+
+#if canImport(Security)
+    /// Creates a store whose Keychain lookups go through `copyMatching`.
+    /// - Parameters:
+    ///   - service: The Keychain service.
+    ///   - copyMatching: The lookup that answers every read and probe.
+    init(service: String, copyMatching: @escaping CopyMatching) {
+        self.service = service
+        self.accessGroup = nil
+        self.legacyProjectID = nil
+        self.copyMatching = copyMatching
+    }
+#endif
 
     /// The keychain service name auth tokens are stored under, namespaced by
     /// bundle id so tagged dev builds don't clobber the stable app's session.
@@ -267,8 +295,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         var query = baseQuery(account: account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let (status, result) = copyMatching(query as CFDictionary)
         lastReadWasDefinitive = lastReadWasDefinitive && Self.isDefinitiveReadStatus(status)
         guard status == errSecSuccess, let data = result as? Data else {
             if status != errSecItemNotFound {
@@ -285,8 +312,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         // unavailable while its attributes are not.
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let (status, result) = copyMatching(query as CFDictionary)
         if !Self.isDefinitiveReadStatus(status) {
             log.log("keychain PROBE status=\(status) account=\(account)")
         }
@@ -323,8 +349,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         var query = legacyBaseQuery(account: account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let (status, result) = copyMatching(query as CFDictionary)
         lastReadWasDefinitive = lastReadWasDefinitive && Self.isDefinitiveReadStatus(status)
         guard status == errSecSuccess, let data = result as? Data else {
             if status != errSecItemNotFound {

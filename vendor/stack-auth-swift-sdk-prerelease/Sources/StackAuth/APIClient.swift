@@ -164,6 +164,10 @@ actor APIClient {
     private var refreshRejectedCooldownID: UUID?
     private var refreshRejectedCooldownTask: Task<Void, Never>?
     private var refreshCooldownEpoch: UInt64 = 0
+    /// The refresh token whose exchanges own the current cooldowns. A store
+    /// write that bypasses ``setTokens`` (such as a sign-in seed) still
+    /// changes it, so a new session never inherits an old one's cooldown.
+    private var refreshCooldownToken: String?
     
     private static let sdkVersion = "1.0.0"
     
@@ -545,6 +549,10 @@ actor APIClient {
     /// honors `Retry-After` (capped at 10 minutes); without it the delay is
     /// exponential from 5 seconds to 5 minutes, with jitter.
     private func refreshRespectingRateLimit(refreshToken: String) async -> RefreshOutcome {
+        if let cooledToken = refreshCooldownToken, cooledToken != refreshToken {
+            resetRefreshCooldownState()
+        }
+        refreshCooldownToken = refreshToken
         if refreshRejectedCooldownActive {
             if let until = refreshRejectedUntil, refreshClock.now() < until {
                 return .transientFailure

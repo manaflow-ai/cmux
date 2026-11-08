@@ -235,6 +235,71 @@ private final class ScriptedTokenEndpoint: URLProtocol, @unchecked Sendable {
         #expect(ScriptedTokenEndpoint.requestCount(host: host) == 2)
     }
 
+    /// Browser sign-in seeds the token store directly, bypassing
+    /// `APIClient.setTokens`; the new session still starts with no cooldown.
+    @Test func seededSessionClearsRejectedRequestCooldown() async {
+        let host = UUID().uuidString.lowercased() + ".invalid"
+        ScriptedTokenEndpoint.script(.init(
+            status: 401,
+            headers: ["x-hexclave-known-error": "INVALID_PUBLISHABLE_CLIENT_KEY"],
+            body: #"{"code":"INVALID_PUBLISHABLE_CLIENT_KEY"}"#
+        ), host: host)
+        defer { ScriptedTokenEndpoint.remove(host: host) }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [ScriptedTokenEndpoint.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let clock = RefreshTestClock()
+        let store = MemoryTokenStore()
+        await store.setTokens(accessToken: Self.expiredAccessToken, refreshToken: "old-session")
+        let client = APIClient(
+            baseUrl: "https://" + host, projectId: "fixture", publishableClientKey: "synthetic",
+            tokenStore: store, session: session, refreshClock: testClock(clock)
+        )
+
+        _ = await client.getOrFetchLikelyValidTokens()
+        await store.setTokens(accessToken: Self.expiredAccessToken, refreshToken: "new-session")
+        ScriptedTokenEndpoint.script(.init(
+            status: 200,
+            body: #"{"access_token":"eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.synthetic"}"#
+        ), host: host)
+
+        let result = await client.getOrFetchLikelyValidTokens()
+        #expect(result.accessToken == RefreshLifecycleTests.fresh)
+        #expect(result.refreshToken == "new-session")
+        #expect(ScriptedTokenEndpoint.requestCount(host: host) == 2)
+    }
+
+    /// An old session's rejection that lands after a direct store seed must
+    /// not cool down the seeded session.
+    @Test func lateRejectedRefreshCannotCoolDownASeededSession() async {
+        let fixture = RefreshTransportFixture()
+        let session = await fixture.session()
+        let clock = RefreshTestClock()
+        let store = MemoryTokenStore()
+        await store.setTokens(accessToken: Self.expiredAccessToken, refreshToken: "old-session")
+        let client = APIClient(
+            baseUrl: "https://" + fixture.host, projectId: "fixture", publishableClientKey: "synthetic",
+            tokenStore: store, session: session, refreshClock: testClock(clock)
+        )
+        let oldRefresh = Task { await client.getOrFetchLikelyValidTokens() }
+        await fixture.waitForRequest()
+        await store.setTokens(accessToken: Self.expiredAccessToken, refreshToken: "new-session")
+        await fixture.release(
+            status: 401, token: "unused",
+            headers: ["x-stack-known-error": "INVALID_PUBLISHABLE_CLIENT_KEY"]
+        )
+        _ = await oldRefresh.value
+        await fixture.release(status: 200, token: RefreshLifecycleTests.fresh)
+
+        let result = await client.getOrFetchLikelyValidTokens()
+        #expect(result.accessToken == RefreshLifecycleTests.fresh)
+        #expect(result.refreshToken == "new-session")
+        #expect(await fixture.count == 2)
+        session.invalidateAndCancel()
+        await fixture.close()
+    }
+
     @Test func lateRejectedRefreshCannotCoolDownANewSession() async {
         let fixture = RefreshTransportFixture()
         let session = await fixture.session()

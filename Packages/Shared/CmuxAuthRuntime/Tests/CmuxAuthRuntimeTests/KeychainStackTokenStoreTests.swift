@@ -74,5 +74,29 @@ struct KeychainStackTokenStoreTests {
         #expect(await store.getStoredRefreshToken() == "refresh")
         #expect(await store.isTokenStorageAvailable())
     }
+
+    /// A locked Keychain is not a miss: its empty read must not return a
+    /// stale file snapshot, or switch later reads to the file store.
+    @Test func lockedKeychainDoesNotPromoteFileSnapshot() async {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-fallback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = FileStackTokenStore(directory: directory)
+        await file.setTokens(accessToken: "stale-access", refreshToken: "stale-refresh")
+        let store = FallbackTokenStore(
+            primary: KeychainStackTokenStore(
+                service: "cmux-test-locked-\(UUID().uuidString)",
+                copyMatching: { _ in (errSecInteractionNotAllowed, nil) }
+            ),
+            fallback: file
+        )
+
+        for _ in 0..<2 {
+            let read = await store.readStoredTokens()
+            #expect(read.accessToken == nil)
+            #expect(read.refreshToken == nil)
+            #expect(!read.isAvailable)
+        }
+    }
     #endif
 }
