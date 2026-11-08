@@ -3484,6 +3484,11 @@ class GatewayRunsOnlyTheFleetClient(unittest.TestCase):
                 "elif", "else", "fi", "while", "do", "done", "for", "in", "true", "false", "!", "[[", "{", "}",
                 "test", "shift", "break", "continue", ":", "case"}
 
+    # This attempt's re-run reading first (fast-tier-rerun-placement), else macos-placement's.
+    CLIENT_RUNS_ON = ("${{ needs.fast-tier-rerun-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) "
+                      "&& needs.fast-tier-rerun-placement.outputs.gateway_runner "
+                      "|| needs.macos-placement.outputs.gateway_runner }}")
+
     def jobs(self) -> dict:
         return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
 
@@ -3507,7 +3512,7 @@ class GatewayRunsOnlyTheFleetClient(unittest.TestCase):
     def test_a_client_job_runs_nothing_but_the_client(self):
         for name, job in self.client_jobs().items():
             with self.subTest(job=name):
-                self.assertEqual(job["runs-on"], "${{ needs.macos-placement.outputs.gateway_runner }}")
+                self.assertEqual(job["runs-on"], self.CLIENT_RUNS_ON)
                 self.assertEqual(job.get("permissions"), {}, "no token on the gateway")
                 for key in ("container", "services", "environment", "uses", "secrets", "env", "defaults"):
                     self.assertNotIn(key, job, f"a client job has no {key}")
@@ -3665,6 +3670,56 @@ esac
                 with self.subTest(event=event, route=route):
                     if not evaluate(tier["if"], {**context, "needs.fast-tier-fleet.result": "skipped"}):
                         self.assertFalse(evaluate(job["if"], context))
+
+    def test_a_persons_rerun_takes_the_fleet_on_this_attempts_reading(self):
+        # #38130 (run 42434830670): a person's re-run of failed jobs carried attempt 1's macos-placement, so
+        # fast-tier-fleet skipped its stale gateway reading and the tier took the same cold Blacksmith 6 vCPU
+        # build that ran out its 20 minutes on attempt 1. fast-tier-rerun-placement, skipped on attempt 1,
+        # runs on the re-run and reads the gateway now: with a runner idle there the client runs on it and
+        # the tier only reports, from Linux.
+        jobs = self.jobs()
+        gateway = "glaeda-gateway-xcode-26.6"
+        place, client, tier = jobs["fast-tier-rerun-placement"], jobs["fast-tier-fleet"], jobs["fast-tier"]
+        self.assertIn("fast-tier-rerun-placement", client["needs"])
+        rerun = {**self.context(attempt=2), "github.triggering_actor": "someone", "inputs.same_tree_sha": "",
+                 "inputs.dev_daily": False, "vars.CI_COMPILE_CHECK_GATEWAY": gateway,
+                 "needs.path_route.outputs.fast_tier": "true"}
+        self.assertTrue(evaluate(place["if"], rerun))
+        self.assertTrue(evaluate(place["if"], {**rerun, "github.run_attempt": 3}))
+        self.assertTrue(evaluate(place["if"], {**rerun, "github.event_name": "push",
+                                               "github.ref": "refs/heads/feat-cmux-next"}))
+        for why, context in (("attempt 1: macos-placement places it", {**rerun, "github.run_attempt": 1}),
+                             ("the rescue's re-run: macos-placement places it",
+                              {**rerun, "github.triggering_actor": "github-actions[bot]"}),
+                             ("no gateway", {**rerun, "vars.CI_COMPILE_CHECK_GATEWAY": ""}),
+                             ("a fork", {**rerun, "github.event.pull_request.head.repo.full_name": "someone/cmux"}),
+                             ("a pull request the route skips", {**rerun, "needs.path_route.outputs.fast_tier": "false"})):
+            with self.subTest(why=why):
+                self.assertFalse(evaluate(place["if"], context))
+        # Attempt 1's reading is carried (no fleet listing, its own attempt); this attempt's reading lists the tier.
+        read = {**rerun, "needs.macos-placement.outputs.fleet_jobs": "",
+                "needs.fast-tier-rerun-placement.outputs.fleet_jobs": " fast-tier ",
+                "needs.fast-tier-rerun-placement.outputs.gateway_attempt": "2",
+                "needs.fast-tier-rerun-placement.outputs.gateway_runner": gateway}
+        self.assertTrue(evaluate(client["if"], read))
+        self.assertEqual(evaluate(client["runs-on"], read), gateway)
+        reported = {**read, "needs.fast-tier-fleet.result": "success", "needs.fast-tier-fleet.outputs.verdict": "pass",
+                    "needs.macos-placement.outputs.placed_attempt": "1"}
+        self.assertEqual(evaluate(tier["runs-on"], reported), "blacksmith-2vcpu-ubuntu-2404")
+        self.assertEqual(evaluate(tier["timeout-minutes"], reported), 5)
+        # A reading from another attempt (a later re-run carries this job too), none idle, or none listed:
+        # the client skips and the tier keeps its re-run route.
+        for why, context in (("an earlier attempt's re-run reading", {**read, "github.run_attempt": 3}),
+                             ("no idle gateway", {**read, "needs.fast-tier-rerun-placement.outputs.gateway_runner": ""}),
+                             ("not listed", {**read, "needs.fast-tier-rerun-placement.outputs.fleet_jobs": ""})):
+            with self.subTest(why=why):
+                self.assertFalse(evaluate(client["if"], context))
+        skipped = {**reported, "needs.fast-tier-fleet.result": "skipped"}
+        self.assertEqual(evaluate(tier["runs-on"], skipped), "blacksmith-6vcpu-macos-26")
+        # Attempt 1 still reads macos-placement alone.
+        first = {**self.context(), "needs.fast-tier-rerun-placement.outputs.gateway_attempt": "",
+                 "needs.fast-tier-rerun-placement.outputs.gateway_runner": ""}
+        self.assertEqual(evaluate(client["runs-on"], first), gateway)
 
     def test_the_tier_keeps_its_name_and_only_reports_off_the_gateway(self):
         jobs = self.jobs()
