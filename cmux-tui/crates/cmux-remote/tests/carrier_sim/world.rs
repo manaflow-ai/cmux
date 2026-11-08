@@ -566,6 +566,7 @@ async fn run_world(seed: u64, faults: bool) -> Outcome {
         + plan.faults.last().map_or(Duration::ZERO, |s| s.at + s.fault.lasts())
         + plan.prompts.last().map_or(Duration::ZERO, |p| p.at)
         + CONVERGE;
+    let mut traced: Option<(bool, u64, usize)> = None;
     let result = loop {
         let now = Instant::now();
         // Apply what is due.
@@ -655,12 +656,31 @@ async fn run_world(seed: u64, faults: bool) -> Outcome {
             if heals[i].0 <= now {
                 let (_, heal, kind, timed) = heals.remove(i);
                 heal(&mut machine);
-                lock(&trace).push(format!("{:?} healed {kind}", now - start));
+                let daemon = lock(&machine.slot).clone();
+                let sessions = match daemon {
+                    Some(d) => format!("{:?}", d.connection_snapshots().await),
+                    None => "no daemon".into(),
+                };
+                lock(&trace).push(format!("{:?} healed {kind}; daemon: {sessions}", now - start));
                 if timed {
                     pending.push((kind, now, lock(&machine.disk).log.len() as u64));
                 }
             } else {
                 i += 1;
+            }
+        }
+        // The trace: each change of the app's connection or of what it has.
+        {
+            let state = (*connected.borrow(), lock(&seen).last, lock(&machine.disk).log.len());
+            if Some(state) != traced {
+                lock(&trace).push(format!(
+                    "{:?} app connected={} has {} of {} events",
+                    now - start,
+                    state.0,
+                    state.1,
+                    state.2
+                ));
+                traced = Some(state);
             }
         }
         // A recovery is over once the app is connected and has what the log held at the heal.
@@ -680,8 +700,9 @@ async fn run_world(seed: u64, faults: bool) -> Outcome {
                 }
             });
         }
-        // The app is done when every prompt's turn has its result.
-        {
+        // The app is done when every prompt's turn has its result and every fault is over and measured: a
+        // recovery is timed only while the app is still connected.
+        if steps.peek().is_none() && heals.is_empty() && pending.is_empty() {
             let disk = lock(&machine.disk);
             let results = disk.log.iter().filter(|e| matches!(e.kind, Kind::Result { .. })).count();
             let all = results == plan.prompts.len();

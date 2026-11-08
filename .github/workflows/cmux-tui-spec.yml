@@ -431,7 +431,7 @@ jobs:
   # The carrier's deterministic simulation (cmux-remote tests/carrier_sim.rs): the real daemon and
   # client over a simulated carrier with seeded cuts, drops, slow links, relay swaps and daemon
   # restarts. A fixed window of seeds on every change that touches the carrier's crates; the sweep
-  # (carrier-sim-sweep.yml) runs thousands of new seeds a day.
+  # (cmuxterm-hq cloud-chaos.yml, probe carrier-sim-no-lost-events) runs thousands of new seeds a day.
   carrier-sim:
     name: carrier simulation (seeds)
     needs: changes

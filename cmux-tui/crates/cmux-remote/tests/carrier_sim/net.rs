@@ -310,14 +310,19 @@ impl LinkGroup for SimGroup {
         let route = self.routes[*lock(&self.active)].clone();
         // A dial takes one round trip before it can fail or succeed.
         tokio::time::sleep(route.latency() * 2).await;
+        // Both fail as the relay provider fails them: a carrier error the client retries
+        // (`relay_connect_error`, and a retryable relay refusal in `relay_operation_rejection`).
         if route.conditions().down {
-            return Err(ProviderError::Transport(format!("sim: {} is down", route.name)));
+            return Err(ProviderError::Link(LinkError::Transport(format!(
+                "sim: {} is down",
+                route.name
+            ))));
         }
         let Some(daemon) = lock(&self.daemon).clone() else {
-            return Err(ProviderError::Transport(format!(
+            return Err(ProviderError::Link(LinkError::Transport(format!(
                 "sim: no daemon registered on {}",
                 route.name
-            )));
+            ))));
         };
         let (client, server) = route.pair(format!("{:?} g{}", request.lane, request.generation));
         let task = tokio::spawn(async move {
