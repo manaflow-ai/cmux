@@ -78,6 +78,9 @@ export interface Anchor {
 }
 
 export interface LaidOut {
+  /** The profile whose row this is: a page lent to another profile's bar reports again even when
+   * the row looks the same (two empty bars), and the host drops a report for a profile it left. */
+  profile: string;
   visible: Array<{ id: string; title: string; x: number; width: number }>;
   overflow: string[];
 }
