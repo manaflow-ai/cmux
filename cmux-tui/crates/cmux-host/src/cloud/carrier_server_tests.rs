@@ -299,9 +299,11 @@ struct Live {
     mint_gate: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
     /// While set, a bearer mint is held here (a slow auth at the bind).
     token_gate: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
-    /// While set, the next ticket request alone is held here, up to 20 s
-    /// (one on a pooled connection that died in a pause).
-    ticket_gate: Mutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+    /// Each ticket request takes the next gate here, in order, and is held
+    /// on it up to 20 s (one on a pooled connection that died in a pause).
+    ticket_gates: Mutex<
+        std::collections::VecDeque<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>,
+    >,
     /// Ticket requests that came back.
     answered: Mutex<u64>,
 }
@@ -346,7 +348,7 @@ impl Http for LiveHttp {
             *tickets += 1;
             *tickets
         };
-        let gate = self.0.ticket_gate.lock().unwrap().take();
+        let gate = self.0.ticket_gates.lock().unwrap().pop_front();
         if let Some((entered, gate)) = gate {
             let _ = entered.send(());
             let _ = gate.recv_timeout(Duration::from_secs(20));
@@ -544,7 +546,7 @@ fn a_45_s_ticket_asked_for_an_ask_is_handed_out_on_the_first_fetch() {
 fn hold_next_ticket(live: &Live) -> (std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>) {
     let (entered, reached) = std::sync::mpsc::channel();
     let (release, gate) = std::sync::mpsc::channel();
-    *live.ticket_gate.lock().unwrap() = Some((entered, gate));
+    live.ticket_gates.lock().unwrap().push_back((entered, gate));
     (release, reached)
 }
 
@@ -701,5 +703,44 @@ fn an_asker_woken_before_its_request_starts_causes_one_request() {
         "the one ask asked for {} tickets",
         live.tickets()
     );
+    drop(server);
+}
+
+/// #38700's review (F1): a rebind between the fetch thread taking an
+/// asker's want and starting its request. That request (on the old client)
+/// is of the generation before the rebind: its late reply is dropped, never
+/// handed out, while the new bind's ticket is still on its way.
+#[test]
+fn a_rebind_before_a_wanted_request_starts_drops_that_requests_late_reply() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, path, live, _resumes) = live_server(&dir, 300, Duration::from_secs(10));
+    server.bound(client_with(LiveHttp(Arc::clone(&live))), false);
+    wait_for("the bind", || {
+        let state = server.shared.lock();
+        state.bound && !state.fetching
+    });
+    // The old client's ticket request (t-1) and the new bind's (t-2) are each held.
+    let (release_old, old_entered) = hold_next_ticket(&live);
+    let (release_new, new_entered) = hold_next_ticket(&live);
+    let (at_wanted, reached_wanted) = std::sync::mpsc::channel();
+    let (go, gate) = std::sync::mpsc::channel::<()>();
+    *server.shared.test_points.before_wanted.lock().unwrap() = Some(Box::new(move || {
+        let _ = at_wanted.send(());
+        let _ = gate.recv_timeout(Duration::from_secs(10));
+    }));
+    let asking = std::thread::spawn(move || ask(&path, r#"{"carrier_ticket": {}}"#));
+    reached_wanted.recv_timeout(Duration::from_secs(10)).expect("the ask's want was not taken");
+    server.bound(client_with(LiveHttp(Arc::clone(&live))), false);
+    go.send(()).unwrap();
+    old_entered.recv_timeout(Duration::from_secs(10)).expect("the old request did not start");
+    new_entered.recv_timeout(Duration::from_secs(10)).expect("the new bind did not ask");
+    // The old request comes back while the new bind's is in flight.
+    release_old.send(()).unwrap();
+    std::thread::sleep(Duration::from_millis(200));
+    release_new.send(()).unwrap();
+    let reply = asking.join().unwrap();
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_ne!(reply["ticket"], "t-1", "the old binding's ticket was handed out");
+    assert_eq!(reply["ticket"], "t-2", "{reply}");
     drop(server);
 }
