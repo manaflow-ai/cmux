@@ -135,8 +135,8 @@
   flex: none;
   display: grid;
   place-items: center;
-  width: 14px;
-  height: 14px;
+  width: var(--ds-icon-14);
+  height: var(--ds-icon-14);
   padding: 0;
   border: 0;
   border-radius: var(--ds-radius-sm);
