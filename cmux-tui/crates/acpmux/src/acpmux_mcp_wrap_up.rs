@@ -110,11 +110,14 @@ pub(super) fn check(args: &Value) -> Result<Value, String> {
     if learned.len() > MAX_LEARNED {
         return Err(format!("at most {MAX_LEARNED} learned facts"));
     }
-    let mut shown = json!({"recap": recap, "ask": ask, "actions": actions});
+    let mut shown = serde_json::Map::new();
+    shown.insert("recap".into(), json!(recap));
+    shown.insert("ask".into(), json!(ask));
+    shown.insert("actions".into(), json!(actions));
     if !learned.is_empty() {
-        shown["learned"] = json!(learned);
+        shown.insert("learned".into(), json!(learned));
     }
-    Ok(shown)
+    Ok(Value::Object(shown))
 }
 
 pub(super) fn call(args: &Value) -> Value {
