@@ -404,11 +404,27 @@ def record(run, gesture, label, content="focused", static=True):
                 trace = json.load(handle)
         except (OSError, ValueError) as error:
             trace = {"error": f"trace: {error}"}
+    debug = None
+    frames = strip.get("frames") if isinstance(strip.get("frames"), list) else []
+    if any(f.get("blank") for f in frames):
+        import base64
+        keep = [i for i, f in enumerate(frames) if f.get("blank")]
+        keep = sorted(set(keep[:3] + [max(0, keep[0] - 1), min(len(frames) - 1, keep[-1] + 1), 0, len(frames) - 1]))
+        pngs = {}
+        for i in keep:
+            path = os.path.join(folder, frames[i].get("file") or "")
+            if os.path.isfile(path):
+                with open(path, "rb") as handle:
+                    pngs[frames[i]["file"]] = base64.b64encode(handle.read()).decode()
+        debug = {"frames": frames, "pngs": pngs, "pane_rects": strip.get("pane_rects")}
     shutil.rmtree(folder, ignore_errors=True)
     key = strip.get("key") if isinstance(strip.get("key"), dict) else {}
     if key.get("error"):
         strip = {"error": f"input: {key['error']}"}
-    return ssm.transition(strip, trace, opts.strip_tolerance, static=static)
+    row = ssm.transition(strip, trace, opts.strip_tolerance, static=static)
+    if debug:
+        row["blank_debug"] = debug
+    return row
 
 
 def side_toggle(run, label, want, static):
