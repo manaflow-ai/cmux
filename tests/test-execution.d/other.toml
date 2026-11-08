@@ -779,6 +779,10 @@ path = "tests/test_verify_app_libintl.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_verify_cmux_tui_hosted.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_verify_local.py"
 lane = "linux-guard"
 
