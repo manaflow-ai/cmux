@@ -2,7 +2,6 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextChiefPetWiring
 import CmuxNextCloud
-import CmuxNextCloudCredentials
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -248,13 +247,9 @@ extension AgentTabStore {
             guard let services else { return false }
             return AgentProcessTerminal(services: services).open(viewer, beside: chat)
         }
-        // App-server `vm_…` IDs use a different backend contract; hide the transfer action
-        // until that backend exposes the credential delivery operation. Legacy provider VMs use
-        // the pinned `/api/vm/{id}/exec` path below.
-        tabs.syncCloudCredentialTransferAvailability(services: services)
-        // A pane may outlive the Cloud teardown. Clear the action handler as soon as sign-out
-        // begins so an already-open page cannot call a recovery action that native recovery rejects.
-        services.cloud.willSignOut.append { [weak tabs] in tabs?.cloudCredentialTransfer = nil }
+        tabs.syncCloudAccountActions(services: services)
+        // A pane may outlive the Cloud teardown: clear its Cloud action as soon as sign-out begins.
+        services.cloud.willSignOut.append { [weak tabs] in tabs?.tryAnotherApproach = nil }
         // A chat opens on the right as a link does (LinkOpener, RightColumnPlacement): a split right of
         // the chat, else one split below what is already there (a plain split's terminal included), else a tab in the lower pane.
         // A pane of another machine holds no chat of this Mac's acpmux: nothing opens there.
@@ -413,11 +408,11 @@ extension AgentTabStore {
             var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, hostID: record.host, endpoint: endpoint, reconnect: reconnect, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
             host.linksHost = AgentTabStore.registryHost(of: daemon)
-            host.servesLogin = daemon.supports(DaemonCapability.agentSessionLogin.rawValue)
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
+            // A Cloud machine never signs its agents in on itself: they reach models through its edge,
+            // and the machine holds no provider login, so its chats offer no on-machine sign-in.
+            host.servesLogin = host.cloudMachineID == nil && daemon.supports(DaemonCapability.agentSessionLogin.rawValue)
             (host.cloudAccount, host.personName) = host.cloudMachineID == nil ? (nil, nil) : (services.cloud.account, services.cloud.auth.user?.displayName)
-            host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil && AgentTabStore.cloudCredentialTransferIsAvailable(isSignedIn: services.cloud.auth.isSignedIn)
-            host.cloudTeamMachine = services.machines.session(daemon.machineID)?.harnessLogin?.skippedTeamMachine == true
             // A chat on one of the account's Cloud machines names each turn's hand-off, behind Labs,
             // once the machine list loaded for the account signed in now (never a previous team's).
             host.cloudHandoffs = host.cloudMachineID != nil && CloudHandoffTurnOpener.refusal(services) == nil
@@ -555,9 +550,10 @@ extension AgentTabStore {
 }
 
 extension AgentTabStore {
-    /// Keep the native recovery callback aligned with the current Cloud account. This runs at
-    /// construction and on each observed sign-in/account transition, so sign-in restores it.
-    func syncCloudCredentialTransferAvailability(services: AppServices) {
+    /// Keep the Cloud chat actions aligned with the current Cloud account. This runs at
+    /// construction and on each observed sign-in/account transition, so sign-in restores them.
+    /// A Cloud machine reaches models through its edge, so no action here moves a login to it.
+    func syncCloudAccountActions(services: AppServices) {
         if services.cloud.auth.isSignedIn {
             tryAnotherApproach = { [weak services] (chat: String, session: String, throughSeq: Int) async throws -> [String: Any] in
                 guard let services else { throw CancellationError() }
@@ -566,20 +562,5 @@ extension AgentTabStore {
         } else {
             tryAnotherApproach = nil
         }
-        guard Self.cloudCredentialTransferIsAvailable(isSignedIn: services.cloud.auth.isSignedIn) else {
-            cloudCredentialTransfer = nil
-            return
-        }
-        cloudCredentialTransfer = { [weak services] chat, request in
-            guard let services, services.cloud.auth.isSignedIn else { return false }
-            return await CloudPresenter.recoverCredentials(chat: chat, request: request, services: services)
-        }
-    }
-    /// Signed in, and this build may pass the Mac's login at all (DEV and dogfood, or Release unless the setting
-    /// turns it off; a Release recovery then reads the remote switch and asks the consent first,
-    /// CloudPresenter.recoverCredentials).
-    static func cloudCredentialTransferIsAvailable(isSignedIn: Bool,
-                                                   passesLogin: Bool = CloudCredentialTransfer.offersLoginCopy(isDogfoodBuild: DevTools.isEnabled, defaults: .standard)) -> Bool {
-        isSignedIn && passesLogin
     }
 }

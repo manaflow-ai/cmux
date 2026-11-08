@@ -1,6 +1,5 @@
 @testable import CmuxNextApp
 @testable import CmuxNextCloud
-@testable import CmuxNextCloudCredentials
 import Foundation
 import Testing
 
@@ -132,33 +131,5 @@ struct CloudWorkerMachineFilesTests {
             == .http(status: 409, code: "vm_not_running", message: "Start the machine first.", action: nil, traceId: nil))
         #expect(CloudAPIError.from(status: 409, data: body, headerCode: "vm_not_running")
             == .http(status: 409, code: "vm_not_running", message: "Start the machine first.", action: nil, traceId: nil))
-    }
-
-    /// Claude credential recovery on a Worker machine: its exec runs as `cmux`, so a root 0600
-    /// staging file (what the file route writes) can't be read by the installer, and every transfer
-    /// failed. The folder is made `cmux`'s own 0700 one first, and the file goes in 0644.
-    @Test func aWorkerMachineStagesTheCredentialWhereTheWorkUserCanReadIt() async throws {
-        WorkerAPI.seen = []
-        let machine = "vm_aaaaaaaaaaaaaaaaaaaa", path = "/home/cmux/.cmux/credential-transfer/x.json"
-        try await CloudCredentialTransfer.stage(Data("tok".utf8), at: path, on: worker(), machineID: machine)
-        #expect(WorkerAPI.seen.map(\.url) == ["https://machines.standin.invalid/v1/cloud/machines/\(machine)/exec",
-                                              "https://machines.standin.invalid/v1/cloud/machines/\(machine)/fs/write"])
-        let made = try #require(WorkerAPI.seen.first?.body["command"] as? String)
-        #expect(made.contains("mkdir -p -- '/home/cmux/.cmux/credential-transfer'"))
-        #expect(made.contains("chmod 700") && made.contains("test -O"))
-        #expect(WorkerAPI.seen.last?.body["mode"] as? Int == 0o644)
-        #expect(WorkerAPI.seen.last?.body["path"] as? String == path)
-
-        // The classic route keeps its root 0600 file (its exec is root, the installer chowns it).
-        WorkerAPI.seen = []
-        let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
-                                                       process: [:], isDebugBuild: true)
-        let sessionConfiguration = URLSessionConfiguration.ephemeral
-        sessionConfiguration.protocolClasses = [WorkerAPI.self]
-        let classic = CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { "team-1" },
-                                     session: URLSession(configuration: sessionConfiguration))
-        try await CloudCredentialTransfer.stage(Data("tok".utf8), at: path, on: classic, machineID: "m1")
-        #expect(WorkerAPI.seen.map(\.url) == ["https://vm-api.standin.invalid/api/vm/m1/fs/write"])
-        #expect(WorkerAPI.seen.first?.body["mode"] as? Int == 0o600)
     }
 }

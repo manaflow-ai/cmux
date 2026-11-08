@@ -10,13 +10,11 @@
 //! and when to look again),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
 //! confirmed listing with the pending ops applied by the daemon's rules),
-//! `cmux-cloud-start-core`'s Cloud start decisions (`cloud_harness_login`,
-//! one call that reads the harness and both probes' output; `cloud_start_*`:
+//! `cmux-cloud-start-core`'s Cloud start decisions (`cloud_start_*`:
 //! the refusal, the account checks and the folder a start may copy;
-//! `cloud_folder_too_broad`, `cloud_vm_kind`, `cloud_login_fingerprint`;
-//! `cloud_ask_answer`, `cloud_ask_first`: who may answer an agent's Cloud ask; and
-//! `cloud_harness_login_provider`, `cloud_guest_kind`, `cloud_guest_kind_probe`,
-//! kept for an app pinned before `cloud_harness_login` read them itself),
+//! `cloud_folder_too_broad`, `cloud_vm_kind`;
+//! `cloud_ask_answer`, `cloud_ask_first`: who may answer an agent's Cloud ask;
+//! a Cloud machine reaches models through its edge, so no op decides a login copy),
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
 //! `cloud_identity_*`: the install identity's rules;
@@ -239,12 +237,6 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&cmux_bookmarks_core::preview::respond(request))
                     .map_err(|_| ERR_INVALID)?
             }
-            b"cloud_harness_login" => {
-                use cmux_cloud_start_core::harness_login;
-                let request: harness_login::Inputs =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&harness_login::decide(&request)).map_err(|_| ERR_INVALID)?
-            }
             b"cloud_start_refusal" => {
                 #[derive(serde::Deserialize)]
                 #[serde(rename_all = "camelCase")]
@@ -349,55 +341,6 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 ))
                 .map_err(|_| ERR_INVALID)?
             }
-            b"cloud_login_fingerprint" => {
-                #[derive(serde::Deserialize)]
-                struct Request {
-                    token: Vec<u8>,
-                }
-                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                let fingerprint = cmux_cloud_start_core::machine_login::fingerprint(&request.token);
-                serde_json::to_vec(&serde_json::json!({ "fingerprint": fingerprint }))
-                    .map_err(|_| ERR_INVALID)?
-            }
-            b"cloud_recovery_refreshes" => {
-                #[derive(serde::Deserialize)]
-                struct Request {
-                    #[serde(default)]
-                    probe: Option<cmux_cloud_start_core::machine_login::Probe>,
-                }
-                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                let login = request.probe.map(|probe| {
-                    cmux_cloud_start_core::machine_login::parse(probe.exit_code, &probe.stdout)
-                });
-                let refresh = cmux_cloud_start_core::machine_login::recovery_refreshes(login);
-                serde_json::to_vec(&serde_json::json!({ "refresh": refresh }))
-                    .map_err(|_| ERR_INVALID)?
-            }
-            b"cloud_harness_login_provider" => {
-                #[derive(serde::Deserialize)]
-                struct Request {
-                    harness: Option<String>,
-                }
-                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                let provider = cmux_cloud_start_core::harness_login::login_provider(
-                    request.harness.as_deref(),
-                );
-                serde_json::to_vec(&serde_json::json!({ "provider": provider }))
-                    .map_err(|_| ERR_INVALID)?
-            }
-            b"cloud_guest_kind" => {
-                #[derive(serde::Deserialize)]
-                struct Request {
-                    stdout: String,
-                }
-                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                let kind = cmux_cloud_start_core::harness_login::guest_kind(&request.stdout);
-                serde_json::to_vec(&serde_json::json!({ "kind": kind })).map_err(|_| ERR_INVALID)?
-            }
-            b"cloud_guest_kind_probe" => serde_json::to_vec(&serde_json::json!({
-                "probe": cmux_cloud_start_core::harness_login::GUEST_KIND_PROBE
-            }))
-            .map_err(|_| ERR_INVALID)?,
             b"focus_type_ahead" => {
                 let request: cmux_focus_core::wire::TypeAheadRequest =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;

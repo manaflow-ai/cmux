@@ -34,18 +34,6 @@ extension CloudNewWorkspaceSetting {
     public nonisolated static let folderDefault: CloudWorkspaceFolder = .inherit
 }
 
-extension CloudLoginCopyConsentSetting {
-    /// `cloud.useMyClaudeLoginOnMyCloudMachines`.
-    public nonisolated static let configPath = ["cloud", "useMyClaudeLoginOnMyCloudMachines"]
-    public nonisolated static let fallback = false
-}
-
-extension CloudCodexSignInConsentSetting {
-    /// `cloud.useMyCodexLoginOnMyCloudMachines`.
-    public nonisolated static let configPath = ["cloud", "useMyCodexLoginOnMyCloudMachines"]
-    public nonisolated static let fallback = false
-}
-
 extension CloudAgentStartSetting {
     /// `cloud.agentsStartWithoutAsking`.
     public nonisolated static let configPath = ["cloud", "agentsStartWithoutAsking"]
@@ -200,26 +188,6 @@ nonisolated enum MachineSettingsSchema {
                 ]),
                 default: .string(CloudNewWorkspaceSetting.folderDefault.rawValue),
                 keywords: ["cloud", "vm", "folder", "sync", "copy", "inherit", "empty", "snapshot", "working directory"]
-            ),
-            SettingDescriptor(
-                CloudLoginCopyConsentSetting.configPath,
-                section: .machines,
-                group: group,
-                title: SettingsText.keyed("settings.cloud.useMyClaudeLogin", "Use My Claude Login on My Own Cloud Machines"),
-                help: SettingsText.keyed("settings.cloud.useMyClaudeLogin.help", "Copies your own Claude login from this Mac to Cloud machines you own, so their chats start signed in. Never to team or shared machines, and cmux never stores it. Off: each machine offers Sign in to Claude instead."),
-                kind: .toggle,
-                default: .bool(CloudLoginCopyConsentSetting.fallback),
-                keywords: ["cloud", "claude", "login", "sign in", "token", "credential", "machine", "consent", "copy"]
-            ),
-            SettingDescriptor(
-                CloudCodexSignInConsentSetting.configPath,
-                section: .machines,
-                group: group,
-                title: SettingsText.keyed("settings.cloud.useMyCodexLogin", "Use My Codex Login on My Own Cloud Machines"),
-                help: SettingsText.keyed("settings.cloud.useMyCodexLogin.help", "Gives Cloud machines you own short-lived access from the Codex sign-in on this Mac, so their chats start signed in. The machine never gets your refresh token, and cmux never stores it. Off: a machine asks for a Codex sign-in instead."),
-                kind: .toggle,
-                default: .bool(CloudCodexSignInConsentSetting.fallback),
-                keywords: ["cloud", "codex", "chatgpt", "login", "sign in", "token", "credential", "machine", "consent"]
             ),
             SettingDescriptor(
                 CloudAgentStartSetting.configPath,

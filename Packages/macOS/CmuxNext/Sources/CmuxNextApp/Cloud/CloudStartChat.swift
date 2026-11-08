@@ -20,8 +20,8 @@ import Foundation
 @MainActor
 struct CloudStartChat {
     let services: AppServices
-    /// Where the start's questions show (its first login, the login copy consent, Codex's sign-in): the
-    /// sending pane's card for a composer start; nil asks in a dialog on the active window.
+    /// Where the start's questions show: the sending pane's card for a composer start; nil asks in a
+    /// dialog on the active window.
     var asker: AgentPaneCloudAsker?
 
     /// The page's runner for every pane (``AgentPageChats/seed(_:)``): `view` is the pane that sent.
@@ -128,9 +128,8 @@ struct CloudStartChat {
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
         // The account may have changed while the machine connected: copy nothing then.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
-        // The chat's harness login (DEV and dogfood builds, +Login): it runs alongside the copy and is
-        // awaited before the chat opens, so its first prompt starts signed in. It never fails the start.
-        async let loginPassed = passHarnessLogin(harness: start.harness, machine: machine)
+        // No login step: the machine's agents reach models through its edge (the Cloud service's model
+        // route), and this Mac copies no provider login to it.
         let size = AgentPaneCloudStart.sizeText(machine.machine.size)
         report(.init(name: "folder", folder: folderName, machine: name, size: size))
         // Each copy goes to a new folder of the send's own, under its account as its pin; a retry whose
@@ -148,9 +147,6 @@ struct CloudStartChat {
                      start: .init(environmentId: plan.environmentId, setup: plan.setup)))
         guard copy.0.ok else { throw CloudMove.failure(syncing: copy.0, machine: name, retry: again) }
         // The copy may take long: a chat whose account changed meanwhile opens nowhere, and this Mac's tab stays.
-        try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
-        _ = await loginPassed
-        // The login may have waited on a confirm and a sign-in: check the account again after it.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         report(.init(name: "opening", folder: folderName, machine: name, size: size,
                      start: .init(environmentId: plan.environmentId, setup: plan.setup)))
@@ -257,9 +253,6 @@ struct CloudStartChat {
         report(.init(name: "machine"))
         let (machine, plan) = try await self.machine(for: start, account: account, workspace: origin.workspace,
                                                      cli: CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout), invocation: invocation) { await CloudChatPick(services: services).read(folder: nil, tab: tab) }
-        try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
-        // The harness login before the first prompt, as for a chat with a project (+Login).
-        _ = await passHarnessLogin(harness: start.harness, machine: machine)
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         report(.init(name: "opening", machine: machine.machine.title, size: AgentPaneCloudStart.sizeText(machine.machine.size),
                      start: .init(environmentId: plan.environmentId, setup: plan.setup)))

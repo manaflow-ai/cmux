@@ -1,4 +1,4 @@
-//! `cmux cloud start-chat [--prompt TEXT] [--agent claude] [--cwd DIR | --from-folder PATH] [--login L]
+//! `cmux cloud start-chat [--prompt TEXT] [--agent claude] [--cwd DIR | --from-folder PATH]
 //! [--environment E] [--name MACHINE | --target machine:ID] [--wait] [--timeout SECONDS]`: one command takes a
 //! Cloud chat from nothing to a reply, for a person, a script or the Chief (Leo, 2026-11-02: "we need to improve
 //! the docs/instructions/commands and guidance and whatnot to make this all smoother faster more
@@ -15,7 +15,7 @@
 //! `--name` no machine has) is made first with `cloud new-machine [--name N]`. Steps 2-4 run only when the
 //! prompt certainly never reached the machine, on the machine the relay was tried on.
 //!
-//! 2. `cloud start-session (--name N | --target T) --agent A [--cwd D | --from-folder P] [--login L]`: takes
+//! 2. `cloud start-session (--name N | --target T) --agent A [--cwd D | --from-folder P]`: takes
 //!    the machine (or creates it) and opens the chat's tab in the machine's workspace, a real chat in the
 //!    app. With `--from-folder` (an existing folder on this Mac) the app copies that folder to the
 //!    machine the way the agent pane composer's Cloud start copies one, and the chat starts in the
@@ -83,16 +83,11 @@ const TAKES_VALUE: &[&str] = &[
     "--agent",
     "--cwd",
     "--from-folder",
-    "--login",
     "--environment",
     "--name",
     "--target",
     "--timeout",
 ];
-
-/// `--login`'s words, as `cloud start-session` takes them (`CloudHarnessLoginAsk.choice`): the person's
-/// login, the machine's own, or none.
-const LOGINS: &[&str] = &["pass", "machine", "none"];
 
 /// Which machine the chat starts on.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -113,9 +108,6 @@ pub(super) struct Request {
     pub cwd: Option<String>,
     /// `--from-folder`: a folder on this Mac, canonical; the chat starts in its copy on the machine.
     pub from_folder: Option<String>,
-    /// `--login pass|machine|none`: the harness login the machine's agent gets, as `cloud start-session`
-    /// takes it (`CloudHarnessLoginAsk`); `None` leaves the app's default.
-    pub login: Option<String>,
     /// `--environment ID|NAME`: the Cloud environment (`env_…`, or its name) a new machine boots in
     /// (`cloud new-machine --environment`).
     pub environment: Option<String>,
@@ -184,7 +176,6 @@ pub(super) fn send_existing(
         agent: String::new(),
         cwd: None,
         from_folder: None,
-        login: None,
         environment: None,
         machine: Machine::Target(machine_id.to_owned()),
         wait,
@@ -299,7 +290,6 @@ pub(super) fn parse(
     let mut agent = None;
     let mut cwd = None;
     let mut from_folder = None;
-    let mut login = None;
     let mut environment = None;
     let mut name = None;
     let mut target = None;
@@ -330,7 +320,6 @@ pub(super) fn parse(
             "--agent" => agent = Some(value()?),
             "--cwd" => cwd = Some(value()?),
             "--from-folder" => from_folder = Some(value()?),
-            "--login" => login = Some(value()?),
             "--environment" => environment = Some(value()?),
             "--name" => name = Some(value()?),
             "--target" => target = Some(value()?),
@@ -383,12 +372,6 @@ pub(super) fn parse(
         return Err(UsageError::new(format!("--cwd {dir}: an absolute folder on the machine")));
     }
     let from_folder = from_folder.map(|dir| local_folder(&dir, cwd.is_some())).transpose()?;
-    let login = match login.map(|word| word.trim().to_lowercase()) {
-        Some(word) if !LOGINS.contains(&word.as_str()) => {
-            return Err(UsageError::new(format!("--login {word:?}: pass, machine or none")));
-        }
-        login => login,
-    };
     let environment = match environment.map(|word| word.trim().to_owned()) {
         Some(word) if word.is_empty() => return Err(UsageError::new("--environment is empty")),
         environment => environment,
@@ -418,7 +401,6 @@ pub(super) fn parse(
         agent,
         cwd,
         from_folder,
-        login,
         environment,
         machine,
         wait,
@@ -464,8 +446,8 @@ pub(super) trait Runner {
     fn prompt_id(&mut self) -> String;
 }
 
-struct SelfRunner {
-    globals: Vec<String>,
+pub(super) struct SelfRunner {
+    pub(super) globals: Vec<String>,
 }
 
 impl Runner for SelfRunner {
@@ -505,7 +487,7 @@ impl Runner for SelfRunner {
 }
 
 /// The globals a step needs to reach the same app.
-fn forwarded_globals(global: &GlobalArgs) -> Vec<String> {
+pub(super) fn forwarded_globals(global: &GlobalArgs) -> Vec<String> {
     let mut words = Vec::new();
     if let Some(socket) = &global.app_socket {
         words.extend(["--app-socket".to_owned(), socket.display().to_string()]);
@@ -576,9 +558,6 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
     }
     if let Some(folder) = &request.from_folder {
         words.push(format!("--from-folder {}", shell_quote(folder)));
-    }
-    if let Some(login) = &request.login {
-        words.push(format!("--login {login}"));
     }
     // The prompt may be private: the command names where it goes, not what it says.
     if request.prompt.is_some() {
@@ -1048,9 +1027,6 @@ fn steps(
     }
     if let Some(folder) = &request.from_folder {
         start.extend(["--from-folder".to_owned(), folder.clone()]);
-    }
-    if let Some(login) = &request.login {
-        start.extend(["--login".to_owned(), login.clone()]);
     }
     start.push("--json".to_owned());
     let started = match step_result(&runner.cmux(&start)) {

@@ -8,22 +8,22 @@ nonisolated enum CloudSessionActionCatalog: ActionCatalogGroup {
         var start = ActionDescriptor(
             id: "cloudStartSession",
             title: String(localized: "action.cloudStartSession", defaultValue: "Start Agent Session on Cloud Machine…", table: "CloudSessionActions", bundle: .module),
-            description: "Starts an agent session (--agent claude, codex, ...) in the Cloud machine's own acpmux and returns machine_id, session_id and host, plus the chat tab's workspace_id and surface_id. Name the machine with --target machine:<id>, or --name <name> to take or create it; --cwd is the folder there, or --from-folder copies one from this Mac. --login pass|machine|none: your login, the machine's own, or none (default: the machine's login or your earlier choice). An agent's run asks no one (unless cloud.agentsStartWithoutAsking is off). A slow run answers pending: true; run it again for its session.",
+            description: "Starts an agent session (--agent claude, codex, ...) in the Cloud machine's own acpmux and returns machine_id, session_id and host, plus the chat tab's workspace_id and surface_id. Name the machine with --target machine:<id>, or --name <name> to take or create it; --cwd is the folder there, or --from-folder copies one from this Mac. The machine's agents reach models through its Cloud model route; no login is copied from this Mac. An agent's run asks no one (unless cloud.agentsStartWithoutAsking is off). A slow run answers pending: true; run it again for its session.",
             keywords: ["vm", "cloud", "agent", "session", "chat", "acp", "acpmux", "start", "claude", "codex"], category: .cloud, symbol: "sparkles",
-            surfaces: [.palette, .contextMenu], arguments: [agent, name, cwd, fromFolder, login], targets: [.machine], cliName: "cloud start-session",
+            surfaces: [.palette, .contextMenu], arguments: [agent, name, cwd, fromFolder], targets: [.machine], cliName: "cloud start-session",
             surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.cloudMachine, .connection, 221, folder: .connection)])
         )
         // An agent's run waits for the person's Start on its chat's card, then for the session.
         start.waitsForPerson = true
         // cmuxterm-hq#7086: the relay-first chat. The prompt goes over HTTPS to the platform and down the socket
         // the machine holds from boot. Since cmux#36846 a machine this Mac has no link to yet first gets that link and its
-        // owner check, then the person's harness login, and only then the send (link, owner check, login, send).
+        // owner check, and only then the send (link, owner check, send); the machine's agents use its Cloud model route.
         var relay = ActionDescriptor(
             id: "cloudRelayChat",
             title: String(localized: "action.cloudRelayChat", defaultValue: "Chat on Cloud Machine via the Relay…", table: "CloudSessionActions", bundle: .module),
-            description: "Sends --prompt to --agent (claude, codex, ...) on a Cloud machine (--target machine:<id>) over the machine's relay and answers when the turn ends. A machine with no link yet gets this Mac's link and its owner check first, then the person's harness login, then the send. The answer carries session_id (the machine's acpmux session), reply, stop_reason, first_text_ms and total_ms. A turn still running after 35 s answers what came so far with ended: false and goes on in that session while the app runs. delivered: false means the prompt never reached the machine (no machine took it, or the relay refused it). --cwd is the folder there; --prompt-id makes a resend run once; --login pass|machine|none is the harness login the machine gets first, as cloud start-session takes it.",
+            description: "Sends --prompt to --agent (claude, codex, ...) on a Cloud machine (--target machine:<id>) over the machine's relay and answers when the turn ends. A machine with no link yet gets this Mac's link and its owner check first, then the send. The answer carries session_id (the machine's acpmux session), reply, stop_reason, first_text_ms and total_ms. A turn still running after 35 s answers what came so far with ended: false and goes on in that session while the app runs. delivered: false means the prompt never reached the machine (no machine took it, or the relay refused it). --cwd is the folder there; --prompt-id makes a resend run once.",
             keywords: ["vm", "cloud", "agent", "chat", "relay", "prompt", "claude", "codex"], category: .cloud, symbol: "bubble.left.and.text.bubble.right",
-            surfaces: [.palette], arguments: [agent, prompt, cwd, promptID, login], targets: [.machine], cliName: "cloud relay-chat",
+            surfaces: [.palette], arguments: [agent, prompt, cwd, promptID], targets: [.machine], cliName: "cloud relay-chat",
             surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .pointerMenuTrim)
         )
         // The CLI waits for the turn's answer (or what came of it within CloudHandlers.answerWithin).
@@ -64,12 +64,6 @@ nonisolated enum CloudSessionActionCatalog: ActionCatalogGroup {
     /// `--from-folder`: a folder on this Mac, copied to the machine; the session starts in the copy (not with `--cwd`).
     static var fromFolder: ActionArgument {
         ActionArgument(name: "fromFolder", title: String(localized: "argument.cloudStartSession.fromFolder", defaultValue: "Folder on This Mac to Copy", table: "CloudSessionActions", bundle: .module),
-                       kind: .string, isRequired: false)
-    }
-
-    /// `--login pass|machine|none`: the harness login the machine gets (CloudHarnessLoginAsk).
-    static var login: ActionArgument {
-        ActionArgument(name: "login", title: String(localized: "argument.cloudStartSession.login", defaultValue: "Harness Login", table: "CloudSessionActions", bundle: .module),
                        kind: .string, isRequired: false)
     }
 }

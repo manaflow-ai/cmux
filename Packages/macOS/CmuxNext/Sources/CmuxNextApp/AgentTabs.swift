@@ -283,7 +283,6 @@ final class AgentTabStore {
     var localPaths: (@MainActor (_ tab: String) -> Bool)?
     /// A background task's terminal beside chat tab `chat` (``AgentProcessTerminal``); false when none opened.
     var openProcess: (@MainActor (_ chat: String, _ viewer: AgentPaneProcessViewer) -> Bool)?
-    var cloudCredentialTransfer: (@MainActor (_ chat: String, _ request: AgentPaneCloudCredentialTransferRequest) async -> Bool)?
     /// Cloud's latest-turn machine + transcript fork. Tests inject a mocked platform here.
     var tryAnotherApproach: (@MainActor (_ chat: String, _ session: String, _ throughSeq: Int) async throws -> [String: Any])?
     /// Session `session` (of acpmux `host`, nil: this Mac's) on tab `chat`'s right as a link opens (``LinkOpener``,
@@ -547,13 +546,6 @@ final class AgentTabStore {
             if bindsHere(key) { sendSession(session, for: key) }
         }
         model.onSessionHarness = { [weak self] session in self.map { $0.sendSession(session, for: $0.resolve(provisional)) } }
-        model.onCloudCredentialTransfer = { [weak self, weak model] request in
-            guard let self, let model, model.sessionId == request.sessionID,
-                  let record = self.lookup(self.resolve(provisional))?.record,
-                  AgentPaneCloudCredentialTransferRequest.Provider(harnessID: record.harness) == request.provider,
-                  let transfer = self.cloudCredentialTransfer else { return false }
-            return await transfer(self.resolve(provisional), request)
-        }
         model.onTryAnotherApproach = { [weak self] throughSeq, session in
             guard let self, let operation = self.tryAnotherApproach else { throw AgentPaneHostError.daemonStopped }
             return try await operation(self.resolve(provisional), session, throughSeq)

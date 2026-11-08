@@ -27,7 +27,6 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             agent: "claude".into(),
             cwd: None,
             from_folder: None,
-            login: None,
             environment: None,
             machine: Machine::New,
             wait: false,
@@ -93,9 +92,9 @@ fn parse_refuses_what_start_session_would() {
         vec!["--prompt", "x", "--timeout", "soon"],
         vec!["--prompt", "x", "--bogus"],
         vec!["--prompt"],
-        vec!["--prompt", "x", "--login", "github"],
-        vec!["--prompt", "x", "--login", ""],
-        vec!["--prompt", "x", "--login"],
+        // A Cloud machine's agents use its model route: no login flag to pass one.
+        vec!["--prompt", "x", "--login", "pass"],
+        vec!["--prompt", "x", "--login", "none"],
         vec!["--prompt", "x", "--environment", " "],
         vec!["--prompt", "x", "--environment"],
         vec!["--environment", "env_1", "--target", "machine:vm-1"],
@@ -108,28 +107,11 @@ fn parse_refuses_what_start_session_would() {
     assert_eq!(parse(&strings(&["--help"]), || Ok(String::new())), Ok(Parsed::Help));
 }
 
-/// Leo (2026-11-06): one command line, in conjunction with "login with Claude or login with Codex or login with
-/// nothing at all": `--login` takes the words `cloud start-session` takes, in any case.
-#[test]
-fn parse_takes_the_harness_login() {
-    for (word, login) in
-        [("pass", "pass"), ("machine", "machine"), ("none", "none"), ("None", "none")]
-    {
-        assert_eq!(
-            request(&["--prompt", "x", "--login", word]).login.as_deref(),
-            Some(login),
-            "{word}"
-        );
-    }
-    assert_eq!(request(&["--prompt", "x", "--login=machine"]).login.as_deref(), Some("machine"));
-    assert_eq!(request(&["--prompt", "x"]).login, None);
-}
-
 /// Leo (2026-11-06): "Like with an initial ... prompts. Or not?": with no --prompt the command starts the chat
 /// and sends nothing. An empty --prompt is still a mistake, not "no prompt".
 #[test]
 fn parse_takes_no_prompt() {
-    for words in [vec![], vec!["--name", "dev"], vec!["--wait", "--login", "none"]] {
+    for words in [vec![], vec!["--name", "dev"], vec!["--wait"]] {
         assert!(
             matches!(parse(&strings(&words), || Ok(String::new())), Ok(Parsed::Run(_))),
             "{words:?}"
@@ -212,49 +194,16 @@ fn again_command_quotes_every_word() {
         again_command(&asked, &Machine::Named("chat-1".into())),
         "cmux cloud start-chat --name chat-1 --agent codex --cwd '/a b' --prompt TEXT --wait --json"
     );
-    let asked = request(&["--prompt", "x", "--login", "none"]);
+    let asked = request(&["--prompt", "x"]);
     assert_eq!(
         again_command(&asked, &Machine::Target("vm-1".into())),
-        "cmux cloud start-chat --target machine:vm-1 --login none --prompt TEXT --json"
+        "cmux cloud start-chat --target machine:vm-1 --prompt TEXT --json"
     );
 }
 
+/// Neither step is told about a login: the machine reaches models through its edge, and the app copies none.
 #[test]
-fn the_login_goes_to_start_session_and_the_relay_chat() {
-    for (agent, login) in [("claude", "pass"), ("codex", "machine"), ("claude", "none")] {
-        // The link path: start-session takes it.
-        let mut fake = Fake::new(vec![
-            signed_in(),
-            started(),
-            exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
-        ]);
-        let asked =
-            request(&["--prompt", "x", "--name", "dev", "--agent", agent, "--login", login]);
-        let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
-        assert_eq!(
-            fake.ran[1],
-            strings(&[
-                "cloud",
-                "start-session",
-                "--name",
-                "dev",
-                "--agent",
-                agent,
-                "--login",
-                login,
-                "--json"
-            ])
-        );
-        // The relay path: relay-chat takes it, before the send.
-        let mut fake = Fake::new(vec![signed_in(), made(), relayed(json!({"session_id": "r-1"}))]);
-        let asked = request(&["--prompt", "x", "--agent", agent, "--login", login, "--wait"]);
-        let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
-        let relay = &fake.ran[2];
-        assert_eq!(&relay[..2], &strings(&["cloud", "relay-chat"]));
-        let at = relay.iter().position(|word| word == "--login").expect("relay-chat gets --login");
-        assert_eq!(relay[at + 1], login);
-    }
-    // No --login: neither step gets one, so the app's default holds.
+fn no_login_goes_to_start_session_or_the_relay_chat() {
     let mut fake = Fake::new(vec![
         signed_in(),
         started(),
@@ -263,7 +212,16 @@ fn the_login_goes_to_start_session_and_the_relay_chat() {
     let Outcome::Done(_) = run(&mut fake, &request(&["--prompt", "x", "--name", "dev"])) else {
         panic!()
     };
-    assert!(!fake.ran[1].contains(&"--login".to_owned()));
+    assert_eq!(
+        fake.ran[1],
+        strings(&["cloud", "start-session", "--name", "dev", "--agent", "claude", "--json"])
+    );
+    let mut fake = Fake::new(vec![signed_in(), made(), relayed(json!({"session_id": "r-1"}))]);
+    let Outcome::Done(_) = run(&mut fake, &request(&["--prompt", "x", "--wait"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(&fake.ran[2][..2], &strings(&["cloud", "relay-chat"]));
+    assert!(!fake.ran.iter().flatten().any(|word| word == "--login"), "{:?}", fake.ran);
 }
 
 /// A fake app: answers each step from a queue and records what ran.
@@ -501,7 +459,7 @@ fn without_wait_it_answers_once_the_prompt_is_sent() {
 fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
     for wait in [false, true] {
         let mut fake = Fake::new(vec![signed_in(), started()]);
-        let mut words = vec!["--login", "machine"];
+        let mut words = vec![];
         if wait {
             words.push("--wait");
         }
@@ -519,8 +477,6 @@ fn without_a_prompt_it_starts_the_chat_and_sends_nothing() {
                     "chat-fresh",
                     "--agent",
                     "claude",
-                    "--login",
-                    "machine",
                     "--json"
                 ]),
             ]
@@ -2112,15 +2068,7 @@ fn a_pending_start_from_a_folder_says_the_copy_may_still_run() {
 /// ArgumentActionContractTests validate against its catalog).
 pub(in crate::cli) fn contract_relay_words() -> Vec<String> {
     let mut fake = Fake::new(vec![signed_in(), made(), relayed(json!({"session_id": "relay-1"}))]);
-    let asked = request(&[
-        "--prompt",
-        "What is 2+2?",
-        "--cwd",
-        "/home/cmux/w",
-        "--login",
-        "none",
-        "--wait",
-    ]);
+    let asked = request(&["--prompt", "What is 2+2?", "--cwd", "/home/cmux/w", "--wait"]);
     let Outcome::Done(_) = run(&mut fake, &asked) else { panic!("{:?}", fake.ran) };
     let words = fake.ran[2].clone();
     assert_eq!(&words[..2], &strings(&["cloud", "relay-chat"]), "{:?}", fake.ran);
@@ -2128,44 +2076,11 @@ pub(in crate::cli) fn contract_relay_words() -> Vec<String> {
 }
 
 #[test]
-fn a_relay_login_refusal_is_the_answer_and_nothing_else_runs_or_sends() {
-    // A fresh machine with nothing inherited, and each login refusal the app types: no start-session, no exec, no send.
-    for (code, exit) in [
-        ("cloud.relay.login_refused", 1),
-        ("cloud.relay.login_missing", 1),
-        ("cloud.relay.login_declined", 1),
-        ("cloud.relay.login_failed", 1),
-        ("cloud.relay.login_pending", 75),
-        ("cloud.relay.login_account_changed", 1),
-        ("cloud.relay.login_skipped", 1),
-        ("cloud.relay.login_unverified", 1),
-        ("cloud.relay.login_team_machine", 1),
-    ] {
-        let refusal = json!({"error_code": code, "error_message": "claude on dev has no login",
-                             "delivered": false, "command": "cmux cloud start-session --target machine:vm-1 --agent claude",
-                             "login_reason": "needs-login-choice"});
-        let mut fake = Fake::new(vec![signed_in(), made(), relayed(refusal)]);
-        let asked = request(&["--prompt", "hi", "--wait"]);
-        let Outcome::Failed { error, exit: got } = run(&mut fake, &asked) else {
-            panic!("{code}: {:?}", fake.ran)
-        };
-        assert_eq!((error["code"].as_str(), got), (Some(code), exit));
-        assert_eq!(error["details"]["sent"], false);
-        assert_eq!(
-            error["details"]["command"],
-            "cmux cloud start-session --target machine:vm-1 --agent claude"
-        );
-        assert_eq!(fake.ran.len(), 3, "{code}: ran after the refusal: {:?}", fake.ran);
-        assert_eq!(fake.ran[2][1], "relay-chat");
-    }
-}
-
-#[test]
 fn a_harness_sign_in_failure_is_not_the_cmux_account_signed_out() {
     // acpmux's Cloud text for a Claude with no sign-in (claude_auth.rs `compose_cloud`) and its typed kind:
     // the machine's Claude, never the person's cmux account, so no `cmux cloud sign-in`.
     let claude = "Claude is not signed in here. This Cloud machine has no Claude sign-in (Claude home ~/.claude). \
-        Click Set up Claude Code credentials on this message to sign it in from your Mac; the message is sent again. \
+        Set one up with `cmux inference setup`, then send the message again. \
         (Claude said: Not logged in · Please run /login)";
     for error in [
         json!({"code": "cloud_start_failed", "message": claude}),
@@ -2373,7 +2288,6 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         agent: String::new(),
         cwd: None,
         from_folder: None,
-        login: None,
         environment: None,
         machine: Machine::Target("vm-1".into()),
         wait: true,
@@ -2407,7 +2321,6 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         agent: String::new(),
         cwd: None,
         from_folder: None,
-        login: None,
         environment: None,
         machine: Machine::Target("vm-1".into()),
         wait: true,

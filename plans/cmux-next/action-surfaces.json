@@ -31861,41 +31861,6 @@
     },
     {
       "args" : [
-        {
-          "kind" : "string",
-          "name" : "path",
-          "required" : false
-        }
-      ],
-      "cli" : "offered",
-      "cli_name" : "cloud transfer-local",
-      "context_menu" : "offered",
-      "context_menus" : [
-        "agentChat"
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "cloudTransferLocal",
-      "main_menu" : null,
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.cloud",
-        "order" : 110,
-        "title" : "Cloud and Account",
-        "title_key" : "category.cloud",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Transfer to This Mac",
-      "title_key" : "action.cloudTransferLocal",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "args" : [
 
       ],
       "cli" : "offered",
@@ -34732,16 +34697,6 @@
           "kind" : "string",
           "name" : "cwd",
           "required" : false
-        },
-        {
-          "kind" : "string",
-          "name" : "fromFolder",
-          "required" : false
-        },
-        {
-          "kind" : "string",
-          "name" : "login",
-          "required" : false
         }
       ],
       "cli" : "offered",
@@ -34791,11 +34746,6 @@
         {
           "kind" : "string",
           "name" : "promptId",
-          "required" : false
-        },
-        {
-          "kind" : "string",
-          "name" : "login",
           "required" : false
         }
       ],

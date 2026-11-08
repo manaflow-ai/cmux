@@ -75,7 +75,6 @@
     "cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/artifacts_sync.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/cli/cloud_join.rs:rust-duration": {"count": 2, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
-    "cmux-tui/crates/acpmux/src/cli/codex_auth_broker.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/cli/daemon_service.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/cli/gh_shim.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/acpmux/src/cli/harness.rs:rust-duration": {"count": 2, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},

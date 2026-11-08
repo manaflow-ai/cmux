@@ -1,7 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
-import CmuxNextCloudCredentials
 import CmuxNextCloudUI
 import CmuxNextControl
 import CmuxNextDaemon
@@ -41,7 +40,6 @@ struct CloudStartSession {
         var cwd: String?
         /// A folder on this Mac (`--from-folder`) the session starts in a copy of; never with ``cwd``.
         var fromFolder: String? // nil unless given: a struct's optional var defaults to nil in its memberwise init (lint forbids `= nil`)
-        var login = CloudHarnessLoginAsk() // `--login` and whether a prompt may show (+Login); not in ``command``
 
         /// The command that asks for this again, every word as the shell reads it back.
         var command: String {
@@ -50,7 +48,6 @@ struct CloudStartSession {
             words.append("--agent " + agent)
             if let cwd { words.append("--cwd " + CloudStartCore.shellQuoted(cwd)) }
             if let fromFolder { words.append("--from-folder " + CloudStartCore.shellQuoted(fromFolder)) }
-            if let choice = login.requested { words.append("--login " + choice.rawValue) }
             return words.joined(separator: " ")
         }
 
@@ -86,14 +83,6 @@ struct CloudStartSession {
     /// or one naming the agent chat that sent it.
     static func isAgent(_ invocation: ActionInvocation) -> Bool {
         CloudMoveAsks.isAgent(invocation) || CloudHandlers.origin(of: invocation) == .mcp
-    }
-
-    /// Whether the run is the person's own, the only kind whose `--login` is kept or counts as their
-    /// consent: a gesture in this app (``ActionInvocation/isPersonsOwnRun``, so never the control
-    /// socket claiming `user`). A CLI run is never one: an agent in a terminal looks like the person
-    /// there, so a terminal's `--login pass` counts only when the person chose pass in cmux.
-    static func isPersons(_ invocation: ActionInvocation) -> Bool {
-        CloudHandlers.origin(of: invocation) == .user && invocation.isPersonsOwnRun
     }
 
     /// An agent's run: a card in its own chat, and only the person's Start starts anything.
@@ -210,9 +199,7 @@ struct CloudStartSession {
         }
         let machineID = invocation.target.flatMap { $0.kind == .machine ? $0.id : nil }
         let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespaces)
-        let login: CloudHarnessLoginAsk
-        do { login = try .init(word: invocation["login"]?.stringValue, agent: !isPersons(invocation), prompts: isPersons(invocation)) } catch { throw ActionFailure(message: CloudStartSessionStrings.loginInvalid) }
-        return Request(machineID: machineID, name: name?.isEmpty == false ? name : nil, agent: agent, cwd: cwd, fromFolder: try Self.fromFolder(invocation, cwd: cwd), login: login)
+        return Request(machineID: machineID, name: name?.isEmpty == false ? name : nil, agent: agent, cwd: cwd, fromFolder: try Self.fromFolder(invocation, cwd: cwd))
     }
 
     /// Takes or creates the machine, connects, opens the chat's tab there and starts the session.
@@ -239,10 +226,7 @@ struct CloudStartSession {
         if let local = request.fromFolder { try await Self.requireOwned(session); copy = try await copied(local, to: session, request, account: account) } // a teammate's would keep the copy
         let cwd = copy?.chat ?? request.cwd
         try still(name)
-        try await passHarnessLogin(session, agent: agent, login: request.login) { try still(name) }
-        if let refusal = session.harnessLogin?.refusal {
-            throw ActionFailure(message: CloudStartSessionStrings.loginRefused(Self.loginRefusal(refusal), request.asked(machine: name)))
-        }
+        // No login step: the machine's agents reach models through its edge, and nothing is copied to it.
         guard let host = AgentTabStore.registryHost(of: session.daemon) else {
             throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
         }
@@ -431,12 +415,6 @@ struct CloudStartSession {
         guard up else { throw failure() }
     }
 
-    /// The machine takes the person's harness login before the session starts, as a composer start's does (+Login).
-    /// The login may wait on a confirm: `still` checks the asking account after it, as after every wait.
-    func passHarnessLogin(_ session: CloudMachineSession, agent: String, login: CloudHarnessLoginAsk = .init(), still: () throws -> Void) async throws {
-        _ = await CloudStartChat(services: services).passHarnessLogin(harness: agent, machine: session, codexPrompt: false, ask: login) // a scripted run never waits on a device code
-        try still()
-    }
     /// `--from-folder`, checked before anything starts: absolute, no `--cwd`, never home or a credential folder. Any origin, as `cloudFileWrite` (which writes any file there) takes any.
     static func fromFolder(_ invocation: ActionInvocation, cwd: String?, home: String = NSHomeDirectory()) throws -> String? {
         guard let text = invocation["fromFolder"]?.stringValue?.trimmingCharacters(in: .whitespaces), !text.isEmpty else { return nil }
@@ -498,6 +476,6 @@ extension CloudStartRunKey {
     /// The run of `request` asked by chat `caller` (nil: a person's or a script's) in `account`.
     init(_ request: CloudStartSession.Request, caller: String?, account: [String?]) {
         self.init(machine: request.machineID.map { "id:" + $0 } ?? "name:" + (request.name ?? ""), agent: request.agent, cwd: request.cwd,
-                  caller: caller, account: account, login: request.login.requested?.rawValue, fromFolder: request.fromFolder)
+                  caller: caller, account: account, fromFolder: request.fromFolder)
     }
 }
