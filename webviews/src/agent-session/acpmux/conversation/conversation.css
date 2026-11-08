@@ -5312,6 +5312,16 @@ a.cv-sha:focus-visible {
   [data-send-entrance="slide"] .acpmux-user.acpmux-row--message-enter .cv-user__bubble {
     animation-name: cv-send-slide;
   }
+  /* Sent from the latest row, the composer's prompt moves into this row as its entrance
+     (conversation/sendMorph.ts; Leo 2026-11-08, ask-157340f908: "the transformation applies
+     whatever's in your composer into your depicted message"): the row draws whole when it lands,
+     with no fade or opening of its own after it. */
+  .acpmux-user.acpmux-row--message-enter[data-send-morphed] .acpmux-row__message-presentation,
+  .acpmux-user.acpmux-row--message-enter[data-send-morphed] .cv-user__bubble,
+  .acpmux-user.acpmux-row--message-enter[data-send-morphed] .cv-user__bubble > *,
+  .acpmux-user.acpmux-row--message-enter[data-send-morphed] .cv-user .cv-enter {
+    animation: none;
+  }
   [data-send-entrance="fade"] .acpmux-user.acpmux-row--message-enter .cv-user__bubble,
   :is([data-send-entrance="grow"], [data-send-entrance="slide"], [data-send-entrance="fade"])
     .acpmux-user.acpmux-row--message-enter

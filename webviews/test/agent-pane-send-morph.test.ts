@@ -31,10 +31,9 @@ type Frame = {
   preview?: Box & { shown: boolean; ink: number };
 };
 
-const LINE = "what is this sidebar doing";
-
 await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
   setDefaultTimeout(300_000);
+  const LINE = "what is this sidebar doing";
   try {
     await (await chromium.launch({ headless: true })).close();
   } catch {
@@ -271,8 +270,24 @@ await requireBrowserLane("agent-pane-send-morph.test.ts", async () => {
         undefined,
         { timeout: 10_000 },
       );
-      // The reader's scroll settles before the send.
-      await page.waitForTimeout(500);
+      // The reader's scroll settles before the send: the same place for ten frames in a row.
+      await page.evaluate(
+        () =>
+          new Promise<void>((resolve) => {
+            const node = document.querySelector(".acpmux-scroll")!;
+            let last = -1;
+            let still = 0;
+            // raf-read: waits for the scroll to rest, a painted-frame condition.
+            const tick = () => {
+              still = node.scrollTop === last ? still + 1 : 0;
+              last = node.scrollTop;
+              if (still >= 10) return resolve();
+              // raf-read: the scroll's rest is the condition (above).
+              requestAnimationFrame(tick);
+            };
+            requestAnimationFrame(tick);
+          }),
+      );
       await compose(page);
       await watch(page, 900);
       await page.keyboard.press("Enter");

@@ -146,6 +146,7 @@ import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
 import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
+import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
 import { composerHoldsDraft } from "./conversation/wakeFolds";
 import {
   emojiMatches,
@@ -1607,7 +1608,11 @@ function ComposerFrame({
     // (composer/pasteMarks.ts); a slash command's text stays the command.
     const marked = isCommand ? placed : markPastes(placed, box.current?.pastes() ?? []);
     const sent = marked.attachments;
+    // What the composer draws of the prompt as it goes: sent from the latest row, it becomes the
+    // sent message from there (conversation/sendMorph.ts).
+    noteSendOrigins(sent, composerBox.current);
     const taken = onSend(marked.text, sent, steer, kept);
+    if (taken === false || taken instanceof Promise) keepSendOrigins();
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
