@@ -2465,7 +2465,10 @@ function measuredRowHeight(
     const line = lineRow();
     // Shut, its first line sits under the sender (stacked look); a tool's notice keeps its title
     // on the line (IncomingMessageCard.tsx).
-    if (!messageOpened(sessionId, row.id)) return finish(line + messagePreviewLine(!row.incoming.message.notice));
+    // A preview-only inbox thread's line (rows/MessageRow.tsx `inboxThread`) keeps its open state
+    // under its thread's key (inboxNotice.ts `inboxThreadKey`), which the digest's head opens too.
+    const openKey = row.inboxThread ? inboxThreadKey(row.id, row.inboxThread.threadId) : row.id;
+    if (!messageOpened(sessionId, openKey)) return finish(line + messagePreviewLine(!row.incoming.message.notice));
     const { lineHeight } = metrics();
     const text = row.incoming.message.text;
     if (receivedPrepared.size > 256) receivedPrepared.clear();
