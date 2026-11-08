@@ -69,6 +69,7 @@ public final class DebugFrameProbe {
         clear()
         client.activate()
         WakeupLedger.shared.setTurnTracing(true)
+        turnLog.watchEvents(true)
         watchMainRunLoop()
         expiry.schedule(after: Self.maximumRun) { @MainActor [weak self] in self?.stop() }
     }
@@ -76,6 +77,7 @@ public final class DebugFrameProbe {
     private func stop() {
         client.deactivate()
         WakeupLedger.shared.setTurnTracing(false)
+        turnLog.watchEvents(false)
         layouts.stop()
         expiry.cancel()
         for observer in observers { CFRunLoopObserverInvalidate(observer) }

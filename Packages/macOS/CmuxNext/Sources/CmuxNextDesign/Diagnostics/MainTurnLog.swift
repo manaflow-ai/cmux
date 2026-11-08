@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextWakeups
 import QuartzCore
 
@@ -10,10 +11,22 @@ struct MainTurnLog {
     private var ticks: [Double] = []
     private var origin: CFTimeInterval = 0
     private var counts = (view: 0, window: 0)
+    /// Marks each mouse event of a turn ("event:<type>") as AppKit dispatches it: a local monitor while recording.
+    private var events: Any?
 
-init() {}
+    init() {}
 
-mutating func reset(origin: CFTimeInterval) {
+    mutating func watchEvents(_ on: Bool) {
+        if let events { NSEvent.removeMonitor(events) }
+        events = nil
+        guard on else { return }
+        events = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp, .mouseMoved]) { event in
+            WakeupLedger.shared.turnMark("event:\(event.type.rawValue)")
+            return event
+        }
+    }
+
+    mutating func reset(origin: CFTimeInterval) {
         turns.removeAll(keepingCapacity: true)
         ticks.removeAll(keepingCapacity: true)
         self.origin = origin
@@ -22,12 +35,12 @@ mutating func reset(origin: CFTimeInterval) {
     }
 
     /// The main run loop woke.
-mutating func woke() {
+    mutating func woke() {
         counts = (LayoutPassGuard.shared.viewLayoutCalls, LayoutPassGuard.shared.windowLayoutPasses)
     }
 
     /// The main run loop goes to sleep: the turn's record.
-mutating func ended(woke: CFTimeInterval, mainEnd: CFTimeInterval?, end: CFTimeInterval) {
+    mutating func ended(woke: CFTimeInterval, mainEnd: CFTimeInterval?, end: CFTimeInterval) {
         let guardian = LayoutPassGuard.shared
         let tags = WakeupLedger.shared.takeTurnTags()
         defer { counts = (guardian.viewLayoutCalls, guardian.windowLayoutPasses) }
@@ -37,11 +50,11 @@ mutating func ended(woke: CFTimeInterval, mainEnd: CFTimeInterval?, end: CFTimeI
     }
 
     /// A frame tick ran on main at `now`.
-mutating func ticked(at now: CFTimeInterval) {
+    mutating func ticked(at now: CFTimeInterval) {
         if ticks.count < Self.capacity { ticks.append(ms(now - origin)) }
     }
 
-var report: [String: Any] { ["turns": turns, "tick_ms": ticks] }
+    var report: [String: Any] { ["turns": turns, "tick_ms": ticks] }
 
     private func ms(_ seconds: CFTimeInterval) -> Double { (seconds * 1_000_000).rounded() / 1_000 }
 }
