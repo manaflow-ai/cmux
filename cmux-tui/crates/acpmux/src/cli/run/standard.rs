@@ -811,12 +811,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let sent = async move {
                 let client = before_deadline(deadline, &session, connect(true)).await?;
                 if announce {
-                    let current = crate::cli::sender::own_session_name(&client).await;
-                    let shown = crate::cli::sender::sending_as_this_process(
-                        prompt_id.from_agent.as_deref(),
-                        current.as_deref(),
-                    );
-                    if let Some(shown) = shown {
+                    let named = prompt_id.from_agent.as_deref();
+                    if let Some(shown) = crate::cli::sender::sending_as_on(&client, named).await {
                         eprintln!("sending as {shown}");
                     }
                 }

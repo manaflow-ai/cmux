@@ -73,29 +73,30 @@ fn subagent_in(env: impl Fn(&str) -> Option<String>) -> Option<Subagent> {
         .then(|| Subagent { kind: kind.to_owned(), id: id.to_owned() })
 }
 
-/// What `acpmux send` prints as `sending as …` for an agent's send: the session its caller token
-/// proves (and the subagent in it), or the name it gave, which proves nothing. `None` for the
-/// person's own send. `current` is the session's name as the daemon has it now
-/// ([`own_session_name`]): `ACPMUX_SESSION_NAME` is the name when its agent started, and a
-/// session named after its start (`acpmux run -n`, a rename) has another one now.
-pub fn sending_as_this_process(named: Option<&str>, current: Option<&str>) -> Option<String> {
-    sending_as(|key| std::env::var(key).ok(), named, current)
-}
-
-/// This process's session's name as the daemon on `client` has it, or None when it runs in no
-/// session or the daemon does not answer within two seconds.
-pub async fn own_session_name(client: &crate::client::Client) -> Option<String> {
+/// What `acpmux send` prints as `sending as …` for an agent's send on `client`: the session its
+/// caller token proved at initialize, by its name as the daemon has it now
+/// (`ACPMUX_SESSION_NAME` is the name when its agent started; `acpmux run -n` and a rename change
+/// it), and the subagent in it; a token this daemon does not know; or the name it gave, which
+/// proves nothing. `None` for the person's own send.
+pub async fn sending_as_on(client: &crate::client::Client, named: Option<&str>) -> Option<String> {
     let env = |key: &str| std::env::var(key).ok();
     if !in_session(env) {
-        return None;
+        return sending_as(env, named, None);
     }
-    let id = env("ACPMUX_SESSION_ID")?.trim().to_owned();
+    let Some(id) = client.proven_caller_session() else {
+        return Some(UNPROVEN.to_owned());
+    };
     let params = serde_json::json!({"sessionId": id});
     let ask = client.request(crate::rpc::method::MUX_INFO, params);
-    let info = tokio::time::timeout(std::time::Duration::from_secs(2), ask).await.ok()?.ok()?;
-    let name = info.get("name").and_then(serde_json::Value::as_str)?;
-    (!name.is_empty()).then(|| name.to_owned())
+    let info = tokio::time::timeout(std::time::Duration::from_secs(2), ask).await;
+    let current = info.ok().and_then(Result::ok);
+    let current = current.as_ref().and_then(|i| i.get("name")).and_then(serde_json::Value::as_str);
+    sending_as(env, named, current.filter(|n| !n.is_empty()))
 }
+
+/// `sending as` for a session whose caller token the daemon did not prove.
+const UNPROVEN: &str = "no proven session: this daemon does not know this session's caller token, \
+    so the receiver cannot tell who sent it (`acpmux session restart @` gives the agent a new one)";
 
 fn sending_as(
     env: impl Fn(&str) -> Option<String>,
