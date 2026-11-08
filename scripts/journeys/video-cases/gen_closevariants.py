@@ -46,15 +46,17 @@ PROGRAMS = {
 }
 
 
-def film(name, variant, ms, curve, closed):
-    return [X.focus(closed), {"do": "rpc", "method": "debug.frames", "params": {"action": f"close_variant {variant} {ms} {curve}"},
+def film(name, variant, ms, curve, closed, survivors=()):
+    texts = lambda tag: [{"do": "cv_text", "pane": p, "film": name, "tag": f"{tag}{i}", "title": f"screen text of {p} ({tag})"}
+                         for i, p in enumerate(survivors)]
+    return texts("before") + [X.focus(closed), {"do": "rpc", "method": "debug.frames", "params": {"action": f"close_variant {variant} {ms} {curve}"},
                               "title": f"film selector: {variant} {ms} ms {curve}"},
             G.settle(0.8),
             {"do": "video_start", "name": name, "seconds": 5.0, "mbps": 24, "rows": [], "columns": [], "require_hz": 120,
              "lead": 0.8, "title": f"start the 120 Hz movie {name}"},
             G.settle(0.4),
             {"do": "cp_close", "film": name, "i": 0, "key": "w", "modifiers": ["cmd"], "rest": 1.4, "title": f"Cmd-W ({name})"},
-            G.kit_record_stop(name, 0.3)]
+            G.kit_record_stop(name, 0.3)] + texts("after")
 
 
 def scen_s1(prog, variants, ms, curve):
@@ -68,7 +70,7 @@ def scen_s1(prog, variants, ms, curve):
         name = f"cv-s1-{prog}-{v.lower()}-{ms}{'' if curve == 'bezier' else '-' + curve}"
         left = f"{sv}-l{v}"
         steps += [X.focus(sv), {"do": "action", "action": "splitLeft", "title": f"set-up: splitLeft ({left})"},
-                  {"do": "adopt_pane", "as": left}, G.settle(1.0)] + film(name, v, ms, curve, left)
+                  {"do": "adopt_pane", "as": left}, G.settle(1.0)] + film(name, v, ms, curve, left, (sv,))
         films.append({"film": name, "scenario": "S1", "program": prog, "mode": mode, "variant": v, "ms": ms, "curve": curve})
     return steps, films, 10 + (12 if prog == "claude" else 4) + 11.5 * len(variants)
 
@@ -85,7 +87,7 @@ def scen_s3(variants, ms, curve):
         name = f"cv-s3-mix-{v.lower()}-{ms}{'' if curve == 'bezier' else '-' + curve}"
         mid = f"s3-m{v}"
         steps += [X.focus(a), {"do": "action", "action": "splitRight", "title": f"set-up: splitRight ({mid}, the middle)"},
-                  {"do": "adopt_pane", "as": mid}, G.settle(1.0)] + film(name, v, ms, curve, mid)
+                  {"do": "adopt_pane", "as": mid}, G.settle(1.0)] + film(name, v, ms, curve, mid, (a, b))
         films.append({"film": name, "scenario": "S3", "program": "nvim+zsh", "mode": "ALT+MAIN", "variant": v, "ms": ms, "curve": curve})
     return steps, films, 20 + 11.5 * len(variants)
 
@@ -111,7 +113,7 @@ def journey(jid, parts):
     check = [{"do": "type", "text": "echo cv-ready-${nonce}", "enter": True, "mark": "ready"},
              {"do": "expect", "title": "set-up check: the app types", "since": "ready", "timeout": 10,
               "all": [{"daemon_line": "cv-ready-${nonce}"}, {"app_text_line": "cv-ready-${nonce}"}, {"frame_text": "cv-ready-${nonce}"}]}]
-    steps = G.first_pane(jid, False) + check + [X.fixture_settings()] + FILES
+    steps = G.first_pane(jid, False) + check + [X.fixture_settings()] + X.fixture_files() + FILES
     est, films = 45.0, []
     for s, f, sec in parts:
         steps += s
