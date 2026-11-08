@@ -1041,41 +1041,6 @@
           "aliases": []
         },
         {
-          "id": "home.showHideChiefFromAnyApp",
-          "title": {
-            "en": "Show/Hide Chief from Any App",
-            "ar": "إظهار/إخفاء Chief من أي تطبيق",
-            "bs": "Prikaži/sakrij Chief iz bilo koje aplikacije",
-            "da": "Vis/skjul Chief fra enhver app",
-            "de": "Chief aus jeder App ein-/ausblenden",
-            "es": "Mostrar/ocultar Chief desde cualquier app",
-            "fr": "Afficher/masquer Chief depuis n’importe quelle app",
-            "it": "Mostra/nascondi Chief da qualsiasi app",
-            "ja": "任意のアプリから Chief を表示/非表示",
-            "km": "បង្ហាញ/លាក់ Chief ពីកម្មវិធីណាមួយ",
-            "ko": "모든 앱에서 Chief 보기/숨기기",
-            "no": "Vis/skjul Chief fra hvilken som helst app",
-            "pl": "Pokaż/ukryj Chief z dowolnej aplikacji",
-            "pt-BR": "Mostrar/ocultar o Chief de qualquer app",
-            "ru": "Показать/скрыть Chief из любого приложения",
-            "th": "แสดง/ซ่อน Chief จากแอปใดก็ได้",
-            "tr": "Chief'i herhangi bir uygulamadan göster/gizle",
-            "uk": "Показати/сховати Chief з будь-якого застосунку",
-            "vi": "Hiện/ẩn Chief từ mọi ứng dụng",
-            "zh-CN": "从任意 App 显示/隐藏 Chief",
-            "zh-TW": "從任何 App 顯示/隱藏 Chief"
-          },
-          "shortcut": {
-            "key": " ",
-            "modifiers": [
-              "opt",
-              "shift"
-            ]
-          },
-          "chord": null,
-          "aliases": []
-        },
-        {
           "id": "focusHistoryBack",
           "title": {
             "en": "Go Back",

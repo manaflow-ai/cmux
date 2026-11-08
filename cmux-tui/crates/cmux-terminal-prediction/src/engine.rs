@@ -922,7 +922,13 @@ impl TerminalPredictionEngine {
         if !sending_keystroke {
             self.mark_opaque_echo(now);
         }
-        self.withdraw_entries(counting_misprediction, now, sending_keystroke)
+        let changed = self.withdraw_entries(counting_misprediction, now, sending_keystroke);
+        if !sending_keystroke && self.untracked_echo_deadline.is_none() {
+            // Nothing was in flight (only held confirmations, or nothing), so
+            // no window opened for the entries; opacity only acts inside one.
+            self.untracked_echo_deadline = self.opaque_echo_until;
+        }
+        changed
     }
 
     /// [`Self::withdraw_all`] without marking what follows opaque, for output

@@ -254,11 +254,8 @@ impl App {
         if let Some(d) = self.draft_mut() {
             d.errors.push(e);
         } else if let Some(id) = self.selected_id() {
-            self.transcripts
-                .entry(id)
-                .or_default()
-                .items
-                .push(crate::transcript::Item::Error { text: e });
+            // A paging transcript: an empty attach keeps this one, and it must still page.
+            self.transcripts.entry(id).or_insert_with(Transcript::paging).push_local_error(e);
         }
     }
 

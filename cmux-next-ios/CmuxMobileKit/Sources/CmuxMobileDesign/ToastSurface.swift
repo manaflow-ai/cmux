@@ -45,13 +45,13 @@ private struct ToastDismissModifier: ViewModifier {
                     .onChanged { drag = $0.translation }
                     .onEnded { value in
                         if rule.dismisses(translation: value.translation, predictedEnd: value.predictedEndTranslation) {
-                            withAnimation(.spring(duration: 0.25, bounce: 0)) {
+                            withAnimation(.spring(duration: 0.25, bounce: 0).unlessReduceMotion) {
                                 drag = rule.exitOffset(for: value.translation, size: size)
                                 leaving = true
                             }
                             onDismiss()
                         } else {
-                            withAnimation(.spring(duration: 0.35, bounce: 0.3)) { drag = .zero }
+                            withAnimation(.spring(duration: 0.35, bounce: 0.3).unlessReduceMotion) { drag = .zero }
                         }
                     }
             )

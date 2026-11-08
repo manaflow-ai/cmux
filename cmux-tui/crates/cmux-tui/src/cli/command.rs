@@ -1173,7 +1173,10 @@ fn parse_terminal(
             if let Some(lines) = flags.take("lines") {
                 insert_bounded_u32(&mut params, "lines", "--lines", lines, 1, 10_000)?;
             }
+            // Plain screen text unless --details asks for the record's fields (W3-H).
+            let details = flags.boolean("details");
             request(ResourceOperation::TerminalScreenRead, selectors, flags, params)
+                .map(|plan| if details { plan } else { plan.screen_text() })
         }
         [selector, "state", "read"] => {
             selectors.insert("terminal", "term", selector)?;
