@@ -73,7 +73,9 @@ public final class TerminalSurfaceView: NSView {
     func reportFinalGrid(_ grid: TerminalGridSize) {
         defer { updateReflowPreview() }
         #if DEBUG || CMUX_BENCH_HOOKS
-        frameOwnership.filmSnapGrid = nil
+        // CLOSE VARIANTS V6 (film only): the close owns the survivor's grid from this send to the landing at it, so the
+        // growth's layout passes send nothing more (1 SIGWINCH). Any other selection: a newer final grid ends a snap's.
+        frameOwnership.filmSnapGrid = DesignSettings.shared.filmClose.growsAndFades ? grid : nil
         #endif
         guard surface != nil, let report = geometry.finalSized(grid) else { return }
         gridReports.now(report)
