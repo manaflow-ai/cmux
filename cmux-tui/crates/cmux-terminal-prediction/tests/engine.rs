@@ -1025,3 +1025,30 @@ fn an_erase_the_remote_never_sends_is_withdrawn() {
     session.engine.tick(session.clock);
     assert_eq!(session.drawn(), "");
 }
+
+#[test]
+fn steady_typing_after_backspace_predicts_again_within_a_round_trip() {
+    // Backspace over echoed text withdraws, and output stays untracked for
+    // two round trips. Keys typed in that window used to push it out again,
+    // so typing faster than one key per two round trips never predicted
+    // until a pause. They are now tracked, and the first one's echo closes
+    // the window. Every echo here comes 100 ms after its key.
+    let mut session = Session::new();
+    for key in ["l", "s", "a", "b"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(100));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("\x7f", ms(100));
+    session.type_key_after("c", ms(50));
+    assert_eq!(session.drawn(), "");
+    session.remote_after("\x08\x1b[K", ms(50));
+    session.type_key_after("d", ms(0));
+    assert_eq!(session.drawn(), "");
+    session.remote_after("c", ms(50));
+    session.type_key_after("e", ms(0));
+    session.remote_after("d", ms(50));
+    session.type_key_after("f", ms(0));
+    session.engine.presented_frame(session.clock);
+    assert!(session.drawn().ends_with('f'), "drawn {:?}", session.drawn());
+}
