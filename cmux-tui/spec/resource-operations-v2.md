@@ -13,8 +13,8 @@ session aggregation and provider lifecycle require a later broker protocol.
 
 | Class | Count | Semantics |
 | --- | ---: | --- |
-| `read` | 107 | Reads state and forbids an idempotency key |
-| `mutation` | 235 | Requires an idempotency key and returns a mutation result |
+| `read` | 106 | Reads state and forbids an idempotency key |
+| `mutation` | 230 | Requires an idempotency key and returns a mutation result |
 | `stream_open` | 6 | Opens a connection-owned typed stream |
 | `connection_control` | 13 | Changes only connection-local state |
 
