@@ -16,11 +16,45 @@ const breakdown: AcpmuxTimeBreakdown = {
     { id: "model", wallMs: 150_000, tokens: 500 },
   ],
   spans: [
-    { turnSeq: 1, turnId: "turn-read", category: "read", startAt: 0, endAt: 180_000, tokens: 1_200 },
-    { turnSeq: 1, turnId: "turn-think", category: "think", startAt: 180_000, endAt: 600_000, tokens: 8_900 },
-    { turnSeq: 1, turnId: "turn-run", category: "run", startAt: 600_000, endAt: 1_920_000, tokens: 7_000 },
-    { turnSeq: 1, turnId: "turn-you", category: "person", startAt: 1_920_000, endAt: 2_460_000 },
-    { turnSeq: 2, turnId: "turn-edit", category: "edit", startAt: 2_460_000, endAt: 2_550_000, tokens: 800 },
+    {
+      turnSeq: 1,
+      turnId: "turn-read",
+      category: "read",
+      startAt: 0,
+      endAt: 180_000,
+      tokens: 1_200,
+    },
+    {
+      turnSeq: 1,
+      turnId: "turn-think",
+      category: "think",
+      startAt: 180_000,
+      endAt: 600_000,
+      tokens: 8_900,
+    },
+    {
+      turnSeq: 1,
+      turnId: "turn-run",
+      category: "run",
+      startAt: 600_000,
+      endAt: 1_920_000,
+      tokens: 7_000,
+    },
+    {
+      turnSeq: 1,
+      turnId: "turn-you",
+      category: "person",
+      startAt: 1_920_000,
+      endAt: 2_460_000,
+    },
+    {
+      turnSeq: 2,
+      turnId: "turn-edit",
+      category: "edit",
+      startAt: 2_460_000,
+      endAt: 2_550_000,
+      tokens: 800,
+    },
   ],
 };
 
@@ -36,14 +70,29 @@ export default componentEntry<{ look: TimeBreakdownLook }>({
     "agent-session/acpmux/session-info/TimeBreakdown.css",
     "agent-session/acpmux/session-info/UsageSection.tsx",
   ],
-  load: async () => ({ look }: { look: TimeBreakdownLook }) => (
-    <div className="acpmux-shell" style={{ padding: 16 }}>
-      <TimeBreakdown breakdown={breakdown} look={look} onShowTurn={(turnId) => console.info("reveal", turnId)} />
-    </div>
-  ),
+  load:
+    async () =>
+    ({ look }: { look: TimeBreakdownLook }) => (
+      <div className="acpmux-shell" style={{ padding: 16 }}>
+        <TimeBreakdown
+          breakdown={breakdown}
+          look={look}
+          onShowTurn={(turnId) => console.info("reveal", turnId)}
+        />
+      </div>
+    ),
   variants: {
-    stacked: { note: "Picked: one compact timeline; each segment is a turn target.", props: { look: "stacked" } },
-    lanes: { note: "Comparison: one lane per activity category makes parallel work easy to scan.", props: { look: "lanes" } },
-    totals: { note: "Comparison: totals-first rows answer where the wall clock went at a glance.", props: { look: "totals" } },
+    stacked: {
+      note: "Picked: one compact timeline; each segment is a turn target.",
+      props: { look: "stacked" },
+    },
+    lanes: {
+      note: "Comparison: one lane per activity category makes parallel work easy to scan.",
+      props: { look: "lanes" },
+    },
+    totals: {
+      note: "Comparison: totals-first rows answer where the wall clock went at a glance.",
+      props: { look: "totals" },
+    },
   },
 });

@@ -131,6 +131,8 @@ export type NativeSessionInfoProps = {
   onReconnectMcp?: (server: string) => Promise<unknown>;
   onOpenFolder?: (path: string) => void;
   onShowCall?: (toolCallId: string) => boolean;
+  /// Reserved for the web Session Info timeline's turn navigation; native hosts may ignore it.
+  onShowTurn?: (turnId: string) => void;
 };
 
 /// Sends the model when it changes, coalesced to a frame; withdraws it when the chat's panel goes.
