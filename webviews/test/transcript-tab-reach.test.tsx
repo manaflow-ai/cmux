@@ -64,10 +64,16 @@ let turnTop: Record<string, number> = {};
 const BOXES: Record<string, { top: number; height: number }> = {
   header: { top: 10, height: 24 },
   composer: { top: 640, height: 40 },
+  // A plain scroller, for the region test below.
+  region: { top: 40, height: 600 },
+  // A control inside text collapsed to no height (a sent message's preview before it opens), in view.
+  collapsed: { top: 300, height: 0 },
 };
 win.HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
   const own = BOXES[this.id];
   if (own) return new win.DOMRect(40, own.top, 200, own.height);
+  // The transcript's scroller: the view between the header and the composer.
+  if (this.classList.contains("acpmux-scroll")) return new win.DOMRect(0, 40, 760, 600);
   // The thread minimap's ticks stand on its rail at the pane's edge, always in view.
   if (this.classList.contains("acpmux-minimap__tick")) {
     const ticks = [...win.document.querySelectorAll(".acpmux-minimap__tick")];
@@ -93,6 +99,7 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { turnView } = await import("../src/agent-session/acpmux/conversation/turns");
+const { keepTabOnScreen } = await import("../src/ui/tabReach");
 
 afterEach(() => {
   win.document.getElementById("root")!.replaceChildren();
@@ -211,5 +218,25 @@ test("Tab past the last control in view leaves the transcript instead of scrolli
     expect(focused()).toBe("composer");
   } finally {
     await act(async () => root.unmount());
+  }
+});
+
+test("Tab still reaches a control in view inside text that opens on focus", () => {
+  // A sent message's preview is collapsed to no height until focus enters it; its code controls
+  // have no box yet, but they are in view, and the browser's Tab into them opens the text
+  // (message-preview-browser.test.ts). Only a stop scrolled out of the view is passed over.
+  const doc = win.document;
+  const host = doc.getElementById("root")!;
+  host.innerHTML =
+    '<button id="header" type="button">Header</button>' +
+    '<div id="region"><div style="max-height:0;overflow:hidden"><button id="collapsed" type="button">Copy</button></div></div>' +
+    '<textarea id="composer" aria-label="Message"></textarea>';
+  const stop = keepTabOnScreen(doc.getElementById("region")!);
+  try {
+    act(() => doc.getElementById("header")!.focus());
+    press(false);
+    expect(focused()).toBe("collapsed");
+  } finally {
+    stop();
   }
 });
