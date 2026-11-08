@@ -564,6 +564,8 @@ export function NewTabScreen(props: Props) {
   // into a chat: a draft put aside here comes back on any New Tab, never in a chat it was not
   // written for. The location the page opens with is a suggestion, not a draft: never stashed.
   const stashChat = NEW_TAB_STASH;
+  const touchedRef = useRef(touched);
+  touchedRef.current = touched;
   const {
     stashed,
     unstash,
@@ -571,7 +573,7 @@ export function NewTabScreen(props: Props) {
   } = useDraftStash(stashChat, {
     held: () => {
       const value = field.current?.value() ?? text;
-      return { text: value === untouchedText.current ? "" : value, attachments: attachmentsRef.current };
+      return { text: touchedRef.current ? value : "", attachments: attachmentsRef.current };
     },
     clear: () => {
       if (!field.current?.type("")) setText("");
@@ -582,7 +584,7 @@ export function NewTabScreen(props: Props) {
       touch();
       setTouched(true);
       const typed = field.current?.value() ?? text;
-      const next = !typed.trim() || typed === untouchedText.current ? restoredText : `${restoredText}\n\n${typed}`;
+      const next = !typed.trim() || !touchedRef.current ? restoredText : `${restoredText}\n\n${typed}`;
       // The editor parses tokens as it takes the text: their chips are known first.
       attachmentsRef.current = [
         ...restoredAttachments,
