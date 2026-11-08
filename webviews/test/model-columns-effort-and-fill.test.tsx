@@ -5,8 +5,8 @@
 // - An effort pick, for Codex (`reasoning_effort`) and Claude Code (`effort`), sends the session's own
 //   option id and moves the Effort column's check to the picked level.
 // - The menu takes the model menu's legible fill (modelPicker.css: the --surface-text-min tint and the
-//   40% veil on the App's glass). Before, only the list menu (.acpmux-quick-menu) had it, so the
-//   columns menu drew as a plain popover and the composer and its chips read through its rows.
+//   menus' frost). Before, only the list menu (.acpmux-quick-menu) had it, so the columns menu drew as
+//   a plain popover (70% tint) and the composer and its chips read through its rows.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -175,7 +175,7 @@ for (const entry of harnesses)
     expect(sent.filter((line) => line.startsWith("model="))).toEqual([]);
   });
 
-test("the columns menu takes the model menu's legible fill, on the page's glass and on the App's", async () => {
+test("the columns menu takes the model menu's legible fill", async () => {
   await renderPicker(harnesses[0], []);
   const popup = menus()[0]!;
   expect(popup.matches(".ui-popup.ui-glass")).toBe(true);
@@ -191,7 +191,5 @@ test("the columns menu takes the model menu's legible fill, on the page's glass 
   // The fill a translucent surface that carries text keeps, and the menus' frost.
   expect(applies("--glass-tint", /--surface-text-min/)).toBe(true);
   expect(applies("--glass-backdrop", /--ds-glass-menu-blur/)).toBe(true);
-  // The veil of the theme surface it lays on the App's glass.
-  expect(applies("--host-glass-fill", /var\(--glass-surface\) 40%/)).toBe(true);
   style.remove();
 });

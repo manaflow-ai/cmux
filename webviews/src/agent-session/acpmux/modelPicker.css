@@ -27,12 +27,12 @@
    actually glass"): the chat under it blurs in place and the page lays a 40% veil of the theme surface
    on the App's glass, so the rows still never read the chat through them (gallery ui.host-glass
    model-*: 0% let the wallpaper's color into the row text, 70% read as solid again). */
-/* The model button's columns menu (.acpmux-cols, QuickModelColumns.tsx) is this same menu: without
-   these rules it drew as a plain popover, 70% tint and a clear fill on the App's glass, and the
-   composer and its chips under it read through its rows (https://github.com/manaflow-ai/cmux/issues/38173). */
-.ui-popup.ui-glass:is(.acpmux-quick-menu, .acpmux-cols) {
+.ui-popup.ui-glass.acpmux-quick-menu {
   --host-glass-fill: color-mix(in srgb, var(--glass-surface) 40%, transparent);
 }
+/* The model button's columns menu (.acpmux-cols, QuickModelColumns.tsx) is the same menu and keeps
+   the same fill: as a plain popover (70% tint) the composer and its chips under it read through its
+   rows (https://github.com/manaflow-ai/cmux/issues/38173). */
 .ui-popup.ui-glass:is(.acpmux-quick-menu, .acpmux-cols),
 :root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) .ui-popup.ui-glass:is(.acpmux-quick-menu, .acpmux-cols) {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--surface-text-min, 92%), transparent);
