@@ -698,9 +698,8 @@ fn the_history_lock_is_held_when_the_barrier_opens() {
         return;
     };
     let real = String::from_utf8_lossy(&real.stdout).trim().to_owned();
-    let slow = format!(
-        "#!/bin/sh\ncase \"$*\" in *--unshallow*) sleep 2 ;; esac\nexec '{real}' \"$@\"\n"
-    );
+    let slow =
+        format!("#!/bin/sh\ncase \"$*\" in *--unshallow*) sleep 2 ;; esac\nexec '{real}' \"$@\"\n");
     std::fs::write(machine.0.join("bin/git"), slow).unwrap();
     machine.cmux(
         "#!/bin/sh\n[ \"$1 $2\" = \"repo hold\" ] || exit 2\n[ \"$3\" = --help ] && exit 0\n\
