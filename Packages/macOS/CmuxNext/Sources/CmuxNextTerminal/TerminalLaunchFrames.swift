@@ -471,31 +471,29 @@ public final class TerminalLaunchFrames {
     /// Every saved frame in `directory`, decoded, with its point size and scale, by tab key (for each
     /// key the first scale a save may have written).
     private nonisolated static func readAll(in directory: URL, _ reader: LaunchFileReader) -> [String: Frame] {
-        // Saved frames only: files a killed write left (`<key>@1x.png.sb-<id>`) never take a slot. One file per key and
-        // scale: a key has one, except when a keeper write that lost the race to a quit's save landed at the other
-        // extension, and then the newer is the one written last, as one name would have kept it. Then the cap, so it
-        // never cuts the newer file of a pair.
-        var chosen: [String: String] = [:]
+        // Saved frames only: files a killed write left (`<key>@1x.png.sb-<id>`) never take a slot. A key has one file per
+        // scale, except when a keeper write that lost the race to a quit's save landed at the other extension: then the
+        // newer is the one written last, as one name would have kept it, and the older is the fallback when the newer does
+        // not decode. The cap counts keys and scales, so it never cuts the newer file of a pair.
+        var files: [String: [String]] = [:]
         for name in (try? FileManager.checked.contentsOfDirectory(atPath: directory.path)) ?? [] where owner(of: name) != nil {
-            let stem = String(name.dropLast(".png".count))
-            guard let held = chosen[stem] else {
-                chosen[stem] = name
-                continue
-            }
-            func modified(_ file: String) -> Date {
-                (try? FileManager.checked.attributesOfItem(atPath: directory.appending(path: file).path))?[.modificationDate] as? Date ?? .distantPast
-            }
-            if modified(name) > modified(held) { chosen[stem] = name }
+            files[String(name.dropLast(".png".count)), default: []].append(name)
         }
-        let names = Set(chosen.values.sorted().prefix(maximumFiles))
+        func modified(_ file: String) -> Date {
+            (try? FileManager.checked.attributesOfItem(atPath: directory.appending(path: file).path))?[.modificationDate] as? Date ?? .distantPast
+        }
+        let stems = Set(files.keys.sorted().prefix(maximumFiles))
         var frames: [String: Frame] = [:]
-        for (scale, ext) in [2, 1, 3].flatMap({ scale in fileExtensions.map { (scale, $0) } }) {
-            let suffix = "@\(scale)x.\(ext)"
-            for name in names where name.hasSuffix(suffix) {
-                let key = String(name.dropLast(suffix.count))
-                guard frames[key] == nil, isFileSafe(key),
-                      let frame = reader.image(at: directory.appending(path: name), maximumBytes: maximumBytes) else { continue }
-                frames[key] = Frame(image: frame, size: NSSize(width: CGFloat(frame.width) / CGFloat(scale), height: CGFloat(frame.height) / CGFloat(scale)), scale: scale)
+        for scale in [2, 1, 3] {
+            let suffix = "@\(scale)x"
+            for stem in stems where stem.hasSuffix(suffix) {
+                let key = String(stem.dropLast(suffix.count))
+                guard frames[key] == nil, isFileSafe(key), let names = files[stem] else { continue }
+                for name in names.count < 2 ? names : names.sorted(by: { modified($0) > modified($1) }) {
+                    guard let frame = reader.image(at: directory.appending(path: name), maximumBytes: maximumBytes) else { continue }
+                    frames[key] = Frame(image: frame, size: NSSize(width: CGFloat(frame.width) / CGFloat(scale), height: CGFloat(frame.height) / CGFloat(scale)), scale: scale)
+                    break
+                }
             }
         }
         return frames
