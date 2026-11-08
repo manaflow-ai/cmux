@@ -862,3 +862,25 @@ test("Escape on a hover-opened preview closes the preview, not the card", async 
     expect(ops).toContain("cmux.changelog.surface.dismiss");
   });
 });
+
+// Review F2 of #38332: a click on a row opens What's New under the row's area, so the list must file
+// each change where the page does: a curated change by its title, else by what its summary adds; a
+// commit by its subject's label. Every shipped nightly's rows agree with the page's.
+test("the preview files each change under the area What's New files it", async () => {
+  const { sheetRows } = await import("../src/pages/changelog/SheetPage");
+  const { mergedView } = await import("../src/pages/changelog/model");
+  const nightlies = (await import("../src/pages/changelog/fixtures/nightly-next-50.json")).default as ReleaseNotes[];
+  let compared = 0;
+  const mismatches: string[] = [];
+  for (const build of nightlies) {
+    const page = new Map(sheetRows(mergedView([build], "en")).map((row) => [row.title, row.area]));
+    for (const row of previewEntries(data, [build], "en")) {
+      if (!page.has(row.title)) continue;
+      compared++;
+      if (page.get(row.title) !== row.area)
+        mismatches.push(`${build.build}: ${row.title} (${row.area} vs ${page.get(row.title)})`);
+    }
+  }
+  expect(compared).toBeGreaterThan(50);
+  expect(mismatches).toEqual([]);
+});

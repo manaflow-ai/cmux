@@ -470,6 +470,12 @@
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+/* Open, the list holds the height the preview opened to: a row that expands in place (data-peek)
+   scrolls the list rather than growing past the preview's top, where it would be clipped (review F1
+   of #38332). Closed, the list keeps its natural height, which is what the preview opens to. */
+.wn-updated[data-preview="open"] .wn-preview-list {
+  max-height: min(var(--wn-preview-max, 300px), var(--wn-preview-h, 300px));
+}
 /* An area: its header, then its rows. The header holds at the list's top while its rows scroll under
    it, so the list always says which part of the app the rows below it change (Leo 2026-11-08: "the
    sections should be more obvious what's what"). Its glyph, name and count are What's New's own

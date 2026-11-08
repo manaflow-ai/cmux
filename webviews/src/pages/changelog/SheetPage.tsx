@@ -381,7 +381,7 @@ export function sheetRows(view: ReleaseView, _strings?: Strings): SheetRow[] {
         category: item.category,
         title: item.title,
         line,
-        area: areaOf(item.title) ?? (line ? areaOf(line) : undefined),
+        area: curatedArea(item.title, item.summary),
         pr: publicPullNumber(item.pr) ?? pulls.get(words(item.title)),
       };
     });
@@ -404,6 +404,13 @@ function words(text: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .replace(/^(?:the|a|an) /, "");
+}
+
+/** A curated change's app area as What's New files it: what its title names, else what its
+    summary's first paragraph adds (the Updated card's list groups by the same rule). */
+export function curatedArea(title: string, summary: string | undefined): AreaKey | undefined {
+  const line = addedLine(title, summary ? firstParagraph(summary) : undefined);
+  return areaOf(title) ?? (line ? areaOf(line) : undefined);
 }
 
 /** What `line` says beyond `title`: undefined when it only repeats it ("Host pressure warning is

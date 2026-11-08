@@ -6,8 +6,9 @@
 //
 // This file holds the parts with no DOM: the rows the preview lists, and the hover intent that
 // decides when it opens and closes.
-import { areaOf, byArea, type AreaKey } from "./areas";
+import { areaOf, byArea, subjectArea, type AreaKey } from "./areas";
 import { changeItems, echoKey, mergedView, readableChanges, readableUpdate } from "./model";
+import { curatedArea } from "./SheetPage";
 import type { ReleaseNotes, WhatsNewCategory } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
 import { GENERIC_ENTRY_ID, hasCuratedChanges, isGenericEntry, isGenericWhatsNewEntry } from "./updateSummary";
@@ -63,13 +64,27 @@ export function previewEntries(
     const view = mergedView(span.map(withoutGenericEntry), language);
     const items = [...(view.hero ? [view.hero] : []), ...view.groups.flatMap((group) => group.items)];
     for (const item of items)
-      add({ id: item.id, title: item.title, detail: item.summary || undefined, category: item.category });
+      add({
+        id: item.id,
+        title: item.title,
+        detail: item.summary || undefined,
+        category: item.category,
+        area: curatedArea(item.title, item.summary),
+      });
     // A build with no reviewed entries reads its commits' readable titles, as the card's summary
     // does; one with reviewed entries reads those alone (#37615 F4).
     for (const build of span) {
       if (hasCuratedChanges(build)) continue;
-      readableChanges(changeItems(build)).changes.forEach((change, index) =>
-        add({ id: `${build.build}-${index}`, title: change.title, detail: change.description || undefined }),
+      // Each change's area from its commit subject, before the subject reads as a title, as the
+      // page files it (model.ts pageChanges; review F2 of #38332).
+      const items = changeItems(build).map((item) => ({ ...item, area: subjectArea(item.title) }));
+      readableChanges(items).changes.forEach((change, index) =>
+        add({
+          id: `${build.build}-${index}`,
+          title: change.title,
+          detail: change.description || undefined,
+          area: change.area,
+        }),
       );
     }
     if (rows.length > 0) return rows;
