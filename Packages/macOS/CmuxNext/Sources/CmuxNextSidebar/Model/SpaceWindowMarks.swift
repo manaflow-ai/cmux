@@ -88,12 +88,22 @@ extension SpaceWindowMarks {
         restartObservation()
     }
 
+    /// The window closed (`SidebarBridge.teardown`): stops the observation and drops the source for good, so a reused or
+    /// retained bar never observes again. A retained window keeps its views, so `isActive` alone may never turn off.
+    public func tearDown() {
+        perform = nil
+        source = nil
+        windowID = nil
+        restartObservation()
+    }
+
     /// Observes the windows while the bar is in a window and `install` has given a source; cancels otherwise.
     private func restartObservation() {
         observation?.cancel()
         observation = nil
         guard isActive, let source, let windowID else { return }
-        // task-owner: `observation`, cancelled when the bar leaves its window (`isActive`); event-driven (Observation)
+        // task-owner: `observation`, cancelled when the bar leaves its window (`isActive`) or the window closes (`tearDown`);
+        // event-driven (Observation)
         observation = Task { [weak self, weak source] in
             for await value in ObservationStream({ () -> ([ProfileKey: SpaceElsewhere], Bool)? in
                 guard let source else { return nil }
