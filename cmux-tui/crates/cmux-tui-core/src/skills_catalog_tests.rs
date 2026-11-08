@@ -70,7 +70,11 @@ fn lists_every_harness_and_scope() {
     )
     .unwrap();
     skill(&f.env.home.join(".agents/skills"), "fmt", &front("fmt", "Format"));
-    skill(&f.env.codex_dir.join("skills/.system"), "skill-creator", &front("skill-creator", "Make one"));
+    skill(
+        &f.env.codex_dir.join("skills/.system"),
+        "skill-creator",
+        &front("skill-creator", "Make one"),
+    );
     skill(&f.env.codex_admin, "policy", &front("policy", "Org rules"));
     skill(&f.project.join(".agents/skills"), "test", &front("test", "Run tests"));
     // Not skills: a file, a folder without SKILL.md, a hidden folder.
@@ -79,7 +83,10 @@ fn lists_every_harness_and_scope() {
     skill(&f.env.claude_dir.join("skills"), ".hidden", &front("hidden", "No"));
 
     let projects = projects_of(&f);
-    assert_eq!(projects, vec![Project { root: f.project.to_string_lossy().into(), name: "app".into() }]);
+    assert_eq!(
+        projects,
+        vec![Project { root: f.project.to_string_lossy().into(), name: "app".into() }]
+    );
     let listed = list(&f.env, &projects);
     let rows: Vec<(Harness, Scope, &str)> =
         listed.iter().map(|s| (s.harness, s.scope, s.name.as_str())).collect();
@@ -102,7 +109,10 @@ fn lists_every_harness_and_scope() {
     assert!(review.enabled);
     let lint = listed.iter().find(|s| s.name == "lint").unwrap();
     assert_eq!(lint.project.as_deref(), Some(f.project.to_str().unwrap()));
-    assert_eq!(lint.id, format!("claude:{}", f.project.join(".claude/skills/lint/SKILL.md").display()));
+    assert_eq!(
+        lint.id,
+        format!("claude:{}", f.project.join(".claude/skills/lint/SKILL.md").display())
+    );
     assert_eq!(lint.description, "Lint the app");
 }
 
@@ -110,10 +120,22 @@ fn lists_every_harness_and_scope() {
 fn reads_frontmatter_forms_and_names_problems() {
     let f = fixture();
     let folder = f.env.claude_dir.join("skills");
-    skill(&folder, "quoted", "---\nname: \"quoted\"\ndescription: 'It''s fine' # not a comment inside\n---\n");
-    skill(&folder, "folded", "---\ndescription: >\n  One line\n  and more.\nallowed-tools:\n  - Bash\n---\n");
+    skill(
+        &folder,
+        "quoted",
+        "---\nname: \"quoted\"\ndescription: 'It''s fine' # not a comment inside\n---\n",
+    );
+    skill(
+        &folder,
+        "folded",
+        "---\ndescription: >\n  One line\n  and more.\nallowed-tools:\n  - Bash\n---\n",
+    );
     skill(&folder, "literal", "---\ndescription: |\n  First\n  Second\n---\n");
-    skill(&folder, "plain-multi", "---\ndescription: Starts here\n  and goes on\nname: plain-multi\n---\n");
+    skill(
+        &folder,
+        "plain-multi",
+        "---\ndescription: Starts here\n  and goes on\nname: plain-multi\n---\n",
+    );
     skill(&folder, "bare", "# No frontmatter\n");
     skill(&folder, "nodesc", "---\nname: nodesc\n---\n");
     let listed = list(&f.env, &[]);
@@ -173,9 +195,10 @@ fn a_project_skill_toggles_in_the_local_file_and_wins_over_the_shared_one() {
     assert!(on.enabled);
     // The repo's shared file is the team's: never written.
     assert_eq!(fs::read_to_string(&shared).unwrap(), "{\"skillOverrides\": {\"lint\": \"off\"}}");
-    let local: Value =
-        serde_json::from_str(&fs::read_to_string(f.project.join(".claude/settings.local.json")).unwrap())
-            .unwrap();
+    let local: Value = serde_json::from_str(
+        &fs::read_to_string(f.project.join(".claude/settings.local.json")).unwrap(),
+    )
+    .unwrap();
     assert_eq!(local, json!({"skillOverrides": {"lint": "on"}}));
 }
 
@@ -184,7 +207,11 @@ fn a_partial_mode_counts_as_on_and_is_reported() {
     let f = fixture();
     skill(&f.env.claude_dir.join("skills"), "ctx", &front("ctx", "Context"));
     fs::create_dir_all(&f.env.claude_dir).unwrap();
-    fs::write(f.env.claude_dir.join("settings.json"), "{\"skillOverrides\":{\"ctx\":\"name-only\"}}").unwrap();
+    fs::write(
+        f.env.claude_dir.join("settings.json"),
+        "{\"skillOverrides\":{\"ctx\":\"name-only\"}}",
+    )
+    .unwrap();
     let row = list(&f.env, &[]).remove(0);
     assert!(row.enabled);
     assert_eq!(row.mode.as_deref(), Some("name-only"));
@@ -203,7 +230,8 @@ fn plugin_toggle_flips_enabled_plugins() {
     let id = list(&f.env, &[])[0].id.clone();
     assert!(!set_enabled(&f.env, &[], &id, false).unwrap().enabled);
     let settings: Value =
-        serde_json::from_str(&fs::read_to_string(f.env.claude_dir.join("settings.json")).unwrap()).unwrap();
+        serde_json::from_str(&fs::read_to_string(f.env.claude_dir.join("settings.json")).unwrap())
+            .unwrap();
     assert_eq!(settings, json!({"enabledPlugins": {"p@m": false}}));
     assert!(set_enabled(&f.env, &[], &id, true).unwrap().enabled);
 }
@@ -232,8 +260,11 @@ fn codex_enabling_over_a_name_rule_appends_a_path_rule() {
     let f = fixture();
     skill(&f.env.home.join(".agents/skills"), "fmt", &front("fmt", "Format"));
     fs::create_dir_all(&f.env.codex_dir).unwrap();
-    fs::write(f.env.codex_dir.join("config.toml"), "[[skills.config]]\nname = \"fmt\"\nenabled = false\n")
-        .unwrap();
+    fs::write(
+        f.env.codex_dir.join("config.toml"),
+        "[[skills.config]]\nname = \"fmt\"\nenabled = false\n",
+    )
+    .unwrap();
     let row = list(&f.env, &[]).remove(0);
     assert!(!row.enabled);
     assert!(set_enabled(&f.env, &[], &row.id, true).unwrap().enabled);
@@ -281,14 +312,19 @@ fn create_scaffolds_and_refuses_bad_names_and_replacements() {
     assert_eq!(made.problem, None);
     let text = fs::read_to_string(&made.file).unwrap();
     assert!(text.starts_with("---\nname: ship-it\ndescription: \"Use when \\\"shipping\\\": the steps\"\n---\n\n# Ship It\n"), "{text}");
-    let codex = create(&f.env, &projects, &new("codex", "project", Some(&f.project), "check")).unwrap();
+    let codex =
+        create(&f.env, &projects, &new("codex", "project", Some(&f.project), "check")).unwrap();
     assert_eq!(codex.file, f.project.join(".agents/skills/check/SKILL.md").to_string_lossy());
     assert_eq!(
         create(&f.env, &projects, &new("claude", "user", None, "ship-it")).unwrap_err(),
         SkillsError::Exists
     );
     for bad in ["", "Ship", "a_b", "-a", "a--b", "a/b", "../x", &"a".repeat(65)] {
-        assert_eq!(create(&f.env, &projects, &new("claude", "user", None, bad)).unwrap_err(), SkillsError::BadName, "{bad}");
+        assert_eq!(
+            create(&f.env, &projects, &new("claude", "user", None, bad)).unwrap_err(),
+            SkillsError::BadName,
+            "{bad}"
+        );
     }
     // Only a listed project, and only the two harnesses.
     let elsewhere = f.env.home.join("other");
@@ -297,7 +333,10 @@ fn create_scaffolds_and_refuses_bad_names_and_replacements() {
         create(&f.env, &projects, &new("claude", "project", Some(&elsewhere), "x")).unwrap_err(),
         SkillsError::BadScope
     );
-    assert_eq!(create(&f.env, &projects, &new("gemini", "user", None, "x")).unwrap_err(), SkillsError::BadScope);
+    assert_eq!(
+        create(&f.env, &projects, &new("gemini", "user", None, "x")).unwrap_err(),
+        SkillsError::BadScope
+    );
     let mut multi = new("claude", "user", None, "y");
     multi.description = "two\nlines".into();
     assert_eq!(create(&f.env, &projects, &multi).unwrap_err(), SkillsError::BadDescription);
@@ -310,7 +349,14 @@ fn project_roots_stop_at_home_and_dedupe() {
     let loose = home.join("scratch");
     fs::create_dir_all(&loose).unwrap();
     let roots = projects(
-        [f.project.join("a/b"), f.project.clone(), home.clone(), PathBuf::from("/"), loose.clone(), PathBuf::from("rel")],
+        [
+            f.project.join("a/b"),
+            f.project.clone(),
+            home.clone(),
+            PathBuf::from("/"),
+            loose.clone(),
+            PathBuf::from("rel"),
+        ],
         home,
     );
     let roots: Vec<&str> = roots.iter().map(|p| p.root.as_str()).collect();

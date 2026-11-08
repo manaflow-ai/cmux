@@ -37,10 +37,7 @@ enum Command {
         projects: Option<Vec<String>>,
     },
     #[serde(rename = "skills-set-enabled")]
-    SetEnabled {
-        skill_id: String,
-        enabled: bool,
-    },
+    SetEnabled { skill_id: String, enabled: bool },
     #[serde(rename = "skills-create")]
     Create {
         harness: String,
@@ -52,9 +49,7 @@ enum Command {
         description: String,
     },
     #[serde(rename = "skills-locate")]
-    Locate {
-        skill_id: String,
-    },
+    Locate { skill_id: String },
 }
 
 pub(super) fn try_handle(
@@ -88,7 +83,9 @@ fn answer(mux: &Mux, env: &SkillsEnv, command: Command) -> Result<Value, &'stati
     match command {
         Command::List { projects } => {
             let projects = match projects {
-                Some(folders) => catalog::projects(folders.into_iter().map(PathBuf::from), &env.home),
+                Some(folders) => {
+                    catalog::projects(folders.into_iter().map(PathBuf::from), &env.home)
+                }
                 None => terminal_projects(mux, env),
             };
             Ok(catalog::list_reply(env, &projects))

@@ -9,14 +9,23 @@ use super::*;
 use crate::SurfaceOptions;
 use crate::server::{BoundedOutbound, ClientTransport, QueuedSink};
 
-fn connection(mux: &Arc<Mux>, transport: ClientTransport) -> (u64, Arc<BoundedOutbound>, MessageWriter) {
+fn connection(
+    mux: &Arc<Mux>,
+    transport: ClientTransport,
+) -> (u64, Arc<BoundedOutbound>, MessageWriter) {
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
     let client = mux.control_clients.register(transport, writer.clone());
     (client, outbound, writer)
 }
 
-fn reply_to(mux: &Arc<Mux>, client: u64, writer: &MessageWriter, out: &BoundedOutbound, request: Value) -> Value {
+fn reply_to(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    out: &BoundedOutbound,
+    request: Value,
+) -> Value {
     assert_eq!(try_handle(mux, client, &request.to_string(), writer), Some(true));
     serde_json::from_str(&out.try_pop().expect("reply")).unwrap()
 }
@@ -65,10 +74,16 @@ fn the_skill_is_named_by_skill_id_and_the_envelope_id_is_the_request() {
     // `skill_id` names the skill: an unlisted one is not found, answered under the request's id.
     let set = json!({"cmd": "skills-set-enabled", "id": 7, "skill_id": "claude:/nowhere/SKILL.md", "enabled": false});
     let reply = reply_to(&mux, client, &writer, &out, set);
-    assert_eq!((reply["id"].clone(), reply["error_code"].clone()), (json!(7), json!("skills.not_found")));
+    assert_eq!(
+        (reply["id"].clone(), reply["error_code"].clone()),
+        (json!(7), json!("skills.not_found"))
+    );
     let locate = json!({"cmd": "skills-locate", "id": 8, "skill_id": "codex:/nowhere/SKILL.md"});
     let reply = reply_to(&mux, client, &writer, &out, locate);
-    assert_eq!((reply["id"].clone(), reply["error_code"].clone()), (json!(8), json!("skills.not_found")));
+    assert_eq!(
+        (reply["id"].clone(), reply["error_code"].clone()),
+        (json!(8), json!("skills.not_found"))
+    );
     // Without `skill_id` (the envelope's `id` is never the skill): a bad request.
     for line in [
         json!({"cmd": "skills-locate", "id": 9}),
@@ -84,8 +99,14 @@ fn the_skill_is_named_by_skill_id_and_the_envelope_id_is_the_request() {
 fn other_commands_are_left_to_the_next_handler() {
     let mux = Mux::new_for_test("skills-others", SurfaceOptions::default());
     let (client, _out, writer) = connection(&mux, ClientTransport::Unix);
-    assert_eq!(try_handle(&mux, client, &json!({"id": 1, "cmd": "identify"}).to_string(), &writer), None);
-    assert_eq!(try_handle(&mux, client, r#"{"id":2,"cmd":"apps-list","x":"skills-"}"#, &writer), None);
+    assert_eq!(
+        try_handle(&mux, client, &json!({"id": 1, "cmd": "identify"}).to_string(), &writer),
+        None
+    );
+    assert_eq!(
+        try_handle(&mux, client, r#"{"id":2,"cmd":"apps-list","x":"skills-"}"#, &writer),
+        None
+    );
 }
 
 #[test]
@@ -98,7 +119,8 @@ fn list_toggle_locate_and_create_answer_through_the_wire_shapes() {
     fs::create_dir_all(&dir).unwrap();
     fs::write(dir.join("SKILL.md"), "---\nname: deploy\ndescription: Ship it\n---\n").unwrap();
 
-    let list = answer(&mux, &env, command(json!({"cmd": "skills-list", "projects": [project]}))).unwrap();
+    let list =
+        answer(&mux, &env, command(json!({"cmd": "skills-list", "projects": [project]}))).unwrap();
     assert_eq!(list["projects"], json!([{"root": project, "name": "app"}]));
     let skill = &list["skills"][0];
     assert_eq!(skill["name"], "deploy");
@@ -111,12 +133,15 @@ fn list_toggle_locate_and_create_answer_through_the_wire_shapes() {
     let off = answer(
         &mux,
         &env,
-        command(json!({"cmd": "skills-set-enabled", "id": 3, "skill_id": skill_id, "enabled": false})),
+        command(
+            json!({"cmd": "skills-set-enabled", "id": 3, "skill_id": skill_id, "enabled": false}),
+        ),
     )
     .unwrap();
     assert_eq!(off["skill"]["enabled"], false);
     let located =
-        answer(&mux, &env, command(json!({"cmd": "skills-locate", "id": 4, "skill_id": skill_id}))).unwrap();
+        answer(&mux, &env, command(json!({"cmd": "skills-locate", "id": 4, "skill_id": skill_id})))
+            .unwrap();
     assert_eq!(located["file"], json!(dir.join("SKILL.md")));
     assert_eq!(located["dir"], json!(dir));
 

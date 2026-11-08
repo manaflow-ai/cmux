@@ -34,8 +34,8 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
-use serde_json::{Map, Value, json};
 use serde_json::value::RawValue;
+use serde_json::{Map, Value, json};
 
 /// The most entries one skills folder contributes.
 pub(crate) const MAX_ENTRIES_PER_FOLDER: usize = 500;
@@ -243,7 +243,11 @@ pub(crate) fn list(env: &SkillsEnv, projects: &[Project]) -> Vec<Skill> {
     for project in projects {
         let overrides = Overrides::claude(env, Some(Path::new(&project.root)));
         let folder = Path::new(&project.root).join(".claude/skills");
-        scan(&mut skills, &folder, Base::claude(Scope::Project, Some(&project.root), None, &overrides));
+        scan(
+            &mut skills,
+            &folder,
+            Base::claude(Scope::Project, Some(&project.root), None, &overrides),
+        );
     }
     let enabled_plugins = enabled_plugins(&env.claude_settings());
     for (plugin, install) in installed_plugins(&env.claude_dir) {
@@ -372,8 +376,7 @@ pub(crate) fn create(
         return Err(SkillsError::BadName);
     }
     let description = new.description.trim();
-    if description.chars().count() > MAX_DESCRIPTION
-        || description.chars().any(|c| c.is_control())
+    if description.chars().count() > MAX_DESCRIPTION || description.chars().any(|c| c.is_control())
     {
         return Err(SkillsError::BadDescription);
     }
@@ -508,7 +511,11 @@ fn describe(dir: &Path, file: &Path, size: u64, base: &Base<'_>) -> Skill {
     let (enabled, toggle, mode) = match &base.state {
         State::Claude(overrides) => {
             let mode = overrides.mode(&name);
-            (mode.as_deref() != Some("off"), Some(Toggle::Skill), mode.filter(|m| m != "off" && m != "on"))
+            (
+                mode.as_deref() != Some("off"),
+                Some(Toggle::Skill),
+                mode.filter(|m| m != "off" && m != "on"),
+            )
         }
         State::Plugin(on) => (*on, Some(Toggle::Plugin), None),
         State::Codex(rules) => (rules.enabled(file, &name), Some(Toggle::Skill), None),
@@ -736,9 +743,11 @@ fn edit_json(
     } else {
         parse_ordered(&text).ok_or(SkillsError::SettingsUnreadable)?
     };
-    let before: Vec<(String, String)> = top.iter().map(|(k, v)| (k.clone(), v.get().to_owned())).collect();
+    let before: Vec<(String, String)> =
+        top.iter().map(|(k, v)| (k.clone(), v.get().to_owned())).collect();
     edit(&mut top)?;
-    let after: Vec<(String, String)> = top.iter().map(|(k, v)| (k.clone(), v.get().to_owned())).collect();
+    let after: Vec<(String, String)> =
+        top.iter().map(|(k, v)| (k.clone(), v.get().to_owned())).collect();
     if before == after {
         return Ok(());
     }
@@ -755,7 +764,10 @@ fn parse_ordered(text: &str) -> Option<Vec<(String, Box<RawValue>)>> {
                 fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                     f.write_str("a JSON object")
                 }
-                fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Ordered, A::Error> {
+                fn visit_map<A: serde::de::MapAccess<'de>>(
+                    self,
+                    mut map: A,
+                ) -> Result<Ordered, A::Error> {
                     let mut out: Vec<(String, Box<RawValue>)> = Vec::new();
                     while let Some((key, value)) = map.next_entry::<String, Box<RawValue>>()? {
                         // A repeated key: the last one wins, where the first one stood.
@@ -871,7 +883,8 @@ enum CodexSelector {
 
 impl CodexRules {
     fn read(file: &Path) -> Self {
-        let Some(doc) = fs::read_to_string(file).ok().and_then(|t| t.parse::<toml_edit::DocumentMut>().ok())
+        let Some(doc) =
+            fs::read_to_string(file).ok().and_then(|t| t.parse::<toml_edit::DocumentMut>().ok())
         else {
             return Self(Vec::new());
         };
@@ -925,7 +938,8 @@ fn edit_codex_rules(file: &Path, skill: &str, enabled: Option<bool>) -> Result<(
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(_) => return Err(SkillsError::SettingsUnreadable),
     };
-    let mut doc = text.parse::<toml_edit::DocumentMut>().map_err(|_| SkillsError::SettingsUnreadable)?;
+    let mut doc =
+        text.parse::<toml_edit::DocumentMut>().map_err(|_| SkillsError::SettingsUnreadable)?;
     let skill_path = Path::new(skill);
     let mine = |path: Option<&str>| path.is_some_and(|p| same_file(Path::new(p), skill_path));
     let mut changed = false;
