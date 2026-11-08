@@ -50,7 +50,9 @@ import Testing
             settle()
         }
 
+        /// As `WindowController.teardown` closes a shell window: the overlay layer's teardown (its catcher panels) first.
         func close() {
+            window.overlayLayer.teardown()
             if page.parent === window { window.removeChildWindow(page) }
             page.close()
             window.close()
