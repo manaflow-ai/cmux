@@ -45,6 +45,14 @@ const PROSE =
 const YES_NO = `${PROSE}\n\n[outward] Should I add a hook that pushes known-slow commands to the background? It applies to every lane.`;
 const CHOICES = `${PROSE}\n\n[taste] Which fix first?\n- Add the hook\n- Not now\n- Fix CI`;
 
+// The reply above the card at the transcript's own text size, so the card can be read against it.
+const PROSE_STYLE = {
+  margin: 0,
+  color: "var(--agent-text)",
+  fontSize: "var(--text-content)",
+  lineHeight: "var(--text-content--line-height)",
+} as const;
+
 function NextStepInPane({ look, text, reply, palette }: Props) {
   const ask = nextStepAsk(text)!;
   return (
@@ -59,7 +67,7 @@ function NextStepInPane({ look, text, reply, palette }: Props) {
         ...(palette ? PALETTES[palette] : {}),
       }}
     >
-      <p style={{ margin: 0, color: "var(--agent-text)" }}>{ask.rest}</p>
+      <p style={PROSE_STYLE}>{ask.rest}</p>
       <NextStepCard
         ask={ask}
         answer={reply === undefined ? undefined : chosenAnswer(ask, reply)}
@@ -84,7 +92,13 @@ export default componentEntry({
   widths: { narrow: 420, normal: 640, wide: 820 },
   anchors: [{ selector: ".acpmux-next-step" }],
   covers: ["agent-session/acpmux/conversation/NextStepCard.tsx#NextStepCard"],
-  styles: () => Promise.all([import("../styles.css"), import("./NextStepCard.gallery.css")]),
+  styles: () =>
+    Promise.all([
+      import("../styles.css"),
+      import("./conversation.css"),
+      import("../chips/chips.css"),
+      import("./NextStepCard.gallery.css"),
+    ]),
   load: async () => NextStepInPane,
   variants: {
     "box-choices": variant(
