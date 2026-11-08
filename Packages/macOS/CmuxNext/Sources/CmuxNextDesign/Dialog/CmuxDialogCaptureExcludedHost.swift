@@ -1,9 +1,8 @@
 public import AppKit
-import CmuxNextCompat
 
 /// Places dialogs with another host (the shared center's, the overlay page, by default) and leaves the window that
 /// shows them out of screen capture while they show (the Passwords reveal sheet): cmux's own screen
-/// sharing and recorders leave every `.none` window out by id (``CaptureExcludedWindows``), and `NSWindow.sharingType = .none`
+/// sharing and recorders leave every `.none` window out by id (`CaptureExcludedWindows`), and `NSWindow.sharingType = .none`
 /// asks every other capture to skip it, which macOS does not guarantee for another app's ScreenCaptureKit
 /// capture (since macOS 15.4). The person still sees them on screen.
 ///
@@ -43,7 +42,6 @@ public final class CmuxDialogCaptureExcludedHost: CmuxDialogHosting {
         entry.dialogs.insert(ObjectIdentifier(dialog))
         excluded[key] = entry
         window.sharingType = .none
-        CaptureExcludedWindows.changed()
     }
 
     public func hide(_ dialog: CmuxDialogPresentation) {
@@ -55,7 +53,6 @@ public final class CmuxDialogCaptureExcludedHost: CmuxDialogHosting {
             entry.dialogs.remove(id)
             if entry.dialogs.isEmpty {
                 entry.window.sharingType = entry.sharing
-                CaptureExcludedWindows.changed()
                 Self.excluded[key] = nil
             } else {
                 Self.excluded[key] = entry

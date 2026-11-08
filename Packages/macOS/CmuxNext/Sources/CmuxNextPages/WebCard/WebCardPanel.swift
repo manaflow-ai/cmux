@@ -1,6 +1,5 @@
 public import AppKit
 public import CmuxNextDesign
-import CmuxNextCompat
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
@@ -317,8 +316,6 @@ public final class WebCardPanel: NSPanel {
         placedIn = (parent, visible)
         setFrame(place?(size, parent, visible) ?? Self.placement(size: size, over: parent, in: visible), display: false)
         if ordersFrontRegardless { orderFrontRegardless() } else { WindowActivation.show(self, intent) }
-        // Now it has a window number: cmux's running captures leave a capture-excluded card out at once.
-        if sharingType == .none { CaptureExcludedWindows.changed() }
         if intent == .raise { page.focusPage() }
         placePersonControl()
         frameChanged()

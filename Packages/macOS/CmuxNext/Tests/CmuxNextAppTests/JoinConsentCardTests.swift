@@ -213,18 +213,16 @@ import Testing
     }
 
     /// SECURITY (cmux#37286): macOS 15.4+ may capture a window with `sharingType` none, so every capture cmux
-    /// makes leaves the ask out by its window id (screen sharing, `cmux rd serve`, the recorders read
-    /// ``CaptureExcludedWindows``), and showing it tells running captures at once.
-    @Test func cmuxsOwnCapturesLeaveTheAskOutWhileItShows() async throws {
-        let heard = CaptureExcludedWindowsHeard()
-        let observation = CaptureExcludedWindows.observe { heard.lists.append($0) }
+    /// makes leaves the ask out by its window id: screen sharing, `cmux rd serve` and the recorders read
+    /// ``CaptureExcludedWindows``, which lists it while it shows.
+    @Test func cmuxsOwnCapturesLeaveTheAskOut() async throws {
         let ask = try await ask()
         let panel = ask.panel!
         let id = CGWindowID(panel.windowNumber)
         #expect(panel.isVisible && id > 0)
-        #expect(CaptureExcludedWindows.windowIDs.contains(id), "left out of cmux's captures")
-        #expect(heard.lists.contains { $0.contains(id) }, "running captures heard it when it showed")
-        withExtendedLifetime(observation) {}
+        // The window server takes the new window in its own time.
+        for _ in 0..<40 where !CaptureExcludedWindows.windowIDs().contains(id) { try await Task.sleep(for: .milliseconds(50)) }
+        #expect(CaptureExcludedWindows.windowIDs().contains(id), "left out of cmux's captures")
         panel.orderOut(nil)
     }
 
@@ -261,11 +259,6 @@ import Testing
         }
         #expect(!(directives["img-src"] ?? []).contains { $0.hasPrefix("http") }, "no remote image")
         #expect(PageDevServer.bundledOnlyPageIDs.contains(PageDescriptor.serverCards.id))
-    }
-
-    /// The lists a capture heard (every call here runs on the main thread).
-    final class CaptureExcludedWindowsHeard: @unchecked Sendable {
-        var lists: [Set<CGWindowID>] = []
     }
 
     private static let pageRoot: URL? = {

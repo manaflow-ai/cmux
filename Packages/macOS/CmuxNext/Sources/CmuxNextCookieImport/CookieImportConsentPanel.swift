@@ -218,7 +218,6 @@ final class CookieImportConsentPanel {
     private func show(on window: NSWindow) {
         parent = window
         window.addChildWindow(panel, ordered: .above)
-        CaptureExcludedWindows.changed()
         window.themeScope.adopt(panel)
         place()
         panel.arm()
