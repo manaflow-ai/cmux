@@ -381,17 +381,16 @@ export function inlineStyleFindings(rel: string, source: string): Finding[] {
   const ast = ts.createSourceFile(rel, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const findings: Finding[] = [];
   const visit = (node: ts.Node) => {
-    if (
+    const styleObject =
       ts.isJsxAttribute(node) &&
       ts.isIdentifier(node.name) &&
       node.name.text === "style" &&
       node.initializer &&
       ts.isJsxExpression(node.initializer) &&
-      node.initializer.expression &&
-      ts.isObjectLiteralExpression(unwrapExpression(node.initializer.expression))
-    ) {
-      const styleObject = unwrapExpression(node.initializer.expression);
-      if (!ts.isObjectLiteralExpression(styleObject)) return;
+      node.initializer.expression
+        ? unwrapExpression(node.initializer.expression)
+        : undefined;
+    if (styleObject && ts.isObjectLiteralExpression(styleObject)) {
       for (const prop of styleObject.properties) {
         if (!ts.isPropertyAssignment(prop)) continue;
         const name = ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name) ? prop.name.text : undefined;
