@@ -180,6 +180,12 @@ pub struct Peer {
     /// no-session answer for it is not final (`Hub::no_session_is_final`). False from the
     /// hub's `Disconnected`.
     pub rows_ready: AtomicBool,
+    /// One more than the link epoch whose session list the hub applied last (its `Connected`
+    /// notice), 0 before any: the rows are that link's ([`Self::rows_current`]).
+    rows_link: AtomicU64,
+    /// The links whose `Connected` notice is on its way to the hub, oldest first: the hub takes
+    /// one with each `Connected` it applies, so it knows which link's list that one follows.
+    listed_links: StdMutex<std::collections::VecDeque<u64>>,
     /// The WebSocket is open, handshake or not: only the handshake's own requests go out
     /// while it is open and not `connected`.
     open: AtomicBool,
@@ -264,14 +270,6 @@ pub struct Peer {
     /// take it away (`attach_hidden`).
     attached: StdMutex<HashMap<String, u64>>,
     marks: AtomicU64,
-    /// Per chat, what its attaches leave the peer's one subscription for this link streaming:
-    /// each attach sets it to its own `kinds` filter, and a prompt keeps it, so a reader that
-    /// needs every kind and finds it narrowed attaches again (`streams_every_kind`). A chat with
-    /// no entry streams every kind.
-    attach_filters: StdMutex<HashMap<String, AttachFilter>>,
-    /// Held while an attach goes into the link's queue and its filter is noted: the filter
-    /// noted last is that of the attach the peer applies last.
-    attach_order: Mutex<()>,
     /// Per attached chat, the greatest event sequence local clients have already received: a
     /// reconnect asks the peer for records after it instead of attaching with `limit: 0` (which
     /// silently loses the gap between links). A chat marked in `attached` with no cursor has no
@@ -410,6 +408,8 @@ impl Peer {
             prompts: Default::default(),
             connected: AtomicBool::new(false),
             rows_ready: AtomicBool::new(false),
+            rows_link: AtomicU64::new(0),
+            listed_links: StdMutex::new(std::collections::VecDeque::new()),
             open: AtomicBool::new(false),
             last_error: StdMutex::new(None),
             facts: StdMutex::new(carrier::LinkFacts::default()),
@@ -443,8 +443,6 @@ impl Peer {
             admitting: AtomicBool::new(false),
             attached: StdMutex::new(HashMap::new()),
             marks: AtomicU64::new(0),
-            attach_filters: StdMutex::new(HashMap::new()),
-            attach_order: Mutex::new(()),
             cursors: StdMutex::new(HashMap::new()),
             replay_highwater: StdMutex::new(HashMap::new()),
             replay_tail: StdMutex::new(HashMap::new()),
@@ -1009,6 +1007,21 @@ impl Peer {
         self.github_revoked.notify_waiters();
     }
 
+    /// The hub applied a `Connected` notice of this peer: the rows are now those its link listed
+    /// at that handshake. A notice no link queued (a test's) stands for the live link.
+    pub(crate) fn note_rows_applied(&self) {
+        let link = self.listed_links.lock_or_recover().pop_front();
+        let link = link.unwrap_or_else(|| self.link_epoch());
+        self.rows_link.store(link + 1, Ordering::SeqCst);
+    }
+
+    /// The link is ready and the hub applied the session list it sent at its own handshake, so
+    /// its notices keep the rows current. A link that dropped and came back reads false until
+    /// the new link's list is applied: until then the rows are the link before's.
+    pub fn rows_current(&self) -> bool {
+        self.ready() && self.rows_link.load(Ordering::SeqCst) == self.link_epoch() + 1
+    }
+
     /// The WebSocket is open and the handshake has not finished.
     pub fn handshaking(&self) -> bool {
         self.open.load(Ordering::SeqCst) && !self.connected.load(Ordering::SeqCst)
@@ -1060,57 +1073,6 @@ impl Peer {
         new
     }
 
-    /// True when the peer streams this daemon every kind of record of chat `id` on the live
-    /// link: an attach of it reached this link's queue, the latest one named no `kinds` filter,
-    /// and no other attach of it is on its way there. A chat marked attached whose attach never
-    /// reached this link (#38305 F1) streams nothing yet.
-    pub fn streams_every_kind(&self, id: &str) -> bool {
-        let link = self.link_epoch();
-        self.attach_filters.lock_or_recover().get(id).is_some_and(|f| {
-            f.streamed_on == Some(link) && !f.narrowed && f.coming == 0
-        })
-    }
-
-    /// Chat `id` is no longer marked attached: nothing of it streams over the link.
-    fn forget_attach_filter(&self, id: &str) {
-        let mut filters = self.attach_filters.lock_or_recover();
-        if filters.get(id).is_some_and(|f| f.coming == 0) {
-            filters.remove(id);
-        }
-    }
-
-    /// An `_acpmux/attach` of chat `id` on its way to the link: until it is in the queue (or
-    /// failed before), the chat may be about to stream only some kinds. Dropped, it is no longer
-    /// on its way.
-    fn attach_coming(&self, id: &str) -> AttachComing<'_> {
-        self.attach_filters.lock_or_recover().entry(id.to_owned()).or_default().coming += 1;
-        AttachComing { peer: self, id: id.to_owned() }
-    }
-
-    /// Chat `id`'s attach went into the queue of link `link`, under `attach_order`: the peer's
-    /// subscription for it there streams what its `kinds` filter lets through.
-    /// Answers the attach's number among the chat's queued ones ([`Self::note_attach_failed`]).
-    pub(crate) fn note_attach_queued(&self, id: &str, params: &Value, link: u64) -> u64 {
-        let every = crate::hub::EventFilter::parse(params.get("kinds")).is_ok_and(|f| f.is_all());
-        let mut filters = self.attach_filters.lock_or_recover();
-        let filter = filters.entry(id.to_owned()).or_default();
-        filter.narrowed = !every;
-        filter.streamed_on = Some(link);
-        filter.queued += 1;
-        filter.queued
-    }
-
-    /// Chat `id`'s attach number `queued` failed (the peer refused it, or it was never
-    /// answered): unless a later attach of it went into the queue since, the peer is not known
-    /// to stream anything of it.
-    fn note_attach_failed(&self, id: &str, queued: u64) {
-        if let Some(filter) = self.attach_filters.lock_or_recover().get_mut(id)
-            && filter.queued == queued
-        {
-            filter.streamed_on = None;
-        }
-    }
-
     /// Forget the replay baseline of an attachment whose first baseline request failed. The
     /// mark stays (`attach_hidden`): the next link attaches it without history, which sets a
     /// fresh baseline.
@@ -1141,7 +1103,6 @@ impl Peer {
                     let mut marks = self.attached.lock_or_recover();
                     if marks.get(id).copied() == ticket {
                         marks.remove(id);
-                        self.forget_attach_filter(id);
                     }
                 }
                 tracing::warn!(peer = %self.name, session = %id, refused, "the peer's chat was not attached, so it streams nothing until it is again: {}", e.message);
@@ -1266,10 +1227,6 @@ impl Peer {
         // or a full queue ahead of it) times out on the schedule of one the peer is slow to
         // answer, never later.
         let started = tokio::time::Instant::now();
-        let attach = (m == method::MUX_ATTACH)
-            .then(|| params.get("sessionId").and_then(Value::as_str))
-            .flatten()
-            .map(|id| (self.attach_coming(id), params.clone()));
         let turn_wait = waits_on_turn(m)
             || (m == method::MUX_DISPATCH
                 && params.get("durable").and_then(Value::as_bool) == Some(true)
@@ -1337,19 +1294,8 @@ impl Peer {
         let line = Message::request(id, m, params).bounded_line().map_err(RpcError::too_large)?;
         let tag = epoch.unwrap_or_else(|| self.link_epoch());
         let frame = Outbound { epoch: tag, key: Some(key), line };
-        // An attach goes into the queue and notes its filter under one lock, so the filter
-        // noted last is the one the peer applies last.
-        let order = if attach.is_some() { Some(self.attach_order.lock().await) } else { None };
-        let mut queued_attach = None;
         match tokio::time::timeout_at(deadline, self.out.send(frame)).await {
-            Ok(Ok(())) => {
-                if let Some((coming, params)) = attach {
-                    let queued = self.note_attach_queued(&coming.id, &params, tag);
-                    queued_attach = Some((coming.id.clone(), queued));
-                    drop(coming);
-                }
-                drop(order);
-            }
+            Ok(Ok(())) => {}
             Ok(Err(_)) => {
                 return Err(RpcError::internal(format!("peer {} connection closed", self.name)));
             }
@@ -1360,24 +1306,6 @@ impl Peer {
         // across that drop; a forwarder whose client left drops it (`server/peer_forward.rs`).
         let answer =
             if turn_wait { Ok(rx.await) } else { tokio::time::timeout_at(deadline, rx).await };
-        let result = Self::answer_result(&self.name, started, answer);
-        if let Some((id, queued)) = queued_attach
-            && result.is_err()
-        {
-            self.note_attach_failed(&id, queued);
-        }
-        result
-    }
-
-    /// A request's answer as its caller gets it.
-    fn answer_result(
-        name: &str,
-        started: tokio::time::Instant,
-        answer: Result<
-            Result<Result<Value, RpcError>, oneshot::error::RecvError>,
-            tokio::time::error::Elapsed,
-        >,
-    ) -> Result<Value, RpcError> {
         match answer {
             // A full disk the peer reports is the peer's, not this machine's (`recovery.rs`).
             // No display line of the peer's own reaches this daemon's clients, on any route that
@@ -1388,15 +1316,18 @@ impl Peer {
                     result
                 })
                 .map_err(|mut e| {
-                    crate::recovery::annotate_peer(&mut e, name);
+                    crate::recovery::annotate_peer(&mut e, &self.name);
                     if let Some(data) = e.data.as_mut() {
                         crate::hub::drop_display_lines(data);
                     }
                     e
                 }),
-            Ok(Err(_)) => Err(RpcError::internal(format!("peer {name} dropped the request"))),
+            Ok(Err(_)) => {
+                Err(RpcError::internal(format!("peer {} dropped the request", self.name)))
+            }
             Err(_) => Err(RpcError::internal(format!(
-                "peer {name} timed out after {}s",
+                "peer {} timed out after {}s",
+                self.name,
                 started.elapsed().as_secs()
             ))),
         }
@@ -1581,7 +1512,6 @@ impl Peer {
                         let mut marks = self.attached.lock_or_recover();
                         if marks.get(&sid).copied() == ticket {
                             marks.remove(&sid);
-                            self.forget_attach_filter(&sid);
                         }
                     }
                     break;
@@ -2140,6 +2070,7 @@ impl Peer {
                 "connected to {}",
                 lift_query_token(&me.url).0
             );
+            me.listed_links.lock_or_recover().push_back(link);
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
             // Several at once: a chat the peer is slow on holds up no other's stream, and a
             // link with many chats does not fill its send queue with them.
@@ -2870,39 +2801,6 @@ const EARLY_TUNNEL_FOR: Duration = Duration::from_secs(3);
 const TOKEN_REREADS: [Duration; 3] =
     [Duration::from_secs(1), Duration::from_secs(2), Duration::from_secs(4)];
 
-/// What the attaches of one chat sent on the link leave the peer streaming of it.
-#[derive(Default)]
-struct AttachFilter {
-    /// The latest attach that went into the queue named a `kinds` filter.
-    narrowed: bool,
-    /// The link epoch whose queue the latest attach went into: on any other link, nothing of
-    /// the chat streams until an attach reaches it. None again once that attach failed.
-    streamed_on: Option<u64>,
-    /// How many attaches of it went into the queue: an attach's failure clears `streamed_on`
-    /// only when no later one went in since.
-    queued: u64,
-    /// Attaches of it on their way to the queue.
-    coming: u32,
-}
-
-/// An attach on its way to the link's queue ([`Peer::attach_coming`]).
-struct AttachComing<'a> {
-    peer: &'a Peer,
-    id: String,
-}
-
-impl Drop for AttachComing<'_> {
-    fn drop(&mut self) {
-        let mut filters = self.peer.attach_filters.lock_or_recover();
-        if let Some(filter) = filters.get_mut(&self.id) {
-            filter.coming = filter.coming.saturating_sub(1);
-            if filter.coming == 0 && filter.streamed_on.is_none() {
-                filters.remove(&self.id);
-            }
-        }
-    }
-}
-
 /// One frame queued for the link: the link epoch it was admitted on, and the pending key of
 /// the request it carries (None for a notification).
 struct Outbound {
@@ -3216,10 +3114,6 @@ pub fn lift_query_token(url: &str) -> (String, Option<String>) {
     }
     (out, token)
 }
-
-#[cfg(test)]
-#[path = "peer_attach_filter_tests.rs"]
-mod attach_filter_tests;
 
 #[cfg(test)]
 #[path = "peer_attach_tests.rs"]

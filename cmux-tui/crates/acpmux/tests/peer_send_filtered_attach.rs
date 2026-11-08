@@ -1,7 +1,7 @@
 //! A send to a peer's chat after another client here attached it with a `kinds` filter (the
 //! app's tool-call watch): the link's one subscription at the peer streams only those kinds, and
-//! a prompt keeps it as it is. The send's own attach must widen it again, or the agent's reply
-//! never reaches the sender (review of #38305, P1).
+//! a prompt keeps it as it is. The send's own attach goes to the peer and widens it again, or the
+//! agent's reply would never reach the sender (review of #38305, P1).
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -117,9 +117,12 @@ async fn a_send_after_a_filtered_attachment_hears_the_agents_reply() {
     let watched = app.call(method::MUX_ATTACH, watch).await;
     assert!(watched.get("error").is_none(), "{watched}");
 
-    // `acpmux send`: it subscribes (`limit: 0`, the row will do), then prompts.
+    // `acpmux send`: it reads the chat's info from the row, subscribes (`limit: 0`), then
+    // prompts.
     let mut send = client(&a);
-    let sub = json!({"sessionId": "b/watched", "limit": 0, "row": true});
+    let info = send.call(method::MUX_INFO, json!({"sessionId": "b/watched", "row": true})).await;
+    assert!(info.get("error").is_none(), "{info}");
+    let sub = json!({"sessionId": "b/watched", "limit": 0});
     let subscribed = send.call(method::MUX_ATTACH, sub).await;
     assert!(subscribed.get("error").is_none(), "{subscribed}");
     let prompt = json!({"sessionId": "b/watched", "prompt": [{"type": "text", "text": "hello"}]});

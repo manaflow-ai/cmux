@@ -574,9 +574,10 @@ async fn forward_inner(
             }
             return Err(crate::hub::presence::peer_unsupported());
         }
-        // A read the session list's row answers (`ROW_WILL_DO`), while the link is ready: its
-        // notices keep the row as current as the peer's answer would be, one round trip sooner.
-        if m == method::MUX_INFO && row_will_do(params) && row_is_current(&peer) {
+        // A read the session list's row answers (`ROW_WILL_DO`), while the link's rows are
+        // current: its notices keep the row as current as the peer's answer would be, one round
+        // trip sooner.
+        if m == method::MUX_INFO && row_will_do(params) && peer.rows_current() {
             return Ok(Some(from_row(&row, &peer.name)));
         }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
@@ -646,25 +647,6 @@ async fn forward_inner(
                 super::view::subscribe_remote(hub, conn, &id, None);
             }
             first_attach = peer.mark_attached(&id);
-            // A subscription only (`limit: 0`) to a chat the link already streams here, every
-            // kind of record of it: this client is subscribed above, and the peer has nothing to
-            // add but its row. One another client here attached with a `kinds` filter streams
-            // only those kinds (the app's tool-call watch): this attach goes out and widens it,
-            // or a send would never hear the agent's reply.
-            if m == method::MUX_ATTACH
-                && !first_attach
-                && row_will_do(params)
-                && row_is_current(&peer)
-                && subscribes_only(params)
-                && peer.streams_every_kind(&id)
-            {
-                let mut reply =
-                    json!({"session": from_row(&row, &peer.name), "events": [], "hasMore": false});
-                reply.set("presence", crate::hub::presence::none(&id));
-                reply.set("peer", json!(peer.name));
-                reply.set(ROW_WILL_DO, json!(true));
-                return Ok(Some(reply));
-            }
             if first_attach && m != method::MUX_ATTACH {
                 // The link is not a person: only a client's own attach or view shows the chat.
                 // Its own task, so the attach the marker stands for always goes out, whoever else
@@ -1035,29 +1017,18 @@ pub(crate) fn strip_asks(hub: &Hub, peer: &str, id: &str, m: &str, result: &mut 
     }
 }
 
-/// A read's flag: the session list's row will do for its answer (an `_acpmux/info`), or it only
-/// subscribes (an `_acpmux/attach` with `limit: 0`). For a peer's chat on a ready link, this
-/// daemon answers from its mirrored row instead of asking the peer (`acpmux send` saves two
-/// round trips over the link). The answer says `row: true`. Never sent on to the peer.
+/// An `_acpmux/info`'s flag: the session list's row will do for its answer. For a peer's chat
+/// whose link's rows are current ([`crate::peer::Peer::rows_current`]), this daemon answers from
+/// its mirrored row instead of asking the peer (`acpmux send` saves a round trip over the link).
+/// The answer says `row: true`. Never sent on to the peer.
+///
+/// A send's `_acpmux/attach` still goes to the peer: attaches from several clients here share
+/// the link's one subscription at the peer and are applied there in no fixed order, so this
+/// daemon cannot know which `kinds` filter that subscription has.
 pub const ROW_WILL_DO: &str = "row";
 
 fn row_will_do(params: &Value) -> bool {
     params.get(ROW_WILL_DO).and_then(Value::as_bool) == Some(true)
-}
-
-/// The link's notices keep its rows current: it is ready, and the hub applied the session list
-/// it sent at its handshake (`rows_ready`). Until then the rows are the link before's
-/// (#38305 F2).
-fn row_is_current(peer: &crate::peer::Peer) -> bool {
-    peer.ready() && peer.rows_ready.load(std::sync::atomic::Ordering::SeqCst)
-}
-
-/// An attach that reads no records: a subscription, and the row.
-fn subscribes_only(params: &Value) -> bool {
-    let unset = |k: &str| params.get(k).is_none_or(Value::is_null);
-    params.get("limit").and_then(Value::as_u64) == Some(0)
-        && unset("afterSeq")
-        && unset("beforeSeq")
 }
 
 /// A peer chat's mirrored row as a read's answer, marked so (`ROW_WILL_DO`).
