@@ -41,7 +41,59 @@ extension CEFTab {
         return PageBackground.themeARGB(in: container)
     }
 
-    /// The committed document painted content (`CEFFirstPaintBridge`), or its
+    /// The committed document painted content (`CEFFirstPaintBridge`), or its load ended or stopped (`.loadEnd`,
+    /// `.loadingState`). None of these moments is the painted frame being on screen, so the base changes only to a
+    /// color the page itself has: the document's own background is read (`pageBackdropScript`, one read per document)
+    /// and the document settles on it, white only for a page with no background (BROWSER VIDEO F4: settling on white
+    /// at once showed the whole page area white for up to 3 frames before a dark page's first frame). The wait is
+    /// bounded (`settleReadLimit`): a renderer busy with page script settles then (as before this change), and the
+    /// later answer still applies. A failed read or the pageBackdrop tunable off settles at once as before; a
+    /// navigation in between leaves the next document to its own events.
+    func documentDidPaint() {
+        guard pastFirstRealPage, !documentSettled else { return }
+        guard BrowserResizeTunables.pageBackdrop.value, browserID != nil, !isClosed else { return documentDidSettle() }
+        let document = pageBackdropDocument
+        guard pageBackdropReading != document else {
+            // Load end or stop during the in-flight read: the page may have set its background since that read left,
+            // so one more read follows its answer (DevTools answers reads in order).
+            pageBackdropReReadOwed = true
+            return
+        }
+        pageBackdropReading = document
+        pageBackdropReReadOwed = false
+        settleTimer.schedule(after: Self.settleReadLimit) { @MainActor [weak self] in
+            guard let self, document == self.pageBackdropDocument, !self.isClosed else { return }
+            self.documentDidSettle()
+        }
+        Task { [weak self] in
+            let value = try? await self?.evaluate(Self.pageBackdropScript, world: .page, gesture: .cmux)
+            guard let self, document == self.pageBackdropDocument, !self.isClosed else { return }
+            self.settleTimer.cancel()
+            if let value, let argb = Self.backdropARGB(from: value), argb != self.pageBackdropARGB {
+                self.pageBackdropARGB = argb
+                if self.documentSettled { self.applyPageBackground() }
+            }
+            self.documentDidSettle()
+            if self.pageBackdropReReadOwed {
+                self.pageBackdropReReadOwed = false
+                self.samplePageBackdrop()
+            }
+        }
+    }
+
+    /// How long a document's first paint or load end waits for its background read before it settles anyway
+    /// (a few frames: the read is one renderer round trip when the renderer is free).
+    static let settleReadLimit: Duration = .milliseconds(100)
+
+    /// The document finished loading (`.loadEnd`): it settles through its background read (`documentDidPaint`); a
+    /// document already settled reads its background again, as load end always did (a page that sets its background
+    /// after its first paint). A read still in flight is the load-end read.
+    func documentDidFinishLoad() {
+        if documentSettled { samplePageBackdrop() }
+        documentDidPaint()
+    }
+
+    /// The committed document painted content (`documentDidPaint`), or its
     /// load ended with nothing painted: it owns the page area from now on, so
     /// the base stops standing in for it.
     func documentDidSettle() {

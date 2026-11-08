@@ -4,7 +4,8 @@ import { fireAlarm } from "./setup/alarm.ts"
 // Route tests: drive the API Worker over HTTP; restored by the unit-test lane (slice 5 deleted them by mistake).
 
 /**
- * Idle pause (state-placement.md 7 item 4; coordinator 2026-10-05): OFF by default (team policy
+ * Idle pause (state-placement.md 7 item 4; coordinator 2026-10-05), with CLOUD_IDLE_PAUSE on (auto-pause.ts;
+ * off by default since Leo, 2026-10-30, cloud-idle-backstop.test.ts): OFF by default even then (team policy
  * cloud.idlePause, default false) until Lawrence decides on auto-start. Idle counts only from the VM's
  * own activity reports (cloud.vm.status.report): no sessions and the last input or agent action older
  * than the machine's idle policy. A VM that stops reporting is unknown, never idle. The pause goes
@@ -19,6 +20,8 @@ const vmSetup = async (sub: string) => {
   const created = await op(a.session, "cloud.machine.create", { size: SIZE }, crypto.randomUUID())
   const machine = created.body.value.machine.id as string
   const stub = cloudStub(a.team)
+  // Automatic pause is off unless CLOUD_IDLE_PAUSE is "on" (auto-pause.ts; Leo, 2026-10-30): these cases turn it on.
+  await stub.fakeControl({ auto_pause: true } as never)
   const { json } = await bindFile(stub, machine)
   const key = await vmKey()
   const bound = await post("/v1/cloud/bind", undefined, { team: a.team, machine, bind_token: json.bind_token, wg_public_key: WG_KEY, daemon: DAEMON, install_public_jwk: key.jwk })

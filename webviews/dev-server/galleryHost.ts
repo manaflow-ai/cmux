@@ -246,10 +246,22 @@ function agentPaneCSS(): string {
   return agentPaneStylesheets()
     .map((file) => {
       const css = fs.readFileSync(file, "utf8");
-      const body = file === PANE_TAILWIND ? `${css}\n${tailwindSources()}` : css.replace(/^@import .*$/gm, "");
+      const body =
+        file === PANE_TAILWIND
+          ? `${paneRelativeImports(css)}\n${tailwindSources()}`
+          : css.replace(/^@import .*$/gm, "");
       return `/* ${path.relative(webviewsRoot, file)} */\n${body}`;
     })
     .join("\n");
+}
+
+/** The combined sheet sits under the gallery, so the Tailwind entry's relative imports (the shared
+ * theme, ui/theme.generated.css) name their files by absolute path. */
+function paneRelativeImports(css: string): string {
+  return css.replace(
+    /^@import "(\.{1,2}\/[^"]+)"/gm,
+    (_, rel: string) => `@import "${path.resolve(path.dirname(PANE_TAILWIND), rel)}"`,
+  );
 }
 
 /**

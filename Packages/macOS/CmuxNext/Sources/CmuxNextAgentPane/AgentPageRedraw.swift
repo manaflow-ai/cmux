@@ -151,6 +151,9 @@ public final class AgentPageRedraw {
         }
     }
 
+    /// Drops the remembered frame: the page's context changed, so the frame shows another screen.
+    public func forgetRememberedFrame() { remembered = nil }
+
     /// The remembered frame, once, when it was drawn at `size` and `appearance` and its chats and model
     /// are still today's (`AgentPaneNewTabFrame`).
     public func takeRememberedFrame(size: CGSize, appearance: NSAppearance.Name?) -> NSImage? {

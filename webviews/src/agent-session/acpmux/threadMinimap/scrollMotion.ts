@@ -5,6 +5,7 @@
 import { bezierAt, type CubicBezier } from "../../../ui/cubicBezier";
 import { HIGHLIGHT_EASING, HIGHLIGHT_MS } from "./model";
 import { railOwnsWheel } from "./railWheel";
+import { userScrollIntent } from "../conversation/userScroll";
 
 const running = new WeakMap<HTMLElement, () => void>();
 
@@ -13,8 +14,9 @@ const running = new WeakMap<HTMLElement, () => void>();
 /// paints, so what must move with the scroll on its own frame (the minimap's band) listens for this too.
 export const MOTION_SCROLL_EVENT = "acpmux-motion-scroll";
 
-/// Tells `node`'s listeners that the motion just moved it (`MOTION_SCROLL_EVENT`).
-function announceScroll(node: HTMLElement): void {
+/// Tells `node`'s listeners that a RAF-driven motion just moved it (`MOTION_SCROLL_EVENT`).
+/// Never call from React layout work: transcript listeners synchronously commit visible rows.
+export function announceScroll(node: HTMLElement): void {
   // A stand-in scroller (a unit test's) may have no document or events of its own.
   if (typeof node.dispatchEvent !== "function") return;
   const Event_ = node.ownerDocument?.defaultView?.Event ?? globalThis.Event;
@@ -49,18 +51,32 @@ export function animateScroll(
   curve: CubicBezier,
   then?: () => void,
   cancelled?: () => void,
+  options: { explicit?: boolean } = {},
 ): void {
+  const intent = userScrollIntent(node);
+  if (intent.isHeld() && !options.explicit) return;
   stopScroll(node);
-  const from = node.scrollTop;
+  let from = node.scrollTop;
+  let last = from;
   runScroll(
     node,
     duration,
     curve,
     (progress) => {
-      node.scrollTop = from + (target() - from) * progress;
+      // Transcript placement can adjust the viewport while this motion is running (an older page
+      // prepends above it). Rebase the origin by that external delta before writing the next
+      // frame, so the jump follows the shared row-id anchor instead of restoring its stale
+      // numeric starting offset.
+      const externalDelta = node.scrollTop - last;
+      if (Math.abs(externalDelta) > 0.5) from += externalDelta;
+      const next = from + (target() - from) * progress;
+      node.scrollTop = next;
+      last = next;
     },
     then,
     cancelled,
+    false,
+    options.explicit,
   );
 }
 
@@ -99,8 +115,9 @@ export function animateScrollBy(
   return { remaining: left };
 }
 
-/// One owner, clock and cleanup path for both jumps and notches. The wheel installer arbitrates
-/// wheel events itself; the runner owns all other cancellation inputs for that explicit motion.
+/// One owner, clock and cleanup path for both jumps and notches. Ordinary rides yield to held user
+/// intent and subscribe to its end signal. Wheel rides are explicit and intentionally bypass that
+/// subscription: the wheel installer owns native-wheel versus notch arbitration and cancellation.
 function runScroll(
   node: HTMLElement,
   duration: number,
@@ -109,7 +126,10 @@ function runScroll(
   then?: () => void,
   cancelled?: () => void,
   wheel = false,
+  explicit = false,
 ): void {
+  const intent = wheel ? undefined : userScrollIntent(node);
+  if (intent?.isHeld() && !explicit) return;
   stopScroll(node);
   if (duration <= 0 || typeof requestAnimationFrame !== "function") {
     write(1);
@@ -122,11 +142,16 @@ function runScroll(
   const start = performance.now();
   let frame = 0;
   let active = true;
+  let unsubscribeIntent: (() => void) | undefined;
+  const hidden = () => {
+    if (doc.hidden) end();
+  };
   const cleanup = () => {
     active = false;
     cancelAnimationFrame(frame);
     for (const name of inputs) owner.removeEventListener(name, end, wheel);
     if (wheel) doc.removeEventListener("visibilitychange", hidden);
+    unsubscribeIntent?.();
     if (running.get(node) === end) running.delete(node);
   };
   const end = () => {
@@ -134,9 +159,7 @@ function runScroll(
     cleanup();
     cancelled?.();
   };
-  const hidden = () => {
-    if (doc.hidden) end();
-  };
+  if (intent) unsubscribeIntent = intent.subscribe(end);
   const step = (now: number) => {
     if (wheel && (doc.hidden || node.clientHeight === 0)) {
       end();
@@ -158,27 +181,37 @@ function runScroll(
   frame = requestAnimationFrame(step);
 }
 
-/// Holds a jump's landing while the rows it crossed mount and measure: each frame, `offset()` says how
-/// far the target sits from where it should land (undefined while it is not mounted), and the scroll
-/// moves by that much, until it holds for three frames or `frames` run out. Any input anywhere in the
-/// page (a wheel, a press, a key: the reader scrolling, Find, Jump to Latest) or another scroll on
-/// `node` ends it. A wheel over a rail that scrolls itself is not the reader's (railWheel.ts): the
+/// Holds a jump's landing while the rows it crossed mount and measure: each frame, `offset()` says
+/// how far the target sits from where it should land (undefined while it is not mounted), and the
+/// scroll moves by that much, until it holds for three frames or `frames` run out. Any input anywhere
+/// in the page (a wheel, a press, a key: the reader scrolling, Find, Jump to Latest) or another scroll
+/// on `node` ends it. A wheel over a rail that scrolls itself is not the reader's (railWheel.ts): the
 /// rail moves, and the landing goes on.
-export function settleScroll(node: HTMLElement, offset: () => number | undefined, frames: number): void {
+export function settleScroll(
+  node: HTMLElement,
+  offset: () => number | undefined,
+  frames: number,
+  options: { explicit?: boolean } = {},
+): void {
+  const intent = userScrollIntent(node);
+  if (intent.isHeld() && !options.explicit) return;
   stopScroll(node);
   if (typeof requestAnimationFrame !== "function") return;
   let frame = 0;
   let left = frames;
   let steady = 0;
   const page = node.ownerDocument.defaultView ?? window;
+  let unsubscribeIntent: (() => void) | undefined;
   const end = () => {
     cancelAnimationFrame(frame);
     for (const name of READER_INPUTS) page.removeEventListener(name, input, true);
+    unsubscribeIntent?.();
     if (running.get(node) === end) running.delete(node);
   };
   const input = (event: Event) => {
     if (!railOwnsWheel(event)) end();
   };
+  unsubscribeIntent = intent.subscribe(end);
   const step = () => {
     // A scroller with no layout (hidden, or a DOM without one) has nothing to measure.
     const by = node.clientHeight > 0 ? offset() : undefined;

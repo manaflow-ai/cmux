@@ -24,7 +24,7 @@ export async function mountSettingsPage(root: HTMLElement, client: SettingsClien
   document.title = t("settingsPage.title");
   const store = new SettingsStore(client);
   // A custom harness's SF Symbol icon: the host draws it (`agents.run {action: "symbol"}`).
-  setHarnessSymbolHost(async (name) => {
+  const releaseSymbolHost = setHarnessSymbolHost(async (name) => {
     const reply = await store.runAgents({ action: "symbol", name });
     const src = reply.ok ? (reply.value as { src?: unknown } | null)?.src : undefined;
     return typeof src === "string" ? src : null;
@@ -42,6 +42,7 @@ export async function mountSettingsPage(root: HTMLElement, client: SettingsClien
   await started;
   return () => {
     reactRoot.unmount();
+    releaseSymbolHost();
     store.dispose();
   };
 }

@@ -36,6 +36,8 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
   const webviews = path.resolve(import.meta.dir, "..");
 
   const SESSION = "steer-session";
+  // A forced Stop's muted Stopped, which names cmux's end only in its tooltip.
+  const FORCED_STOP = `.cv-turn-stopped[title="The agent didn't answer Stop, so cmux ended its turn."]`;
   const turn = {
     turnId: "turn-1",
     promptId: "p-turn",
@@ -53,6 +55,11 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
     queue: [],
     turn,
     updatedAt: Date.now(),
+    // Claude Code's commands, as acpmux keeps the newest list: a skill (/loop) among them.
+    availableCommands: {
+      sessionUpdate: "available_commands_update",
+      availableCommands: [{ name: "loop", description: "Run a prompt or slash command on a recurring interval" }],
+    },
   };
   const opening = [
     {
@@ -407,7 +414,32 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
         }
       });
 
-    test("acpmux's end of a turn whose agent ignored Stop says so", async () => {
+    // Claude Code holds a command until the command it runs ends, so a steered `/loop` sat as an
+    // unread steer with Send now (Leo, 2026-10-31: "the commands don't work!"). It queues instead
+    // and runs as its own turn; text that only starts with a slash still steers.
+    test("Enter queues one of the agent's slash commands even to an agent that steers", async () => {
+      summary.steering = true;
+      try {
+        const page = await openChat();
+        await page.locator(".acpmux-composer-prompt").click();
+        await page.keyboard.type("/loop keep launching new dev builds");
+        expect(await page.locator(".acpmux-steer-now").count()).toBe(0);
+        await page.keyboard.press("Enter");
+        await page.locator(".acpmux-queued", { hasText: "/loop keep launching new dev builds" }).waitFor();
+        await page.keyboard.type("/tmp is full, clean it");
+        await page.keyboard.press("Enter");
+        await until(() => prompts.length === 2, "the second prompt");
+        expect(prompts.map((p) => Boolean(p._meta?.acpmux?.steer))).toEqual([false, true]);
+        await page.close();
+      } finally {
+        summary.steering = false;
+      }
+    });
+
+    // Leo, 2026-11-03: "this is an "interesting" recovery flow... idk if it should be showing things
+    // like that". A Stop acpmux had to force reads as any Stop: a muted Stopped, with the reason only
+    // in its tooltip, never a line of transcript text.
+    test("acpmux's end of a turn whose agent ignored Stop reads as a plain stop", async () => {
       const page = await openChat();
       recordInbound("compaction", {
         method: "session/update",
@@ -423,7 +455,11 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });
       record("turn_result", { status: "cancelled", stopReason: "cancelled", turnId: "turn-1", cancelForced: true });
       record("status", { status: "idle" });
-      await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").waitFor({ timeout: 5_000 });
+      await page.locator(".cv-turn-stopped", { hasText: "Stopped" }).waitFor({ timeout: 5_000 });
+      expect(await page.locator(FORCED_STOP).count()).toBe(1);
+      expect(
+        await page.getByText("The agent didn't answer Stop, so cmux ended its turn.", { exact: true }).count(),
+      ).toBe(0);
       expect(await page.getByRole("button", { name: "Continue", exact: true }).count()).toBe(1);
       // The cancelled compaction can report its boundary after a new explicit prompt. It must not
       // revive the old row; a fresh running update still gets its own row.
@@ -476,7 +512,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       await page.getByRole("button", { name: "Stopping…", exact: true }).waitFor();
       await page.clock.runFor(6_000);
       await drawn(page);
-      expect(await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").count()).toBe(0);
+      expect(await page.locator(FORCED_STOP).count()).toBe(0);
       expect(await page.getByRole("button", { name: "Stopping…", exact: true }).count()).toBe(1);
       record("turn_end", { stopReason: "cancelled", turnId: "turn-1" });
       await drawn(page);
@@ -516,7 +552,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       // Past the old five-second client deadline, then draw another record.
       await page.clock.runFor(6_000);
       await drawn(page);
-      expect(await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").count()).toBe(0);
+      expect(await page.locator(FORCED_STOP).count()).toBe(0);
       expect(await page.getByRole("button", { name: "Stop", exact: true }).count()).toBe(1);
       await page.close();
     });
@@ -532,7 +568,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       // Past the old five-second client deadline, then draw another record.
       await page.clock.runFor(6_000);
       await drawn(page);
-      expect(await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").count()).toBe(0);
+      expect(await page.locator(FORCED_STOP).count()).toBe(0);
       expect(await page.getByRole("button", { name: "Stop", exact: true }).count()).toBe(1);
       await page.close();
     });
@@ -546,7 +582,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       await page.clock.runFor(6_000);
       await drawn(page);
       expect(await page.getByRole("button", { name: "Stopping…", exact: true }).count()).toBe(1);
-      expect(await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").count()).toBe(0);
+      expect(await page.locator(FORCED_STOP).count()).toBe(0);
       await page.close();
     });
 
@@ -559,7 +595,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       summary.status = "idle";
       socket?.send(JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { session: summary } }));
       try {
-        await page.getByText("The agent didn't answer Stop, so cmux ended its turn.").waitFor();
+        await page.locator(FORCED_STOP).waitFor();
         await lag(page);
         expect(await page.getByRole("button", { name: "Stop", exact: true }).count()).toBe(0);
         expect(await page.getByRole("button", { name: "Stopping…", exact: true }).count()).toBe(0);

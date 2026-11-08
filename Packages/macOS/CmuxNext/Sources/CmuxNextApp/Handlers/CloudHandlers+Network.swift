@@ -58,6 +58,10 @@ extension CloudHandlers {
             runTracked("create Cloud firewall rule", context) { _ = try await cloud.api.createFirewallRule(source: source, destination: destination, description: value["description"] as? String) }
         }
         bind("cloudEnrollMachine", registry, reason: reason) { invocation in try enrollMachine(invocation, context) }
+        bind("cloudSetNetworkAccess", registry, reason: reason) { invocation in
+            try CloudNetworkAccessActions.set(invocation, context, read: { try await cloud.api.networkPolicy($0) },
+                                                write: { try await cloud.api.setNetworkPolicy($0, $1) })
+        }
     }
 
     /// `cloud enroll-machine` (CloudMachineEnrollment): authorizes this Mac's key on the machine and

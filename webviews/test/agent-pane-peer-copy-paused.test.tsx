@@ -246,7 +246,7 @@ test("offline peer Reconnect invokes doctor and shows its refusal", async () => 
     throw new Error("peer_unreachable: refused by doctor");
   });
   const reconnect = [...host.querySelectorAll<HTMLButtonElement>("button")].find(
-    (button) => button.textContent === t("chatInspector.connectors.reconnectAction"),
+    (button) => button.textContent === t("sessionInfo.connectors.reconnectAction"),
   );
   expect(reconnect).toBeTruthy();
   await act(async () => {
@@ -256,7 +256,7 @@ test("offline peer Reconnect invokes doctor and shows its refusal", async () => 
   expect(calls).toEqual([PEER]);
   expect(host.querySelector('[role="alert"]')?.textContent).toContain("peer_unreachable: refused by doctor");
   expect(host.querySelector<HTMLButtonElement>('button[data-state="failed"]')?.textContent).toBe(
-    t("chatInspector.connectors.retry"),
+    t("sessionInfo.connectors.retry"),
   );
 });
 

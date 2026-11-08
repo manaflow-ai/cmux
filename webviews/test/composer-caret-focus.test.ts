@@ -96,7 +96,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       entry: "agent-pane.new-tab",
       // Cards (composer-mic pins it), the first dot, whose box and quiet row these checks read.
       variant: "composer-mic",
-      field: ".nt-field",
+      field: ".nt-field .acpmux-md",
       box: ".nt-box",
       row: ":is(.nt-pickers, .acpmux-composer-foot)",
       foot: ".nt-composer .acpmux-composer-foot",
@@ -108,7 +108,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       name: "New Tab stage composer",
       entry: "agent-pane.new-tab",
       variant: "reasoning-chip-stage",
-      field: ".nt-field",
+      field: ".nt-field .acpmux-md",
       box: ".nt-box",
       row: ":is(.nt-box .nt-pickers, .nt-foot .acpmux-composer-foot)",
       foot: ".nt-foot .acpmux-composer-foot",

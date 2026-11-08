@@ -328,7 +328,7 @@ where
         let method = message["method"].as_str().unwrap_or_default();
         let reply = match method {
             "initialize" => Ok(json!({
-                "protocolVersion": message["params"]["protocolVersion"].as_str().unwrap_or("2025-06-18"),
+                "protocolVersion": crate::secret_mcp::protocol_version(&message["params"]),
                 "capabilities": {"tools": {}},
                 "serverInfo": {"name": SERVER_NAME, "version": env!("CARGO_PKG_VERSION")},
             })),

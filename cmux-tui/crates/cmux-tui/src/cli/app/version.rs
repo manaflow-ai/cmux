@@ -121,7 +121,14 @@ fn app_facts(identify: &Value, updates: Option<&Value>) -> Value {
     let name = text(identify, "app").unwrap_or_else(|| "cmux".to_owned());
     let bundle_id = text(identify, "bundle_id");
     let track = updates.and_then(|status| text(status, "track"));
-    let channel = track.unwrap_or_else(|| channel_of(&name, bundle_id.as_deref()).to_owned());
+    // `updates.status.track` keeps the updater's internal feed identity. The
+    // public app channel retains the established NIGHTLY name for NEXT's
+    // `nightly-next` track; the raw value remains in `updates.track`.
+    let channel = track
+        .as_deref()
+        .map(public_channel)
+        .map(str::to_owned)
+        .unwrap_or_else(|| channel_of(&name, bundle_id.as_deref()).to_owned());
     json!({
         "name": name,
         "classic": name == "cmux",
@@ -136,6 +143,14 @@ fn app_facts(identify: &Value, updates: Option<&Value>) -> Value {
         "tag": text(identify, "tag"),
         "protocol_version": identify.get("protocol_version").cloned().unwrap_or(Value::Null),
     })
+}
+
+/// Convert an updater track to the stable channel name shown by `cmux version`.
+fn public_channel(track: &str) -> &str {
+    match track {
+        "nightly-next" => "nightly",
+        other => other,
+    }
 }
 
 fn error_facts(error: &Value) -> Value {

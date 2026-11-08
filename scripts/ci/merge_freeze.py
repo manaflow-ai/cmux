@@ -201,6 +201,43 @@ def check_authority(freeze: Freeze, labeler: str | None, role: str | None, label
         freeze.problems.append(f"edited after @{labeler} added `{LABEL}`; a maintainer must add it again")
 
 
+# The gh error text of a spent or throttled quota: a primary or secondary rate limit, GraphQL's
+# RATE_LIMITED, or the HTTP 403/429 GitHub answers them with.
+RATE_LIMIT = re.compile(r"rate.?limit|RATE_LIMITED|secondary|HTTP 4(?:03|29)", re.I)
+
+ISSUES_QUERY = (
+    "query($owner:String!,$name:String!,$label:String!){repository(owner:$owner,name:$name){"
+    "issues(states:OPEN,labels:[$label],first:100){pageInfo{hasNextPage}"
+    "nodes{number title body state createdAt author{login} labels(first:50){nodes{name}}}}}}"
+)
+
+
+def rate_limited(error: subprocess.CalledProcessError) -> bool:
+    return bool(RATE_LIMIT.search(f"{error.stderr or ''} {error.stdout or ''}"))
+
+
+def graphql_open_issues(repo: str) -> list[dict]:
+    """The open merge-freeze issues over GraphQL, in the REST shape parse_issue reads. Used when
+    the REST quota is spent. The variables are named `owner` and `name` so a broker can scope the
+    call. A list past one page raises: a list cut short never reads as "no freeze"."""
+    owner, name = repo.split("/", 1)
+    out = gh("api", "graphql", "-f", f"query={ISSUES_QUERY}", "-f", f"owner={owner}", "-f", f"name={name}",
+             "-f", f"label={LABEL}")
+    issues = json.loads(out)["data"]["repository"]["issues"]
+    if issues["pageInfo"]["hasNextPage"]:
+        raise ValueError(f"{repo} has more open `{LABEL}` issues than one GraphQL page; "
+                         "refusing to read a list cut short (it has a next page) as complete")
+    return [{
+        "number": n["number"],
+        "title": n.get("title") or "",
+        "body": n.get("body") or "",
+        "state": (n.get("state") or "").lower(),
+        "created_at": n["createdAt"],
+        "user": {"login": (n.get("author") or {}).get("login", "")},
+        "labels": [{"name": label["name"]} for label in n["labels"]["nodes"]],
+    } for n in issues["nodes"]]
+
+
 def open_freezes(repo: str, issues_file: str | None = None) -> list[Freeze]:
     if issues_file is not None:
         # Recorded issues carry what the API calls below would return: labeled_by,
@@ -209,7 +246,13 @@ def open_freezes(repo: str, issues_file: str | None = None) -> list[Freeze]:
                   if i.get("state", "open") == "open"
                   and LABEL in {label.get("name") for label in i.get("labels", [])}]
     else:
-        issues = gh_items(f"repos/{repo}/issues?state=open&labels={LABEL}")
+        try:
+            issues = gh_items(f"repos/{repo}/issues?state=open&labels={LABEL}")
+        except subprocess.CalledProcessError as error:
+            # A spent REST quota is not an unknown freeze state: GraphQL has its own quota.
+            if not rate_limited(error):
+                raise
+            issues = graphql_open_issues(repo)
     freezes = []
     for issue in issues:
         if "pull_request" in issue:
@@ -302,6 +345,9 @@ def main(argv: list[str] | None = None) -> int:
                     gh("issue", "close", str(freeze.number), "--repo", args.repo, "--comment",
                        f"This freeze {state} {lapsed:%Y-%m-%d %H:%MZ} and no longer blocks merges. "
                        f"Open a new `{LABEL}` issue to freeze again (docs/ci/merge-freeze.md).")
+            return 0
+        if not freezes:
+            # No freeze is open, so nothing can block: one read for the common case.
             return 0
         if args.files:
             with open(args.files) as handle:

@@ -263,14 +263,17 @@ public final class ControlRouter: Sendable {
         var snapshot = await snapshots.fresh()
         let startsTerminal = method.startsTerminal(request, snapshot)
         let limit = method.limitOverride?(request, snapshot) ?? method.fixedLimit ?? (startsTerminal ? configuration.terminalStartDeadline : configuration.requestDeadline)
-        let (deadline, engineStartMark) = (ContinuousClock.now + limit, MainThreadEngineStart.shared.total)
+        var (deadline, engineStartMark) = (ContinuousClock.now + limit, MainThreadEngineStart.shared.total)
         let progress = ControlCallProgress()
         do {
             // Read barrier (state-ownership.md 4.3): answer from a snapshot
             // that covers the caller's earlier writes.
             // `debug.hangs` reads its own `after` (a hang log cursor).
             if request.method != "debug.hangs", let after = request.params["after"], !after.isNull {
-                snapshot = try await readBarrier(after, method: request.method, deadline: deadline)
+                snapshot = try await readBarrier(after, method: request.method, limit: limit)
+                // The request's own time starts once the barrier answered: a loaded daemon's
+                // late answer is not the method's time (#32724).
+                (deadline, engineStartMark) = (ContinuousClock.now + limit, MainThreadEngineStart.shared.total)
             }
             var call = ControlCall(request: request, snapshot: snapshot, connection: connection,
                                    deadline: deadline, startsTerminal: startsTerminal, progress: progress, engineStartMark: engineStartMark)

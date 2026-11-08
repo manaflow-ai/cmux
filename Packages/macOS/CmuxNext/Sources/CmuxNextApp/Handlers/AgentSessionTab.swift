@@ -46,7 +46,7 @@ enum AgentSessionTab {
         let daemon = services.daemon(for: pane)
         let pending: AgentTabPending
         do {
-            pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true, host: host)
+            pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true, host: host, idempotencyKey: (DaemonCommandScope.current?.nextDerivedUUID("agent-session-tab") ?? UUID()).uuidString.lowercased()) // a repeated run: the same tab
         } catch let refusal as AgentTabRefusal {
             throw ActionFailure(message: refusal.message)
         }

@@ -45,6 +45,15 @@ public enum CloudLinkError: Error, Equatable, Sendable, CustomStringConvertible,
 
     public var errorDescription: String? { description }
 
+    /// The link went down or was revoked: a machine that ran lost it. Any
+    /// other error (a provider's refusal, a failed check) is not a drop.
+    public static func isDrop(_ error: any Error) -> Bool {
+        switch error as? CloudLinkError {
+        case .disconnected?, .revoked?: true
+        default: false
+        }
+    }
+
     /// The command that closes an ``openDirectory(path:parent:)``: the socket
     /// folder to owner-only, a parent to not writable by others.
     public static func chmodFix(path: String, parent: Bool) -> String {

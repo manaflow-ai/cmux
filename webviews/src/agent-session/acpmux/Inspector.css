@@ -77,7 +77,7 @@
   background: var(--agent-control);
   color: var(--agent-text);
   font: inherit;
-  cursor: pointer;
+  cursor: default;
 }
 
 .acpmux-inspector-tools button:hover {
@@ -113,7 +113,7 @@
   color: var(--agent-text);
   font: inherit;
   text-align: left;
-  cursor: pointer;
+  cursor: default;
 }
 
 .acpmux-inspector-row > button:hover {

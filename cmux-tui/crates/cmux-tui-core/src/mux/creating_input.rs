@@ -156,7 +156,7 @@ impl Mux {
         } else {
             surface.write_bytes(bytes)?;
         }
-        self.note_terminal_input(surface.id, client);
+        self.note_terminal_input(&surface, client);
         Ok(TerminalInputTarget::Written)
     }
 
@@ -272,7 +272,7 @@ impl Mux {
             }
         }
         for client in clients {
-            self.note_terminal_input(surface.id, client);
+            self.note_terminal_input(&surface, client);
         }
     }
 
@@ -313,6 +313,7 @@ impl Mux {
     }
 
     /// The live terminal surface whose host id is `terminal_id`.
+    #[track_caller]
     fn live_surface_for_terminal(&self, terminal_id: &str) -> Option<Arc<Surface>> {
         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(surface) = state.indexed_catalog_terminal(terminal_id)

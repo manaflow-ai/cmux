@@ -19,7 +19,8 @@ import Foundation
 /// - `cloudMachine.pause {id}` -> `{}`: Pause Machine, for a running machine only (the chat menu
 ///   of a chat on that machine, cmuxterm-hq#4755).
 ///
-/// Open, Resume, Attach and Pause change a machine: each takes the person's own click (one gesture).
+/// Open, Resume, Attach and Pause change a machine: each takes the person's own click (one gesture;
+/// Attach its scope-add credit, so the Enter of a prompt that wakes the machine still sends it).
 public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
     case list
     case recoveryList
@@ -77,12 +78,11 @@ public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
     }
 }
 
-/// The App's side of `cloudMachine.*`: App-wide, like the account it reads. CmuxNextApp sets the
-/// closures on ``shared`` at launch; a test uses its own instance. Unset, every method is refused.
+/// The App's side of `cloudMachine.*`: App-wide, like the account it reads. CmuxNextApp makes one,
+/// sets its closures and hands it to every pane (``AgentPaneModel/cloudMachines``); a test uses its
+/// own instance. Unset, every method is refused.
 @MainActor
 public final class AgentPaneCloudMachines {
-    public static let shared = AgentPaneCloudMachines()
-
     /// One Cloud machine as the picker lists it.
     public struct Machine: Equatable, Sendable {
         public var id: String
@@ -168,29 +168,32 @@ public final class AgentPaneCloudMachines {
     /// Runs Pause Machine on a running machine of the loaded list; false otherwise.
     public var pause: (@MainActor (String) -> Bool)?
 
-    init() {}
+    public init() {}
 }
 
 extension AgentPaneCloudMachineRequest {
     /// The page's reply. Open, Resume and Pause consume one gesture, and only once the App can run them.
     @MainActor
-    func reply(_ machines: AgentPaneCloudMachines, gestures: AgentPaneUserGestures) async -> [String: Any] {
+    func reply(_ machines: AgentPaneCloudMachines?, gestures: AgentPaneUserGestures) async -> [String: Any] {
         switch self {
         case .list, .recoveryList:
-            guard let list = (self == .recoveryList ? machines.recoveryList : machines.list) else { return AgentPaneModel.unsupported(method) }
+            guard let list = (self == .recoveryList ? machines?.recoveryList : machines?.list) else { return AgentPaneModel.unsupported(method) }
             let inventory = await list()
             let rows: [[String: Any]] = inventory.machines.prefix(Self.maximumListed).map { ["id": $0.id, "name": $0.name, "stage": $0.stage] }
             var value: [String: Any] = ["signedIn": inventory.signedIn, "loaded": inventory.loaded, "machines": rows, "complete": inventory.complete && inventory.machines.count <= Self.maximumListed]
             if let account = inventory.account { value["account"] = account.map { $0 as Any? ?? NSNull() } }
             return AgentPaneReply.success(value)
-        case .open(let id): return run(machines.open, on: id, gestures: gestures)
-        case .resume(let id): return run(machines.resume, on: id, gestures: gestures)
+        case .open(let id): return run(machines?.open, on: id, gestures: gestures)
+        case .resume(let id): return run(machines?.resume, on: id, gestures: gestures)
         case .attach(let id):
-            guard let attach = machines.attach else { return AgentPaneModel.unsupported(method) }
-            guard gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
+            guard let attach = machines?.attach else { return AgentPaneModel.unsupported(method) }
+            // The gesture's scope-add credit, not its grant: a send in a chat whose machine is
+            // paused wakes it with the Enter that sent the prompt, and the prompt then goes with
+            // that Enter's grant once the chat is back (webviews cloudWake.ts).
+            guard gestures.consumeScope() else { return AgentPaneModel.transportFailure(.gestureRequired) }
             guard await attach(id) else { return Self.notRun(method) }
             return AgentPaneReply.success()
-        case .pause(let id): return run(machines.pause, on: id, gestures: gestures)
+        case .pause(let id): return run(machines?.pause, on: id, gestures: gestures)
         }
     }
 

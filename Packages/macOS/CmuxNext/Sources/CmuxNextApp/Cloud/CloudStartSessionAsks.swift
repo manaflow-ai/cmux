@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextCloud
 import CmuxNextCompat
 import Foundation
 
@@ -19,8 +20,15 @@ final class CloudStartSessionAsks {
     private struct Open {
         var token: UUID
         var asked: CloudStartSessionStrings.Asked
+        /// The ask as `cmux agents dialog list` names it (``dialogID(_:)``).
+        var dialog: String
+        /// The card's text, and the agent session of the chat that asked (nil: unknown).
+        var text: String
+        var caller: String?
         /// The ask's wait for the person's answer; nil once they clicked Start.
         var answer: AsyncStream<Answer>.Continuation?
+        /// The person answered (the card or ``answer(dialog:start:)``): a later answer is not taken.
+        var answered = false
         /// Its account ended (``endAll()``) while it asked: a Start already sent is void.
         var ended = false
     }
@@ -39,22 +47,65 @@ final class CloudStartSessionAsks {
     /// The ask that owns chat tab `tab`'s card, if any.
     func owner(of tab: String) -> UUID? { open[tab]?.token }
 
+    /// An ask's id in `cmux agents dialog list|answer`: its token, so a later ask in the same chat
+    /// is another dialog and an answer to an ended one finds nothing.
+    static func dialogID(_ token: UUID) -> String { "cloud-start-" + token.uuidString.lowercased() }
+
+    /// An ask still waiting for the person's answer, as `cmux agents dialog list` shows it.
+    struct Waiting: Equatable {
+        var dialog: String
+        var tab: String
+        var text: String
+        var caller: String?
+        var asked: CloudStartSessionStrings.Asked
+    }
+
+    /// The asks still waiting for an answer (their card asks), oldest chat first by tab id.
+    var waiting: [Waiting] {
+        open.compactMap { tab, ask in
+            ask.answer == nil || ask.answered ? nil : Waiting(dialog: ask.dialog, tab: tab, text: ask.text, caller: ask.caller, asked: ask.asked)
+        }.sorted { $0.tab < $1.tab }
+    }
+
+    /// Answers the waiting ask `dialog` as the card's Start (`start`) or Not now would; false when no
+    /// ask waits under that id (answered, ended, or never one). Who may answer is the caller's check
+    /// (``CloudAskDialogs``): this only delivers it.
+    func answer(dialog: String, start: Bool) -> Bool {
+        guard let tab = open.first(where: { $0.value.dialog == dialog })?.key else { return false }
+        return deliver(tab: tab, dialog: dialog, start ? .start : .notNow)
+    }
+
+    /// The person's one answer to the ask `dialog` in chat `tab`, from the card or the CLI; false
+    /// when that ask no longer waits or was answered already.
+    private func deliver(tab: String, dialog: String, _ value: Answer) -> Bool {
+        guard let ask = open[tab], ask.dialog == dialog, !ask.answered, let answer = ask.answer else { return false }
+        open[tab]?.answered = true
+        answer.yield(value)
+        return true
+    }
+
     /// Shows the card in chat tab `tab` and returns its token once the person clicks Start. Throws
     /// when they choose Not now, when nobody answers within ``wait``, when the signed-in account
     /// stops being `account` (`now`, read on every change), or when the chat has no page; throws
     /// `CancellationError` when the run is cancelled. Every way out but Start removes the card.
+    /// `caller`: the asking chat's agent session; `shown` gets the ask's dialog id once its card shows.
     func ask(tab: String, text: String, asked: CloudStartSessionStrings.Asked, account: [String?],
-             now: @escaping @MainActor @Sendable () -> [String?]) async throws -> UUID {
+             now: @escaping @MainActor @Sendable () -> [String?], caller: String? = nil,
+             shown: @MainActor (String) -> Void = { _ in }) async throws -> UUID {
         guard open[tab] == nil else { throw ActionFailure(message: CloudStartSessionStrings.askOpen(asked)) }
         let token = UUID()
         let (answers, continuation) = AsyncStream<Answer>.makeStream(bufferingPolicy: .bufferingOldest(1))
-        guard set([Self.askCard(tab: tab, text: text)], tab: tab, answer: { _, action, _ in continuation.yield(action == "start" ? .start : .notNow) }) else {
+        let dialog = Self.dialogID(token)
+        guard set([Self.askCard(tab: tab, text: text)], tab: tab, answer: { [weak self] _, action, _ in
+            _ = self?.deliver(tab: tab, dialog: dialog, action == "start" ? .start : .notNow)
+        }) else {
             continuation.finish()
             _ = set([], tab: tab) { _, _, _ in }
             throw ActionFailure(message: CloudStartSessionStrings.noPage(asked))
         }
-        open[tab] = Open(token: token, asked: asked, answer: continuation)
+        open[tab] = Open(token: token, asked: asked, dialog: dialog, text: text, caller: caller, answer: continuation)
         linked.remove(tab)
+        shown(dialog)
         // task-owner: the card's one-shot deadline; cancelled below once the person answers.
         let deadline = Task {
             // wakeup-allow: one-shot deadline for the person's answer on the card
@@ -179,189 +230,5 @@ final class CloudStartSessionAsks {
     }
 }
 
-/// `cmux cloud start-session` runs by what they ask for. Each caller waits for its run at most
-/// its answer time, then answers `pending`, and the run goes on. The same ask again while a run
-/// goes on waits for that run. A run that ends with a caller still waiting has reached it and is
-/// dropped; one that ends after every caller answered `pending` is kept for the next same ask,
-/// which gets its end once. A kept run lasts at most ``kept`` (checked on every ask) and at most
-/// ``limit`` are kept, trimmed when a run starts and when one is kept; no timer. Runs and
-/// creations are per account (user and team): another account's ask never joins or takes them,
-/// and a sign-out or team switch ends them (``forgetAll()``).
-@MainActor
-final class CloudStartSessionRuns {
-    struct Key: Hashable {
-        /// `id:<machine id>` or `name:<machine name>`.
-        var machine: String
-        var agent: String
-        var cwd: String?
-        /// The agent chat that asked; nil for a person's or a script's run.
-        var caller: String?
-        /// The user and team signed in when it was asked (``CloudService/account``).
-        var account: [String?]
-    }
-
-    private struct Creation: Hashable {
-        var name: String
-        var account: [String?]
-    }
-
-    typealias Fields = [String: ActionResultValue]
-    typealias Outcome = Result<Fields, any Error>
-
-    private final class Run {
-        var task: Task<Outcome, Never>?
-        /// Callers waiting for its end now: each is resumed when it ends, with the failure it
-        /// gets if the run is forgotten first, or removes itself at its own deadline.
-        var waiters: [UUID: (end: AsyncStream<Outcome?>.Continuation, forgotten: any Error)] = [:]
-        var outcome: Outcome?
-        /// Forgotten (``forgetAll()``): a caller whose deadline fired first gets its `forgotten`
-        /// failure all the same, never `pending`.
-        var forgotten = false
-        /// When it ended with nobody waiting (kept for the next same ask).
-        var kept: ContinuousClock.Instant?
-    }
-
-    static let kept: Duration = .seconds(600)
-    static let limit = 32
-    private var runs: [Key: Run] = [:]
-    /// Creations of a machine by name and account, each with its own token: two asks for one new
-    /// name create one machine.
-    private var creations: [Creation: (token: UUID, task: Task<CloudMachineSession, any Error>)] = [:]
-    /// Counts ``forgetAll()`` calls: a creation that ends after one is never handed out.
-    private var forgets = 0
-    /// Called when an ask joins a creation already going on (tests wait on it).
-    var joinedCreation: @MainActor (String) -> Void = { _ in }
-    var now: @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }
-    /// The caller's wait: a one-shot sleep, cancelled when the run ends first.
-    var sleep: @MainActor (Duration) async -> Void = { duration in
-        // wakeup-allow: one-shot answer deadline of one caller; cancelled when its run ends first
-        try? await Task.sleep(for: duration)
-    }
-
-    /// The machine `create` makes for `name` in `account`, or the one a creation already going on
-    /// for both makes. A creation the runs were forgotten during (``forgetAll()``) throws
-    /// `CancellationError` even if it finished: cancellation is cooperative.
-    func creating(_ name: String, account: [String?], _ create: @escaping @MainActor () async throws -> CloudMachineSession) async throws -> CloudMachineSession {
-        let key = Creation(name: name, account: account)
-        let asked = forgets
-        let unforgotten = { [self] (machine: CloudMachineSession) throws -> CloudMachineSession in
-            guard forgets == asked else { throw CancellationError() }
-            return machine
-        }
-        if let running = creations[key] {
-            joinedCreation(name)
-            return try unforgotten(await running.task.value)
-        }
-        let token = UUID()
-        // task-owner: one creation per name and account; removed when it ends or by forgetAll().
-        let task = Task<CloudMachineSession, any Error> { @MainActor in try await create() }
-        creations[key] = (token, task)
-        defer { if creations[key]?.token == token { creations[key] = nil } }
-        return try unforgotten(await task.value)
-    }
-
-    /// The end of `key`'s run, or `pending` once `within` has passed (the run goes on): a kept
-    /// run's end (handed out once), the one going on, else `work`, started now. If the runs are
-    /// forgotten while this caller waits (``forgetAll()``), it gets `forgotten`.
-    func answer(_ key: Key, within: Duration, pending: Fields, forgotten: any Error,
-                _ work: @escaping @MainActor () async throws -> Fields) async throws -> Fields {
-        let run = take(key, work)
-        if let outcome = run.outcome { return try outcome.get() }
-        let caller = UUID()
-        let (ends, continuation) = AsyncStream<Outcome?>.makeStream(bufferingPolicy: .bufferingOldest(1))
-        // The run's end resumes it (``take``), or ``forgetAll()``; nothing else waits on the run.
-        run.waiters[caller] = (continuation, forgotten)
-        // task-owner: this caller's answer deadline; cancelled below once the run ends first.
-        let deadline = Task { @MainActor [sleep] in
-            // wakeup-allow: one-shot answer deadline of one caller; cancelled when its run ends first
-            await sleep(within)
-            continuation.yield(nil)
-        }
-        defer {
-            deadline.cancel()
-            run.waiters[caller] = nil
-            continuation.finish()
-        }
-        var ended: Outcome?
-        for await value in ends {
-            ended = value
-            break
-        }
-        if let ended { return try ended.get() }
-        // The stream keeps the first value: a forget or an end that came after the deadline did,
-        // before this caller resumed, is read from the run. The forget wins (the run was cancelled);
-        // an end reaches the caller instead of pending, and the run counts as seen (``take`` drops
-        // it, since this caller was still registered when it ended).
-        if run.forgotten { throw forgotten }
-        if let outcome = run.outcome { return try outcome.get() }
-        return pending
-    }
-
-    /// The account the runs were asked in ended: each waiting caller gets its `forgotten`
-    /// failure now, every run and creation is cancelled, and none is kept or joined after.
-    func forgetAll() {
-        forgets += 1
-        for run in runs.values {
-            run.forgotten = true
-            for waiter in run.waiters.values { waiter.end.yield(.failure(waiter.forgotten)) }
-            run.waiters = [:]
-            run.task?.cancel()
-        }
-        for creation in creations.values { creation.task.cancel() }
-        runs = [:]
-        creations = [:]
-    }
-
-    /// The run of `key` to answer: a kept one (taken out, its end handed out once), the one going
-    /// on, else a new one.
-    private func take(_ key: Key, _ work: @escaping @MainActor () async throws -> Fields) -> Run {
-        if let run = runs[key] {
-            if let kept = run.kept {
-                runs[key] = nil
-                if now() - kept <= Self.kept { return run }
-            } else {
-                return run
-            }
-        }
-        prune()
-        let run = Run()
-        runs[key] = run
-        // task-owner: the start itself; it runs to its end even after its callers answered pending.
-        run.task = Task { @MainActor [weak self] in
-            let outcome: Outcome
-            do { outcome = .success(try await work()) } catch { outcome = .failure(error) }
-            run.outcome = outcome
-            let reached = !run.waiters.isEmpty
-            for waiter in run.waiters.values { waiter.end.yield(outcome) }
-            if let self, runs[key] === run {
-                if reached {
-                    runs[key] = nil
-                } else {
-                    run.kept = now()
-                    trim(keeping: Self.limit)
-                }
-            }
-            return outcome
-        }
-        return run
-    }
-
-    /// Waits for `key`'s run to end (tests).
-    func settled(_ key: Key) async { _ = await runs[key]?.task?.value }
-
-    var count: Int { runs.count }
-    var keptCount: Int { runs.values.filter { $0.kept != nil }.count }
-    /// Callers waiting on any run now (tests: a caller that answered pending holds nothing).
-    var waitingCount: Int { runs.values.reduce(0) { $0 + $1.waiters.count } }
-
-    /// Drops expired kept runs, then the oldest kept ones beyond `keeping`.
-    private func trim(keeping: Int) {
-        let cutoff = now() - Self.kept
-        runs = runs.filter { $0.value.kept.map { $0 > cutoff } ?? true }
-        let kept = runs.compactMap { key, run in run.kept.map { (key, $0) } }.sorted { $0.1 < $1.1 }
-        for (key, _) in kept.prefix(max(0, kept.count - keeping)) { runs[key] = nil }
-    }
-
-    /// Before a new run: room for it among the kept ones.
-    private func prune() { trim(keeping: Self.limit - 1) }
-}
+/// `cmux cloud start-session` runs (``CloudStartRuns``, CmuxNextCloud) with this App's answer and machines.
+typealias CloudStartSessionRuns = CloudStartRuns<[String: ActionResultValue], CloudMachineSession>

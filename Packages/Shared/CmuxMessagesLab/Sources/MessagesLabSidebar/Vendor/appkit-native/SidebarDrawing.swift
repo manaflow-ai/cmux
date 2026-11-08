@@ -702,7 +702,9 @@ final class SidebarTypingLayer: CALayer {
     /// Starts the pulse once. Phase-locked to whole periods of the media clock, so every bubble
     /// in the list pulses in step and a row that scrolls back in does not restart its cycle.
     /// cmux: the still phase, also the first dot's peak under Reduce Motion (cx-sya4n: nothing loops).
-    private var stillPhase: Double? { Self.stillPhase ?? (CmuxSidebarView.reducesMotion ? 0.45 : nil) }
+    /// cmux (msg 20105): the list's motion is off, so the dots stand still at the first dot's peak.
+    var still = false
+    private var stillPhase: Double? { Self.stillPhase ?? (still || CmuxSidebarView.reducesMotion ? 0.45 : nil) }
     func animate() {
         if let ph = stillPhase {
             // cmux: a running pulse stops when Reduce Motion turns on (cx-sya4n).

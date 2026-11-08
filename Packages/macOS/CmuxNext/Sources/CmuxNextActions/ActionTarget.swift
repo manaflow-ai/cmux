@@ -136,6 +136,9 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     /// A machine joined with a one-line token, in the right sidebar's Machines section (its "…"
     /// button; Labs `labs.machineJoin`): Check, Rotate Credential and Revoke.
     case joinedMachine
+    /// A tab bar's empty area: the strip's or the vertical tab list's (Edge's and Chrome's
+    /// vertical-tab menus: New Tab, the vertical tabs rows, Task Manager).
+    case tabStrip
 
     /// The object a right-click in this context targets, if any.
     public var targetKind: ActionTargetKind? {
@@ -147,7 +150,7 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         // A terminal or page right-click targets its tab (the App passes the
         // tab; a tab names its pane).
         case .terminalSelection, .browserPage, .browserLink, .browserImage, .browserSelection: .tab
-        case .pane, .newTab: .pane
+        case .pane, .newTab, .tabStrip: .pane
         case .workspaceRow: .workspace
         case .workspaceGroup: .workspaceGroup
         case .sidebarBackground, .sidebarFooter, .nowPlayingCard: nil
@@ -166,5 +169,14 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .agentChat: .tab
         case .priorityRow: .agentChat
         }
+    }
+
+    /// The kinds of the objects this menu's target holds whose actions its rows offer, with the
+    /// target as their place. The tab bar's empty area targets its pane and offers New Tab and
+    /// Reopen Closed Tab, which act on the pane's tabs (Chrome's and Edge's tab strip menus); the
+    /// handlers take the pane as the place. Surface coverage counts such a row for its action's
+    /// target kind (`ActionSurfaceParityTests`). Every other menu's rows act on its target itself.
+    public var contentKinds: [ActionTargetKind] {
+        self == .tabStrip ? [.tab] : []
     }
 }

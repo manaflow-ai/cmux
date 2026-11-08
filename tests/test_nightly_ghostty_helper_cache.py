@@ -21,7 +21,10 @@ import struct
 import tempfile
 import unittest
 from pathlib import Path
+import sys
 from unittest import mock
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from nightly_workflow_text import expand as nightly_expand  # noqa: E402  (moved step scripts back inline)
 
 import yaml
 
@@ -32,7 +35,7 @@ SCRIPT = ROOT / "scripts" / "build-ghostty-cli-helper.sh"
 
 def cache_key_failures() -> list[str]:
     failures: list[str] = []
-    job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["build-nightly-ghostty-cli-helper"]
+    job = yaml.safe_load(nightly_expand(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["build-nightly-ghostty-cli-helper"]
     steps = job["steps"]
     names = [step.get("name", "") for step in steps]
     try:
@@ -179,7 +182,7 @@ class FindTests(unittest.TestCase):
 
 class WorkflowTests(unittest.TestCase):
     def test_helper_never_takes_a_hosted_mac_and_skips_compile_on_hit(self):
-        jobs = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())["jobs"]
+        jobs = yaml.safe_load(nightly_expand((ROOT / ".github/workflows/nightly.yml").read_text()))["jobs"]
         helper = jobs["build-nightly-ghostty-cli-helper"]
         self.assertIn("resolve-nightly-ghostty-cli-helper", helper["needs"])
         runs_on = helper["runs-on"].split("!= 'manaflow-ai' && 'macos-26' ||", 1)[1]

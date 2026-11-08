@@ -65,9 +65,15 @@ public nonisolated struct MarkdownPageCommand {
     public static let comments = "comments"
     /// Scrolls the document to its top (`markdownGoToTop`; a user's `g g` in a read-only page, K1).
     public static let goToTop = "goToTop"
-    public static let all: Set<String> = [
-        zoomIn, zoomOut, zoomReset, save, reload, open, link, resetTableWidths, resetContextTableWidths, comments, goToTop,
+    /// The shared find actions (Cmd-F, Cmd-G, Shift-Cmd-G, Cmd-E, Hide Find Bar), under the code
+    /// editor's command names (``EditorPageCommand``): the page's find pill (markdownFind.ts).
+    public static let find: Set<String> = [
+        EditorPageCommand.find, EditorPageCommand.findNext, EditorPageCommand.findPrevious,
+        EditorPageCommand.useSelectionForFind, EditorPageCommand.hideFind,
     ]
+    public static let all: Set<String> = find.union([
+        zoomIn, zoomOut, zoomReset, save, reload, open, link, resetTableWidths, resetContextTableWidths, comments, goToTop,
+    ])
 
     /// The page command each markdown action sends; back and forward are the shared page commands.
     public static let forAction: [String: String] = [

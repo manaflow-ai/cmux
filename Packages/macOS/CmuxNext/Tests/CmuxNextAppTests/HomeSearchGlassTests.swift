@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextHome
+import CmuxNextTestSupport
 import CmuxTheme
 @testable import MessagesLabSidebar
 import Testing
@@ -10,6 +11,7 @@ import Testing
 /// circles with a white glyph, Search is a full-width glass capsule with a magnifier and a grey
 /// "Search" placeholder). The search field sits on a glass capsule, the Unread filter on a glass
 /// circle (Liquid Glass on macOS 26 and later, the frosted material before it), in light and dark.
+@Suite(.closesItsWindows)
 @MainActor
 struct HomeSearchGlassTests {
     private static func home(width: CGFloat = 320) -> HomeSidebarView {
@@ -55,11 +57,27 @@ struct HomeSearchGlassTests {
         #expect(below < above)
     }
 
-    /// The avatar-only list hides the filter, and its glass with it.
-    @Test func theAvatarListHidesTheFilterGlass() {
+    /// The avatar-only list keeps the filter on its glass, and the search as a glass circle.
+    @Test func theAvatarListKeepsTheFilterGlassAndASearchCircle() {
         let home = Self.home(width: 90)
-        #expect(home.unreadToggle.isHidden)
-        #expect(home.filterGlass.isHidden)
+        #expect(!home.unreadToggle.isHidden && !home.filterGlass.isHidden)
+        #expect(home.filterGlass.frame == home.unreadToggle.frame)
+        #expect(!home.searchButton.isHidden && !home.searchGlass.isHidden)
+        #expect(home.searchGlass.frame == home.searchButton.frame)
+        #expect(home.searchGlass.cornerRadius == home.searchButton.frame.height / 2)
+    }
+
+    /// The search circle opens the search, which then takes the band.
+    @Test func theSearchCircleOpensTheSearch() {
+        let home = Self.home(width: 90)
+        let window = NSWindow(contentRect: home.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = home
+        home.searchButton.performClick(nil)
+        home.list.headerView.layoutSubtreeIfNeeded()
+        #expect(home.list.searchField.isEditing)
+        #expect(home.header.buttonsCovered && home.searchButton.isHidden && home.unreadToggle.isHidden)
     }
 
     /// Messages' filter glyph: three lines, no ring, in the text colour (white on dark), in light
@@ -131,8 +149,7 @@ struct HomeSearchGlassTests {
     @Test func theTypedTextIsCentredInTheCapsule() throws {
         let home = Self.home()
         let window = NSWindow(contentRect: home.frame, styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
+        defer { window.closeAfterTest() }
         window.contentView = home
         home.layoutSubtreeIfNeeded()
         let field = home.list.searchField

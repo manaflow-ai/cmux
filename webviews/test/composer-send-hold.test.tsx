@@ -2,7 +2,7 @@
 // 2026-10-25: "...the composer should never ever freeze and prevent new things from happening".
 // Review (Codex): a send made while files were still being read went the moment their uploads
 // started, with none of them; it waits for them now. A send made once only uploads are left goes
-// at once (they stay for the next prompt).
+// at once. (The composer counts uploads among the files a send waits for: composer-upload-first-send.)
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -63,7 +63,7 @@ test("a send made while a file is read waits through its upload, then goes once"
   expect(sent).toBe(1);
 });
 
-test("a send made while only uploads are left goes at once", async () => {
+test("a send with nothing it waits for goes at once", async () => {
   await render(0, 2);
   expect(hold(() => {})).toBe(false);
 });

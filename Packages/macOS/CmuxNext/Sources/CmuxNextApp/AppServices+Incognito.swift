@@ -3,7 +3,7 @@ import CmuxNextDaemon
 import Foundation
 
 extension AppServices {
-    /// The workspace that holds tab `id`, on any machine.
+    /// The workspace that holds tab `id` (the first machine's), or this very `tab` (a fork keeps ids, cmuxterm-hq#5338).
     /// Each store's tab index answers (a lookup per tab or row must not walk every tab of every
     /// workspace: space-switch-fast).
     func workspaceID(ofTab id: String) -> String? {
@@ -15,6 +15,7 @@ extension AppServices {
         }
         return nil
     }
+    func workspaceID(ofTab tab: TabModel) -> String? { locateTab(model: tab).flatMap { workspaceID(of: $0.1) } }
 
     /// The workspace that holds tab group `group`.
     func workspaceID(ofTabGroup group: TabGroupID) -> String? {
@@ -33,7 +34,7 @@ extension AppServices {
     /// True when moving `tab` into `pane` would cross between an incognito
     /// window and a normal one (user decision 2026-09-30: never).
     func crossesIncognito(_ tab: TabModel, to pane: PaneModel) -> Bool {
-        windows.crossesIncognito(from: workspaceID(ofTab: tab.id), to: workspaceID(of: pane))
+        windows.crossesIncognito(from: workspaceID(ofTab: tab), to: workspaceID(of: pane))
     }
 
     /// The active window when it is a normal one, else the most recent

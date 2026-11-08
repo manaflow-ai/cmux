@@ -1,3 +1,4 @@
+import type { Folds } from "../conversation/viewFolds";
 import type { AcpmuxRow } from "../model";
 import { continuesTurn } from "../turnStart";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
@@ -38,7 +39,7 @@ export function childView(
   id: string,
   rows: readonly AcpmuxRow[],
   views: Record<string, AcpmuxRow[]> | undefined,
-  expanded: ReadonlySet<string>,
+  expanded: Folds,
   chat: string,
 ): AcpmuxRow[] | undefined {
   const agents = subagentsIn(rows, views);
@@ -94,11 +95,7 @@ export type SubagentRows = { source: readonly AcpmuxRow[]; grouped: boolean; row
 
 /// ``withSubagentRows``, building on `previous`: in a chat without subagent groups, only the rows
 /// after the first that differs from `previous.source` (by object) can bring one.
-export function subagentRowsFrom(
-  rows: readonly AcpmuxRow[],
-  expanded: ReadonlySet<string>,
-  previous?: SubagentRows,
-): SubagentRows {
+export function subagentRowsFrom(rows: readonly AcpmuxRow[], expanded: Folds, previous?: SubagentRows): SubagentRows {
   if (previous && !previous.grouped) {
     const shared = previous.source;
     let from = 0;
@@ -114,7 +111,7 @@ export function subagentRowsFrom(
 /// An open group's subagents as rows below it, one line each, so every line keeps a fixed
 /// height. Each carries its place in the list (`status`: only, first, middle or last) for the
 /// list's border. A group's version records whether it is open.
-export function withSubagentRows(rows: readonly AcpmuxRow[], expanded: ReadonlySet<string>): AcpmuxRow[] {
+export function withSubagentRows(rows: readonly AcpmuxRow[], expanded: Folds): AcpmuxRow[] {
   if (!rows.some(isSubagentGroup)) return rows as AcpmuxRow[];
   const out: AcpmuxRow[] = [];
   for (const row of rows) {

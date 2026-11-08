@@ -149,10 +149,43 @@ await requireBrowserLane("thread-minimap-tick-states.test.ts", async () => {
     await page.close();
   });
 
-  test("the ticks come in on an eased curve with a bounded stagger down the rail", async () => {
+  test("initial history ticks have their final width even with entrances paused", async () => {
     const page = await open({ hold: true });
+    try {
+      const ticks = await page.locator(".acpmux-minimap__tick .acpmux-minimap__bar").evaluateAll((bars) =>
+        bars.map((bar) => ({
+          width: bar.getBoundingClientRect().width,
+          entering: bar
+            .getAnimations()
+            .some((entry) => (entry as CSSAnimation).animationName === "acpmux-minimap-tick-in"),
+        })),
+      );
+      expect(ticks).toHaveLength(18);
+      for (const tick of ticks) {
+        expect(tick.entering).toBe(false);
+        expect(tick.width).toBeGreaterThanOrEqual(5.9);
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("new prompts come in on an eased curve with a bounded stagger down the rail", async () => {
+    const page = await open({ hold: true });
+    const more = [
+      ...rows,
+      ...[19, 20, 21].flatMap((index) => [
+        row(`user-${index}`, "user", `New prompt ${index}`),
+        row(`answer-${index}`, "assistant", `Reply ${index}`),
+        row(`summary-${index}`, "turnSummary", undefined, { status: "completed", durationMs: 1_000 }),
+      ]),
+    ];
+    await page.evaluate((shown) => (window as unknown as { __showRows(rows: unknown): void }).__showRows(shown), more);
+    await page.waitForSelector('[data-tick="20"]');
     const entrance = await page.evaluate(() => {
-      const bars = [...document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick .acpmux-minimap__bar")];
+      const bars = [...document.querySelectorAll<HTMLElement>(".acpmux-minimap__tick .acpmux-minimap__bar")].filter(
+        (bar) => Number(bar.closest("[data-tick]")?.getAttribute("data-tick")) >= 18,
+      );
       return bars.map((bar) => {
         const animation = bar
           .getAnimations()
@@ -170,7 +203,7 @@ await requireBrowserLane("thread-minimap-tick-states.test.ts", async () => {
         return { delay, duration, easing: getComputedStyle(bar).animationTimingFunction, half: half / end };
       });
     });
-    expect(entrance.length).toBe(18);
+    expect(entrance.length).toBe(3);
     for (const tick of entrance) {
       expect(tick).toBeDefined();
       expect(tick!.easing).not.toBe("linear");

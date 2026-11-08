@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { Button } from "../../../ui/Button";
+import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
 import { Icon } from "../icons";
 import { t } from "../strings";
@@ -28,18 +30,21 @@ export function HostListEditor({ row, value, disabled, labelId }: EditorProps) {
         {hosts.map((host) => (
           <span key={host} className="token">
             {host}
-            <button
+            <Button
               type="button"
+              icon
+              size="sm"
+              variant="ghost"
               className="token-remove"
               aria-label={`${t("settingsPage.remove")} ${host}`}
               disabled={disabled}
               onClick={() => write(hosts.filter((item) => item !== host))}
             >
               <Icon name="xmark" />
-            </button>
+            </Button>
           </span>
         ))}
-        <input
+        <Input
           className="field token-input"
           type="text"
           spellCheck={false}

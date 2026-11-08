@@ -88,7 +88,10 @@ the schema only asks for a string there.
 
 `cmux settings list` shows every key with the value that applies now and its
 default. Add `--section appearance` for one section, or `--keys` for just the
-names.
+names. Value listings read the session daemon directly, using `--socket` or
+`--session` to select it; the app does not need to be running. JSON output
+includes the daemon's `customized` and `managed` fields. `--keys`, `schema`
+and `validate` still work offline.
 
 ## Example `keybindings.json`
 

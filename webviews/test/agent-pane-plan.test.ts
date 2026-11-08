@@ -171,10 +171,21 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(CHAT));
     await page.getByText("All three done.").waitFor();
+    // The turn has ended, so its list is folded to one line: the progress and a chevron, no steps,
+    // and no card (PlanList.tsx, cmux#34358).
+    const summary = page.locator(".cv-plan__summary");
+    expect(await summary.textContent()).toBe("2 of 3 tasks done");
+    expect(await summary.getAttribute("aria-expanded")).toBe("false");
+    expect(await page.locator(".cv-plan__item").count()).toBe(0);
+    expect(await page.locator(".cv-plan").evaluate((list) => getComputedStyle(list).boxShadow)).toBe("none");
+    // A click opens the steps again, in the card.
+    await summary.click();
+    await page.locator(".cv-plan__item").first().waitFor();
+    expect(await summary.getAttribute("aria-expanded")).toBe("true");
     const lists = await page.evaluate(() =>
       [...document.querySelectorAll(".cv-plan")].map((list) => ({
-        // Heard, not drawn, like each item's state: the marks show the progress.
-        progress: list.querySelector(".cv-plan__progress")?.textContent,
+        // An ended list says its progress on its summary line.
+        progress: list.querySelector(".cv-plan__summary")?.textContent,
         items: [...list.querySelectorAll(".cv-plan__item")].map((item) => [
           item.querySelector(".cv-plan__text")?.textContent,
           item.getAttribute("data-status"),
@@ -242,7 +253,13 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
         });
       }),
     ).toBe(true);
-    expect((await mark("in_progress")).animation).toBe("cmux-spin");
+    // The step at work turns the one shared Spinner inside its mark (icons.tsx), not a ring of its own.
+    expect((await mark("in_progress")).animation).toBe("none");
+    expect(
+      await page
+        .locator('.cv-plan__item[data-status="in_progress"] .cv-plan__mark .cv-spinner')
+        .evaluate((node) => getComputedStyle(node).animationName),
+    ).toBe("cmux-spin");
     expect(await mark("pending")).toEqual({ animation: "none", border: "dashed" });
     await page.close();
   });
@@ -252,11 +269,12 @@ await requireBrowserLane("agent-pane-plan.test.ts", async () => {
     await page.getByText("Adding retry now.").waitFor();
     expect(await page.locator(".cv-plan__item").count()).toBe(2);
     expect(await page.getByText("TodoWrite").count()).toBe(0);
-    // The checklist keeps its place between the text before it and the text after it.
+    // While the turn runs the checklist is pinned under its latest message (cmux#34358): below the
+    // text before it and the text after it alike.
     const top = (text: string) => page.getByText(text).evaluate((node) => node.getBoundingClientRect().top);
     const list = await page.locator(".cv-plan").evaluate((node) => node.getBoundingClientRect().top);
     expect(await top("I'll track this.")).toBeLessThan(list);
-    expect(list).toBeLessThan(await top("Adding retry now."));
+    expect(await top("Adding retry now.")).toBeLessThan(list);
     await page.close();
   });
 });

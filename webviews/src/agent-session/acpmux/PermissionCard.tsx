@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "re
 import { toolIcon } from "./conversation/ToolRow";
 import { useT } from "./i18n";
 import type { AcpmuxPermission } from "./model";
+import { ProposedEdits } from "./permissions/ProposedEdits";
 import {
   alwaysAllowScope,
   commandPreview,
@@ -99,7 +100,12 @@ export function PermissionActionButton({
 /// to their labels, grouped at the card's leading edge. What they cover (the folder or app, the Always allow rule) is one muted
 /// line under them, cut with an ellipsis and whole on hover. Deny opens a field for what the agent should do instead, sent with the
 /// deny through `onDenyWithFeedback`. Keys 1, 2 and 3, Return (Allow once) and Esc (Deny, or close
-/// the field) answer while this card is the prompt and nothing else has the keyboard.
+/// the field) answer while this card is the prompt and nothing else has the keyboard. In a chat
+/// running its highest mode (`fullAccessMode`), an ask still here is one the mode does not answer
+/// (acpmux hub/permissions.rs `full_access_allow`: an ask Claude Code marks as needing the person,
+/// one with no one-time allow), and one line under the title says so: Allow once lets it through
+/// this time only (Leo, 2026-11-04: "a temporary one-time sort of ask for, like if for whatever
+/// reason there's the bypass permissions, it doesn't bypass every single thing").
 export function PermissionCard({
   permission,
   onAnswer,
@@ -108,6 +114,7 @@ export function PermissionCard({
   focusComposer,
   shortcuts = true,
   waiting = 0,
+  fullAccessMode,
 }: {
   permission: AcpmuxPermission;
   /// Sends the answer. A promise that rejects means acpmux refused it (already answered elsewhere,
@@ -123,6 +130,8 @@ export function PermissionCard({
   shortcuts?: boolean;
   /// More asks waiting behind this one, answered after it.
   waiting?: number;
+  /// The chat's mode label while it runs its highest mode (Bypass permissions, Full access).
+  fullAccessMode?: string;
 }) {
   const t = useT();
   const command = permissionCommand(permission);
@@ -369,6 +378,13 @@ export function PermissionCard({
         </div>
         {waiting > 0 && <p className="acpmux-permission-waiting">{t("permission.moreWaiting", { n: waiting })}</p>}
         {detail && <p className="acpmux-permission-request-description">{detail}</p>}
+        {fullAccessMode && permission.pending && (
+          <p className="acpmux-permission-one-time">
+            {t(allowOnce ? "permission.fullAccessStillAsks" : "permission.fullAccessStillAsksNoOnce", {
+              mode: fullAccessMode,
+            })}
+          </p>
+        )}
         {command && (
           <div className="acpmux-permission-command" data-expanded={showFull || undefined}>
             {showFull ? (
@@ -394,6 +410,7 @@ export function PermissionCard({
           </div>
         )}
       </div>
+      <ProposedEdits permissionId={permission.permissionId} diffs={permission.diffs} />
       {!writing && (
         <div className="acpmux-permission-buttons">
           {allowOnce && (

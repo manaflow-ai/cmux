@@ -34,16 +34,20 @@ import Testing
                                   }) {}
     }
 
+    /// Lawrence 2026-11-02: "get rid of host-pressure warning by default, can be enabled in cmd shift p tho".
+    /// With nothing set, a seen window's indicator makes no service, so no monitor, no 15 s timer and no banner.
     @Test func theToggleShipsOffAndOffNeverMakesTheService() {
         #expect(HostPressureTunables.enabled.defaultValue == false)
-        let store = Self.store(forcing: .critical)
-        var made = 0
-        let indicator = Self.indicator(store: store, visibility: Visibility()) { _ in made += 1 }
-        indicator.reconcile()
-        #expect(!indicator.sampling.samples)
-        #expect(!indicator.isSampling)
-        #expect(made == 0)
-        #expect(indicator.isHidden)
+        for enabled in [nil, false] as [Bool?] {
+            let store = Self.store(forcing: .critical, enabled: enabled)
+            var made = 0
+            let indicator = Self.indicator(store: store, visibility: Visibility()) { _ in made += 1 }
+            indicator.reconcile()
+            #expect(!indicator.sampling.samples)
+            #expect(!indicator.isSampling)
+            #expect(made == 0)
+            #expect(indicator.isHidden)
+        }
     }
 
     @Test func itSamplesOnlyWhileOnAndVisible() async {
@@ -224,6 +228,7 @@ import Testing
         let store = TunableStore()
         store.register(HostPressureTunables.all)
         store.activate(file: nil)
+        _ = store.set(HostPressureTunables.enabled.key, false.tunableValue)
         _ = store.set(HostPressureTunables.force.key, HostPressureForce.critical.tunableValue)
         var made: HostPressureService?
         let indicator = HostPressureIndicatorView(services: AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"])),

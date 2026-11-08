@@ -34,6 +34,11 @@ ARTIFACTS = {
 
 
 HELPER_RESOLVER = "resolve-nightly-ghostty-cli-helper"
+# A fresh nightly uploads the daemon from its own job (#25935); a resumed one
+# re-uploads it from build-nightly-app, the owner ARTIFACTS names.
+DAEMON_BUILDER = "build-nightly-remote-daemon"
+OPTIONAL_PRODUCERS = {"cmux-nightly-ghostty-cli-helper": HELPER_RESOLVER,
+                      "cmux-nightly-remote-daemon": DAEMON_BUILDER}
 
 
 def require(condition, message):
@@ -59,13 +64,13 @@ def validate(run, jobs, artifacts, repo, run_id, attempt):
     # A helper reused from an earlier nightly (nightly_ghostty_helper_reuse.py)
     # is uploaded by the resolver job of the same attempt, not the build job.
     for job in jobs:
-        if (job.get("name") == HELPER_RESOLVER and job.get("conclusion") == "success" and
+        if (job.get("name") in OPTIONAL_PRODUCERS.values() and job.get("conclusion") == "success" and
                 job.get("run_attempt") == int(attempt)):
-            producers[HELPER_RESOLVER] = job
+            producers[job["name"]] = job
     selected = {}
     for name, (owner, _) in ARTIFACTS.items():
-        owners = [owner] + ([HELPER_RESOLVER] if name == "cmux-nightly-ghostty-cli-helper" and
-                            HELPER_RESOLVER in producers else [])
+        extra = OPTIONAL_PRODUCERS.get(name)
+        owners = [owner] + ([extra] if extra in producers else [])
         matches = [a for a in artifacts if a.get("name") == name and not a.get("expired") and
                    any(producers[o]["started_at"] <= a.get("created_at", "") <= producers[o]["completed_at"]
                        for o in owners)]

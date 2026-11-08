@@ -27,6 +27,8 @@ import { getInitialFileTreeRowCount } from "./FilesSidebar";
 import { withoutImportOnlyHunks } from "./importHunks";
 
 const registeredCustomThemeNames = new Set<string>();
+/** Errors of a repository on another machine (a Cloud workspace's): `message` is the host's reason. */
+export const MACHINE_ERROR_PREFIX = "cmux.diff.machine_";
 
 /**
  * Registers the terminal theme's Shiki themes under their names. The surface calls it before the
@@ -220,9 +222,15 @@ export function useRenderDiff(
             String((error as any)?.stack ?? (error as any)?.message ?? error),
           );
         }
+        // A repository on another machine that cannot answer (offline, too old): the host's
+        // localized reason, not a generic failure.
+        const machine =
+          error instanceof DiffTransportError && error.code.startsWith(MACHINE_ERROR_PREFIX)
+            ? error.message
+            : undefined;
         dispatch({
           type: "set-status",
-          status: createDiffViewerStatus(empty ? emptyMessage() : label("renderFailed"), {
+          status: createDiffViewerStatus(empty ? emptyMessage() : (machine ?? label("renderFailed")), {
             error: !empty,
             loading: false,
             statusOnly: true,

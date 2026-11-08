@@ -991,6 +991,24 @@
    "family": "git"
   },
   {
+   "name": "git.pullrequest.closed",
+   "meaning": "Closed pull request, or one GitHub can't merge for conflicts (Session Info Changes).",
+   "sf": "questionmark.square.dashed",
+   "family": "git.pullrequest"
+  },
+  {
+   "name": "git.pullrequest.draft",
+   "meaning": "Draft pull request (Session Info Changes).",
+   "sf": "questionmark.square.dashed",
+   "family": "git.pullrequest"
+  },
+  {
+   "name": "git.pullrequest.merged",
+   "meaning": "Merged pull request (Session Info Changes).",
+   "sf": "questionmark.square.dashed",
+   "family": "git.pullrequest"
+  },
+  {
    "name": "git.worktree",
    "meaning": "Session runs in its own git worktree.",
    "sf": "questionmark.square.dashed",
@@ -1298,16 +1316,51 @@
    "family": "panel"
   },
   {
+   "name": "permission.ask",
+   "meaning": "Ask for approval: the existing raised hand.",
+   "sf": "hand.raised",
+   "family": "permission",
+   "alias": false
+  },
+  {
+   "name": "permission.auto",
+   "meaning": "Approve for me: the existing terminal prompt in a shield.",
+   "sf": "terminal",
+   "family": "permission",
+   "alias": false
+  },
+  {
+   "name": "permission.checked",
+   "meaning": "Permission mode with a checked shield: existing approval mode glyph.",
+   "sf": "checkmark.shield",
+   "family": "permission",
+   "alias": false
+  },
+  {
    "name": "permission.consent",
    "meaning": "Agent consent request / decision (activity rows).",
    "sf": "person.badge.shield.checkmark",
    "family": "permission"
   },
   {
+   "name": "permission.full-access",
+   "meaning": "Full access: the existing alert shield.",
+   "sf": "exclamationmark.shield",
+   "family": "permission",
+   "alias": false
+  },
+  {
    "name": "permission.mode",
    "meaning": "Composer permission-mode picker (ask / auto-accept edits / bypass...).",
    "sf": "questionmark.square.dashed",
    "family": "permission"
+  },
+  {
+   "name": "permission.shield",
+   "meaning": "Permission mode with a plain shield: existing auto/accept mode glyph.",
+   "sf": "shield",
+   "family": "permission",
+   "alias": false
   },
   {
    "name": "placeholder",
@@ -1791,6 +1844,13 @@
    "family": "terminal"
   },
   {
+   "name": "terminal.prompt",
+   "meaning": "Terminal command (the prompt alone, no window box)",
+   "sf": "terminal",
+   "family": "terminal",
+   "alias": false
+  },
+  {
    "name": "text.description",
    "meaning": "Logs / description",
    "sf": "text.alignleft",
@@ -2012,6 +2072,12 @@
    "meaning": "List / choices / all",
    "sf": "list.bullet",
    "family": "view"
+  },
+  {
+   "name": "view.list.short",
+   "meaning": "Two-row list: the chat header's Session Info panel toggle",
+   "sf": "questionmark.square.dashed",
+   "family": "view.list"
   },
   {
    "name": "window.new",

@@ -85,6 +85,18 @@ public final class ChildPageFocus {
         setFocus(old, false)
     }
 
+    /// Whether the cmux window becomes main when a window it owns (a Chromium page window, a panel) becomes key: AppKit
+    /// does not hand main to a child's parent. An owned window that may be main (a sheet) settles main itself.
+    ///
+    /// - Parameters:
+    ///   - ownedCanBecomeMain: The owned window may become main.
+    ///   - ownerIsMain: The cmux window is main already.
+    ///   - ownerCanBecomeMain: The cmux window may become main.
+    /// - Returns: Whether the cmux window makes itself main.
+    public nonisolated static func ownerTakesMain(ownedCanBecomeMain: Bool, ownerIsMain: Bool, ownerCanBecomeMain: Bool) -> Bool {
+        !ownedCanBecomeMain && !ownerIsMain && ownerCanBecomeMain
+    }
+
     /// `window` takes the keys back from another key window that `shouldReclaim` accepts.
     ///
     /// No change when `window` is key already, no window is key (an inactive app), or inside the grant

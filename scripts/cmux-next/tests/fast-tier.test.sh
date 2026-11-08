@@ -125,6 +125,7 @@ registry '{"entries": [
 run --dry-run
 expect "dry run builds a Swift package once" 0 "^BUILD swift build --build-tests --package-path Packages/Shared/CmuxHomeRender$"
 if [ "$(grep -c '^BUILD swift build' <<<"$out")" -ne 1 ]; then echo "FAIL: one build per Swift package" >&2; printf '%s\n' "$out" >&2; exit 1; fi
+expect "dry run plans each Swift package's tests once, outside the cap" 0 "^BUILD swift test --skip-build --list-tests --package-path Packages/Shared/CmuxHomeRender$"
 expect "dry run tests each Swift entry against the built package" 0 "^RUN tokens: swift test --skip-build --package-path Packages/Shared/CmuxHomeRender --filter MotionTokenTests$"
 expect "dry run builds cargo test binaries once, outside the cap" 0 "^BUILD cargo test --locked --no-run -p cmux-motion \\(in cmux-tui\\)$"
 expect "dry run tests a cargo entry" 0 "^RUN clock: cargo test --locked -p cmux-motion \(in cmux-tui\)$"
@@ -210,8 +211,9 @@ fi
 python3 -I - "$tmp/receipt.json" <<'PY'
 import json, sys
 builds = json.load(open(sys.argv[1]))["builds"]
-assert [b["name"] for b in builds] == ["Pkg", "crate"], builds
-assert all(b["status"] == "pass" and b["seconds"] >= 2.5 for b in builds), builds
+assert [b["name"] for b in builds] == ["Pkg", "Pkg test plan", "crate"], builds
+assert all(b["status"] == "pass" for b in builds), builds
+assert all(b["seconds"] >= 2.5 for b in builds if b["name"] != "Pkg test plan"), builds
 PY
 FAKE_CARGO_BUILD_FAILS=1 PATH="$tmp/slowbin:$PATH" run
 expect "a cargo build failure fails the tier" 1 "^FAST-TIER FAIL build:crate: the tests do not build"

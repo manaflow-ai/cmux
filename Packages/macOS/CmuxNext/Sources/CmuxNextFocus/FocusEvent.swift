@@ -96,3 +96,15 @@ public nonisolated enum FocusEffect: Hashable, Sendable, Codable {
     case publishContext(FocusState.Context)
     case browserFocusMode(tab: String, active: Bool)
 }
+
+public extension FocusEvent {
+    /// A focus or selection change the person made by mouse, keyboard or palette: not the CLI, a script, the app or the
+    /// daemon (a keyboard claim of the person's new terminal ends at one, `CreationKeyboardClaims`).
+    var isPersonsOwn: Bool {
+        switch self {
+        case .focusPane(_, _, let source), .selectTab(_, _, _, let source), .focusTarget(_, let source), .responder(_, let source):
+            source == .mouse || source == .keyboard || source == .palette
+        default: false
+        }
+    }
+}

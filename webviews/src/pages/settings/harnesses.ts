@@ -18,7 +18,7 @@ export function updateUnsettled(state: HarnessesState | null | undefined, id: st
   return (state?.jobs ?? []).some((job) => job.profiles.includes(id) && job.state !== "exited");
 }
 
-/** Whether Settings > Agents wants a look: a harness is outdated or signed out. */
+/** Whether Settings > Agents wants a look: a harness is outdated, signed out or its sign-in expired. */
 export function harnessesNeedAttention(state: HarnessesState | null | undefined): boolean {
-  return (state?.harnesses ?? []).some((row) => row.outdated || row.auth === "signedOut");
+  return (state?.harnesses ?? []).some((row) => row.outdated || row.auth === "signedOut" || row.auth === "expired");
 }

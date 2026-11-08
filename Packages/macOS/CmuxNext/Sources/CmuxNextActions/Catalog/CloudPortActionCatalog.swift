@@ -10,7 +10,7 @@ nonisolated enum CloudPortActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "cloudOpenBrowser",
                 title: String(localized: "action.cloudOpenBrowser", defaultValue: "Open Machine Port in Browser…", table: "CloudPortActions", bundle: .module),
-                description: "Opens --port N (and --path, default /) of the machine (--target machine:<id>) in a Chromium tab and returns url and surface_id; on the classic Cloud link the tab opens in the machine's workspace (workspace_id) and its localhost is the machine's. A tab not shown within 15 s answers pending: true.",
+                description: "Opens --port N (and --path, default /) of the machine (--target machine:<id>) in a Chromium tab and returns url and surface_id. New Cloud uses its private preview URL. On the classic Cloud link the tab opens in the machine's workspace (workspace_id) and its localhost is the machine's.",
                 keywords: ["vm", "cloud", "browser", "port", "localhost", "preview", "web"], category: .cloud, symbol: "safari",
                 surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.portInt, CatalogArgument.optionalPathString],
                 targets: [.machine], cliName: "cloud open-browser", surfacePlan: plan(rank: 211)

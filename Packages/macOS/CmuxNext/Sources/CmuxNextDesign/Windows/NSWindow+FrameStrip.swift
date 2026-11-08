@@ -62,6 +62,8 @@ extension NSWindow {
                 "ms": (frame.milliseconds - sentAt).rounded(), "file": name,
                 "outside_vs_before": m.outsideBefore, "outside_vs_final": m.outsideFinal, "intermediate": isIntermediate,
                 "blank": isBlank, "desync": isDesync, "content_intermediate": isContentIntermediate,
+                // The content area's own differences, for a script's first-content and final-frame times.
+                "content_vs_before": insideBefore, "content_vs_final": insideFinal, "flatness": m.flatness,
             ])
         }
         WindowFrame.writeStrip(frames.filter { $0.milliseconds >= before.milliseconds }, to: (dir as NSString).appendingPathComponent("strip.png"))
@@ -73,6 +75,13 @@ extension NSWindow {
             "mean_interval_ms": frames.count > 1 ? (last.milliseconds - first.milliseconds) / Double(frames.count - 1) : 0,
         ]
         return report.merging(motion.mapValues { $0 as Any }) { first, _ in first }
+    }
+
+    /// The window's rect in global display coordinates (top-left origin), for `WindowFrame.recordAbove`: a
+    /// frame strip of what the screen shows there, the window's Chromium pages (child windows over it) too.
+    public var frameStripBounds: CGRect? {
+        guard let screen = NSScreen.screens.first else { return nil }
+        return CGRect(x: frame.minX, y: screen.frame.maxY - frame.maxY, width: frame.width, height: frame.height)
     }
 
     /// `host`'s rect as fractions of the window's captured image (top-left origin), for `WindowFrame.record(crop:)`.

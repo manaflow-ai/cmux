@@ -83,7 +83,11 @@ impl Mux {
                 }))
             })()
         };
-        self.emit(MuxEvent::LayoutChanged(screen, delta));
+        // A screen that is gone (its workspace or itself closed in the same change) has no layout
+        // to send: its close delta already told every client. A `layout-changed` with no layout
+        // made every delta client read the whole tree again (#32408).
+        let Some(delta) = delta else { return };
+        self.emit(MuxEvent::LayoutChanged(screen, Some(delta)));
     }
 }
 

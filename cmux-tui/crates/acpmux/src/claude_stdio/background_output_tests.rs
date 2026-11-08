@@ -63,3 +63,67 @@ async fn a_result_without_a_path_names_nothing() {
             .is_empty()
     );
 }
+
+/// The `background_task_update` that says how the shell ended.
+fn ended(msgs: &[Message]) -> Option<Value> {
+    msgs.iter().find_map(|m| match m {
+        Message::Notification { params: Some(p), .. }
+            if p.pointer("/update/sessionUpdate") == Some(&json!("background_task_update"))
+                && p.pointer("/update/state") != Some(&json!("running")) =>
+        {
+            Some(p["update"].clone())
+        }
+        _ => None,
+    })
+}
+
+fn notification(status: &str, summary: &str) -> Value {
+    json!({"type": "system", "subtype": "task_notification", "task_id": "b7x",
+        "tool_use_id": "toolu_bg", "status": status, "output_file": "", "summary": summary})
+}
+
+/// Claude Code says a background shell's exit code only in its notification's summary; the
+/// end's update carries it as `exitCode`, as Codex's does.
+#[tokio::test]
+async fn a_background_shells_end_carries_the_exit_code_its_summary_names() {
+    for (status, summary, state, code) in [
+        (
+            "completed",
+            "Background command \"Run the dev server\" completed (exit code 0)",
+            "completed",
+            Some(0),
+        ),
+        (
+            "failed",
+            "Background command \"Run the bench\" failed with exit code 101",
+            "failed",
+            Some(101),
+        ),
+        // A description that says the words is not read as the code.
+        (
+            "failed",
+            "Background command \"check exit code 7\" failed (exit code 2)",
+            "failed",
+            Some(2),
+        ),
+        ("killed", "Background command \"npm run dev\" was stopped", "stopped", None),
+    ] {
+        let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+        t.inbound(&launch()).await;
+        t.inbound(&started()).await;
+        t.inbound(&result(RESULT)).await;
+        let end = ended(&t.inbound(&notification(status, summary)).await).expect("an end");
+        assert_eq!(end["state"], state, "{end}");
+        assert_eq!(end["summary"], summary, "{end}");
+        assert_eq!(end.get("exitCode").and_then(Value::as_i64), code, "{end}");
+    }
+}
+
+#[test]
+fn summary_exit_codes() {
+    use super::inbound::summary_exit_code;
+    assert_eq!(summary_exit_code("x completed (exit code 0)"), Some(0));
+    assert_eq!(summary_exit_code("x failed with exit code -1"), Some(-1));
+    assert_eq!(summary_exit_code("x failed (exit code )"), None);
+    assert_eq!(summary_exit_code("done"), None);
+}

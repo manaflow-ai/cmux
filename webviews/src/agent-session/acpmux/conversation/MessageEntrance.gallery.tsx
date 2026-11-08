@@ -1,12 +1,12 @@
 // l10n-allow-file: deterministic gallery fixture labels, not shipped copy.
-// Three compositor-only entrance candidates for Leo's subtle new-message motion. The product picks
-// scale + fade; the other two stay here for side-by-side review without changing layout.
+// The product fades new messages at their final size. The former scale entrance and two other
+// compositor-only candidates stay here for comparison without changing layout.
 import { useMemo, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { VirtualTranscript } from "../App";
 import type { AcpmuxRow } from "../model";
 
-type Variant = "scale" | "translate" | "scale-y";
+type Variant = "fade" | "scale" | "translate" | "scale-y";
 
 const row = (id: string, kind: "user" | "assistant", text: string, at: number): AcpmuxRow => ({
   id,
@@ -75,7 +75,8 @@ export default componentEntry<{ variant: Variant }>({
     ]),
   load: async () => MessageEntranceGallery,
   variants: {
-    scale: { props: { variant: "scale" }, note: "Scale .985→1 with opacity; selected product motion." },
+    fade: { props: { variant: "fade" }, note: "Opacity only at final size; selected product motion." },
+    scale: { props: { variant: "scale" }, note: "Former scale .985→1 with opacity; comparison only." },
     translate: { props: { variant: "translate" }, note: "Translate 4px→0 with opacity; layout remains reserved." },
     "scale-y": {
       props: { variant: "scale-y" },

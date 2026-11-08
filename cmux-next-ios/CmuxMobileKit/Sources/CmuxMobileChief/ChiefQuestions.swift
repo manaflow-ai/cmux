@@ -64,9 +64,16 @@ public final class ChiefQuestionFeed: @unchecked Sendable {
             guard part["type"] as? String == "question",
                   let data = try? JSONSerialization.data(withJSONObject: part),
                   let json = try? AgentQuestionJSON(data: data) else { return nil }
-            return AgentQuestion(conversationPart: json, messageID: id, partIndex: index)
+            guard let question = AgentQuestion(conversationPart: json, messageID: id, partIndex: index),
+                  !requiresLocalApp(question) else { return nil }
+            return question
         }
         return (seq, found)
+    }
+
+    /// Home approval cards use the Mac app's person proof, not phone question answers.
+    static func requiresLocalApp(_ question: AgentQuestion) -> Bool {
+        question.source.harness == .chief && question.items.contains { $0.id.hasPrefix("approval:") }
     }
 }
 
@@ -242,6 +249,10 @@ extension ChiefDaemonBackend: ChiefQuestionSource {
 
     public func answer(_ question: AgentQuestion, with answer: AgentQuestionAnswer, signer: (any ChiefAnswerSigning)?,
                        approved: @escaping @Sendable () -> Void) async throws {
+        // Also reject a cached card supplied before the feed refreshed.
+        guard !ChiefQuestionFeed.requiresLocalApp(question) else {
+            throw ConversationBackendError(code: -32000, message: "question.person_decision_required")
+        }
         guard let signer else { throw ChiefApprovalUnavailable() }
         guard let address = ChiefQuestionAddress(question.id) else {
             throw ConversationBackendError(code: -32602, message: "not a conversation question")

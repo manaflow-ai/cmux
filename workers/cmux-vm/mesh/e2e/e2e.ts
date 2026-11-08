@@ -153,7 +153,7 @@ const services = Layer.mergeAll(
       ),
   }),
   tenantPolicyLayer({ environment: "local" }),
-  Layer.succeed(Entitlements, { mayCreate: (t) => Effect.succeed(t === tenantId) }),
+  Layer.succeed(Entitlements, { mayCreate: (caller) => Effect.succeed(caller.tenantId === tenantId) }),
   memoryLimitsLayer(),
   Layer.succeed(UpstreamClient, makeUpstreamClient(upstreamConfig)),
   Layer.succeed(SessionVerifier, { verify: () => Effect.die("sessions are not used by the M1c proof") }),

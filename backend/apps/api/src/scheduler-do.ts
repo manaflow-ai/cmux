@@ -222,7 +222,7 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
       if (at === null || t < at) at = t
     }
     for (const a of allAutomations(rows)) {
-      if (!a.enabled) continue
+      if (!a.enabled || a.handoff) continue
       for (const t of a.triggers) {
         if (t.status !== "active" || t.next_at === null) continue
         take(t.next_at > now ? t.next_at : (this.retryAt(fireKey(a.id, t.id, t.next_at)) ?? t.next_at))
@@ -420,6 +420,11 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
       if (typeof id === "string" && pathOf(id) !== before) return { refusal: { code: "code.unavailable", message: "the automation changed during the code check; retry", retryable: true } }
     }
     return this.submit(entity, principal, frame)
+  }
+
+  /** Whether this op's key is decided (the ledger replays it): the Worker skips its pre-op checks (chief-job-gate.ts). */
+  isReplay(entity: string, principal: Principal, frame: OpFrame): boolean {
+    return this.bind(entity).gate(principal, frame) === "replay"
   }
 
   /** RPC from TeamDO: the run class of agents.allowedClasses at a policy version (newest wins). */

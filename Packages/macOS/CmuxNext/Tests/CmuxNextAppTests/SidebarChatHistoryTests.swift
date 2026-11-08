@@ -16,13 +16,22 @@ import Testing
 
     /// `count` chats, newest first (`c0` newest).
     private static func chats(_ count: Int) -> [SidebarHistoryChat] {
-        (0..<count).map { SidebarHistoryChat(id: "c\($0)", title: "chat \($0)", updatedAt: start.addingTimeInterval(-Double($0) * 60)) }
+        (0..<count).map {
+            SidebarHistoryChat(id: "c\($0)", title: "chat \($0)", updatedAt: start.addingTimeInterval(-Double($0) * 60),
+                               harness: $0.isMultiple(of: 2) ? "codex" : "claude-code")
+        }
     }
 
+    /// The history of `index` as acpmux's Earlier window answers it: `more` (acpmux's `hasMore`) is
+    /// whether more chats than the page pass the window's exclusions (acpmux's own cases:
+    /// `a_window_says_whether_more_chats_pass_past_its_page` in cmux-tui/crates/acpmux/tests/chats_window.rs).
     private static func make(_ index: [SidebarHistoryChat], live: Set<String> = [], pinned: [String] = [], limit: Int = 3,
                              folded: Bool = false) -> SidebarChatHistoryState {
         let byID = Dictionary(uniqueKeysWithValues: index.map { ($0.id, $0) })
-        return SidebarChatHistoryState.make(newest: index, chat: { byID[$0] }, live: live, pinned: pinned, limit: limit, folded: folded)
+        let skipped = live.union(pinned)
+        let more = index.filter { !skipped.contains($0.id) }.count > limit
+        return SidebarChatHistoryState.make(newest: index, chat: { byID[$0] }, live: live, pinned: pinned, limit: limit, folded: folded,
+                                            more: more)
     }
 
     // MARK: State
@@ -52,9 +61,9 @@ import Testing
         #expect(state.earlierHeight(.standard) == SidebarLayoutMetrics.standard.sectionHeaderHeight)
     }
 
-    /// Thousands of chats cost one page: the index is read lazily and only until the page and one
-    /// more chat are found (no full list, no transcript).
-    @Test func aPageReadsOnlyThePageAndOneMoreOfTheIndex() {
+    /// Thousands of chats cost one page: the window is read lazily and only until the page is full;
+    /// Show More is acpmux's `hasMore`, so no chat past the page is read to find it.
+    @Test func aPageReadsOnlyThePage() {
         var read = 0
         let index = Self.chats(5_000)
         let lazy = index.lazy.map { chat -> SidebarHistoryChat in
@@ -62,9 +71,10 @@ import Testing
             return chat
         }
         let state = SidebarChatHistoryState.make(newest: lazy, chat: { _ in nil }, live: ["c1"], pinned: [],
-                                                 limit: SidebarChatHistory.pageSize, folded: false)
+                                                 limit: SidebarChatHistory.pageSize, folded: false, more: true)
         #expect(state.earlier.count == SidebarChatHistory.pageSize)
-        #expect(read == SidebarChatHistory.pageSize + 2) // the page, the live chat skipped, one more for Show More
+        #expect(state.hasMore)
+        #expect(read == SidebarChatHistory.pageSize + 1) // the page and the live chat skipped
     }
 
     @Test func heightsAreAHeaderAndOneRowPerChatPlusShowMore() {
@@ -116,6 +126,20 @@ import Testing
         #expect(Self.layout(SidebarChatHistoryState()).totalHeight == plain.totalHeight)
         let filtered = Self.layout(Self.make(Self.chats(10), pinned: ["c1"]), filter: [WorkspaceID("a")])
         #expect(filtered.pinnedChatsY == nil && filtered.earlierChatsY == nil)
+    }
+
+    /// Chat history lives in gaps between rows, so its placement must participate in layout
+    /// identity. Otherwise `SidebarView+Observation` can skip moving the pinned or Earlier block
+    /// when the rows and their frames stay unchanged.
+    @Test func layoutEqualityIncludesChatHistoryPlacement() {
+        var before = Self.layout(nil)
+        var after = before
+        after.pinnedChatsY = 12
+        after.earlierChatsY = 96
+        #expect(before != after)
+        before.pinnedChatsY = after.pinnedChatsY
+        before.earlierChatsY = after.earlierChatsY
+        #expect(before == after)
     }
 
     @Test func pinnedStillShowsWhenNoComputerListsARow() {
@@ -220,17 +244,75 @@ import Testing
         #expect(lane("claude", nil)?.chat == nil)
     }
 
-    @Test func theFeedListsTheIndexWithoutChildChatsAndNamesUntitledOnes() {
-        var store = AcpmuxChatsStore()
-        store.reset(["chats": [
+    /// acpmux's window holds no child chat (`topLevel`); the history names an untitled chat by its
+    /// folder, else its harness, and leaves out a chat an open workspace shows until acpmux's next
+    /// window excludes it too.
+    @Test func theFeedListsTheWindowAndNamesUntitledOnes() {
+        let json: [[String: Any]] = [
             ["key": "claude-code:1", "sessionId": "1", "harness": "claude-code", "title": "Fix the build", "updatedMs": 3_000],
             ["key": "codex:2", "sessionId": "2", "harness": "codex", "cwd": "/Users/me/cmux", "updatedMs": 2_000],
-            ["key": "claude-code:3", "sessionId": "3", "harness": "claude-code", "updatedMs": 1_000, "parent": "claude-code:1"],
             ["key": "claude-code:4", "sessionId": "4", "harness": "claude-code", "updatedMs": 500]
-        ]])
-        let state = SidebarChatHistoryFeed.state(store, live: ["claude-code:1"], pinned: [], limit: 10, folded: false)
+        ]
+        let rows = json.compactMap(AcpmuxChat.init(json:))
+        let inputs = SidebarChatHistoryFeed.Inputs(live: ["claude-code:1"], pinned: [], limit: 10, folded: false)
+        #expect(inputs.earlierSpec.topLevel)
+        #expect(inputs.earlierSpec.exclude == ["claude-code:1"])
+        let state = SidebarChatHistoryFeed.state(earlier: rows, more: false, pinned: [], inputs: inputs)
         #expect(state.earlier.map(\.id) == ["codex:2", "claude-code:4"])
         #expect(state.earlier.map(\.title) == ["cmux", "claude-code"])
-        #expect(Array(store.newestFirst.map(\.id)) == ["claude-code:1", "codex:2", "claude-code:4"])
+        #expect(state.earlier.map(\.harness) == ["codex", "claude-code"])
+    }
+
+    /// Rust migration A7: Earlier asks acpmux for the page only and shows Show More when acpmux says more
+    /// chats wait (`hasMore`), never by asking for one more row and cutting it.
+    @Test func showMoreIsAcpmuxsHasMore() throws {
+        let inputs = SidebarChatHistoryFeed.Inputs(live: [], pinned: [], limit: 2, folded: false)
+        #expect(inputs.earlierSpec.limit == 2, "the page, not one more row")
+        #expect(SidebarChatHistoryFeed.Inputs(live: [], pinned: [], limit: 2, folded: true).earlierSpec.limit == 1)
+        let windows = AcpmuxChatWindows()
+        var sent: [[String: any Sendable]] = []
+        windows.connected { (_: String, params: [String: any Sendable]) in sent.append(params) }
+        windows.open(inputs.earlierSpec)
+        let generation = try #require(sent.last?["gen"] as? UInt64)
+        let rows: [[String: Any]] = [
+            ["key": "codex:1", "sessionId": "1", "harness": "codex", "title": "one", "updatedMs": 2_000],
+            ["key": "codex:2", "sessionId": "2", "harness": "codex", "title": "two", "updatedMs": 1_000]
+        ]
+        let full: [String: Any] = ["window": SidebarChatHistoryFeed.earlierWindow, "gen": NSNumber(value: generation),
+                                   "revision": NSNumber(value: 1), "full": true, "keys": ["codex:1", "codex:2"], "rows": rows,
+                                   "hasMore": true]
+        windows.apply(try #require(AcpmuxChatWindows.Update(params: full)))
+        let earlier = windows.window(SidebarChatHistoryFeed.earlierWindow)
+        #expect(earlier.hasMore)
+        let state = SidebarChatHistoryFeed.state(earlier: earlier.rows, more: earlier.hasMore, pinned: [], inputs: inputs)
+        #expect(state.earlier.map(\.id) == ["codex:1", "codex:2"])
+        #expect(state.hasMore, "acpmux says more chats wait")
+        var last = full
+        last["revision"] = NSNumber(value: 2)
+        last["full"] = false
+        last["rows"] = [[String: Any]]()
+        last["hasMore"] = false
+        windows.apply(try #require(AcpmuxChatWindows.Update(params: last)))
+        #expect(!earlier.hasMore, "a diff that only changes hasMore reaches the window")
+        #expect(!SidebarChatHistoryFeed.state(earlier: earlier.rows, more: earlier.hasMore, pinned: [], inputs: inputs).hasMore,
+                "the last page has no Show More")
+    }
+
+    @Test func historyRowsCarryHarnessMarksAndStableFallbackColoursAcrossReuse() throws {
+        let view = SidebarChatHistoryView(part: .earlier)
+        view.frame = NSRect(x: 0, y: 0, width: 240, height: 200)
+        let codex = SidebarHistoryChat(id: "codex:1", title: "same title", updatedAt: Self.start, harness: "codex")
+        let unknown = SidebarHistoryChat(id: "acme:1", title: "same title", updatedAt: Self.start, harness: "acme-agent")
+        view.show(SidebarChatHistoryState(earlier: [codex]), metrics: .standard)
+        view.layoutSubtreeIfNeeded()
+        let row = try #require(view.rows.first)
+        #expect(row.harness == "codex")
+        #expect(row.harnessMarkColor == nil)
+        #expect(row.titleText == "same title")
+        view.show(SidebarChatHistoryState(earlier: [unknown]), metrics: .standard)
+        view.layoutSubtreeIfNeeded()
+        #expect(row.harness == "acme-agent")
+        #expect(row.harnessMarkColor == GroupColor.unset(id: "acme-agent"))
+        #expect(row.harnessMarkColor != nil)
     }
 }

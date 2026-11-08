@@ -37,6 +37,8 @@ final class FocusCoordinator {
     private var isRunning = false
     /// Tabs left while their address bar had the keyboard (Chrome restores it on return).
     private var omnibarMemory = OmnibarFocusMemory()
+    /// The applier runs the address-bar focus of a return to the tab (``OmnibarFocusMemory/takeReturn(_:)``).
+    private(set) var isReturningToOmnibar = false
     private(set) var isApplying = false
     /// The last events, newest last (for `debug.focus`).
     private(set) var recent: [String] = []
@@ -64,6 +66,8 @@ final class FocusCoordinator {
     var observer: ((Observation) -> Void)?
     /// Called once the queue drained and every effect ran (notifications).
     var settledObserver: ((FocusState) -> Void)?
+    /// The person's own focus or selection moves here (mouse, keyboard, palette): a keyboard claim ends at the next one.
+    private(set) var personIntents: (count: UInt64, input: TimeInterval?) = (0, nil)
 
     func send(_ event: FocusEvent) {
         // An action run that may not change this client's view (a CLI,
@@ -75,6 +79,8 @@ final class FocusCoordinator {
             observer?(.refusedByRun(event))
             return
         }
+        // The input dispatched now (nil between dispatches), the same stamp the claim took (`dispatchingInputEvent`).
+        if event.isPersonsOwn, event.changesView { personIntents = (personIntents.count &+ 1, (NSApp as? CmuxApplication)?.inputDispatch?.event?.timestamp) }
         // A changed topology goes first: the event (and its effects) see the current panes and tabs.
         if case .topology = event {} else { reducePendingTopologies() }
         queue.append(event)
@@ -93,6 +99,7 @@ final class FocusCoordinator {
         while !queue.isEmpty {
             while !queue.isEmpty {
                 let event = queue.removeFirst()
+                let returnsToOmnibar = omnibarMemory.takeReturn(event)
                 // A topology equal to the one the machine holds is not an event:
                 // nothing is sent, recorded or applied (the window re-reports
                 // its panes after every daemon delta and selection echo).
@@ -116,12 +123,14 @@ final class FocusCoordinator {
                 record(event)
                 if omnibarMemory.note(event, before: previous.resolved, after: reduced.resolved) {
                     // Runs after this event's effects moved the responder to the page.
-                    queue.append(.focusTarget(.addressBar, source: .programmatic))
+                    queue.append(OmnibarFocusMemory.returnEvent)
                 }
                 observer?(.reduced(event, before: previous, after: reduced, changed: result.changed || !effects.isEmpty))
                 guard !effects.isEmpty, let applier else { continue }
                 isApplying = true
+                isReturningToOmnibar = returnsToOmnibar
                 applier.apply(effects, state: reduced)
+                isReturningToOmnibar = false
                 isApplying = false
                 DebugPaneFocus.mark(self, "applied")
             }

@@ -565,6 +565,9 @@ pub(crate) async fn ensure(
     let (v, created) = match found {
         Some(s) => (s, false),
         None => {
+            if let Some(hint) = crate::session_name::naming_hint(name) {
+                eprintln!("{hint}");
+            }
             let mut meta = json!({"name": name});
             if let Some(a) = &agent {
                 meta["harness"] = json!(a);

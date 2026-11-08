@@ -146,10 +146,10 @@ struct AgentPaneUnsentPromptTests {
     }
 
     /// The daemon closes the connection before it acknowledged a prompt (an acpmux restart, a reset
-    /// socket). With Debug Settings agentPane.debug.lostPromptReplay on, the pane's next connection
-    /// sends it again, once, as a resend of the same prompt id ("The agent connection was
-    /// interrupted", 2026-10-20). Off (the default), it never goes again: the page says "Not sent"
-    /// with Retry, so the prompt runs at most once whichever way.
+    /// socket). With Debug Settings agentPane.debug.lostPromptReplay on (the default), the pane's next
+    /// connection sends it again, once, as a resend of the same prompt id ("The agent connection was
+    /// interrupted", 2026-10-20). Off, it never goes again: the page says "Not sent" and gives it
+    /// back, so the prompt runs at most once whichever way.
     @Test(arguments: [true, false])
     func aPromptTheDaemonDroppedWithItsConnectionGoesAgainOnTheNextOne(replay: Bool) async throws {
         TunableStore.shared.activate(file: nil)
@@ -279,5 +279,20 @@ struct AgentPaneUnsentPromptTests {
         #expect(await pane.transport.send(connection: pane.id, frames: [frame]) != nil)
         await Self.barrier(pane, id: 2)
         #expect(Self.prompts(daemon, peer: 0).isEmpty)
+    }
+
+    @Test func aLargePromptAndMoreThan64PendingPromptsSurviveTheJournal() throws {
+        let url = Self.journalURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let journal = AgentPanePromptJournal(url: url)
+        let owner = UUID()
+        for index in 0..<65 {
+            #expect(journal.record(.init(daemon: "daemon", sessionId: "s-1", promptId: "p-\(index)", params: "{}", at: Date()), owner: owner))
+        }
+        let large = String(repeating: "x", count: 9 * 1024 * 1024)
+        #expect(journal.record(.init(daemon: "daemon", sessionId: "s-1", promptId: "large", params: large, at: Date()), owner: owner))
+        #expect(journal.entries().count == 66)
+        #expect(journal.entries().last?.params.utf8.count == 9 * 1024 * 1024)
+        #expect(AgentPanePromptJournal(url: url).entries().count == 66)
     }
 }

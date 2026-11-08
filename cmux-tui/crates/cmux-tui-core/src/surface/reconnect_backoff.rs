@@ -93,13 +93,17 @@ impl TerminalHostReconnectBackoff {
 }
 
 /// Sleep `delay` in slices; false once the terminal is closed or the daemon
-/// shuts down (both set `owner_detaching`) or its mux is gone.
+/// shuts down (both set `owner_detaching`) or its mux is gone. A recover
+/// request (`recover_requested`) ends the wait at once.
 #[cfg(any(unix, windows))]
 fn wait_unless_detached(pty: &PtySurface, delay: Duration) -> bool {
     let until = Instant::now() + delay;
     loop {
         if pty.owner_detaching.load(Ordering::Acquire) || pty.mux.upgrade().is_none() {
             return false;
+        }
+        if pty.recover_requested.load(Ordering::Acquire) {
+            return true;
         }
         let Some(left) = until.checked_duration_since(Instant::now()).filter(|d| !d.is_zero())
         else {

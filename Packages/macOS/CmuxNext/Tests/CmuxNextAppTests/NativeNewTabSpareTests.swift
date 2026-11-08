@@ -144,4 +144,64 @@ struct NativeNewTabSpareTests {
         #expect(fieldFrame.minX >= -0.5 && fieldFrame.maxX <= spare.bounds.maxX + 0.5,
                 "the field is laid out for another width: \(fieldFrame.minX)...\(fieldFrame.maxX) in a \(spare.bounds.width) pt page")
     }
+
+    /// PACING TRIAGE #32910, native page (REVIEW-STANDARD: no partial fixes): the native page's palette actions are read
+    /// as the web page's are, in slices of budgeted background work (``AgentPaneNewTabActions``), never every action in
+    /// one main-thread task; the prepared page and a cold one both get them, and a keystroke does not read them in its turn.
+    @Test func theNativePageReadsThePalettesActionsInSlices() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        services.windows.ordersWindowsIn = false
+        let directory = FileManager.default.temporaryDirectory.appending(path: "native-slices-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appending(path: "cmux.json")
+        try Data(#"{"tabs":{"nativeNewTabPage":true}}"#.utf8).write(to: url)
+        let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+        services.settings = settings
+        let store = services.machines.local.store
+        let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#.utf8))
+        store.noteHandshake(identity)
+        store.connectionState = .connected(identity)
+        store.apply(snapshot: Self.tree())
+        let controller = try #require(services.windows.openWindow(workspaces: ["native-ws"], frame: CGRect(x: 200, y: 200, width: 1100, height: 720)))
+        defer {
+            controller.teardown()
+            controller.window?.close()
+            try? FileManager.default.removeItem(at: directory)
+        }
+        for _ in 0..<200 where controller.workspaceContent?.panes.count != 1 { try await Task.sleep(for: .milliseconds(10)) }
+        let content = try #require(controller.workspaceContent)
+        content.contentView.layoutSubtreeIfNeeded()
+        let window = try #require(controller.window)
+        let pane = try #require(content.panes.values.first)
+        let pool = services.newTabSpares
+        pool.retarget(window)
+        pool.warmNative()
+        _ = try #require(pool.nativeSpare, "no native spare was prepared")
+
+        var seen: [ObjectIdentifier] = []
+        for adopted in [true, false] {
+            BenchSpans.begin()
+            let key = try #require(NewTabPage.openNative(in: pane, reusingShown: false))
+            for _ in 0..<300 where pane.currentTabKey != key { try await Task.sleep(for: .milliseconds(10)) }
+            // This tab's own page: the earlier one stays parked in the pane, hidden.
+            let page = try #require(services.pages.existingView(key), "no page view for tab \(key) (adopted spare: \(adopted))")
+            let model = try #require(Self.host(in: page)?.model, "no native page in tab \(key) (adopted spare: \(adopted))")
+            #expect(!seen.contains(ObjectIdentifier(model)), "the second Cmd-T found the first page's model")
+            seen.append(ObjectIdentifier(model))
+            @MainActor func readCount() -> Int { BenchSpans.spans.filter { $0.name == "newTab.paletteActions" }.count }
+            // A keystroke before the list came reads nothing in its turn.
+            let before = readCount()
+            model.text = "t"
+            #expect(readCount() == before, "a keystroke read the palette's actions in its turn (adopted spare: \(adopted))")
+            for _ in 0..<2000 where model.page.omnibar.actions.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+            #expect(!model.page.omnibar.actions.isEmpty, "the native page never got the palette's actions (adopted spare: \(adopted))")
+            let reads = BenchSpans.end().filter { $0.name == "newTab.paletteActions" }
+            // A listing takes one task to start and one to arrange; the reads between them are the slices.
+            #expect(reads.count >= 4, "the native page read every palette action in one task (\(reads.map(\.milliseconds)) ms, adopted spare: \(adopted))")
+        }
+    }
 }

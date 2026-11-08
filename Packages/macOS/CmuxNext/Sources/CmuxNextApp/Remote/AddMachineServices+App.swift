@@ -40,7 +40,7 @@ extension AddMachineServices {
                     return AsyncThrowingStream { $0.finish(throwing: ActionFailure(message: JoinedMachineAction.labsOff)) }
                 }
                 #if DEBUG
-                if command.needsAccount, services.debugJoinedMachines != nil {
+                if command.needsAccount, services.debugFixtures.joinedMachines != nil {
                     return AsyncThrowingStream { for line in DebugAddDevice.joinedDoctorLines { $0.yield(line) }; $0.finish() }
                 }
                 #endif

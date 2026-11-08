@@ -35,10 +35,11 @@ pub enum RpcError {
     Timeout(Duration),
 }
 
-/// How long a control request (everything but a prompt) may take. acpmux's
-/// `session/new` spawns and initializes the harness with no deadline of its
-/// own, so a harness that never answers would otherwise hang the caller,
-/// and with it the turn and every message after it.
+/// How long a control request (everything but a prompt) may take, so an
+/// acpmux that never answers does not hang the caller, and with it the turn
+/// and every message after it. A Chief turn's `session/new` waits longer
+/// (`acpmux::SESSION_NEW_DEADLINE`): acpmux bounds that start itself and
+/// says why it failed.
 pub const CONTROL_DEADLINE: Duration = Duration::from_secs(60);
 
 impl std::fmt::Display for RpcError {

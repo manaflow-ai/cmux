@@ -1,0 +1,9 @@
+# Files that may show the pointing hand (scripts/cmux-next/check-default-cursor.py).
+# cmux-next's own UI shows the arrow (user, 2026-10-30: "change all pointers back to
+# cursor-default"). Only content the app does not own keeps the hand: a link in a web page,
+# a URL in a terminal, a cursor a terminal program asks for. The list only shrinks.
+Packages/macOS/CmuxNext/Sources/CmuxNextApp/DebugTerminalLinks.swift # debug report of the terminal URL hand
+Packages/macOS/CmuxNext/Sources/CmuxNextRemoteBrowser/Native/RemoteBrowserCursorShape.swift # the remote web page's own cursor
+Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalLinkPointer.swift # Cmd-hover over a URL in terminal output
+Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSession.swift # test accessor for the terminal URL hand
+Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSurfaceView+Mouse.swift # the cursor shape a terminal program asks for

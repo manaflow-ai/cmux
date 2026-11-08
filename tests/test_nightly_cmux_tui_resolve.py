@@ -14,8 +14,11 @@ also runs) and records the tree and commit it used.
 import subprocess
 import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from nightly_workflow_text import expand as nightly_expand  # noqa: E402  (moved step scripts back inline)
 
 import re
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 failures: list[str] = []
@@ -26,7 +29,7 @@ def check(condition: bool, message: str) -> None:
         failures.append(message)
 
 
-text = (ROOT / ".github/workflows/nightly.yml").read_text()
+text = nightly_expand((ROOT / ".github/workflows/nightly.yml").read_text())
 
 
 def expand_step_aliases(source: str) -> str:
@@ -103,7 +106,7 @@ blocks = dict(re.findall(r"^  ([A-Za-z0-9_-]+):\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z
 # its checkout contributes no shipped bytes.
 exempt = {"attest-nightly-remote-daemon", "decide", RESOLVE, "route-visual-gate-nightly", "visual-gate-nightly-verdict", "refresh-compilation-cache", "refresh-test-compilation-cache", "probe-nightly-tag-permission",
           "find-nightly-next-recovery", "recover-nightly-next-notarization", "verify-recovered-nightly-next",
-          "sign-nightly-identity-legacy", "verify-nightly-identity-legacy",
+          "sign-nightly-identity-legacy", "verify-nightly-identity-legacy", "verify-nightly-identity-legacy-pool",
           "publish-nightly-identity-legacy", "legacy-identity-target", "promote-nightly-next", "promote-nightly-next-acked"}
 # publish-nightly checks out the build it selected: this run's resolved build
 # commit, or a recovered earlier build's own build commit.

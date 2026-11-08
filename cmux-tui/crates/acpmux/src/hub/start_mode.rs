@@ -7,7 +7,10 @@
 //!    (`start_mode_state.rs`): an administrator's choice beats everything
 //!    below. A forced value this build does not know is `standard`, never
 //!    full access;
-//! 1. acpmux config.json `defaultPermissionMode` (acpmux without the app,
+//! 1. acpmux config.json `defaults.<harness>.permissionMode` for that family or
+//!    profile (`acpmux config --set permissions.codex=ask`), then
+//!    `defaultPermissionMode` (`acpmux config --set permissions.default=yolo`;
+//!    acpmux without the app,
 //!    tests), else the cmux setting `agents.defaultPermissionMode` (the
 //!    settings file, `user_settings.rs`, else the value the app pushed):
 //!    `fullAccess` (the default), `standard` (the harness's own start mode:
@@ -54,8 +57,13 @@
 //! `start_gate.rs`), never the person, a peer, a Web connection or a request
 //! value, and never a session a remote connection started (`remote_origin`:
 //! its chats keep the rule below, a caller that asks keeps the harness's own
-//! mode); a start with none is unchanged. Each field the start leaves out is
-//! inherited on its own:
+//! mode); a start with none is unchanged. A `session/new` start (not a
+//! sub-session) inherits only from a starter in full access, or from any
+//! starter under `holdAgentStartsToStarter` (off by default, user 2026-11-03:
+//! "make sure cmux agent open by default will be in yolo mode"); else it runs
+//! the person's configured default as a start with none does. A starter's
+//! limits never bound an agent that drops its caller token anyway. Each field
+//! the start leaves out is inherited on its own:
 //!
 //! - no policy: the defaults' (family or preset) when no wider than the
 //!   starter's effective policy, else the starter's own. A starter with no
@@ -108,12 +116,13 @@ pub(crate) enum DefaultMode {
 }
 
 impl DefaultMode {
+    /// `fullAccess` (also `yolo`, `full-access`, `bypassPermissions`), `standard` or `ask`
+    /// (`config::normalize_permission_mode`).
     fn parse(value: &str) -> Option<Self> {
-        match value {
+        match crate::config::normalize_permission_mode(value)? {
             "fullAccess" => Some(Self::FullAccess),
             "standard" => Some(Self::Standard),
-            "ask" => Some(Self::Ask),
-            _ => None,
+            _ => Some(Self::Ask),
         }
     }
 
@@ -172,11 +181,13 @@ impl DefaultMode {
     }
 }
 
-/// What chose a start level: a value policy forces, config.json, the cmux
-/// setting, or nothing (full access).
+/// What chose a start level: a value policy forces, the harness's own
+/// `defaults.<harness>.permissionMode`, config.json, the cmux setting, or
+/// nothing (full access).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Source {
     Managed,
+    Harness,
     Config,
     Settings,
     Default,
@@ -186,6 +197,7 @@ impl Source {
     fn as_str(self) -> &'static str {
         match self {
             Self::Managed => "managed",
+            Self::Harness => "harness",
             Self::Config => "config",
             Self::Settings => "settings",
             Self::Default => "default",
@@ -215,11 +227,23 @@ pub(crate) fn setting_snapshot() -> Option<String> {
 /// chose it.
 fn start_level(
     managed: Option<&str>,
+    harness: Option<&str>,
     configured: Option<&str>,
     pushed: Option<&str>,
     allowed: bool,
 ) -> (DefaultMode, Source) {
-    let (level, source) = if let Some(value) = managed {
+    let (level, source) = if managed.is_none()
+        && let Some(value) = harness
+    {
+        let level = DefaultMode::parse(value).unwrap_or_else(|| {
+            tracing::warn!(
+                value,
+                "defaults permissionMode: unknown value; new chats keep the harness's own mode"
+            );
+            DefaultMode::Standard
+        });
+        (level, Source::Harness)
+    } else if let Some(value) = managed {
         let level = DefaultMode::parse(value).unwrap_or_else(|| {
             tracing::warn!(
                 value,
@@ -501,7 +525,7 @@ impl Hub {
         let mode = match Self::mode_for_policy(&meta, &offered, default) {
             Some(mode) => mode,
             None => {
-                let (level, _) = self.start_level().await;
+                let (level, _) = self.start_level(&meta.harness).await;
                 mode_for(level, &crate::web_modes::family_of(&meta), &offered)
             }
         };
@@ -552,7 +576,7 @@ impl Hub {
             return full_access_mode(offered);
         }
         let asks = access == super::subsession_guard::Access::Asks
-            || self.start_level().await.0 == DefaultMode::Ask;
+            || self.start_level(&meta.harness).await.0 == DefaultMode::Ask;
         if !asks {
             return None;
         }
@@ -701,18 +725,20 @@ impl Hub {
         self.append(session, "mux", "full_access_refused", json!({}));
     }
 
-    /// The level new chats start at now, and what chose it.
-    async fn start_level(&self) -> (DefaultMode, Source) {
-        let (state, configured) = {
+    /// The level new chats on profile `harness` start at now, and what chose it.
+    async fn start_level(&self, harness: &str) -> (DefaultMode, Source) {
+        let (state, own, configured) = {
             let cfg = self.config.read().await;
             let path = super::start_mode_state::state_file(&cfg);
             (
                 self.update_start_mode_state(path.as_deref(), |_| {}).1,
+                cfg.defaults_for(harness).permission_mode,
                 cfg.default_permission_mode.clone(),
             )
         };
         start_level(
             state.managed.as_deref(),
+            own.as_deref(),
             configured.as_deref(),
             state.pushed.as_deref(),
             self.full_access_allowed(),
@@ -793,7 +819,7 @@ impl Hub {
         if !eligible {
             return Ok(mark(none));
         }
-        let (level, source) = self.start_level().await;
+        let (level, source) = self.start_level(&agent).await;
         let mode = mode_for(level, &family, &ids);
         Ok(mark(json!({
             "harness": agent,

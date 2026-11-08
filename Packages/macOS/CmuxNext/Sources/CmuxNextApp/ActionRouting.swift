@@ -50,7 +50,7 @@ enum ActionRouting {
         case .workspaceGroup:
             return daemons.first { $0.store.group(WorkspaceGroupID(rawValue: target.id)) != nil }
         case .pane:
-            return daemons.first { panes($0).contains { $0.id == target.id } }
+            return daemons.uniquePane(target.id)?.daemon
         case .tab:
             return daemons.first { panes($0).contains { $0.tabs.contains { $0.id == target.id } } }
         case .tabGroup:

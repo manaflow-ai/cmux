@@ -1,9 +1,8 @@
 // cmux-web-test-timeout: 240
 // Lawrence, via Leo 2026-10-28: "lawrence says search feels confusing here in the model picker".
 // Real Chromium lays out the compact model menu on his machine (src/gallery/fixtures/modelSearch.ts)
-// searched for "sol 6.1": matches sit under their harness, the rail keeps only those harnesses and
-// lights none, rows that read the same show their ids, no row cuts its name or detail, and Enter
-// picks the top match.
+// searched for "sol 6.1": matches sit under their harness, the full rail stays available with none
+// selected, compact labels keep their full names in tooltips, and Return lands the top match.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -45,98 +44,141 @@ await requireBrowserLane("model-search.browser.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 640, height: 900 } });
     await page.goto(`http://127.0.0.1:${port}/test/browser/model-search.html${look}`);
     await page.click(".acpmux-picker-button");
-    await page.waitForSelector(".acpmux-quick-search input");
-    await page.fill(".acpmux-quick-search input", query);
-    await page.waitForSelector(".acpmux-quick-found, .acpmux-quick-note");
+    await page.waitForSelector(".acpmux-cols-search input[type=search]");
+    await page.fill(".acpmux-cols-search input[type=search]", query);
+    await page.waitForSelector(
+      ".acpmux-cols [role=listbox] .acpmux-cols-group, .acpmux-cols [role=listbox] .acpmux-cols-note",
+    );
     return page;
   }
 
-  /// What the menu shows: its headings, rail tabs, rows (name, detail, id) and any cut text.
+  /// Search groups are sibling headings in the models column. Long names may ellipsize;
+  /// their full text stays in the title, and their boxes must stay inside the row.
   const read = (page: Page) =>
     page.evaluate(() => {
-      const menu = document.querySelector<HTMLElement>(".acpmux-quick-menu")!;
-      const cut = (element: Element | null) => !!element && element.scrollWidth > element.clientWidth + 1;
-      const rows = [...menu.querySelectorAll<HTMLElement>(".acpmux-quick-found")].map((row) => ({
-        name: row.querySelector(".acpmux-menu-label")?.textContent ?? "",
-        detail: row.querySelector(".acpmux-quick-value")?.textContent ?? "",
-        id: row.querySelector(".acpmux-quick-id")?.textContent ?? "",
-        heading: row.closest(".ui-menu-group")?.querySelector(".ui-menu-group-label")?.textContent ?? "",
-        title: row.title,
-        cut: cut(row.querySelector(".acpmux-menu-label")) || cut(row.querySelector(".acpmux-quick-value")),
-        height: row.getBoundingClientRect().height,
-      }));
+      const menu = document.querySelector<HTMLElement>(".acpmux-cols")!;
+      const models = menu.querySelector<HTMLElement>("[role=listbox]")!;
+      let heading = "";
+      const rows = [...models.children].flatMap((child) => {
+        if (child.matches(".acpmux-cols-group")) heading = child.textContent ?? "";
+        if (!child.matches("[role=option]")) return [];
+        const row = child as HTMLElement;
+        const label = row.querySelector<HTMLElement>(".acpmux-cols-name")!;
+        const area = row.getBoundingClientRect();
+        const text = label.getBoundingClientRect();
+        return [
+          {
+            name: label.textContent ?? "",
+            heading,
+            title: row.title,
+            labelInside: text.left >= area.left && text.right <= area.right + 1,
+            ellipsis: getComputedStyle(label).textOverflow,
+            height: area.height,
+          },
+        ];
+      });
+      const note = models.querySelector<HTMLElement>(".acpmux-cols-note");
       return {
-        headings: [...menu.querySelectorAll(".ui-menu-group-label")].map((label) => label.textContent),
-        tabs: [...menu.querySelectorAll<HTMLElement>(".acpmux-quick-rail-tab")].map((tab) => ({
+        headings: [...models.querySelectorAll(".acpmux-cols-group")].map((label) => label.textContent),
+        tabs: [...menu.querySelectorAll<HTMLElement>(".acpmux-cols-tab[role=tab]")].map((tab) => ({
           name: tab.getAttribute("aria-label"),
-          pressed: tab.getAttribute("aria-pressed") === "true",
+          selected: tab.getAttribute("aria-selected") === "true",
         })),
         rows,
-        note: menu.querySelector(".acpmux-quick-note")?.textContent ?? "",
-        noteCut: (() => {
-          const note = menu.querySelector<HTMLElement>(".acpmux-quick-note");
-          return !!note && (note.scrollHeight > note.clientHeight + 1 || note.scrollWidth > note.clientWidth + 1);
-        })(),
+        note: note?.textContent ?? "",
+        noteCut: !!note && (note.scrollHeight > note.clientHeight + 1 || note.scrollWidth > note.clientWidth + 1),
       };
     });
 
-  test("matches sit under their harness, and the rail keeps only those harnesses, none lit", async () => {
+  test("matches sit under their harness while every rail tab stays available, none selected", async () => {
     const page = await searched("sol 6.1");
     const { headings, tabs, rows } = await read(page);
     expect(headings).toEqual(["Codex", "OpenCode", "Pi"]);
-    expect(tabs.map((tab) => tab.name)).toEqual(["Codex", "OpenCode", "Pi"]);
-    expect(tabs.some((tab) => tab.pressed)).toBe(false);
+    expect(tabs[0]?.name).toBe("Starred");
+    expect(tabs.map((tab) => tab.name)).toEqual(
+      expect.arrayContaining(["Claude Code", "Codex", "OpenCode", "Pi", "Gemini CLI"]),
+    );
+    expect(tabs.some((tab) => tab.selected)).toBe(false);
     for (const row of rows) expect(headings).toContain(row.heading);
-    expect(rows.every((row) => !row.detail.includes(row.heading))).toBe(true);
     await page.close();
   });
 
-  test("rows that read the same show their ids, and no row cuts its name or detail", async () => {
+  test("compact labels stay inside their rows and tooltips name every match whole", async () => {
     const page = await searched("sol 6.1");
     const { rows } = await read(page);
-    const routes = rows.filter((row) => row.heading === "OpenCode" && row.name === "GPT-6.1 Sol");
-    expect(routes).toHaveLength(2);
-    expect(new Set(routes.map((row) => row.id)).size).toBe(2);
-    expect(routes.every((row) => row.id !== "")).toBe(true);
-    // Pi's OpenRouter names differ only at their end ("Thinking", "Mini", "Nano").
+    expect(rows.length).toBeGreaterThan(3);
+    // Pi's OpenRouter names differ only at their end (Thinking, Mini, Nano).
     const pi = rows.filter((row) => row.name.startsWith("OpenAI: GPT-6.1 Sol"));
     expect(pi.map((row) => row.name.split(" ")[3])).toEqual(["Thinking", "Mini", "Nano"]);
-    expect(rows.filter((row) => row.cut)).toEqual([]);
-    // Hover names a row whole: model, harness, provider and id.
+    expect(rows.every((row) => row.labelInside && row.ellipsis === "ellipsis")).toBe(true);
+    expect(rows.every((row) => row.height >= 26)).toBe(true);
     expect(rows.every((row) => row.title.includes(row.name) && row.title.includes(row.heading))).toBe(true);
     await page.close();
   });
 
-  test("the one-list version names each row's harness beside its provider, uncut", async () => {
-    const page = await searched("sol 6.1", "?look=flat");
+  test("same-named OpenCode routes remain separate picks", async () => {
+    const picked: string[] = [];
+    for (const index of [0, 1]) {
+      const page = await searched("sol 6.1");
+      const { rows } = await read(page);
+      const indexes = rows.flatMap((row, at) => (row.heading === "OpenCode" && row.name === "GPT-6.1 Sol" ? [at] : []));
+      expect(indexes).toHaveLength(2);
+      await page.locator(".acpmux-cols [role=listbox] [role=option]").nth(indexes[index]!).click();
+      // A click lands the pick at once and keeps the menu open; Return then only closes it.
+      expect(await page.locator(".acpmux-cols").count(), "a click keeps the menu open").toBe(1);
+      expect(await page.evaluate(() => (window as unknown as { picked: unknown[] }).picked)).toHaveLength(1);
+      await page.keyboard.press("Enter");
+      await page.locator(".acpmux-cols").waitFor({ state: "detached" });
+      const landed = await page.evaluate(
+        () => (window as unknown as { picked: { harness: string; model: string }[] }).picked,
+      );
+      expect(landed).toHaveLength(1);
+      expect(landed[0]!.harness).toBe("opencode");
+      picked.push(landed[0]!.model);
+      await page.close();
+    }
+    expect(new Set(picked).size).toBe(2);
+  });
+
+  test("same-named routes have distinguishable tooltips", async () => {
+    const page = await searched("sol 6.1");
     const { rows } = await read(page);
-    expect(rows.length).toBeGreaterThan(0);
-    expect(rows.filter((row) => row.cut)).toEqual([]);
-    expect(rows.filter((row) => row.name === "GPT-6.1 Sol").map((row) => row.detail.split(" · ")[0])).toEqual([
-      "Codex",
-      "OpenCode",
-      "OpenCode",
-      "Pi",
-    ]);
+    const routes = rows.filter((row) => row.heading === "OpenCode" && row.name === "GPT-6.1 Sol");
+    expect(routes).toHaveLength(2);
+    // The old list showed IDs inline. Compact column labels need the tooltip to retain that
+    // distinction when both routes have the same model name and provider.
+    expect(new Set(routes.map((row) => row.title)).size).toBe(2);
     await page.close();
   });
 
-  test("a search that finds nothing says what to do, and keeps every harness on the rail", async () => {
+  test("columns group matches by harness even when the old flat-search option is supplied", async () => {
+    const page = await searched("sol 6.1", "?look=flat");
+    const { headings, rows } = await read(page);
+    expect(headings).toEqual(["Codex", "OpenCode", "Pi"]);
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => headings.includes(row.heading))).toBe(true);
+    await page.close();
+  });
+
+  test("an empty search result shows an unclipped note and keeps every rail tab", async () => {
     const page = await searched("sol 9.9");
-    const { note, noteCut, tabs } = await read(page);
-    expect(note).toBe("No models match “sol 9.9”. Try part of a name, or clear the search to browse by harness.");
-    // The note wraps and grows; it is never cut off (review of #27303).
+    const { note, noteCut, tabs, rows } = await read(page);
+    expect(note).toBe("No matching models");
+    expect(rows).toEqual([]);
     expect(noteCut).toBe(false);
+    expect(tabs[0]?.name).toBe("Starred");
     expect(tabs.length).toBeGreaterThan(3);
-    expect(tabs.some((tab) => tab.pressed)).toBe(false);
+    expect(tabs.some((tab) => tab.selected)).toBe(false);
     await page.close();
   });
 
   test("Enter picks the top match", async () => {
     const page = await searched("sol 6.1");
-    await page.press(".acpmux-quick-search input", "Enter");
+    await page.press(".acpmux-cols-search input[type=search]", "Enter");
     await page.waitForFunction(() => (window as unknown as { picked: unknown[] }).picked.length > 0);
     const picked = await page.evaluate(() => (window as unknown as { picked: unknown[] }).picked);
+    expect(picked).toHaveLength(1);
+    await page.locator(".acpmux-cols").waitFor({ state: "detached" });
     expect(picked[0]).toMatchObject({ harness: "codex", model: "gpt-6.1-sol" });
     await page.close();
   });

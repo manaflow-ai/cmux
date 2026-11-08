@@ -1,12 +1,13 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextDesign
 import Testing
 
 /// The chat header's Terminal button with Debug Settings `agentChat.terminalButtonAdds` (Leo
 /// 2026-10-15: "maybe not a toggle; clicking the terminal button adds another terminal on the right
-/// each time"): every click opens a new terminal right of the last one, through the same Split Right
-/// a person's split runs (which focuses its new pane). Off, the button still toggles its terminal.
+/// each time"): every click opens a new terminal on the chat's right (RightColumnPlacement: a tab in
+/// the pane already holding a terminal, never another column). Off, the button still toggles its terminal.
 @MainActor
 struct HeaderTerminalAddsTests {
     static let key = "agentChat.terminalButtonAdds"
@@ -21,23 +22,16 @@ struct HeaderTerminalAddsTests {
         body()
     }
 
-    @Test func eachClickAddsATerminalRightOfTheLastOne() {
+    @Test func eachClickAddsATerminalOnTheChatsRight() {
         with(adds: true) {
             let row = HeaderSplitOrderTests.Row(), toggles = AgentChatSplitToggles()
-            row.click("splitRight", toggles: toggles)
-            let first = row.tabs[1]
-            #expect(row.invocations["splitRight"]?.target?.id == row.chat)
-            row.click("splitRight", toggles: toggles)
-            #expect(row.order == ["chat", "terminal", "terminal"])
-            // The second terminal splits the first one, so it lands right of it.
-            #expect(row.invocations["splitRight"]?.target?.id == first)
-            let second = row.tabs[2]
-            row.click("splitRight", toggles: toggles)
-            #expect(row.order == ["chat", "terminal", "terminal", "terminal"])
-            #expect(row.invocations["splitRight"]?.target?.id == second)
-            // A person's split (origin user, asking for a terminal): the new pane takes focus.
-            #expect(row.invocations["splitRight"]?.origin == .user)
-            #expect(row.invocations["splitRight"]?.opensTerminal == true)
+            for count in 1...3 {
+                row.click("splitRight", toggles: toggles)
+                #expect(row.order == ["chat"] + Array(repeating: "terminal", count: count))
+            }
+            // Each asks the right column for a terminal; none is a Split Right of the one before.
+            #expect(row.tools.map(\.kind) == [.terminal, .terminal, .terminal])
+            #expect(row.invocations["splitRight"] == nil)
         }
     }
 
@@ -65,8 +59,7 @@ struct HeaderTerminalAddsTests {
     }
 
     /// Turned off after three adds, the button toggles again: the terminals the adds opened stay and
-    /// still line up the row, so the next click opens a terminal right of the last one and the
-    /// click after closes it (not one close per remaining terminal).
+    /// stay, so the next click opens one more terminal and the click after closes it (not one close per remaining terminal).
     @Test func turnedOffMidSessionTheButtonTogglesAgain() {
         let row = HeaderSplitOrderTests.Row(), toggles = AgentChatSplitToggles()
         with(adds: true) {
@@ -76,14 +69,12 @@ struct HeaderTerminalAddsTests {
         let added = Array(row.tabs.dropFirst())
         with(adds: false) {
             row.click("splitRight", toggles: toggles)
-            #expect(row.invocations["splitRight"]?.target?.id == added.last)
             #expect(Array(row.tabs.prefix(4)) == [row.chat] + added)
             #expect(row.order == ["chat", "terminal", "terminal", "terminal", "terminal"])
             #expect(toggles.headerState(chat: row.chat, store: row.store).lit == ["splitRight"])
             row.click("splitRight", toggles: toggles)
             #expect(row.tabs == [row.chat] + added)
             row.click("splitRight", toggles: toggles)
-            #expect(row.invocations["splitRight"]?.target?.id == added.last)
             #expect(row.order == ["chat", "terminal", "terminal", "terminal", "terminal"])
         }
     }

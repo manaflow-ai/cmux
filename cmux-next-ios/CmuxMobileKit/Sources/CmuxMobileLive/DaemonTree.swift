@@ -93,6 +93,14 @@ public struct DaemonTree: Sendable {
     public struct NotificationMarker: Hashable, Sendable {
         public var notification: Int
         public var unread: Bool
+        /// When the Mac posted it (`created_at_ms`), when it says.
+        public var createdAt: Date?
+
+        public init(notification: Int, unread: Bool, createdAt: Date? = nil) {
+            self.notification = notification
+            self.unread = unread
+            self.createdAt = createdAt
+        }
     }
 
     /// The workspace kind of the Mac's home workspace (`workspace-kind-v1`).
@@ -192,7 +200,8 @@ public struct DaemonTree: Sendable {
                                                         resourceID: tab["terminal_resource_id"] as? String)
                         }
                         if let marker = tab["notification"] as? [String: Any], let notification = marker["notification"] as? Int {
-                            markers[surface] = NotificationMarker(notification: notification, unread: marker["unread"] as? Bool == true)
+                            markers[surface] = NotificationMarker(notification: notification, unread: marker["unread"] as? Bool == true,
+                                                                 createdAt: AgentState.date(marker["created_at_ms"]))
                         }
                         if let cwd = tab["cwd"] as? String, cwd.hasPrefix("/") { directories[id] = cwd }
                         // An ended shell runs no agent: a stale report must not mark the

@@ -35,6 +35,9 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     /// Page update requests a page answered with no post: nothing the fork reads had changed
     /// since its last read (`CEFHostView.pagesNeedUpdate`).
     public var geometrySkips = 0
+    /// Full page geometries worked out (`CEFHostGeometry`: ancestor walks for the rect, the visible rect and the clip
+    /// inputs, and the window's occluders), by page update requests and fork reads together.
+    public var geometryBuilds = 0
 
     public init() {}
 

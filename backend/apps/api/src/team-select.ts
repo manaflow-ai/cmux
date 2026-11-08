@@ -59,13 +59,19 @@ export const selectTeam = async (env: Env, p: TeamPrincipal, requested: string |
  * revoked or grant invalid.
  */
 export const principalForOwner = async (env: Env, owner: string, p: Principal): Promise<Principal | { refused: string } | undefined> => {
-  const shared = owner !== "cloud:TeamDO" && p.user && p.team && p.team !== personalTeamIdFor(p.user) && !(p.kind === "install" && isMachineInstallKind(p.install_kind))
+  // A role in the request is never trusted: only TeamDO's answer (or the personal team) sets it.
+  const { team_role: _claimed, ...base } = p
+  const personal = Boolean(p.user && p.team && p.team === personalTeamIdFor(p.user))
+  const shared = owner !== "cloud:TeamDO" && p.user && p.team && !personal && !(p.kind === "install" && isMachineInstallKind(p.install_kind))
+  let team_role: string | undefined = personal ? "owner" : undefined
   if (shared) {
     const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)) as unknown as { memberRole(entity: string, user: string): Promise<string | null> }
     const role = await stub.memberRole(p.team!, p.user!)
     if (!roleHas(role ?? undefined, "team.resources")) return { refused: role ? `the ${role} role has no access to this team's resources` : "not a member of this team" }
+    team_role = role ?? undefined
   }
-  return withGrantClasses(env, p)
+  const granted = await withGrantClasses(env, base)
+  return granted && team_role ? { ...granted, team_role } : granted
 }
 
 /** user.teams.list lives beside the selection it mirrors (user-teams.ts). */

@@ -1,6 +1,7 @@
 import type { OwnerFrame, Principal } from "@cmux/ownership"
 import type { conversation } from "@cmux/home-core"
 import type { Env } from "../env.ts"
+import type { DefaultChiefMachine } from "../chief-default-hand.ts"
 
 /**
  * The Chief brain's only ways out: reads and ops on the ConversationDO and MuxDO of its chief, as
@@ -58,6 +59,7 @@ export interface Reply {
   readonly text: string
   /** The run reference: a `work` part naming the run (trajectory), shown under the reply. */
   readonly run: { readonly id: string; readonly host: string; readonly steps: number }
+  readonly attachments?: ReadonlyArray<conversation.AttachmentPart>
   readonly reply_to?: string
   readonly thread_root?: string
   /** Idempotency key and client message id: one per run and refused try (a retry after no answer reuses it, so it commits once). */
@@ -72,6 +74,7 @@ export const postReply = async (env: Env, principal: Principal, r: Reply): Promi
     client_msg_id: r.key,
     parts: [
       { type: "text", text: r.text },
+      ...(r.attachments ?? []),
       { type: "work", session: r.run.id, host: r.run.host, status: "done", preview: preview(r.run.steps) }
     ],
     ...(r.reply_to ? { reply_to: { message_id: r.reply_to, part_index: 0 } } : {}),
@@ -123,7 +126,7 @@ export const chiefOwnedBy = async (env: Env, agent: string, principal: Principal
 }
 
 /** The chief's record as its owner's UserDO holds it (chief.list, as the owner), or null for an unknown or archived chief. */
-type ChiefRecord = { display_name: string; brain_place: unknown } | null
+type ChiefRecord = { display_name: string; brain_place: unknown; is_default: boolean; is_hosted_default: boolean; harness: string | null; cloud_machine: DefaultChiefMachine | null } | null
 const records = new Map<string, { at: number; record: ChiefRecord }>()
 /** How long a turn admission may reuse a chief record it read: an archive or a placement stops new turns within this time. */
 const RECORD_MS = 10_000
@@ -141,11 +144,14 @@ export const chiefRecordFresh = async (env: Env, owner: string, agent: string, n
   return record
 }
 
-export const chiefRecord = async (env: Env, owner: string, agent: string): Promise<ChiefRecord> => {
+export const chiefRecord = async (env: Env, owner: string, agent: string, requireRead = false): Promise<ChiefRecord> => {
   const stub = env.USER_DO.get(env.USER_DO.idFromName(owner)) as unknown as OwnerStub
   const r = await stub.readOp(owner, { identity: `session:${owner}`, kind: "session", user: owner }, "chief.list", {})
-  if (!r.ok) return null
-  const chiefs = (r.value as { chiefs?: Array<{ id: string; display_name: string; archived_at: string | null; brain_place?: unknown }> }).chiefs ?? []
+  if (!r.ok) {
+    if (requireRead) throw new Error("owner.unreachable")
+    return null
+  }
+  const chiefs = (r.value as { chiefs?: Array<{ id: string; display_name: string; archived_at: string | null; brain_place?: unknown; is_default?: boolean; is_hosted_default?: boolean; harness?: string | null; cloud_machine?: DefaultChiefMachine | null }> }).chiefs ?? []
   const c = chiefs.find((x) => x.id === agent && x.archived_at === null)
-  return c ? { display_name: c.display_name, brain_place: c.brain_place ?? null } : null
+  return c ? { display_name: c.display_name, brain_place: c.brain_place ?? null, is_default: c.is_default === true, is_hosted_default: c.is_hosted_default === true, harness: c.harness ?? null, cloud_machine: c.cloud_machine ?? null } : null
 }

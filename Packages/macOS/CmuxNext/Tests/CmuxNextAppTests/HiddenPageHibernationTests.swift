@@ -7,6 +7,7 @@ import CmuxNextCompat
 import CmuxNextSettings
 import Foundation
 import Testing
+import CmuxNextTestSupport
 
 /// The 2026-10-14 hibernation audit (100 Chromium tabs, `browser.hibernation` 0.5 min): 34
 /// renderers (2.9 GB) outlived their tabs' pages, and the app grew about 7 MB per hibernated tab.
@@ -15,7 +16,7 @@ import Testing
 /// default option, and the probe called that the person's form input. The 7 MB was each
 /// placeholder's own full-size snapshot, outside the 32 MB preview cache. Real WebKit pages,
 /// hidden from a pane, through the app's hibernation.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct HiddenPageHibernationTests {
+@MainActor @Suite(.closesItsWindows, .serialized, .timeLimit(.minutes(2))) struct HiddenPageHibernationTests {
     @Test func aPageWhoseScriptFillsItsFormHibernates() async throws {
         let rig = try Rig()
         defer { rig.close() }
@@ -176,6 +177,35 @@ import Testing
         // #20866 second review: the page's colors and shape (PR 23083: kept at its size, compressed).
         #expect(snapshot.colorSpace?.isWideGamutRGB == true, "the snapshot lost the page's wide-gamut color space")
         #expect(abs(Double(snapshot.width) / Double(snapshot.height) - 1.6) < 0.005, "the snapshot was squeezed to \(snapshot.width) x \(snapshot.height)")
+    }
+
+    /// #32013: Chromium refuses a thumbnail of a hidden page (dogfood P0 #1), so a hibernating Chromium page falls
+    /// back to its leave picture, but only one of the page as it is now (its picture version): a page that navigated
+    /// while hidden must not wake behind a picture of its earlier URL.
+    @Test(arguments: [true, false])
+    func aPageWithNoPictureOfItsOwnHibernatesBehindItsCurrentLeavePictureOnly(current: Bool) async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        rig.hibernation.capture = { _ in nil } // the engine gives no picture of a hidden page (Chromium)
+        rig.hibernation.pressureDidChange(.normal) // nothing hibernates until the leave picture is set below
+        let page = try await rig.page(current ? "current" : "stale", body: "<p>leave picture</p>")
+        let key = try await rig.hide(page)
+        let cache = rig.services.cache
+        try await rig.until("the leave capture ended") { cache.pageCapturesInFlight.isEmpty }
+        let leave = try Self.picture(shade: 0.3, width: 640, height: 400)
+        cache.pageThumbnails.insert(leave, for: key)
+        cache.pageThumbnailVersions[key] = current ? page.state.pictureVersion : page.state.pictureVersion &+ 1
+        rig.hibernation.pressureDidChange(.critical)
+        rig.skipped += .seconds(HibernationPlanner.Pace.critical.minimumHidden)
+        rig.hibernation.replan()
+        try await rig.until("the page hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
+        try #require(rig.isHibernated(key))
+        let snapshot = (cache.browsers[key]?.tab as? HibernatedBrowserTab)?.snapshotImage
+        if current {
+            #expect(snapshot?.width == 640, "a hibernated page with no engine picture kept no picture")
+        } else {
+            #expect(snapshot == nil, "a page hibernated behind a picture of an earlier version of itself")
+        }
     }
 
     /// #20866 review: a page that woke and hibernated again showed the picture of its first sleep.
@@ -356,14 +386,17 @@ import Testing
             hibernation.pressureDidChange(.critical)
             folder = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cn-hidden-hibernation-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             window.isReleasedWhenClosed = false
+            var completed = false
+            defer { if !completed { close() } }
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             window.orderFrontRegardless()
             hibernation.now = { [weak self] in .now + (self?.skipped ?? .zero) }
             // No test here checks a page that does not answer (UnansweredPageProbeTests does): a probe
             // starved past its 2 s by a full parallel run would keep the page as `unanswered`, and
             // nothing would ask it again.
             hibernation.pageDeadline = .seconds(120)
+            completed = true
         }
 
         /// A loaded WebKit page showing `body`, titled `name`.
@@ -456,6 +489,8 @@ import Testing
     }
 
     @MainActor final class Pane: SurfacePresenter {
+        /// The pane's one browser chrome (`BrowserPaneChrome`), bound to a tab as the pane shows it.
+        let browserChrome = BrowserPaneChrome()
         func surfaceWasDisplaced(_ key: String) {}
     }
 }

@@ -45,6 +45,7 @@ impl Mux {
         Ok(())
     }
 
+    #[track_caller]
     pub(super) fn spawn_surface_with(
         self: &Arc<Self>,
         cwd: Option<String>,
@@ -59,7 +60,11 @@ impl Mux {
         let reservation_env =
             reservation.as_ref().map(|reservation| reservation.env.as_slice()).unwrap_or_default();
         crate::debug_spans::mark("spawn.start");
-        let (opts, cell_pixels) = self.terminal_spawn_options(cwd, command, size, reservation_env);
+        // An incognito workspace's terminal: history off, no relaunch
+        // record, its output in memory only (incognito_terminals.rs).
+        let incognito = workspace_key.is_some_and(|key| self.workspace_key_is_ephemeral(key));
+        let (opts, cell_pixels) =
+            self.terminal_spawn_options_for(cwd, command, size, reservation_env, incognito);
         crate::debug_spans::mark("spawn.options");
         #[cfg(test)]
         if let Some(hook) = self.terminal_spawn_after_cell_pixel_snapshot.lock().unwrap().clone() {
@@ -141,33 +146,43 @@ impl Mux {
             }
             let launched =
                 prelaunched.as_ref().map_or(&opts, |prelaunched| prelaunched.launch_opts());
-            self.record_terminal_relaunch(&terminal_hex, launched);
+            if !incognito {
+                self.record_terminal_relaunch(&terminal_hex, launched);
+            }
             let spawned = match prelaunched {
                 Some(prelaunched) => Surface::spawn_prelaunched(
                     prelaunched.into_host().with_tab_id(tab_id),
                     Arc::downgrade(self),
                 ),
-                None => Surface::spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
-                    id,
-                    opts,
-                    Arc::downgrade(self),
-                    crate::surface::HostLaunch {
-                        terminal_id: Some(terminal_id),
-                        // Reopen Closed of an archived terminal (ARCHIVE-1).
-                        seed: &self.terminal_respawns.take_seed(&terminal_hex).unwrap_or_default(),
-                        // Its first record names the workspace, so the
-                        // recovery mirror below needs no second synced write.
-                        workspace_key,
-                        standby: None,
-                    },
-                    Some(terminal_identity(tab_id)?),
-                    crate::surface::PtyLifetime::SessionOwned,
-                    cell_pixels,
-                ),
+                None => self.spawn_identity(tab_id, incognito).and_then(|identity| {
+                    Surface::spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
+                        id,
+                        opts,
+                        Arc::downgrade(self),
+                        crate::surface::HostLaunch {
+                            terminal_id: Some(terminal_id),
+                            // Reopen Closed of an archived terminal (ARCHIVE-1).
+                            seed: &self
+                                .terminal_respawns
+                                .take_seed(&terminal_hex)
+                                .unwrap_or_default(),
+                            // Its first record names the workspace, so the
+                            // recovery mirror below needs no second synced write.
+                            workspace_key,
+                            standby: None,
+                        },
+                        Some(identity),
+                        crate::surface::PtyLifetime::SessionOwned,
+                        cell_pixels,
+                    )
+                }),
             };
             let surface = match spawned {
                 Ok(surface) => surface,
                 Err(error) => {
+                    if pty_reclaim::is_pty_exhaustion(&error) {
+                        self.note_pty_exhausted();
+                    }
                     let _ = self.persist_terminal_exit(
                         &terminal_hex,
                         None,
@@ -177,6 +192,9 @@ impl Mux {
                 }
             };
             crate::debug_spans::mark("spawn.host_spawned");
+            if incognito {
+                self.note_incognito_terminal(&surface);
+            }
             let _pending_host_release = PendingTerminalHostRelease(surface.clone());
             // A Windows terminal whose host did not start runs in the daemon
             // (`TerminalHostFallback::HostStartFailed`): it gets an
@@ -287,20 +305,23 @@ impl Mux {
                 }
                 self.emit_terminal_registry_changed(&registry, commit.revision);
             }
-            self.record_terminal_relaunch(&terminal_hex, &opts);
+            if !incognito {
+                self.record_terminal_relaunch(&terminal_hex, &opts);
+            }
             #[cfg(test)]
             if let Some(hook) =
                 self.terminal_create_after_terminal_reservation.lock().unwrap().clone()
             {
                 hook(&terminal_hex);
             }
+            let identity = self.spawn_identity(tab_id, incognito)?;
             #[cfg(test)]
             let surface_result = if self.test_surface_runtime {
                 Surface::spawn_for_test_with_resource_identity_at_cell_pixels(
                     id,
                     opts,
                     Arc::downgrade(self),
-                    Some(terminal_identity(tab_id)?),
+                    Some(identity),
                     cell_pixels,
                 )
             } else {
@@ -309,7 +330,7 @@ impl Mux {
                     opts,
                     Arc::downgrade(self),
                     crate::surface::HostLaunch::default(),
-                    Some(terminal_identity(tab_id)?),
+                    Some(identity),
                     crate::surface::PtyLifetime::SessionOwned,
                     cell_pixels,
                 )
@@ -321,7 +342,7 @@ impl Mux {
                     opts,
                     Arc::downgrade(self),
                     crate::surface::HostLaunch::default(),
-                    Some(terminal_identity(tab_id)?),
+                    Some(identity),
                     crate::surface::PtyLifetime::SessionOwned,
                     cell_pixels,
                 );
@@ -336,6 +357,9 @@ impl Mux {
                     return Err(error);
                 }
             };
+            if incognito {
+                self.note_incognito_terminal(&surface);
+            }
             let incarnation = TerminalId::random()?.to_hex();
             let identity = TerminalHostIdentity {
                 terminal_id: terminal_hex.clone(),

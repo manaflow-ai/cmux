@@ -1,23 +1,21 @@
-public import AppKit
+import AppKit
 import CmuxNextCompat
 
-/// The agent panes a chat's subagents opened in (`chat.subagentPane`), one tracker per acpmux
-/// session, so every pane on that session asks the same one: each subagent's tab, so a second
-/// request shows the open pane instead of a second one, and the pane the next one opens in.
-/// The first subagent's pane opens right of the chat and the second splits below it once, so the
-/// chat keeps its width; every later one is a tab in the pane of the newest subagent, never
-/// another split (leo-workspace design/pane-placement.md, Leo 2026-10-28: "I mean the right top
-/// pane, and then you split to the bottom once so that you get the three items. But you want four
-/// items."). A split that would leave the chat under ``minimumChatWidth`` or the right column
-/// under ``minimumRightColumnWidth`` opens a tab instead. Opens run one at a time: a later one
-/// opens beside the pane the earlier one moved into, so it waits for that move.
+/// The agent panes a chat's subagents opened in (`chat.subagentPane`), one tracker per source chat
+/// on an acpmux session, so a click in one chat never reuses a tab opened beside another. Each
+/// subagent's tab is remembered, so a second request shows the open pane instead of a second one.
+/// A new one opens where
+/// ``RightColumnPlacement`` puts anything opened on the right of the chat: a split right of it,
+/// else one split below what is on the right, else a tab in the right column's lower pane (Leo
+/// 2026-10-28: "I mean the right top pane, and then you split to the bottom once so that you get
+/// the three items. But you want four items."). Opens run one at a time: a later one reads the
+/// column the earlier one's move made, so it waits for that move.
 ///
 /// A subagent pane is a tab on the chat's own acpmux session that shows the subagent's view: it
 /// stays a whole chat tab, so closing the chat leaves it working on the same session.
 @MainActor
 public final class AgentSubagentPanes {
     private var tabs: [String: String] = [:]
-    private var order: [String] = []
     private var opening: String?
     /// The subagent whose open runs without focus but that the person asked to see meanwhile (a
     /// click while its pane opens on its own), and when: its pane takes focus once it has opened,
@@ -28,10 +26,6 @@ public final class AgentSubagentPanes {
     /// How long an owed focus waits for its pane: one that lands later takes no focus, as the
     /// person has moved on (an open can take 20 s).
     public static let focusBound: Duration = .seconds(2)
-    /// The narrowest the chat stays after a subagent split (design/pane-placement.md).
-    public static let minimumChatWidth: CGFloat = 480
-    /// The narrowest a subagent split leaves the right column (design/pane-placement.md).
-    public static let minimumRightColumnWidth: CGFloat = 420
     private var queue: [Request] = []
 
     /// A waiting request: the subagent, whether it takes focus, the chat tab that asked, and when
@@ -42,7 +36,7 @@ public final class AgentSubagentPanes {
 
     private static var sessions: [String: AgentSubagentPanes] = [:]
 
-    /// The tracker of acpmux session `id`, shared by every tab on that session.
+    /// The tracker identified by `id` (the app scopes this to the acpmux session and source chat).
     public static func session(_ id: String) -> AgentSubagentPanes {
         if let panes = sessions[id] { return panes }
         let panes = AgentSubagentPanes()
@@ -105,30 +99,19 @@ public final class AgentSubagentPanes {
         return request
     }
 
-    /// Where a subagent's tab goes, beside the tab ``Hooks/place`` names.
-    public enum Placement: Sendable, Equatable {
-        /// A new split right of the anchor (the chat): the right column's first pane.
-        case right
-        /// A new split below the anchor (the first subagent pane): the column's one lower pane.
-        case down
-        /// A tab in the anchor's pane, no split.
-        case tab
-    }
-
     /// What ``open(_:focus:chat:hooks:)`` asks the app for.
     public struct Hooks {
         /// Whether a tab key still exists.
         public var isOpen: (String) -> Bool
         /// Focuses tab `key`; `script` for a focus the user did not ask for (a refocus).
         public var focus: (_ key: String, _ script: Bool) -> Void
-        /// Opens the subagent's tab beside tab `anchor` as `placement` says; calls `created` with
-        /// the new tab, then `finished` with whether it moved. False when nothing opened.
-        public var place: (_ anchor: String, _ placement: Placement, _ created: @escaping @MainActor (String) -> Void,
+        /// Opens the subagent's tab where `decision` says, beside chat tab `chat` (its panes are
+        /// ``RightColumnPlacement/Column`` keys); calls `created` with the new tab, then `finished`
+        /// with whether it moved. False when nothing opened.
+        public var place: (_ chat: String, _ decision: RightColumnPlacement.Decision<String>, _ created: @escaping @MainActor (String) -> Void,
                            _ finished: @escaping @MainActor (Bool) -> Void) -> Bool
-        /// The pane that holds tab `key`, nil when unknown: tabs in one pane share an area.
-        public var pane: (String) -> String?
-        /// The width in points of the pane that holds tab `key`, nil when unknown (no limit).
-        public var width: (String) -> CGFloat?
+        /// The right column beside chat tab `key` as the window shows it now.
+        public var column: (String) -> RightColumnPlacement.Column
         /// Runs a waiting request.
         public var again: (Request) -> Void
         /// The time, for ``focusBound``.
@@ -137,15 +120,14 @@ public final class AgentSubagentPanes {
         public var watchUser: (_ acted: @escaping @MainActor @Sendable () -> Void) -> () -> Void
 
         public init(isOpen: @escaping (String) -> Bool, focus: @escaping (String, Bool) -> Void,
-                    place: @escaping (String, Placement, @escaping @MainActor (String) -> Void, @escaping @MainActor (Bool) -> Void) -> Bool,
-                    pane: @escaping (String) -> String? = { "pane:\($0)" }, width: @escaping (String) -> CGFloat? = { _ in nil },
+                    place: @escaping (String, RightColumnPlacement.Decision<String>, @escaping @MainActor (String) -> Void, @escaping @MainActor (Bool) -> Void) -> Bool,
+                    column: @escaping (String) -> RightColumnPlacement.Column = { _ in RightColumnPlacement.Column() },
                     again: @escaping (Request) -> Void, now: @escaping () -> ContinuousClock.Instant = { .now },
                     watchUser: @escaping (@escaping @MainActor @Sendable () -> Void) -> () -> Void = AgentSubagentPanes.watchUser) {
             self.isOpen = isOpen
             self.focus = focus
             self.place = place
-            self.pane = pane
-            self.width = width
+            self.column = column
             self.again = again
             self.now = now
             self.watchUser = watchUser
@@ -153,7 +135,7 @@ public final class AgentSubagentPanes {
     }
 
     /// Shows subagent `agent`'s pane for chat tab `chat`: focuses the open one (with `focus`), or
-    /// opens one where ``placement(chat:hooks:)`` says; one open at a time. An
+    /// opens one where ``RightColumnPlacement`` says; one open at a time. An
     /// unfocused open moves the tab with the daemon's `keep_focus` (cx-3hw0i), so the chat keeps
     /// focus throughout. False when nothing opened.
     public func open(_ agent: String, focus: Bool, chat: String, hooks: Hooks) -> Bool {
@@ -174,42 +156,20 @@ public final class AgentSubagentPanes {
             if !focus, self.owesFocus(agent, now: hooks.now()), let key = self.tab(for: agent, isOpen: hooks.isOpen) { hooks.focus(key, false) }
             if let request = self.finish(now: hooks.now()) { hooks.again(request) }
         }
-        let (anchor, placement) = placement(chat: chat, hooks: hooks)
+        let decision = RightColumnPlacement.decide(hooks.column(chat))
         let created: @MainActor (String) -> Void = { [weak self] key in self?.record(agent, tab: key) }
-        let opened = hooks.place(anchor, placement, created, next)
+        let opened = hooks.place(chat, decision, created, next)
         if !opened { next(false) }
         return opened
-    }
-
-    /// Where the next subagent of chat tab `chat` opens: with no subagent pane beside the chat, a
-    /// split right of it; with one pane, a split below that pane; with two (the column is full), a
-    /// tab in the newest subagent's pane. A split that leaves the chat or the right column too
-    /// narrow is a tab in that same pane instead (the chat's own, for a first one).
-    public func placement(chat: String, hooks: Hooks) -> (anchor: String, placement: Placement) {
-        prune(hooks.isOpen)
-        let chatPane = hooks.pane(chat)
-        let beside = order.filter { hooks.pane($0) != chatPane }
-        guard let newest = beside.last else {
-            // A split right halves the chat's pane: both halves must stay wide enough.
-            let fits = hooks.width(chat).map { $0 / 2 >= Self.minimumChatWidth && $0 / 2 >= Self.minimumRightColumnWidth } ?? true
-            return (chat, fits ? .right : .tab)
-        }
-        let areas = Set(beside.compactMap(hooks.pane))
-        let fits = (hooks.width(chat).map { $0 >= Self.minimumChatWidth } ?? true)
-            && (hooks.width(newest).map { $0 >= Self.minimumRightColumnWidth } ?? true)
-        return (newest, areas.count < 2 && fits ? .down : .tab)
     }
 
     /// Records the tab that shows subagent `agent`.
     public func record(_ agent: String, tab key: String) {
         tabs[agent] = key
-        order.removeAll { $0 == key }
-        order.append(key)
     }
 
     private func prune(_ isOpen: (String) -> Bool) {
         tabs = tabs.filter { isOpen($0.value) }
-        order.removeAll { !isOpen($0) }
     }
 
     /// Calls `acted` on the next click or key press in the app, or when another window takes the
@@ -236,4 +196,22 @@ public final class AgentSubagentPanes {
     /// The `revealTurn` value that opens a pane on subagent `agent`'s view (the page's
     /// `SUBAGENT_REVEAL`).
     public static func reveal(_ agent: String) -> String { "subagent:\(agent)" }
+}
+
+// One tracker per source chat, and where its remembered tabs still count as beside it (#29676).
+extension AgentSubagentPanes {
+    /// The tracker of source chat `source` on acpmux session `session`: a session can have several chat
+    /// tabs, and each keeps its own remembered subagent tabs, so a click in one chat never reuses a tab
+    /// opened beside another (and never pulls the person into another workspace).
+    public static func chat(_ session: String, source: String) -> AgentSubagentPanes { self.session("\(session):\(source)") }
+
+    /// Whether a remembered subagent tab at `candidate` is still in the clicked chat's pane (`source`) or
+    /// in one of the panes of its current right column (`column`). Pane keys are scoped to a daemon (a
+    /// workspace's store), so both the pane and its owner must match. Nil: not located.
+    public static func isBeside<Pane: Equatable>(source: (pane: Pane, owner: ObjectIdentifier)?, candidate: (pane: Pane, owner: ObjectIdentifier)?,
+                                                 column: () -> [(pane: Pane, owner: ObjectIdentifier)?]) -> Bool {
+        guard let source, let candidate, source.owner == candidate.owner else { return false }
+        if source.pane == candidate.pane { return true }
+        return column().contains { $0.map { $0.owner == candidate.owner && $0.pane == candidate.pane } ?? false }
+    }
 }

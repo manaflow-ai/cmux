@@ -32,7 +32,7 @@ export class Mount {
   readonly owner: Owner
   readonly pending: SceneOp[] = []
   nodeCount = 0
-  constructor(readonly id: string) {
+  constructor(readonly id: string, readonly context: Record<string, unknown>) {
     this.owner = createOwner(null)
   }
 }
@@ -65,9 +65,9 @@ const scalar = (v: unknown): unknown => {
 }
 
 /** Mounts `view` as the scene of `mountId`, replacing any previous mount with that id. */
-export function mount(mountId: string, render: () => ViewNode): void {
+export function mount(mountId: string, render: () => ViewNode, context: Record<string, unknown> = {}): void {
   unmount(mountId)
-  const m = new Mount(mountId)
+  const m = new Mount(mountId, context)
   mounts.set(mountId, m)
   runWithOwner(m.owner, () => {
     const view = untrack(render)

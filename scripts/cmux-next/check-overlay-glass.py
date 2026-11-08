@@ -24,13 +24,15 @@ Rules (Packages/macOS/CmuxNext/Sources, Swift; comment lines are ignored):
                    bubble, not the shared glass.
   hover-window     a tooltip, hover card or hover preview window (a class named *Tooltip*,
                    *HoverCard*, *HoverPreview*, *Preview* or *Peek* that subclasses NSPanel or
-                   NSWindow) whose file never makes the shared glass (`Glass.makeOverlayPanel`).
+                   NSWindow) whose file never makes the shared glass (`Glass.makeOverlayPanel`, or
+                   `Glass.makeSurface(role)`, a SurfaceRole's).
                    Leo 2026-10-21: "WHERE IS THE GLASS EVERYWHERE, all these hover tooltips and
                    hover previews."
   popup-host       a native host of a menu, picker, popover or web popup that is not on the shared
                    glass: a panel or window class named for a menu, picker, popover, popup or the
                    palette, a NativePopupHost(panel:), an adoptPopupStyle(card:) or an NSPopover(),
-                   whose own body builds no Glass.makeOverlayPanel(...) (or Glass.makeMenuPanel(...)).
+                   whose own body builds no Glass.makeOverlayPanel(...) (or Glass.makeMenuPanel(...),
+                   Glass.makeSurface(...)).
                    A host's own body is the panel class's braces (and its extensions in the file);
                    for a call, the braces of the type it sits in (and the panel class it hands
                    NativePopupHost(panel:), when the file declares it); glass elsewhere in the file,
@@ -39,6 +41,17 @@ Rules (Packages/macOS/CmuxNext/Sources, Swift; comment lines are ignored):
                    whose own body builds it; a host that is not a menu says why in NOT_POPUP_HOST
                    (also by file and type). An entry no host matches is stale and fails. (Leo 2026-10-21, "why is this not glassed and themed right", the
                    folder picker and the chat menu.)
+
+  card-material    CardMaterial(...): the mostly opaque card fill (at least 90%) outside its
+                   definition and the one place that hands it to pages.
+  surface-window   a toast, sheet, dialog, card, banner, bubble or notice window (a class named so
+                   that subclasses NSPanel or NSWindow) whose file builds no shared glass
+                   (Glass.makeOverlayPanel, Glass.makePanel, OverlaySurfaceView, CardSurfaceView or
+                   GlassPanelView). One whose glass another file builds is in SURFACE_GLASS_FROM.
+  dense-fill       in a file that builds a floating surface's glass, a backgroundColor, fillColor or
+                   .background(...) at 90% or more (withAlphaComponent, withAlpha, opacity): a
+                   near-opaque veil laid over the glass reads as a solid card (cmux#22670 did this to
+                   the sidebar's Updated card).
 
 Hover cards (a file that hands a body to the app's one hover card window, `HoverCardBody(...)`, or
 reports a card's lines, `HoverCardTextReporting`: the tab, link chip, sidebar workspace, group, pull
@@ -84,13 +97,46 @@ RULES: dict[str, re.Pattern[str]] = {
         r"|\.opacity\(1(\.0)?\)"
     ),
     "tooltip-material": re.compile(r"\.material\s*=\s*\.toolTip\b|\bMaterial\.toolTip\b"),
+    "card-material": re.compile(r"\bCardMaterial\("),
+}
+
+# A floating surface's window that carries text: it must build the shared glass in its file.
+SURFACE_WINDOW = re.compile(
+    r"\bclass\s+\w*(Toast|Sheet|Dialog|Card|Banner|Bubble|Notice)\w*\s*:\s*(NSPanel|NSWindow)\b"
+)
+ANY_GLASS = re.compile(
+    r"\bGlass\.make((Overlay|Menu)?Panel|Surface)\(|\b(OverlaySurfaceView|CardSurfaceView|GlassPanelView)\("
+)
+# A fill at 90% or more, in a file that builds a floating surface's glass.
+DENSE_FILL = re.compile(
+    r"(backgroundColor|fillColor|\.background\()[^\n]*"
+    r"\b(withAlphaComponent|withAlpha|opacity)\(\s*(alpha:\s*)?(0?\.9\d*|1(\.0+)?)\s*\)"
+)
+# path -> (the file that builds its window's glass, why it lives there).
+SURFACE_GLASS_FROM: dict[str, tuple[str, str]] = {
+    SOURCES + "/CmuxNextServer/Views/AddServerCardPanel.swift": (
+        SOURCES + "/CmuxNextServer/ServerHostView.swift",
+        "the card's content view, ServerHostView, is the server surfaces' OverlaySurfaceView",
+    ),
+}
+# A teammate's surfaces this check never flags (their call, not this check's): path -> whose and why.
+# Lawrence R48 (CmuxNextDesignTokens/Windows/ThemeTokens+Surface.swift): the window's one surface
+# background and the cards on it (Settings groups) are a tint over the window, never an opaque
+# overlay fill; they are kept as they are.
+TEAMMATE_SURFACES: dict[str, str] = {
+    SOURCES + "/CmuxNextDesignTokens/Windows/ThemeTokens+Surface.swift": (
+        "Lawrence R48: surfaceBackground, cardFill, legibilityScrim and capsuleScrim, the window's surface and its cards"
+    ),
+    SOURCES + "/CmuxNextSettingsWindow/Views/SettingsStyle.swift": (
+        "Lawrence R48: the Settings group card, ThemeTokens.cardFill (a tint, never an opaque fill)"
+    ),
 }
 
 # A file-level rule: a tooltip or hover window must make the shared glass somewhere in its file.
 HOVER_WINDOW = re.compile(
     r"\bclass\s+\w*(Tooltip|ToolTip|HoverCard|HoverPreview|Preview|Peek)\w*\s*:\s*(NSPanel|NSWindow)\b"
 )
-SHARED_GLASS = re.compile(r"\bGlass\.makeOverlayPanel\(")
+SHARED_GLASS = re.compile(r"\bGlass\.make(OverlayPanel|Surface)\(")
 
 # Hover card bodies (see the docstring), and the files that host them rather than draw one.
 HOVER_BODY = re.compile(r"\bHoverCardBody\(|\bHoverCardTextReporting\b")
@@ -138,15 +184,19 @@ ALLOWED: dict[str, dict[str, str]] = {
         "popup-surface": "defines opaqueOverlayFill",
     },
     P + "CmuxNextDesign/CardMaterial.swift": {"popup-surface": "defines the opt-in card fill"},
-    P + "CmuxNextDesign/Tooltip/TooltipSurface.swift": {
-        "popup-surface": "the tooltip frost: the popup surface at the least alpha that keeps 4.5:1, over a blur",
-    },
+    # The card fill's own path (only `cardFill: true` reaches it, flagged at each caller) and the one
+    # place that hands it to pages (check-glass-never-opaque.ts counts --cmux-card-tint near-opaque).
     P + "CmuxNextDesign/Windows/WebTheme.swift": {
         "popup-surface": "hands pages --cmux-popup-surface for their Reduce Transparency path",
+        "card-material": "hands pages --cmux-card-tint; the web check counts it near-opaque on an overlay",
+    },
+    P + "CmuxNextDesign/Tooltip/TooltipSurface.swift": {
+        "popup-surface": "the tooltip frost: the popup surface at the least alpha that keeps 4.5:1, over a blur",
     },
     # Reduce Transparency: the one place every surface is solid.
     P + "CmuxNextDesign/OverlaySurface.swift": {
         "popup-surface": "the .opaque material (Reduce Transparency), and fillWithPopupSurface's definition",
+        "card-material": "the opt-in card fill's path; only makeOverlayPanel(cardFill: true) reaches it",
     },
     P + "CmuxNextDesign/ShortcutHintChipView.swift": {"popup-surface": "the chip's .opaque material path (Reduce Transparency)"},
     P + "CmuxNextDesign/CardSurfaceView.swift": {"elevated-fill": "Reduce Transparency's sidebar card"},
@@ -162,6 +212,9 @@ ALLOWED: dict[str, dict[str, str]] = {
     },
     P + "CmuxNextSidebar/Views/DragLiftView.swift": {"elevated-fill": "the dragged row's lifted copy (85%), not a resting surface"},
     P + "CmuxNextTerminal/TextBox/TextBoxView.swift": {"system-solid": "an editable text box's field fill (85%)"},
+    P + "CmuxNextLayout/Views/DockBackdropView.swift": {
+        "dense-fill": "a dock column's backdrop: the person's docks background over the window color (R55), a pane, not an overlay",
+    },
 }
 
 
@@ -170,7 +223,7 @@ POPUP_HOST = re.compile(
     r"\bclass\s+\w*(Menu|Picker|Popover|Popup|Palette)\w*\s*:\s*\w*(Panel|Window)\b"
     r"|\bNativePopupHost\(\s*panel:|\badoptPopupStyle\(\s*card:|\bNSPopover\(\s*\)"
 )
-GLASS_SURFACE = re.compile(r"\bGlass\.make(Overlay|Menu)Panel\(")
+GLASS_SURFACE = re.compile(r"\bGlass\.make(OverlayPanel|MenuPanel|Surface)\(")
 
 # (path, host type) -> (the file and the type in it whose own body builds its glass, why it lives
 # there). That type must build it: glass elsewhere in the file does not count. The host type is the
@@ -483,10 +536,27 @@ def scan(root: str) -> list[str]:
             rel = os.path.relpath(path, root).replace(os.sep, "/")
             with open(path, encoding="utf-8", errors="replace") as handle:
                 lines = handle.read().split("\n")
+            if rel in TEAMMATE_SURFACES:
+                continue
             allowed = ALLOWED.get(rel, {})
-            makes_glass = any(SHARED_GLASS.search(line.split("//", 1)[0]) for line in lines if not COMMENT.match(line))
+            code_only = [line.split("//", 1)[0] for line in lines if not COMMENT.match(line)]
+            makes_glass = any(SHARED_GLASS.search(code) for code in code_only)
+            builds_glass = any(ANY_GLASS.search(code) for code in code_only)
+            glass_from = SURFACE_GLASS_FROM.get(rel)
+            glass_elsewhere = bool(glass_from) and file_builds_glass(os.path.join(root, glass_from[0]))
             hover = rel not in HOVER_HOSTS and any(HOVER_BODY.search(text) for text in lines)
             for index, line in enumerate(lines):
+                if (
+                    not COMMENT.match(line)
+                    and SURFACE_WINDOW.search(line.split("//", 1)[0])
+                    and not builds_glass
+                    and not glass_elsewhere
+                ):
+                    if "surface-window" in allowed:
+                        used.add((rel, "surface-window"))
+                    elif not escaped(lines, index):
+                        where = f" (SURFACE_GLASS_FROM names {glass_from[0]}, which builds no glass)" if glass_from else ""
+                        findings.append(f"{rel}:{index + 1}: [surface-window] {line.strip()}{where}")
                 if not COMMENT.match(line) and HOVER_WINDOW.search(line.split("//", 1)[0]) and not makes_glass:
                     if "hover-window" in allowed:
                         used.add((rel, "hover-window"))
@@ -504,9 +574,10 @@ def scan(root: str) -> list[str]:
                             used.add((rel, rule))
                         elif not escaped(lines, index):
                             findings.append(f"{rel}:{index + 1}: [{rule}] {line.strip()}")
-                for rule, pattern in RULES.items():
-                    if not pattern.search(code):
-                        continue
+                hits = [rule for rule, pattern in RULES.items() if pattern.search(code)]
+                if builds_glass and DENSE_FILL.search(code):
+                    hits.append("dense-fill")
+                for rule in hits:
                     if rule in allowed:
                         used.add((rel, rule))
                         continue
@@ -518,7 +589,26 @@ def scan(root: str) -> list[str]:
         for rule in sorted(rules):
             if (rel, rule) not in used and os.path.exists(os.path.join(root, rel)):
                 findings.append(f"{rel}:1: [{rule}] stale allowance: the file no longer matches; remove it from ALLOWED")
+    # A mapped window whose file no longer declares one, or a teammate's surface whose file is gone
+    # (in the whole repo), is stale too.
+    whole_repo = os.path.exists(os.path.join(root, "scripts/cmux-next/check-overlay-glass.py"))
+    for rel in sorted(SURFACE_GLASS_FROM):
+        path = os.path.join(root, rel)
+        if not os.path.exists(path):
+            if whole_repo:
+                findings.append(f"{rel}:1: [surface-window] stale allowance: no such file; remove it from SURFACE_GLASS_FROM")
+            continue
+        if not any(SURFACE_WINDOW.search(line) for line in code_lines(path)):
+            findings.append(f"{rel}:1: [surface-window] stale allowance: no surface window here; remove it from SURFACE_GLASS_FROM")
+    for rel in sorted(TEAMMATE_SURFACES):
+        if whole_repo and not os.path.exists(os.path.join(root, rel)):
+            findings.append(f"{rel}:1: [teammate] stale allowance: no such file; remove it from TEAMMATE_SURFACES")
     return findings + scan_popup_hosts(root)
+
+
+def file_builds_glass(path: str) -> bool:
+    """The file at `path` builds a shared glass surface (any of ANY_GLASS) outside comments and strings."""
+    return os.path.exists(path) and any(ANY_GLASS.search(line) for line in code_lines(path))
 
 
 def escaped(lines: list[str], index: int) -> bool:
@@ -537,9 +627,15 @@ def main() -> int:
     root = sys.argv[1] if len(sys.argv) > 1 else os.getcwd()
     findings = scan(root)
     if findings:
-        print("check-overlay-glass: a floating surface is solid instead of the shared glass (Leo 2026-10-21:")
-        print('  "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS."). Use Glass.makeOverlayPanel, the')
-        print("  tooltip glass or CardSurfaceView, or say why it stays solid: `// glass-opaque-allow: <reason>`.")
+        print("check-overlay-glass: a floating surface is solid instead of the shared glass.")
+        print('  The rule: "Glass, never opaque" (Leo; 2026-10-21: "STOP DOING SOLID. WE HAVE GLASS, SO JUST')
+        print('  USE GLASS."). Popovers, cards, menus, toasts and sheets are glass: legibility comes from the')
+        print("  blur, tint and contrast inside the glass, never an opaque or near-opaque fill. Reduce")
+        print("  Transparency is the only opaque fallback, and OverlayMaterial.opaque draws it for you.")
+        print("  Use Glass.makeSurface(role) or Glass.makeOverlayPanel, the tooltip glass or CardSurfaceView.")
+        print("  A surface that must stay")
+        print("  solid is allowlisted with a written reason: `// glass-opaque-allow: <reason>`, or an ALLOWED")
+        print("  entry in this script (design/overlay-surfaces.md in leo-workspace has the policy).")
         print("  [popup-host]: a menu, picker, popover or web popup host builds its surface with")
         print("  Glass.makeOverlayPanel in its own body, or names the file that does in GLASS_FROM.")
         for finding in findings:

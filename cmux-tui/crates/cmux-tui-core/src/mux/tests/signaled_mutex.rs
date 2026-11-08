@@ -80,3 +80,48 @@ fn signaled_mutex_records_failed_wait_telemetry() {
     assert_eq!(snapshot.stalls, 1, "failed stall must be visible");
     assert!(snapshot.last_stall.is_some());
 }
+
+#[test]
+fn lock_detail_reports_per_site_hold_and_wait_percentiles() {
+    let mutex = SignaledMutex::new(0u32);
+    let short_line = line!() + 2;
+    for _ in 0..99 {
+        drop(mutex.lock().unwrap());
+    }
+    let long_line = line!() + 1;
+    let guard = mutex.lock().unwrap();
+    std::thread::sleep(Duration::from_millis(20));
+    drop(guard);
+
+    let detail = mutex.stats().detail();
+    assert_eq!(detail.sites, 2, "{detail:?}");
+    let short = detail
+        .by_hold_total
+        .iter()
+        .find(|site| site.site.ends_with(&format!("signaled_mutex.rs:{short_line}")))
+        .expect("short site listed");
+    assert_eq!(short.acquisitions, 99);
+    let long = &detail.by_hold_p99[0];
+    assert!(long.site.ends_with(&format!("signaled_mutex.rs:{long_line}")), "{detail:?}");
+    assert_eq!(long.acquisitions, 1);
+    assert!(long.hold_p99_us >= 10_000 && long.hold_p99_us <= long.hold_max_us, "{long:?}");
+    assert!(long.hold_max_us >= 20_000, "{long:?}");
+}
+
+/// A writer that panics in the middle of a change leaves half-made routing tables. They are never published (the
+/// guard drops during the unwind, then the mutex is poisoned), so the input lane keeps routing by the last finished
+/// change (R-DAEMON-STATE stage S1).
+#[test]
+fn routes_of_a_change_cut_short_by_a_panic_are_never_published() {
+    let state = test_mux().with_state(State::clone);
+    let mutex = super::super::signaled_mutex::StateMutex::new(state, true);
+    let before = arc_swap::Guard::into_inner(mutex.routes());
+    let terminal = TerminalPublicId::parse("term_00000000000000000000000000000077").unwrap();
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut state = mutex.lock().unwrap_or_else(PoisonError::into_inner);
+        state.terminal_catalog_by_runtime.insert(9_999_999, terminal);
+        panic!("a writer panics in the middle of a change");
+    }));
+    let after = arc_swap::Guard::into_inner(mutex.routes());
+    assert!(Arc::ptr_eq(&before, &after), "the routes of the half-made change were published");
+}

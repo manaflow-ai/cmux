@@ -1,0 +1,71 @@
+{
+  "id": "clear",
+  "priority": "P0",
+  "title": "clear and Cmd+K empty the terminal; Cmd+K also empties the scrollback; the shell takes input after",
+  "why": "Clearing is everyday terminal use. In cmux the daemon owns the terminal and the app draws a mirror: a clear that empties only one of them leaves old text in the other (it comes back on reattach, or the view and the daemon disagree).",
+  "source": "everyday terminal use (holistic-quality.md 1); Cmd+K is Clear Screen and Scrollback in a terminal (decision K1)",
+  "budget_seconds": 90,
+  "steps": [
+    {"do": "new_terminal", "name": "jr-clear"},
+    {"do": "neutral_prompt"},
+    {"do": "type", "text": "seq -f 'C%04g-${nonce}' 1 300", "enter": true, "mark": "fill"},
+    {"do": "expect", "title": "300 rows show", "since": "fill", "timeout": 15,
+     "all": [
+       {"daemon_line": "C0300-${nonce}"},
+       {"daemon_prompt": true},
+       {"app_text_line": "C0300-${nonce}"}
+     ]},
+
+    {"do": "type", "text": "clear", "enter": true, "mark": "clear"},
+    {"do": "expect", "title": "the clear command empties the screen; the prompt is all that shows", "since": "clear", "within": 2, "timeout": 5, "settle": 0.5,
+     "all": [
+       {"daemon_lacks": "C0300-${nonce}"},
+       {"daemon_lacks": "C0299-${nonce}"},
+       {"daemon_prompt": true},
+       {"app_text_lacks": "C0300-${nonce}"},
+       {"app_text_lacks": "C0299-${nonce}"},
+       {"app_prompt": true}
+     ]},
+    {"do": "type", "text": "echo cleared-${nonce}-$((6*7))", "enter": true, "mark": "after-clear"},
+    {"do": "expect", "title": "the shell answers after clear", "since": "after-clear", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "cleared-${nonce}-42"},
+       {"app_text_line": "cleared-${nonce}-42"},
+       {"app_text_lacks": "C0300-${nonce}"},
+       {"frame_screen": {"shows": ["cleared-${nonce}-42"], "lacks": ["C0300-${nonce}", "C0299-${nonce}"]}}
+     ]},
+
+    {"do": "type", "text": "seq -f 'K%04g-${nonce}' 1 300", "enter": true, "mark": "fill2"},
+    {"do": "expect", "title": "300 more rows show", "since": "fill2", "timeout": 15,
+     "all": [
+       {"daemon_line": "K0300-${nonce}"},
+       {"daemon_prompt": true},
+       {"daemon_history": {"rows": "newest", "count": 1000, "contains": "K0001-${nonce}"}},
+       {"app_text_line": "K0300-${nonce}"}
+     ]},
+    {"do": "key", "key": "k", "modifiers": ["cmd"], "mark": "cmd-k"},
+    {"do": "expect", "title": "Cmd+K empties the screen and the scrollback, in the daemon and in the view", "since": "cmd-k", "within": 1.5, "timeout": 5, "settle": 0.5,
+     "all": [
+       {"daemon_lacks": "K0300-${nonce}"},
+       {"daemon_lacks": "K0200-${nonce}"},
+       {"daemon_history": {"rows": "newest", "count": 1000, "lacks": "K0"}},
+       {"app_text_lacks": "K0300-${nonce}"},
+       {"app_text_lacks": "K0200-${nonce}"}
+     ]},
+    {"do": "mouse", "action": "scroll", "dy": 40, "count": 30, "interval": 0.03, "mark": "scroll-back"},
+    {"do": "expect", "title": "scrolling back after Cmd+K finds none of the cleared rows", "since": "scroll-back", "timeout": 5, "settle": 1,
+     "all": [
+       {"app_text_lacks": "K0"},
+       {"daemon_lacks": "K0"}
+     ]},
+    {"do": "type", "text": "echo after-k-${nonce}-$((6*7))", "enter": true, "mark": "after-k"},
+    {"do": "expect", "title": "the shell takes input after Cmd+K", "since": "after-k", "within": 3, "timeout": 10,
+     "all": [
+       {"daemon_line": "after-k-${nonce}-42"},
+       {"daemon_prompt": true},
+       {"app_text_line": "after-k-${nonce}-42"},
+       {"app_prompt": true},
+       {"frame_screen": {"shows": ["after-k-${nonce}-42"], "lacks": ["K0300-${nonce}", "K0299-${nonce}"]}}
+     ]}
+  ]
+}

@@ -13,6 +13,8 @@ import CmuxNextDesign
     /// The press moved past the drag threshold before its release.
     func fieldEditorMouseDragged()
     func fieldEditorMouseUp()
+    /// A drop on the editing field: the bar takes it as a whole (`AddressBarView.acceptDrop`).
+    func fieldEditorDrop(_ pasteboard: NSPasteboard) -> Bool
     /// Copy and Cut text for the selection, with the omnibox copy adjustments.
     var copyContent: OmnibarCopy? { get }
     var canUndo: Bool { get }
@@ -38,6 +40,33 @@ final class OmnibarFieldEditor: NSTextView {
         isFieldEditor = true
         isRichText = false
         importsGraphics = false
+        // A field editor pads its line by 2 pt a side, as AppKit's shared one does once it edits; a new
+        // text view starts at TextKit's 5. The resting address is laid out with this editor's padding
+        // (`EditorAlignedTextFieldCell`) before the field first takes the keyboard, so it must already be 2:
+        // since 15972f3ebef put the resting line at the title rect, a 5 pt padding drew the address 3 pt right
+        // of where focus puts it (OmnibarFocusLayoutShiftTests).
+        textContainer?.lineFragmentPadding = 2
+    }
+
+    // MARK: Drops
+
+    /// A drop replaces the whole text (Chromium `OmniboxViewViews::PerformDrop`), never inserts at
+    /// the pointer: the bar takes it. A drag of the field's own selection stays a text move.
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        isOwnDrag(sender) ? super.draggingEntered(sender) : .copy
+    }
+
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        isOwnDrag(sender) ? super.draggingUpdated(sender) : .copy
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        if isOwnDrag(sender) { return super.performDragOperation(sender) }
+        return sink?.fieldEditorDrop(sender.draggingPasteboard) ?? false
+    }
+
+    private func isOwnDrag(_ sender: any NSDraggingInfo) -> Bool {
+        (sender.draggingSource as AnyObject?) === self
     }
 
     /// AppKit turns undo on for every field editor it sets up; the state
@@ -76,6 +105,8 @@ final class OmnibarFieldEditor: NSTextView {
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
         isChangingText = false
+        // A composition hides the placeholder the field's cell draws under this editor.
+        (delegate as? NSView)?.needsDisplay = true
         sink?.fieldEditorDidChange(kind: .insert)
     }
 
@@ -87,6 +118,7 @@ final class OmnibarFieldEditor: NSTextView {
         super.unmarkText()
         guard composing else { return }
         isChangingText = false
+        (delegate as? NSView)?.needsDisplay = true
         sink?.fieldEditorDidChange(kind: .insert)
     }
 

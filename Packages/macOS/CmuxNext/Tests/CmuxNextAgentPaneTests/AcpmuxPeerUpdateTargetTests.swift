@@ -517,7 +517,9 @@ import Testing
         #expect(ContinuousClock.now - started < .seconds(20))
         let pid = try #require(Int32(String(decoding: try Data(contentsOf: pidFile), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)))
         #expect(!Self.runs(pid), "the child that ignored SIGTERM still runs after the run returned")
-        #expect(result.errors.contains("it exited"), "the run confirmed the exit: \(result.errors)")
+        // Leo, 2026-10-29: "...deadline and was stopped; it exited" ended on nothing. A confirmed
+        // exit ends the line at "was stopped"; only a child that outlived SIGKILL says more.
+        #expect(result.errors.hasSuffix("was stopped"), "\(result.errors)")
     }
 
     /// Review of #25388: the exit is confirmed by the kernel's exit event armed at the launch, and a

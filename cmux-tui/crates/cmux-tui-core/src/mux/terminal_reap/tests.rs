@@ -66,6 +66,69 @@ fn terminal_reap_schedule_postpone_and_forget() {
     assert_eq!(schedule.next_deadline(), None);
 }
 
+/// A terminal unplaced for longer than the grace (its time is durable across
+/// restarts) that a reap attempt leaves running, because the close guard
+/// still sees it placed or it stayed listed after its close, is still
+/// reapable at the next scan. That scan must not find it due again: it was
+/// re-added at its durable unplaced time, due at once, so every wake (and the
+/// zero wait to its own deadline) ran another attempt (a registry prune and
+/// write, a screen capture and a guarded close), and the app's headless owner
+/// sat at 150% CPU.
+#[test]
+fn terminal_reap_schedule_waits_after_an_attempt_that_left_the_terminal_reapable() {
+    for outcome in [ReapOutcome::Retained, ReapOutcome::Reaped] {
+        let start = Instant::now();
+        let reapable: HashMap<String, Duration> = [("stuck".to_string(), 3 * GRACE)].into();
+        let mut schedule = ReapSchedule::default();
+
+        // A scan on every wake, one a millisecond for a second, as the
+        // reaper thread runs one per topology or registry event.
+        let mut attempts = 0;
+        for ms in 0..1000 {
+            let now = start + Duration::from_millis(ms);
+            schedule.observe_unplaced(now, GRACE, &reapable);
+            for terminal_id in schedule.due(now) {
+                schedule.tried(&terminal_id, Some(outcome), now, GRACE);
+                attempts += 1;
+            }
+            assert!(
+                schedule.next_deadline().is_none_or(|at| at > now),
+                "{outcome:?}: the reaper's next wait is zero"
+            );
+        }
+        assert_eq!(attempts, 1, "{outcome:?}: {attempts} reap attempts within a second");
+        assert_eq!(schedule.deadline("stuck"), Some(start + GRACE), "{outcome:?}");
+    }
+}
+
+/// The deadline an attempt leaves is dropped as soon as a scan no longer
+/// lists the terminal (closed, placed again or kept), as a forget did.
+#[test]
+fn terminal_reap_schedule_drops_a_settled_terminal_once_it_is_no_longer_reapable() {
+    let start = Instant::now();
+    let reapable: HashMap<String, Duration> = [("gone".to_string(), GRACE)].into();
+    let mut schedule = ReapSchedule::default();
+    schedule.observe_unplaced(start, GRACE, &reapable);
+    schedule.tried("gone", Some(ReapOutcome::Reaped), start, GRACE);
+    schedule.observe_unplaced(start, GRACE, &HashMap::new());
+    assert_eq!(schedule.next_deadline(), None);
+}
+
+/// A terminal placed again during its attempt (`Retained`) and closed again
+/// before the next scan gets a full grace from its new unplaced time, not the
+/// retry deadline of the attempt.
+#[test]
+fn terminal_reap_schedule_gives_a_terminal_closed_again_after_a_retained_attempt_a_fresh_grace() {
+    let start = Instant::now();
+    let mut schedule = ReapSchedule::default();
+    schedule.observe_unplaced(start, GRACE, &[("undo".to_string(), GRACE)].into());
+    schedule.tried("undo", Some(ReapOutcome::Retained), start, GRACE);
+    // Closed again 5 s later; the placement cleared its unplaced time.
+    let closed_again = start + Duration::from_secs(5);
+    schedule.observe_unplaced(closed_again, GRACE, &[("undo".to_string(), Duration::ZERO)].into());
+    assert_eq!(schedule.deadline("undo"), Some(closed_again + GRACE));
+}
+
 fn host_id(mux: &Arc<Mux>, surface: &Arc<Surface>) -> String {
     mux.resource_terminal_host_identity(surface).expect("test terminal is hosted").terminal_id
 }
@@ -132,8 +195,10 @@ fn terminal_reap_ends_unplaced_terminals_after_grace_but_not_kept_ones() {
 
     close_workspace_of(&mux, &doomed);
     close_workspace_of(&mux, &kept);
-    assert!(mux.reapable_terminals().unwrap().contains(&doomed_id));
-    assert!(!mux.reapable_terminals().unwrap().contains(&kept_id));
+    let (reapable, retained) = mux.reapable_and_retained_terminals().unwrap();
+    assert!(reapable.contains(&doomed_id));
+    assert!(!reapable.contains(&kept_id));
+    assert!(retained.contains(&kept_id), "a kept terminal is retained");
     assert!(mux.reap_unplaced_terminals(&mut schedule, start).is_empty());
     let almost = start + grace - Duration::from_millis(1);
     assert!(mux.reap_unplaced_terminals(&mut schedule, almost).is_empty());
@@ -157,6 +222,33 @@ fn terminal_reap_ends_unplaced_terminals_after_grace_but_not_kept_ones() {
     assert_eq!(mux.reap_unplaced_terminals(&mut schedule, unkept + grace), vec![kept_id]);
     assert_eq!(lifecycle(&mux, &host_id(&mux, &scratch)), TerminalLifecycle::Running);
     mux.close_surface(scratch.id).unwrap();
+}
+
+/// P0 TERMINAL-HOST LEAK: the grace runs across an owner restart. The
+/// restarted owner's schedule starts empty, but the registry keeps when the
+/// terminal was closed: closed a full grace ago, it is reaped on the first
+/// pass, and the placed terminal is not.
+#[test]
+fn terminal_reap_grace_runs_across_an_owner_restart() {
+    let mux = Mux::new_for_test("terminal-reap-restart", SurfaceOptions::default());
+    let grace = mux.terminal_reap_grace();
+    let placed = mux.new_workspace(Some("placed".into()), Some((80, 24))).unwrap();
+    let closed = mux.new_workspace(Some("closed".into()), Some((80, 24))).unwrap();
+    let closed_id = host_id(&mux, &closed);
+    close_workspace_of(&mux, &closed);
+    let mut schedule = ReapSchedule::default();
+    assert!(mux.reap_unplaced_terminals(&mut schedule, Instant::now()).is_empty());
+    // A restart: a new schedule; the terminal was closed a grace ago.
+    mux.workspace_registry.lock().unwrap().backdate_terminal_unplaced(&closed_id, grace).unwrap();
+    let mut restarted = ReapSchedule::default();
+    assert_eq!(
+        mux.reap_unplaced_terminals(&mut restarted, Instant::now()),
+        vec![closed_id.clone()],
+        "a restart must not count the grace again from zero"
+    );
+    assert_eq!(lifecycle(&mux, &closed_id), TerminalLifecycle::Tombstoned);
+    assert_eq!(lifecycle(&mux, &host_id(&mux, &placed)), TerminalLifecycle::Running);
+    mux.close_surface(placed.id).unwrap();
 }
 
 #[test]
@@ -270,4 +362,87 @@ fn terminal_reap_grace_is_bounded() {
     assert!(
         validate_terminal_reap_grace(MAX_TERMINAL_REAP_GRACE + Duration::from_secs(1)).is_err()
     );
+}
+
+/// PTY LEAK (STATUS 7938): a closed tab's terminal lives out the reap grace (30 s in the app) so the
+/// tab can come back, and holds its PTY meanwhile. A burst of tab closes then left the machine's PTYs
+/// (511 on macOS) held by terminals no tab shows, and every new tab was refused ("PTY capacity
+/// exhausted"): the PTY reclaim parked only idle shells that a tab still shows. When PTYs are low,
+/// a reclaim pass ends the closed terminals waiting out their grace first, oldest close first; a
+/// placed terminal keeps running.
+#[test]
+fn a_reclaim_pass_ends_closed_terminals_waiting_out_the_grace_when_ptys_are_low() {
+    let mux = Mux::new_for_test("pty-reclaim-unplaced", SurfaceOptions::default());
+    let placed = mux.new_workspace(Some("placed".into()), Some((80, 24))).unwrap();
+    let closed = mux.new_workspace(Some("closed".into()), Some((80, 24))).unwrap();
+    let closed_id = host_id(&mux, &closed);
+    close_workspace_of(&mux, &closed);
+    // Inside its grace: the reaper alone would keep it.
+    let mut schedule = ReapSchedule::default();
+    assert!(mux.reap_unplaced_terminals(&mut schedule, Instant::now()).is_empty());
+    assert_eq!(lifecycle(&mux, &closed_id), TerminalLifecycle::Running);
+
+    pty_reclaim::set_pty_usage_for_test(Some((500, 511)));
+    let mut clock = pty_reclaim::ReclaimClock::default();
+    mux.note_pty_exhausted();
+    let _ = mux.reclaim_ptys_if_low(&mut clock);
+    pty_reclaim::set_pty_usage_for_test(None);
+
+    assert_eq!(
+        lifecycle(&mux, &closed_id),
+        TerminalLifecycle::Tombstoned,
+        "PTYs were low and a closed tab's terminal still held one"
+    );
+    assert_eq!(lifecycle(&mux, &host_id(&mux, &placed)), TerminalLifecycle::Running);
+    mux.close_surface(placed.id).unwrap();
+}
+
+/// PTY HOLD (VIDEO EXTRA, STATUS 7998): every closed tab's terminal lived out the whole reap grace
+/// (30 s in the app) with its PTY. A script closing about 5 tabs a second (the L6 storm) piled up
+/// closed-but-held PTYs and reached the machine's limit (511) in 48 s. The grace keeps a recent close
+/// undoable; it must not hold an unbounded number of PTYs: past
+/// [`MAX_TERMINALS_IN_REAP_GRACE`] closed terminals, the reaper ends the longest-closed at once.
+#[test]
+fn closed_terminals_past_the_grace_cap_end_at_once() {
+    let mux = Mux::new_for_test("terminal-reap-cap", SurfaceOptions::default());
+    let extra = 2;
+    // Every workspace first: a create after a reap trips the scoped-projection cross-check on the
+    // base as well (a separate defect, see the PR), so this test closes and reaps only.
+    let placed = mux.new_workspace(Some("placed".into()), Some((80, 24))).unwrap();
+    let surfaces: Vec<_> = (0..MAX_TERMINALS_IN_REAP_GRACE + extra)
+        .map(|index| mux.new_workspace(Some(format!("closed-{index}")), Some((80, 24))).unwrap())
+        .collect();
+    let mut schedule = ReapSchedule::default();
+    let mut closed = Vec::new();
+    let mut reaped = Vec::new();
+    // A burst of closes, the reaper woken after each (a topology change wakes it).
+    for (index, surface) in surfaces.iter().enumerate() {
+        let terminal_id = host_id(&mux, surface);
+        close_workspace_of(&mux, surface);
+        reaped.extend(mux.reap_unplaced_terminals(&mut schedule, Instant::now()));
+        // Distinct close times: the first closed is the longest closed.
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .backdate_terminal_unplaced(&terminal_id, Duration::from_millis(1_000 - index as u64))
+            .unwrap();
+        closed.push(terminal_id);
+    }
+    reaped.extend(mux.reap_unplaced_terminals(&mut schedule, Instant::now()));
+    reaped.sort();
+    let mut oldest = closed[..extra].to_vec();
+    oldest.sort();
+    assert_eq!(
+        reaped, oldest,
+        "inside the grace, only the closed terminals past the cap end, oldest first"
+    );
+    for terminal_id in &closed[extra..] {
+        assert_eq!(
+            lifecycle(&mux, terminal_id),
+            TerminalLifecycle::Running,
+            "a recent close stays undoable"
+        );
+    }
+    assert_eq!(lifecycle(&mux, &host_id(&mux, &placed)), TerminalLifecycle::Running);
+    mux.close_surface(placed.id).unwrap();
 }

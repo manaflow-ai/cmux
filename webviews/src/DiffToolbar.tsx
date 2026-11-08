@@ -1,8 +1,10 @@
 // Diff toolbar controls: the source menu pill, the jump-to-file palette, the
 // floating toolbar pill and its "..." options menu. State lives in App; the
 // models (what each control shows and does) are in toolbar-model.ts.
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useScrollEdges } from "./ui/scrollEdges";
+import "./ui/popupSurface.css";
 import type { DiffItem } from "./diff-stream";
 import { Icon, type IconName } from "./icons";
 import type { DiffViewerLabelResolver } from "./labels";
@@ -114,14 +116,23 @@ export function SourceMenu({
   model,
   onSelect,
 }: {
-  additions: number;
-  deletions: number;
+  /** Null while the diff is still loading: the counts keep their place but show no made-up +0 -0. */
+  additions: number | null;
+  deletions: number | null;
   label: DiffViewerLabelResolver;
   model: SourceMenuModel;
   onSelect: (target: SourceTarget) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [committedOpen, setCommittedOpen] = useState(false);
+  const submenuEdges = useScrollEdges();
+  const submenuRef = useCallback(
+    (node: HTMLElement | null) => {
+      submenuEdges(node);
+      focusFirstMenuItem(node);
+    },
+    [submenuEdges],
+  );
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuId = useId();
@@ -161,10 +172,17 @@ export function SourceMenu({
         <span className="source-pill-label">{selectedText}</span>
         <Icon name="chevronDown" />
       </button>
-      <span className="source-pill-stats" aria-label={label("diffStats")}>
-        <span className="source-pill-additions">+{additions}</span>
-        <span className="source-pill-deletions">-{deletions}</span>
-      </span>
+      {additions == null || deletions == null ? (
+        <span className="source-pill-stats invisible" aria-hidden="true">
+          <span className="source-pill-additions">+0</span>
+          <span className="source-pill-deletions">-0</span>
+        </span>
+      ) : (
+        <span className="source-pill-stats" aria-label={label("diffStats")}>
+          <span className="source-pill-additions">+{additions}</span>
+          <span className="source-pill-deletions">-{deletions}</span>
+        </span>
+      )}
       {open && style
         ? createPortal(
             <div
@@ -214,8 +232,8 @@ export function SourceMenu({
                         </button>
                         {committedOpen ? (
                           <div
-                            ref={focusFirstMenuItem}
-                            className="toolbar-menu toolbar-submenu"
+                            ref={submenuRef}
+                            className="toolbar-menu toolbar-submenu ui-scroll-edge-fade"
                             role="menu"
                             tabIndex={-1}
                             aria-label={entryText(entry)}
@@ -325,6 +343,7 @@ export function JumpToFilePalette({
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const paletteRef = useRef<HTMLDivElement | null>(null);
   const listboxId = useId();
+  const listEdges = useScrollEdges();
   const style = useAnchoredPopover(open, buttonRef, 440);
   useDismissOnOutsidePress(open, [buttonRef, paletteRef], () => setOpen(false));
   if (items.length === 0) {
@@ -414,8 +433,14 @@ export function JumpToFilePalette({
                   }}
                 />
               </div>
-              {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-              <div id={listboxId} className="jump-palette-list" role="listbox" aria-label={label("jumpToFile")}>
+              <div
+                ref={listEdges}
+                id={listboxId}
+                className="jump-palette-list ui-scroll-edge-fade"
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                role="listbox"
+                aria-label={label("jumpToFile")}
+              >
                 {rows.length === 0 ? (
                   <div className="jump-palette-status">{label("jumpToFileNoMatches")}</div>
                 ) : (

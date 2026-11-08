@@ -16,7 +16,8 @@ public final class LinkRouter {
     /// `files.textEditor`, read when a path menu opens.
     public var textEditor: () -> String = { "" }
     /// A link this app opens itself whatever the setting (a Chief subagent's link); true when it did.
-    public var appLink: (URL) -> Bool = { _ in false }
+    /// `click` is how it was clicked, for an app link that falls back to its web page.
+    public var appLink: (_ url: URL, _ click: Click) -> Bool = { _, _ in false }
     /// Opens a web link in a cmux browser tab of the current window, in the background (not
     /// selected) when asked. `source` is the tab the link was clicked in (a tab id), nil for the
     /// focused pane: the App places the tab beside it (`layout.linkPlacement`).
@@ -35,6 +36,24 @@ public final class LinkRouter {
     #endif
 
     public init() {}
+
+    /// How a link was clicked (``open(_:otherTarget:explicit:background:source:)``'s arguments), kept
+    /// for an app link whose open falls back to the link's web page.
+    public struct Click: Sendable, Equatable {
+        public var otherTarget = false
+        public var explicit = false
+        public var background = false
+        public var source: String?
+
+        public init(otherTarget: Bool = false, explicit: Bool = false, background: Bool = false, source: String? = nil) {
+            (self.otherTarget, self.explicit, self.background, self.source) = (otherTarget, explicit, background, source)
+        }
+    }
+
+    /// Opens `url` where the rule sends a link clicked as `click`.
+    public func open(_ url: URL, as click: Click) {
+        open(url, in: target(for: url, otherTarget: click.otherTarget, explicit: click.explicit), background: click.background, source: click.source)
+    }
 
     /// Shift-Command on a click: open the link in the browser the setting does not pick.
     public static func isOtherTarget(_ flags: NSEvent.ModifierFlags) -> Bool {
@@ -59,7 +78,7 @@ public final class LinkRouter {
     @discardableResult
     public func open(_ url: URL, otherTarget: Bool = false, explicit: Bool = false, background: Bool = false,
                      source: String? = nil) -> LinkRouting.Target? {
-        if appLink(url) { return nil }
+        if appLink(url, Click(otherTarget: otherTarget, explicit: explicit, background: background, source: source)) { return nil }
         let target = target(for: url, otherTarget: otherTarget, explicit: explicit)
         open(url, in: target, background: background, source: source)
         return target
@@ -93,6 +112,21 @@ public final class LinkRouter {
         if recordsInstead("system:" + url.absoluteString) { return }
         // Never the blocking open: a click handler may hold a renderer lock.
         NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    /// Opens a link a terminal program asked a browser for (`browser.open_link`) in cmux: in a cmux
+    /// browser tab whatever the rule when `explicit` (a `target` or a `terminal.linkOpener` rule
+    /// names cmux), else where the rule sends it, beside `source`, the tab of the caller's terminal.
+    /// Returns where it went (an app link counts as cmux), or nil when it opened nothing because
+    /// `terminal` was named but no tab shows it (`source` nil) and the link would open in a cmux
+    /// tab: that tab never lands beside whichever pane has focus, which may be another window or
+    /// browser profile (#29224). With no `terminal` the focused pane is meant.
+    public func openTerminalLink(_ url: URL, terminal: String?, source: String?, explicit: Bool,
+                                 background: Bool) -> LinkRouting.Target? {
+        if terminal != nil, source == nil, routing().browserEnabled, explicit || target(for: url) == .cmuxBrowser { return nil }
+        guard explicit else { return open(url, background: background, source: source) ?? .cmuxBrowser }
+        open(url, in: .cmuxBrowser, background: background, source: source)
+        return routing().browserEnabled ? .cmuxBrowser : .system
     }
 
     /// Opens `file` (or a web link) with the app at `app`.

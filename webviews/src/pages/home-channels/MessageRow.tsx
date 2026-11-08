@@ -3,7 +3,7 @@
 // thread root shows as a ThreadRow in the timeline instead). The hover card (MessageActions) holds the
 // row's actions; a delete asks once, inline. A running agent reply is a DraftRow: the same shape,
 // with the text growing and a quiet "writing" mark instead of the time.
-import { memo, useState, type ReactNode } from "react";
+import { memo, useContext, useState, type ReactNode } from "react";
 import { Markdown } from "../../agent-session/acpmux/conversation/Markdown";
 import type { Strings } from "../shared/i18n";
 import { MessageAttachments } from "./AttachmentViews";
@@ -12,7 +12,7 @@ import { Composer } from "./Composer";
 import type { HomeDraft } from "./drafts";
 import { MessageActions } from "./MessageActions";
 import { MAX_THREAD_INDENT, messageText, mentionsMe } from "./model";
-import { MessageRuns } from "./RunCard";
+import { MessageRuns, RunsContext } from "./RunCard";
 import type { HomeAttachment, HomeMessage, HomeParticipant, HomePart } from "./types";
 
 export interface MessageRowProps {
@@ -73,6 +73,7 @@ export const MessageRow = memo(function MessageRow({
   onDiscard,
 }: MessageRowProps) {
   const { t, format } = strings;
+  const transcript = useContext(RunsContext)?.presentation === "transcript";
   const author = people.get(message.author);
   const time = timeFormat.format(message.createdAt);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -91,6 +92,9 @@ export const MessageRow = memo(function MessageRow({
           </p>
         )}
         {head && <Head author={author} fallback={message.author} time={time} strings={strings} />}
+        {transcript && !message.retracted && !editing && pending === undefined && (
+          <MessageRuns message={message} placement="before" />
+        )}
         {message.retracted ? (
           <p className="hc-msg-retracted">{t("message.retracted")}</p>
         ) : editing && onEdit ? (

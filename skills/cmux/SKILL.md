@@ -67,9 +67,28 @@ cmux attention clear --tab tab_…
 
 When the person must do something in a specific tab (confirm, log in, approve, pick), mark that tab with `cmux attention request` (MCP `tab_update {tab, attention: "reason"}`). The tab and its workspace row show as needing them, without moving their focus. The mark clears when you clear it, when a browser tab goes to another page, or when the tab closes. In what you tell the person, name the workspace and the tab by their titles ("the GitHub tab in the coord-deputy workspace"), never by a `ws_…`, `tab_…` or `pane_…` id: they cannot see or search ids. When they ask to go there, `cmux tab tab_… focus` (MCP `tab_focus`) takes them to it.
 
+To run a prompt on a Cloud machine and read the reply, use one command, `cmux cloud start-chat --prompt TEXT --wait --json` (the [cmux-cloud-vm](../cmux-cloud-vm/SKILL.md) skill): it starts the chat on a new small machine (or `--name NAME`, `--target machine:vm-…`), opens it as a tab in the app and answers the reply with its `machine_id`, `session_id` and `tab_id`.
+
 To start another agent on a task and show it, use one command, `acpmux new -n NAME --worktree REPO@BASE --prompt-file BRIEF.md --report-to ME --group G -d` (the `acpmux` skill): it makes the worktree, starts the session, sends the brief and opens its chat in group G; running it again changes nothing.
 
 To open a link, the MCP tool `workspace_open_url` loads it on the workspace's right side, but it navigates a browser tab already there; `cmux browser profile open URL --profile default --background true` (MCP `browser_profile_open` with `activate: false`) adds a tab and keeps the pane's selected tab. `tab focus`, `workspace focus`, `agents tab select` and `focus: true` do move the person's focus: use them only when asked. `current` is the workspace the person looks at, not yours: from a cmux terminal `status set` without a selector targets that terminal's workspace, but an agent chat has no terminal, so name the workspace (`$CMUX_WORKSPACE_ID` when set).
+
+## Messaging a Chief or a person
+
+Any coding agent (Claude Code, Codex, OpenCode, pi, an acpmux session) can message the person's Chief, another Chief, or a person or group chat in Home. Use `cmux chat`, or the MCP tools `chat_send`, `chat_read` and `chat_list` (same arguments):
+
+```bash
+cmux chat list                                              # the Chief chats: Chief, Codex Chief, Muse Chief…
+cmux chat send --to chief --text "a12 is blocked on CI" --class blocker
+cmux chat send --to codex --text "Is PR 33023 safe to land?" --wait --timeout 600 --json   # waits for that Chief's reply
+cmux chat send --to "Leo" --text "The build is green"       # a person or a group chat, by its Home name
+cmux chat read --to chief --last 10 --json
+cmux chat wait --to chief --from chief --timeout 300        # the Chief's next message
+```
+
+`--to chief` is the person's own Chief; a Chief's name (`codex` is "Codex Chief") or id is that Chief; any other name is a person or a group chat. Your message is always yours, never the person's: the chat shows `[from NAME]`, where NAME is your acpmux session, else `HARNESS-SESSION@HOST` (for example `claude-3fa9c1d2@mini-7`), or `--as NAME`. A Chief reads it as an agent's words, so it will not run local actions on it the way it would for the person. `--wait` prints a Chief's reply when its turn ends; a person's reply arrives in Home, and an acpmux session also gets a Chief's reply back as an acpmux message. `--class` says what you ask (`question`, `block`, `blocker`, `action`, `result`, `fyi`).
+
+From another machine (a fleet Mac, a cloud VM), the Chief is the acpmux session `chief` on the person's Mac: `acpmux send HOST/chief "…" --class question --wait` (or the `acpmux` MCP `send` tool) reaches it over the peer link, as your session, and its reply comes back to your session.
 
 ## Asking the person
 

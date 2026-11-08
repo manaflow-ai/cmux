@@ -66,7 +66,8 @@ const scroller = () => dom.window.document.querySelector<HTMLElement>(".acpmux-s
 /// no drawn height (0 is "not laid out"), so they place by their estimates.
 dom.window.HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
   const row = this.closest<HTMLElement>(".acpmux-row");
-  const at = row ? (Number.parseFloat(row.style.top) || 16) - 16 : 0; // less the thread's top padding
+  // Less the thread's top padding.
+  const at = row ? (Number.parseFloat(row.style.top) || 16) + (Number.parseFloat(row.style.marginTop) || 0) - 16 : 0;
   const top = row ? at - (scroller()?.scrollTop ?? 0) : 0;
   return { top, bottom: top, left: 0, right: 0, width: 0, height: 0, x: 0, y: top, toJSON() {} } as DOMRect;
 };

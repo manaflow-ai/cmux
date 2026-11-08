@@ -31,9 +31,27 @@ class AttachmentCapsGuardTests(unittest.TestCase):
                 with self.subTest(path=relative, name=name):
                     self.assertTrue(reason.strip())
                     self.check_source(f"let {name} = 1", 0, relative)
-                    self.check_source(f"let {name} = 1", 1, "new/uploads/service.swift")
-            self.check_source("let maximumNewFileBytes = 1", 1, relative)
-            self.check_source("guard size <= 1_048_576 else { return failure() }", 1, relative)
+                    expected = int(guard.FORBIDDEN.fullmatch(name) is not None or guard.FORBIDDEN_COUNT.fullmatch(name) is not None)
+                    self.check_source(f"let {name} = 1", expected, "new/uploads/service.swift")
+            if guard.attachment_path(Path(relative)):
+                self.check_source("let maximumNewFileBytes = 1", 1, relative)
+                self.check_source("guard size <= 1_048_576 else { return failure() }", 1, relative)
+                self.check_source("guard files.count <= 64 else { return failure() }", 1, relative)
+            self.check_source("let MAX_NEW_ATTACHMENTS = 1", 1, relative)
+
+    def test_retained_bounds_name_only_symbols_their_file_still_declares(self):
+        # A cap that was removed loses its exemption, so it cannot come back unreviewed.
+        root = SCRIPT.parents[2]
+        for relative, symbols in guard.RETAINED_BOUNDS.items():
+            path = root / relative
+            with self.subTest(path=relative):
+                self.assertTrue(path.is_file(), relative)
+            if not path.is_file():
+                continue
+            names = {token[0] for token in guard.code_tokens(path.read_text(encoding="utf-8"))}
+            for name in symbols:
+                with self.subTest(path=relative, name=name):
+                    self.assertIn(name, names, f"{relative} no longer has {name}: drop its exemption")
 
     def test_camel_case_file_and_stage_caps(self):
         for name in ("maximumFileSize", "maximumUploadBytes", "maximumUploadStageFile", "maximumStagedBytes"):
@@ -134,6 +152,59 @@ class AttachmentCapsGuardTests(unittest.TestCase):
             (root / "upload.ts").write_text("const MAX_CHUNK_BYTES = 1024; const MAX_TOTAL_BYTES = 100;\n")
             self.assertEqual(guard.violations(root), ["upload.ts:1: MAX_TOTAL_BYTES"])
 
+
+    def test_swift_home_admission_paths_are_scanned(self):
+        paths = (
+            "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentPolicy.swift",
+            "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentMedia.swift",
+            "Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeComposerCheck.swift",
+        )
+        for relative in paths:
+            with self.subTest(path=relative):
+                self.check_source("let maximumUploadFileBytes = 100\n", 1, relative)
+                self.check_source("static let maxBytes = 100_000_000", 1, relative)
+                self.check_source("guard size <= HomeAttachmentPolicy.maxBytes else { return }", 1, relative)
+
+    def test_swift_derived_preview_limits_are_explicitly_retained(self):
+        self.check_source("let previewMaxBytes = 512 * 1024\n", 0,
+                          "Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Attachments/AttachmentPolicy.swift")
+
+    def test_rust_derived_budgets_do_not_hide_an_original_cap(self):
+        self.check_source(
+            "const MAX_PREVIEW_IMAGE_BYTES: u64 = 512000; const MAX_POSTER_BYTES: u64 = 2000000; "
+            "const MAX_ATTACHMENT_BYTES: u64 = 100000000;",
+            1, "cmux-tui/crates/cmux-conversation/src/attachments.rs")
+
+    def test_optional_web_preview_budget_does_not_hide_original_admission(self):
+        self.check_source(
+            "const MAX_UNSIZED_DECODE_BYTES = 40000000; const MAX_ATTACHMENT_BYTES = 100000000;",
+            1, "webviews/src/pages/home-channels/attachmentService.ts")
+
+    def test_retained_warm_cache_budget_has_a_reason(self):
+        self.check_source("let maximumWarmBytes = 1024\n", 0,
+                          "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift")
+
+    def test_chief_original_caps_cannot_return(self):
+        for relative, source in (
+            ("cmux-tui/crates/cmux-tui/src/cli/chief/backend.rs", "const MAX_ATTACHMENT: u64 = 100_000_000;"),
+            ("Native/OptChat/chief-kernel/src/tools.rs", "pub const MAX_SEND_ATTACHMENTS: usize = 10;"),
+            ("Native/OptChat/optchat-chief/src/tools.rs", "pub use chief_kernel::tools::MAX_SEND_ATTACHMENTS;"),
+            ("Native/OptChat/optchat-chief/src/brain/media.rs", "pub const MAX_MEDIA_BYTES: u64 = 50_000_000;"),
+            ("backend/apps/api/src/chief-brain-cc/attachments.ts", "export const MAX_FILES = 12"),
+        ):
+            with self.subTest(path=relative):
+                self.check_source(source, 1, relative)
+
+    def test_chief_chunks_and_integrity_checks_do_not_cap_originals(self):
+        self.check_source(
+            "const CHUNK: usize = 2 << 20; "
+            "if offset != byte_count { return Err(changed()); }",
+            0, "cmux-tui/crates/cmux-tui/src/cli/chief/backend.rs")
+        self.check_source(
+            "const CHUNK = 768 * 1024; "
+            "if (count + value.byteLength > file.size) return failure; "
+            "for (const w of wantedFiles(text)) stage(w);",
+            0, "backend/apps/api/src/chief-brain-cc/attachments.ts")
 
 if __name__ == "__main__":
     unittest.main()

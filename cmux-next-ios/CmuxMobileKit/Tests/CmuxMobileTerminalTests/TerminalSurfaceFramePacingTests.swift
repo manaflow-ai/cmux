@@ -25,6 +25,33 @@ import UIKit
         Data((0..<48).map { "batch \(n) line \($0) " + String(repeating: "y", count: 60) + "\r\n" }.joined().utf8)
     }
 
+    /// Batches queued on the surface's output queue at once during the flood.
+    static let inFlightLimit = 64
+
+    /// Batches Ghostty parsed, counted on the output queue as it parses each.
+    final class Parsed: @unchecked Sendable {
+        private let lock = NSLock()
+        private var count = 0
+        func add() { lock.withLock { count += 1 } }
+        var value: Int { lock.withLock { count } }
+    }
+
+    /// Batches fed and not yet completed (their main-thread completion), and
+    /// the flood loop waiting for one to complete.
+    @MainActor final class InFlight {
+        var count = 0
+        private var waiter: CheckedContinuation<Void, Never>?
+        func completed() {
+            count -= 1
+            waiter?.resume()
+            waiter = nil
+        }
+        /// Returns once the next fed batch completes; call only while `count > 0`.
+        func nextCompletion() async {
+            await withCheckedContinuation { waiter = $0 }
+        }
+    }
+
     @Test func busyOutputDrawsAtMostOneFramePerDisplayRefresh() async throws {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         window.isHidden = false
@@ -40,19 +67,36 @@ import UIKit
         try #require(surface.renderedFrames > 0, "the surface never drew")
         try await Task.sleep(for: .milliseconds(300)) // test: frames already requested land
 
-        // Output batches back to back for a second, each fed once the last
-        // one was parsed (the screen's output pump keeps one in flight).
+        // Output batches back to back for a second. Up to `inFlightLimit`
+        // wait on the output queue at once, so how fast Ghostty parses them
+        // does not depend on how soon the main actor runs each completion:
+        // feeding one batch per main-actor round trip, a full kit run (its
+        // other suites on the same main actor) parsed 5 batches in the
+        // second, too few to outrun the display, and the test proved nothing.
         let refresh = Double(window.screen.maximumFramesPerSecond)
+        let parsed = Parsed()
+        let inFlight = InFlight()
         let before = surface.renderedFrames
         let start = ContinuousClock.now
-        var batches = 0
+        var fed = 0
         while start.duration(to: .now) < .seconds(1) {
-            await Self.feed(surface, Self.batch(batches))
-            batches += 1
+            if inFlight.count >= Self.inFlightLimit {
+                await inFlight.nextCompletion()
+                continue
+            }
+            inFlight.count += 1
+            surface.feed(Self.batch(fed), transform: { data in
+                parsed.add()
+                return data
+            }, completion: { inFlight.completed() })
+            fed += 1
         }
         let took = start.duration(to: .now)
-        let elapsed = Double(took.components.seconds) + Double(took.components.attoseconds) / 1e18
         let frames = surface.renderedFrames - before
+        let batches = parsed.value
+        // The batches still queued finish before the surface goes away.
+        while inFlight.count > 0 { await inFlight.nextCompletion() }
+        let elapsed = Double(took.components.seconds) + Double(took.components.attoseconds) / 1e18
         let fps = Double(frames) / elapsed
         print("FRAME-PACING batches=\(batches) frames=\(frames) seconds=\(String(format: "%.3f", elapsed)) fps=\(String(format: "%.1f", fps)) display=\(Int(refresh))Hz")
 

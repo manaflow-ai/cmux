@@ -1,3 +1,4 @@
+import CmuxNextCloud
 import Foundation
 
 /// The New Cloud Workspace progress text (cx-lu8f). Keys live in
@@ -18,6 +19,9 @@ extension CloudStrings {
         case .ready: text("cloud.progress.stage.ready", "Ready")
         case .paused(idle: true): text("cloud.progress.stage.pausedIdle", "Paused (idle)")
         case .paused(idle: false): text("cloud.progress.stage.paused", "Paused")
+        case .pausing: text("cloud.progress.stage.pausing", "Pausing…")
+        case .resuming: text("cloud.progress.stage.resuming", "Resuming…")
+        case .deleting: text("cloud.progress.stage.deleting", "Deleting…")
         case .failed: text("cloud.progress.stage.failed", "Failed")
         }
     }
@@ -31,7 +35,25 @@ extension CloudStrings {
         case .connecting: text("cloud.progress.next.connecting", "The link is up. Loading the machine's workspaces.")
         case .paused(idle: true): text("cloud.progress.next.pausedIdle", "cmux Cloud paused this machine after it sat idle. Its disk and session are kept. Resume starts it again.")
         case .paused(idle: false): text("cloud.progress.next.paused", "This machine is paused. Its disk and session are kept. Resume starts it again.")
+        case .pausing: text("cloud.progress.next.pausing", "cmux Cloud is pausing this machine. Its disk and session are kept. Resume works once it is paused.")
+        case .resuming: text("cloud.progress.next.resuming", "cmux Cloud is starting this machine again. It connects once it runs.")
+        case .deleting: text("cloud.progress.next.deleting", "cmux Cloud is deleting this machine and its disk.")
         case .ready, .failed: text("cloud.progress.next.ready", "Opening the terminal.")
+        }
+    }
+
+    /// A machine header's tooltip line when the server's last pause, resume or resize of it failed.
+    static func changeFailed(_ reason: String) -> String {
+        String(format: text("cloud.machine.changeFailed", "The last change to this machine failed: %@"), reason)
+    }
+
+    /// Why Pause, Resume or Kill waits on a machine in `status` (``CloudMachineStage/gatePowerActions(into:context:)``).
+    static func machineChanging(_ status: CloudMachine.Status) -> String? {
+        switch status {
+        case .pausing: text("cloud.machine.busy.pausing", "This machine is pausing. Try again once it is paused.")
+        case .starting: text("cloud.machine.busy.resuming", "This machine is resuming. Try again once it is running.")
+        case .deleting: text("cloud.machine.busy.deleting", "This machine is being deleted.")
+        default: nil
         }
     }
 

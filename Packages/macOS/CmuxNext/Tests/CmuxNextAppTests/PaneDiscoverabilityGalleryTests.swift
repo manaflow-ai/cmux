@@ -3,13 +3,14 @@ import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Foundation
 import ImageIO
 import Testing
 
 /// Native stills for the pane creation controls. The first frame is the existing compact plus;
 /// the next two show the pane's type affordance and the persistent creation actions.
-@MainActor @Suite(.serialized) struct PaneDiscoverabilityGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PaneDiscoverabilityGalleryTests {
     static let packageRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 

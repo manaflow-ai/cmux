@@ -222,21 +222,29 @@ impl Mux {
                 } else {
                     None
                 };
-                self.effect_create_workspace_terminal(
-                    intent,
-                    optional_owned_string(fields, "name")?,
-                    TerminalEffectOptions {
-                        argv,
-                        cwd: optional_owned_string(fields, "cwd")?,
-                        name: optional_owned_string(fields, "terminal_name")?,
-                        created_screen_name: None,
-                        size: effect_cell_size(fields)?,
-                        // Internal owner jobs retain their terminal view.
-                        // Generic workspace.create still rejects this field
-                        // at catalog admission, preserving its public shape.
-                        on_exit: effect_on_exit(fields)?,
-                    },
-                )
+                let options = TerminalEffectOptions {
+                    argv,
+                    cwd: optional_owned_string(fields, "cwd")?,
+                    name: optional_owned_string(fields, "terminal_name")?,
+                    created_screen_name: None,
+                    size: effect_cell_size(fields)?,
+                    // Internal owner jobs retain their terminal view.
+                    // Generic workspace.create still rejects this field
+                    // at catalog admission, preserving its public shape.
+                    on_exit: effect_on_exit(fields)?,
+                };
+                let name = optional_owned_string(fields, "name")?;
+                let create = || self.effect_create_workspace_terminal(intent, name, options);
+                // The stored `placement` (#29875), so a creation run again
+                // after a restart still goes where its request named.
+                let placement = fields
+                    .get("placement")
+                    .and_then(Value::as_str)
+                    .and_then(crate::user_settings::NewWorkspacePlacement::from_wire);
+                match placement {
+                    Some(placement) => placement.scoped(create),
+                    None => create(),
+                }
                 .map(|created| created.path)
             }
             ResourceOperation::WorkspaceClose => {
@@ -506,6 +514,14 @@ impl Mux {
                 };
                 if let Some(name) = optional_owned_string(fields, "name")? {
                     surface.set_name(Some(name));
+                    // Its `tab-added` went out before the name: the name is a `tab-changed` (#32408).
+                    let decorations = self.tree_decorations();
+                    let renamed = self.with_state(|state| {
+                        presentation::tab_changed_delta(state, &decorations, surface.id)
+                    });
+                    if let Some(delta) = renamed {
+                        self.emit(MuxEvent::TreeDelta(delta));
+                    }
                 }
                 self.created_resource_path(surface.id)
             }
@@ -669,6 +685,11 @@ impl Mux {
         // `workspace.create {ephemeral: true}` stages the flag with the
         // workspace row; the request's fields are part of its fingerprint.
         let ephemeral = intent["fields"]["ephemeral"].as_bool().unwrap_or(false);
+        if ephemeral {
+            // Its first terminal spawns before the workspace row is
+            // published: it must start incognito already.
+            self.note_incognito_workspace(&workspace_key);
+        }
         // `workspace.create` from a caller: the resource router sends
         // `focus: false` unless it asked. Other creations focus.
         let focus = intent["fields"][WORKSPACE_CREATE_FOCUS_FIELD].as_bool().unwrap_or(true);
@@ -770,7 +791,7 @@ impl Mux {
             surface.set_name(Some(name));
         }
         let active_at = self.next_active_at();
-        let notifications = self.tree_decorations();
+        let notifications = self.tree_decorations_placing(&surface);
         let mut refused = None;
         let attached = {
             let mut state = self.state.lock().unwrap();
@@ -878,8 +899,13 @@ impl Mux {
             ResourceOperation::PaneCreate
         }
         .wire_name();
+        // Split Down (`down`, not swapped above its target) may grow the agent chat dock below
+        // its chat (#29848); every other new pane in the dock is refused.
+        let splits_down = row_height.is_none() && split_direction == Some((SplitDir::Down, false));
         if viewport_width.is_none() {
-            self.with_state(|state| ensure_pane_column_not_agent_chat(operation, state, target))?;
+            self.with_state(|state| {
+                ensure_pane_column_not_agent_chat(operation, state, target, splits_down)
+            })?;
         }
         let workspace_key = self
             .workspace_key_for_pane(target)
@@ -914,7 +940,7 @@ impl Mux {
             (viewport_width.is_some() || row_height.is_some()).then(|| self.next_id());
         let base_row_id = row_height.map(|_| self.next_id());
         let active_at = self.next_active_at();
-        let notifications = self.tree_decorations();
+        let notifications = self.tree_decorations_placing(&surface);
         // A conversation tab's split (`conversation-tab-split-v1`): its one
         // `pane-added` carries the client transaction.
         let transaction = intent["fields"].as_object().and_then(frontend_browser_transaction);
@@ -936,7 +962,7 @@ impl Mux {
                 anyhow::bail!("pane disappeared before new pane attachment");
             };
             if viewport_width.is_none() {
-                ensure_pane_column_not_agent_chat(operation, &state, target)?;
+                ensure_pane_column_not_agent_chat(operation, &state, target, splits_down)?;
             }
             let workspace_id = state.workspaces[workspace].id;
             let screen_id = state.workspaces[workspace].screens[screen_index].id;
@@ -1042,7 +1068,11 @@ impl Mux {
                 pane_id,
             )
             .expect("new pane is present in tree snapshot");
-            let pane_index = state.workspaces[workspace].screens[screen_index]
+            let pane_index = state
+                .workspaces
+                .get(workspace)
+                .and_then(|workspace| workspace.screens.get(screen_index))
+                .context("the new pane's screen left state")?
                 .root
                 .pane_ids_vec()
                 .iter()

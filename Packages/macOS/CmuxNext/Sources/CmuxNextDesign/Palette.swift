@@ -29,7 +29,7 @@ public struct Palette {
     public static var pageBackground: NSColor { color(\.contentBackground, opaque: true, dynamic: PaletteDynamic.pageBackground) }
     /// The one background of every window and surface that sits on it
     /// (``ThemeTokens/surfaceBackground``): the window
-    /// (`NSWindow.install(kind:content:scope:)`), sidebar, panes and strip,
+    /// (`NSWindow.install(kind:content:scope:activeLook:)`), sidebar, panes and strip,
     /// page tabs, titlebar and docks (plans/cmux-next/windows.md).
     public static var surfaceBackground: NSColor { color(\.surfaceBackground, dynamic: PaletteDynamic.surfaceBackground) }
     /// What a page or tab view (Home, Feed, History, Tasks, Bookmarks)
@@ -111,16 +111,26 @@ public struct Palette {
 
     /// The notification blue (rgb 57 130 245, sampled from the Codex app): the one color of
     /// every unread mark, the sidebar's unread dot and the pane's unread ring by default. The
-    /// same in every theme, so an unread mark reads the same everywhere.
-    public static var notificationBlue: NSColor { NSColor(srgbRed: 57 / 255, green: 130 / 255, blue: 245 / 255, alpha: 1) }
-    /// The sidebar's unread or new status dot: `systemBlue`, so light and dark match and the color
-    /// means one thing in every row (Lawrence msg 11983).
-    public static var statusUnread: NSColor { .systemBlue }
+    /// same hue in every theme, so an unread mark reads the same everywhere, its lightness moved
+    /// per theme to 3:1 on the rows it sits on (``ThemeTokens/statusDot(_:)``).
+    public static var notificationBlue: NSColor {
+        dot(.notification, dynamic: NSColor(srgbRed: 57 / 255, green: 130 / 255, blue: 245 / 255, alpha: 1))
+    }
+    /// The sidebar's unread or new status dot: `systemBlue`'s hue, so the color means one thing in
+    /// every row (Lawrence msg 11983), at 3:1 on the theme's rows (user 2026-11-03).
+    public static var statusUnread: NSColor { dot(.unread, dynamic: .systemBlue) }
     /// The sidebar's needs-attention status dot (a permission prompt, a question, waiting on the
-    /// user): `systemOrange` (Lawrence msg 11983).
-    public static var statusAttention: NSColor { .systemOrange }
-    /// The sidebar's error status mark (failed, stopped with an error): `systemRed` (Lawrence msg 11983).
-    public static var statusError: NSColor { .systemRed }
+    /// user): `systemOrange`'s hue (Lawrence msg 11983), at 3:1 on the theme's rows.
+    public static var statusAttention: NSColor { dot(.attention, dynamic: .systemOrange) }
+    /// The sidebar's error status mark (failed, stopped with an error): `systemRed`'s hue (Lawrence
+    /// msg 11983), at 3:1 on the theme's rows.
+    public static var statusError: NSColor { dot(.error, dynamic: .systemRed) }
+
+    /// Inside a theme scope the mark's color in that theme; elsewhere `dynamic`.
+    private static func dot(_ mark: StatusDotHue, dynamic: NSColor) -> NSColor {
+        guard let tokens = ThemeContext.active else { return dynamic }
+        return tokens.statusDot(mark).nsColor
+    }
     /// Needs attention (agent waiting for input): the theme's ANSI yellow.
     public static var attention: NSColor { color(\.attention, dynamic: PaletteDynamic.attention) }
     /// Errors: the theme's ANSI red.
@@ -149,7 +159,15 @@ public struct Palette {
     public static var onAccent: NSColor { color(\.onAccent, opaque: true, dynamic: PaletteDynamic.onAccent) }
     /// A highlighted row in a cmux-drawn panel (the extensions panel): `accentFill` as a faint wash,
     /// so labels keep their own ink. Right-click menus are native and use the system highlight. A neutral theme gets a gray wash.
-    public static var menuHighlight: NSColor { accentFill.withAlphaComponent(menuHighlightOpacity) }
+    /// In a scope the wash is lighter where 20% would take the label under 4.5:1 on the card
+    /// (``ThemeTokens/menuHighlightShare(on:)``).
+    public static var menuHighlight: NSColor {
+        guard let tokens = ThemeContext.active else { return accentFill.withAlphaComponent(menuHighlightOpacity) }
+        // glass-opaque-allow: the card's worst ground (its tint over the far desktop) to measure the wash on; nothing draws it.
+        let card = CardMaterial(tokens, lift: ChromeTunables.opaqueOverlayLift.value, minimumOpacity: ChromeTunables.cardOpacity.value)
+        let ground = card.tint.composited(over: tokens.isDark ? .white : .black)
+        return tokens.accent.withAlpha(tokens.menuHighlightShare(on: ground)).nsColor
+    }
     static let menuHighlightOpacity: CGFloat = 0.2
 
     /// The app accent. Deliberately neutral so any control that reads the

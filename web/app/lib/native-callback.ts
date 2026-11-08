@@ -9,6 +9,8 @@ const NATIVE_SCHEMES = new Set([
   "cmux-rc",
   // nightly-next's cmux NEXT, installed beside cmux NIGHTLY.
   "cmux-next",
+  // cmux NEXT Stable (scripts/ci/stable-next-identity.sh), installed beside cmux NEXT.
+  "cmux-next-stable",
 ]);
 
 export function nativeCallbackHrefForScheme(scheme: string): string {
@@ -50,9 +52,16 @@ export function isAllowedNativeScheme(
   scheme: string,
   request: NextRequest,
 ): boolean {
+  // Signed NEXT DEV authenticates against staging, so never hand production
+  // Stack tokens to that app when a callback is forged on cmux.com.
+  if (scheme === "cmux-next-dev") return isStagingRequest(request);
   if (NATIVE_SCHEMES.has(scheme)) return true;
+  const tagged = /^cmux-dev-[a-z0-9-]+$/.test(scheme);
+  // Debug and tagged fleet builds sign in on staging by default (CloudConfiguration.resolve),
+  // with staging's development Stack project, as signed NEXT DEV does above.
+  if ((scheme === "cmux-dev" || tagged) && isStagingRequest(request)) return true;
   if (scheme === "cmux-dev") return isLocalRequest(request);
-  if (!/^cmux-dev-[a-z0-9-]+$/.test(scheme)) return false;
+  if (!tagged) return false;
   return isLocalRequest(request) && localAllowedNativeSchemes().has(scheme);
 }
 
@@ -60,6 +69,12 @@ export function isLocalRequest(request: NextRequest): boolean {
   const hostHeader = request.headers.get("host");
   const host = (hostHeader?.split(":")[0] ?? request.nextUrl.hostname).toLowerCase();
   return host === "localhost" || host === "127.0.0.1" || host === "::1";
+}
+
+function isStagingRequest(request: NextRequest): boolean {
+  const hostHeader = request.headers.get("host");
+  const host = (hostHeader?.split(":")[0] ?? request.nextUrl.hostname).toLowerCase();
+  return host === "cmux-staging.vercel.app";
 }
 
 function localAllowedNativeSchemes(): Set<string> {

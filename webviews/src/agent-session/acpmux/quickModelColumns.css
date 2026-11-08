@@ -1,0 +1,373 @@
+/* The model button's menu as columns (QuickModelColumns.tsx): the harness rail, the models, then the
+   shown model's effort and Fast mode, under one search row whose corner holds the account avatar.
+   As tall as its content up to a cap; each column scrolls on its own. */
+.acpmux-cols.ui-popup {
+  --acpmux-cols-line: var(--ui-line, color-mix(in srgb, var(--agent-text) 11%, transparent));
+  --acpmux-cols-pad: var(--ui-popup-padding, 4px);
+  --acpmux-cols-inline: var(--ui-row-padding-inline, 8px);
+  width: max-content;
+  max-width: var(--available-width, calc(100vw - 24px));
+  padding: 0;
+  /* The account card draws past the columns, never clipped by them. */
+  overflow: visible;
+  font-size: var(--text-body);
+}
+.acpmux-cols-frame {
+  display: flex;
+  flex-direction: column;
+  max-height: min(259px, var(--available-height, 259px));
+}
+.acpmux-cols-sep {
+  flex: 0 0 auto;
+  margin: 0;
+  border: 0;
+  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-cols-line);
+}
+
+/* The search row. Its corner block sits over the rail, and the rail's divider runs up through it. */
+.acpmux-cols-search {
+  display: flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  padding-right: var(--ds-space-3);
+}
+.acpmux-cols-search > svg {
+  align-self: center;
+  flex: 0 0 auto;
+  margin: 0 8px 0 calc(var(--acpmux-cols-pad) + var(--acpmux-cols-inline));
+  color: var(--agent-muted);
+}
+.acpmux-cols-search > input {
+  align-self: center;
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--agent-text);
+  font: inherit;
+  font-size: var(--text-body);
+  outline: none;
+  box-sizing: content-box;
+  height: var(--ds-control-primary);
+  padding-block: var(--ds-space-1);
+}
+.acpmux-cols-search > input::placeholder { color: var(--acpmux-composer-placeholder, var(--agent-muted)); }
+.acpmux-cols-search > input::-webkit-search-cancel-button { display: none; }
+.acpmux-cols-corner {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: 0 0 48px;
+  width: 48px;
+  /* The rail's divider runs up through the whole row: no padding above or below the corner. */
+  box-shadow: inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-cols-line);
+}
+
+/* The account avatar: a round face with the family's mark at its corner. */
+.acpmux-cols-profile {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: default;
+}
+.acpmux-cols-profile:not([data-blank]):hover,
+.acpmux-cols-profile[aria-expanded="true"] { background: color-mix(in srgb, var(--agent-text) 12%, transparent); }
+.acpmux-cols-profile:focus-visible {
+  outline: var(--cmux-focus-ring-width, 2px) solid var(--cmux-focus-ring-color, var(--agent-accent));
+}
+.acpmux-cols-avatar-wrap { position: relative; display: inline-grid; flex: 0 0 auto; }
+.acpmux-cols-avatar {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--agent-accent-text, white);
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, black 15%, transparent);
+}
+.acpmux-cols-avatar[data-empty] {
+  color: var(--agent-muted);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 30%, transparent);
+}
+.acpmux-cols-avatar-badge {
+  position: absolute;
+  /* Past the avatar's corner by 3 px, off the spacing scale on purpose: a nudge, not a gap. */
+  right: 0;
+  bottom: 0;
+  translate: 3px 3px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--surface-popup, var(--cmux-surface-solid, #1e1e1e));
+  box-shadow:
+    0 0 0 1.5px var(--surface-popup, var(--cmux-surface-solid, #1e1e1e)),
+    inset 0 0 0 0.5px color-mix(in srgb, var(--agent-text) 18%, transparent);
+}
+
+/* The account card: under the avatar, over the columns. */
+.acpmux-cols-card {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: var(--ds-space-1);
+  z-index: var(--layer-raised);
+  width: 250px;
+  overflow: hidden;
+  border-radius: var(--ui-popup-radius, var(--ds-radius-popup));
+  background: color-mix(in srgb, var(--agent-text) 5%, var(--surface-popup, var(--cmux-surface-solid, #1e1e1e)));
+  box-shadow: var(--ui-popup-shadow);
+}
+.acpmux-cols-card-head { display: flex; align-items: center; gap: var(--ds-space-3); padding: var(--ds-space-3); }
+.acpmux-cols-card-who { display: flex; flex-direction: column; min-width: 0; }
+.acpmux-cols-card-name { color: var(--agent-text); font-weight: 600; }
+.acpmux-cols-card-who .acpmux-cols-detail { font-size: var(--text-caption); }
+.acpmux-cols-card-list { padding: var(--ds-space-1); }
+/* The other accounts scroll inside the card: a long list never runs past the window. */
+.acpmux-cols-card-list:has(> .acpmux-cols-caption) {
+  max-height: max(96px, min(240px, calc(var(--available-height, 480px) - 160px)));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.acpmux-cols-card-list .acpmux-cols-row { gap: var(--ds-space-2); }
+.acpmux-cols-card-cta { padding: 0 var(--ds-space-3) var(--ds-space-3); }
+.acpmux-cols-signin {
+  width: 100%;
+  height: var(--ds-control-row);
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: var(--agent-accent);
+  color: var(--agent-accent-text, #fff);
+  font: inherit;
+  font-weight: 600;
+  cursor: default;
+}
+.acpmux-cols-signin:hover { background: color-mix(in srgb, var(--agent-accent) 88%, var(--agent-text)); }
+.acpmux-cols-add { color: var(--agent-muted); }
+.acpmux-cols-addicon {
+  display: grid;
+  place-items: center;
+  width: var(--ds-control-icon);
+  height: var(--ds-control-icon);
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 25%, transparent);
+}
+
+/* The columns, each a fixed width: a model with longer level or provider names never widens the
+   menu, so it never moves as the shown model changes. A longer name ends in an ellipsis. */
+.acpmux-cols-body {
+  display: grid;
+  grid-template-columns: 48px 149px 153px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.acpmux-cols-list {
+  min-height: 0;
+  max-height: 100%;
+  padding: var(--acpmux-cols-pad);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  border-inline-end: var(--cmux-hairline, 0.5px) solid var(--acpmux-cols-line);
+}
+.acpmux-cols-list:last-child { border: 0; }
+.acpmux-cols-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--ds-space-1);
+  scrollbar-width: none;
+}
+.acpmux-cols-rail::-webkit-scrollbar { display: none; }
+.acpmux-cols-tab {
+  display: grid;
+  place-items: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: var(--agent-muted);
+  cursor: default;
+}
+.acpmux-cols-tab:hover { background: var(--acpmux-menu-hover); }
+.acpmux-cols-tab[data-hl] { background: color-mix(in srgb, var(--agent-text) 12%, transparent); color: var(--agent-text); }
+.acpmux-cols-tab[data-off] { opacity: 0.45; }
+.acpmux-cols-tab[aria-disabled="true"] { opacity: 0.35; }
+.acpmux-cols-rail[data-col-focus] .acpmux-cols-tab[data-hl] {
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--agent-text) 35%, transparent);
+}
+.acpmux-cols-initial { font-size: var(--text-detail); font-weight: 600; }
+
+/* Rows */
+.acpmux-cols-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ui-row-height);
+  padding: 0 var(--acpmux-cols-inline);
+  border-radius: var(--ui-row-radius, 4px);
+  color: var(--agent-text);
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+}
+/* The star's own hover is the star's: the row around it stays as it was. */
+.acpmux-cols-row:not([aria-disabled="true"]):not([data-hl]):not(:has(.acpmux-cols-star:hover)):hover {
+  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+}
+.acpmux-cols-list[data-col-focus] .acpmux-cols-row[data-hl] { background: var(--acpmux-menu-hover, var(--ui-hover)); }
+.acpmux-cols-list:not([data-col-focus]) .acpmux-cols-row[data-hl] {
+  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+}
+.acpmux-cols-row[aria-disabled="true"] { color: var(--agent-muted); }
+.acpmux-cols-tune .acpmux-cols-row { gap: var(--ds-space-3); }
+.acpmux-cols-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.acpmux-cols-detail { color: var(--agent-muted); font-size: var(--text-detail); }
+.acpmux-cols-tag { color: var(--agent-muted); font-size: var(--text-caption); }
+.acpmux-cols-check {
+  display: grid;
+  place-items: center;
+  flex: 0 0 14px;
+  width: 14px;
+  color: var(--agent-accent);
+}
+/* A note never widens its column: it adds no width of its own and wraps inside it. */
+.acpmux-cols-note {
+  contain: inline-size;
+  min-height: 0;
+  padding-block: var(--ds-space-1);
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: 1.3;
+  white-space: normal;
+}
+.acpmux-cols-note .acpmux-cols-name { white-space: normal; overflow: visible; }
+.acpmux-cols-caption {
+  padding: var(--ds-space-2) var(--acpmux-cols-inline) var(--ds-space-1);
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.acpmux-cols-caption:first-child { padding-top: var(--ds-space-1); }
+.acpmux-cols-group {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-2) var(--acpmux-cols-inline) var(--ds-space-1);
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  font-weight: 600;
+}
+.acpmux-cols-group:first-child { padding-top: var(--ds-space-1); }
+/* A hairline between the effort levels and Fast: inset as the rows' text, 4px above and below. */
+.acpmux-cols-gap {
+  margin: 4px var(--acpmux-cols-inline);
+  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-cols-line);
+}
+
+/* A row's star: left of the check, shown on hover and kept while on. */
+.acpmux-cols-star {
+  display: grid;
+  place-items: center;
+  flex: 0 0 var(--ds-control-icon);
+  width: var(--ds-control-icon);
+  height: var(--ds-control-icon);
+  margin-right: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--agent-muted);
+  opacity: 0;
+  cursor: default;
+}
+.acpmux-cols-row:hover .acpmux-cols-star,
+.acpmux-cols-row:has([data-popup-open]) .acpmux-cols-star,
+.acpmux-cols-row[aria-selected="true"] .acpmux-cols-star,
+.acpmux-cols-star[data-on] { opacity: 1; }
+.acpmux-cols-star:hover { color: var(--agent-text); background: color-mix(in srgb, var(--agent-text) 10%, transparent); }
+.acpmux-cols-star[data-on] { color: var(--agent-text); }
+
+/* Fast mode's switch, as the composer's: both thumb positions stay in the layout; only paint
+   changes. Off is a clear track with a light thumb, never a disabled grey. */
+.acpmux-cols-switch {
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  width: 28px;
+  height: var(--ds-space-4);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--agent-text) 24%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border);
+}
+.acpmux-cols-switch::before,
+.acpmux-cols-switch::after {
+  content: "";
+  position: absolute;
+  /* The knob sits 2 px inside the track's edge. */
+  top: 0;
+  width: var(--ds-space-3);
+  height: var(--ds-space-3);
+  border-radius: 50%;
+}
+.acpmux-cols-switch::before { left: 0; translate: 2px 2px; background: var(--agent-text); }
+.acpmux-cols-switch::after { right: 0; translate: -2px 2px; background: var(--agent-accent-text, var(--agent-page-bg)); opacity: 0; }
+.acpmux-cols-switch[data-on] { background: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text))); }
+.acpmux-cols-switch[data-on]::before { opacity: 0; }
+.acpmux-cols-switch[data-on]::after { opacity: 1; }
+
+/* The agent CLI's update, under the columns. */
+.acpmux-cols-update {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-control-row);
+  padding: 0 var(--ds-space-2) 0 var(--ds-space-3);
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+}
+.acpmux-cols-update > span { flex: 1 1 auto; min-width: 0; }
+/* The chat's readiness under the search row: its words wrap, its actions sit at the end. */
+.acpmux-cols-auth {
+  /* It never widens the menu: the columns set its width. */
+  contain: inline-size;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-control-row);
+  padding: var(--ds-space-1) var(--ds-space-2) var(--ds-space-1) var(--ds-space-3);
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+}
+.acpmux-cols-auth > span { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.acpmux-cols-auth > button { flex: none; }
+.acpmux-cols-update-action {
+  height: var(--ds-control-icon);
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
+  color: var(--agent-text);
+  font: inherit;
+  cursor: default;
+}
+.acpmux-cols-update-action:hover { background: color-mix(in srgb, var(--agent-text) 16%, transparent); }
+
+/* A column that scrolls fades the edge with more rows past it: 32px at the bottom, 24px at the top
+   (QuickModelColumns.tsx markFades). */
+.acpmux-cols-list[data-fade-bottom] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent);
+}
+.acpmux-cols-list[data-fade-top] {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 24px);
+  mask-image: linear-gradient(to bottom, transparent, #000 24px);
+}
+.acpmux-cols-list[data-fade-top][data-fade-bottom] {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 24px, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 24px, #000 calc(100% - 32px), transparent);
+}

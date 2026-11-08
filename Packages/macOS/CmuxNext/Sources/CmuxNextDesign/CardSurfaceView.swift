@@ -9,7 +9,7 @@ public import AppKit
 @MainActor
 public final class CardSurfaceView: NSView {
     /// The shared glass style the card draws.
-    public static let style = FloatingGlassStyle.card
+    public static let style = SurfaceRole.card.neutralStyle ?? FloatingGlassStyle.card
 
     private let reduceTransparency: ReduceTransparency
     /// The rim; nil under Reduce Transparency.
@@ -17,6 +17,15 @@ public final class CardSurfaceView: NSView {
     /// The light-mode hairline (``lightEdgeShare``), above the rim: the rim's white top stroke
     /// covers a layer border drawn under it. Nil in dark mode and under Reduce Transparency.
     public private(set) var edgeView: NSView?
+
+    /// The veil takes the theme's cast: the theme's glass tint (``Palette/glassTint``, the theme
+    /// background the popovers and menus tint their glass with) at the card's veil opacity, instead
+    /// of the neutral gray. The sidebar's Updated card sets it (Leo 2026-11-02, on the gray card
+    /// over a themed sidebar: "why is the update thing unthemed"); the rim, the light hairline and
+    /// the Reduce Transparency fill stay the card role's.
+    public var takesThemeTint = false {
+        didSet { if takesThemeTint != oldValue { needsDisplay = true } }
+    }
 
     public init(cornerRadius: CGFloat = Metrics.space3, reduceTransparency: ReduceTransparency = .shared) {
         self.reduceTransparency = reduceTransparency
@@ -58,12 +67,19 @@ public final class CardSurfaceView: NSView {
         updateRim(opaque ? nil : look)
         let edge = updateEdge(shown: !opaque && !isDark)
         performWithTheme {
-            layer?.backgroundColor = (opaque ? Palette.elevatedBackground : look.veil.nsColor).cgColor
+            layer?.backgroundColor = (opaque ? Palette.elevatedBackground : veil(look)).cgColor
             layer?.borderColor = opaque ? Palette.separator.cgColor : nil
             layer?.borderWidth = opaque ? Metrics.lineWidth(1) : 0
             edge?.borderColor = Palette.textPrimary.withAlphaComponent(Self.lightEdgeShare).cgColor
             edge?.borderWidth = Metrics.lineWidth(Self.hairline(scale: window?.backingScaleFactor))
         }
+    }
+
+    /// The veil over the sidebar's glass: the card role's neutral gray, or with ``takesThemeTint``
+    /// the theme's glass tint at the same opacity (theme-scoped: call inside `performWithTheme`).
+    func veil(_ look: FloatingGlassLook) -> NSColor {
+        guard takesThemeTint else { return look.veil.nsColor }
+        return Palette.glassTint.withAlphaComponent(look.veil.alpha)
     }
 
     /// One device pixel, as the rim's stroke: 0.5 pt on a Retina display. A 0.5 pt border on a 1x

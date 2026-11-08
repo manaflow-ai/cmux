@@ -117,16 +117,28 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         didSet { updatePlaceholder() }
     }
     var replyPlaceholderText = String(localized: "conversation.composer.reply", defaultValue: "Reply", bundle: .module)
-    var isReplyMode = false { didSet { updatePlaceholder() } }
+    var isReplyMode = false {
+        didSet {
+            updatePlaceholder()
+            updateSendLabel()
+        }
+    }
     /// Editing one of my messages: the send button becomes a checkmark.
     var isEditMode = false {
         didSet {
             let symbol = isEditMode ? "checkmark" : "arrow.up"
             sendButton.setImage(UIImage(systemName: symbol, withConfiguration: Self.sendSymbolConfiguration), for: .normal)
-            sendButton.accessibilityLabel = isEditMode
-                ? String(localized: "conversation.composer.saveEdit", defaultValue: "Save Edit", bundle: .module)
-                : String(localized: "conversation.composer.send", defaultValue: "Send", bundle: .module)
+            updateSendLabel()
         }
+    }
+
+    /// Messages names the button for what it sends: "Send Reply" in a reply thread.
+    private func updateSendLabel() {
+        sendButton.accessibilityLabel = isEditMode
+            ? String(localized: "conversation.composer.saveEdit", defaultValue: "Save Edit", bundle: .module)
+            : isReplyMode
+            ? String(localized: "conversation.composer.sendReply", defaultValue: "Send Reply", bundle: .module)
+            : String(localized: "conversation.composer.send", defaultValue: "Send", bundle: .module)
     }
 
     /// Edge inset of the + button and field with no keyboard: Messages'

@@ -1,8 +1,8 @@
-import { useMinuteClock } from "../clock";
+import { useLabelClock } from "../clock";
 import { usePaneLanguage } from "../i18n";
 import { textLinks } from "../chips/paths";
 import { Tooltip } from "../../../ui/Tooltip";
-import { relativeTime } from "./relativeTime";
+import { nextRelativeTime, relativeTime } from "./relativeTime";
 import type { ReactNode } from "react";
 
 const DAY_MS = 86_400_000;
@@ -192,8 +192,22 @@ export function timestampHoverLabel(at: number, now: number, locale?: string): s
   return `${localTime(at, locale)}, ${relative}`;
 }
 
+/** First shared minute where the tooltip or accessible age changes. Its source token is static. */
+export function nextTimestampHover(at: number, now: number): number {
+  if (!Number.isFinite(at)) return Infinity;
+  const age = Math.max(0, now - at);
+  // Below one raw minute the tooltip uses relativeTime, whose rounded seconds can already say
+  // "1 minute ago". Preserve that first update, and the switch to the short unit at 60 seconds.
+  if (age < 60_000) return Math.min(nextRelativeTime(at, now), Math.ceil((at + 60_000) / 60_000) * 60_000);
+  const index = SHORT_UNITS.findIndex(([, size]) => age >= size);
+  const size = index < 0 ? 60_000 : SHORT_UNITS[index][1];
+  const nextCount = index < 0 ? 60_000 : (Math.round(age / size) + 0.5) * size;
+  const nextUnit = index > 0 ? SHORT_UNITS[index - 1][1] : Infinity;
+  return Math.max(now + 60_000, Math.ceil((at + Math.min(nextCount, nextUnit)) / 60_000) * 60_000);
+}
+
 export function TimeHover({ token }: { token: TimeToken }): ReactNode {
-  const now = useMinuteClock();
+  const now = useLabelClock(token.at, nextTimestampHover);
   const locale = usePaneLanguage();
   const label = timestampHoverLabel(token.at, now, locale);
   return (

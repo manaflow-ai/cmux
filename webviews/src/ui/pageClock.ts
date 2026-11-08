@@ -22,7 +22,7 @@ export function pageClocks(doc: Document | undefined = pageDocument()) {
 export function visibleInterval(
   name: string,
   tick: () => void,
-  every: number,
+  every: number | (() => number | null),
   options: { onShow?: () => void; aligned?: boolean; subscribers?: () => number } = {},
 ): () => void {
   const doc = pageDocument();
@@ -36,6 +36,8 @@ export function visibleInterval(
   };
   const schedule = () => {
     if (stopped || doc?.visibilityState === "hidden") return;
+    const delay = typeof every === "function" ? every() : every;
+    if (delay === null || !Number.isFinite(delay)) return;
     clock.running = true;
     timer = setTimeout(
       () => {
@@ -45,7 +47,7 @@ export function visibleInterval(
         tick();
         schedule();
       },
-      options.aligned ? every - (Date.now() % every) + 5 : every,
+      Math.min(2_147_483_647, Math.max(1, options.aligned ? delay - (Date.now() % delay) + 5 : delay)),
     );
   };
   const sync = () => {
@@ -88,6 +90,39 @@ function sharedClock(name: string, every: number, aligned = false) {
         stop = undefined;
       }
     };
+  };
+}
+
+/** One timer for timestamp labels, at the nearest actual text change. Removing the last label
+ * removes its timer; hidden pages catch up once before choosing a new deadline. */
+const deadlines = new Set<{ notify: () => void; next: () => number; at: number }>();
+let stopDeadlines: (() => void) | undefined;
+function scheduleDeadlines() {
+  stopDeadlines?.();
+  stopDeadlines = undefined;
+  if (deadlines.size === 0) return;
+  const tick = () => {
+    for (const label of deadlines) {
+      if (label.at > Date.now()) continue;
+      label.at = label.next();
+      label.notify();
+    }
+  };
+  stopDeadlines = visibleInterval(
+    "relative-time",
+    tick,
+    () => Math.min(...Array.from(deadlines, (label) => label.at)) - Date.now() + 5,
+    { onShow: tick, subscribers: () => deadlines.size },
+  );
+}
+
+export function subscribePageDeadline(notify: () => void, next: () => number): () => void {
+  const label = { notify, next, at: next() };
+  deadlines.add(label);
+  scheduleDeadlines();
+  return () => {
+    deadlines.delete(label);
+    scheduleDeadlines();
   };
 }
 

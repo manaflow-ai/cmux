@@ -116,6 +116,30 @@ Use `Cmd+Shift+U` to jump to the latest unread notification. Use `Ctrl+Cmd+U` to
 
 Focusing a pane marks that pane's notifications read. A notification posted without a surface belongs to the workspace instead of to a pane (cmux's own memory-pressure warning is one), so switching to the workspace marks the workspace's own notifications read. The other panes in that workspace keep their notifications and any manual or restored unread markers. "Mark Workspace as Read" in the workspace context menu still clears everything in the workspace at once.
 
+## Cache-TTL idle reminders
+
+Prompt caches can expire while an agent is idle. Configure one-shot reminders per
+agent family with `notifications.agentIdleTimers`; each reminder starts when the
+ACP session enters `idle` and is cancelled when it works, waits for input, keeps
+background work running, or ends. The setting is disabled unless it contains a
+valid entry.
+
+```jsonc
+{
+  "notifications": {
+    "agentIdleTimers": {
+      "claude": [{ "afterSeconds": 3420, "id": "cache-ttl" }],
+      "codex": [{ "afterSeconds": 1680, "id": "cache-ttl" }]
+    }
+  }
+}
+```
+
+When a reminder fires, its notification subtitle carries `cache-ttl:<id>` and
+the normalized `agent:<family>` so notification integrations can identify the
+reason without parsing the title. Duplicate ids within one family are ignored;
+delays must be between one second and seven days.
+
 ## Native banner lifetime and notification history
 
 cmux keeps its notification record and unread state until you open, mark, or

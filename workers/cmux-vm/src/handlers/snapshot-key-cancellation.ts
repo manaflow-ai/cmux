@@ -23,7 +23,7 @@ export const cancelSnapshotCaptureKey = (rawKey: string, expectedId: SnapshotId 
     if (principal.resourceAllowlist !== null) return yield* Effect.fail(new Forbidden({ message: "A key limited to specific resources must use id-addressed capture controls" }));
     const limits = yield* TenantLimits, key = yield* scopedSnapshotKey(rawKey);
     const found = yield* limits.snapshotCapture(principal.tenantId, { op: "inspect", key }).pipe(Effect.mapError(() => unavailable()));
-    if (found.state === "absent" && !(yield* (yield* Entitlements).mayCreate(principal.tenantId, "snapshot").pipe(Effect.mapError(() => unavailable()))))
+    if (found.state === "absent" && !(yield* (yield* Entitlements).mayCreate(principal, "snapshot").pipe(Effect.mapError(() => unavailable()))))
       return yield* Effect.fail(new PaymentRequired({ message: "This team's plan does not include new capture key reservations" }));
     if (found.state === "legacy") return yield* Effect.fail(new Conflict({ message: "This legacy capture has no safe cancellation identity" }));
     if (found.state === "record") {

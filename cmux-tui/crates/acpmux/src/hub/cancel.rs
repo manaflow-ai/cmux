@@ -23,10 +23,34 @@
 //! (`turns.rs` `finish_turn`). Until the turn ends the row reads `stopping`; what the ended
 //! process still had in flight never reaches the next turn (`permissions.rs`).
 //!
+//! Stop never ends a process that runs background work (2026-10-31: a Stop for one tool call
+//! killed every background shell and background subagent of a coordinator, hours of work; Leo:
+//! "WELL THAT STOP BUTTON STOPPED LITERALLY EVERYTHING"). Background work sends signs of work of
+//! its own after the turn stopped (a subagent's progress, its model's stream), so it reads as an
+//! agent working through the cancel, and the restart took it all down with the process. While a
+//! background process or background subagent runs ([`Hub::runs_background_work`]), the escalation
+//! sends the second cancel and then ends only acpmux's turn (`stop_escalated` step `spared`), as
+//! an agent that went quiet gets; the process and its background work run on and report when
+//! they end. Stopping them stays its own act: a process's kill (`_acpmux/process/kill`) or a
+//! subagent's stop (`_acpmux/subagent_stop`). Claude Code's own interrupt spares them too once
+//! acpmux says it stops tasks one by one (`claude_stdio/outbound.rs` `initialize_request`).
+//!
 //! The person's Stop also holds the other agents' messages queued behind the turn
 //! ([`Hub::person_stop`]): they stay queued, held, until the person's next turn completes or the
 //! queue is resumed, so they do not start a turn the moment the stopped one ends. The person's
 //! own queued prompts run next as before.
+//!
+//! Another agent's message is never lost to a Stop (2026-11-02: a coordinator's message sent a
+//! second after Stop was steered into the cancelling turn, answered by its forced end, and the
+//! chat sat idle with it unread). A message that comes while a Stop ends the turn
+//! ([`is_stopping`]) does not go into it, and one the turn's end answered before its agent
+//! answered it is not answered when it never reached the agent (it waited behind the Stop), or
+//! when it did and the agent confirms it dropped it unread (Claude Code's
+//! `cancel_async_message`): it comes back (`steer_returned`, `steer_end.rs`) and starts the
+//! next turn, at once when the chat is idle. One the agent may have read (codex-acp answers
+//! steers only at the turn's end, a batched line stays, a dead process cannot say) ends with
+//! the turn as before: a second copy could repeat its work. An inbox notice's messages are new again and go in as a turn
+//! of their own (`inbox.rs` `notice_done`). After the person's Stop they wait as its hold says.
 //!
 //! A stopped turn always ends as stopped (`cancelled`), so clients offer Continue on it: also one
 //! whose adapter answers the cancel `end_turn` (`turns.rs` `finish_turn`), and one a Stop reached
@@ -56,6 +80,18 @@ pub(super) fn forced_answer(restarted: bool) -> Value {
         mux.set("restarted", json!(true));
     }
     json!({"stopReason": "cancelled", "_meta": {"acpmux": mux}})
+}
+
+/// Whether a Stop is ending turn `turn_id` (it reads `stopping`, or acpmux ended it already):
+/// another agent's message does not go into it (`steer_end.rs` `steer_turn`, `inbox.rs`).
+pub(super) fn is_stopping(session: &Session, turn_id: &str) -> bool {
+    session.stopping.lock().unwrap_or_else(|e| e.into_inner()).as_deref() == Some(turn_id)
+        || forced_turn(session, turn_id)
+}
+
+/// Whether acpmux ended turn `turn_id` itself, its agent never answering the Stop.
+pub(super) fn forced_turn(session: &Session, turn_id: &str) -> bool {
+    session.cancel_forced_turn.lock().unwrap_or_else(|e| e.into_inner()).as_deref() == Some(turn_id)
 }
 
 impl Hub {
@@ -184,7 +220,26 @@ impl Hub {
             Self::force_cancel(&session, &current);
             return;
         };
+        // Its background work would end with the process: only the turn ends (module docs).
+        if self.runs_background_work(&session) {
+            tracing::warn!(session = %session.id, turn_id = %turn.turn_id, "the agent works on after two cancels, beside background work: ending only its turn");
+            self.append(
+                &session,
+                "mux",
+                "stop_escalated",
+                json!({"turnId": turn.turn_id, "step": "spared", "reason": "background_work"}),
+            );
+            Self::force_cancel(&session, &current);
+            return;
+        }
         self.restart_stopped_agent(&session, &child, &current).await;
+    }
+
+    /// A background process (`processes.rs`) or a background subagent (`subagents.rs`) of the
+    /// session still runs: work that outlives the turn and ends with the agent's process.
+    pub(super) fn runs_background_work(&self, session: &Session) -> bool {
+        self.any_process_running(session)
+            || session.subagents.lock().unwrap_or_else(|e| e.into_inner()).background_running() > 0
     }
 
     /// After a turn ends, with its turn lock still held: starts the agent a Stop ended
@@ -277,6 +332,17 @@ impl Hub {
         self.cancel_preserving_queued(session, None).await
     }
 
+    /// Cancel exactly a workflow's accepted prompt. A completed prompt never retargets the
+    /// next turn, including its pending permissions and automatic continuation state.
+    pub(super) async fn cancel_prompt(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        prompt_id: &str,
+    ) -> Result<(), RpcError> {
+        let running = self.stop_prompt_retry(session, prompt_id)?;
+        self.cancel_matching(session, None, Some(running.as_deref().unwrap_or(prompt_id))).await
+    }
+
     /// A Stop while Claude compacts ends the turn at once and withdraws the person's queued
     /// prompts, a prompt promoted with Send now included, except `replacement` (an interrupt's
     /// own prompt); other agents' messages are held, never dropped (`hold_agent_messages`).
@@ -286,16 +352,37 @@ impl Hub {
         session: &Arc<Session>,
         replacement: Option<&str>,
     ) -> Result<(), RpcError> {
-        // First: a prompt about to be written sees it (`turns.rs`).
-        session.cancels.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.cancel_matching(session, replacement, None).await
+    }
+
+    async fn cancel_matching(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        replacement: Option<&str>,
+        expected_prompt: Option<&str>,
+    ) -> Result<(), RpcError> {
+        // Match and fence while holding the turn identity lock. A workflow's stale
+        // child record must not cancel a queued/person turn that replaced its prompt.
+        let turn = {
+            let turn = session.turn.lock().unwrap_or_else(|e| e.into_inner());
+            if expected_prompt
+                .is_some_and(|expected| turn.as_ref().is_none_or(|turn| turn.prompt_id != expected))
+            {
+                return Ok(());
+            }
+            // First: a prompt about to be written sees it (`turns.rs`).
+            session.cancels.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            turn.clone()
+        };
         // Stop also stops an automatic continuation that has not fired yet, and the running
         // turn gets none (`auto_resume.rs`).
-        self.stop_auto_resume(session);
-        self.stop_subagent_retries(session, false);
-        // Capture the turn before waiting for the child writer. A second Stop
-        // arriving while Claude is compacting must not retarget a queued or
-        // auto-resumed next turn after the first one settles.
-        let turn = session.turn();
+        if expected_prompt.is_none() {
+            self.stop_auto_resume(session);
+            self.stop_subagent_retries(session, false);
+        }
+        // The exact prompt path already fenced only its own continuation before matching.
+        // The turn was captured with its fence before waiting for the child writer.
+        // A second Stop must not retarget a queued or auto-resumed next turn.
         let Some(child) = session.child.lock().await.clone() else {
             // No agent runs the turn right now: it starts, or a failover's fallback does
             // (`turns.rs`). The Stop counted above keeps the turn's prompt from that agent, and the
@@ -356,7 +443,11 @@ impl Hub {
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .iter()
-                .filter(|q| replacement != Some(q.prompt_id.as_str()) && q.run.agent.is_none())
+                .filter(|q| {
+                    expected_prompt.is_none()
+                        && replacement != Some(q.prompt_id.as_str())
+                        && q.run.agent.is_none()
+                })
                 .map(|q| q.prompt_id.clone())
                 .collect();
             for prompt_id in queued {

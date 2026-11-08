@@ -95,10 +95,14 @@ pub(super) fn remove_pane_from_screen_layout(mux: &Mux, screen: &mut Screen, pan
             return true;
         };
         let column = &mut screen.layout_columns[index];
+        let chat_left = is_agent_chat_top(column, pane);
         let root = std::mem::replace(&mut column.root, Node::Leaf(0));
         let stack_expanded = root.stack_expanded_pane();
         match root.remove_leaf(pane) {
             Some(mut root) => {
+                if chat_left {
+                    release_agent_chat_role(column);
+                }
                 if let Some(panes) = column.creation_order_auto_layout.as_mut() {
                     panes.retain(|candidate| *candidate != pane);
                     if let Some(layout) =
@@ -581,7 +585,10 @@ pub(super) fn move_tab_in_state(
     target_pane: PaneId,
     index: usize,
 ) -> (bool, bool) {
-    if !state.surfaces.contains_key(&surface) || !state.panes.contains_key(&target_pane) {
+    // A tab is movable once it has a placement. An adopting or host-lost
+    // tab (R41) is placed in its pane without a runtime surface; the layout
+    // reducer moves it, so the live state must too (issue 25999).
+    if !state.panes.contains_key(&target_pane) {
         return (false, false);
     }
     let Some(source_pane) = state.pane_of(surface) else { return (false, false) };

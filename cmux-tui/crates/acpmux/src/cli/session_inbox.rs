@@ -26,13 +26,43 @@ pub async fn run(
         }
         None => client.request(method::MUX_INBOX_THREADS, json!({"sessionId": id})).await?,
     };
+    // The thread list ends with the messages this session sent and their delivery state: queued
+    // here, delivering, delivered or failed (`hub/outbox.rs`). A daemon from before the list,
+    // or a session on a peer (whose outbox is that daemon's), adds nothing.
+    let sent = match thread {
+        Some(_) => None,
+        None => client
+            .request(
+                method::MUX_SEND_STATUS,
+                json!({"list": true, "caller": id, "limit": SENT_SHOWN}),
+            )
+            .await
+            .ok()
+            .filter(|v| {
+                v.get("deliveries").and_then(Value::as_array).is_some_and(|d| !d.is_empty())
+            }),
+    };
     if json_out {
+        let mut reply = reply;
+        if let (Some(sent), Some(obj)) = (sent, reply.as_object_mut()) {
+            obj.insert("sent".into(), sent);
+        }
         print_json(&reply);
     } else {
         println!("{}", describe(&reply));
+        if let Some(sent) = sent {
+            println!("\nSent by this session:");
+            let lines = crate::cli::run::sent_list_lines(&sent, crate::store::now_ms());
+            for line in lines.iter().skip(1) {
+                println!("{line}");
+            }
+        }
     }
     Ok(())
 }
+
+/// How many of the session's sent messages its inbox shows.
+const SENT_SHOWN: u64 = 10;
 
 /// A reply of `_acpmux/inbox_threads`, `_acpmux/inbox_thread` or `_acpmux/inbox_reply` as text.
 pub fn describe(reply: &Value) -> String {

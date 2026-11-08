@@ -19,6 +19,7 @@ pub const HELP: &str = "Examples:
   acpmux ls --all                 also closed, reviewer, sub- and unnamed sessions
   acpmux ls --wide                every column (AGENT, STATUS, usage, LAST)
   acpmux ls --status stuck        only stuck sessions (a filter hides nothing else)
+  acpmux ls --leads               the leaders: each live session others report to, with its reports
   acpmux ls --live --host cosmic-gray   that host's live sessions (--host local: this machine)
   acpmux --json ls --fields name,state,peer   for scripts: the daemon's rows, unchanged
   acpmux ls 'review-27*' --fields name,turn.activity   name globs (host/glob: one peer's); dotted fields
@@ -161,17 +162,27 @@ fn stuck(row: &Value, now: u64) -> String {
 /// The WARN cell: `warn` when the row breaks a usage rule (`usageWarnings`, `hub/usage_warnings.rs`),
 /// one word so the default listing stays compact (Leo 2026-10-30: "acpmux ls should probably not
 /// be overly... verbose?"); wide names each rule with its number and the command that answers it
-/// (`ctx 412k: acpmux send lane-1 /compact | lane-place rotate lane-1 (leo-workspace#1617)`).
+/// (`ctx 412k: acpmux send lane-1 /compact | sessions rotate lane-1`). A respawn that waits
+/// for the turn to end (`respawnPending`, `hub/profile_respawn.rs`) comes first, in full in both:
+/// `respawn pending: profile changed`.
 fn warn(row: &Value, wide: bool) -> String {
-    let Some(warnings) =
-        row.get("usageWarnings").and_then(Value::as_array).filter(|w| !w.is_empty())
-    else {
-        return String::new();
-    };
-    if !wide {
-        return "warn".into();
-    }
-    warnings.iter().map(crate::hub::usage_warnings::with_command).collect::<Vec<_>>().join("; ")
+    let respawn = row
+        .get("respawnPending")
+        .and_then(Value::as_str)
+        .map(|why| format!("respawn pending: {why}"));
+    let usage = row.get("usageWarnings").and_then(Value::as_array).filter(|w| !w.is_empty()).map(
+        |warnings| {
+            if !wide {
+                return "warn".to_owned();
+            }
+            warnings
+                .iter()
+                .map(crate::hub::usage_warnings::with_command)
+                .collect::<Vec<_>>()
+                .join("; ")
+        },
+    );
+    respawn.into_iter().chain(usage).collect::<Vec<_>>().join("; ")
 }
 
 /// The wide view's usage columns, read from `usageStats` (`hub/usage_view.rs`).
@@ -186,7 +197,7 @@ fn usage(row: &Value) -> [String; 7] {
     let stats = &row["usageStats"];
     let tokens = |n: u64| match n {
         n if n >= 999_500 => format!("{:.1}M", n as f64 / 1e6),
-        n if n >= 1_000 => format!("{}k", (n + 500) / 1000),
+        n if n >= 1_000 => format!("{}k", n.saturating_add(500) / 1000),
         n => n.to_string(),
     };
     let unknown = || "?".to_owned();

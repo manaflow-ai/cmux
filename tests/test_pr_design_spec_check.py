@@ -104,6 +104,16 @@ class Check(unittest.TestCase):
         self.assertEqual(joined["model-picker"]["paths"], [QMM, "webviews/x/modelPicker.css", "webviews/y/Picker.tsx"])
         self.assertEqual(len(check.check(joined, ["webviews/y/Picker.tsx"], "")[0]), 1)
 
+    def test_a_surface_checklist_is_named_on_every_pr_that_changes_it(self):
+        listed = {**SURFACES, "model-picker": {**SURFACES["model-picker"], "checklist": "design/model-picker.md#checklist"}}
+        notes = check.checklists(check.join_maps(listed), [QMM])
+        self.assertEqual(len(notes), 1)
+        self.assertIn("design/model-picker.md#checklist", notes[0])
+        self.assertEqual(check.checklists(listed, ["docs/x.md"]), [])
+        self.assertEqual(check.checklists(SURFACES, [QMM]), [])
+        repo = check.load_map(ROOT / ".github" / "design-surfaces.json")
+        self.assertEqual(repo["model-picker"].get("checklist"), "design/model-picker.md#checklist")
+
     def test_the_workflow_only_warns_and_runs_the_base_script(self):
         wf = (ROOT / ".github" / "workflows" / "pr-design-spec-check.yml").read_text()
         self.assertIn("continue-on-error: true", wf)

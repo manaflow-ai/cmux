@@ -42,6 +42,29 @@ struct NewTabLastPickTests {
             ["folder": "/work/b", "harness": "claude", "model": "claude-opus-5-5"],
         ])
     }
+
+    /// Every harness pick is the next New Tab's: one on the agent's own default model and one that
+    /// names no model replace an older harness and model picked before them (a subrouter Claude
+    /// profile came back as plain Claude Code on Cmd-N).
+    @Test func aDefaultOrModellessHarnessPickReplacesTheOlderPick() throws {
+        let suite = "NewTabLastPickTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let memory = NewTabChoiceMemory(defaults: defaults)
+        memory.remember(AgentPaneRememberedPick(agent: "claude", model: "claude-opus-5-5", folder: "/work/a"))
+        memory.remember(AgentPaneRememberedPick(agent: "claude-sr-internal", model: "default", folder: "/work/a"))
+        #expect(memory.picks?.global == .init(harness: "claude-sr-internal", model: "default"))
+        #expect(memory.picks?.folders.last == .init(folder: "/work/a", harness: "claude-sr-internal", model: "default"))
+
+        memory.remember(AgentPaneRememberedPick(agent: "claude", model: "claude-opus-5-5"))
+        memory.remember(AgentPaneRememberedPick(agent: "codex"))
+        #expect(memory.agent == "codex")
+        #expect(memory.picks?.global == .init(harness: "codex", model: "default"))
+        // An agent pick naming no model keeps the last pick's model while it is on that agent.
+        memory.remember(AgentPaneRememberedPick(agent: "claude-sr-internal", model: "claude-opus-5-5", folder: "/work/a"))
+        memory.remember(AgentPaneRememberedPick(agent: "claude-sr-internal", folder: "/work/a"))
+        #expect(memory.picks?.global == .init(harness: "claude-sr-internal", model: "claude-opus-5-5"))
+    }
 }
 
 /// The iPhone host follows the last picks (``NewTabChoiceMemory`` is observable through its

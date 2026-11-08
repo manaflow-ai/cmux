@@ -46,6 +46,27 @@ cmux workspace placement list --json      # personal sidebar order
 
 Groups and rooms take their id or exact name. Both are personal: they live in this Mac's home session.
 
+## Every sidebar action from the CLI
+
+Each thing a person does to a workspace or group in the sidebar has a verb. Order verbs change the personal order the sidebar shows (`cmux workspace list --order personal`), the same way a drag does.
+
+| In the sidebar | CLI |
+| --- | --- |
+| Drag a workspace above or below another row (into its group, or out of a group) | `cmux workspace move-above --target ws_… --anchor ws_…`, `move-below` |
+| Move a workspace to the top or bottom of its group or the loose rows | `cmux workspace move-to-top --target ws_…`, `move-to-bottom` |
+| Move a workspace one row up or down | `cmux workspace move-up --target ws_…`, `move-down` |
+| Pin or unpin a workspace | `cmux workspace pin-unpin --target ws_… [--pinned true\|false]` (without `--pinned` it toggles) |
+| Add to or remove from Top | `cmux workspace toggle-top --target ws_…` |
+| New group, or a group from workspaces | `cmux workspace-group create --target ws_… [--name …]`, `cmux workspace move-to-new-group --target ws_…` |
+| Move a workspace into or out of a group | `cmux workspace-group add-workspace --target ws_… --group <group>`, `remove-workspace --target ws_…` |
+| Rename, recolor, set the icon of a group | `cmux workspace-group rename --target <group> --name …`, `set-color`, `set-icon` |
+| Collapse or expand a group (or all) | `cmux workspace-group collapse --target <group>`, `expand`, `collapse-all`, `expand-all` |
+| Pin or unpin a group | `cmux workspace-group toggle-pin --target <group> [--pinned true\|false]` |
+| Reorder groups | `cmux workspace-group move-up --target <group>`, `move-down`, `move-to-top`, `move-to-bottom` |
+| Ungroup or delete a group | `cmux workspace-group ungroup --target <group>`, `delete --target <group> --confirm` |
+
+`move-above` and `move-below` move within one sidebar section of one window; to pin, use `pin-unpin`.
+
 ## Rooms
 
 ```bash

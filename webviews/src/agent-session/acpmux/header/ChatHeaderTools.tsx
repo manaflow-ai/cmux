@@ -19,12 +19,26 @@ import {
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { HeaderIcon } from "./HeaderIcon";
+import { menuLetter, type MenuTyping } from "./menuLetters";
 import { HEADER_ACTIONS } from "./headerActions";
-import { headerQuickTools } from "./headerQuickTools";
+import { headerQuickTools, type HeaderQuickTool } from "./headerQuickTools";
+import { useHeaderFold } from "./headerOverflow";
+import { nativeChatMenu, nativeCustomizeMenu } from "./nativeMenuBindings";
+import { HEADER_SYMBOLS } from "./headerSymbols";
 import { useNativeRowTools, type NativeRowToolsHost } from "./useNativeRowTools";
 import { tooltipProps, useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
-import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../../ui/Menu";
+import {
+  Menu,
+  MenuButton,
+  MenuCheckboxItem,
+  MenuItem,
+  MenuPopup,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+  Submenu,
+} from "../../../ui/Menu";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { headerState, useHeaderState } from "./headerState";
 import { PullRequestChip } from "./PullRequestChip";
@@ -43,7 +57,7 @@ import {
 } from "./quickActions";
 
 /// Every header button's glyph (header.css): Claude Code desktop's top strip draws one size for all of
-/// them, the Needs you inbox and the Inspector toggle included.
+/// them, the Needs you inbox and Session Info toggle included.
 export const HEADER_GLYPH = 16;
 
 export { HEADER_ACTIONS } from "./headerActions";
@@ -56,9 +70,9 @@ export type ChatMenuItem =
       icon: string;
       /// An app action id whose keycap the row shows.
       shortcutAction?: string;
-      /// A product-level key hint when the action has no registered host shortcut (for example, the
-      /// title menu's Rename R and Fork F, matching Claude Code's session menu).
-      shortcutLabel?: string;
+      /// A letter that picks the row while the menu is open (Rename R, Fork F). It is never drawn: a
+      /// bare letter on the row's right reads as meaningless (design/menus.md, Leo 2026-10-31).
+      accelerator?: string;
       disabled?: boolean;
       onSelect?: (event?: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>) => void;
       children?: ChatMenuChild[];
@@ -68,15 +82,30 @@ export type ChatMenuItem =
 export const menuGroups = (...groups: ChatMenuItem[][]): ChatMenuItem[] =>
   groups.filter((group) => group.length > 0).flatMap((group, index) => (index ? ["separator", ...group] : group));
 
-/// A submenu row: its label, and the keycap of `shortcutAction` when it has one.
+/// A submenu row: its label, and the keycap of `shortcutAction` when it has one. A row with `checked`
+/// is one of a choice (the rows next to it with `checked` too), drawn with a check on the picked one;
+/// `separatorBefore` draws a line above the row.
 export type ChatMenuChild = {
   key: string;
   label: string;
   disabled?: boolean;
   shortcutAction?: string;
-  shortcutLabel?: string;
+  accelerator?: string;
+  checked?: boolean;
+  /// A row that is on or off on its own (Transcript view's Wrap lines), drawn with a check when on.
+  on?: boolean;
+  separatorBefore?: boolean;
   onSelect: () => void;
 };
+
+/// Modifier glyphs a drawn menu keycap must carry, as in ⌘N or ⇧⌘I.
+const MODIFIER_GLYPHS = /[⌘⌥⌃⇧]/;
+
+/// The keycap a menu row may draw: a real shortcut with a modifier, never a bare letter (a bare
+/// letter only works while the menu is open, so it reads as meaningless on the row's right).
+export function menuKeycap(shortcut: string | undefined): string | undefined {
+  return shortcut && MODIFIER_GLYPHS.test(shortcut) ? shortcut : undefined;
+}
 
 type ShortcutMenuItem = Exclude<ChatMenuItem, "separator"> | ChatMenuChild;
 
@@ -87,7 +116,7 @@ export function menuItemForShortcut(
   const normalized = key.length === 1 ? key.toUpperCase() : "";
   if (!normalized) return undefined;
   return items.find(
-    (item): item is ShortcutMenuItem => item !== "separator" && item.shortcutLabel?.toUpperCase() === normalized,
+    (item): item is ShortcutMenuItem => item !== "separator" && item.accelerator?.toUpperCase() === normalized,
   );
 }
 
@@ -139,7 +168,7 @@ export function ChatHeaderTools({
   statusKey,
   onApplyWorktree,
   onRemoveWorktree,
-  inspector,
+  sessionInfo,
   inbox,
   nativeRowTools,
 }: {
@@ -189,9 +218,9 @@ export function ChatHeaderTools({
   onApplyWorktree?: (key: string) => Promise<unknown>;
   /// Remove on the worktree pill (cx-lyqio.5): `git.worktree.remove` for the chat's session.
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
-  /// The Inspector's toggle (Debug Settings `agent.inspector`, inspector/ChatInspector.tsx): with it,
+  /// Session Info's toggle (Debug Settings `agent.sessionInfo`, session-info/SessionInfo.tsx): with it,
   /// the right-side panel's toggle in the summary's place, the first of the icons.
-  inspector?: ReactNode;
+  sessionInfo?: ReactNode;
   /// The Needs you inbox (needsYou/NeedsYou.tsx), right after the panel toggle, so the toggle stays
   /// the first of the top-right icons.
   inbox?: ReactNode;
@@ -229,6 +258,7 @@ export function ChatHeaderTools({
     onSideTabs,
     onFiles,
     onSplitDown,
+    overflow: [] as HeaderQuickTool[],
   });
   live.current = {
     actions,
@@ -241,6 +271,7 @@ export function ChatHeaderTools({
     onSideTabs,
     onFiles,
     onSplitDown,
+    overflow: live.current.overflow,
   };
   const foldedRows = (): ChatMenuItem[] => {
     const {
@@ -254,11 +285,22 @@ export function ChatHeaderTools({
       onSideTabs,
       onFiles,
       onSplitDown,
+      overflow,
     } = live.current;
     if (!tabTools) return [];
     const { lit } = headerState();
     const shownIds = new Set(actions.map((action) => action.id));
-    const folded: ChatMenuItem[] = [];
+    // The buttons the pane is too narrow for come first, in their order: Changes keeps its own row below.
+    const folded: ChatMenuItem[] = overflow
+      .filter((tool) => tool.id !== "changes")
+      .map((tool) => ({
+        key: `quick-${tool.id}`,
+        label: tool.label,
+        icon: tool.icon,
+        shortcutAction: (HEADER_ACTIONS as Record<string, string | undefined>)[tool.id],
+        disabled: !tool.run,
+        onSelect: () => tool.run?.(),
+      }));
     // Changes stays in "..." beside its button, as in the Codex and Claude apps' chat menus (hq#2569 item 4).
     if (onChanges && (hasChanges || lit.includes(HEADER_ACTIONS.changes)))
       folded.push({
@@ -324,18 +366,43 @@ export function ChatHeaderTools({
     onSideTabs,
     t,
   });
-  const native = useNativeRowTools(nativeRowTools, tools);
+  const customize = onCustomize
+    ? new Map(tools.map(({ id }) => [id, nativeCustomizeMenu(customizeItems(actions, id, onCustomize, t, true))]))
+    : undefined;
+  const chatRows = rows();
+  const chatMenu = nativeChatMenu(chatRows);
+  const native = useNativeRowTools(nativeRowTools, tools, {
+    customize,
+    extra: chatMenu
+      ? [
+          {
+            tool: {
+              id: "chat-menu",
+              symbol: HEADER_SYMBOLS["action.more"]!,
+              label: t("chatMenu.open"),
+              enabled: chatMenu.items.length > 0,
+              toggled: false,
+              menu: chatMenu.items,
+            },
+            runMenu: chatMenu.invoke,
+          },
+        ]
+      : [],
+  });
   const shortcuts: Partial<Record<QuickActionId, string | undefined>> = {
     terminal: terminalKey,
     splitDown: splitDownKey,
     browser: browserKey,
     changes: changesKey,
   };
+  // A pane too narrow for every button folds the trailing ones into "..." instead of cutting them off.
+  const toolsRef = useRef<HTMLDivElement>(null);
+  const webButtons = !native && tabTools && actions.length > 0;
+  const fold = useHeaderFold(toolsRef, webButtons ? tools.length : 0);
+  live.current.overflow = webButtons && fold > 0 ? tools.slice(tools.length - fold) : [];
   const buttons =
-    !native &&
-    tabTools &&
-    actions.length > 0 &&
-    tools.map((tool) => (
+    webButtons &&
+    tools.slice(0, tools.length - fold).map((tool) => (
       <button
         key={tool.id}
         data-quick-action={tool.id}
@@ -350,13 +417,13 @@ export function ChatHeaderTools({
       </button>
     ));
   return (
-    <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
+    <div ref={toolsRef} className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
       {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
       {pullRequest && pullRequestChip !== false && (
         <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
       )}
       {/* The panel toggle leads the icons, as in Claude and ChatGPT desktop. */}
-      {!native && inspector}
+      {!native && sessionInfo}
       {typeof summary === "function" ? summary(native) : !native && summary}
       {inbox}
       {buttons ? (
@@ -388,8 +455,17 @@ export function ChatHeaderTools({
       ) : null}
       <ChatMenu
         items={rows}
-        disabled={rows().length === 0}
+        disabled={chatRows.length === 0}
         onOpen={onMenuOpen}
+        nativeOpen={
+          native && chatMenu
+            ? (row) =>
+                nativeRowTools!.callNative("pane.tabRowTools.openMenu", {
+                  id: "chat-menu",
+                  ...(row ? { menuItemId: row } : {}),
+                })
+            : undefined
+        }
         expand={expand}
         onExpanded={onExpanded}
       />
@@ -420,6 +496,7 @@ function customizeItems(
   target: QuickActionId | undefined,
   save: (list: readonly QuickAction[]) => void,
   t: ReturnType<typeof useT>,
+  native = false,
 ): ContextMenuItem[] {
   const items: ContextMenuItem[] = [];
   const index = target ? list.findIndex((action) => action.id === target) : -1;
@@ -455,8 +532,9 @@ function customizeItems(
       for (const [value, key] of modes) {
         items.push({
           id: value,
-          label: check(mode === value, t(key)),
+          label: native ? t(key) : check(mode === value, t(key)),
           ariaLabel: t(key),
+          ...(native ? { checked: mode === value } : {}),
           separatorBefore: value === "toggle",
           onSelect: () => save(withMode(list, target, value)),
         });
@@ -468,8 +546,9 @@ function customizeItems(
     const name = t(QUICK_ACTION_NAMES[id]);
     items.push({
       id: `show-${id}`,
-      label: check(shown, name),
+      label: native ? name : check(shown, name),
       ariaLabel: t(shown ? "header.quickActions.hide" : "header.quickActions.show", { name }),
+      ...(native ? { checked: shown } : {}),
       disabled: shown && !withShown(list, id, false).some((action) => ALWAYS_SHOWN.has(action.id)),
       separatorBefore: items.length > 0 && id === QUICK_ACTION_IDS[0],
       onSelect: () => save(withShown(list, id, !shown)),
@@ -489,6 +568,7 @@ export function ChatMenu({
   items,
   disabled,
   onOpen,
+  nativeOpen,
   expand,
   onExpanded,
   trigger,
@@ -501,6 +581,7 @@ export function ChatMenu({
   /// No rows yet (Quick Chat before its session): the button stays, disabled.
   disabled?: boolean;
   onOpen?: () => Promise<unknown>;
+  nativeOpen?: (row?: string) => Promise<unknown>;
   expand?: string;
   onExpanded?: () => void;
   /// Optional trigger content for another header control (ThreadTitle); the menu behavior stays shared.
@@ -513,6 +594,7 @@ export function ChatMenu({
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const [nativeFailed, setNativeFailed] = useState(false);
   const [rows, setRows] = useState<ChatMenuItem[]>([]);
   // Set when the palette asks for one row's children (Continue In…): the menu lists only those.
   const [only, setOnly] = useState<string>();
@@ -535,6 +617,14 @@ export function ChatMenu({
       setOnly(row);
       setOpen(true);
     };
+    if (nativeOpen && !nativeFailed) {
+      void nativeOpen(row).catch(() => {
+        if (generation !== opening.current) return;
+        setNativeFailed(true);
+        apply();
+      });
+      return;
+    }
     // Open on the press. Refresh native availability in place; a delayed response must never
     // postpone the menu or reopen it after dismissal or unmount.
     apply();
@@ -563,11 +653,15 @@ export function ChatMenu({
   };
   const focused = only ? rows.find((row) => row !== "separator" && row.key === only) : undefined;
   const children = focused && focused !== "separator" ? focused.children : undefined;
+  // A row's letter (`accelerator`, never drawn) picks it, as the title menu's R, F, A, D; never a
+  // key that is text (menuLetters.ts: a field, an editor, an IME composition, the typeahead).
+  const typing = useRef<MenuTyping>({ last: 0 });
   const shortcutRows = children ?? rows;
   const onMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.key.length !== 1) return;
-    const key = event.key.toUpperCase();
-    const item = menuItemForShortcut(rows, key) ?? menuItemForShortcut(shortcutRows, key);
+    if (event.defaultPrevented || !event.currentTarget.contains(event.target as Node)) return;
+    const letter = menuLetter(event, typing.current);
+    if (!letter) return;
+    const item = menuItemForShortcut(rows, letter) ?? menuItemForShortcut(shortcutRows, letter);
     if (!item || item.disabled || !item.onSelect) return;
     event.preventDefault();
     event.stopPropagation();
@@ -575,19 +669,20 @@ export function ChatMenu({
     onOpenChange(false);
   };
   const buttonLabel = triggerLabel ?? label;
+  if (nativeOpen && !nativeFailed) return null;
   return (
     <Menu open={open} onOpenChange={onOpenChange}>
       <MenuButton
-        className={triggerClassName ?? "acpmux-header-tool"}
+        className={triggerClassName ?? "acpmux-header-tool acpmux-header-more"}
         label={buttonLabel}
         title={triggerTitle}
         disabled={disabled}
       >
-        {trigger ?? <HeaderIcon name="action.more.vertical" size={HEADER_GLYPH} />}
+        {trigger ?? <HeaderIcon name="action.more" size={HEADER_GLYPH} />}
       </MenuButton>
       <MenuPopup className="acpmux-chat-menu-popover" align="end" onKeyDown={onMenuKeyDown}>
         {children
-          ? children.map((child) => <ChatMenuChildRow key={child.key} child={child} />)
+          ? childRows(children)
           : rows.map((row, index) =>
               row === "separator" ? (
                 // oxlint-disable-next-line react/no-array-index-key
@@ -600,15 +695,12 @@ export function ChatMenu({
                   disabled={row.disabled}
                   label={
                     <>
-                      <Icon name={row.icon} size={15} />
+                      <Icon name={row.icon} size={14} />
                       <span className="acpmux-chat-menu-label">{row.label}</span>
-                      {row.shortcutLabel && <kbd className="acpmux-chat-menu-key">{row.shortcutLabel}</kbd>}
                     </>
                   }
                 >
-                  {row.children.map((child) => (
-                    <ChatMenuChildRow key={child.key} child={child} />
-                  ))}
+                  {childRows(row.children)}
                 </Submenu>
               ) : (
                 <ChatMenuRow key={row.key} item={row} />
@@ -621,19 +713,84 @@ export function ChatMenu({
 
 function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
   const registeredShortcut = useShortcut(item.shortcutAction ?? "");
-  const shortcut = item.shortcutLabel ?? registeredShortcut;
+  const shortcut = menuKeycap(registeredShortcut);
   return (
     <MenuItem className="acpmux-chat-menu-item" disabled={item.disabled} onSelect={item.onSelect}>
-      <Icon name={item.icon} size={15} />
+      <Icon name={item.icon} size={14} />
       <span className="acpmux-chat-menu-label">{item.label}</span>
       {shortcut && <kbd className="acpmux-chat-menu-key">{shortcut}</kbd>}
     </MenuItem>
   );
 }
 
+/// A submenu's rows: each run of rows with `checked` is one radio group (Transcript view's Normal,
+/// Thinking, Verbose), the others plain rows, with a line above each `separatorBefore`.
+function childRows(children: readonly ChatMenuChild[]): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  for (let index = 0; index < children.length;) {
+    const child = children[index]!;
+    if (child.separatorBefore && index > 0) nodes.push(<MenuSeparator key={`separator-${child.key}`} />);
+    if (child.on !== undefined) {
+      nodes.push(<ChatMenuToggleRow key={child.key} child={child} />);
+      index += 1;
+      continue;
+    }
+    if (child.checked === undefined) {
+      nodes.push(<ChatMenuChildRow key={child.key} child={child} />);
+      index += 1;
+      continue;
+    }
+    const group = [child];
+    for (index += 1; index < children.length; index += 1) {
+      const next = children[index]!;
+      if (next.separatorBefore || next.checked === undefined) break;
+      group.push(next);
+    }
+    nodes.push(<ChatMenuChoice key={`choice-${child.key}`} rows={group} />);
+  }
+  return nodes;
+}
+
+function ChatMenuChoice({ rows }: { rows: readonly ChatMenuChild[] }) {
+  const picked = rows.find((row) => row.checked)?.key ?? "";
+  return (
+    <MenuRadioGroup value={picked} onValueChange={(key) => rows.find((row) => row.key === key)?.onSelect()}>
+      {rows.map((row) => (
+        <MenuRadioItem
+          key={row.key}
+          value={row.key}
+          className="acpmux-chat-menu-item"
+          disabled={row.disabled}
+          closeOnClick
+        >
+          <span className="acpmux-chat-menu-label">{row.label}</span>
+        </MenuRadioItem>
+      ))}
+    </MenuRadioGroup>
+  );
+}
+
+/// A row that flips on or off; the menu stays open, so the row keeps its own state after a flip.
+function ChatMenuToggleRow({ child }: { child: ChatMenuChild }) {
+  const [on, setOn] = useState(child.on ?? false);
+  return (
+    <MenuCheckboxItem
+      className="acpmux-chat-menu-item"
+      disabled={child.disabled}
+      checked={on}
+      onCheckedChange={() => {
+        setOn(!on);
+        child.onSelect();
+      }}
+    >
+      <span className="acpmux-chat-menu-label">{child.label}</span>
+    </MenuCheckboxItem>
+  );
+}
+
 function ChatMenuChildRow({ child }: { child: ChatMenuChild }) {
   const registeredShortcut = useShortcut(child.shortcutAction ?? "");
-  const shortcut = child.shortcutLabel ?? registeredShortcut;
+  const shortcut = menuKeycap(registeredShortcut);
   return (
     <MenuItem className="acpmux-chat-menu-item" disabled={child.disabled} onSelect={child.onSelect}>
       <span className="acpmux-chat-menu-label">{child.label}</span>

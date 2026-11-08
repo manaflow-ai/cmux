@@ -85,7 +85,22 @@ def payload_paths(raw: str) -> tuple[set[str], str | None]:
     return found, cwd
 
 
-def relative(root: Path, path: str, cwd: str | None) -> str | None:
+def is_edit_event(raw: str) -> bool:
+    """PostToolUse also fires for reads; those are not evidence of a lane's first edit."""
+    try:
+        payload = json.loads(raw)
+    except (TypeError, ValueError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    name = str(payload.get("tool_name", "")).split(".")[-1].lower()
+    result = payload.get("tool_response") or {}
+    if isinstance(result, dict) and (result.get("is_error") or result.get("isError")):
+        return False
+    return name in {"edit", "write", "multiedit", "apply_patch"}
+
+
+def relative(root: Path, path: str, cwd: str | None, *, must_exist: bool = True) -> str | None:
     if not os.path.isabs(path) and cwd:
         path = os.path.join(cwd, path)
     if os.path.isabs(path):
@@ -94,7 +109,7 @@ def relative(root: Path, path: str, cwd: str | None) -> str | None:
         except ValueError:
             return None
     path = os.path.normpath(path)
-    if path.startswith("..") or not (root / path).is_file():
+    if path.startswith("..") or (must_exist and not (root / path).is_file()):
         return None
     return path
 
@@ -274,8 +289,22 @@ def main(argv=None) -> int:
             ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, timeout=5).stdout.strip())
         if args.paths is not None:
             paths, cwd = set(args.paths), None
+            edit_event = False
         else:
-            paths, cwd = payload_paths(sys.stdin.read())
+            raw = sys.stdin.read()
+            paths, cwd = payload_paths(raw)
+            edit_event = is_edit_event(raw)
+        if edit_event and any(relative(root, path, cwd, must_exist=False) is not None for path in paths):
+            # This timestamp is an observed edit event, not a commit date or worktree mtime.
+            # Keep it local to this worktree so a CI client can measure edit-to-first-signal.
+            import importlib.util
+
+            timing_path = root / "scripts/cmux-next/inner_loop_timing.py"
+            if timing_path.is_file():
+                spec = importlib.util.spec_from_file_location("inner_loop_timing", timing_path)
+                timing = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(timing)
+                timing.record(root, edit=True)
         found = run(root.resolve(), paths, cwd, budget)
     except Exception as error:  # noqa: BLE001 - a post-edit hook is advisory and never fails the edit
         found = [f"post-edit checks could not run ({error})"]

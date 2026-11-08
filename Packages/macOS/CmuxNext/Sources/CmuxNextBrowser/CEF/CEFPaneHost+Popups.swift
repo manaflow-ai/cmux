@@ -77,7 +77,12 @@ extension CEFPaneHost {
         var openers: [CEFPaneHost] = []
         for tab in tabs where tab.awaitsWindowMove {
             guard let browser = tab.browserID else { continue }
-            if shim.tabMoveToWindow(browser, anchor, -1) == 1 {
+            #if DEBUG || CMUX_BENCH_HOOKS
+            let moved = runtime.benchMarks.span("cef.tab_move") { shim.tabMoveToWindow(browser, anchor, -1) }
+            #else
+            let moved = shim.tabMoveToWindow(browser, anchor, -1)
+            #endif
+            if moved == 1 {
                 tab.awaitsWindowMove = false
                 if let opener = tab.popupOpenerHost { openers.append(opener) }
             } else {

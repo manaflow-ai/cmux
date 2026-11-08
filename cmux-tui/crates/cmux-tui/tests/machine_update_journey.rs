@@ -667,7 +667,9 @@ fn machine_update_refuses_a_build_that_does_not_match_its_pin() {
 /// anything: run directly with a wrong checksum, a pid that is not the
 /// daemon, an install path outside its own home, a result file elsewhere,
 /// or while another update holds the lock, it refuses, and the machine's
-/// binary and daemon stay as they were.
+/// binary and daemon stay as they were. A pid that is not the daemon on this
+/// terminal's socket is what a daemon restarted since the Mac read its pid
+/// gives: the quiet `busy` (#33011), never a read of that pid's process.
 #[test]
 fn machine_update_apply_step_refuses_before_changing_anything() {
     use std::os::unix::fs::PermissionsExt as _;
@@ -724,7 +726,7 @@ fn machine_update_apply_step_refuses_before_changing_anything() {
     let (code, outcome) = apply(&sha, &install, &not_daemon, &result);
     assert_eq!(
         (code, outcome.as_ref().map(|o| o["state"].clone())),
-        (Some(1), Some(json!("failed"))),
+        (Some(1), Some(json!("busy"))),
         "{outcome:?}"
     );
     unchanged("a pid that is not the daemon");
@@ -763,7 +765,7 @@ fn machine_update_apply_step_refuses_before_changing_anything() {
     let _ = other.wait();
     assert_eq!(
         (code, outcome.as_ref().map(|o| o["state"].clone())),
-        (Some(1), Some(json!("failed"))),
+        (Some(1), Some(json!("busy"))),
         "{outcome:?}"
     );
     unchanged("a pid of the binary that is not the serving daemon");

@@ -111,6 +111,10 @@ fn harnesses() -> Value {
                          "capabilities": {"effort": ["low", "none", "high"], "resume": true, "permissionModes": true},
                          "auth": {"login": "opencode auth login"},
                          "unavailable": "opencode is not on PATH"},
+            // acpmux's built-in Chief harness (`cmux chief acp`): the person's chat with this
+            // Chief, so a Chief turn or subagent on it would message itself as the person.
+            "chief": {"kind": "acp", "argv": ["/Applications/cmux.app/cmux-tui", "chief", "acp"],
+                      "family": "chief", "displayName": "Chief"},
             "unii": {"kind": "acp", "argv": ["/Applications/cmux.app/acpmux", "uniichat-agent"],
                      "family": "unii", "displayName": "UniiChat",
                      "description": "UniiChat: one chat that never ends (uniichat.com)",
@@ -257,6 +261,7 @@ fn the_offered_speeds_follow_the_turn_harness() {
     let codex = engine(
         &mut brain,
         EngineRequest::Set {
+            turn_routing: None,
             harness: Some("codex".to_owned()),
             model: None,
             effort: None,
@@ -287,6 +292,7 @@ fn the_engine_set_names_the_compactors_harness_and_model_acpmux_has() {
         ],
     );
     let set = |compactor_harness: &str, compactor_model: Option<&str>| EngineRequest::Set {
+        turn_routing: None,
         harness: None,
         model: None,
         effort: None,
@@ -347,6 +353,7 @@ fn a_chief_switches_its_turn_harness_to_uniichat_and_back() {
         ],
     );
     let set = |harness: &str| EngineRequest::Set {
+        turn_routing: None,
         harness: Some(harness.to_owned()),
         model: None,
         effort: None,
@@ -417,6 +424,7 @@ fn the_engine_set_does_not_wait_on_acpmuxs_peers() {
     let answer = engine(
         &mut brain,
         EngineRequest::Set {
+            turn_routing: None,
             harness: Some("codex".to_owned()),
             model: None,
             effort: None,
@@ -445,6 +453,7 @@ fn a_peer_harness_still_offers_the_peers_models() {
     let answer = engine(
         &mut brain,
         EngineRequest::Set {
+            turn_routing: None,
             harness: Some("huge-blue/claude-sr".to_owned()),
             model: None,
             effort: None,
@@ -625,6 +634,7 @@ fn an_offer_never_names_a_harness_effort_or_speed_a_set_would_refuse() {
 
     let set =
         |harness: Option<&str>, effort: Option<&str>, speed: Option<&str>| EngineRequest::Set {
+            turn_routing: None,
             harness: harness.map(str::to_owned),
             model: None,
             effort: effort.map(str::to_owned),
@@ -724,6 +734,7 @@ fn the_engine_set_takes_the_reaction_classifier() {
     );
     brain.set_reaction_user_settings(None);
     let set = |reactions: ReactionFields| EngineRequest::Set {
+        turn_routing: None,
         harness: None,
         model: None,
         effort: None,
@@ -790,4 +801,63 @@ fn the_engine_set_takes_the_reaction_classifier() {
         }),
     );
     assert_eq!(unknown["error"]["code"], "unknown_harness", "{unknown:#}");
+}
+
+#[test]
+fn the_chief_harness_is_never_offered_to_a_chief_and_never_admitted() {
+    // The agent chat offers acpmux's `chief` harness to the person (user, 2026-10-30); a Chief
+    // that ran its turns, compactor or subagents on it would send its own prompts into its
+    // own conversation as the person and wake itself without end.
+    let refused = optchat_chief::harness_gate::admit(&harnesses(), "chief")
+        .expect_err("the gate admits the Chief harness");
+    assert!(refused.contains("Chief"), "{refused}");
+    assert!(optchat_chief::harness_gate::admit_profile(&harnesses(), "chief").is_err());
+
+    let dir = tempfile::tempdir().unwrap();
+    let mut brain = brain(dir.path(), &[]);
+    let answer = engine(&mut brain, EngineRequest::Show);
+    let offered = answer["offered"]["harnesses"].as_array().unwrap();
+    assert!(
+        offered
+            .iter()
+            .all(|h| h["id"] != "chief" && h["family"] != "chief"),
+        "the engine picker offers the Chief harness: {answer:#}"
+    );
+}
+
+#[test]
+fn turn_routing_control_validates_and_clears_without_touching_model() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut brain = brain(
+        dir.path(),
+        &[("claude-sr", optchat_chief::acpmux::Family::Claude)],
+    );
+    let set = |routing: &str| EngineRequest::Set {
+        harness: None,
+        model: None,
+        effort: None,
+        speed: None,
+        compactor_speed: None,
+        compactor_harness: None,
+        compactor_model: None,
+        reactions: Default::default(),
+        turn_routing: Some(routing.into()),
+    };
+    assert_eq!(
+        engine(&mut brain, EngineRequest::Show)["engine"]["turn_routing"],
+        "off"
+    );
+    for routing in ["auto", "off"] {
+        let answer = engine(&mut brain, set(routing));
+        assert_eq!(answer["choice"]["turn_routing"], routing);
+    }
+    let refused = engine(&mut brain, set("sometimes"));
+    assert_eq!(refused["error"]["code"], "invalid_value");
+    assert_eq!(
+        engine(&mut brain, EngineRequest::Show)["choice"]["turn_routing"],
+        "off"
+    );
+    let cleared = engine(&mut brain, set("default"));
+    assert!(cleared["choice"]["turn_routing"].is_null());
+    assert_eq!(cleared["engine"]["turn_routing"], "off");
 }

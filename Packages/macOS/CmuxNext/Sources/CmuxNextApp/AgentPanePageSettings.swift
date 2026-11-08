@@ -81,7 +81,12 @@ final class AgentPanePageSettings {
     private func followDisplay(_ settings: SettingsController, push: @escaping () -> Void) {
         // task-owner: lives as long as the tabs; event-driven (Observation)
         displayObservation = Task { [weak self] in
-            for await value in ObservationStream({ AgentPaneDisplaySetting(fileRoot: settings.fileRoot) }) {
+            for await value in ObservationStream({ AgentPaneDisplaySetting(
+                fileRoot: settings.fileRoot,
+                managedHarnessPlacement: settings.managedKeys["agentPane.display.harnessPlacement"].flatMap { _ in
+                    settings.snapshot.root.value(at: ["agentPane", "display", "harnessPlacement"])
+                }
+            ) }) {
                 guard let self, value != display else { continue }
                 display = value
                 push()

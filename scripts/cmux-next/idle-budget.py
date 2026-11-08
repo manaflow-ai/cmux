@@ -21,6 +21,8 @@ Sessions (--sessions):
   light         the launch window with its terminal (Home's pages run in Chromium by default)
   light-webkit  the same with browser.defaultEngine webkit: no Chromium at all
   light-hidden  the light session with the app hidden (Show/Hide All Windows hidden=true)
+  newtabs1, newtabs5, newtabs20  that many rendered New Tab pages, then hidden behind one terminal
+  sleepy        the light session covered by Sleepy Mode
   Each session starts from an empty saved session (`fresh_session`).
   stress-static  STRESS with its pages served without their rAF spinner (STRESS's own pages animate: not idle)
   stress   STRESS (scripts/cmux-next/perf-stress-session.py: 60 workspaces, a 12-pane grid of 6 tabs each,
@@ -28,7 +30,7 @@ Sessions (--sessions):
            terminals are quiet
 
 A session that fails (STRESS refuses a window under the Dock, a launch fails) is recorded with its exit
-code (`session_exits` in the report) and the others still run; the script exits 0 unless --gate.
+code (`session_exits` in the report) and the others still run; any failed session exits 1.
 
 Budget: scripts/cmux-next/idle-budget.json (per process kind; a missing value is reported, not judged).
 Over budget prints IDLE-BUDGET-OVER lines; the exit code is 0 unless --gate (no CI gate: the perf cron
@@ -140,6 +142,131 @@ def read_rpc(app, method, params=None):
     return reply if isinstance(reply, dict) and not reply.get("error") else {}
 
 
+def surface_panes(report):
+    return [pane for window in report.get("windows", []) for pane in window.get("panes", [])]
+
+
+def live_chat_pages(report):
+    keys = (report.get("hibernation") or {}).get("chat_pages")
+    if not isinstance(keys, list):
+        raise RuntimeError("debug.surfaces lacks hibernation.chat_pages; cannot prove live New Tab pages")
+    return set(keys)
+
+
+class NewTabSetupError(RuntimeError):
+    """Keep the complete setup evidence in the artifact even when log text is bounded."""
+
+    def __init__(self, message, report, readiness=None):
+        self.diagnostics = {"panes": surface_panes(report), "hibernation": report.get("hibernation"),
+                            "readiness": readiness}
+        super().__init__(f"{message}: {json.dumps(self.diagnostics)}")
+
+
+def build_newtabs(app, count, limit=60):
+    """Show and load every page before hiding it; a lazy store tab is not a renderer."""
+    keys, engines = [], []
+
+    def action(name, **params):
+        reply = app.rpc("action.run", {"action": name, "origin": "script", "focus": True, "wait": True, **params}, timeout=60)
+        if not isinstance(reply, dict) or reply.get("error") or reply.get("code"):
+            raise RuntimeError(f"{name} failed: {reply}")
+
+    # A fresh window can contain only Home. Build the covering terminal before
+    # any measured page, so terminal creation cannot replace a page being counted.
+    report = read_rpc(app, "debug.surfaces")
+    live_chat_pages(report)
+    if not any(p.get("focused") and p.get("kind") == "terminal"
+               and str(p.get("selected_tab", "")).startswith("tab_") for p in surface_panes(report)):
+        focused = [p for p in surface_panes(report) if p.get("focused") and p.get("pane")]
+        if len(focused) != 1:
+            raise NewTabSetupError("no unique focused pane for the covering terminal", report)
+        selected = focused[0].get("selected_tab")
+        if not isinstance(selected, str) or not selected.startswith("tab_"):
+            raise NewTabSetupError("focused pane has no stable tab for the covering terminal", report)
+        action("newSurface", target=f"tab:{selected}")
+    deadline = time.monotonic() + limit
+    while time.monotonic() < deadline:
+        report = read_rpc(app, "debug.surfaces")
+        terminals = [p for p in surface_panes(report) if p.get("focused") and p.get("kind") == "terminal"
+                     and p.get("selected_tab") == p.get("shown_tab") and p.get("content_installed")
+                     and p.get("content_in_window") and not p.get("blank")
+                     and str(p.get("selected_tab", "")).startswith("tab_")]
+        if len(terminals) == 1:
+            terminal = terminals[0]
+            terminal_key, terminal_pane = terminal["selected_tab"], terminal["pane"]
+            break
+        time.sleep(0.1)  # bench: bounded wait for the covering terminal's stable identity and surface
+    else:
+        raise NewTabSetupError("no stable terminal to cover the measured New Tab pages", report)
+
+    for _ in range(count):
+        existing = live_chat_pages(read_rpc(app, "debug.surfaces"))
+        action("newTab.page", target=f"pane:{terminal_pane}")
+        deadline, last, ready = time.monotonic() + limit, {}, None
+        while time.monotonic() < deadline:
+            last = read_rpc(app, "debug.surfaces")
+            candidates = [p for p in surface_panes(last) if p.get("kind") == "agent" and p.get("pane") == terminal_pane
+                          and p.get("selected_tab") == p.get("shown_tab") and p.get("content_installed")
+                          and p.get("content_in_window") and not p.get("blank")
+                          and str(p.get("selected_tab", "")).startswith("tab_")
+                          and p.get("selected_tab") not in existing]
+            if len(candidates) == 1:
+                pane = candidates[0]
+                key = pane.get("selected_tab")
+                if key and not key.startswith("pending_tab_") and key not in keys and key in live_chat_pages(last):
+                    if not pane.get("focused"):
+                        # Creating a page can leave a different pane focused. Target the
+                        # real tab, then observe focus before asking its document readiness.
+                        action("tab.focus", target=f"tab:{key}")
+                        time.sleep(0.1)  # bench: bounded wait for the target pane to take focus
+                        continue
+                    ready = app.rpc("debug.agent_pane", {"action": "readiness", "pane": pane["pane"]}, timeout=30)
+                    if isinstance(ready, dict) and not ready.get("error") and not ready.get("code") and ready.get("document_ready") and ready.get("body_text_length", 0) > 0:
+                        # The store may replace a provisional id while the page loads.
+                        current = read_rpc(app, "debug.surfaces")
+                        if any(p.get("selected_tab") == key and p.get("shown_tab") == key and p.get("focused")
+                               for p in surface_panes(current)) and key in live_chat_pages(current):
+                            engine = read_rpc(app, "debug.agent_pane", {"action": "engine", "pane": pane["pane"]})
+                            keys.append(key)
+                            engines.append(engine.get("engine"))
+                            break
+            time.sleep(0.1)  # bench: bounded wait for the selected page's real renderer and document
+        else:
+            raise NewTabSetupError(f"only built {len(keys)} of {count} New Tab pages", last, ready)
+    action("tab.focus", target=f"tab:{terminal_key}")
+    deadline = time.monotonic() + limit
+    report = {}
+    while time.monotonic() < deadline:
+        report = read_rpc(app, "debug.surfaces")
+        panes = surface_panes(report)
+        if any(p.get("focused") and p.get("kind") == "terminal" and p.get("content_installed")
+               and p.get("content_in_window") and not p.get("blank") and p.get("pane") == terminal_pane
+               and p.get("selected_tab") == p.get("shown_tab") == terminal_key for p in panes):
+            if not any(p.get("shown_tab") in keys for p in panes):
+                return {"requested": count, "rendered": len(keys), "keys": keys, "engines": engines,
+                        "terminal": {"key": terminal_key, "pane": terminal_pane}}
+        time.sleep(0.1)  # bench: wait until the terminal covers all measured pages
+    raise NewTabSetupError("the terminal did not hide every measured New Tab page", report)
+
+
+def newtab_evidence(app, opened):
+    report = read_rpc(app, "debug.surfaces")
+    keys = set(opened["keys"])
+    if any(p.get("shown_tab") in keys for p in surface_panes(report)):
+        raise RuntimeError("a measured New Tab page is visible during the idle window")
+    live = live_chat_pages(report)
+    return {**opened, "live_keys": sorted(keys & live), "live_count": len(keys & live),
+            "all_live_chat_page_keys": sorted(live)}
+
+
+def memory_summary(result):
+    rows = result["processes"]
+    renderers = [row for row in rows if row["kind"] in ("cef-renderer", "webkit-webcontent")]
+    return {"total_footprint_mb": round(sum(row["footprint_mb"] for row in rows), 1),
+            "renderer_count": len(renderers), "renderer_pids": sorted(row["pid"] for row in renderers),
+            "renderer_footprint_mb": round(sum(row["footprint_mb"] for row in renderers), 1)}
+
+
 def measure(app, instance, seconds):
     """Counters of every process of the app over `seconds` with no input."""
     hangs0 = read_rpc(app, "debug.hangs", {"limit": 0})
@@ -220,11 +347,21 @@ def window_state(app):
     return {"main": main, "any_key": any(w.get("key") for w in windows)}
 
 
+def sleepy_windows(app):
+    """Require the scene being measured, not merely an accepted action."""
+    reply = app.rpc("debug.window_list", timeout=10)
+    windows = reply.get("windows", []) if isinstance(reply, dict) else []
+    visible = [w for w in windows if w.get("kind") == "next.sleepyMode" and w.get("visible")]
+    if not visible:
+        raise RuntimeError("Sleepy Mode has no visible overlay window")
+    return visible
+
+
 def sample_threads(pid, seconds, path):
     """`/usr/bin/sample` of `pid` for `seconds` after the window (it suspends the process to sample, so it
     never runs inside the measured window); per thread, the frames with the most samples outside the wait."""
     try:
-        subprocess.run(["/usr/bin/sample", str(pid), str(seconds), "-mayDie", "-file", path], capture_output=True,
+        subprocess.run(["/usr/bin/sample", str(pid), str(seconds), "-mayDie", "-fullPaths", "-file", path], capture_output=True,
                        timeout=seconds + 60)
         text = open(path, errors="replace").read()
     except (OSError, subprocess.TimeoutExpired):
@@ -250,6 +387,52 @@ def sample_threads(pid, seconds, path):
     for entry in threads_out.values():
         entry["frames"] = sorted(entry["frames"].items(), key=lambda kv: -kv[1])[:12]
     return threads_out
+
+
+def display_link_clients(path, limit=8):
+    """Who a CVDisplayLink thread calls when it fires: in `path` (a /usr/bin/sample report), the frames of each
+    CVDisplayLink thread outside CoreVideo and the system's wait and thread-start frames, most samples first.
+    The link's owner is the client its callback reaches (the thread itself starts in CoreVideo)."""
+    try:
+        text = open(path, errors="replace").read()
+    except OSError:
+        return []
+    graph = text.split("Call graph:", 1)[-1].split("Total number in stack", 1)[0]
+    found, inside = {}, False
+    for line in graph.splitlines():
+        if re.match(r"\s{4}\d+ Thread_\d+", line):
+            inside = "CVDisplayLink" in line
+            continue
+        frame = re.match(r"[\s+!:|]*(\d+) (.+?)\s+\(in ([^)]+)\)", line)
+        if not (inside and frame):
+            continue
+        count, symbol, image = int(frame.group(1)), frame.group(2), os.path.basename(frame.group(3))
+        if image in ("CoreVideo", "libsystem_pthread.dylib", "libsystem_kernel.dylib", "libdyld.dylib"):
+            continue
+        key = f"{symbol} ({image})"
+        found[key] = max(found.get(key, 0), count)
+    return sorted(found.items(), key=lambda kv: -kv[1])[:limit]
+
+
+def bundle(out, sessions, report_path):
+    """What this run wrote, as one file `out/idle-budget.tgz` (`cmux-ci run --artifact` uploads one regular file,
+    not a directory: artifacts/split-spring/idle-budget.tgz): each session's folder (its app log and sample),
+    idle-budget.md and the report. Nothing else under `out` (split-spring keeps the tagged app and the virtual
+    display there). Returns the path, or None when it could not be written (the run's result stands)."""
+    import tarfile
+    path = os.path.join(out, "idle-budget.tgz")
+    members = [(os.path.join(out, name), name) for name in sessions if os.path.isdir(os.path.join(out, name))]
+    members += [(os.path.join(out, "idle-budget.md"), "idle-budget.md"), (report_path, os.path.basename(report_path))]
+    try:
+        with tarfile.open(path, "w:gz") as archive:
+            for source, name in members:
+                if os.path.exists(source):
+                    archive.add(source, arcname=name)
+    except OSError as error:
+        print(f"IDLE-BUDGET-BUNDLE-FAILED {path}: {error}", flush=True)
+        return None
+    print(f"IDLE-BUDGET-BUNDLE {path}", flush=True)
+    return path
 
 
 def app_counters(app):
@@ -417,8 +600,10 @@ SESSIONS = {
     "light": {},
     "light-webkit": {"config": {**BASE_CONFIG, "browser": {"defaultEngine": "webkit"}}},
     "light-hidden": {"hide": True},
+    "sleepy": {"sleepy": True},
     "stress": {},
     "stress-static": {},
+    **{f"newtabs{count}": {"newtabs": count} for count in (1, 5, 20)},
 }
 
 
@@ -480,6 +665,7 @@ def main():
     report = {"machine": machine, "app": opts.app, "settle_s": opts.settle, "measure_s": opts.measure, "sessions": {}}
     all_overs = []
     markdown = []
+    session_failed = False
     for session in [s for s in opts.sessions.split(",") if s]:
         if session not in SESSIONS:
             raise SystemExit(f"idle-budget: unknown session {session} (one of {', '.join(SESSIONS)})")
@@ -487,19 +673,41 @@ def main():
         try:
             entry = {"fresh_session": fresh_session(app)}
             app.launch()
+            opened_newtabs = build_newtabs(app, SESSIONS[session]["newtabs"]) if "newtabs" in SESSIONS[session] else None
             if session in ("stress", "stress-static"):
                 entry["stress"] = build_stress(app, static=session == "stress-static")
             if SESSIONS[session].get("hide"):
                 entry["hide"] = app.rpc("action.run", {"action": "showHideAllWindows", "args": {"hidden": True},
                                                        "focus": False, "origin": "script"}, timeout=30)
+            if SESSIONS[session].get("sleepy"):
+                entry["sleepy"] = app.rpc("action.run", {"action": "palette.sleepyMode", "args": {},
+                                                         "focus": False, "origin": "script"}, timeout=30)
+                if not isinstance(entry["sleepy"], dict) or entry["sleepy"].get("error"):
+                    raise RuntimeError(f"Sleepy Mode activation failed: {entry['sleepy']}")
             time.sleep(opts.settle)  # bench: the session settles (page loads, Chromium's post-load work) before the window
+            if opened_newtabs:
+                entry["newtabs_before_window"] = newtab_evidence(app, opened_newtabs)
             instance = procs.Instance(app.app, app.process.pid)
             window_before = window_state(app)
+            if SESSIONS[session].get("sleepy"):
+                entry["sleepy_windows"] = {"start": sleepy_windows(app)}
             result = measure(app, instance, opts.measure)
+            result["memory"] = memory_summary(result)
+            if opened_newtabs:
+                entry["newtabs_after_window"] = newtab_evidence(app, opened_newtabs)
+                print(f"IDLE-BUDGET-NEWTABS {session} " + json.dumps({"pages": entry["newtabs_after_window"],
+                                                                    "memory": result["memory"]}), flush=True)
+            if SESSIONS[session].get("sleepy"):
+                entry["sleepy_windows"]["end"] = sleepy_windows(app)
             result["window_state"] = {"start": window_before, "end": window_state(app)}
             print(f"IDLE-BUDGET-WINDOW {session} " + json.dumps(result["window_state"]), flush=True)
             if opts.sample:
-                result["sample"] = sample_threads(app.process.pid, opts.sample, os.path.join(out, session, "sample-app.txt"))
+                sample_path = os.path.join(out, session, "sample-app.txt")
+                result["sample"] = sample_threads(app.process.pid, opts.sample, sample_path)
+                result["display_link_clients"] = display_link_clients(sample_path)
+                if result["display_link_clients"]:
+                    clients = "; ".join(f"{frame} x{count}" for frame, count in result["display_link_clients"])
+                    print(f"IDLE-BUDGET-CVDISPLAYLINK {session}: {clients}", flush=True)
             kinds = aggregate(result)
             overs = over_budget(session, kinds, budget)
             entry.update({"result": result, "kinds": kinds, "over": [list(o) for o in overs]})
@@ -517,8 +725,8 @@ def main():
             for timer in result.get("main_run_loop_timers") or []:
                 if timer["interval_s"] > 0:
                     print(f"IDLE-BUDGET-MAIN-TIMER {session} every {timer['interval_s']:g} s: {timer['callout']}", flush=True)
-            for name, entry in (result.get("sample") or {}).items():
-                top = "; ".join(f"{frame} x{count}" for frame, count in entry["frames"][:6])
+            for name, sample_entry in (result.get("sample") or {}).items():
+                top = "; ".join(f"{frame} x{count}" for frame, count in sample_entry["frames"][:6])
                 if top:
                     print(f"IDLE-BUDGET-SAMPLE {session} {name}: {top}", flush=True)
             for name, field, value, limit in overs:
@@ -529,7 +737,10 @@ def main():
         except BaseException as error:  # noqa: BLE001 - one session's failure (a STRESS shape refusal, a launch
             # failure) is recorded with its exit code; the other sessions still measure and report.
             code = error.code if isinstance(error, SystemExit) and isinstance(error.code, int) else 1
+            session_failed = True
             report["sessions"].setdefault(session, {}).update({"exit": code or 1, "error": f"{type(error).__name__}: {error}"[:500]})
+            if isinstance(error, NewTabSetupError):
+                report["sessions"][session]["setup_diagnostics"] = error.diagnostics
             print(f"IDLE-BUDGET-SESSION-FAILED {session} exit={code or 1} {type(error).__name__}: {str(error)[:300]}", flush=True)
             markdown.append(f"\n### {session}\n\nnot measured: {type(error).__name__}: {str(error)[:300]}")
             if isinstance(error, KeyboardInterrupt):
@@ -547,7 +758,8 @@ def main():
     with open(path, "w") as handle:
         json.dump(report, handle, indent=1)
     print(f"IDLE-BUDGET over={len(all_overs)} sessions={json.dumps(report['session_exits'])} json={path}", flush=True)
-    sys.exit(1 if opts.gate and all_overs else 0)
+    bundle(out, list(report["sessions"]), path)
+    sys.exit(1 if session_failed or (opts.gate and all_overs) else 0)
 
 
 if __name__ == "__main__":

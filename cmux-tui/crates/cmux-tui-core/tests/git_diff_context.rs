@@ -403,3 +403,160 @@ fn checkpoint_pages_keep_their_original_live_tree_and_completeness() {
     server::cleanup(&socket);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn git_diff_untracked_pages_include_every_file_and_large_line_counts() {
+    let dir = std::env::temp_dir().join(unique("gdu"));
+    let repo = dir.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "--quiet"]);
+    for index in 0..1025 {
+        write(&repo, &format!("files/{index:04}.txt"), "first\nlast");
+    }
+    // 4 MiB plus an unterminated Unicode line, after the old 200-file cutoff.
+    let mut large =
+        std::io::BufWriter::new(std::fs::File::create(repo.join("files/1024.txt")).unwrap());
+    let mut block = [b'x'; 1024];
+    block[1023] = b'\n';
+    for _ in 0..4096 {
+        large.write_all(&block).unwrap();
+    }
+    large.write_all("café 世界".as_bytes()).unwrap();
+    large.flush().unwrap();
+    drop(large);
+    let additions = 1024 * 2 + 4097;
+    let mux = Mux::new(unique("untracked-pages"), SurfaceOptions::default());
+    let socket = dir.join("s.sock");
+    server::serve(mux.clone(), Some(socket.clone())).unwrap();
+    let mut client = Client::connect(&socket);
+    let path = repo.to_string_lossy();
+    let first = client.read("git.diff", json!({"path":path,"scope":"uncommitted"}));
+    assert_eq!(first["total_files"], 1025, "{first}");
+    assert_eq!(first["additions"], additions, "{first}");
+    assert_eq!(first["files"].as_array().unwrap().len(), 500);
+    assert_eq!(first["files_omitted"], 525);
+    assert_eq!(first["untracked_skipped"], 525, "commit preview must name omitted files: {first}");
+
+    let mut names = Vec::new();
+    let mut after: Option<String> = None;
+    loop {
+        let mut params = json!({"path":path,"scope":"uncommitted","max_files":73});
+        if let Some(after) = &after {
+            params["after_path"] = json!(after);
+        }
+        let page = client.read("git.diff", params);
+        assert_eq!(page["total_files"], 1025, "{page}");
+        assert_eq!(page["additions"], additions, "{page}");
+        assert_eq!(
+            page.get("untracked_skipped").and_then(Value::as_u64).unwrap_or(0),
+            page["files_omitted"].as_u64().unwrap(),
+            "all omissions on this page are untracked: {page}",
+        );
+        for file in page["files"].as_array().unwrap() {
+            let name = file["path"].as_str().unwrap();
+            assert_eq!(file["status"], "untracked");
+            assert_eq!(file["additions"], if name.ends_with("1024.txt") { 4097 } else { 2 });
+            names.push(name.to_owned());
+        }
+        if page["files_omitted"] == 0 {
+            assert!(page.get("next_path").is_none());
+            break;
+        }
+        let next = page["next_path"].as_str().unwrap();
+        assert_ne!(after.as_deref(), Some(next));
+        after = Some(next.to_owned());
+        assert!(names.len() < 1025);
+    }
+    assert_eq!(names, (0..1025).map(|index| format!("files/{index:04}.txt")).collect::<Vec<_>>());
+    let one = client
+        .read("git.diff", json!({"path":path,"scope":"uncommitted","paths":["files/1024.txt"]}));
+    assert_eq!(one["total_files"], 1, "{one}");
+    assert_eq!(one["additions"], 4097, "{one}");
+    mux.shutdown();
+    server::cleanup(&socket);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn git_diff_untracked_large_text_and_binary_probe_keep_their_semantics() {
+    let dir = std::env::temp_dir().join(unique("gub"));
+    let repo = dir.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "--quiet"]);
+    for (name, zero_at) in [("binary.dat", 7999), ("late-zero.txt", 8000)] {
+        let mut file = std::fs::File::create(repo.join(name)).unwrap();
+        let mut prefix = [b'x'; 8001];
+        prefix[zero_at] = 0;
+        file.write_all(&prefix).unwrap();
+        for _ in 0..128 {
+            file.write_all(&[b'x'; 32 * 1024]).unwrap();
+        }
+        file.write_all(b"\nlast").unwrap();
+    }
+    write(&repo, "empty.txt", "");
+    write(&repo, "newline.txt", "one\n");
+    write(&repo, "outside.txt", "private\ncontent\n");
+    std::fs::rename(repo.join("outside.txt"), dir.join("outside.txt")).unwrap();
+    std::os::unix::fs::symlink(dir.join("outside.txt"), repo.join("link.txt")).unwrap();
+    let mux = Mux::new(unique("untracked-binary"), SurfaceOptions::default());
+    let socket = dir.join("s.sock");
+    server::serve(mux.clone(), Some(socket.clone())).unwrap();
+    let mut client = Client::connect(&socket);
+    let result =
+        client.read("git.diff", json!({"path":repo.to_string_lossy(),"scope":"uncommitted"}));
+    let files = result["files"].as_array().unwrap();
+    let find = |name: &str| files.iter().find(|file| file["path"] == name).unwrap();
+    assert_eq!(find("binary.dat")["binary"], true, "{result}");
+    assert_eq!(find("binary.dat")["additions"], 0);
+    assert!(find("late-zero.txt").get("binary").is_none(), "{result}");
+    assert_eq!(find("late-zero.txt")["additions"], 2, "{result}");
+    assert_eq!(find("empty.txt")["additions"], 0);
+    assert_eq!(find("newline.txt")["additions"], 1);
+    assert_eq!(find("link.txt")["additions"], 0, "symlink must not be followed: {result}");
+    mux.shutdown();
+    server::cleanup(&socket);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Run unchanged on base and head to compare owner-socket latency for the
+/// same supported payload. No timing assertion or recurring background work.
+#[test]
+#[ignore = "explicit before/after performance harness"]
+fn git_diff_untracked_performance() {
+    let dir = std::env::temp_dir().join(unique("gup"));
+    let repo = dir.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "--quiet"]);
+    let mut block = [b'x'; 32 * 1024];
+    block[block.len() - 1] = b'\n';
+    for index in 0..16 {
+        let mut file = std::fs::File::create(repo.join(format!("{index:02}.txt"))).unwrap();
+        for _ in 0..32 {
+            file.write_all(&block).unwrap();
+        }
+    }
+    let mux = Mux::new(unique("untracked-perf"), SurfaceOptions::default());
+    let socket = dir.join("s.sock");
+    server::serve(mux.clone(), Some(socket.clone())).unwrap();
+    let mut client = Client::connect(&socket);
+    let mut samples = Vec::new();
+    for index in 0..23 {
+        let started = Instant::now();
+        let result =
+            client.read("git.diff", json!({"path":repo.to_string_lossy(),"scope":"uncommitted"}));
+        let elapsed = started.elapsed().as_secs_f64() * 1000.0;
+        assert_eq!(result["total_files"], 16, "{result}");
+        assert_eq!(result["additions"], 512, "{result}");
+        if index >= 3 {
+            samples.push(elapsed);
+        }
+    }
+    samples.sort_by(f64::total_cmp);
+    eprintln!(
+        "UNTRACKED_PERF files=16 bytes=16777216 samples=20 p50_ms={:.3} p95_ms={:.3} p99_ms={:.3} max_ms={:.3}",
+        samples[9], samples[18], samples[19], samples[19],
+    );
+    mux.shutdown();
+    server::cleanup(&socket);
+    let _ = std::fs::remove_dir_all(&dir);
+}

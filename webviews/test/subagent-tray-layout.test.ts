@@ -8,8 +8,9 @@ test("the bottom-stack tray is flush with the composer and keeps the shared oute
   const rule = bottomStack.match(/\.acpmux-dock > \.acpmux-running-tray\s*\{([^}]*)\}/)?.[1] ?? "";
   // No bottom margin; the start and end insets match the composer's (the end one gives way to
   // --cv-inset-end where the pane sets it, #26068).
-  expect(rule).toMatch(/margin:\s*0\s+var\(--cv-inset-end,\s*var\(--cv-inset\)\)\s+0\s+var\(--cv-inset\)\s*;/);
-  expect(rule).not.toMatch(/8px/);
+  expect(rule).toMatch(/margin:\s*0\s+calc\(var\(--cv-inset-end,/);
+  expect(rule).toContain("--acpmux-tray-outset");
+  expect(rule).not.toMatch(/margin:[^;]*8px/);
 });
 
 // Leo, 2026-10-29: "why the fuck do you still have this fucking thing at the bottom of the running
@@ -25,7 +26,7 @@ test("the bottom-stack tray's floor is its one row, not the stack's taller row",
     [...rule.matchAll(/min-height:\s*([^;]+);/g)].map((match) => match[1]!.trim()),
   );
   expect(floors.at(-1)).toBe("var(--ui-row-height, var(--ds-control-row, 28px))");
-  expect(bottomStack).toMatch(
-    /\.acpmux-dock\s*>\s*\.acpmux-running-tray\[data-narrow\][^{]*\{[^}]*min-height:\s*calc\(2\s*\*\s*var\(--ui-row-height,/s,
-  );
+  // The header is one row at every width (its time follows its counts), so a narrow tray keeps the
+  // same one-row floor: no strip of glass under a folded header.
+  expect(bottomStack).not.toMatch(/\.acpmux-dock\s*>\s*\.acpmux-running-tray\[data-narrow\]/);
 });

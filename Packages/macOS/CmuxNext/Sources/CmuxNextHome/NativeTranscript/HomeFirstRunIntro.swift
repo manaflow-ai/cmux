@@ -17,7 +17,7 @@ final class HomeFirstRunIntro: NSView {
         super.init(frame: frame)
         wantsLayer = true
         layer?.cornerRadius = Self.cornerRadius
-        label.font = .systemFont(ofSize: TypeScale.detail)
+        label.font = .systemFont(ofSize: TypeScale.Base.detail)
         label.alignment = .left
         label.maximumNumberOfLines = 0
         label.isSelectable = false
@@ -41,7 +41,7 @@ final class HomeFirstRunIntro: NSView {
     func applyScale(_ scale: CGFloat) {
         guard self.scale != scale else { return }
         self.scale = scale
-        label.font = .systemFont(ofSize: TypeScale.detail * scale)
+        label.font = .systemFont(ofSize: TypeScale.Base.detail * scale)
         invalidateIntrinsicContentSize()
         needsLayout = true
     }

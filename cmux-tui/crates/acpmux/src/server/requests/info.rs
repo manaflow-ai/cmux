@@ -30,6 +30,12 @@ pub(super) async fn info(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
         && let Some(obj) = detail.as_object_mut()
     {
         obj.insert("sessionEnv".into(), json!(crate::session_env::shown(&s.meta().session_env)));
+        // The cmux workspace the chat was recorded for (`workspace_purge.rs`), so the
+        // daemon's phone relay can keep an incognito workspace's chats off a phone.
+        obj.insert("workspaceId".into(), json!(s.meta().workspace_id));
     }
+    // One message carries it whole, its largest fields trimmed if need be: a detail refused
+    // as too large is refused again on every read (`hub/reply_fit.rs`).
+    crate::hub::reply_fit::fit_reply_object(&mut detail);
     Ok(detail)
 }

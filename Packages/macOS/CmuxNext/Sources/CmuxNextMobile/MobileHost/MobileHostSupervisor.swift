@@ -29,17 +29,21 @@ public actor MobileHostSupervisor {
         public var browserHosts: (any MobileHostBrowserHosting)?
         /// This Mac's identity key, proved to phones that pinned it; nil: none.
         public var macIdentity: MobileHostMacIdentity?
-        /// The app's simulator surface sources; nil when this build cannot stream
-        /// simulators (hostd then refuses `surface`).
+        /// The app's surface sources (phone tabs' simulators, `s<n>`, and the owner's Cloud
+        /// desktops, `c~<machine>~<team>`); nil when this build streams neither (hostd then refuses `surface`).
         public var surfaceHosts: (any MobileHostSurfaceHosting)?
+        /// Current new-architecture carriers and the plan's Cloud flag; fetched for every phone request, never cached here.
+        public var cloudLinks: @Sendable () async -> MobileHostCloudLinks
 
         public init(launch: MobileHostLaunch, accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String,
                     acpmux: @escaping @Sendable () async -> (url: URL, token: String)?, log: URL?,
                     inherited: [String: String] = ProcessInfo.processInfo.environment,
                     browserHosts: (any MobileHostBrowserHosting)? = nil, macIdentity: MobileHostMacIdentity? = nil,
-                    surfaceHosts: (any MobileHostSurfaceHosting)? = nil) {
+                    surfaceHosts: (any MobileHostSurfaceHosting)? = nil,
+                    cloudLinks: (@Sendable () async -> MobileHostCloudLinks)? = nil) {
             self.macIdentity = macIdentity
             self.surfaceHosts = surfaceHosts
+            self.cloudLinks = cloudLinks ?? { MobileHostCloudLinks() }
             self.launch = launch
             self.accessToken = accessToken
             self.acpmux = acpmux
@@ -63,12 +67,22 @@ public actor MobileHostSupervisor {
     /// The last `phone_credentials` line (secrets, memory only): sent to each new hostd and on
     /// every change.
     private var phoneCredentialsLine: Data?
+    /// The last `needs_you` line (the Feed's open requests): sent to each new hostd and on every change.
+    private var needsYouLine: Data?
     private let clock: any Clock<Duration>
     private let now: @Sendable () -> Date
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mobile.cmux-mobile-host")
     private var state = MobileHostState()
     private var run: Task<Void, Never>?
     private var process: MobileHostProcess?
+    private struct ExposureWaiter {
+        var sessionID: String
+        var allowed: Bool
+        var continuation: CheckedContinuation<Void, Error>
+    }
+    private var nextExposureRequest: UInt64 = 0
+    private var exposureWaiters: [UInt64: ExposureWaiter] = [:]
+    private var exposureTimeouts: [UInt64: DemandTimer] = [:]
     /// Bumped by every start and stop; an older call that resumes late drops out.
     private var generation: UInt64 = 0
 
@@ -131,6 +145,11 @@ public actor MobileHostSupervisor {
 
     /// Ends the current run and waits for its hostd to exit.
     private func halt() async {
+        let waiters = exposureWaiters
+        exposureWaiters.removeAll()
+        exposureTimeouts.values.forEach { $0.cancel() }
+        exposureTimeouts.removeAll()
+        waiters.values.forEach { $0.continuation.resume(throwing: SessionExposureError.hostUnavailable) }
         let task = run
         run = nil
         task?.cancel()
@@ -146,6 +165,89 @@ public actor MobileHostSupervisor {
     /// Ends the live links of a phone the owner removed (hostd closes them at once).
     public func drop(phoneDeviceIDs: [String]) {
         for id in phoneDeviceIDs { process?.send(MobileHostLaunch.dropPhoneLine(id)) }
+    }
+
+    public enum SessionExposureError: Error, LocalizedError, Equatable, Sendable {
+        case hostUnavailable
+        case rejected(String)
+        case timedOut
+
+        public var errorDescription: String? {
+            switch self {
+            case .hostUnavailable: return "cmux-mobile-host is not running"
+            case let .rejected(reason): return reason
+            case .timedOut: return "cmux-mobile-host did not confirm the Remote Control change"
+            }
+        }
+    }
+
+    /// Changes one chat's Remote Control exposure and waits for the Rust host's exact state
+    /// acknowledgement. A dead host never reports success; persistence remains Rust-owned.
+    public func setSessionExposure(sessionID: String, allowed: Bool) async throws {
+        guard let process else { throw SessionExposureError.hostUnavailable }
+        let id = nextExposureRequest
+        nextExposureRequest &+= 1
+        try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                exposureWaiters[id] = ExposureWaiter(sessionID: sessionID, allowed: allowed, continuation: continuation)
+                guard process.send(MobileHostLaunch.sessionExposureLine(sessionID: sessionID, allowed: allowed)) else {
+                    exposureWaiters.removeValue(forKey: id)
+                    continuation.resume(throwing: SessionExposureError.hostUnavailable)
+                    return
+                }
+                let timeout = DemandTimer(owner: "MobileHostSupervisor.sessionExposure")
+                exposureTimeouts[id] = timeout
+                timeout.schedule(after: .seconds(3)) { [weak self] in
+                    await self?.timeoutExposureRequest(id)
+                }
+            }
+        }, onCancel: {
+            // task-owner: one actor hop resolves this cancelled request; it never waits or repeats.
+            Task { [weak self] in await self?.cancelExposureRequest(id) }
+        })
+    }
+
+    private func timeoutExposureRequest(_ id: UInt64) {
+        guard let waiter = exposureWaiters.removeValue(forKey: id) else { return }
+        exposureTimeouts.removeValue(forKey: id)?.cancel()
+        waiter.continuation.resume(throwing: SessionExposureError.timedOut)
+    }
+
+    private func cancelExposureRequest(_ id: UInt64) {
+        guard let waiter = exposureWaiters.removeValue(forKey: id) else { return }
+        exposureTimeouts.removeValue(forKey: id)?.cancel()
+        waiter.continuation.resume(throwing: CancellationError())
+    }
+
+    private func resolveExposureRequests(for event: MobileHostEvent) {
+        switch event {
+        case let .sessionExposureState(available, configured, sessions, blockedSessions):
+            let exposed = Set(sessions)
+            let blocked = Set(blockedSessions)
+            let resolved = exposureWaiters.compactMap { id, waiter in
+                (available && (waiter.allowed
+                    ? (configured ? exposed.contains(waiter.sessionID) : true)
+                    : blocked.contains(waiter.sessionID))) ? id : nil
+            }
+            for id in resolved {
+                guard let waiter = exposureWaiters[id] else { continue }
+                exposureWaiters.removeValue(forKey: id)
+                exposureTimeouts.removeValue(forKey: id)?.cancel()
+                waiter.continuation.resume()
+            }
+        case let .sessionExposureError(sessionID, allowed, reason):
+            let resolved = exposureWaiters.compactMap { id, waiter in
+                (waiter.sessionID == sessionID && waiter.allowed == allowed) ? id : nil
+            }
+            for id in resolved {
+                guard let waiter = exposureWaiters[id] else { continue }
+                exposureWaiters.removeValue(forKey: id)
+                exposureTimeouts.removeValue(forKey: id)?.cancel()
+                waiter.continuation.resume(throwing: SessionExposureError.rejected(reason))
+            }
+        default:
+            break
+        }
     }
 
     /// The phones this Mac approved: kept at once for each new hostd, and sent to the running one
@@ -169,6 +271,15 @@ public actor MobileHostSupervisor {
     public func setPhoneCredentials(_ credentials: [String: String]) {
         let line = MobileHostLaunch.phoneCredentialsLine(credentials)
         phoneCredentialsLine = line
+        process?.send(line)
+    }
+
+    /// The app Feed's open requests (#33818): kept for each new hostd and sent to the running one
+    /// now. hostd serves them to phones and pushes each one once.
+    public func setNeedsYou(_ requests: [MobileHostNeedsYouRequest]) {
+        let line = MobileHostLaunch.needsYouLine(requests)
+        guard line != needsYouLine else { return }
+        needsYouLine = line
         process?.send(line)
     }
 
@@ -281,6 +392,13 @@ public actor MobileHostSupervisor {
                 await tokens.request()
             case .needAcpmux:
                 await sendAcpmux(child, inputs: inputs)
+            case let .needCloudLinks(request):
+                // task-owner: one bounded hostd request; sends only to the child that asked.
+                // Looking up an install token must not hold up pairing or token control lines.
+                Task {
+                    let links = await inputs.cloudLinks()
+                    if let line = MobileHostLaunch.cloudLinksLine(request: request, links: links) { child.send(line) }
+                }
             case .pairRequest, .unpaired:
                 await pairingQueue.send(event)
             case let .needBrowser(request, tab, url):
@@ -301,6 +419,7 @@ public actor MobileHostSupervisor {
                 let at = now()
                 if case .online = event, onlineSince == nil { onlineSince = at }
                 publish { $0.apply(event, at: at) }
+                resolveExposureRequests(for: event)
             }
         }
     }
@@ -310,6 +429,7 @@ public actor MobileHostSupervisor {
         if let identity = inputs.macIdentity { child.send(MobileHostLaunch.macIdentityLine(identity)) }
         if let devicesLine = devicesForNextHostd() { child.send(devicesLine) }
         if let phoneCredentialsLine { child.send(phoneCredentialsLine) }
+        if let needsYouLine { child.send(needsYouLine) }
         await tokens.request()
         await sendAcpmux(child, inputs: inputs)
     }

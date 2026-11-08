@@ -96,10 +96,21 @@ final class JoinedMachineRowView: NSView {
         add.target = self
         add.action = #selector(newWorkspace)
         add.setAccessibilityLabel(AddMachineStrings.newWorkspace)
+        // The workspace action is hover chrome: keep the row quiet until the pointer or its menu
+        // asks for an action, matching the ordinary machine row.
+        add.alphaValue = 0
         more.pressMenu = { [weak self] in self?.actions.menu() }
         // A menu's tracking swallows the exit: read the pointer again once it closes.
         let present = more.presentMenu
         more.presentMenu = { [weak self] menu, button in
+            self?.heldOpen = true
+            self?.more.showsMenu = true
+            self?.reveal()
+            defer {
+                self?.heldOpen = false
+                self?.more.showsMenu = false
+                self?.reveal()
+            }
             present(menu, button)
             self?.pointerHover?.refresh()
         }
@@ -199,6 +210,7 @@ final class JoinedMachineRowView: NSView {
         spinner.spin(busy)
         more.isHidden = busy
         more.alphaValue = hovered || heldOpen ? 1 : 0
+        add.alphaValue = hovered || heldOpen ? 1 : 0
     }
 
     private func applyColors() {

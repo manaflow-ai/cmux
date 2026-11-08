@@ -225,6 +225,19 @@ export class AcpmuxPerf {
   }
 
   /** Adds `ms` to the named span of the current frame (client reduce, row derivation, a flush). */
+  /** Renders per component since `resetRenders` (tests: a streamed chunk renders only its row). */
+  readonly renders = new Map<string, number>();
+
+  /** Counts one render of `name` while measuring. */
+  render(name: string): void {
+    if (!this.enabled) return;
+    this.renders.set(name, (this.renders.get(name) ?? 0) + 1);
+  }
+
+  resetRenders(): void {
+    this.renders.clear();
+  }
+
   span(name: string, ms: number): void {
     if (!this.enabled) return;
     this.spansSinceMark.set(name, (this.spansSinceMark.get(name) ?? 0) + ms);

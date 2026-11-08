@@ -13,15 +13,16 @@ import CmuxNextSidebar
 /// tile back with its id at its place; automation adds no undo step.
 extension PinCommands {
     private var layout: SidebarLayoutService { context.services.sidebarLayout }
+    private var doc: SidebarDocument { context.services.sidebarDoc }
     private var refs: WorkspaceLayoutRefs { WorkspaceLayoutRefs(machines: context.services.machines) }
 
     /// Pins are layout tiles (not the legacy flag).
-    var pinsAreTiles: Bool { SidebarDocWiring.layoutUnavailableReason(layout) == nil }
+    var pinsAreTiles: Bool { doc.layoutUnavailableReason(layout) == nil }
 
     /// Whether `workspace` shows pinned, in the model the sidebar draws.
     func isWorkspacePinned(_ workspace: WorkspaceModel) -> Bool {
         // The sidebar document: at the top level of Pinned, or pinned inside its group (pinning-DESIGN.md).
-        if let store = SidebarDocStore.current, store.isActive, let item = SidebarDocWiring.item(workspace: workspace.id, context.services.machines) {
+        if let store = doc.store, store.isActive, let item = doc.item(workspace: workspace.id) {
             return store.records.isPinned(item: item)
         }
         guard pinsAreTiles else { return workspace.pinned }
@@ -32,8 +33,8 @@ extension PinCommands {
     /// layout ref for the workspace, the owner refuses, or no pin
     /// capability on its daemon).
     func setWorkspacePinned(_ id: String, pinned: Bool, origin: ActionOrigin) throws {
-        if let store = SidebarDocStore.current, store.isActive {
-            if let item = SidebarDocWiring.item(workspace: id, context.services.machines) {
+        if let store = doc.store, store.isActive {
+            if let item = doc.item(workspace: id) {
                 pinned ? store.pin([item], title: PinStrings.pinWorkspace) : store.unpin([item], title: PinStrings.unpinWorkspace)
                 // The document is the home daemon's: the workspace's own daemon (any session) gets the flag too.
                 return WorkspacePinFlags.live(context.services.machines).mirror([id], pinned: pinned)
@@ -46,7 +47,7 @@ extension PinCommands {
                 guard context.services.machines.workspace(id: id)?.0.pinned == true else { return }
                 return try setLegacyPinned(id, pinned: false, throughSidebar: false)
             }
-            let drag = SidebarDocWiring.docMachines(context.services.machines).drag()
+            let drag = doc.docMachines.drag()
             if let sidebar = context.activeWindow?.sidebar, drag?.adoptRef(SidebarWorkspaceID(id)) != nil {
                 return sidebar.handle(.setPinned([SidebarWorkspaceID(id)], true))
             }
@@ -73,8 +74,8 @@ extension PinCommands {
             return
         }
         let title = pinned ? PinStrings.pinWorkspace : PinStrings.unpinWorkspace
-        if let store = SidebarDocStore.current, store.isActive {
-            let items = ids.compactMap { SidebarDocWiring.item(workspace: $0, context.services.machines) }
+        if let store = doc.store, store.isActive {
+            let items = ids.compactMap { doc.item(workspace: $0) }
             if items.count == ids.count {
                 pinned ? store.pin(items, title: title) : store.unpin(items, title: title)
                 return WorkspacePinFlags.live(context.services.machines).mirror(ids, pinned: pinned)
@@ -105,7 +106,7 @@ extension PinCommands {
     /// removes it from them; its tile, if any, stays. The workspace's name
     /// is stored with the row for when it is closed.
     func toggleWorkspaceOnTop(_ id: String, origin: ActionOrigin) throws {
-        if let reason = SidebarDocWiring.layoutUnavailableReason(layout) { throw ActionFailure(message: reason) }
+        if let reason = doc.layoutUnavailableReason(layout) { throw ActionFailure(message: reason) }
         guard let ref = refs.ref(forWorkspace: id) else { throw ActionFailure(message: PinStrings.workspaceCannotPin) }
         let document = layout.document
         if let remove = document.removeFromTopOp(ref) {
@@ -121,7 +122,7 @@ extension PinCommands {
     /// there in order, labeled with its name; one undo step each. A row
     /// with no layout ref is refused.
     func dropWorkspaces(_ ids: [String], on section: LayoutSectionID, at index: Int, origin: ActionOrigin) throws {
-        if let reason = SidebarDocWiring.layoutUnavailableReason(layout) { throw ActionFailure(message: reason) }
+        if let reason = doc.layoutUnavailableReason(layout) { throw ActionFailure(message: reason) }
         var at = index
         for id in ids {
             guard let ref = refs.ref(forWorkspace: id) else { throw ActionFailure(message: PinStrings.workspaceCannotPin) }
@@ -158,7 +159,7 @@ extension PinCommands {
     /// are already gone.
     func sendLayout(_ ops: [SidebarLayoutOp], title: String, origin: ActionOrigin) throws {
         // With the sidebar document, band edits are document ops (one change, one undo step).
-        if try SidebarDocWiring.sendLayout(ops, over: layout.document, title: title, undoable: origin == .user) { return }
+        if try doc.sendLayout(ops, over: layout.document, title: title, undoable: origin == .user) { return }
         let ops = ops.filter { op in
             guard case let .itemRemove(id) = op else { return true }
             return layout.document.locate(id) != nil
@@ -190,7 +191,7 @@ extension PinCommands {
 
     /// Sends one layout change and, for the user, registers its inverse.
     func sendLayout(_ op: SidebarLayoutOp, title: String, origin: ActionOrigin) throws {
-        if try SidebarDocWiring.sendLayout([op], over: layout.document, title: title, undoable: origin == .user) { return }
+        if try doc.sendLayout([op], over: layout.document, title: title, undoable: origin == .user) { return }
         let inverse = layout.document.inverse(of: op)
         try layout.send(op)
         guard origin == .user, let inverse else { return }

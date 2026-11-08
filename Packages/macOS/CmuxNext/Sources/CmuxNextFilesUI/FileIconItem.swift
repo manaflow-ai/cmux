@@ -17,7 +17,7 @@ final class FileIconItem: NSCollectionViewItem {
         root.layer?.cornerRadius = 6
         icon.imageScaling = .scaleProportionallyUpOrDown
         icon.translatesAutoresizingMaskIntoConstraints = false
-        label.font = Typography.system(size: TypeScale.caption)
+        refreshTypography()
         label.alignment = .center
         label.maximumNumberOfLines = 2
         label.lineBreakMode = .byTruncatingMiddle
@@ -40,6 +40,7 @@ final class FileIconItem: NSCollectionViewItem {
 
     /// Shows `entry` at `size` points, starting a thumbnail when the type has one.
     func show(_ entry: FileEntry, size: CGFloat, icons: FileIconProvider) {
+        refreshTypography()
         thumbnailTask?.cancel()
         name = entry.name
         label.stringValue = entry.name
@@ -56,6 +57,11 @@ final class FileIconItem: NSCollectionViewItem {
                   !Task.isCancelled, let self, self.name == entry.name else { return }
             self.icon.image = image
         }
+    }
+
+    /// Refreshes a mounted tile without replacing its image, selection or thumbnail request.
+    func refreshTypography() {
+        label.font = Typography.system(size: TypeScale.caption)
     }
 
     override var isSelected: Bool {

@@ -22,6 +22,9 @@ public struct ArtifactPreview: View {
     @State private var shareItem: URL?
     /// A downward drag on an image at its fitted size (closes a full-screen preview).
     @State private var dismissDrag: CGFloat = 0
+    /// A loaded image, decoded once off the main thread (a dismiss drag re-renders the body
+    /// every frame; decoding there also handed the zoom view a new image each frame).
+    @State private var decodedImage: UIImage?
     @Environment(\.openURL) private var openURL
     /// Shown as a Close button when the preview is full screen (a file tapped in a
     /// chat or composer), not pushed in a browser.
@@ -38,7 +41,10 @@ public struct ArtifactPreview: View {
         self.onClose = onClose
     }
 
-    private var rendersAsWeb: Bool { artifact.kind == .html || artifact.kind == .markdown }
+    private var rendersAsWeb: Bool {
+        guard case .success(.text) = content else { return false }
+        return artifact.kind == .html || artifact.kind == .markdown
+    }
 
     /// Accessibility identifier of the view shown when the Mac refuses the
     /// file (or it can't be read): the E2E rig's non-blank end state.
@@ -167,14 +173,25 @@ public struct ArtifactPreview: View {
             }
         }
         .task(id: ArtifactLoad(artifact: artifact, attempt: attempt)) {
+            // A load replaced by another (a new artifact, a retry) is cancelled: after each
+            // wait it writes nothing, so it never overwrites the newer preview.
             do {
                 let loaded = try await source.load(artifact)
-                try Task.checkCancellation()
+                guard !Task.isCancelled else { return }
+                if case .image(let data) = loaded {
+                    let image = await Task.detached(priority: .userInitiated) {
+                        UIImage(data: data).map { $0.preparingForDisplay() ?? $0 }
+                    }.value
+                    guard !Task.isCancelled else { return }
+                    decodedImage = image
+                } else {
+                    decodedImage = nil
+                }
                 content = .success(loaded)
                 // The share copy (up to the preview limit) is written off the main actor.
                 let artifact = artifact
                 let item = await Task.detached(priority: .utility) { Self.shareItem(for: loaded, artifact: artifact) }.value
-                try Task.checkCancellation()
+                guard !Task.isCancelled else { return }
                 shareItem = item
             } catch {
                 guard !Task.isCancelled else { return }
@@ -197,8 +214,8 @@ public struct ArtifactPreview: View {
                 CodeView(text: text, language: artifact.kind == .html ? "html" : artifact.kind == .markdown ? "md" : artifact.fileExtension,
                          highlightLine: artifact.line)
             }
-        case .image(let data):
-            ZoomableImage(image: UIImage(data: data), label: "Image, \(artifact.name)", onDismissDrag: onClose.map { close in
+        case .image:
+            ZoomableImage(image: decodedImage, label: "Image, \(artifact.name)", onDismissDrag: onClose.map { close in
                 { translation, ended in
                     if ended {
                         if translation > 120 { close() } else { withAnimation(.cmuxMobileSnap) { dismissDrag = 0 } }
@@ -653,25 +670,43 @@ final class ZoomingImageScrollView: UIScrollView, UIScrollViewDelegate, UIGestur
     }
 }
 
-/// Code with a line-number gutter and syntax colors (SPEC 11.4 CodeView).
+/// Code with a line-number gutter and syntax colors (SPEC 11.4 CodeView). The text is split
+/// and highlighted once, off the main thread; rows only draw their prepared line.
 struct CodeView: View {
     let text: String
     let language: String
     var highlightLine: Int?
     @State private var wrap = false
+    @State private var prepared = PreparedLines()
+
+    struct Source: Hashable {
+        let text: String
+        let language: String
+    }
+
+    /// Highlighted lines and the source they were made from: a view reused for another
+    /// artifact shows nothing (not the previous file) until its own lines are ready.
+    struct PreparedLines {
+        var source: Source?
+        var lines: [AttributedString] = []
+
+        func lines(for current: Source) -> [AttributedString] {
+            source == current ? lines : []
+        }
+    }
 
     var body: some View {
-        let lines = text.components(separatedBy: "\n")
+        let lines = prepared.lines(for: Source(text: text, language: language))
         ScrollViewReader { proxy in
             ScrollView(wrap ? .vertical : [.vertical, .horizontal]) {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                    ForEach(lines.indices, id: \.self) { index in
                         HStack(alignment: .firstTextBaseline, spacing: 0) {
                             Text("\(index + 1)")
                                 .foregroundStyle(.tertiary)
                                 .frame(width: 40, alignment: .trailing)
                                 .padding(.trailing, 12)
-                            Text(SyntaxHighlighter.highlight(line, language: language))
+                            Text(lines[index])
                                 .fixedSize(horizontal: !wrap, vertical: true)
                         }
                         .font(.system(size: 13, design: .monospaced))
@@ -685,7 +720,20 @@ struct CodeView: View {
                 .textSelection(.enabled)
             }
             .defaultScrollAnchor(.topLeading)
-            .onAppear { if let highlightLine { proxy.scrollTo(highlightLine, anchor: .center) } }
+            .task(id: Source(text: text, language: language)) {
+                let text = text
+                let language = language
+                let highlighted = await Task.detached(priority: .userInitiated) {
+                    SyntaxHighlighter.highlightLines(text, language: language)
+                }.value
+                guard !Task.isCancelled else { return }
+                prepared = PreparedLines(source: Source(text: text, language: language), lines: highlighted)
+                if let highlightLine, highlightLine <= highlighted.count {
+                    // The rows exist now: center the referenced line.
+                    await Task.yield()
+                    proxy.scrollTo(highlightLine, anchor: .center)
+                }
+            }
         }
         .background(Color(uiColor: .secondarySystemBackground))
         .toolbar {
@@ -693,114 +741,6 @@ struct CodeView: View {
                 Toggle(isOn: $wrap) { Label("Wrap lines", systemImage: "text.word.spacing") }
             }
         }
-    }
-}
-
-/// A small tokenizer: comments, strings, numbers, keywords, types, HTML tags.
-struct SyntaxHighlighter {
-    static let keywordColor = Color(red: 0.99, green: 0.37, blue: 0.64)
-    static let stringColor = Color(red: 0.99, green: 0.42, blue: 0.36)
-    static let commentColor = Color(red: 0.42, green: 0.47, blue: 0.53)
-    static let numberColor = Color(red: 0.82, green: 0.75, blue: 0.43)
-    static let typeColor = Color(red: 0.36, green: 0.85, blue: 0.95)
-    static let tagColor = Color(red: 0.36, green: 0.85, blue: 0.95)
-
-    static let keywords: Set<String> = [
-        "func", "let", "var", "if", "else", "for", "while", "return", "import", "struct", "class", "enum", "case",
-        "switch", "match", "fn", "pub", "use", "impl", "mut", "self", "Self", "static", "public", "private", "true",
-        "false", "nil", "None", "Some", "async", "await", "try", "guard", "in", "where", "const", "type", "def",
-        "from", "export", "function", "new", "package", "name", "version", "edition", "mod", "crate", "as",
-    ]
-
-    static func highlight(_ line: String, language: String) -> AttributedString {
-        var result = AttributedString(line)
-        guard !line.isEmpty else { return result }
-        let commentPrefix = ["py", "sh", "toml", "yml", "yaml", "rb"].contains(language) ? "#" : "//"
-        if language == "html" || language == "md" {
-            return highlightMarkup(line, language: language)
-        }
-        let characters = Array(line)
-        var index = 0
-        func color(_ start: Int, _ end: Int, _ color: Color) {
-            let lower = result.index(result.startIndex, offsetByCharacters: start)
-            let upper = result.index(result.startIndex, offsetByCharacters: end)
-            result[lower..<upper].foregroundColor = color
-        }
-        while index < characters.count {
-            let rest = String(characters[index...])
-            if rest.hasPrefix(commentPrefix) || rest.hasPrefix("///") {
-                color(index, characters.count, commentColor)
-                break
-            }
-            let character = characters[index]
-            if character == "\"" || character == "'" && language != "rs" {
-                var end = index + 1
-                while end < characters.count, characters[end] != character {
-                    end += characters[end] == "\\" ? 2 : 1
-                }
-                end = min(end + 1, characters.count)
-                color(index, end, stringColor)
-                index = end
-            } else if character.isNumber {
-                var end = index
-                while end < characters.count, characters[end].isNumber || characters[end] == "." || characters[end] == "_" { end += 1 }
-                color(index, end, numberColor)
-                index = end
-            } else if character.isLetter || character == "_" || character == "#" || character == "@" {
-                var end = index + 1
-                while end < characters.count, characters[end].isLetter || characters[end].isNumber || characters[end] == "_" { end += 1 }
-                let word = String(characters[index..<end])
-                if keywords.contains(word) || word.hasPrefix("#") || word.hasPrefix("@") {
-                    color(index, end, keywordColor)
-                } else if let first = word.first, first.isUppercase {
-                    color(index, end, typeColor)
-                }
-                index = end
-            } else {
-                index += 1
-            }
-        }
-        return result
-    }
-
-    private static func highlightMarkup(_ line: String, language: String) -> AttributedString {
-        var result = AttributedString(line)
-        if language == "md" {
-            if line.hasPrefix("#") { result.foregroundColor = keywordColor }
-            else if line.hasPrefix("```") || line.hasPrefix("    ") { result.foregroundColor = stringColor }
-            else if line.hasPrefix(">") { result.foregroundColor = commentColor }
-            return result
-        }
-        let characters = Array(line)
-        var index = 0
-        while index < characters.count {
-            if characters[index] == "<" {
-                var end = index
-                while end < characters.count, characters[end] != ">" { end += 1 }
-                end = min(end + 1, characters.count)
-                let lower = result.index(result.startIndex, offsetByCharacters: index)
-                let upper = result.index(result.startIndex, offsetByCharacters: end)
-                result[lower..<upper].foregroundColor = tagColor
-                // Attribute values inside the tag.
-                var quote = index
-                while quote < end {
-                    if characters[quote] == "\"" {
-                        var close = quote + 1
-                        while close < end, characters[close] != "\"" { close += 1 }
-                        let qLower = result.index(result.startIndex, offsetByCharacters: quote)
-                        let qUpper = result.index(result.startIndex, offsetByCharacters: min(close + 1, end))
-                        result[qLower..<qUpper].foregroundColor = stringColor
-                        quote = close + 1
-                    } else {
-                        quote += 1
-                    }
-                }
-                index = end
-            } else {
-                index += 1
-            }
-        }
-        return result
     }
 }
 

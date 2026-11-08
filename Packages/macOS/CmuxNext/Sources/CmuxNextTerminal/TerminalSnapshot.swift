@@ -47,7 +47,16 @@ enum TerminalSnapshotRenderer {
 
     /// CIContext is thread-safe.
     nonisolated static func render(_ frame: SendableSurface, maxPixelSize: CGFloat) -> CGImage? {
-        let image = CIImage(ioSurface: frame.surface)
+        render(CIImage(ioSurface: frame.surface), maxPixelSize: maxPixelSize)
+    }
+
+    /// A decoded picture (a held frame from the last quit), scaled down like a presented frame.
+    nonisolated static func render(_ picture: CGImage, maxPixelSize: CGFloat) -> CGImage? {
+        guard CGFloat(max(picture.width, picture.height)) > maxPixelSize else { return picture }
+        return render(CIImage(cgImage: picture), maxPixelSize: maxPixelSize)
+    }
+
+    private nonisolated static func render(_ image: CIImage, maxPixelSize: CGFloat) -> CGImage? {
         let extent = image.extent
         let longest = max(extent.width, extent.height)
         guard longest > 0 else { return nil }

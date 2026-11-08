@@ -23,6 +23,9 @@ pub(crate) fn is_permission_ask(kind: &str) -> bool {
 enum PeerAskRun {
     Current,
     Older,
+    /// A session the peer has not listed (yet) and that is not one of this
+    /// daemon's: forged unless the peer lists it later (`held_asks.rs`).
+    Unlisted,
     Forged,
 }
 
@@ -35,9 +38,7 @@ pub(crate) const PEER_LAGGED: &str = "peer_lagged";
 
 /// Removes peer `name`'s rows from `map`, answering their summaries (for the purge notices).
 fn take_peer_rows(map: &mut super::remote_rows::RemoteRows, name: &str) -> Vec<Value> {
-    let ids: Vec<String> =
-        map.iter().filter(|(_, r)| r.peer == name).map(|(id, _)| id.clone()).collect();
-    ids.into_iter().filter_map(|id| map.remove(&id).map(|r| r.summary)).collect()
+    map.take_peer(name).into_iter().map(|(_, r)| Arc::unwrap_or_clone(r).summary).collect()
 }
 
 impl Hub {
@@ -116,7 +117,8 @@ impl Hub {
 
     /// Add (or replace) a peer. With `wait`, answer once its first connect
     /// attempt settled (connected with its sessions listed, or failed), at
-    /// most `PEER_SETTLE_BUDGET` later, so the caller's listing is real.
+    /// most `PEER_SETTLE_BUDGET` later, so the caller's listing is real, with
+    /// what the wait saw ([`Self::wait_for_peer`]); without it, Null.
     /// `peer_token`: the peer's peer token (`server/peer_auth.rs`) for a
     /// `ws://` peer; without it that peer serves this daemon as Web.
     pub async fn add_peer(
@@ -126,7 +128,7 @@ impl Hub {
         token: Option<String>,
         peer_token: Option<String>,
         wait: bool,
-    ) -> Result<(), RpcError> {
+    ) -> Result<Value, RpcError> {
         self.add_peer_lending(name, url, token, peer_token, None, wait).await
     }
 
@@ -141,7 +143,7 @@ impl Hub {
         peer_token: Option<String>,
         github_broker: Option<bool>,
         wait: bool,
-    ) -> Result<(), RpcError> {
+    ) -> Result<Value, RpcError> {
         crate::session_name::validate(name).map_err(RpcError::invalid_params)?;
         if !(url.starts_with("ws://") || url.starts_with("wss://") || url.starts_with("ssh://")) {
             return Err(RpcError::invalid_params(
@@ -205,10 +207,43 @@ impl Hub {
             self.start_peer(name, &pc)
         };
         drop(cfg);
-        if wait {
-            let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
+        if !wait {
+            return Ok(Value::Null);
         }
-        Ok(())
+        Ok(self.wait_for_peer(name, &mut settled, PEER_SETTLE_BUDGET).await)
+    }
+
+    /// What a `wait` saw of peer `name`'s connect attempt (`peer_add`, `peer_reconnect`,
+    /// `peer_lease`): whether it settled within `budget`, how long it waited, and the peer as
+    /// it is then, its state and last error with it. Before, a wait that ran out answered a
+    /// plain OK, the peer read `error: null` while its handshake went on, and the handshake's
+    /// failure came after nobody was asking (a peer link's 90 s handshake, 2026-10-30).
+    pub(crate) async fn wait_for_peer(
+        &self,
+        name: &str,
+        settled: &mut tokio::sync::watch::Receiver<u64>,
+        budget: std::time::Duration,
+    ) -> Value {
+        let started = tokio::time::Instant::now();
+        // A peer that never ran (refused at its start) or was removed meanwhile dropped its
+        // sender: no attempt settled, and the wait did not run out either (`stopped`).
+        let (done, stopped) = match tokio::time::timeout(budget, settled.changed()).await {
+            Ok(Ok(())) => (true, false),
+            Ok(Err(_)) => (false, true),
+            Err(_) => (false, false),
+        };
+        let peer = self.peer(name).map(|p| p.summary()).unwrap_or(Value::Null);
+        if stopped {
+            tracing::warn!(peer = %name, "it stopped before its connect attempt settled");
+        } else if !done {
+            tracing::warn!(peer = %name, state = %peer.get("state").unwrap_or(&serde_json::Value::Null), "its connect attempt had not settled after {}s; answering with how it is now", budget.as_secs());
+        }
+        let waited = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        let mut wait = json!({"settled": done, "waitedMs": waited, "peer": peer});
+        if stopped {
+            wait.set("stopped", Value::Bool(true));
+        }
+        wait
     }
 
     /// A config reload's saved peers' VM boundaries and GitHub lending (`catalog_reload.rs`),
@@ -252,7 +287,7 @@ impl Hub {
 
     /// `_acpmux/peer_add {name, url, token?, peerToken?, githubBroker?, wait?}`: the unix socket
     /// only (`remote_guard.rs`).
-    pub async fn add_peer_from(&self, params: &Value) -> Result<(), RpcError> {
+    pub async fn add_peer_from(&self, params: &Value) -> Result<Value, RpcError> {
         let text = |k: &str| params.get(k).and_then(Value::as_str);
         let required =
             |k: &str| text(k).ok_or_else(|| RpcError::invalid_params(format!("{k} is required")));
@@ -266,8 +301,8 @@ impl Hub {
 
     /// Reconnect a configured peer now (its daemon was restarted), without
     /// waiting out the reconnect backoff; with `wait`, answer once the
-    /// attempt settled.
-    pub async fn reconnect_peer(&self, name: &str, wait: bool) -> Result<(), RpcError> {
+    /// attempt settled, with what the wait saw ([`Self::wait_for_peer`]).
+    pub async fn reconnect_peer(&self, name: &str, wait: bool) -> Result<Value, RpcError> {
         self.reconnect_peer_with(name, wait, true).await
     }
 
@@ -281,7 +316,7 @@ impl Hub {
         name: &str,
         wait: bool,
         force: bool,
-    ) -> Result<(), RpcError> {
+    ) -> Result<Value, RpcError> {
         // Read under the config lock and held through the start: a `peer_add` or reload that
         // changes the peer (its GitHub lending) lands wholly before or after, never between.
         let cfg = self.config.read().await;
@@ -297,18 +332,21 @@ impl Hub {
             let young = crate::peer_link::LinkTimings::from_env().handshake;
             if link.keeps_on_reconnect(crate::store::now_ms(), young) {
                 drop(cfg);
-                if wait && !link.is_ready() {
-                    let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
+                if !wait {
+                    return Ok(Value::Null);
                 }
-                return Ok(());
+                if link.is_ready() {
+                    return Ok(json!({"settled": true, "waitedMs": 0, "peer": running.summary()}));
+                }
+                return Ok(self.wait_for_peer(name, &mut settled, PEER_SETTLE_BUDGET).await);
             }
         }
         let mut settled = self.start_peer(name, &peer);
         drop(cfg);
-        if wait {
-            let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
+        if !wait {
+            return Ok(Value::Null);
         }
-        Ok(())
+        Ok(self.wait_for_peer(name, &mut settled, PEER_SETTLE_BUDGET).await)
     }
 
     /// Remove a saved peer. Refused for a leased one: a lease never touches
@@ -379,10 +417,7 @@ impl Hub {
             let listed = peers.values().map(|p| (p.name.clone(), p.summary())).collect();
             (listed, peers.values().filter(|p| p.github_broker()).map(|p| p.name.clone()).collect())
         };
-        let mut counts: HashMap<String, usize> = HashMap::new();
-        for r in self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner()).values() {
-            *counts.entry(r.peer.clone()).or_default() += 1;
-        }
+        let counts = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner()).peer_counts();
         let mut v: Vec<Value> = listed
             .into_iter()
             .map(|(name, mut s)| {
@@ -482,7 +517,10 @@ impl Hub {
         summary.set("peer", Value::String(peer.to_owned()));
         // A peer from before `indicator`, `lane` or the lane's masked `step` and `title`
         // sends none: decide them here.
-        let old_lane = summary["lane"].as_object().is_some_and(|lane| !lane.contains_key("title"));
+        let old_lane = summary
+            .get("lane")
+            .and_then(Value::as_object)
+            .is_some_and(|lane| !lane.contains_key("title") || !lane.contains_key("requiresOpen"));
         if summary.get("indicator").is_none() || summary.get("lane").is_none() || old_lane {
             super::views::decide(&mut summary);
         }
@@ -520,6 +558,7 @@ impl Hub {
                 host_seq: None,
             }),
             remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
+            update_line: Default::default(),
         });
     }
 
@@ -558,6 +597,9 @@ impl Hub {
             match notice {
                 PeerNotice::Connected => {
                     tracing::info!(peer = %peer, "peer ready");
+                    // The link takes requests again: messages waiting for a peer go now, not
+                    // after the rest of their retry delay (`server/outbox.rs` `deliver`).
+                    self.outbox.peer_ready.notify_waiters();
                     // Sessions can be saved before the handshake marks the link ready.
                     // Persist its cleared outage once, without rewriting an already-clear cache.
                     if self.peer(&peer).is_some_and(|p| {
@@ -599,11 +641,10 @@ impl Hub {
                         let purged = self.with_tombstones(&peer, generation, |t| t.take());
                         let purged = purged.unwrap_or_default();
                         let mut old: HashMap<String, Value> = map
-                            .iter()
-                            .filter(|(_, r)| r.peer == peer)
-                            .map(|(id, r)| (id.clone(), r.summary.clone()))
+                            .take_peer(&peer)
+                            .into_iter()
+                            .map(|(id, r)| (id, Arc::unwrap_or_clone(r).summary))
                             .collect();
-                        map.retain(|_, r| r.peer != peer);
                         let mut changed = Vec::new();
                         for s in list {
                             let summary = Self::remote_summary(&peer, s);
@@ -623,9 +664,11 @@ impl Hub {
                         // before the lock goes: a page asked of a row read after it comes after it.
                         let created =
                             |r: &RemoteSession| r.summary.get("createdAt").and_then(Value::as_u64);
-                        let listed = map.values().filter(|r| r.peer == peer);
+                        let listed = map.of_peer(&peer).map(|(_, r)| r);
                         let listed = listed.map(|r| (r.receipt.mux_session_id.clone(), created(r)));
-                        self.peer_snapshots.listed(&peer, listed.collect(), true);
+                        if self.peer_snapshots.allows(generation) {
+                            self.peer_snapshots.listed(&peer, listed.collect(), true);
+                        }
                         (changed, old.into_values().collect::<Vec<_>>())
                     };
                     // A notice before this list may have changed a row while its
@@ -637,6 +680,8 @@ impl Hub {
                     for summary in gone {
                         self.announce_remote(&peer, summary, "purged");
                     }
+                    // Its live asks that came before this list.
+                    self.release_held_peer_asks(&peer, generation);
                 }
                 PeerNotice::SessionChanged { session, kind, seq } => {
                     let Some(mux_id) =
@@ -652,10 +697,7 @@ impl Hub {
                             }
                             // An older list of this link must not bring it back.
                             self.with_tombstones(&peer, generation, |t| t.purged(&mux_id));
-                            let key = map
-                                .iter()
-                                .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)
-                                .map(|(key, _)| key.clone());
+                            let key = map.find_mux(&peer, &mux_id).map(|(key, _)| key.clone());
                             let removed = key.and_then(|key| map.remove(&key).map(|r| r.summary));
                             // The generation the purge names (else the row's) goes from the
                             // snapshots too (`peer_snapshot.rs`), before the lock does.
@@ -679,6 +721,7 @@ impl Hub {
                                 peer: peer.clone(),
                                 summary: removed.unwrap_or_else(|| json!({"sessionId": mux_id})),
                             }),
+                            update_line: Default::default(),
                         });
                         return;
                     }
@@ -691,22 +734,28 @@ impl Hub {
                             return;
                         }
                         self.with_tombstones(&peer, generation, |t| t.changed(&mux_id));
-                        let old_id = map
-                            .iter()
-                            .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)
-                            .map(|(key, _)| key.clone());
-                        let previous =
-                            old_id.as_ref().and_then(|key| map.get(key).map(|r| r.summary.clone()));
-                        summary = Self::retain_summary_tools(summary, previous.as_ref());
-                        if let Some(old_id) = old_id {
-                            map.take(&old_id);
-                        }
+                        let old_id = map.find_mux(&peer, &mux_id).map(|(key, _)| key.clone());
+                        let previous = old_id.as_ref().and_then(|key| map.take(key));
+                        summary = Self::retain_summary_tools(
+                            summary,
+                            previous.as_ref().map(|r| &r.summary),
+                        );
                         map.insert(
                             id.clone(),
                             RemoteSession { peer: peer.clone(), summary: summary.clone(), receipt },
                         );
                         let created = summary.get("createdAt").and_then(Value::as_u64);
-                        self.peer_snapshots.listed(&peer, vec![(mux_id.clone(), created)], false);
+                        if self.peer_snapshots.allows(generation) {
+                            self.peer_snapshots.listed(
+                                &peer,
+                                vec![(mux_id.clone(), created)],
+                                false,
+                            );
+                        }
+                    }
+                    // An ask decided there before the session was listed here never comes back.
+                    if matches!(kind.as_str(), "permission_decision" | "permission_resolved") {
+                        self.held_peer_asks.forget(&peer, &mux_id, None);
                     }
                     self.save_peer_cache(&peer, generation, false);
                     let _ = self.events.send(HubEvent {
@@ -720,7 +769,11 @@ impl Hub {
                             host_seq: None,
                         }),
                         remote: Some(RemoteRef { peer: peer.clone(), summary: summary.clone() }),
+                        update_line: Default::default(),
                     });
+                    // The rest of its live asks that came before the session was listed, after
+                    // the row.
+                    self.release_held_peer_asks(&peer, generation);
                 }
                 // A prompt this daemon forwarded was taken (`outbox.rs` `PeerAccepts`).
                 PeerNotice::Notification { method: m, params, .. }
@@ -736,9 +789,8 @@ impl Hub {
                         .remote_sessions
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
-                        .values()
-                        .filter(|r| r.peer == peer)
-                        .map(|r| r.receipt.mux_session_id.clone())
+                        .of_peer(&peer)
+                        .map(|(_, r)| r.receipt.mux_session_id.clone())
                         .collect();
                     for id in ids {
                         let _ = self.events.send(HubEvent {
@@ -752,6 +804,7 @@ impl Hub {
                                 host_seq: None,
                             }),
                             remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
+                            update_line: Default::default(),
                         });
                     }
                 }
@@ -767,9 +820,8 @@ impl Hub {
                         .remote_sessions
                         .lock()
                         .unwrap()
-                        .values()
-                        .find(|r| r.peer == peer && r.receipt.mux_session_id == id)
-                        .map(|r| r.summary.clone())
+                        .find_mux(&peer, &id)
+                        .map(|(_, r)| r.summary.clone())
                         .unwrap_or(Value::Null);
                     let record = match m.as_str() {
                         method::SESSION_UPDATE => EventRecord {
@@ -810,9 +862,33 @@ impl Hub {
                                 msg: params.get("msg").cloned().unwrap_or(Value::Null),
                                 host_seq: None,
                             };
-                            if !self.peer_record_counts(&peer, &id, &record.kind, &record.msg) {
-                                tracing::warn!(peer = %peer, session = %id, "a peer's ask for a session or run that is not its own: dropped");
-                                return;
+                            // An ask held for this session that was answered meanwhile is not
+                            // shown again once the session is listed.
+                            if matches!(
+                                record.kind.as_str(),
+                                "permission_decision" | "permission_auto" | "permission_withdrawn"
+                            ) {
+                                let permission =
+                                    record.msg.get("permissionId").and_then(Value::as_str);
+                                self.held_peer_asks.forget(&peer, &id, permission);
+                            }
+                            if is_permission_ask(&record.kind) {
+                                match self.peer_ask_run(&peer, &id, &record.msg) {
+                                    PeerAskRun::Current => {}
+                                    PeerAskRun::Unlisted => {
+                                        let notice = PeerNotice::Notification {
+                                            method: m.clone(),
+                                            params,
+                                            link,
+                                        };
+                                        self.hold_peer_ask(&peer, generation, &id, notice);
+                                        return;
+                                    }
+                                    PeerAskRun::Older | PeerAskRun::Forged => {
+                                        tracing::warn!(peer = %peer, session = %id, "a peer's ask for a session or run that is not its own: dropped");
+                                        return;
+                                    }
+                                }
                             }
                             record
                         }
@@ -826,6 +902,12 @@ impl Hub {
                         method::MUX_PERMISSION_PENDING
                             if !self.peer_ask_counts(&peer, &id, &params) =>
                         {
+                            if self.peer_ask_run(&peer, &id, &params) == PeerAskRun::Unlisted {
+                                let notice =
+                                    PeerNotice::Notification { method: m.clone(), params, link };
+                                self.hold_peer_ask(&peer, generation, &id, notice);
+                                return;
+                            }
                             tracing::warn!(peer = %peer, session = %id, "a peer's pending prompt for a session or run that is not its own: dropped");
                             return;
                         }
@@ -844,6 +926,7 @@ impl Hub {
                         session_id: id,
                         record: Arc::new(record),
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
+                        update_line: Default::default(),
                     });
                 }
             }
@@ -879,11 +962,14 @@ impl Hub {
             .remote_sessions
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .any(|r| r.peer == peer && r.receipt.mux_session_id == id);
+            .find_mux(peer, id)
+            .is_some();
         let local = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).contains_key(id);
-        if !listed || local {
+        if local {
             return PeerAskRun::Forged;
+        }
+        if !listed {
+            return PeerAskRun::Unlisted;
         }
         let Some(instance) = instance else { return PeerAskRun::Older };
         if instance == self.person.instance() {
@@ -916,13 +1002,40 @@ impl Hub {
     pub fn peer_history_ask_counts(&self, peer: &str, id: &str, ask: &mut Value) -> bool {
         match self.peer_ask_run(peer, id, ask) {
             PeerAskRun::Current => true,
-            PeerAskRun::Forged => false,
+            PeerAskRun::Forged | PeerAskRun::Unlisted => false,
             PeerAskRun::Older => {
                 if let Some(ask) = ask.as_object_mut() {
                     ask.remove("decisionNonce");
                 }
                 true
             }
+        }
+    }
+
+    /// Holds peer `peer`'s live ask `notice` for session `id`, which the peer
+    /// has not listed yet (`held_asks.rs`): applied again once it does.
+    fn hold_peer_ask(
+        &self,
+        peer: &str,
+        generation: u64,
+        id: &str,
+        notice: crate::peer::PeerNotice,
+    ) {
+        tracing::info!(peer = %peer, session = %id, "a peer's ask for a session it has not listed yet: held until it does");
+        self.held_peer_asks.hold(peer, generation, id, notice);
+    }
+
+    /// Applies again peer `peer`'s held asks whose session it lists now.
+    fn release_held_peer_asks(&self, peer: &str, generation: u64) {
+        let listed = |id: &str| {
+            self.remote_sessions
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .find_mux(peer, id)
+                .is_some()
+        };
+        for notice in self.held_peer_asks.take_listed(peer, generation, listed) {
+            self.apply_peer_notice(peer, generation, notice);
         }
     }
 
@@ -1038,7 +1151,7 @@ impl Hub {
         let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
         map.values()
             .filter_map(|r| r.summary.get("name").and_then(Value::as_str))
-            .filter(|n| n.to_ascii_lowercase().contains(lower))
+            .filter(|n| crate::session_name::contains_ignore_case(n, lower))
             .map(str::to_owned)
             .collect()
     }
@@ -1056,8 +1169,7 @@ impl Hub {
         }
         let created = |r: &RemoteSession| r.summary.get("createdAt").and_then(Value::as_u64);
         let key = map
-            .iter()
-            .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux)
+            .find_mux(peer, mux)
             .filter(|(_, r)| created(r) == generation)
             .map(|(key, _)| key.clone());
         let removed = key.and_then(|key| map.take(&key));
@@ -1082,7 +1194,21 @@ impl Hub {
     }
 
     /// Capture immutable row handles under the lock, then normalize and visit outside it.
-    fn visit_remote_rows(&self, keep: impl Fn(&Value) -> bool, mut visit: impl FnMut(Value)) {
+    pub(super) fn visit_remote_rows(
+        &self,
+        keep: impl Fn(&Value) -> bool,
+        visit: impl FnMut(Value),
+    ) {
+        self.visit_remote_sessions(|r| keep(&r.summary), visit);
+    }
+
+    /// [`Self::visit_remote_rows`] of the rows `keep` takes, judged on the whole row (its peer
+    /// and receipt as well as its summary).
+    pub(super) fn visit_remote_sessions(
+        &self,
+        keep: impl Fn(&RemoteSession) -> bool,
+        mut visit: impl FnMut(Value),
+    ) {
         let states: HashMap<String, &'static str> = self
             .peers
             .lock()
@@ -1095,7 +1221,7 @@ impl Hub {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .values()
-            .filter(|r| keep(&r.summary))
+            .filter(|r| keep(r))
             .cloned()
             .collect();
         for r in rows {
@@ -1115,11 +1241,7 @@ impl Hub {
         mut visit: impl FnMut(Value),
     ) {
         for session in self.sessions() {
-            visit(if with_tools {
-                self.session_summary(&session)
-            } else {
-                self.session_list_summary(&session)
-            });
+            visit(self.cached_closed_summary(&session, with_tools));
         }
     }
 
@@ -1134,11 +1256,64 @@ impl Hub {
         );
     }
 
+    /// The live-only projection used by census requests that explicitly exclude closed rows.
+    pub(super) fn visit_live_session_summaries(
+        &self,
+        with_tools: bool,
+        mut visit: impl FnMut(Value),
+    ) {
+        for session in self.indexed_live_sessions() {
+            visit(if with_tools {
+                self.session_summary(&session)
+            } else {
+                self.session_list_summary(&session)
+            });
+        }
+        self.visit_remote_rows(
+            |row| row.get("status").and_then(Value::as_str) != Some("closed"),
+            |row| {
+                visit(if with_tools { row } else { super::views::without_summary_tools(row) });
+            },
+        );
+    }
+
+    /// The sessions with a pending permission or question, local and remote, newest first and
+    /// without tools, summarizing no other chat: `_acpmux/sessions {pendingOnly}`
+    /// (`server/list_reply.rs`). A local one is a live chat with an ask; a peer's is a row whose
+    /// `pendingPermissions` is above zero. It reads no list snapshot, so no list pace holds it:
+    /// a host mirroring 8,500 chats paced its list pages 4-9 s each, and the app's dialog list
+    /// (`cmux agents dialog list`) read every page before it found one ask.
+    pub(crate) fn pending_session_summaries(&self) -> Vec<Value> {
+        let mut rows: Vec<Value> = self
+            .indexed_live_sessions()
+            .iter()
+            .filter(|session| session.has_pending_permissions())
+            .map(|session| self.session_list_summary(session))
+            .collect();
+        self.visit_remote_rows(
+            |row| row.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0,
+            |row| rows.push(super::views::without_summary_tools(row)),
+        );
+        super::session_pages::sort_session_summaries(&mut rows);
+        rows
+    }
+
     /// Every session, local and remote, newest first.
     pub fn all_session_summaries(&self) -> Vec<Value> {
-        let mut v: Vec<Value> = self.sessions().iter().map(|s| self.session_summary(s)).collect();
+        let mut v: Vec<Value> =
+            self.sessions().iter().map(|s| self.cached_closed_summary(s, true)).collect();
         v.extend(self.remote_sessions());
         // Newest first, ties by sessionId: the order session list pages keep.
+        super::session_pages::sort_session_summaries(&mut v);
+        v
+    }
+
+    /// The index-backed projection for lookups that usually target an active chat. A miss falls
+    /// back to the closed rows in `locate` (`located_summaries`) so closed history is
+    /// still discoverable by an explicit request.
+    pub(crate) fn live_session_summaries(&self) -> Vec<Value> {
+        let mut v = Vec::new();
+        self.visit_live_session_summaries(true, |row| v.push(row));
         super::session_pages::sort_session_summaries(&mut v);
         v
     }
@@ -1257,6 +1432,35 @@ mod tests {
         peer().stop();
     }
 
+    /// A wait that runs out before the connect attempt settles says so, with the peer as it is
+    /// then, rather than answering as if it had settled.
+    #[tokio::test]
+    async fn a_wait_that_runs_out_says_it_did_not_settle() {
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        hub.add_peer_lending("m", "ws://127.0.0.1:9/m", None, None, Some(false), false)
+            .await
+            .unwrap();
+        // An attempt that never settles.
+        let (_never, mut settled) = tokio::sync::watch::channel(0);
+        let budget = std::time::Duration::from_millis(50);
+        let waited = hub.wait_for_peer("m", &mut settled, budget).await;
+        assert_eq!(waited["settled"], false, "{waited}");
+        // One whose peer is gone (its sender dropped) did not settle either.
+        let (gone, mut dropped) = tokio::sync::watch::channel(0);
+        drop(gone);
+        let quick = hub.wait_for_peer("m", &mut dropped, budget).await;
+        assert_eq!(quick["settled"], false, "{quick}");
+        assert_eq!(quick["stopped"], true, "a stopped peer read as a wait that ran out: {quick}");
+        assert!(waited.get("stopped").is_none(), "{waited}");
+        assert!(waited["waitedMs"].as_u64().unwrap() >= 50, "{waited}");
+        assert_eq!(waited["peer"]["name"], "m", "{waited}");
+        assert!(waited["peer"]["state"].is_string(), "{waited}");
+        hub.peers.lock().unwrap().get("m").cloned().unwrap().stop();
+    }
+
     /// Review of #24797 at b93f3a3: a reload read the add count outside the config lock (so
     /// mid-add, before its save), and a reconnect started a peer from a config read it had let
     /// go. Both now wait for a change in progress and see what it saved.
@@ -1370,6 +1574,18 @@ mod tests {
             }),
         );
         assert_eq!(summary["lane"]["step"], "push [GitHub Personal Access Token]", "{summary}");
+    }
+
+    #[test]
+    fn an_older_peers_agent_lane_requires_open_even_with_a_title() {
+        let summary = Hub::remote_summary(
+            "builder",
+            json!({
+                "sessionId": "child", "status": "running", "parent": "coordinator",
+                "indicator": "working", "lane": {"state": "working", "title": "Review"}
+            }),
+        );
+        assert_eq!(summary["lane"]["requiresOpen"], true);
     }
 
     #[test]

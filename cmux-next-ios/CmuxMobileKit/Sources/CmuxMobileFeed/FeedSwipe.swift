@@ -80,8 +80,9 @@ extension FeedItem {
             }
             return [decline, answer]
         case .needsInput:
-            // Answered in the terminal: the decision is opening it.
-            let answer = FeedSwipeAction(id: "answer", title: "Open", systemImage: "terminal", tint: FeedSwipeTint.read, action: open)
+            // Answered in the terminal (or on the page a Mac request links): the decision is opening it.
+            let answer = FeedSwipeAction(id: "answer", title: "Open", systemImage: link == nil ? "terminal" : "safari",
+                                         tint: FeedSwipeTint.read, action: open)
             return [done, answer]
         default:
             return [done, read]

@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use super::super::{LinkVerifier, serve_remote_entry};
 use super::*;
-use crate::fs_ops::{FS_CAPABILITY, FS_COMMANDS, FsService, Roots};
+use crate::fs_ops::{FS_CAPABILITY, FS_COMMANDS, FS_SYMLINK_COMMANDS, FsService, Roots};
 
 pub(super) fn test_mux() -> Arc<Mux> {
     let mux = Mux::new_for_test("fs-wire", crate::SurfaceOptions::default());
@@ -67,10 +67,16 @@ impl Drop for Home {
 #[test]
 fn the_gate_admits_exactly_the_seven_fs_ops() {
     let gate = FsGate;
-    for cmd in FS_COMMANDS {
+    for cmd in FS_COMMANDS.iter().chain(&FS_SYMLINK_COMMANDS) {
         assert!(gate.admit(&peer(), &json!({ "id": 1, "cmd": cmd, "path": "/x" }).to_string()));
     }
+    for cmd in crate::git_seed::GIT_SEED_COMMANDS {
+        assert!(gate.admit(&peer(), &json!({ "id": 1, "cmd": cmd, "job": "x" }).to_string()));
+    }
     for frame in [
+        r#"{"id":1,"cmd":"git.seed.cancel"}"#,
+        r#"{"id":1,"cmd":"git.seed.start","protocol":"cmux.protocol/2"}"#,
+        r#"{"id":1,"cmd":"GIT.SEED.START"}"#,
         r#"{"id":1,"cmd":"identify"}"#,
         r#"{"id":1,"cmd":"fs.trash","paths":["/x"]}"#,
         r#"{"id":1,"cmd":"fs.statx","path":"/x"}"#,
@@ -96,7 +102,7 @@ fn a_host_without_the_fs_owner_does_not_advertise_and_refuses_every_op() {
     assert!(crate::fs_ops::installed().is_none(), "tests never install the process owner");
     assert!(!super::super::advertised_capabilities(false).contains(&FS_CAPABILITY));
     assert!(!super::super::advertised_capabilities(true).contains(&FS_CAPABILITY));
-    for cmd in FS_COMMANDS {
+    for cmd in FS_COMMANDS.iter().chain(&FS_SYMLINK_COMMANDS) {
         let answer = answer_line(None, true, "owner", &json!({ "id": 7, "cmd": cmd }).to_string());
         assert_eq!(answer["id"], 7);
         assert_eq!(answer["ok"], false);
@@ -250,15 +256,18 @@ fn the_contract_request_lines_get_the_answer_shapes_cmux_cloud_reads() {
 fn routed(home: &Home, line: &str, body: &[u8]) -> (Option<()>, Vec<u8>) {
     let (daemon_side, mut client) = UnixStream::pair().unwrap();
     client.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let entry = home.entry();
+    let daemon = std::thread::spawn(move || {
+        route_first_line(&test_mux(), daemon_side, &FsGate, &peer(), entry).map(drop)
+    });
     let mut sent = home.map(line).into_bytes();
     sent.push(b'\n');
     sent.extend_from_slice(body);
     client.write_all(&sent).unwrap();
     client.shutdown(std::net::Shutdown::Write).unwrap();
-    let left = route_first_line(&test_mux(), daemon_side, &FsGate, &peer(), home.entry()).map(drop);
     let mut output = Vec::new();
     let _ = client.read_to_end(&mut output);
-    (left, output)
+    (daemon.join().unwrap(), output)
 }
 
 #[test]
@@ -278,6 +287,58 @@ fn a_dial_whose_first_line_is_a_stream_is_served_raw() {
     assert_eq!(lines[0]["data"]["ready"], true);
     assert_eq!(lines[1]["data"]["entry"]["size"], 5);
     assert_eq!(std::fs::read(home.path.join("up.bin")).unwrap(), b"hello");
+}
+
+#[test]
+fn file_stream_roundtrips_binary_mebibytes_and_cleans_an_interrupted_write() {
+    let home = Home::new("large-stream");
+    let bytes: Vec<u8> = (0..8 * 1024 * 1024).map(|i| (i % 251) as u8).collect();
+    let write = json!({ "id": 1, "cmd": "fs.write", "path": "/home/cmux/up.bin",
+        "mode": "create", "stream": true, "size": bytes.len() })
+    .to_string();
+    let (left, output) = routed(&home, &write, &bytes);
+    assert!(left.is_none());
+    let replies: Vec<Value> = output
+        .split(|b| *b == b'\n')
+        .filter(|l| !l.is_empty())
+        .map(|l| serde_json::from_slice(l).unwrap())
+        .collect();
+    assert_eq!(replies[0]["data"]["ready"], true);
+    assert_eq!(replies[1]["data"]["entry"]["size"], bytes.len());
+    let (_, output) =
+        routed(&home, r#"{"id":2,"cmd":"fs.read","path":"/home/cmux/up.bin","stream":true}"#, &[]);
+    let mut output = BufReader::new(output.as_slice());
+    let mut line = String::new();
+    output.read_line(&mut line).unwrap();
+    let header: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(header["data"]["length"], bytes.len());
+    let mut received = vec![0u8; bytes.len()];
+    output.read_exact(&mut received).unwrap();
+    assert_eq!(received, bytes);
+    line.clear();
+    output.read_line(&mut line).unwrap();
+    let end: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(end["ok"], true);
+    assert_eq!(end["data"]["revision"], header["data"]["revision"]);
+
+    let interrupted = write.replace("up.bin", "partial.bin");
+    let (_, output) = routed(&home, &interrupted, &bytes[..4 * 1024 * 1024]);
+    assert!(String::from_utf8(output).unwrap().contains("\"ready\":true"));
+    assert!(!home.path.join("partial.bin").exists());
+    assert_eq!(std::fs::read_dir(&home.path).unwrap().count(), 1, "no temporary remains");
+}
+
+#[test]
+fn file_stream_above_64_gib_checks_the_write_mode_instead_of_refusing_its_size() {
+    let home = Home::new("uncapped-stream");
+    let line = json!({ "id": 1, "cmd": "fs.write", "path": "/home/cmux/up.bin",
+        "mode": "invalid", "stream": true, "size": 64u64 * 1024 * 1024 * 1024 + 1 });
+    let (left, output) = routed(&home, &line.to_string(), &[]);
+    assert!(left.is_none());
+    let answer: Value = serde_json::from_slice(&output).unwrap();
+    assert_eq!(answer["error_code"], "params.invalid", "{answer}");
+    assert!(answer["error"].as_str().unwrap().contains("mode"));
+    assert!(std::fs::read_dir(&home.path).unwrap().next().is_none());
 }
 
 #[test]
@@ -382,4 +443,63 @@ fn the_fs_hook_refuses_on_a_poisoned_registry_lock() {
         panic!("poisons the registry lock for a fail-closed test");
     }));
     assert_eq!(fs_stat_code(&mux, client), "fs.permission_denied");
+}
+
+/// `fs-symlink-v1`: a relative symlink that stays inside the root is made
+/// (never over anything) and read back as written, never followed; a target
+/// that is absolute or climbs out of the root, counted from where the link's
+/// folder really is, is refused and nothing is made.
+#[test]
+fn a_symlink_is_made_inside_the_root_and_one_leaving_it_is_refused() {
+    let home = Home::new("symlink");
+    let service = home.service();
+    let root = home.path.display().to_string();
+    std::fs::create_dir_all(home.path.join("work/app/src")).unwrap();
+    std::fs::write(home.path.join("work/app/src/a.txt"), "a").unwrap();
+    std::fs::write(home.path.join("x"), "x").unwrap();
+    let call = |cmd: &str, params: Value| service.call("owner", cmd, params);
+
+    let made = call("fs.symlink", json!({"path": format!("{root}/work/app/lib"), "target": "src"}))
+        .unwrap();
+    assert_eq!(made["entry"]["kind"], "symlink", "{made}");
+    assert_eq!(
+        std::fs::read_link(home.path.join("work/app/lib")).unwrap(),
+        std::path::Path::new("src")
+    );
+    let read = call("fs.readlink", json!({"path": format!("{root}/work/app/lib")})).unwrap();
+    assert_eq!(read["target"], "src");
+    assert!(read["revision"].as_str().is_some());
+    // Never over what is there.
+    let again = call("fs.symlink", json!({"path": format!("{root}/work/app/lib"), "target": "x"}));
+    assert_eq!(again.unwrap_err().code(), "fs.exists");
+    // Up to the root is fine; past it is not, nor an absolute target.
+    call("fs.symlink", json!({"path": format!("{root}/work/app/up"), "target": "../../work"}))
+        .unwrap();
+    for target in ["../../../etc", "/etc", "", "a\nb"] {
+        let path = format!("{root}/work/app/bad");
+        let refused = call("fs.symlink", json!({"path": path, "target": target}));
+        assert!(refused.is_err(), "{target:?} was made");
+        assert!(std::fs::symlink_metadata(home.path.join("work/app/bad")).is_err());
+    }
+    // Counted from where the folder is after the links on the way: `up`
+    // is the home's `work`, one below the root.
+    let through = format!("{root}/work/app/up/bad");
+    assert_eq!(
+        call("fs.symlink", json!({"path": through, "target": "../../x"})).unwrap_err().code(),
+        "fs.permission_denied"
+    );
+    call("fs.symlink", json!({"path": format!("{root}/work/app/up/ok"), "target": "../x"}))
+        .unwrap();
+    // A target that climbs out through another link is taken away again,
+    // and so is one naming nothing.
+    call("fs.symlink", json!({"path": format!("{root}/alias"), "target": "."})).unwrap();
+    let leak = call("fs.symlink", json!({"path": format!("{root}/leak"), "target": "alias/../x"}));
+    assert_eq!(leak.unwrap_err().code(), "fs.permission_denied");
+    assert!(std::fs::symlink_metadata(home.path.join("leak")).is_err());
+    let gone = call("fs.symlink", json!({"path": format!("{root}/gone"), "target": "nothing"}));
+    assert!(gone.is_err());
+    assert!(std::fs::symlink_metadata(home.path.join("gone")).is_err());
+    // A file is not a symlink to read.
+    let file = call("fs.readlink", json!({"path": format!("{root}/work/app/src/a.txt")}));
+    assert!(file.is_err());
 }

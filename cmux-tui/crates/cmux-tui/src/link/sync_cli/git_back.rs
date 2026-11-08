@@ -29,10 +29,6 @@ use sha2::{Digest as _, Sha256};
 use super::remote::Remote;
 use super::{Manifest, names};
 
-/// Most bytes one object file or pack of the machine may have; streamed to
-/// disk, never held in memory.
-const MAX_OBJECT_BYTES: u64 = 4 << 30;
-
 /// The git state of a working copy, as a push records it and a pull
 /// compares it.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -346,7 +342,7 @@ fn object_id(text: &str) -> anyhow::Result<String> {
 
 /// Makes the quarantine: an empty bare repository of this command's own,
 /// whose object store borrows this repository's.
-fn quarantined(quarantine: &Path, common_dir: &Path) -> anyhow::Result<()> {
+pub(super) fn quarantined(quarantine: &Path, common_dir: &Path) -> anyhow::Result<()> {
     let format = output(
         Command::new("git").arg("-C").arg(common_dir).args(["rev-parse", "--show-object-format"]),
     )?
@@ -403,7 +399,7 @@ fn copy_objects(
             std::fs::create_dir_all(target.parent().context("no parent")?)?;
             let mut out = std::fs::File::create(&target)?;
             let source = format!("{objects}/{relative}");
-            if remote.read_into(&source, &mut out, MAX_OBJECT_BYTES)?.is_none() {
+            if remote.read_into(&source, &mut out)?.is_none() {
                 drop(out);
                 std::fs::remove_file(&target)?;
                 continue;
@@ -469,14 +465,14 @@ fn set_ref(quarantine: &Path, name: &str, id: &str) -> anyhow::Result<()> {
 }
 
 /// git in the working copy at `folder`, with the person's own settings.
-fn local(folder: &Path) -> Command {
+pub(super) fn local(folder: &Path) -> Command {
     let mut command = Command::new("git");
     command.arg("-C").arg(folder);
     command
 }
 
 /// git in the quarantine, with no global or system settings.
-fn quarantine_git(quarantine: &Path) -> Command {
+pub(super) fn quarantine_git(quarantine: &Path) -> Command {
     let mut command = clean(Command::new("git"));
     command.arg("--git-dir").arg(quarantine);
     command
@@ -495,7 +491,7 @@ fn clean(mut command: Command) -> Command {
 }
 
 /// The command's stdout, or an error with its stderr.
-fn checked(command: &mut Command) -> anyhow::Result<Vec<u8>> {
+pub(super) fn checked(command: &mut Command) -> anyhow::Result<Vec<u8>> {
     let output = command.output().context("cannot run git")?;
     if !output.status.success() {
         bail!("git: {}", String::from_utf8_lossy(&output.stderr).trim());

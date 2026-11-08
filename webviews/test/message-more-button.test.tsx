@@ -37,7 +37,7 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
 const { TurnFooter } = await import("../src/agent-session/acpmux/conversation/TurnRows");
-const { installMessageMenuReporter, messageMenuTarget, setMessageMenuSource } =
+const { installMessageMenuReporter, messageMenuTarget, openForkMenu, openMessageMenu, setMessageMenuSource } =
   await import("../src/agent-session/acpmux/conversation/messageMenu");
 
 const prompt: AcpmuxRow = { id: "prompt", version: 1, at: 1, kind: "user", text: "Make the chart" };
@@ -49,7 +49,9 @@ const footer: AcpmuxRow = { ...summary, text: answer.text, answerId: answer.id }
 
 const doc = dom.window.document;
 const reports: Record<string, unknown>[] = [];
-installMessageMenuReporter(doc, () => ({ postMessage: (body) => reports.push(body as Record<string, unknown>) }));
+const handler = () => ({ postMessage: (body: unknown) => reports.push(body as Record<string, unknown>) });
+let removeReporter = installMessageMenuReporter(doc, handler);
+afterAll(() => removeReporter());
 setMessageMenuSource((rowId) => messageMenuTarget(snapshot, rowId));
 
 const root = createRoot(doc.getElementById("root")!);
@@ -88,6 +90,58 @@ test("an answer's turn footer has More, which reports the answer as its right-cl
   expect(report).toMatchObject({ text: "Here is the chart.", markdown: "Here is **the chart**." });
   const { popUp } = report;
   expect(popUp).toBeDefined();
+  expect(button!.hasAttribute("data-popup-open")).toBe(true);
+  expect(typeof report.popupId).toBe("string");
+  doc.defaultView!.dispatchEvent(new dom.window.CustomEvent("cmux-message-menu-closed", { detail: report.popupId }));
+  expect(button!.hasAttribute("data-popup-open")).toBe(false);
+});
+
+test("a stale native dismissal cannot clear a newer More menu", async () => {
+  const button = more(footer.id, ".cv-turn-actions")!;
+  const first = (await press(button))!;
+  const second = (await press(button))!;
+  expect(second.popupId).not.toBe(first.popupId);
+  doc.defaultView!.dispatchEvent(new dom.window.CustomEvent("cmux-message-menu-closed", { detail: first.popupId }));
+  expect(button.hasAttribute("data-popup-open")).toBe(true);
+  doc.defaultView!.dispatchEvent(new dom.window.CustomEvent("cmux-message-menu-closed", { detail: second.popupId }));
+  expect(button.hasAttribute("data-popup-open")).toBe(false);
+});
+
+test("Option-click Fork keeps its opener lit until the host closes the destination menu", () => {
+  const button = more(footer.id, ".cv-turn-actions")!;
+  expect(openForkMenu(9, button)).toBe(true);
+  const report = reports.at(-1)!;
+  expect(report.forkDestinations).toBe(9);
+  expect(typeof report.popupId).toBe("string");
+  expect(button.hasAttribute("data-popup-open")).toBe(true);
+  doc.defaultView!.dispatchEvent(new dom.window.CustomEvent("cmux-message-menu-closed", { detail: report.popupId }));
+  expect(button.hasAttribute("data-popup-open")).toBe(false);
+});
+
+test("a host refusal clears the opener immediately", () => {
+  removeReporter();
+  const remove = installMessageMenuReporter(doc, () => ({
+    postMessage: () => {
+      throw new Error("unavailable");
+    },
+  }));
+  const button = more(footer.id, ".cv-turn-actions")!;
+  expect(openMessageMenu(answer.id, button)).toBe(false);
+  expect(button.hasAttribute("data-popup-open")).toBe(false);
+  remove();
+  removeReporter = installMessageMenuReporter(doc, handler);
+});
+
+test("reporter teardown clears the open marker", async () => {
+  removeReporter();
+  const remove = installMessageMenuReporter(doc, () => ({ postMessage: () => {} }));
+  const button = more(footer.id, ".cv-turn-actions")!;
+  expect(openMessageMenu(answer.id, button)).toBe(true);
+  expect(button.hasAttribute("data-popup-open")).toBe(true);
+  remove();
+  expect(button.hasAttribute("data-popup-open")).toBe(false);
+  expect(openMessageMenu(answer.id, button)).toBe(false);
+  removeReporter = installMessageMenuReporter(doc, handler);
 });
 
 test("a footer with no answer has no More", async () => {

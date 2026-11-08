@@ -49,7 +49,7 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
                 userAsked = false
                 return installIfStaged()
             case .downloading, .checking:
-                // Installs once staged; the progress shows meanwhile.
+                // Installs once staged; the check or the download's progress shows meanwhile.
                 installRequested = true
                 userAsked = true
                 return []
@@ -62,7 +62,7 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
                 return []
             }
         case .downloadRequested:
-            // The answer to the update-found step: download, show the progress, then ask again
+            // The answer to the update-found step: download, show its progress, then ask again
             // before the relaunch (the staged update card). A held install click keeps its install.
             guard case .available = phase else { return [] }
             userAsked = true
@@ -131,9 +131,16 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
     }
 
     /// The notice card's update status, or nil: what the user asked for (a
-    /// check, its download, its result), and a found update that waits for
-    /// a click (`updates.downloadAutomatically` off), which needs no check.
-    /// A scheduled check, its download and its result show nothing.
+    /// check, its download's progress, its result), and a found update that
+    /// waits for a click (`updates.downloadAutomatically` off), which needs no
+    /// check. A download the person asked for (Download, Update) shows its
+    /// progress here until it is staged (Leo 2026-11-04: "there's no more
+    /// updating downloading progress bar for some reason? after i download...");
+    /// Settings > Updates shows it too (``UpdaterService/settingsStatus``).
+    /// A scheduled check, its download and its result show nothing: a background
+    /// download stays quiet and the staged update's one-step card asks to restart
+    /// (Leo 2026-11-03, after ChatGPT: "it's already downloaded you click this
+    /// button to accept the button and restart").
     /// A staged update is never this card (the staged update card,
     /// ``footerPill(preferences:)``); an install shows here only when the
     /// person followed it here (Attempt Update), so the loading card never

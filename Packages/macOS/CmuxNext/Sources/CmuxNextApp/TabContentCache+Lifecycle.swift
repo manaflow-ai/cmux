@@ -14,11 +14,6 @@ import CmuxNextBrowser
 /// current. That is what keeps a late completion from hiding, showing or
 /// reparenting the view of a newer selection.
 extension TabContentCache {
-    /// Drops terminal surfaces whose tabs no longer exist.
-    func prune(liveTabs: Set<String>) {
-        for key in terminals.keys where !liveTabs.contains(key) { release(key) }
-    }
-
     // MARK: Presentation
 
     /// `presenter` shows `key` (its view is, or is about to be, in the
@@ -26,12 +21,14 @@ extension TabContentCache {
     func present(_ key: String, by presenter: any SurfacePresenter, presence: SurfacePresence) {
         let owner = ObjectIdentifier(presenter)
         presenters[owner] = WeakPresenter(value: presenter)
+        withdrawnBy[key] = nil
         apply(ledger.present(key, by: owner, presence: presence))
     }
 
     /// `presenter` stopped showing `key`. Ignored when another presenter
     /// took it meanwhile (the tab moved there).
     func withdraw(_ key: String, by presenter: any SurfacePresenter) {
+        if ledger.owner(of: key) == ObjectIdentifier(presenter) { withdrawnBy[key] = WeakPresenter(value: presenter) } // only its owner's withdraw counts: a closing pane still holds the release
         apply(ledger.withdraw(key, by: ObjectIdentifier(presenter)))
     }
 

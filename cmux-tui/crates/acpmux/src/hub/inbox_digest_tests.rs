@@ -5,9 +5,11 @@ use super::*;
 impl PromptRun {
     fn clone_run(&self) -> PromptRun {
         PromptRun {
+            size: Default::default(),
             blocks: self.blocks.clone(),
             display_parts: self.display_parts.clone(),
             control: self.control,
+            cloud_mobile: self.cloud_mobile,
             trust_gate: self.trust_gate,
             provenance: self.provenance.clone(),
             agent: self.agent.clone(),
@@ -28,6 +30,7 @@ fn part(prompt_id: &str, name: &str, class: Class, at: u64, text: &str) -> Part 
         class,
         received_at: at,
         text: text.into(),
+        notice: None,
     }
 }
 
@@ -110,9 +113,11 @@ fn an_fyi_is_its_first_line_up_to_160_characters() {
 /// A queue entry as `enqueue` makes it, from `agent` when given, of `class`.
 fn queued(prompt_id: &str, agent: Option<&str>, class: Option<Class>, text: &str) -> QueuedPrompt {
     let run = PromptRun {
+        size: Default::default(),
         blocks: vec![json!({"type": "text", "text": text})],
         display_parts: None,
         control: Control::Local,
+        cloud_mobile: false,
         trust_gate: false,
         provenance: None,
         agent: agent.map(str::to_owned),
@@ -134,6 +139,9 @@ fn queued(prompt_id: &str, agent: Option<&str>, class: Option<Class>, text: &str
         resume: false,
         steer: false,
         held: false,
+        awaiting_owner: false,
+        revision: 0,
+        declined: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         sent_now: false,
         joined: Arc::new(StdMutex::new(None)),
         requeued: false,
@@ -229,4 +237,18 @@ fn a_renamed_sender_still_folds_and_groups_by_its_address() {
     assert_eq!(text.matches("### from ").count(), 1, "{text}");
     assert_eq!(text.matches("\n\n[result]").count(), 2, "{text}");
     assert!(text.contains("promptId p2 (×2)"), "{text}");
+}
+
+/// A tool's notice in a digest keeps its structure on its part (`prompt_provenance::notice`).
+#[test]
+fn a_digest_part_keeps_its_tools_notice() {
+    let notice = json!({"sender": "base-red-watch", "severity": "fire", "title": "t"});
+    let mut fire = part("p-1", "base-red-watch", Class::Block, 1, "red");
+    fire.notice = Some(notice.clone());
+    let plain = part("p-2", "lane", Class::Result, 2, "merged");
+    let rendered = render("d-1", &[fire, plain]);
+    let parts = rendered.provenance["parts"].as_array().unwrap();
+    let by_id = |id: &str| parts.iter().find(|p| p["promptId"] == id).unwrap();
+    assert_eq!(by_id("p-1")["notice"], notice);
+    assert!(by_id("p-2").get("notice").is_none());
 }

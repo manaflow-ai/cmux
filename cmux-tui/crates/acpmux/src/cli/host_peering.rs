@@ -201,6 +201,22 @@ pub(crate) async fn peer_step(
     };
     let settle = |reply: Result<Value>| match reply {
         Err(e) => fail(format!("the local daemon refused {name} at {url}: {e}")),
+        // The peer stopped (it was removed, or never started) before its attempt settled.
+        Ok(reply) if reply.pointer("/wait/stopped") == Some(&Value::Bool(true)) => fail(format!(
+            "{name} at {url} stopped before it connected{}",
+            last_error(reply.pointer("/wait/peer").unwrap_or(&Value::Null))
+        ))
+        .with_fix("`acpmux host ls` shows whether it is still configured; add it again if not."),
+        // The daemon's wait ran out before the attempt settled (`Hub::wait_for_peer`): say how
+        // far it got, not "does not connect" with no reason.
+        Ok(reply) if reply.pointer("/wait/settled") == Some(&Value::Bool(false)) => {
+            let p = reply.pointer("/wait/peer").unwrap_or(&Value::Null);
+            let handshaking = p.get("handshaking") == Some(&Value::Bool(true));
+            let step = if handshaking { "in its handshake" } else { "connecting" };
+            let secs = reply["wait"]["waitedMs"].as_u64().unwrap_or(0) / 1000;
+            fail(format!("{name} at {url} is still {step} after {secs}s{}", last_error(p)))
+                .with_fix("Check again in a minute; `acpmux host ls` shows when it connects.")
+        }
         Ok(reply) => match named(&list(&reply), name) {
             Some(p) if connected(p) => {
                 result(Step::Peer, StepState::Fixed, format!("{name} at {url}, connected"))

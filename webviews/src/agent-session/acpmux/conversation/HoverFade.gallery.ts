@@ -52,7 +52,7 @@ const pointAt =
   };
 
 /// Another agent's message the agent has not read yet, from a chat here, in the group of messages
-/// that wait (opened): Reply, its age, Copy, Pin and ⋯ in its line's plate on hover.
+/// that wait (opened): Reply, its age and ⋯ in its line's plate on hover.
 const received = () =>
   chat(
     [
@@ -81,9 +81,10 @@ const received = () =>
     { isWorking: true },
   );
 const RECEIVED_LINE = ".cv-received > .cv-disclosure__line";
-/// Opens the group of waiting messages, which shows collapsed (PendingMessagesCard.tsx).
+/// Opens the group of waiting messages, which shows collapsed (PendingMessagesCard.tsx); one waiting
+/// message is its own line, with no group to open.
 const openWaiting: Play = async (ctx) => {
-  await ctx.click({ selector: ".cv-pending__toggle" });
+  if (ctx.document.querySelector(".cv-pending__toggle")) await ctx.click({ selector: ".cv-pending__toggle" });
   await ctx.waitFor(() => ctx.document.querySelector(RECEIVED_LINE));
 };
 
@@ -123,12 +124,12 @@ export default agentPaneEntry({
   ],
   variants: {
     received: {
-      note: "Another agent's waiting message, its group opened, pointed at: Reply, its age, Copy, Pin and ⋯ in the line's plate.",
+      note: "Another agent's waiting message, its group opened, pointed at: Reply, its age and ⋯ in the line's plate. No Pin and no hover Copy on another session's message; its name opens its chat.",
       snapshot: received(),
       play: pointAt(RECEIVED_LINE, { before: openWaiting }),
     },
     "received-fading-in": {
-      note: "The same line caught partway into its fade in: Reply comes in faint with the rest of the row, as the age, Copy and Pin always did. Before, it blinked in at full strength.",
+      note: "The same line caught partway into its fade in: Reply comes in faint with the rest of the row, as the age always did. Before, it blinked in at full strength.",
       snapshot: received(),
       play: pointAt(RECEIVED_LINE, { caught: true, before: openWaiting }),
     },

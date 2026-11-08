@@ -107,10 +107,9 @@ await requireBrowserLane("agent-pane-subagent-of-untitled.test.ts", async () => 
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(session));
     await page.getByText("The review is in.").waitFor({ timeout: 25_000 });
-    // The line the subagent left where it ended opens its view (subagents/SubagentDoneLine.tsx). A
-    // finished turn folds its work, that line with it (turns.ts foldSegments), so open the fold first.
-    await page.locator("button.cv-worked").click();
-    await page.locator(".cv-subagent-done", { hasText: "Reviewer" }).click();
+    // The finished line opens its view and names the task before the agent's name (#33252).
+    // A finished Claude turn keeps the line in sight, with no Worked for to open.
+    await page.locator(".cv-subagent-done", { hasText: "Review the uploader branch" }).click();
     await page.locator(".cv-subagent-of").waitFor({ timeout: 5_000 });
     const parent = (await page.locator(".cv-subagent-of__parent").textContent())?.trim();
     const pill = (await page.locator(".cv-subagent-of__pill").innerText()).replace(/\s+/g, " ").trim();

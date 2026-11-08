@@ -13,10 +13,17 @@ export const actorOf = (createdBy: string): Option.Option<Principal["actor"]> =>
   return Option.none();
 };
 
-/** A policy publication requires fresh membership; expired/revoked keys never own live access. */
-export const ownerStillValid = (tenantId: Principal["tenantId"], actor: Principal["actor"], fresh = false) => Effect.gen(function* () {
-  if (actor.kind === "session") return yield* (yield* TeamMembership).isMember(tenantId, actor.userId, { fresh }).pipe(Effect.mapError(() => unavailable()));
-  if (actor.kind === "service") return false;
+/** A live owner and its known expiry; None refuses, Some(null) has no known deadline. */
+export const ownerLease = (tenantId: Principal["tenantId"], actor: Principal["actor"], fresh = false) => Effect.gen(function* () {
+  if (actor.kind === "session") {
+    const active = yield* (yield* TeamMembership).isMember(tenantId, actor.userId, { fresh }).pipe(Effect.mapError(() => unavailable()));
+    return active ? Option.some<number | null>(null) : Option.none<number | null>();
+  }
+  if (actor.kind === "service") return Option.none<number | null>();
   const key = yield* (yield* ApiKeyStore).findActiveById(tenantId, actor.keyId, new Date(yield* Clock.currentTimeMillis)).pipe(Effect.mapError(() => unavailable()));
-  return Option.isSome(key);
+  return Option.map(key, (held) => held.expiresAt === null ? null : held.expiresAt.getTime());
 });
+
+/** A policy publication requires fresh membership; expired/revoked keys never own live access. */
+export const ownerStillValid = (tenantId: Principal["tenantId"], actor: Principal["actor"], fresh = false) =>
+  ownerLease(tenantId, actor, fresh).pipe(Effect.map(Option.isSome));

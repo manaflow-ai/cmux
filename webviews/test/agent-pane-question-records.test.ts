@@ -274,11 +274,24 @@ await requireBrowserLane("agent-pane-question-records.test.ts", async () => {
     const live = page.locator(".cv-worked.is-below .cv-thinking", { hasText: "Read auth.ts" });
     await live.waitFor({ timeout: 5_000 });
     const line = await live.boundingBox();
-    // Done, it is the read's own row, under the record too.
+    // Done, the line holds it until the next step (Leo, 2026-11-01: "it should just keep going");
+    // once the next call runs, the read is its own row, under the record too.
     push([
       "in",
       "tool_call_update",
       update({ sessionUpdate: "tool_call_update", toolCallId: "read-auth", status: "completed" }),
+    ]);
+    push([
+      "in",
+      "tool_call",
+      update({
+        sessionUpdate: "tool_call",
+        toolCallId: "read-routes",
+        title: "Read src/routes.ts",
+        kind: "read",
+        status: "in_progress",
+        rawInput: { file_path: "src/routes.ts" },
+      }),
     ]);
     const after = page.locator(".cv-tool__text", { hasText: "Read src/auth.ts" }).first();
     await after.waitFor({ timeout: 5_000 });

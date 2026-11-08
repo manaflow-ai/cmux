@@ -164,6 +164,9 @@ enum SidebarStrings {
     static var showAlerts: String { s("sidebar.menu.showAlerts", "Show Alerts") }
     static var delete: String { s("sidebar.menu.delete", "Delete Conversation…") }
     static var noResults: String { s("sidebar.noResults", "No Results") }
+    /// cmux: the empty list under the Unread filter, and its button that shows every chat again.
+    static var noUnread: String { s("sidebar.noUnread", "No Unread Chats") }
+    static var showAll: String { s("sidebar.showAll", "Show All") }
     static var conversations: String { s("sidebar.list", "Conversations") }
     static var pinned: String { s("sidebar.pinned", "Pinned") }
     static var typing: String { s("sidebar.typing", "Typing") }

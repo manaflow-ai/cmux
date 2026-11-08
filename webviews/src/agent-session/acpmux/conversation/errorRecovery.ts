@@ -12,16 +12,20 @@ import { isFailed } from "./turns";
 /// its own), `retry` when nothing ran. `run` settles with the note a refusal leaves on the card.
 export type ErrorRecovery = { label: "continue" | "retry"; run: () => Promise<RetryNote | undefined> };
 
-/// The failed turn's way on, or undefined: a sign-in or trust failure would fail the same way again
+/// The failed turn's way on, or undefined: a trust failure would fail the same way again
 /// (failureCopy.ts `failureRecovery`), and a chat that cannot send now (View Only, disconnected)
-/// has no action. acpmux's own turn retry (turnRetry.ts) goes first: it continues a turn the model
+/// has no action. A sign-in failure has none here either: the palette, CLI and MCP command runs this
+/// directly, with no login before it, so it would fail the same way (`signInRetry` is the card's).
+/// acpmux's own turn retry (turnRetry.ts) goes first: it continues a turn the model
 /// had started and reruns one where nothing ran, so the label only says which of the two it is.
 export function errorRecovery(
   row: AcpmuxRow,
   route: FailureRoute | undefined,
   actions: Pick<TurnActions, "resume" | "retry" | "retryFailed">,
 ): ErrorRecovery | undefined {
-  if (!isFailed(row) || failureRecovery(failureKind(row.error, route, row.errorCode)) === undefined) return undefined;
+  if (!isFailed(row)) return undefined;
+  const way = failureRecovery(failureKind(row.error, route, row.errorCode));
+  if (way === undefined || way === "sign-in") return undefined;
   const { resume, retry, retryFailed } = actions;
   const label = row.continuable ? "continue" : "retry";
   if (retryFailed && row.retryable) return { label, run: () => retryFailed(row.retryRowId, row.prompt) };
@@ -56,4 +60,19 @@ export function lastFailedTurn(rows: readonly AcpmuxRow[]): AcpmuxRow | undefine
     if (row.kind === "turnSummary") return isFailed(row) ? row : undefined;
   }
   return undefined;
+}
+
+/// A sign-in failure's way on once the chat's own login is done: only its card offers it, beside
+/// Sign in again (TurnRows.tsx TurnFailure), never the native command. Only where the chat has a
+/// login to run, and only through acpmux's turn retry, which reaches only the chat the row was drawn
+/// for: never a View Only chat, a read-only pane or the next chat during a switch.
+export function signInRetry(
+  row: AcpmuxRow,
+  route: FailureRoute | undefined,
+  actions: Pick<TurnActions, "retryFailed" | "reauthenticate">,
+): ErrorRecovery | undefined {
+  if (!isFailed(row) || failureRecovery(failureKind(row.error, route, row.errorCode)) !== "sign-in") return undefined;
+  const { retryFailed, reauthenticate } = actions;
+  if (!reauthenticate || !retryFailed || !row.retryable) return undefined;
+  return { label: row.continuable ? "continue" : "retry", run: () => retryFailed(row.retryRowId, row.prompt) };
 }

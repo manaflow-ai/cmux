@@ -327,6 +327,9 @@ fn an_unknown_agent_is_a_usage_error_and_server_input_refusals_exit_2() {
     assert!(!is_input_refusal(&json!({ "code": "run_sandbox_unavailable" })));
     // No Cloud backend in the app is "act first", like a signed-out app: exit 3.
     assert!(is_gate_refusal(&json!({ "code": "no_backend" })));
+    // Cloud not callable here (a managed team missing, a local-only backend): act first, exit 3.
+    assert!(is_gate_refusal(&json!({ "code": "cloud_disabled" })));
+    assert!(!create_may_have_committed(&json!({ "code": "cloud_disabled" })));
 }
 
 #[test]

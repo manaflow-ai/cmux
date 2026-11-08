@@ -51,6 +51,7 @@ await requireBrowserLane("newtab-input-scale.test.ts", async () => {
         fieldHeight: number;
         inputBottom: number;
         plusBottom: number;
+        textDrop: number;
       }[];
       for (const scale of scales) {
         await page.goto(
@@ -82,6 +83,8 @@ await requireBrowserLane("newtab-input-scale.test.ts", async () => {
               fontSize: px(fieldStyle.fontSize),
               glyphFontSize: px(glyphStyle.fontSize),
               fieldPad: px(fieldStyle.paddingTop),
+              // The text drops this far under the row's padding so its ink centers on + (newtab/screen.css).
+              textDrop: px(fieldStyle.paddingTop) - px(fieldStyle.paddingBottom),
               glyphTop: glyphRect.top - inputRect.top,
               plusCenter: (plusRect.top + plusRect.bottom) / 2 - inputRect.top,
               lineHeight: px(fieldStyle.lineHeight),
@@ -97,9 +100,11 @@ await requireBrowserLane("newtab-input-scale.test.ts", async () => {
       for (const result of results) {
         expect(result.glyphTop).toBeCloseTo(result.fieldPad, 1);
         expect(result.glyphFontSize).toBeCloseTo(result.fontSize, 1);
-        expect(result.plusCenter).toBeCloseTo(result.fieldPad + result.lineHeight / 2, 1);
+        expect(result.plusCenter).toBeCloseTo(result.fieldPad - result.textDrop / 2 + result.lineHeight / 2, 1);
         expect(result.plusBottom).toBeLessThanOrEqual(result.inputBottom + 0.5);
-        expect(result.fieldHeight).toBeGreaterThanOrEqual(result.lineHeight + 2 * result.fieldPad - 1);
+        expect(result.fieldHeight).toBeGreaterThanOrEqual(
+          result.lineHeight + 2 * (result.fieldPad - result.textDrop / 2) - 1,
+        );
       }
       expect(small.fontSize).toBeCloseTo(12, 1);
       expect(normal.fontSize).toBeCloseTo(14, 1);

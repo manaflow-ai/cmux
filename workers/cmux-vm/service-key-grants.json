@@ -1,0 +1,4 @@
+{
+  "cloud-platform-dev": ["acl:read", "acl:write"],
+  "cloud-platform-staging": ["acl:read", "acl:write"]
+}

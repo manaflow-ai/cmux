@@ -35,10 +35,17 @@ fn daemon_log_refuses_a_symlink() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The managed-unit tests write a fake `systemctl` and then run it. Run at once, one test's
+/// fork could inherit the other's still-open write of its script, and the exec then fails with
+/// ETXTBSY ("Text file busy"): one at a time.
+#[cfg(target_os = "linux")]
+static FAKE_SYSTEMCTL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn managed_unit_start_avoids_a_symlinked_default_home() {
     use std::os::unix::fs::PermissionsExt;
+    let _one_at_a_time = FAKE_SYSTEMCTL.lock().await;
 
     let dir = std::env::temp_dir().join(format!(
         "acpmux-managed-start-{}-{}",
@@ -95,6 +102,7 @@ async fn managed_unit_start_avoids_a_symlinked_default_home() {
 #[tokio::test]
 async fn managed_unit_start_matches_shortened_sockets() {
     use std::os::unix::fs::PermissionsExt;
+    let _one_at_a_time = FAKE_SYSTEMCTL.lock().await;
     let scratch = cmux_unix_socket::short_test_dir("managed-socket");
     let dir = scratch.path();
     std::fs::create_dir_all(dir).unwrap();

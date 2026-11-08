@@ -63,3 +63,34 @@ struct SidebarDocHostGroupPlanTests {
         #expect(SidebarDocHostGroupPlan(session: "mini", records: records(hostGroup: nil), on: false).ops.isEmpty)
     }
 }
+
+/// `cmux workspace group create --remote HOST --name N` names the remote group: the mark also sets the
+/// section's title, and a remote group that already exists is renamed (the header shows the name).
+struct SidebarDocHostGroupPlanTitleTests {
+    @Test func aNewRemoteGroupTakesItsName() throws {
+        let ops = SidebarDocHostGroupPlan(session: "mini", records: SidebarDocRecords(), title: "Build Mini").ops
+        let section = try #require(ops.first?["section"] as? [String: Any])
+        #expect(section["title"] as? String == "Build Mini")
+        #expect(section["host_group"] as? Bool == true)
+    }
+
+    @Test func anExistingSectionIsMarkedAndRenamedInOneUpdate() throws {
+        let section = SidebarDocSection(id: "sec_m_mini", kind: .machine(session: "mini"))
+        let records = SidebarDocRecords(revision: 1, sections: ["sec_m_mini": section])
+        let ops = SidebarDocHostGroupPlan(session: "mini", records: records, title: "Build Mini").ops
+        #expect(ops.count == 1)
+        let patch = try #require(ops.first?["patch"] as? [String: Any])
+        #expect(patch["host_group"] as? Bool == true)
+        #expect(patch["title"] as? String == "Build Mini")
+    }
+
+    @Test func aRemoteGroupThatExistsIsOnlyRenamed() throws {
+        var section = SidebarDocSection(id: "sec_m_mini", kind: .machine(session: "mini"))
+        section.hostGroup = true
+        let records = SidebarDocRecords(revision: 1, sections: ["sec_m_mini": section])
+        let patch = try #require(SidebarDocHostGroupPlan(session: "mini", records: records, title: "Build Mini").ops.first?["patch"] as? [String: Any])
+        #expect(patch["title"] as? String == "Build Mini")
+        #expect(patch["host_group"] == nil)
+        #expect(SidebarDocHostGroupPlan(session: "mini", records: records, title: nil).ops.isEmpty)
+    }
+}

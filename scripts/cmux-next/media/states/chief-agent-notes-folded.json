@@ -1,0 +1,30 @@
+{
+ "title": "Chief agent status notes, folded",
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Home fixture conversation",
+   "rpc": {
+    "method": "debug.home_native_fixture.open",
+    "params": {}
+   },
+   "wait": 3,
+   "shot": false
+  },
+  {
+   "title": "Five agents stop with no report, one reports",
+   "rpc": {
+    "method": "debug.home.drive",
+    "params": {
+     "action": "agent_messages",
+     "notes": true
+    }
+   },
+   "wait": 3
+  }
+ ]
+}

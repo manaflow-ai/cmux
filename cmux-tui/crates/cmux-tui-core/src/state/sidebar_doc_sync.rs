@@ -29,8 +29,7 @@
 //! synced back (the dirty marks are cleared at the end).
 //!
 //! Closes ([`close_workspaces`]): a tombstoned workspace leaves its machine
-//! section (and an emptied group there); in Pinned and custom sections it
-//! stays.
+//! section, keeping its groups; in Pinned and custom sections it stays.
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
@@ -648,8 +647,19 @@ pub(crate) fn close_workspaces(
     let refs: Vec<WorkspaceRef> = ids.iter().map(|id| WorkspaceRef::new(&local, id)).collect();
     store::with_doc_mut(transaction, |doc| {
         let previous_revision = doc.revision;
+        // Ordinary workspace closes leave their groups in place. Use the existing
+        // item deletion operation: older app FFI mirrors apply it without the
+        // ancestor pruning of the legacy `close` operation.
+        let items: Vec<ItemId> = refs
+            .iter()
+            .filter_map(|reference| doc.workspace_item(reference))
+            .filter(|item| doc.section(&item.section).is_some_and(|section| !section.keeps_closed))
+            .map(|item| item.id.clone())
+            .collect();
         let mut batch = Batch::new(doc);
-        try_apply(&mut batch, Op::Close { refs });
+        for id in items {
+            try_apply(&mut batch, Op::ItemDelete { id });
+        }
         let applied = batch.finish();
         commit_applied(transaction, previous_revision, doc.revision, &applied)
     })

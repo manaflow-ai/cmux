@@ -45,7 +45,9 @@ async function row(item: AcpmuxActivity) {
       <ToolRow item={item} />
     ),
   );
-  return dom.text(".cv-tool__text");
+  // A lone row's failure word is a tag after its words (ToolRow.tsx), read with them.
+  const tag = dom.host().querySelector(".cv-tool > .cv-tool__failed")?.textContent ?? "";
+  return `${dom.text(".cv-tool__text") ?? ""}${tag}`;
 }
 
 afterEach(async () => {

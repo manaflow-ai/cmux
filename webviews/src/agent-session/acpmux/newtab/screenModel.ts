@@ -109,11 +109,22 @@ export function inStrip(row: ScreenRow): boolean {
   return row.type === "create" && row.strip === true;
 }
 
+/// An address with its port still to come (`localhost:`, `example.com:`): the address it was a key
+/// ago, so its row stays put while the port is typed instead of leaving for one key and coming
+/// back (the rows under it jumped 28 px down, up and down again; agent-pane.new-tab#create-strip-narrow).
+function typingPort(text: string, home?: string): { kind: "url"; url: string } | undefined {
+  const trimmed = text.trim();
+  if (!trimmed.endsWith(":") || trimmed.endsWith("::")) return undefined;
+  const intent = classifyNewTabInput(trimmed.slice(0, -1), home ? { home } : {});
+  return intent.kind === "url" && !intent.url.startsWith("file:") ? intent : undefined;
+}
+
 function navigationRows(
   text: string,
   context: { omnibar: OmnibarContext; home?: string; ask?: ScreenAsk; order?: SuggestionOrder },
 ): ScreenRow[] {
-  const intent = classifyNewTabInput(text, context.home ? { home: context.home } : {});
+  const intent =
+    typingPort(text, context.home) ?? classifyNewTabInput(text, context.home ? { home: context.home } : {});
   // A pairing link offers nothing: no search, no Ask, no address, no create row (they carry the text).
   if (intent.kind === "none" || intent.kind === "terminal" || intent.kind === "refused") return [];
   const order = context.order ?? DEFAULT_SUGGESTION_ORDER;

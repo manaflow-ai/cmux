@@ -10,10 +10,16 @@ is `FILE: false`; a passing file is `FILE: true`. Results compare by exact name,
 that crashed or hung says nothing about the tests it never reached: their reds stay the change's.
 A file red again on its retry alone keeps a log of both runs; only the retry's `(fail)` tests count,
 since the base reruns the file once, alone, too.
+
+With CMUX_WEB_TEST_STATES set, it also writes {file: {"result": PASS, FAIL or TIMEOUT, "completed": bool}} there:
+"completed" when the file's (last) run reached bun's closing `Ran N tests across M files.` line, so a FAIL that
+names only some tests says the rest passed. The bisect's probes read it (web_coalesce.py), since the results name
+no passing test.
 """
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -22,6 +28,8 @@ FAIL_BYTES = re.compile(rb"^\(fail\) (.+?)(?: \[[0-9.]+m?s\])?$")
 RETRY = "--- retry, alone ---"  # run-webviews-tests.sh's line between a twice-red file's two logs
 RETRY_BYTES = RETRY.encode()
 LOG_CHUNK_BYTES = 64 * 1024
+TALLY = re.compile(rb"^Ran \d+ tests? across \d+ files?\.", re.M)  # bun's last line once a file ran to its end
+ANSI = re.compile(rb"\x1b\[[0-9;]*m")
 MAX_LINE_BYTES = 1 * 1024 * 1024
 
 
@@ -86,6 +94,31 @@ def collect(summary: Path) -> dict[str, bool]:
     return results
 
 
+def _completed(log: Path) -> bool:
+    """Whether the log's last run (after a retry line, if any) reached bun's closing tally."""
+    with log.open("rb") as stream:
+        stream.seek(0, 2)
+        stream.seek(max(0, stream.tell() - LOG_CHUNK_BYTES))
+        tail = ANSI.sub(b"", stream.read())
+    last = tail.rsplit(RETRY_BYTES, 1)[-1]
+    return bool(TALLY.search(last))
+
+
+def states(summary: Path) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for line in summary.read_text(encoding="utf-8").splitlines():
+        parts = line.split(" ", 2)
+        if len(parts) != 3:
+            continue
+        result, file, log = parts
+        try:
+            completed = result == "PASS" or (result == "FAIL" and _completed(Path(log)))
+        except OSError:
+            completed = False
+        out[file] = {"result": result, "completed": completed}
+    return out
+
+
 def failed_files(results: dict[str, bool]) -> list[str]:
     return sorted({name.split(" > ", 1)[0] for name, ok in results.items() if not ok})
 
@@ -98,6 +131,9 @@ def main(argv: list[str]) -> int:
         print(__doc__, file=sys.stderr)
         return 2
     Path(argv[1]).write_text(json.dumps(collect(Path(argv[0])), indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    if os.environ.get("CMUX_WEB_TEST_STATES"):
+        Path(os.environ["CMUX_WEB_TEST_STATES"]).write_text(
+            json.dumps(states(Path(argv[0])), indent=1, sort_keys=True) + "\n", encoding="utf-8")
     return 0
 
 

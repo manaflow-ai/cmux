@@ -23,6 +23,15 @@ on:
       worker:
         description: "fleet worker (empty: any idle bench worker, today cmux20-bench)"
         default: ""
+      gate:
+        description: "1: fail on a cmux row regressed past the baseline; 0: report only (a budget-only run has no baseline rows)"
+        default: "1"
+      tabswitch:
+        description: "tab switch matrix kinds, or off (off also skips the tagged Debug build when palette is off)"
+        default: "chromium,webkit,markdown,chat"
+      palette:
+        description: "palette open timing: on or off"
+        default: "on"
 
 permissions:
   contents: read
@@ -47,6 +56,9 @@ jobs:
           ROUNDS: ${{ inputs.rounds || '3' }}
           BROWSERS: ${{ inputs.browsers || 'cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari' }}
           WORKER: ${{ inputs.worker || '' }}
+          GATE: ${{ inputs.gate || '1' }}
+          TABSWITCH: ${{ inputs.tabswitch || 'chromium,webkit,markdown,chat' }}
+          PALETTE: ${{ inputs.palette || 'on' }}
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
@@ -61,7 +73,8 @@ jobs:
           "$client" run --class exclusive --measurement --label bench \
             --script scripts/measure/perf-bench.sh --ref "$sha" --timeout 23400 \
             --artifact artifacts/perf-bench/results.json ${target[@]+"${target[@]}"} \
-            --arg="rounds=$ROUNDS" --arg="browsers=$BROWSERS" --arg=gate=1 | tee "$RUNNER_TEMP/bench.log" || status=$?
+            --arg="rounds=$ROUNDS" --arg="browsers=$BROWSERS" --arg="gate=$GATE" \
+            --arg="tabswitch=$TABSWITCH" --arg="palette=$PALETTE" | tee "$RUNNER_TEMP/bench.log" || status=$?
           # The report prints BENCH.md into the step log; show it on the run page.
           sed -n '/^# xbench, /,$p' "$RUNNER_TEMP/bench.log" | grep -v '^PERF-BENCH-' >> "$GITHUB_STEP_SUMMARY" || true
           grep -E '^(PERF-BENCH-GATE|PERF-BUDGET)' "$RUNNER_TEMP/bench.log" >> "$GITHUB_STEP_SUMMARY" || true

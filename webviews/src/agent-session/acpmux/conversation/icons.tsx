@@ -2,6 +2,8 @@
 // (src/conversation/icons.tsx). All draw in currentColor in a 16px box
 // unless noted, matching the stroke weight of src/shell/icons.tsx.
 import type { CSSProperties, ReactNode } from "react";
+// Spinner's own default (the dot hidden, the ring turning), wherever it draws (spinner.css).
+import "./spinner.css";
 
 export type CvIconProps = {
   size?: number;
@@ -93,10 +95,13 @@ export const ImageIcon = (p: CvIconProps) => (
   </Svg>
 );
 
+/** Two squares, as Claude Code desktop's Copy (Leo, 2026-11-04: "symbol shape bad"): the front one
+ * top left, whole; the one behind lower right, its corner under the front one hidden. 12 of ink in
+ * the 16 box with a small radius, so it reads as squares rather than two rounded blobs. */
 export const Copy = (p: CvIconProps) => (
   <Svg {...p}>
-    <rect x="5.25" y="5.25" width="8.25" height="8.25" rx="2" />
-    <path d="M10.75 5.25V4.5a2 2 0 0 0-2-2H4.5a2 2 0 0 0-2 2v4.25a2 2 0 0 0 2 2h.75" />
+    <rect x="2.25" y="2.25" width="8.25" height="8.25" rx="1.5" />
+    <path d="M10.5 5.5h1.75c.69 0 1.25.56 1.25 1.25v5.5c0 .69-.56 1.25-1.25 1.25h-5.5c-.69 0-1.25-.56-1.25-1.25V10.5" />
   </Svg>
 );
 
@@ -140,11 +145,14 @@ export const Undo = (p: CvIconProps) => (
   </Svg>
 );
 
-/// A counterclockwise arrow: send the prompt again.
+/// A counterclockwise arrow: send the prompt again. The arc runs on into the arrowhead's corner
+/// (2.5, 5.56), so the head joins the line instead of floating off its end, and it spans Copy's
+/// 11px (2.5-13.5) beside it (Leo, 2026-10-27: "Looks like a, like a mangled little corpse on that
+/// arrow bit").
 export const Retry = (p: CvIconProps) => (
   <Svg {...p}>
-    <path d="M3.25 8a4.75 4.75 0 1 0 1.4-3.36" />
-    <path d="M3.25 2.75v2.5h2.5" />
+    <path d="M2.5 8a5.5 5.5 0 1 0 5.5-5.5 6 6 0 0 0-4.12 1.67L2.5 5.56" />
+    <path d="M2.5 2.5v3.06h3.06" />
   </Svg>
 );
 
@@ -203,11 +211,12 @@ export const Pin = ({ filled, ...p }: CvIconProps & { filled?: boolean }) => (
   </Svg>
 );
 
-/** A speaker with sound waves: Read aloud. */
+/** A speaker with one sound wave, as Claude Code desktop's Read aloud (Leo, 2026-11-04: "symbol
+ * shape bad"): a short box, a cone the full 12 of ink tall, one shallow wave beside it. */
 export const Speaker = (p: CvIconProps) => (
   <Svg {...p}>
-    <path d="M2.75 6.25h2l3-2.5v8.5l-3-2.5h-2Z" />
-    <path d="M10.25 6.1a2.6 2.6 0 0 1 0 3.8M12 4.4a5 5 0 0 1 0 7.2" />
+    <path d="M2 6.5c0-.41.34-.75.75-.75H5L10.25 2.5v11L5 10.25H2.75A.75.75 0 0 1 2 9.5Z" />
+    <path d="M12.75 5.25a4 4 0 0 1 0 5.5" />
   </Svg>
 );
 
@@ -262,9 +271,15 @@ export const GitHubMark = ({ size = 16, className, style }: CvIconProps) => (
 );
 
 /** The running mark of a transcript row. Agent work (the default) draws the working look the
- * app picks (`data-working-look` on the root, conversation.css): a breathing dot, the turning ring,
+ * app picks (`data-working-look` on the root, conversation.css): a breathing dot, the turning arc,
  * or a still dot while the row's words shimmer. `loading` (a check or a page loading, not agent
- * work) always draws the turning ring. `cv-spinner` turns the ring on the shared clock. */
+ * work) always draws the turning arc. Agent work's spinner is the settled thin arc, never the macOS
+ * activity indicator's segmented spokes (#29903 swapped them in; Leo 2026-11-01: "why the f*** did
+ * you make the spinner into this????"). `cv-spinner` turns it on the shared clock. It is the one
+ * spinner every page draws (Leo 2026-11-02: "WHY THE F*** ARE YOU GUYS POSSIBLY DIFFERING THE
+ * F***ING SPINNERS ACROSS THE SIDEBAR AND THE F***ING RUNNING"): transcript rows, Session Info's
+ * Running and Subagents, the todo list and the pickers draw this component, never their own
+ * (test/one-spinner.test.ts). */
 export const Spinner = ({
   size = 16,
   className,
@@ -304,14 +319,6 @@ export const StopSquare = ({ size = 16, className, style }: CvIconProps) => (
     aria-hidden="true"
   >
     <rect x="3.75" y="3.5" width="8.5" height="9" rx="1.6" fill="currentColor" />
-  </svg>
-);
-
-/** The composer's dim busy ring (12px) with a brighter leading arc. */
-export const ComposerSpinner = ({ className, style }: CvIconProps) => (
-  <svg className={className} style={style} width={12} height={12} viewBox="0 0 12 12" fill="none" aria-hidden="true">
-    <circle cx="6" cy="6" r="5.1" stroke="#51524c" strokeWidth="1.5" />
-    <path d="M6 .9a5.1 5.1 0 0 1 4.4 2.5" stroke="#7d7e78" strokeWidth="1.5" strokeLinecap="round" />
   </svg>
 );
 
@@ -390,8 +397,9 @@ export const ArxivMark = ({ size = 16, className, style }: CvIconProps) => (
   </svg>
 );
 
-/** ⌘ glyph of computer-use / app tool rows ("Inspect the Atlas Fixtures window"). */
-export const CommandKey = (p: CvIconProps) => (
+/** Four small rings joined by one diagonal: a collapsed run that did more than one kind of work
+ *  ("Edited 2 files, read 2 files, ran 2 commands"). */
+export const MultiTool = (p: CvIconProps) => (
   <Svg strokeWidth={1.1} {...p}>
     <circle cx="4.5" cy="4.5" r="2.05" />
     <circle cx="11.5" cy="4.5" r="2.05" />

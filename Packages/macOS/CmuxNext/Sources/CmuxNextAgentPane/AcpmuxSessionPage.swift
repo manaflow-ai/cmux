@@ -45,6 +45,26 @@ public nonisolated struct AcpmuxSessionPage: Sendable {
         return Self.chat(id, in: result)
     }
 
+    /// The acpmux session an agent link names (`cmux://agent/<harness>/<session>` or its cmux.com
+    /// form), on this Mac or a peer it mirrors: `_acpmux/resolve {query}`, which reads the link
+    /// itself (hub/locate.rs, agent_link.rs). Nil when acpmux lists no such session, which is
+    /// someone else's, or one that never ran under acpmux.
+    @concurrent public func linked(_ link: String, deadline: Duration = .seconds(2)) async throws -> String? {
+        let result: [String: Any]
+        do {
+            result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/resolve",
+                                                       params: ["query": link], deadline: deadline, detailed: true)
+        } catch let error as AcpmuxRPCError where AcpmuxStatusClient.shouldTreatLegacyResolveFailureAsMissing(error) {
+            return nil
+        }
+        return Self.linkedSession(in: result)
+    }
+
+    /// The session id `_acpmux/resolve`'s answer names first, or nil.
+    static func linkedSession(in result: [String: Any]) -> String? {
+        ((result["session"] as? [String: Any])?["sessionId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
     static func chat(_ id: String, in summary: [String: Any]) -> (chat: Chat, peer: String?)? {
         guard summary["sessionId"] as? String == id else { return nil }
         let name = summary["name"] as? String ?? id

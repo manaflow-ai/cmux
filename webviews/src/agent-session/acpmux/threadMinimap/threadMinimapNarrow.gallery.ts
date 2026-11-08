@@ -1,6 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample prompts and replies), not shipped UI.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
+import { threadMinimapGutter } from "./gutter.experiment";
 
 const rows = Array.from({ length: 18 }, (_, index) => [
   user(`Prompt ${index + 1}: check the next part of the plan`, 200 - index * 2),
@@ -13,8 +14,11 @@ const rows = Array.from({ length: 18 }, (_, index) => [
 
 const rightEdge = { "agentPane.display.rail.side": "right" };
 
-// Three widths show the actual product geometry: wide inset, compressed rail, and an occluded rail
-// with a permanent hover strip. No gallery code changes the rail's measured origin or visibility.
+// Three widths show the actual product geometry: the wide inset, the shrunk padding, and the narrowest
+// pane, where the default tight gutter (gutter.experiment.ts) still draws the rail at rest beside the
+// text. The experiment compares it with the earlier edge strip (hidden at rest once it would overlap)
+// and the dimmed overlap (Leo, 2026-11-01: "just shrink its padding more it can even have a dedicated
+// space for more"). No gallery code changes the rail's measured origin or visibility.
 export default agentPaneEntry({
   id: "agent-pane.thread-minimap-narrow",
   title: "Pane-pinned prompt rail",
@@ -23,9 +27,16 @@ export default agentPaneEntry({
   widths: { narrow: 160, normal: 800, wide: 1600 },
   anchors: [{ selector: ".acpmux-scroll" }],
   covers: ["agent-session/acpmux/threadMinimap/ThreadMinimap.tsx#ThreadMinimap"],
+  experiment: {
+    definition: threadMinimapGutter,
+    script: [
+      { name: "hover the pane edge", run: (ctx) => ctx.hover({ selector: ".acpmux-minimap__strip" }) },
+      { name: "hover prompt 4", run: (ctx) => ctx.hover({ selector: '[data-tick="3"]' }) },
+    ],
+  },
   variants: {
     resting: {
-      note: "Chosen pane-edge placement: wide (1600), compressed (800), and visually hidden with a live strip (160). The chat column never moves the rail.",
+      note: "Chosen pane-edge placement: wide (1600), shrunk padding (800), and the tight gutter at 160, where the rail still draws at rest beside the text. The chat column never moves the rail.",
       snapshot: chat(rows, { title: "Pane-pinned prompt rail" }),
     },
     hovered: {
@@ -46,6 +57,19 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.activeElement?.matches('[data-tick="1"]'));
         await ctx.press("ArrowDown");
         await ctx.waitFor(() => ctx.document.activeElement?.matches('[data-tick="2"]:focus-visible'));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card"));
+      },
+    },
+    // Session Info beside the chat narrows its column but not the pane, so the rail keeps its pane-edge
+    // inset and rests dimmed over the text's edge; hovering its drawn ticks reveals it (Leo, 2026-11-03:
+    // "when the scroll rail resizes i can no longer hover on it :(").
+    "session-info-hovered": {
+      note: "Session Info open: the chat column is narrower than the pane, the dimmed rail rests over the text's edge, and hovering its drawn ticks reveals it with its preview.",
+      snapshot: chat(rows, { title: "Prompt rail beside Session Info, hovered" }),
+      native: { "pane.tabState": { inspector: true } },
+      play: async (ctx) => {
+        await ctx.hover({ selector: ".acpmux-minimap__strip" });
+        await ctx.hover({ selector: '[data-tick="0"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-minimap__card"));
       },
     },

@@ -116,7 +116,11 @@ public struct ConversationRunPlan: Sendable, Equatable {
         // A tapback makes its message a run of its own in Messages (iOS 26.5
         // and 27.0): the bubble above regains its tail, the reacted bubble
         // keeps one, and the next starts a new run 10 pt down.
-        !a.isUnsent && !b.isUnsent && !a.isSystemEvent && !b.isSystemEvent && a.senderID == b.senderID && b.sentAt.timeIntervalSince(a.sentAt) < runGap && b.replyToID == nil
+        // An inline reply is a run of its own too: Messages separates the
+        // quote, line and reply from both neighbors (the next bubble from the
+        // same sender starts a new run under it).
+        !a.isUnsent && !b.isUnsent && !a.isSystemEvent && !b.isSystemEvent && a.senderID == b.senderID && b.sentAt.timeIntervalSince(a.sentAt) < runGap
+            && a.replyToID == nil && b.replyToID == nil
             && a.reactions.isEmpty && b.reactions.isEmpty
     }
 }

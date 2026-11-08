@@ -121,9 +121,12 @@ extension FeedPrompt {
             /// The attachment id of the diff (edits).
             public var diff: String?
             public var risk: String?
+            /// The integration approval (G8) the item asks for (`input.approval`): its request id
+            /// (`apr_…`) and the team whose owner posted it; nil for any other action.
+            public var hold: Hold?
 
             public init(type: ActionType, summary: String, command: String? = nil, cwd: String? = nil,
-                        tool: String? = nil, diff: String? = nil, risk: String? = nil) {
+                        tool: String? = nil, diff: String? = nil, risk: String? = nil, hold: Hold? = nil) {
                 self.type = type
                 self.summary = summary
                 self.command = command
@@ -131,6 +134,17 @@ extension FeedPrompt {
                 self.tool = tool
                 self.diff = diff
                 self.risk = risk
+                self.hold = hold
+            }
+        }
+
+        public struct Hold: Sendable, Equatable {
+            public var request: String
+            public var team: String
+
+            public init(request: String, team: String) {
+                self.request = request
+                self.team = team
             }
         }
 

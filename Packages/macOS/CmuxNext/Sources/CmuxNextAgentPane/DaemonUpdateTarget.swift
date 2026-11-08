@@ -179,3 +179,26 @@ public nonisolated struct DaemonUpdateEvent: Sendable, Equatable {
         self.init(id: target.id, displayName: target.displayName, sshHost: target.sshHost, state: state, notify: notify, build: build)
     }
 }
+
+#if DEBUG
+nonisolated extension DaemonUpdateEvent.State {
+    /// The state names `debug.daemon_update` takes (its `state`), in this order.
+    public static let fixtureNames = ["updating", "retrying", "offline", "updated", "failed", "rolled_back", "cannot_update", "cleared"]
+
+    /// The state named `name` (one of ``fixtureNames``): `reason` for a failure (for `cannot_update`,
+    /// the whole line), `build` for an update. Nil for another name.
+    public init?(fixtureName name: String, reason: String, build: String) {
+        switch name {
+        case "updating": self = .updating
+        case "retrying": self = .retrying
+        case "offline": self = .offline
+        case "updated": self = .updated(build: build)
+        case "failed": self = .failed(reason: reason, rolledBack: false)
+        case "rolled_back": self = .failed(reason: reason, rolledBack: true)
+        case "cannot_update": self = .cannotUpdate(reason: reason)
+        case "cleared": self = .cleared
+        default: return nil
+        }
+    }
+}
+#endif

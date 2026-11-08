@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextHome
+import CmuxNextTestSupport
 @testable import MessagesLabSidebar
 import Testing
 
@@ -11,6 +12,7 @@ import Testing
 /// on the row below. The chat's compose button, under the lights while the list is folded,
 /// starts after them.
 @MainActor
+@Suite(.closesItsWindows)
 struct HomeWindowControlsTests {
     /// A titled window with a full-size content view, as the app's: its traffic lights sit over
     /// the top-left of the content.
@@ -153,10 +155,13 @@ struct HomeWindowControlsTests {
         #expect(h.search.maxX + HomeSidebarHeaderLayout.gap == h.filter.minX)
     }
 
-    /// The avatar-only list keeps its band under the lights; an open search sits under them.
+    /// The avatar-only list's search and filter circles sit under the lights, the list under them;
+    /// an open search sits under them too.
     @Test func theAvatarListUnderTheLights() {
         let closed = HomeSidebarHeaderLayout(width: 90, searchOpen: false, windowControls: Self.lightsFrame)
-        #expect(closed.listTop == HomeSidebarHeaderLayout.band)
+        #expect(!closed.filter.isEmpty && !closed.searchIcon.isEmpty)
+        #expect(!closed.filter.intersects(Self.lightsFrame) && !closed.searchIcon.intersects(Self.lightsFrame))
+        #expect(closed.listTop >= closed.filter.maxY)
         let open = HomeSidebarHeaderLayout(width: 90, searchOpen: true, windowControls: Self.lightsFrame)
         #expect(!open.search.intersects(Self.lightsFrame))
         #expect(open.listTop >= open.search.maxY)

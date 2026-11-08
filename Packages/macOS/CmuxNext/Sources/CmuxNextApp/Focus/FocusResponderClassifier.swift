@@ -12,7 +12,7 @@ enum FocusResponderClassifier {
         }
         if let content = controller.content {
             for pane in content.panes.values where view.isDescendant(of: pane.view) {
-                if case .browser(let entry)? = pane.currentContent, let region = entry.chrome.region(of: view) {
+                if case .browser(let entry)? = pane.currentContent, let region = entry.chrome?.region(of: view) {
                     switch region {
                     case .addressBar: return .addressBar(pane: pane.paneKey)
                     case .findBar: return .findBar(pane: pane.paneKey)

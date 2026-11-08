@@ -7,9 +7,10 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import type { AcpmuxRow, PromptDelivery } from "../model";
 import { useT, type StringKey } from "../i18n";
-import { isTrustCause, sendCause, type FailedRun } from "../sendFailure";
+import { isTrustCause, retryHelps, sendCause, type FailedRun } from "../sendFailure";
 import { copyText } from "./clipboard";
 import { Clock } from "./icons";
+import { useTranscriptReadOnly } from "./readOnly";
 
 /// What the failure cards read from the chat (App.tsx): the runs of failed prompts, and the
 /// folder's trust for a trust failure. Without it each failed prompt has its own card.
@@ -93,11 +94,13 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
   const sends = useContext(FailedSendsContext);
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const readOnly = useTranscriptReadOnly();
   const delivery = row.delivery;
-  if (!row.failed) return null;
+  if (!row.failed || readOnly) return null;
   const rowIds = sends?.runs.get(row.id)?.rowIds ?? [row.id];
   if (rowIds[rowIds.length - 1] !== row.id) return null;
-  const trust = isTrustCause(sendCause(delivery));
+  const cause = sendCause(delivery);
+  const trust = isTrustCause(cause);
   const retryWaits = trust ? sends?.trustBlock : undefined;
   const fix = trust ? sends?.trustFolder : undefined;
   const act = (name: string) => void window.cmuxAcpmuxActions?.[name]?.({ rowId: row.id, rowIds });
@@ -107,7 +110,7 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
   return (
     <div
       className="cv-user__status cv-user__status--failed"
-      data-failure-cause={sendCause(delivery)}
+      data-failure-cause={cause}
       data-failed-count={rowIds.length}
       aria-live="polite"
     >
@@ -120,15 +123,18 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
             {t("trust.trustFolder")}
           </button>
         )}
-        <button
-          type="button"
-          className="cv-user__cancel"
-          disabled={retryWaits !== undefined}
-          title={retryWaits && t(retryWaits)}
-          onClick={() => act("chat.retryPrompt")}
-        >
-          {t("turn.retry")}
-        </button>
+        {/* A prompt too large to send is refused the same way again: Edit takes an attachment out. */}
+        {retryHelps(cause) && (
+          <button
+            type="button"
+            className="cv-user__cancel"
+            disabled={retryWaits !== undefined}
+            title={retryWaits && t(retryWaits)}
+            onClick={() => act("chat.retryPrompt")}
+          >
+            {t("turn.retry")}
+          </button>
+        )}
         {delivery && (
           <>
             <button type="button" className="cv-user__cancel" onClick={() => act("chat.editFailedPrompt")}>

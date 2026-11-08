@@ -23,7 +23,7 @@ const sheets = (dir: string): string[] =>
     return entry.name.endsWith(".css") ? [file] : [];
   });
 
-// The OptChat inspector is a standalone page bundled into optchat-chief (build-optchat-inspector-web.sh)
+// The OptChat Session Info is a standalone page bundled into optchat-chief (build-optchat-inspector-web.sh)
 // with no desktop layer, so the scale's tokens are not defined there.
 const STANDALONE = ["optchat-inspector/"];
 
@@ -216,12 +216,11 @@ describe("one subtle elevation scale", () => {
   const surfaces: [file: string, selector: string, token: (typeof ELEVATIONS)[number]][] = [
     // A popup is liquid glass: its drop is the glass's --glass-elevation (ui/glass/glass.css draws it
     // into the box-shadow), set once on .ui-popup. The pane's menus and popovers (.nt-popover,
-    // .acpmux-menu) are .ui-popup and cast that one.
+    // .acpmux-menu) are .ui-popup and cast that one, as the History page menu (.page-menu) does.
     ["ui/popupSurface.css", ".ui-popup", "--elevation-2"],
     ["ui/ui.css", ".ui-sheet", "--elevation-2"],
     // A tooltip is small and close to its control: elevation 1 (--tooltip-shadow, TooltipSurface.shadow).
     ["pages/shared/desktop.css", ".ui-title-tooltip", "--elevation-1"],
-    ["pages/shared/pageBase.css", ".page-menu", "--elevation-2"],
     // The link editor (.md-link-popover) is a ui/Popover, so .ui-popup casts its drop; the hover bubble is solid.
     ["pages/markdown/styles.css", ".md-link-bubble", "--elevation-2"],
     ["pages/cloud/styles.css", ".cloud-create-sheet", "--elevation-2"],

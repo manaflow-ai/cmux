@@ -62,8 +62,12 @@ public actor CloudTunnelHub {
     /// ``maxRestarts`` in ``restartWindow``.
     private var restarts: [ContinuousClock.Instant] = []
     static let maxRestarts = 3
+    /// The enroll's whole bound: its request's 60 s plus its token read.
+    static let enrollDeadline: Duration = .seconds(75)
     static let restartWindow: Duration = .seconds(600)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.hub")
+
+    static func seconds(since instant: ContinuousClock.Instant) -> String { CloudMachineLink.seconds(since: instant) }
 
     /// 32 bytes from the system's cryptographic generator, hex encoded.
     static func makeClientToken() -> String {
@@ -86,8 +90,10 @@ public actor CloudTunnelHub {
         case .running(let endpoint) where child?.isRunning == true:
             return endpoint
         case .starting(let task):
+            logger.notice("wireguard hub: joining the start in flight")
             return try await task.value
         case .idle, .running:
+            logger.notice("wireguard hub: starting")
             let generation = generation
             let task = Task { try await self.start(generation: generation) }
             phase = .starting(task)
@@ -186,7 +192,14 @@ public actor CloudTunnelHub {
             architecture: "arm64",
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "next"
         )
-        let enrollment = try await api.enrollTunnel(request)
+        let began = ContinuousClock.now
+        let api = api
+        // The enroll's request has its own deadline; this one also covers its sign-in token read, so a
+        // read that never answers can't hold every link's start behind this one (one shared hub).
+        let enrollment = try await SandboxDeadline.race(Self.enrollDeadline, timeout: { CloudAPIError.timedOut("/api/vm/tunnel") }) {
+            try await api.enrollTunnel(request)
+        }
+        logger.notice("wireguard hub: enrolled in \(Self.seconds(since: began), privacy: .public)")
         guard generation == self.generation else { throw CancellationError() }
         // The config holds the private key: it goes to the hub on stdin, never into a file.
         // Earlier builds wrote it next to the key; that copy goes.
@@ -199,6 +212,7 @@ public actor CloudTunnelHub {
         ], input: Data((clientToken + "\n" + config).utf8))
         try child.start()
         self.child = child
+        logger.notice("wireguard hub: spawned pid \(child.pid ?? 0)")
         let ready: CloudHubEndpoint
         do {
             let clientToken = clientToken
@@ -209,6 +223,7 @@ public actor CloudTunnelHub {
         } catch {
             child.terminate()
             if self.child === child { self.child = nil }
+            logger.error("wireguard hub: no ready line: \(String(describing: error), privacy: .public)")
             throw error
         }
         guard generation == self.generation else {
@@ -225,7 +240,7 @@ public actor CloudTunnelHub {
         }
         phase = .running(ready)
         watch(child, generation: generation)
-        logger.info("wireguard hub ready (tunnel \(enrollment.tunnelId, privacy: .public))")
+        logger.notice("wireguard hub ready (tunnel \(enrollment.tunnelId, privacy: .public))")
         return ready
     }
 }

@@ -384,7 +384,7 @@ tmux는 어떤 터미널 안에서든 실행되는 터미널 멀티플렉서예�
 
 ### cmux를 어떻게 지원할 수 있나요?
 
-cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요. 개발을 후원하고 cmux AI, iOS 앱, Cloud VMs를 포함해 다음에 나올 것들에 먼저 접근하고 싶다면, [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition)을 확인해주세요.
+cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요.
 
 ### 기능 요청이 있거나 버그를 발견했어요?
 
@@ -423,19 +423,6 @@ cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요. 개발�
   <strong>WeChat:</strong> QR 코드를 스캔해 커뮤니티에 참여하세요.<br />
   <img src="./docs/assets/wechat-community-qr.jpg" alt="cmux 커뮤니티에 참여하기 위한 WeChat QR 코드" width="240" />
 </p>
-
-## Founder's Edition
-
-cmux는 무료이고 오픈 소스이며, 앞으로도 그럴 거예요. 개발을 지원하고 다음에 나올 기능에 먼저 접근하고 싶다면:
-
-**[Founder's Edition 구매하기](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **기능 요청/버그 수정 우선 처리**
-- **얼리 액세스: 모든 워크스페이스, 탭, 패널의 컨텍스트를 제공하는 cmux AI**
-- **얼리 액세스: 데스크톱과 휴대폰 간 터미널을 동기화하는 iOS 앱**
-- **얼리 액세스: 클라우드 VM**
-- **얼리 액세스: 음성 모드**
-- **저의 개인 iMessage/WhatsApp**
 
 ## 라이선스
 

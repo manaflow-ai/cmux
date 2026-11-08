@@ -31,7 +31,9 @@ for feed in "$@"; do
   case "$code" in
     200)
       # A 200 that is not an appcast with items (an empty body or an error page) is unreadable too.
-      if ! python3 -I -c 'import sys, xml.etree.ElementTree as E; sys.exit(0 if any(True for _ in E.parse(sys.argv[1]).getroot().iter("item")) else 1)' "$live" 2>/dev/null; then
+      # Well-formedness only, without namespace processing: a live feed with an unbound cmux:
+      # prefix (2026-11-01) is still read here, and the R2 writer declares it on the root.
+      if ! python3 -I -c 'import sys, xml.parsers.expat as X; p = X.ParserCreate(); n = []; p.StartElementHandler = lambda name, attrs: n.append(name == "item"); p.ParseFile(open(sys.argv[1], "rb")); sys.exit(0 if any(n) else 1)' "$live" 2>/dev/null; then
         echo "::error title=nightly-next feed::the live $name answered 200 with no appcast items; publishing it now would drop its Nightly item"
         exit 1
       fi

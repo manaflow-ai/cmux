@@ -19,6 +19,11 @@ import Testing
         let restored2 = memory.note(.selectTab(pane: "p1", tab: "a", source: .mouse), before: pageB, after: pageA)
         #expect(restored2)
         #expect(memory.tabs.isEmpty, "once")
+        // Its address-bar request is the return, once: a later identical request (Cmd-L) is not.
+        let first = memory.takeReturn(OmnibarFocusMemory.returnEvent)
+        let second = memory.takeReturn(OmnibarFocusMemory.returnEvent)
+        #expect(first)
+        #expect(!second)
     }
 
     @Test func aPaneSwitchBackRestoresItToo() {

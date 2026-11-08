@@ -4,8 +4,14 @@ import type { ReactNode } from "react";
 import { Popover as BasePopover } from "@base-ui/react/popover";
 import { useOverlayPosition, usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
+import { useNativePopup, type NativePopupDescription } from "./nativePopup";
+import type { NativePopupEvent } from "./popupProtocol";
+import { popupAction } from "./popupDescriptors";
 import { UI_ANCHOR_GAP } from "./anchor";
+import { useNativeFinalFocus } from "./useNativeFinalFocus";
 import { popupCollision, type UiPopupFlip } from "./openSide";
+import { usePopupPadding } from "./popupInset";
+import { useScrollEdges } from "./scrollEdges";
 
 /** A point or box on the page to place a popover at (a caret's coordinates, for example). */
 export interface UiAnchorRect {
@@ -55,15 +61,26 @@ export interface PopoverProps {
   /** The accessible name of the popover (role dialog). */
   label: string;
   className?: string;
+  /** Fade a capped popup body when more content lies beyond its scroll edges. */
+  fade?: boolean;
   /** Which side of the anchor receives the popover. */
   side?: "top" | "bottom" | "inline-end" | "inline-start";
   /** False keeps `side` while open (`useOpenSide` chose it); "shift" keeps it and slides the popup
    *  along it to stay in the window (openSide.ts `UiPopupFlip`); default flips when there is no room. */
   flip?: UiPopupFlip;
+  /** Which edge of the anchor the popover lines up with (default: its start). */
+  align?: "start" | "end";
   /** Focus a field inside on open (default: the first focusable). */
   initialFocus?: React.RefObject<HTMLElement | null> | boolean;
   /** Where focus goes on close (default: back to where it was). */
   finalFocus?: React.RefObject<HTMLElement | null> | boolean;
+  /** Declarative native content. When the host is available, children are not mounted as rows. */
+  native?: {
+    model: NativePopupDescription;
+    anchor: () => HTMLElement | null;
+    onEvent?(event: NativePopupEvent): void;
+    onDismiss?(): void;
+  };
   children: ReactNode;
 }
 
@@ -73,14 +90,38 @@ export function Popover({
   anchor,
   label,
   className,
+  fade = false,
   side = "bottom",
   flip = true,
+  align = "start",
   initialFocus,
   finalFocus,
+  native,
   children,
 }: PopoverProps) {
+  const popupClassName = cx("ui-popup ui-glass ui-popover", className);
+  const edges = useScrollEdges();
   const container = usePortalContainer();
   const positionMethod = useOverlayPosition();
+  const padding = usePopupPadding();
+  const nativePopup = useNativePopup({
+    open: open === true && native !== undefined,
+    model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
+    anchor: native?.anchor ?? (() => null),
+    onEvent: (event) => {
+      const action = event.type === "pick" && native ? popupAction(native.model, event.id) : undefined;
+      native?.onEvent?.(event);
+      if (action && !action.keepOpen) {
+        onOpenChange(false, { escape: false });
+      }
+    },
+    onDismiss: (reason) => {
+      native?.onDismiss?.();
+      onOpenChange(false, { escape: reason === "escape" });
+    },
+  });
+  useNativeFinalFocus(nativePopup.available && native !== undefined && open, finalFocus);
+  if (nativePopup.available && native !== undefined) return null;
   return (
     <BasePopover.Root
       open={open}
@@ -94,13 +135,15 @@ export function Popover({
           anchor={virtualAnchor(anchor)}
           side={side}
           collisionAvoidance={popupCollision(flip)}
-          align="start"
+          collisionPadding={padding}
+          align={align}
           sideOffset={UI_ANCHOR_GAP}
         >
           <BasePopover.Popup
+            ref={fade ? edges : undefined}
             // A shifted popup may use the window's height, not only the room on its side (popupSurface.css).
             data-popup-shift={flip === "shift" ? "" : undefined}
-            className={cx("ui-popup ui-glass ui-popover", className)}
+            className={cx(popupClassName, fade && "ui-scroll-edge-fade")}
             aria-label={label}
             initialFocus={initialFocus}
             finalFocus={finalFocus}

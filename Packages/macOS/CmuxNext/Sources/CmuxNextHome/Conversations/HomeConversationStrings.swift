@@ -9,6 +9,10 @@ enum HomeConversationStrings {
     /// The sidebar search section of teammates the user has no DM with yet.
     static var teammatesSection: String { String(localized: "home.list.teammates", defaultValue: "Teammates", bundle: .module) }
     static var newMessage: String { String(localized: "home.list.newMessage", defaultValue: "New Message…", bundle: .module) }
+    /// The list's on-filter chip (Unread ×): what a click does.
+    static var filterChipHelp: String {
+        String(localized: "home.list.filterChipHelp", defaultValue: "Turns the Unread filter off and shows every chat", bundle: .module)
+    }
     static var newChief: String { String(localized: "home.list.newChief", defaultValue: "New Chief…", bundle: .module) }
     static var invite: String { String(localized: "home.list.invite", defaultValue: "Invite to cmux-next…", bundle: .module) }
     /// Group info's Invite by Email… after a `not_reachable` refusal.
@@ -123,6 +127,8 @@ enum HomeConversationStrings {
 
     /// The draft row's title and the page's name (Messages' "New Message").
     static var composeTitle: String { String(localized: "home.compose.title", defaultValue: "New Message", bundle: .module) }
+    /// The x on the list's New Message row and the action that discards the draft.
+    static var closeNewMessage: String { String(localized: "home.compose.close", defaultValue: "Close New Message", bundle: .module) }
     /// The To: field's VoiceOver label.
     static var composeSearch: String {
         String(localized: "home.compose.search", defaultValue: "Name or email address", bundle: .module)

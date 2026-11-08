@@ -39,6 +39,16 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.roomRoom.suppliedByTarget], targets: [.profile],
                 cliName: "space open-in-new-window"
             ),
+            // Move Space to This Window (Leo 2026-10-29), the inverse: the space's workspaces leave every
+            // other normal window for this one, which shows the space; a window left with none closes.
+            // The space's right-click menu, the palette, the CLI and MCP run it.
+            ActionDescriptor(
+                id: "space.bringHere",
+                title: String(localized: "action.space.bringHere", defaultValue: "Move Space to This Window", table: "ProfileActions", bundle: .module),
+                keywords: ["room", "profile", "space", "window", "move", "bring", "gather", "merge"], category: .workspace, symbol: "macwindow",
+                surfaces: [.palette, .keyboard, .contextMenu], arguments: [CatalogArgument.roomRoom.suppliedByTarget], targets: [.profile],
+                cliName: "space bring-here"
+            ),
             ActionDescriptor(
                 id: "space.newWorkspace",
                 title: String(localized: "action.space.newWorkspace", defaultValue: "New Workspace in Space…", table: "ProfileActions", bundle: .module),

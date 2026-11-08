@@ -450,6 +450,50 @@ async fn background_of_one_tool_call_names_it() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// A shell still in the foreground after the wait (`hub/auto_background.rs`) goes to the
+/// background with no Ctrl-B: acpmux sends `background_tasks` for its call, the turn ends, and
+/// the shell runs on, listed as moved there on its own, not by the person.
+#[tokio::test]
+async fn a_long_foreground_shell_goes_to_the_background_on_its_own() {
+    let (hub, mut c, root) = claude_hub(&[]).await;
+    hub.set_auto_background_after(Some(Duration::from_millis(300)));
+    let (id, turn) = fg_shell(&mut c).await;
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    let sent: Vec<Value> = control_requests(&hub, &id, "background_tasks")
+        .iter()
+        .map(|r| r["request"].clone())
+        .collect();
+    assert_eq!(sent, vec![json!({"subtype": "background_tasks", "tool_use_id": "toolu_fg"})]);
+    let list = listed(&mut c, &id).await;
+    assert_eq!(
+        (&list[0]["toolCallId"], &list[0]["state"], &list[0]["origin"]),
+        (&json!("toolu_fg"), &json!("running"), &json!("auto_backgrounded")),
+        "{list:?}"
+    );
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Turned off (`ACPMUX_AUTO_BACKGROUND_SECS=0`, here the setter), the shell stays in the
+/// foreground until the person's Ctrl-B.
+#[tokio::test]
+async fn auto_background_turned_off_leaves_the_shell_in_the_foreground() {
+    let (hub, mut c, root) = claude_hub(&[]).await;
+    hub.set_auto_background_after(None);
+    let (id, turn) = fg_shell(&mut c).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(control_requests(&hub, &id, "background_tasks"), Vec::<Value>::new());
+    let mut other = connect(&hub).await;
+    let r = other.request(BACKGROUND, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(r, json!({"backgrounded": true}));
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    assert_eq!(listed(&mut c, &id).await[0]["origin"], "user_backgrounded");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// With no turn running nothing runs in the foreground: the answer is
 /// `backgrounded: false` and Claude Code is not asked.
 #[tokio::test]
