@@ -29,6 +29,17 @@ import Foundation
         for entry in hidden.reversed() { CancelledCreation.unhide(.hiddenTab(entry), in: store) }
     }
 
+    /// A closed tab that a lift put back into a pane the apply then closed (`pane-closed` before the tab's `tab-closed`,
+    /// which then names no pane) stays in that pane's record, which no store list holds any more, so the overlay's restore
+    /// cannot hide it again. The pane's controller still observes that record while its pane leaves, and showed the closed
+    /// tab again until the landing (CLOSE VARIANTS 3, P0 late start Cost 2). It leaves that record now. A tab still listed
+    /// (the restore hid it, or the daemon kept it) is not touched.
+    func dropFromClosedPanes(_ lifted: [(tab: TabModel, pane: PaneModel)]) {
+        for (tab, pane) in lifted where store.index.pane(holding: tab) == nil && store.pane(pane.handle) !== pane {
+            if pane.tabs.contains(where: { $0 === tab }) { _ = pane.removeTab(surface: tab.surface) }
+        }
+    }
+
     /// Whether the confirmed records (the overlay is lifted) still hold a closed tab: the intent
     /// stays, so its settlement and the daemon's `tab-closed` land in one apply.
     func daemonHolds(_ surfaces: [SurfaceID]) -> Bool {

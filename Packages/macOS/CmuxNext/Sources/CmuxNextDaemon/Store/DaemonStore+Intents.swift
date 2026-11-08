@@ -118,7 +118,7 @@ extension DaemonStore {
         verifyMirrorUnchanged(before: writer)
         overlayLifted = true
         let held = holdOverlayPublication()
-        liftOverlay()
+        let closedTabs = liftOverlay()
         let result = body()
         for intent in intentLog.removeDue(appliedSequence: appliedSequence, snapshot: snapshot, awaiting: { ProvisionalSplit.awaitsRecords($0, snapshot: snapshot, in: self) }) {
             intentSettlements.append((intent.transaction, .applied))
@@ -129,6 +129,7 @@ extension DaemonStore {
         releaseSettledProvisionalWorkspaces()
         let confirmedTabs = debugTabCensus()
         restoreOverlay()
+        TabCloseOverlay(store: self).dropFromClosedPanes(closedTabs)
         overlayLifted = false
         publishOverlayNetChange(held)
         recomputeSidebarIfNeeded()
@@ -232,12 +233,18 @@ extension DaemonStore {
         intentLog.connectionReplaced()
     }
 
-    /// Undoes every overlay apply, newest first.
-    private func liftOverlay() {
+    /// Undoes every overlay apply, newest first. Returns each closed tab the lift put back with the pane record it went
+    /// into (``TabCloseOverlay/dropFromClosedPanes(_:)``).
+    private func liftOverlay() -> [(tab: TabModel, pane: PaneModel)] {
+        var closedTabs: [(tab: TabModel, pane: PaneModel)] = []
         for index in intentLog.entries.indices.reversed() {
-            if let undo = intentLog.entries[checked: index]?.undo { IntentOverlay.undo(undo, in: self) }
+            if let undo = intentLog.entries[checked: index]?.undo {
+                if case .closedTabs(let hidden) = undo { closedTabs += hidden.compactMap { entry in pane(entry.pane).map { (entry.tab, $0) } } }
+                IntentOverlay.undo(undo, in: self)
+            }
             if !intentLog.setUndo(nil, at: index) { reportMirrorViolation("intent log has no entry \(index)") }
         }
+        return closedTabs
     }
 
     /// Applies every pending intent in order, recording each inverse.
