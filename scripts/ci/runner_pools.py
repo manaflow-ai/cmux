@@ -340,9 +340,14 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
                 oldest = float(load.get("oldest_queued_minutes") or 0)
             except (TypeError, ValueError):
                 continue
-            if simple_pool_picker.blacksmith_stalled(queued, oldest + age) and \
-                    started_nothing_while_queued(snapshot, label, load, oldest, generated):
+            if not simple_pool_picker.blacksmith_stalled(queued, oldest + age):
+                continue
+            if started_nothing_while_queued(snapshot, label, load, oldest, generated):
                 dead.add(label)
+            elif isinstance(snapshot.get(LABEL_STARTED_KEY), Mapping):
+                # Positive evidence: it runs a job or started one while its oldest job waited, so a
+                # dead mark an older rule wrote from the wait alone is cleared now, not at DEAD_TTL.
+                started.add(label)
         for entry in snapshot.get("dead_labels") or ():
             if isinstance(entry, Mapping):
                 dead |= _labels(entry.get("label"))

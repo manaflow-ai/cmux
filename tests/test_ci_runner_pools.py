@@ -231,11 +231,14 @@ class Evidence(unittest.TestCase):
         stalled = copy.deepcopy(RECORDED)
         stalled["pools"]["blacksmith-6vcpu-macos-26"].update(queued=6, running=0, oldest_queued_minutes=25)
         stalled["label_started"] = {}
-        for name, change in [
-            ("a job runs there", {"running": 1}),
+        # A start it shows is evidence it serves: that clears a mark the old rule wrote, at once.
+        # No label_started map is no evidence either way.
+        label = {"blacksmith-6vcpu-macos-26"}
+        for name, change, served in [
+            ("a job runs there", {"running": 1}, label),
             ("a job started after the oldest began to wait",
-             {"label_started": runner_pools.iso(SNAPSHOT_AT - dt.timedelta(minutes=3))}),
-            ("no start evidence in the snapshot", {"no_label_started": True}),
+             {"label_started": runner_pools.iso(SNAPSHOT_AT - dt.timedelta(minutes=3))}, label),
+            ("no start evidence in the snapshot", {"no_label_started": True}, set()),
         ]:
             with self.subTest(name):
                 snapshot = copy.deepcopy(stalled)
@@ -245,8 +248,9 @@ class Evidence(unittest.TestCase):
                     snapshot["label_started"] = {"blacksmith-6vcpu-macos-26": change["label_started"]}
                 if change.get("no_label_started"):
                     del snapshot["label_started"]
-                dead, _, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+                dead, started, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
                 self.assertEqual(dead, set())
+                self.assertEqual(started, served)
         # The control: nothing runs, and the last start is older than the oldest wait.
         dead, _, _ = runner_pools.label_evidence(None, stalled, now=NOW)
         self.assertEqual(dead, {"blacksmith-6vcpu-macos-26"})
