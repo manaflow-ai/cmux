@@ -206,16 +206,9 @@ public actor CloudCarrierServe {
             let ok = children[child]?.writeInput(line: CloudCarrierDial.tokenLine(token)) ?? false
             queue.append(.tokenWritten(child: child, token: token, ok: ok))
         case .closeStdin(let child): children[child]?.closeInput()
-        case .armStopDeadline(let child):
-            let timer = DemandTimer(owner: "CloudCarrierServe.stopDeadline")
-            stopTimers[child] = timer
-            timer.schedule(after: grace) { [weak self] in await self?.send(.stopDeadline(child: child)) }
+        case .armStopDeadline(let child): armStop(child, throughMachine: true)
         case .terminate(let child): children[child]?.terminate()
-        case .terminateAfterGrace(let child):
-            guard let process = children[child] else { return }
-            let timer = DemandTimer(owner: "CloudCarrierServe.stopDeadline")
-            stopTimers[child] = timer
-            timer.schedule(after: grace) { process.terminate() }
+        case .terminateAfterGrace(let child): armStop(child, throughMachine: false)
         case .resume(let ids, let result):
             for id in ids { waiters.removeValue(forKey: id)?.resume(with: result.mapError { $0 as any Error }) }
         case .publish(let caller):
@@ -225,6 +218,23 @@ public actor CloudCarrierServe {
                 await previous?.value
                 await observer?(caller)
             }
+        }
+    }
+
+    /// SIGTERM for `child` after the grace: through the machine (`stopDeadline`) while this serve lives, directly
+    /// once its session dropped it. The child's own exit owns the timer, so the deadline outlives the serve and
+    /// ends with the child.
+    private func armStop(_ child: ServeMachine.ChildID, throughMachine: Bool) {
+        guard let process = children[child] else { return }
+        let timer = DemandTimer(owner: "CloudCarrierServe.stopDeadline")
+        stopTimers[child] = timer
+        timer.schedule(after: grace) { [weak self] in
+            if throughMachine, let self { await self.send(.stopDeadline(child: child)) } else { process.terminate() }
+        }
+        // task-owner: ends at the child's exit, which SIGTERM forces at the latest
+        Task { [timer] in
+            _ = await process.waitForExit()
+            timer.cancel()
         }
     }
 
