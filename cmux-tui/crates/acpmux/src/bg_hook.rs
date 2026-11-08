@@ -394,15 +394,58 @@ pub fn without_subagent_mark(command: &str) -> &str {
     if marked { rest } else { command }
 }
 
+/// The answer to a subagent's `PostToolUse` (its Bash call ended): the notices the daemon left
+/// for it (`subagent_notice.rs`: reports of turns it asked for without waiting), taken once, as
+/// `additionalContext`, which Claude Code adds to that subagent's own context. None for the lead's
+/// own call (no `agent_id`) or when none waits.
+pub fn subagent_notices(home: &std::path::Path, session: &str, input: &Value) -> Option<Value> {
+    let agent = input.get("agent_id").and_then(Value::as_str)?;
+    let dir = crate::subagent_notice::agent_dir(home, session, agent)?;
+    let texts: Vec<String> = crate::subagent_notice::take_all(&dir)
+        .iter()
+        .filter_map(|n| n.get("text").and_then(Value::as_str).map(str::to_owned))
+        .collect();
+    (!texts.is_empty()).then(|| {
+        json!({"hookSpecificOutput": {
+            "hookEventName": "PostToolUse",
+            "additionalContext": texts.join("\n\n"),
+        }})
+    })
+}
+
+/// A subagent's `SubagentStop`: it reads no more notices, so the daemon gives the ones left for it
+/// to its lead (`hub/lane_report_subagents.rs`). Prints nothing: blocking the stop to hand one
+/// over would make the subagent's answer to it its last message, the result its lead reads.
+pub fn subagent_stopped(home: &std::path::Path, session: &str, input: &Value) {
+    let Some(agent) = input.get("agent_id").and_then(Value::as_str) else { return };
+    if let Some(dir) = crate::subagent_notice::agent_dir(home, session, agent) {
+        let _ = crate::subagent_notice::mark_stopped(&dir);
+    }
+}
+
 /// The hook process: reads the call on stdin, prints a deny, a subagent's mark
-/// ([`subagent_mark`]) or nothing, and always exits 0.
-/// `home` is the daemon's (`agent_tools::bg_hooks` passes it), where the chat's MCP config is.
+/// ([`subagent_mark`]), a subagent's notices ([`subagent_notices`]) or nothing, and always
+/// exits 0. `home` is the daemon's (`agent_tools::bg_hooks` passes it), where the chat's MCP
+/// config and its subagents' notices are.
 pub fn main(home: Option<std::path::PathBuf>) -> anyhow::Result<()> {
     let mut text = String::new();
     let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut text);
     let Ok(input) = serde_json::from_str::<Value>(&text) else { return Ok(()) };
     let Ok(session) = std::env::var(crate::acpmux_mcp::SESSION_ENV) else { return Ok(()) };
     let home = home.unwrap_or_else(crate::config::home);
+    match input.get("hook_event_name").and_then(Value::as_str) {
+        Some("PostToolUse") => {
+            if let Some(answer) = subagent_notices(&home, &session, &input) {
+                println!("{answer}");
+            }
+            return Ok(());
+        }
+        Some("SubagentStop") => {
+            subagent_stopped(&home, &session, &input);
+            return Ok(());
+        }
+        _ => {}
+    }
     let config = crate::agent_tools::mcp_config_path(&home, &session);
     let route = std::fs::read(&config)
         .ok()

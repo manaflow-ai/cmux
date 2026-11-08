@@ -25,6 +25,8 @@ cmux-rd-proto = { path = "../../cmux-tui/crates/cmux-rd-proto", features = ["ser
 cmux-rd-core = { path = "../../cmux-tui/crates/cmux-rd-core" }
 cmux-rd-engine = { path = "../../cmux-tui/crates/cmux-rd-engine" }
 cmux-rd-ffi = { path = "../../cmux-tui/crates/cmux-rd-ffi" }
+# Predictive local echo, the engine the Mac app asks over cmux-app-ffi.
+cmux-terminal-prediction = { path = "../../cmux-tui/crates/cmux-terminal-prediction" }
 anyhow = "1"
 base64 = "0.22"
 bytes = "1"

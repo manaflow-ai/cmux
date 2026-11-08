@@ -147,6 +147,8 @@ let package = Package(
             dependencies: [
                 .product(name: "CmuxSpinner", package: "CmuxSpinner"),
                 "CmuxMobileDesign", "CmuxMobileArtifacts", "CmuxMobileTransport", "CmuxMobileRealtime",
+                // Predictive local echo: the shared Rust engine (cmux-terminal-prediction).
+                .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit", condition: .when(platforms: [.iOS])),
                 .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
             ]

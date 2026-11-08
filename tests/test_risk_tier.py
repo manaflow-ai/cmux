@@ -678,6 +678,28 @@ class RecentRevertTests(unittest.TestCase):
         # A pure addition taken out again is a revert.
         self.assertTrue(risk.undoes("@@ -1,3 +1,1 @@\n-.a{}\n-.b{}\n ctx", "@@ -1 +1,3 @@\n+.a{}\n+.b{}\n ctx"))
 
+    def test_a_reflowed_list_does_not_take_back_the_line_it_rewraps(self):
+        # PR #38436 (2026-11-08): two exports added to a `pub use listen::{...}` list made rustfmt rewrap it.
+        # #37363 had added the line `verify_session_socket_directory,`; after the rewrap that name sits on a
+        # longer line, so line matching read the PR as taking #37363 back and held it.
+        commit = ("@@ -2746,6 +2746,7 @@ mod listen;\n pub use listen::{\n"
+                  "     connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,\n"
+                  "+    verify_session_socket_directory,\n };")
+        pr = ("@@ -2769,11 +2769,13 @@ mod listen;\n pub use listen::{\n"
+              "-    connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,\n"
+              "-    verify_session_socket_directory,\n"
+              "+    connect_session_socket, prepare_socket_parent, remove_socket_start_lock, serve, serve_bound,\n"
+              "+    serve_paused, socket_start_lock_path, verify_session_socket_directory,\n };")
+        self.assertFalse(risk.undoes(pr, commit))
+        # Really deleting the line still takes it back.
+        self.assertTrue(risk.undoes("@@ -2769,3 +2769,2 @@\n pub use listen::{\n"
+                                    "-    verify_session_socket_directory,\n };", commit))
+        # A line that loses a token is not a reflow: `foo(a, b)` to `foo(a)`, then back, is a revert.
+        shortened = "@@ -1,2 +1,2 @@\n-    foo(a, b);\n+    foo(a);\n ctx"
+        self.assertTrue(risk.undoes("@@ -1,2 +1,2 @@\n-    foo(a);\n+    foo(a, b);\n ctx", shortened))
+        widened = "@@ -1,2 +1,2 @@\n-    foo(a);\n+    foo(a, b);\n ctx"
+        self.assertTrue(risk.undoes("@@ -1,2 +1,2 @@\n-    foo(a, b);\n+    foo(a);\n ctx", widened))
+
     def test_a_revert_of_last_weeks_change_names_its_pull_request(self):
         now = time.time()
         with tempfile.TemporaryDirectory() as repo:
@@ -870,6 +892,56 @@ class ShipReceiptTests(unittest.TestCase):
         line = f"Review (subagent): SHIP at {HEAD}"
         self.assertIsNone(self.signed([self.comment(line, kind="Bot")], [], HEAD))
         self.assertIsNone(self.signed([self.comment(line, association="CONTRIBUTOR")], [], HEAD))
+
+
+class PrivateMemberReceiptTests(unittest.TestCase):
+    """PR #38436 (2026-11-08): `risk evidence` said "no review verdict on the head commit yet" after a valid
+    `Review (claude-17-review-w3h, started by claude-17): SHIP at <head>` comment, while the same classifier run
+    on a person's token signed it off. The poster, lawrencecchen, is a private member of the organization.
+    A person's token reads that comment's author_association as MEMBER; the workflow's GITHUB_TOKEN and App
+    token cannot see a private membership and read CONTRIBUTOR, so the receipt was not trusted. A login whose
+    association is not trusted now counts when its permission on the repository is write or higher."""
+
+    BODY = "Author-agent: claude-opus-5-5 (W3-H)"
+    LINE = f"Review (claude-17-review-w3h, started by claude-17): SHIP at {HEAD}"
+
+    def comment(self, association="CONTRIBUTOR", login="lawrencecchen"):
+        return {"body": self.LINE, "created_at": "2026-11-08T20:08:13Z", "author_association": association,
+                "user": {"login": login, "type": "User"}}
+
+    def pull(self):
+        return {"body": self.BODY, "author_association": "CONTRIBUTOR", "head": {"sha": HEAD},
+                "user": {"login": "lawrencecchen", "type": "User"}, "labels": []}
+
+    def test_a_write_role_counts_whatever_the_token_reads_as_association(self):
+        roles = {"lawrencecchen": "admin", "drive-by": "read"}
+        signed = risk.signed_off([self.comment()], [], HEAD, "lawrencecchen", self.pull(), permission=roles.get)
+        self.assertEqual(signed, "review (claude-17-review-w3h, started by claude-17)")
+        self.assertIsNone(risk.signed_off([self.comment(login="drive-by")], [], HEAD, "lawrencecchen", self.pull(),
+                                          permission=roles.get))
+        # Without a permission reader the association alone decides, as before.
+        self.assertIsNone(risk.signed_off([self.comment()], [], HEAD, "lawrencecchen", self.pull()))
+
+    def test_human_ok_by_reads_the_permission_of_an_untrusted_association(self):
+        asked = []
+
+        def fake_json(*args):
+            asked.append(args[-1])
+            if args[-1].endswith("/collaborators/lawrencecchen/permission"):
+                return {"role_name": "admin"}
+            raise AssertionError(f"unexpected read {args}")
+        answers = {"repos/o/r/issues/7/comments?per_page=100": [self.comment(), self.comment()],
+                   "repos/o/r/pulls/7/reviews?per_page=100": []}
+        saved = risk.gh_items, risk.gh_json
+        risk.gh_items, risk.gh_json = answers.__getitem__, fake_json
+        try:
+            who, blocked = risk.human_ok_by("o/r", "7", self.pull())
+        finally:
+            risk.gh_items, risk.gh_json = saved
+        self.assertFalse(blocked)
+        self.assertEqual(who, f"review (claude-17-review-w3h, started by claude-17) shipped {HEAD[:12]}")
+        # One read per login, however many comments it posted.
+        self.assertEqual(asked, ["repos/o/r/collaborators/lawrencecchen/permission"])
 
 
 class SameAccountReceiptTests(unittest.TestCase):

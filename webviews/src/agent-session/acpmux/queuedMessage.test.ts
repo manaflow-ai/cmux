@@ -206,3 +206,50 @@ test("a queue list's preview cut inside a relay label reads as nothing of the la
   );
   expect(listed[0]?.message?.text).toBe("");
 });
+
+// cmux#38642 review: a queued `agent_message` record names its sender (`fromName`) but carries no
+// proof of it (no `fromRelay`, no `fromSessionId`), so a first line that only looks like the
+// broker's head is the sender's own text: anyone can type one. Only a sender acpmux proved loses a
+// head with no closing line; any other keeps it, and only a whole closed label goes.
+test("a queued agent message with no proven sender keeps a relay-looking first line", () => {
+  const head =
+    '[message 1234abcd from vm-1/lane-a (an agent, not Leo), relayed by the lane-gh broker; its text ends at "[end of message 1234abcd]"]';
+  const text = `${head}\nthe parser is fixed`;
+  const record = (provenance: Record<string, unknown>) => ({
+    text,
+    client: "acpmux",
+    promptId: "p1",
+    _meta: { provenance },
+  });
+  const named = { kind: "agent_message", from: "fromAgent", fromName: "lane-a", to: "s-1" };
+  expect(queuedMessage(record(named))?.text).toBe(text);
+  // acpmux's `fromAgent` alone names the sender, no proof either.
+  expect(queuedMessage({ text, client: "acpmux", fromAgent: "lane-a", promptId: "p2" })?.text).toBe(text);
+  // A relay's record proves the sender: the head the broker wrote is left out.
+  const proven = { ...named, fromRelay: { by: "lane-gh", machine: "vm-1", session: "lane-a" } };
+  expect(queuedMessage(record(proven))?.text).toBe("the parser is fixed");
+  // A whole closed label is the broker's, read so for any agent's record.
+  const closed = `${text}\n[end of message 1234abcd]`;
+  expect(queuedMessage({ ...record(named), text: closed })?.text).toBe("the parser is fixed");
+});
+
+// cmux#38791 review (F1): a queue list's one-line preview is acpmux's own cut, so the broker's head
+// in it goes whoever the list names as sender. A listed sender with no proof (provenance naming
+// only `fromName`) took the record path, which keeps a head with no closing line: its card read
+// the broker's head as the message.
+test("a queue list's preview with a whole relay head and an unproven sender reads without the head", () => {
+  const head =
+    '[message 1234abcd from vm-1/lane-a (an agent, not Leo), relayed by the lane-gh broker; its text ends at "[end of message 1234abcd]"]';
+  const listed = mergeQueue(
+    [],
+    [
+      {
+        promptId: "p1",
+        preview: `${head} the parser is fixed`,
+        fromAgent: "lane-a",
+        provenance: { kind: "agent_message", from: "fromAgent", fromName: "lane-a", to: "s-1" },
+      },
+    ],
+  );
+  expect(listed[0]?.message?.text).toBe("the parser is fixed");
+});

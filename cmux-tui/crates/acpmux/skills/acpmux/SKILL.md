@@ -167,8 +167,16 @@ the person's prompt. What the receiver gets depends on who you are to it:
   `send.not_woken`: nothing was delivered. `send --status` says `held in its
   inbox` for such a `--no-wait` message.
 - Every agent send prints `sending as NAME` on stderr. A Claude Code subagent
-  sends as its lead's session, named `LEAD's TYPE subagent ID`: only the reply
-  to its own `send --wait` reaches it, and `acpmux send LEAD` reaches the lead.
+  sends as its lead's session, named `LEAD's TYPE subagent ID`, and so do its
+  `acpmux run` and `acpmux new` with a prompt. The reply to its own `run` or
+  `send --wait` reaches only it: the lead gets no lane report of that turn. The
+  report of a turn it asked for without waiting comes to it after its next Bash
+  command (acpmux's PostToolUse hook); once it has ended, the report goes to
+  the lead, saying `This report is for your TYPE subagent ID`. The receiver
+  reads `From another agent (LEAD's TYPE subagent ID)` and ends its turn with
+  its answer; it does not send it to the lead. `acpmux send LEAD` reaches the
+  lead. A subagent's call through the cmux MCP tools (`acpmux_bg_start`,
+  `cmux_exec`) carries no subagent mark, so its reports go to the lead.
   A Codex subagent is named `LEAD's codex subagent THREAD` (its own
   `CODEX_THREAD_ID`); when acpmux does not know the lead's thread, the line
   says `LEAD (subagent identity not available for codex)`.

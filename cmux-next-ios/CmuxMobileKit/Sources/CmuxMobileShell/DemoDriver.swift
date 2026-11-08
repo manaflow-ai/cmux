@@ -727,7 +727,7 @@ struct DemoDriver {
         for (label, change) in [("hide alerts on", { session.setMuted(true) }), ("hide alerts off", { session.setMuted(false) }),
                                 ("receipts off", { session.setSendsReadReceipts(false) }), ("receipts on", { session.setSendsReadReceipts(true) })] {
             mark(label)
-            withAnimation { change() }
+            withAnimation(.default.unlessReduceMotion) { change() }
             await pause(1.5)
         }
         mark("end")
