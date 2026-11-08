@@ -22,6 +22,7 @@ mod selection_clicks;
 mod session_notices;
 mod shortcuts_menus;
 mod surface_attach;
+mod tab_close_selection;
 mod viewport_history;
 
 use super::{
