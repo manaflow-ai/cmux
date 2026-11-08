@@ -2,7 +2,7 @@
  "id": "px-keys-held-2-s1r-claude",
  "priority": "P1",
  "title": "PIXEL: Ctrl-Shift-L held, then Ctrl-Shift-H x30 every 33 ms, on p0 (p0 claude | p1 P), at x1, Reduce Motion (x1 and Reduce Motion: any bench build)",
- "why": "Lawrence 2026-11-03: resizing columns and splits is not pixel perfect when animated. Loud fixture colors (shell #FF00FF, terminal ground #00FFFF, tab strips #000000, rings #FF0000/#FFFFFF/#000000) make any gap, overlap or lag visible; judge_pixel.py reads every pane edge, tab strip and divider per film frame from the exact scan lines. RESIZE P0 13 (lead): the same keys with a real program (claude) in p0 instead of the ring fixture, to see the ready signal on real output (trace READY_PROGRAM vs bound presents).",
+ "why": "Lawrence 2026-11-03: resizing columns and splits is not pixel perfect when animated. Loud fixture colors (shell #FF00FF, terminal ground #00FFFF, tab strips #000000, rings #FF0000/#FFFFFF/#000000) make any gap, overlap or lag visible; judge_pixel.py reads every pane edge, tab strip and divider per film frame from the exact scan lines. RESIZE P0 13 (lead): the same keys with a real program (claude) in p0 instead of the ring fixture, to see the ready signal on real output (trace READY_PROGRAM vs bound presents). RESIZE P0 17: the films start only after Claude Code's prompt box shows (else not run, with the reason).",
  "source": "PIXEL PERFECT kit (video-cases/gen_pixel.py)",
  "budget_seconds": 76,
  "estimate_seconds": 64,
@@ -124,15 +124,25 @@
   },
   {
    "do": "type",
-   "text": "mkdir -p /tmp/jr-claude-cfg && cp /tmp/jr-claude-config.json /tmp/jr-claude-cfg/.claude.json && CLAUDE_CONFIG_DIR=/tmp/jr-claude-cfg ANTHROPIC_API_KEY=sk-ant-api03-jrfixture0000000000000000000000000000000000000000 PATH=/opt/homebrew/bin:$PATH claude",
+   "text": "mkdir -p /tmp/jr-claude-cfg /tmp/jr-claude-bin && cp /tmp/jr-claude-config.json /tmp/jr-claude-cfg/.claude.json && rm -f /tmp/jr-claude-bin/claude && cp -c \"$(readlink -f /opt/homebrew/bin/claude)\" /tmp/jr-claude-bin/claude && CLAUDE_CONFIG_DIR=/tmp/jr-claude-cfg ANTHROPIC_API_KEY=sk-ant-api03-jrfixture0000000000000000000000000000000000000000 PATH=/opt/homebrew/bin:$PATH /tmp/jr-claude-bin/claude",
    "enter": true,
    "mark": "tui-p0",
-   "title": "set-up: claude in p0 at its prompt (not its first-run screen)"
+   "title": "set-up: claude in p0 at its prompt (not its first-run screen), started from a fresh clone of the Homebrew binary (cmux21 2026-11-08: exec of the Cask file itself hung in _dyld_start, a clone starts at once)"
   },
   {
-   "do": "wait",
-   "seconds": 4.0,
-   "title": "set-up: claude draws its screen (it keeps the main screen: nothing to expect)"
+   "do": "expect",
+   "title": "set-up: Claude Code has drawn its prompt box (its footer hint) before any resize",
+   "since": "tui-p0",
+   "timeout": 30,
+   "not_run": "Claude Code never drew its prompt box in p0 (not started, or held on a first-run, trust or login screen)",
+   "all": [
+    {
+     "daemon_contains": "for shortcuts"
+    },
+    {
+     "app_text_contains": "for shortcuts"
+    }
+   ]
   },
   {
    "do": "action",

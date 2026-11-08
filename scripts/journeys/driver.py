@@ -1434,6 +1434,10 @@ class Journey:
                               + (f" took {elapsed} ms > {limit} ms" if s["ok"]
                                  else " did not hold at the end" if s["negative"] else " never held"))
         result = {"polls": ticks, "since": since, "conditions": len(state)}
+        if failed and step.get("not_run"):
+            # A set-up precondition the journey cannot film without (a real program that never drew its screen):
+            # "not run" with the step's reason, never a pass and never a fail of the build under test.
+            raise NotRun(f"{step['not_run']}: " + "; ".join(failed))
         if failed:
             raise StepError("; ".join(failed))
         return result
