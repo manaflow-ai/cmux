@@ -84,6 +84,15 @@ public nonisolated struct JoinedMachine: Identifiable, Hashable, Sendable {
     /// The Machines section's id of a joined machine (its row, its last check in ``MachineHealthStore``).
     public static func healthID(_ id: String) -> String { "joined:\(id)" }
 
+    /// The machine a Machines section row id names for a link verb (`machine.reconnect`): a joined
+    /// row's id (`joined:<id>`, ``healthID(_:)``) names the daemon of its `meshPeerId` when it has one;
+    /// any other id, and a joined machine with no mesh id or none of `machines`, stays as given.
+    public static func linkedMachine(_ id: String, in machines: [JoinedMachine]) -> String {
+        guard id.hasPrefix("joined:") else { return id }
+        let machineID = String(id.dropFirst("joined:".count))
+        return machines.first(where: { $0.id == machineID })?.meshPeerId ?? id
+    }
+
     /// The joined rows of `cmux machine list --json` (a JSON array of rows of every kind); nil when
     /// the output is not that array. Rows of other kinds, and joined rows with no id, are skipped.
     /// Each row's state is read from its heartbeat at `now` (``state(revoked:heartbeat:listed:now:)``).
