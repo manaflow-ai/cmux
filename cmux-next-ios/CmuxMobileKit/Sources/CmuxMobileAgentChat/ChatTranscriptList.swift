@@ -1435,8 +1435,9 @@ extension ChatRow {
         case .sessionStart: return 46
         case .prompt(let text, let attachments, _, _):
             return lines(text) * perLine + 22 + (attachments.isEmpty ? 0 : 156)
-        case .incoming(let incoming, _):
-            return incoming.messages.count == 1 ? 46 + lines(incoming.text) * perLine : 46 + CGFloat(incoming.messages.count) * 40
+        case .incoming(let incoming, let attachments, _):
+            return (incoming.messages.count == 1 ? 46 + lines(incoming.text) * perLine : 46 + CGFloat(incoming.messages.count) * 40)
+                + (attachments.isEmpty ? 0 : 156)
         case .block(_, let block):
             switch block.kind {
             case .heading: return 30

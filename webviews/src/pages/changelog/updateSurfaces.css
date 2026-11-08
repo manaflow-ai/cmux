@@ -382,6 +382,10 @@
 /* glass-opaque-allow: the card over native rows no page blur reaches (open preview, drag) */
 :is(.wn-card.wn-updated[data-preview="open"], .wn-card.wn-updated[data-dragging], .wn-card[data-decoration="doodle"][data-dragging]):not([data-glass]) {
   background: var(--composer-material-solid);
+  /* Solid, it frosts nothing: no blur under it, so it is never opaque glass (accent-glass invariants).
+     Leaving these states, the blur returns at once under the still-solid fill, so nothing shows it. */
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"])
   :is(.wn-card.wn-updated, .wn-card[data-decoration="doodle"]):not([data-preview="open"], [data-dragging], [data-glass]) {

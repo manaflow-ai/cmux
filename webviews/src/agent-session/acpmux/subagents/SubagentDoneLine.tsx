@@ -19,7 +19,8 @@
 // A finished line whose subagent left a report (its final reply, `result`, else its last message)
 // offers it under the line (Leo, 2026-11-03, on parallel agents in the running tray: "Tray only,
 // richer"): a chevron right after the line's words opens the report, in the transcript's Markdown
-// and capped as an opened tool output is; the line's own click still opens the agent's view. How
+// and capped as an opened tool output is. On such a line a click anywhere opens and closes the
+// report, and only the agent's name, a link chip, opens the agent's view (Lucas, 2026-11-08). How
 // it is offered is an experiment (doneReport.experiment.ts).
 import { useContext, useId, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";

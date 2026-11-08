@@ -1,5 +1,6 @@
 import type { AcpmuxRow, PromptContentPart } from "../model";
-import { type FileAttachmentInfo, attachmentPath } from "../FileAttachment";
+import { type FileAttachmentInfo } from "../FileAttachment";
+import { attachmentPath } from "../fileAttachmentModel";
 
 /// The files a recorded prompt sent (its `inlineParts`: documents, audio, resource links), drawn
 /// as a sent prompt draws them; a file that is an image's companion, a video, or an image's

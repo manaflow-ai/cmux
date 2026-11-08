@@ -450,10 +450,11 @@ function SendRaw({ tool, reveal }: { tool: Tool; reveal: number }) {
       />
     );
   // A shell call is the plain command row every other command draws (ToolRow.tsx), closed until
-  // opened, never a Shell card inside the message (ask-64e107ccf0).
+  // opened, never a Shell card inside the message (ask-64e107ccf0). It reads as its command line,
+  // not as what it did or its description: Raw is the call as it was made.
   return (
     <div className="cv-tools">
-      <ToolRow item={item} />
+      <ToolRow item={item} asRun />
     </div>
   );
 }

@@ -16,7 +16,7 @@ import QuartzCore
 /// their frame, which would stretch or crop it). The pass never draws and never waits.
 ///
 /// In a spring the next refresh's size is known: after the pass, each terminal its pane's spring asked to
-/// (``TerminalSurfaceView/drawAhead(_:)``) gives Ghostty that size (render only), so the renderer draws it during the
+/// (``TerminalSurfaceView/drawAhead(_:)``) gives Ghostty that size (a key resize's with its grid to the PTY), so the renderer draws it during the
 /// refresh and the next pass presents it with its bounds: no refresh is kept after the spring's first. A divider drag or
 /// a Reduce Motion jump has no next size: the last bounds and frame stay until the new frame is drawn. Chromium does the
 /// same at a resize: the browser compositor shows a new size only with a frame the renderer submitted for it, keeps the
@@ -267,7 +267,7 @@ final class TerminalFramePresenter {
         stats.longestPass = max(stats.longestPass, started.duration(to: .now))
     }
 
-    /// After the pass: each spring's next size goes to Ghostty (render only), so its frame is drawn during the refresh.
+    /// After the pass: each spring's next size goes to Ghostty (a key resize's with its grid), so its frame is drawn during the refresh.
     private func applyAheads() { // perf-hot: 1ms motion-frame
         guard !aheads.isEmpty else { return }
         for (id, ahead) in aheads {

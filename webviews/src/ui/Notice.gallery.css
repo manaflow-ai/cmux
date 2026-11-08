@@ -60,5 +60,5 @@
   --glass-tint: light-dark(rgb(252 252 252 / 55%), rgb(28 28 28 / 42%));
 }
 .ui-notice-gallery[data-tint="popover"] .ui-notice {
-  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-menu-tint, 78%), transparent);
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-popover-tint), transparent);
 }
