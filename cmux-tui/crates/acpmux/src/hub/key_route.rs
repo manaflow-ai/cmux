@@ -67,7 +67,7 @@ impl Hub {
                 return self.name_on(&Machine::Here(own), key, rest, true);
             }
         }
-        let [named, cased, prefixed, short, spaced] = self.key_candidates(key, &own);
+        let [named, cased, prefixed, short, short_cased, spaced] = self.key_candidates(key, &own);
         let found = if let Some((host, rest)) = key.split_once('/') {
             // Any other `/` is a sub-session's whole name (`parent/child`) or a machine named
             // in another case or by a prefix (`LANE-VM/td2-a`): the whole name first, never a
@@ -79,9 +79,12 @@ impl Hub {
             {
                 return self.name_on(&machine, key, rest, false);
             }
-            [whole, cased, spaced].into_iter().find(|tier| !tier.is_empty()).unwrap_or_default()
+            [whole, cased, short_cased, spaced]
+                .into_iter()
+                .find(|tier| !tier.is_empty())
+                .unwrap_or_default()
         } else {
-            [named, cased, prefixed, short, spaced]
+            [named, cased, prefixed, short, short_cased, spaced]
                 .into_iter()
                 .find(|tier| !tier.is_empty())
                 .unwrap_or_default()
@@ -173,12 +176,18 @@ impl Hub {
         rest: &str,
         exact: bool,
     ) -> Result<Option<String>, RpcError> {
-        let mut found: Vec<(Option<crate::name_match::Step>, Candidate)> = Vec::new();
+        use crate::name_match::Step;
+        // The whole name's steps first, then a sub-session's short name by the same steps
+        // (`short_step`): an exact short name beats a sibling's in another case, and the loose
+        // short steps apply only when no short name matches exactly (review of #36919, F1).
+        let mut found: Vec<(Option<(bool, Step)>, Candidate)> = Vec::new();
         let mut take = |host: &str, name: &str, id: &str, route: String, closed: bool| {
             let at = if name == rest || id.starts_with(rest) {
-                Some(crate::name_match::Step::Exact)
+                Some((false, Step::Exact))
             } else {
                 crate::name_match::step(name, rest)
+                    .map(|at| (false, at))
+                    .or_else(|| crate::name_match::short_step(name, rest).map(|at| (true, at)))
             };
             if at.is_some() {
                 found.push((
@@ -223,7 +232,7 @@ impl Hub {
                 _ => None,
             });
         };
-        if exact && first == crate::name_match::Step::Exact {
+        if exact && first == (false, Step::Exact) {
             return Ok(None);
         }
         let tier: Vec<Candidate> =
@@ -236,13 +245,14 @@ impl Hub {
     /// another session has; the whole name in another case; only for sessions here, a name that
     /// starts with `key` in any case (the rule this daemon always had); on any host, the
     /// sub-sessions whose short name `key` is (`mac-ci-3` for `claude-sr2/mac-ci-3`,
-    /// `session_name::ends_with_segments`); last, the whole name without case or separators
-    /// (`crate::name_match`). A prefix of a peer's name names nothing, as `resolve_remote` never
+    /// `session_name::ends_with_segments`), then that short name in another case; last, the
+    /// whole name or the short name without case or separators (`crate::name_match`), so
+    /// `TD2-A` reaches `coord/td2-A` ahead of `coord/td2_a`. A prefix of a peer's name names nothing, as `resolve_remote` never
     /// matched one: a short key never reaches another machine's chat nobody named. Names are
     /// read under each session's meta lock, never cloned (`resolve_here`).
-    fn key_candidates(&self, key: &str, own: &str) -> [Vec<Candidate>; 5] {
+    fn key_candidates(&self, key: &str, own: &str) -> [Vec<Candidate>; 6] {
         use crate::name_match::Step;
-        let mut tiers: [Vec<Candidate>; 5] = Default::default();
+        let mut tiers: [Vec<Candidate>; 6] = Default::default();
         let tier_of = |name: &str, id: &str, here: bool| {
             if name == key || id.starts_with(key) {
                 return Some(0);
@@ -254,10 +264,12 @@ impl Hub {
                 Some(2)
             } else if crate::session_name::ends_with_segments(name, key) {
                 Some(3)
-            } else if at == Some(Step::Separators) {
-                Some(4)
             } else {
-                None
+                match (at, crate::name_match::short_step(name, key)) {
+                    (_, Some(Step::Exact | Step::Case)) => Some(4),
+                    (Some(Step::Separators), _) | (_, Some(_)) => Some(5),
+                    _ => None,
+                }
             }
         };
         for s in self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner).values() {

@@ -104,6 +104,7 @@ export interface AcpmuxRequests {
   "_acpmux/tag": { params: unknown; result: unknown };
   "_acpmux/detach_parent": { params: unknown; result: unknown };
   "_acpmux/info": { params: unknown; result: unknown };
+  "_acpmux/machine_info": { params: unknown; result: unknown };
   "_acpmux/session_files": { params: unknown; result: unknown };
   "_acpmux/events": { params: EventsParams; result: EventsResult };
   "_acpmux/attachment": { params: AttachmentParams; result: unknown };
@@ -179,6 +180,7 @@ export interface AcpmuxRequests {
   "_acpmux/secret_request": { params: unknown; result: unknown };
   "_acpmux/secret_submit": { params: SecretSubmitParams; result: unknown };
   "_acpmux/secret_run": { params: unknown; result: unknown };
+  "_acpmux/elevation_request": { params: unknown; result: unknown };
   "_acpmux/mcp_connect_request": { params: unknown; result: unknown };
   "_acpmux/mcp_connect_answer": { params: unknown; result: unknown };
   "_acpmux/chats": { params: unknown; result: unknown };
@@ -424,6 +426,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/tag", kind: "request", acp: false, typed: false },
   { name: "_acpmux/detach_parent", kind: "request", acp: false, typed: false },
   { name: "_acpmux/info", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/machine_info", kind: "request", acp: false, typed: false },
   { name: "_acpmux/session_files", kind: "request", acp: false, typed: false },
   { name: "_acpmux/events", kind: "request", acp: false, typed: true },
   { name: "_acpmux/attachment", kind: "request", acp: false, typed: true },
@@ -499,6 +502,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/secret_request", kind: "request", acp: false, typed: false },
   { name: "_acpmux/secret_submit", kind: "request", acp: false, typed: true },
   { name: "_acpmux/secret_run", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/elevation_request", kind: "request", acp: false, typed: false },
   { name: "_acpmux/mcp_connect_request", kind: "request", acp: false, typed: false },
   { name: "_acpmux/mcp_connect_answer", kind: "request", acp: false, typed: false },
   { name: "_acpmux/chats", kind: "request", acp: false, typed: false },

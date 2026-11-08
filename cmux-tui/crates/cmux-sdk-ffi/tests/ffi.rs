@@ -5,10 +5,10 @@
 #![cfg(unix)]
 
 use cmux_sdk_ffi::{
-    CMUX_SDK_ERR_INVALID, CMUX_SDK_ERR_NULL, CMUX_SDK_KIND_MUTATION, CMUX_SDK_KIND_READ,
-    CMUX_SDK_OK, CmuxSdkBytes, CmuxSdkClient, CmuxSdkStream, cmux_sdk_bytes_free, cmux_sdk_call,
-    cmux_sdk_cancel, cmux_sdk_close, cmux_sdk_command, cmux_sdk_connect, cmux_sdk_next,
-    cmux_sdk_stream_free, cmux_sdk_subscribe,
+    CMUX_SDK_ERR_INVALID, CMUX_SDK_ERR_IO, CMUX_SDK_ERR_NULL, CMUX_SDK_KIND_MUTATION,
+    CMUX_SDK_KIND_READ, CMUX_SDK_OK, CmuxSdkBytes, CmuxSdkClient, CmuxSdkStream,
+    cmux_sdk_bytes_free, cmux_sdk_call, cmux_sdk_cancel, cmux_sdk_close, cmux_sdk_command,
+    cmux_sdk_connect, cmux_sdk_next, cmux_sdk_stream_free, cmux_sdk_subscribe,
 };
 use serde_json::{Value, json};
 use std::ffi::CString;
@@ -159,6 +159,36 @@ fn reads_and_mutations_go_through_the_sdk() {
 }
 
 #[test]
+fn a_key_that_is_not_utf8_is_refused_never_read_as_absent() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    // A request that reached the daemon would get a closed stream: an error envelope, not a refusal.
+    let server = thread::spawn(move || drop(listener.accept().unwrap()));
+    let client = connect(&path);
+    let op = CString::new("conversation.list").unwrap();
+    let key = [0xffu8, 0xfe, 0];
+    for kind in [CMUX_SDK_KIND_READ, CMUX_SDK_KIND_MUTATION] {
+        let mut out = empty();
+        let status = unsafe {
+            cmux_sdk_call(
+                client.0,
+                op.as_ptr(),
+                kind,
+                key.as_ptr().cast(),
+                std::ptr::null(),
+                0,
+                &mut out,
+            )
+        };
+        assert_eq!(status, CMUX_SDK_ERR_INVALID, "kind {kind}");
+        assert!(out.ptr.is_null());
+    }
+    drop(client);
+    server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn command_lines_return_data_and_whole_refusals() {
     let path = socket_path();
     let listener = UnixListener::bind(&path).unwrap();
@@ -272,6 +302,48 @@ fn conversation_events_opens_through_subscribe_yields_items_and_cancels() {
     unsafe { cmux_sdk_stream_free(stream) };
     drop(client);
     server.join().unwrap();
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn a_cancel_on_a_closed_stream_is_an_error() {
+    let path = socket_path();
+    let listener = UnixListener::bind(&path).unwrap();
+    let server = thread::spawn(move || {
+        let _control = listener.accept().unwrap();
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let open = line(&mut reader);
+        let stream_id = open["params"]["stream_id"].as_str().unwrap().to_string();
+        respond(&mut stream, &open, json!({"ok": true, "result": {"stream_id": stream_id}}));
+        // The daemon goes away: the stream's connection closes.
+    });
+
+    let client = connect(&path);
+    let op = CString::new("conversation.events").unwrap();
+    let params =
+        json!({"machine": "current", "session": "current", "conversation": "conv_1"}).to_string();
+    let mut stream: *mut CmuxSdkStream = std::ptr::null_mut();
+    let mut out = empty();
+    let code = unsafe {
+        cmux_sdk_subscribe(
+            client.0,
+            op.as_ptr(),
+            params.as_ptr(),
+            params.len(),
+            &mut stream,
+            &mut out,
+        )
+    };
+    assert_eq!(code, CMUX_SDK_OK);
+    assert!(!stream.is_null());
+    server.join().unwrap();
+
+    assert_eq!(unsafe { cmux_sdk_cancel(stream) }, CMUX_SDK_ERR_IO);
+    // The failed send retired the cancel; asking again sends nothing.
+    assert_eq!(unsafe { cmux_sdk_cancel(stream) }, CMUX_SDK_OK);
+    unsafe { cmux_sdk_stream_free(stream) };
+    drop(client);
     std::fs::remove_file(path).unwrap();
 }
 

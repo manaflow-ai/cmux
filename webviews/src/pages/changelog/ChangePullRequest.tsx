@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { setChipHost } from "../../agent-session/acpmux/chips/host";
 import { LinkHoverCard } from "../../agent-session/acpmux/chips/LinkHoverCard";
-import { pullRequestRef } from "../../agent-session/acpmux/chips/PullRequestCard";
+import { pullRequestRef } from "../../agent-session/acpmux/chips/pullRequestCardModel";
 import { useHoverCard } from "../../agent-session/acpmux/chips/useHoverCard";
 import { GitHubMark } from "../../agent-session/acpmux/conversation/icons";
 import type { PageClient } from "../shared/pageClient";

@@ -45,9 +45,10 @@ async function render(items: object[]) {
   );
 }
 
-// Far past the old 60-character cap.
+// Far past the old 60-character cap; a program the verb table does not name (commandActions.ts), so
+// its row draws the line.
 const CP =
-  "cp /private/tmp/claude-501/-Users-leoli-Projects/scratch/transcript-parity/ellipsis/before.png /Users/leoli/Projects/cmux-tp-ellipsis.noindex/docs/media/after.png";
+  "rsync /private/tmp/claude-501/-Users-leoli-Projects/scratch/transcript-parity/ellipsis/before.png /Users/leoli/Projects/cmux-tp-ellipsis.noindex/docs/media/after.png";
 const shell = (id: string, command: string, extra: object = {}) => ({
   kind: "tool",
   text: "Run",

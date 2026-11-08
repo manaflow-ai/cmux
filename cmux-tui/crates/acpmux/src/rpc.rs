@@ -437,6 +437,8 @@ pub mod method {
     /// What this daemon knows of a chat's sign-in (`hub/session_auth.rs`).
     pub const MUX_SESSION_AUTH: &str = "_acpmux/session/auth";
     pub const MUX_INFO: &str = "_acpmux/info";
+    /// The safe machine/workspace capability snapshot for the calling agent.
+    pub const MUX_MACHINE_INFO: &str = "_acpmux/machine_info";
     /// Sign a daemon-owned proof for the currently live turn.
     pub const MUX_TURN_ATTESTATION: &str = "_acpmux/turn_attestation";
     /// Metadata-only paths for a session's config and state files; local Unix socket only.
@@ -664,6 +666,9 @@ pub mod method {
     pub const MUX_SECRET_REQUEST: &str = "_acpmux/secret_request";
     pub const MUX_SECRET_SUBMIT: &str = "_acpmux/secret_submit";
     pub const MUX_SECRET_RUN: &str = "_acpmux/secret_run";
+    /// An agent asks to run one command as root (`hub/elevation.rs`); the person's card
+    /// answers with `secret_submit`, the password, and the daemon runs sudo itself.
+    pub const MUX_ELEVATION_REQUEST: &str = "_acpmux/elevation_request";
     /// An agent asks to connect an MCP server (`hub/mcp_connect.rs`); only the person's card
     /// answers, with `mcp_connect_answer`.
     pub const MUX_MCP_CONNECT_REQUEST: &str = "_acpmux/mcp_connect_request";

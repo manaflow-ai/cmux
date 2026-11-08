@@ -111,7 +111,8 @@ const submit = (host: HTMLElement) =>
 test("the join page shows nothing of the chat, and Join waits for a valid name", async () => {
   const page = await mount({});
   expect(page.host.textContent).toContain(translate("guest.join.title"));
-  expect(page.host.textContent).toContain(translate("guest.join.detail"));
+  // A link guest watches only: the page never promises it may send (sending takes an invite).
+  expect(page.host.textContent).toContain(translate("guest.live.viewOnly"));
   expect(joinButton(page.host).disabled).toBe(true);
   await typeName(page.host, "   ");
   expect(joinButton(page.host).disabled).toBe(true);
@@ -173,7 +174,10 @@ test("joined, the owner's transcript draws read only; an ask shows who it waits 
   await roomFrames();
   expect(page.host.textContent).toContain("Fix the flaky upload retry test");
   expect(page.host.textContent).toContain(translate("guest.live.sharedBy", { owner: "Sam Rivera" }));
-  expect(page.host.textContent).toContain("bun test src/upload.test.ts --rerun-each 5");
+  // The owner's `bun test src/upload.test.ts --rerun-each 5` failed, so its row keeps the command
+  // line: a failed call never reads as what it would have done (commandActions.ts).
+  expect(page.host.textContent).toContain("Ran bun test src/upload.test.ts --rerun-each 5");
+  expect(page.host.textContent).not.toContain("Ran tests in upload.test.ts");
   expect(page.host.textContent).toContain(translate("guest.live.waitingAnswer", { owner: "Sam Rivera" }));
   // Who else is here: the owner, never this guest.
   expect(page.host.querySelector(".cv-presence__label")?.textContent).toBe(
@@ -250,6 +254,24 @@ for (const [error, shown] of [
     await page.unmount();
   });
 
+test("a guest who joins by the link watches only: no composer, whatever the room answered", async () => {
+  for (const answered of [undefined, "talk", "view"] as const) {
+    const joined: unknown[] = [];
+    const page = await mount({
+      redeem: async () => ({ ok: true, guestId: "g1", ...(answered ? { role: answered } : {}) }),
+      onJoined: (...args) => void joined.push(args),
+      openSocket: fakeRoom(joinFrames(workingRecords())),
+    });
+    await typeName(page.host, "Ana");
+    await submit(page.host);
+    await roomFrames();
+    expect(joined).toEqual([["g1", "Ana", "view", "link"]]);
+    expect(page.host.textContent).toContain(translate("guest.live.viewOnly"));
+    expect(page.host.querySelector("textarea, [contenteditable='true']")).toBeNull();
+    await page.unmount();
+  }
+});
+
 test("a view invitee watches: no composer, and the page says it can only watch", async () => {
   const page = await mount({ guestId: "g1", role: "view", openSocket: fakeRoom(joinFrames(workingRecords())) });
   await roomFrames();
@@ -263,7 +285,7 @@ test("a view invitee watches: no composer, and the page says it can only watch",
 test("the invite join text hedges message approval in every app locale", () => {
   expect(translate("guest.invite.detail", {}, "en")).toContain("If you can send messages");
   for (const lang of ["en", "de", "fr", "ar", "es", "zh-Hant", "zh-Hans", "ko", "ja"] as const)
-    expect(translate("guest.invite.detail", {}, lang)).not.toContain(translate("guest.join.detail", {}, lang));
+    expect(translate("guest.invite.detail", {}, lang)).not.toBe(translate("guest.live.viewOnly", {}, lang));
 });
 
 // The owner's thread rail is pane chrome: on the guest page it drew a lone tick at the left edge (#33925).
