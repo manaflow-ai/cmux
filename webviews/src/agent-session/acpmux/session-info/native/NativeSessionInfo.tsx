@@ -131,7 +131,6 @@ export type NativeSessionInfoProps = {
   onReconnectMcp?: (server: string) => Promise<unknown>;
   onOpenFolder?: (path: string) => void;
   onShowCall?: (toolCallId: string) => boolean;
-  onShowTurn?: (turnId: string) => void;
   /// Reserved for the web Session Info timeline's turn navigation; native hosts may ignore it.
   onShowTurn?: (turnId: string) => void;
 };
