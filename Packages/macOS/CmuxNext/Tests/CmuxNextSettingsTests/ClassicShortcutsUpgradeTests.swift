@@ -34,7 +34,8 @@ import Testing
         let nightly = try #require(UserDefaults(suiteName: names[1]))
         let next = try #require(UserDefaults(suiteName: names[2]))
         nightly.set(try Self.stored("b", command: true, option: true, control: true), forKey: "shortcut.toggleSidebar")
-        nightly.set(try Self.stored("h", command: true, option: true, control: true), forKey: "shortcut.showWindowHints")
+        // Ctrl-Opt-Cmd-H is Previous Space in next, so a free hyper key stands in for a recorded one.
+        nightly.set(try Self.stored("y", command: true, option: true, control: true), forKey: "shortcut.showWindowHints")
         nightly.set(try Self.stored("b", control: true, chordKey: "p"), forKey: "shortcut.commandPalette")
         nightly.set(try Self.stored(""), forKey: "shortcut.closeTab")
         nightly.set(try Self.stored("k", command: true, option: true), forKey: "shortcut.nextSurface")
@@ -55,7 +56,7 @@ import Testing
 
         #expect(registry.effectiveShortcut(for: "toggleSidebar") == Shortcut("b", modifiers: [.command, .option, .control]))
         // Classic's Show Window Hints is next's hints.show.
-        #expect(registry.effectiveShortcut(for: "hints.show") == Shortcut("h", modifiers: [.command, .option, .control]))
+        #expect(registry.effectiveShortcut(for: "hints.show") == Shortcut("y", modifiers: [.command, .option, .control]))
         #expect(registry.chordOverrides["commandPalette"] == ShortcutChord(Shortcut("b", modifiers: [.control]),
                                                                           Shortcut("p", modifiers: [])))
         #expect(registry.effectiveShortcut(for: "closeTab") == nil)

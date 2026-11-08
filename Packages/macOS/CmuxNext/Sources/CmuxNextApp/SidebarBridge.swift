@@ -130,8 +130,8 @@ final class SidebarBridge {
         sectionsObservation?.cancel()
         appSections?.releaseAll()
         cardsObservation?.cancel()
-        // The update surface pages cancel their subscriptions (cx-urd.61.2).
-        container.sidebarView.updateSurfaces = nil
+        container.sidebarView.tearDownSpaceWindowMarks() // a retained closed window keeps its views (#38333 review)
+        container.sidebarView.updateSurfaces = nil // the update surface pages cancel their subscriptions (cx-urd.61.2)
     }
 
     private func observe() {

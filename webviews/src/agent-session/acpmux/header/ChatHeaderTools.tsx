@@ -754,7 +754,11 @@ function ChatMenuRow({ item }: { item: Exclude<ChatMenuItem, "separator"> }) {
   const registeredShortcut = useShortcut(item.shortcutAction ?? "");
   const shortcut = menuKeycap(registeredShortcut);
   return (
-    <MenuItem className="acpmux-chat-menu-item" disabled={item.disabled} onSelect={item.onSelect}>
+    <MenuItem
+      className={item.destructive ? "acpmux-chat-menu-item ui-menu-item-destructive" : "acpmux-chat-menu-item"}
+      disabled={item.disabled}
+      onSelect={item.onSelect}
+    >
       {item.image ? (
         <img className="acpmux-chat-menu-image" src={item.image} alt="" width={14} height={14} />
       ) : (
