@@ -4,11 +4,7 @@ public struct CmuxGlaedaExecutionLocalization {
     public init() {}
 
     public func string(_ key: StaticString, defaultValue: String) -> String {
-        String(
-            localized: key,
-            defaultValue: String.LocalizationValue(stringLiteral: defaultValue),
-            bundle: .module
-        )
+        CmuxFoundationLocalization.string(key, defaultValue: defaultValue)
     }
 
     public func format(
