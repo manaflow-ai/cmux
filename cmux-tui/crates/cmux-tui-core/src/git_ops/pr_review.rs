@@ -253,7 +253,7 @@ fn worktree(
     let attempt = worktree::plan(&target.repository, target.common_dir(), &fields)?;
     // Untrusted: no hook or filter driver runs, since either could run the
     // pull request's code in its checkout before anyone read it.
-    worktree::create(&target.repository, git, &attempt, false)?;
+    worktree::create(&target.repository, git, &attempt, Some(&pull.url()))?;
     Ok((attempt.root, attempt.branch, false))
 }
 

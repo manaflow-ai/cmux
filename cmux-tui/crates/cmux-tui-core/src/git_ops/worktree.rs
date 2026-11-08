@@ -74,7 +74,7 @@ pub(super) fn dispatch(
                 attempt
             }
         };
-        match create(repository, &git, &attempt, true) {
+        match create(repository, &git, &attempt, None) {
             Ok(()) => {
                 let mut value = described(&attempt, target.common_dir());
                 value.set("setup", setup(mux, &attempt, target.common_dir()));
@@ -161,15 +161,22 @@ pub(super) fn plan(
 }
 
 /// Makes the attempt's worktree and records its base, unless a lost
-/// reply's run already made it. `trusted` off checks it out running none of
-/// the checked-out code: no git hook (`post-checkout`) and no filter driver
-/// (a `smudge` or `process` command can name a script in the checkout).
+/// reply's run already made it. `review` (a pull request's address) checks
+/// it out running none of the checked-out code: no git hook (`post-checkout`)
+/// and no filter driver (a `smudge` or `process` command can name a script in
+/// the checkout). Its branch records the pull request (`cmuxReview`) before
+/// any file is written, so a checkout that fails halfway is still known as
+/// a review's (no teardown runs in it), and only a worktree that records it
+/// gets the review's files: another creation's worktree that took the name
+/// first is refused, never reset.
 pub(super) fn create(
     repository: &Repository,
     git: &UserGit<'_>,
     attempt: &Attempt,
-    trusted: bool,
+    review: Option<&str>,
 ) -> Result<(), ResourceError> {
+    let trusted = review.is_none();
+    let marker = format!("branch.{}.cmuxReview", attempt.branch);
     if !made(attempt) {
         if attempt.root.exists() {
             let message = format!(
@@ -208,6 +215,29 @@ pub(super) fn create(
         if !run.success && !made(attempt) {
             let message = "git worktree add failed";
             return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
+        }
+        if let Some(url) = review.filter(|_| run.success) {
+            let run = git
+                .run(&["config", marker.as_str(), url])
+                .map_err(|failure| run_failed(OPERATION, &failure))?;
+            if !run.success {
+                let message = "the worktree was made, but recording its pull request failed";
+                return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
+            }
+        }
+    }
+    if let Some(url) = review {
+        let recorded = repository
+            .run(&["config", "--get", marker.as_str()], 4096)
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+            .unwrap_or_default();
+        if !recorded.eq_ignore_ascii_case(url) {
+            let message = format!(
+                "{} is another worktree on {}, not this review's",
+                attempt.root.display(),
+                attempt.branch
+            );
+            return Err(refused(OPERATION, "path_exists", message, Value::Null));
         }
     }
     if !trusted {
