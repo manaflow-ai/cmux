@@ -229,4 +229,30 @@ import Testing
             }
         }
     }
+
+    /// Router review F1 on #37735 at 5d4fa325: the daemon refuses Home's pinned tab leaving its dock with `moved: false`, not an
+    /// error. That move fails like any refused one: Home's pane shows again, its tab keeps no departure mark, and the tab stays.
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), .timeLimit(.minutes(3)))
+    func aMoveTheDaemonAnswersNotMovedShowsThePaneAgain() async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let (_, home) = try await HomeSplitKeysTests.showHome(services, connection)
+            let dock = try #require(HomeSplitKeysTests.panes(home).first), page = try #require(dock.tabs.first)
+            var opensTerminal = ActionInvocation(origin: .user)
+            opensTerminal.opensTerminal = true
+            #expect(services.registry.perform("splitRight", invocation: opensTerminal))
+            try await PasswordManagerRouteTests.until({
+                HomeSplitKeysTests.panes(home).count == 2
+                    && HomeSplitKeysTests.panes(home).last?.tabs.first.map { !ProvisionalTab.isProvisional(surface: $0.surface) } == true
+            }, report: { "\(HomeSplitKeysTests.panes(home).count) panes beside Home" })
+            let right = try #require(HomeSplitKeysTests.panes(home).last)
+            let controller = try #require(services.paneController(for: dock)), content = try #require(controller.workspace)
+            var moved: Bool?
+            TabMoves.move(page, to: right, index: 0, services: services) { moved = $0 }
+            try await PasswordManagerRouteTests.until({ moved != nil }, report: { "the move never finished" })
+            #expect(moved == false, "a move the daemon answered `moved: false` finished as done")
+            #expect(!content.layoutModel.isClosing(controller.layoutPaneID), "Home's pane stayed hidden after the refused move")
+            #expect(!controller.stripModel.departures.contains(StripTabID(page.id)), "the refused move's departure mark stayed")
+            #expect(dock.tabs.contains { $0.surface == page.surface }, "Home's tab is not back in its pane")
+        }
+    }
 }
