@@ -325,7 +325,8 @@ impl MeshPaths {
             send(latest);
         }
         if initiation {
-            for path in self.paths.iter().filter(|path| path.proven && Some(path.address) != latest) {
+            for path in self.paths.iter().filter(|path| path.proven && Some(path.address) != latest)
+            {
                 send(path.address);
             }
         }
@@ -522,7 +523,9 @@ mod tests {
         let later = now + std::time::Duration::from_secs(2);
         let second: Vec<u64> = paths.poll(later).pings.iter().map(|(_, probe)| *probe).collect();
         assert!(!first.is_empty() && !second.is_empty());
-        assert!(second.iter().all(|probe| first.iter().all(|before| probe.abs_diff(*before) > 1024)));
+        assert!(
+            second.iter().all(|probe| first.iter().all(|before| probe.abs_diff(*before) > 1024))
+        );
     }
 
     #[test]
