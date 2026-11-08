@@ -142,11 +142,26 @@ mod policy_mode;
 mod policy_source;
 mod pool;
 pub(crate) use pool::SESSION_NEW_BUDGET;
+mod prompt_attribution;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
 mod prompt_line;
 #[cfg(test)]
 mod prompt_line_tests;
+/// Whether a prompt block is acpmux's lead mark of who wrote it (`prompt_attribution.rs`).
+pub fn prompt_attribution_lead(block: &Value) -> bool {
+    prompt_attribution::is_lead(block)
+}
+/// Adds acpmux's marks of who wrote a prompt to `params` (`prompt_attribution.rs`), for tests
+/// of the readers that pick its blocks.
+#[cfg(test)]
+pub(crate) fn prompt_attribution_mark(
+    params: &mut Value,
+    sender: Option<&str>,
+    provenance: Option<&Value>,
+) {
+    prompt_attribution::mark(params, sender, provenance);
+}
 mod prompt_sender;
 mod protected_hold;
 mod queue;
