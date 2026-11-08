@@ -11,7 +11,7 @@ extension PaneHostView {
         guard !showsClosingGround else { return }
         let ground = content.paneGroundColor ?? clipView.layer?.backgroundColor
         showsClosingGround = true
-        content.isHidden = true
+        clipView.showGroundCover(ground) // EXPERIMENT (CLOSE VARIANTS 5): no view hides in the key turn
         clipView.layer?.backgroundColor = ground
         applyChromeShape() // the pane's own rounded corners (its content rounded them while it showed)
     }
@@ -19,7 +19,7 @@ extension PaneHostView {
     func endClosingGround() {
         guard showsClosingGround else { return }
         showsClosingGround = false
-        content.isHidden = false
+        clipView.hideGroundCover()
         applyDockFill()
         applyChromeShape()
     }

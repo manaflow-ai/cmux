@@ -540,6 +540,35 @@ final class PaneClipView: NSView {
 
     nonisolated override var isFlipped: Bool { true }
 
+    /// EXPERIMENT (CLOSE VARIANTS 5): a closing pane's ground as one sublayer over its content.
+    private var groundCover: CALayer?
+
+    func showGroundCover(_ color: CGColor?) {
+        let cover = groundCover ?? CALayer()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        cover.backgroundColor = color
+        cover.frame = bounds
+        cover.zPosition = 1_000
+        if cover.superlayer !== layer { layer?.addSublayer(cover) }
+        CATransaction.commit()
+        groundCover = cover
+    }
+
+    func hideGroundCover() {
+        groundCover?.removeFromSuperlayer()
+        groundCover = nil
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        guard let groundCover else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        groundCover.frame = bounds
+        CATransaction.commit()
+    }
+
     func setCornerRadius(_ radius: CGFloat) {
         guard let layer, layer.cornerRadius != radius else { return }
         CATransaction.begin()
