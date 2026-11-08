@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42497373228",
+  "recorded_at": "2026-11-08T16:09:03Z",
+  "reason": "cmux-tui 7758533a5afa changes the image's cmux-tui (pinned 2e120a12ad51)",
+  "dry_run": false,
+  "cmux_tui": "7758533a5afafd7189bc29614e9be919f917798f",
+  "fixes": [
+    {
+      "sha": "7758533a5afafd7189bc29614e9be919f917798f",
+      "mergedAt": "2026-11-08T07:41:34-08:00",
+      "subject": "cmux NEXT: New Cloud Chat in the palette and a one-time Cloud hint on new chats (#38467)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T16:09:03Z",
+    "snapshot_id": "sh-79c43fc6a6dd4c2996d27de4334eedf7",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42497373228): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "861542f0e75ec6afa898cb6ebdbe35ce376102a1",
+    "image": "cloud-native-auto-7758533a-42497373228-1",
+    "revision": "ci-42497373228-1",
+    "at": "2026-11-08T16:09:03Z"
+  },
+  "rolled_back": false
+}
