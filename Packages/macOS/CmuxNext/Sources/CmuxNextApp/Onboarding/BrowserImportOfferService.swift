@@ -57,10 +57,7 @@ final class BrowserImportOfferService {
 
     /// Wires a new browser page's chrome (`TabContentCache.onBrowserEntryCreated`).
     func attach(_ entry: BrowserEntry) {
-        entry.state.onPageFinished = { [weak self, weak entry] _ in
-            guard let self, let entry else { return }
-            pageFinished(in: entry)
-        }
+        entry.state.onPageFinished = { [weak self, weak entry] _ in if let entry { self?.pageFinished(in: entry) } }
     }
 
     private func pageFinished(in entry: BrowserEntry) {
@@ -100,7 +97,7 @@ final class BrowserImportOfferService {
     func answer(_ choice: BrowserCookieImportChoice, profile: String? = nil) {
         switch choice {
         case .notNow: break  // closed for this launch only: the next launch offers it again
-        case .never: banner?.set(false)
+        case .never: bannerWrite = banner?.set(false) ?? bannerWrite
         case .importCookies:
             // A card left from before browser import was turned off opens and detects nothing.
             guard services?.browserImportEnabled != false else { return }
@@ -114,13 +111,15 @@ final class BrowserImportOfferService {
 
     /// `browser.import.cookieBanner` (``CookieBannerSwitch``); nil before settings load (a test).
     private var banner: CookieBannerSwitch? { services?.settings.map(CookieBannerSwitch.init) }
+    /// The last banner write this service started; its end is the write's end (tests await it).
+    private(set) var bannerWrite: Task<Void, Never>?
 
     /// Show Import Cookies Banner (palette, CLI, MCP): turns it on again and shows it on the person's
     /// browser tab on screen. It reads no browser data: Import on the card is still the person's click.
     /// After cookies came over it changes nothing: the banner never asks again (Leo 2026-11-07).
     func showNow() {
         guard !state.imported else { return }
-        banner?.set(true)
+        bannerWrite = banner?.set(true) ?? bannerWrite
         shownThisLaunch = false
         guard let entry = services?.cache.browsers.values.sorted(by: { $0.state.hasKeyboard && !$1.state.hasKeyboard }).first(where: { $0.chrome.map { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor } == true }),
               services?.browserImportEnabled == true, page(entry).isPersonal else { return }
@@ -151,7 +150,7 @@ final class BrowserImportOfferService {
     func reset() {
         update { $0 = BrowserImportOfferState() }
         shownThisLaunch = false
-        banner?.set(true)
+        bannerWrite = banner?.set(true) ?? bannerWrite
     }
 
     private func update(_ change: (inout BrowserImportOfferState) -> Void) {
