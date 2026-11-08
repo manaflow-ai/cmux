@@ -22,6 +22,9 @@ import Testing
         var nextRead: [HomeAgentSessionRef] = []
         var reads: [[String]] = []
         func agentSession(_ peer: String, in conversation: ConversationID) -> HomeAgentSessionRef? { sessions[peer] }
+        /// The agents waiting for a slot, in start order.
+        var queued: [String] = []
+        func queuedAgents(in conversation: ConversationID) -> [String] { queued }
         func followAgentSessions(_ peers: [String], in conversation: ConversationID) async -> Bool {
             reads.append(peers)
             var moved = false

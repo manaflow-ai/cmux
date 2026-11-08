@@ -13,6 +13,11 @@ final class HomeAgentPane {
     private(set) var tabs: [String] = []
     /// The agent whose chat shows; nil when the pane is hidden.
     private(set) var selected: String?
+    /// Agents opened here while queued (no workspace yet): each moves to its workspace once it starts
+    /// (``startedWaiting()``, user 2026-11-07, msg 23835).
+    private(set) var waiting: Set<String> = []
+    /// Agents the person pressed Start now on, until they start.
+    private(set) var starting: Set<String> = []
     /// The chat the pane belongs to.
     let conversation: ConversationID
     private let threads: any HomeAgentThreadReading
@@ -31,6 +36,7 @@ final class HomeAgentPane {
     /// Opens agent `peer` (a click on its pill): a new tab at the end, or its existing tab.
     func open(_ peer: String) {
         if !tabs.contains(peer) { tabs.append(peer) }
+        if content(peer, now: Date())?.isQueued == true { waiting.insert(peer) }
         select(peer)
     }
 
@@ -53,6 +59,43 @@ final class HomeAgentPane {
         return false
     }
 
+    /// The agents opened here while queued that have started and have a place to open now, with that place
+    /// (the Chief's link, else the session's own). Reads each one's chat, so an observer follows the start.
+    func startedWaiting() -> [String: URL] {
+        var started: [String: URL] = [:]
+        for peer in waiting {
+            guard let content = content(peer, now: Date()), !content.isQueued, let link = content.workspaceLink else { continue }
+            started[peer] = link
+        }
+        return started
+    }
+
+    /// Hands started agent `peer` to its workspace: `outside` opens `link` beside Home, then its tab here
+    /// closes, so the tab becomes the real workspace. False (the tab stays) when `outside` could not open it.
+    @discardableResult
+    func handOff(_ peer: String, to link: URL, outside: (URL) -> Bool) -> Bool {
+        guard waiting.contains(peer), outside(link) else { return false }
+        waiting.remove(peer)
+        starting.remove(peer)
+        threads.markAgentSeen(peer, in: conversation)
+        close(peer)
+        return true
+    }
+
+    /// Start now on queued agent `peer`'s tab: marks it starting (its button says so) and returns true, or
+    /// false when it is not queued or already starting. The caller asks the Chief (``failedToStart(_:)`` on a refusal).
+    func startNow(_ peer: String) -> Bool {
+        guard !starting.contains(peer), content(peer, now: Date())?.isQueued == true else { return false }
+        starting.insert(peer)
+        waiting.insert(peer)
+        return true
+    }
+
+    /// The Chief did not start `peer`: Start now shows again.
+    func failedToStart(_ peer: String) {
+        starting.remove(peer)
+    }
+
     /// Shows agent `peer`'s tab and marks its newest report seen.
     func select(_ peer: String) {
         guard tabs.contains(peer) else { return }
@@ -66,6 +109,7 @@ final class HomeAgentPane {
         guard tabs.contains(peer) else { return }
         let old = tabs
         tabs.removeAll { $0 == peer }
+        waiting.remove(peer)
         guard selected == peer else { return }
         if let next = FocusAfterClose.tab(selected: peer, old: old, surviving: tabs, shown: Set(tabs)) {
             select(next)
@@ -88,9 +132,13 @@ final class HomeAgentPane {
 
     /// What agent `peer`'s tab shows now; nil when no run has a message with it.
     func content(_ peer: String, now: Date) -> HomeAgentChatContent? {
-        threads.agentThread(peer, in: conversation).map {
-            HomeAgentChatContent($0, now: now, session: threads.agentSession(peer, in: conversation))
+        guard let thread = threads.agentThread(peer, in: conversation) else { return nil }
+        var content = HomeAgentChatContent(thread, now: now, session: threads.agentSession(peer, in: conversation))
+        if content.isQueued {
+            content.ahead = threads.queuedAgents(in: conversation).firstIndex(of: peer)
+            content.isStarting = starting.contains(peer)
         }
+        return content
     }
 
     /// Go to workspace on agent `peer`'s tab: where its session runs at this moment (a read, then a
