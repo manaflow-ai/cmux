@@ -95,15 +95,38 @@ fn attention_list_opens_a_searchable_menu_with_one_row_per_tab() {
     assert!(app.toast.is_some());
 }
 
-/// The list was opened, then the chosen tab closed: Enter says so.
+/// The list was opened, then the chosen tab closed: Enter in the list
+/// reaches the focus path, which says so.
 #[test]
-fn attention_list_row_for_a_tab_that_closed_shows_a_toast() {
+fn attention_list_enter_on_a_tab_that_closed_shows_a_toast() {
     let mux = Mux::new("attention-list-gone-test", SurfaceOptions::default());
     let mut app = test_app(Session::Local(mux));
     app.replace_tree(attention_tree());
+    app.run_action(Action::AttentionList).unwrap();
+    assert!(app.menu.is_some());
+    let mut closed = attention_tree();
+    for tab in &mut closed.workspaces_mut()[0].screens[0].panes[0].tabs {
+        tab.surface += 100;
+    }
+    app.replace_tree(closed);
     app.toast = None;
-    app.focus_attention_surface(99).unwrap();
+    app.handle(AppEvent::Input(Event::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))))
+        .unwrap();
+    assert!(app.menu.is_none(), "Enter closes the list");
     assert!(app.toast.is_some(), "a vanished tab is not a silent no-op");
+}
+
+/// `next-attention` through the action dispatch: nothing needs the person,
+/// so a toast says so and focus stays.
+#[test]
+fn attention_next_key_with_an_empty_queue_shows_a_toast() {
+    let mux = Mux::new("attention-next-empty-test", SurfaceOptions::default());
+    let mut app = test_app(Session::Local(mux));
+    app.replace_tree(notify_tree(41, false));
+    app.toast = None;
+    app.run_action(Action::NextAttention).unwrap();
+    assert!(app.toast.is_some());
+    assert!(app.menu.is_none());
 }
 
 #[test]
@@ -189,6 +212,9 @@ fn attention_notification_event_reaches_the_host_gate_through_the_event_loop() {
     let mut app = test_app(Session::Local(mux));
     app.replace_tree(attention_tree());
     app.pane_areas = vec![browser_completion_area(41)];
+    // The App writes to the real stdout: a bare BEL, no desktop banner.
+    app.config.notifications.desktop = crate::host_notify::DesktopNotifyMode::Off;
+    app.config.notifications.bell = true;
 
     app.handle(AppEvent::Mux(MuxEvent::Notification(daemon_notification(43, "hidden")))).unwrap();
     let later = Instant::now() + Duration::from_secs(2);

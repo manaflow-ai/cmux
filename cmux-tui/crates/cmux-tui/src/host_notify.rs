@@ -46,8 +46,9 @@ pub struct NotifyConfig {
 /// The terminal the TUI runs in, as its environment names it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum HostTerminal {
-    /// A cmux terminal (the cmux app, or another cmux-tui session): its
-    /// daemon reads OSC 9, 777 and 99.
+    /// A terminal of a cmux-tui session (`CMUX_TUI_TERMINAL_ID` is set).
+    /// That daemon turns no OSC 9, 777 or 99 into a notification (OSC 9 is
+    /// progress metadata there), so nothing is passed to it.
     Cmux,
     Ghostty,
     ITerm2,
@@ -100,9 +101,8 @@ impl HostTerminalInfo {
     /// notification.
     fn dialect(&self, mode: DesktopNotifyMode) -> Option<OscDialect> {
         let known = match self.terminal {
-            HostTerminal::Cmux | HostTerminal::Ghostty | HostTerminal::WezTerm => {
-                Some(OscDialect::Osc777)
-            }
+            HostTerminal::Cmux => return None,
+            HostTerminal::Ghostty | HostTerminal::WezTerm => Some(OscDialect::Osc777),
             HostTerminal::ITerm2 => Some(OscDialect::Osc9),
             HostTerminal::Kitty => Some(OscDialect::Osc99),
             HostTerminal::Unknown => None,
@@ -415,7 +415,11 @@ mod attention_passthrough_tests {
         assert_eq!(gate.decide(&request(1), own, now), None, "no echo loop through the host");
         let same = HostNotifyContext { session_hosts_tui: true, ..away() };
         assert_eq!(gate.decide(&request(1), same, now), None, "the session already shows it");
-        assert!(gate.decide(&request(1), away(), now).is_some());
+        assert_eq!(gate.decide(&request(1), away(), now), Some(vec![0x07]), "the bell only");
+        for desktop in [DesktopNotifyMode::Auto, DesktopNotifyMode::Always] {
+            let mut cmux = self::gate(desktop, false, HostTerminal::Cmux);
+            assert_eq!(cmux.decide(&request(2), away(), now), None, "a cmux-tui tab shows no OSC");
+        }
     }
 
     #[test]

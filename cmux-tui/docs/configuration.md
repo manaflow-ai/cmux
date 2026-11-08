@@ -388,7 +388,7 @@ A notification about a tab (`cmux notify --surface <term_…>`, or an agent hook
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
-| `notifications.desktop` | `"off"`, `"auto"` or `"always"` | `"auto"` | `auto` passes notifications to a host terminal known to show them: OSC 777 for Ghostty, WezTerm and cmux, OSC 9 for iTerm2, OSC 99 for kitty. `always` also sends OSC 9 to an unknown host. `off` never passes them |
+| `notifications.desktop` | `"off"`, `"auto"` or `"always"` | `"auto"` | `auto` passes notifications to a host terminal known to show them: OSC 777 for Ghostty (and the cmux app) and WezTerm, OSC 9 for iTerm2, OSC 99 for kitty. `always` also sends OSC 9 to an unknown host. `off` never passes them. A TUI inside a cmux-tui tab passes nothing, because that daemon shows no OSC notifications |
 | `notifications.bell` | boolean | `false` | Also ring the host bell (BEL) for a bell in a tab you cannot see |
 
 A notification goes to the host only when the tab is not drawn or the host window does not have focus. It never goes to the host for the tab that shows the TUI's own host terminal, or when the TUI's session already shows that host terminal (its clients show the notification). At most one passes per second, and one per tab every five seconds. Inside tmux or screen, `auto` passes nothing, because the multiplexer swallows the sequence; `always` still sends it.
