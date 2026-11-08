@@ -31,6 +31,29 @@ import Testing
         #expect(Self.winner(Shortcut(Self.left, modifiers: Self.hyper), context)?.command == "space.previous")
     }
 
+    /// Ctrl-Opt-Cmd-H / L step spaces, vim's left / right (Lawrence, Nov 7: "do ctrl option cmd hl
+    /// for navigating spaces"). They are the catalog keys, so menus, tooltips and the palette show them.
+    @Test(arguments: [terminal, page, agent])
+    func ctrlOptCmdHLStepSpaces(context: [String: KeyContextValue]) {
+        #expect(Self.winner(Shortcut("l", modifiers: Self.hyper), context)?.command == "space.next")
+        #expect(Self.winner(Shortcut("h", modifiers: Self.hyper), context)?.command == "space.previous")
+    }
+
+    @Test func theShownSpaceKeysAreCtrlOptCmdHL() {
+        let registry = Self.registry()
+        #expect(registry.effectiveShortcut(for: "space.next") == Shortcut("l", modifiers: [.control, .option, .command]))
+        #expect(registry.effectiveShortcut(for: "space.previous") == Shortcut("h", modifiers: [.control, .option, .command]))
+    }
+
+    /// A rebind takes H / L with it, and the arrow aliases too.
+    @Test func aRebindDropsCtrlOptCmdHL() {
+        let registry = Self.registry()
+        registry.setShortcutOverride(Shortcut("p", modifiers: [.control, .option, .command]), for: "space.previous")
+        #expect(Self.winner(Shortcut("h", modifiers: Self.hyper), Self.terminal, registry: registry)?.command != "space.previous")
+        #expect(Self.winner(Shortcut(Self.left, modifiers: Self.hyper), Self.terminal, registry: registry)?.command != "space.previous")
+        #expect(Self.winner(Shortcut("p", modifiers: Self.hyper), Self.terminal, registry: registry)?.command == "space.previous")
+    }
+
     @Test(arguments: [terminal, page, agent])
     func ctrlOptCmdDigitsPickASpace(context: [String: KeyContextValue]) {
         for digit in 1...9 {
