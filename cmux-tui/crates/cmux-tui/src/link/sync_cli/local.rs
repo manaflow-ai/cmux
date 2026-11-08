@@ -462,10 +462,9 @@ fn add_git(
         if matches!(entry, place::Entry::File { .. })
             && let Ok(mut file) = dir.open_file(name)
             && file.metadata().is_ok_and(|meta| meta.is_file())
+            && file.read_to_end(&mut bytes).is_err()
         {
-            if file.read_to_end(&mut bytes).is_err() {
-                bytes.clear();
-            }
+            bytes.clear();
         }
         bytes
     };
