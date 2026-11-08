@@ -166,11 +166,6 @@ impl Hub {
             }
             (None, None) => defaults.policy,
         };
-        // Deny-all or review, asked for (or a preset's or profile's), promises protection with no
-        // person to ask: a harness that cannot keep it fails the creation (`policy_mode.rs`
-        // `require_enforced`).
-        let must_hold = !inherits_policy
-            && matches!(policy, Some(PermissionPolicy::DenyAll | PermissionPolicy::Review));
         // `${model}` in argv or env: the model is a spawn parameter, not a set_model call.
         let spawn_model = profile_takes_model_at_spawn(&profile)
             || defaults.env.values().any(|v| v.contains("${model}"));
@@ -511,9 +506,9 @@ impl Hub {
                 .await?;
             // Every chat, eligible or not: a preset's or a pinned profile's policy holds too.
             let default = self.config.read().await.permission_policy;
-            if must_hold {
-                super::policy_mode::require_enforced(&session.meta(), default)?;
-            }
+            // Any policy narrower than approve-all, however the chat got it, holds or the chat is
+            // not created (`policy_mode.rs` `require_enforced`).
+            super::policy_mode::require_enforced(&session.meta(), default)?;
             self.note_unenforced_policy(&session, default);
             Ok(())
         })
@@ -1394,8 +1389,12 @@ impl Hub {
             )
             .await?;
             // A profile that pins its mode in argv (`--permission-mode`, a skip flag) started in it.
-            self.hold_policy_mode(session, &child, super::start_mode::profile_sets_mode(profile))
-                .await;
+            // An agent that cannot keep the chat's policy is stopped and the start fails.
+            let pinned = super::start_mode::profile_sets_mode(profile);
+            if let Err(e) = self.hold_policy_mode(session, &child, pinned).await {
+                self.stop_started_agent(session, false, "policy_refused").await;
+                return Err(e);
+            }
             self.set_status(session, SessionStatus::Ready);
             self.note_launch(session, &child);
             self.save_meta(session);
