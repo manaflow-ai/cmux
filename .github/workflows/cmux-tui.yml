@@ -1023,8 +1023,11 @@ jobs:
     # since 2026-11-08 06:11 was cut inside terminal_host_recovery.rs (run
     # 42463005009: compile 5.7 min, acpmux tests 29 min, workspace step cut at
     # 53 min with 23 of that binary's 257 tests left, the core and smoke steps
-    # still to run).
-    timeout-minutes: 75
+    # still to run). A green 16 vCPU run is estimated at 67-72 min; 90 leaves
+    # room for the 8 vCPU overflow pool and for the cargo cache, which a
+    # cancelled job never saves (its post step is skipped), so the next run
+    # compiles cold.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
