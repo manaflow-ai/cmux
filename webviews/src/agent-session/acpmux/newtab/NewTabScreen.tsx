@@ -2211,8 +2211,10 @@ export function NewTabScreen(props: Props) {
   // First run (no chats on this Mac or its peers yet): three things to ask, under the composer. A
   // pick fills the composer and sends nothing; the first chat takes them away for good.
   const pickStarter = (prompt: string) => {
-    // A starter is words for the agent: a field left in shell mode (a typed `!`) would run it.
+    // A starter is words for the agent: a field left in shell mode (a typed `!`) would run it, and
+    // one left in the profile search (Open in Profile…) would name a profile after it.
     setShell(false);
+    setProfilePick(undefined);
     edit(prompt);
     requestAnimationFrame(() => {
       field.current?.focus();

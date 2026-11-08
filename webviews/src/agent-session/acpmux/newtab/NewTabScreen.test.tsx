@@ -1478,6 +1478,34 @@ test("Open in Profile…: a search no profile is named makes one with that name;
   expect(made).toEqual([["https://example.com", "Client X"]]);
 });
 
+test("a first-run starter picked in the profile search leaves it, so Return asks the agent", async () => {
+  const made: unknown[] = [];
+  let asked = 0;
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        template="minimal"
+        snapshot={noChat([])}
+        omnibar={profileOmnibar}
+        onAsk={() => void asked++}
+        onOpenInProfile={(url, id) => made.push([url, id])}
+        onOpenInNewProfile={(url, name) => made.push([url, name])}
+      />,
+    );
+  });
+  const field = await typePrompt("example.com");
+  await press(field, "ArrowDown");
+  await press(field, "Enter");
+  const fix = container.querySelector<HTMLButtonElement>('.nt-starter[data-starter="fix"]')!;
+  await act(async () => fix.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(promptValue(field)).toBe(translateNewTab("starters.fix"));
+  await press(field, "Enter");
+  expect(made).toEqual([]);
+  expect(asked).toBe(1);
+});
+
 test("Open in New Profile from the address's rows makes a profile with the default name", async () => {
   const made: [string, string | undefined][] = [];
   await act(async () => {
