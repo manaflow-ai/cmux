@@ -30,7 +30,7 @@
 //! `longest_frame_gap_ms` is the longest wait between two frames at the
 //! viewer: a path that dropped shows up there as a stall.
 //!
-//! `CMUX_WG_ULTRA` (`dup`, `fec:8:2`, `rs:8:4`, see `cmux_wg::UltraMode`) turns on
+//! `CMUX_WG_ULTRA` (`dup`, `fec:8:2`, `rs:4:4`, see `cmux_wg::UltraMode`) turns on
 //! ultra mode on both ends; the note says what it sent and rebuilt.
 //!
 //! `--rtt-ms` and `--loss-pct` put the WireGuard paths' UDP through an
