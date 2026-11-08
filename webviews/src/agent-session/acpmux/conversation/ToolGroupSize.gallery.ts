@@ -7,7 +7,7 @@
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, activity, chat, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxActivity } from "../model";
-import { stepProbe } from "./ToolGroupRow";
+import { stepProbe } from "./toolGroupRowModel";
 import type { Play } from "../../../gallery/play";
 
 const log = Array.from({ length: 6 }, (_, index) => `ok ${index + 1} - fetch retries case ${index + 1}`).join("\n");

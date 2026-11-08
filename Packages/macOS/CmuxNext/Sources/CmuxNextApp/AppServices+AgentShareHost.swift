@@ -21,6 +21,7 @@ extension AppServices: AgentShareHost {
     func shareAskOwner(_ ask: AgentShareConsentAsk) async -> Bool { await AgentShareConsentSheet.ask(ask, feed: feed) }
     func shareShowInvites(_ model: AgentShareInviteSheetModel) { AgentShareInviteSheetPresenter.present(model, services: self) }
     func shareOpenSettings(route: String) { try? settingsWindow.show(section: nil, route: route) }
+    func shareTitle(of tab: TabModel) -> String { TabTitleResolver(services: self).title(tab) }
 }
 
 /// The owner's consent sheet for a guest link a run they did not start asks for (#30263): a cmux

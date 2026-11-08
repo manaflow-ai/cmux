@@ -4,9 +4,10 @@
 
 Launches the tagged app headless (no activation, bounded window), then:
   1. writes the root palette's ranker input (debug.palette.entries) to OUT/root-entries.json,
-     the source of webviews/test/fixtures/palette-eval/root-entries.json;
+     the source of cmux-tui/crates/cmux-palette-eval/tests/eval/root-entries.json;
   2. runs palette.query for every query of the eval cases and writes OUT/live-results.json
-     (score them with `bun webviews/scripts/palette-eval.ts --live OUT/live-results.json`);
+     (score them with `cargo run -p cmux-palette-eval --example eval -- --live OUT/live-results.json`
+     in cmux-tui);
   3. opens the palette with each --shot query and captures it (debug.palette.capture) to
      OUT/shot-<n>-<slug>.png.
 Then quits with quitEndSessions and stops the tag's daemons. Kills only the PID it started.

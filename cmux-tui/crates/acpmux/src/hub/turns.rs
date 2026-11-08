@@ -156,6 +156,20 @@ impl Hub {
         // behind adoption's recovered turn below.
         self.session_log(session).await;
         self.wait_adopted(session).await;
+        // A prompt the daemon sends for a session (a workflow's step, its nudge) names that
+        // session: with no provenance its record would read as the person's own.
+        if opts.provenance.is_none()
+            && let Some(agent) = opts.agent.as_deref()
+        {
+            opts.provenance = Some(match self.resolve(agent).ok().filter(|s| s.id == agent) {
+                Some(from) => crate::prompt_provenance::session_message(
+                    &from.id,
+                    &self.session_name(&from.id),
+                    &session.id,
+                ),
+                None => crate::prompt_provenance::named_sender(agent, &session.id),
+            });
+        }
         self.pair_logs(opts.provenance.as_ref()).await;
         // A person's own prompt is the person asking for the chat: what a daemon start held in
         // its protected folder goes on, ahead of this prompt (`protected_hold.rs`).
@@ -966,6 +980,13 @@ impl Hub {
         } else {
             Vec::new()
         };
+        // A person's prompt (a shared chat's guest or participant, not the owner) tells the agent
+        // who sent it (`author::agent_label`); the transcript's record above keeps their words.
+        if super::forum::slash_command(&blocks).is_none()
+            && let Some(label) = crate::author::agent_label(provenance.as_ref())
+        {
+            blocks.insert(0, label);
+        }
         super::team_information::prepend(&mut blocks, &team_messages);
         // A team message, or an inbox notice (`inbox.rs`), counts as delivered only once the
         // harness writer took its prompt: `on_sent` then logs it.
