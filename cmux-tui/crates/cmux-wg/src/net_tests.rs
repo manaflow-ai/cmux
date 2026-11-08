@@ -11,6 +11,7 @@ async fn cancelled_hub_dial_releases_the_pending_tcp_socket() {
     let mut driver = Driver::new(
         pair.client,
         UltraUnderlay::new(Box::new(underlay), UltraMode::Off, Arc::default()),
+        crate::ultra_hello::Negotiation::new(UltraMode::Off),
         receiver,
         Arc::new(Notify::new()),
     )
