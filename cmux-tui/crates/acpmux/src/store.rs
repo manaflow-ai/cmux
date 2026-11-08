@@ -795,6 +795,12 @@ pub fn now_ms() -> u64 {
 
 pub trait Store: Send + Sync {
     fn list(&self) -> Result<Vec<SessionMeta>>;
+    /// The chats whose metadata the last `list` found and could not read, so left out. A caller
+    /// that must know every chat (a delete that writes each fork's history in first) reads these
+    /// again. None for a store that leaves none out.
+    fn unlisted(&self) -> Vec<String> {
+        Vec::new()
+    }
     fn load(&self, id: &str) -> Result<Option<SessionMeta>>;
     /// One startup entry, with the same visibility rules as `list`. Raw `load` may still
     /// return a purged chat's late metadata save for recovery/maintenance callers.
@@ -1171,6 +1177,8 @@ pub struct LocalStore {
     /// A log's sync on its close failed (`SegmentWriter::close`): its lines may be lost on the
     /// disk. The journal store then keeps every line in its journal (`store/journal_store.rs`).
     sync_failed: std::sync::atomic::AtomicBool,
+    /// [`Store::unlisted`]: folders whose `session.json` is there and did not read.
+    unlisted: Mutex<std::collections::BTreeSet<String>>,
 }
 
 /// The logs held open, at most [`OPEN_LOGS`]: the least recently written one
@@ -1219,6 +1227,7 @@ impl LocalStore {
             writers: Mutex::new(Writers::default()),
             sealed: Default::default(),
             sync_failed: Default::default(),
+            unlisted: Default::default(),
         })
     }
 
@@ -1263,7 +1272,13 @@ impl LocalStore {
         let session = entry.path();
         self.validate_session_dir(&session)?;
         let path = session.join("session.json");
-        let Ok(file) = crate::config::private_state_file(&path) else { return Ok(None) };
+        let id = entry.file_name().to_string_lossy().into_owned();
+        let Ok(file) = crate::config::private_state_file(&path) else {
+            if path.exists() {
+                self.mark_unlisted(&id, true);
+            }
+            return Ok(None);
+        };
         let mut text = String::new();
         BufReader::new(file).read_to_string(&mut text)?;
         // Only a closed chat can be a purged chat revived by a late save. Open chats need
@@ -1274,11 +1289,24 @@ impl LocalStore {
             return Ok(None);
         }
         match serde_json::from_str::<SessionMeta>(&text) {
-            Ok(meta) => Ok(Some(meta)),
+            Ok(meta) => {
+                self.mark_unlisted(&id, false);
+                Ok(Some(meta))
+            }
             Err(e) => {
                 tracing::warn!("skip {}: {e}", path.display());
+                self.mark_unlisted(&id, true);
                 Ok(None)
             }
+        }
+    }
+
+    fn mark_unlisted(&self, id: &str, unread: bool) {
+        let mut unlisted = self.unlisted.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if unread {
+            unlisted.insert(id.to_owned());
+        } else {
+            unlisted.remove(id);
         }
     }
 
@@ -1663,6 +1691,11 @@ impl Store for LocalStore {
             }
             Ok(metas)
         })
+    }
+
+    fn unlisted(&self) -> Vec<String> {
+        let unlisted = self.unlisted.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        unlisted.iter().cloned().collect()
     }
 
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {

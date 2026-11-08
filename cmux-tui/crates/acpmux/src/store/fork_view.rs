@@ -218,7 +218,9 @@ impl ForkView {
             anyhow::bail!("this store cannot hold a fork's history");
         };
         let mut failed = None;
-        self.scan(&reference.session, 0, &mut |rec| {
+        // Strict, through every chat the reference passes: a line that does not read stops the
+        // write, and the reference stays (review of #37020: a lenient read wrote what it could).
+        self.scan_strict(&reference.session, 0, &mut |rec| {
             if rec.seq > reference.through_seq {
                 return false;
             }
@@ -254,6 +256,20 @@ impl ForkView {
     fn forks_of(&self, id: &str) -> Result<Vec<String>> {
         if !self.refs.read().unwrap_or_else(|e| e.into_inner()).listed {
             self.list()?;
+        }
+        // A chat the list left out (its meta did not read) may be a fork of this one: read it
+        // again, and refuse while it still does not read (review of #37020: the delete went on
+        // without it, and it lost its history).
+        for other in self.inner.unlisted() {
+            match self.inner.load(&other) {
+                Ok(Some(meta)) => self.note(&meta),
+                Ok(None) => {}
+                Err(e) => {
+                    return Err(e.context(format!(
+                        "chat {other}'s metadata does not read, and it may be a fork of {id}"
+                    )));
+                }
+            }
         }
         let refs = self.refs.read().unwrap_or_else(|e| e.into_inner());
         Ok(refs.by_fork.iter().filter(|(_, r)| r.session == id).map(|(f, _)| f.clone()).collect())
@@ -300,6 +316,9 @@ impl Store for ForkView {
         metas.iter().for_each(|m| self.note(m));
         self.refs.write().unwrap_or_else(|e| e.into_inner()).listed = true;
         Ok(metas)
+    }
+    fn unlisted(&self) -> Vec<String> {
+        self.inner.unlisted()
     }
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
         let meta = self.inner.load(id)?;

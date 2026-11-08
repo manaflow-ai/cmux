@@ -613,6 +613,9 @@ impl Store for JournalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
         self.inner.list_metas()
     }
+    fn unlisted(&self) -> Vec<String> {
+        Store::unlisted(&self.inner.local)
+    }
     /// The overlay's image first ([`meta`]), then `session.json`: a checkpoint drops an image
     /// only after its file holds it.
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {

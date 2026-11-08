@@ -706,7 +706,10 @@ fn a_chat_log_that_does_not_read_whole_keeps_the_forks_reference() {
     torn.extend_from_slice(&whole);
     std::fs::write(&segment, &torn).unwrap();
     assert!(view.delete("chat").is_err(), "the chat went with a log that did not read whole");
-    assert!(view.load("fork").unwrap().unwrap().history_from.is_some(), "the reference was dropped");
+    assert!(
+        view.load("fork").unwrap().unwrap().history_from.is_some(),
+        "the reference was dropped"
+    );
     std::fs::write(&segment, &whole).unwrap();
     view.delete("chat").unwrap();
     assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 2));
@@ -732,5 +735,8 @@ fn a_chat_whose_events_folder_does_not_list_keeps_the_forks_reference() {
     let refused = view.delete("chat").is_err();
     std::fs::set_permissions(&events, std::fs::Permissions::from_mode(mode)).unwrap();
     assert!(refused, "the chat went with an events folder that did not list");
-    assert!(view.load("fork").unwrap().unwrap().history_from.is_some(), "the reference was dropped");
+    assert!(
+        view.load("fork").unwrap().unwrap().history_from.is_some(),
+        "the reference was dropped"
+    );
 }
