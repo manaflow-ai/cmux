@@ -5,7 +5,6 @@
 
 use super::*;
 use crate::config::{Config, StoreMode};
-use std::sync::atomic::Ordering::SeqCst;
 use std::time::Duration;
 
 const CHAT: &str = "0190f2a4-7c1e-7d3a-9f00-00000000c4a7";
@@ -16,10 +15,14 @@ fn hub_with_peer() -> (Arc<Hub>, Arc<crate::peer::Peer>) {
     config.store.mode = StoreMode::Memory;
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(config, store);
-    let row = json!({"sessionId": CHAT, "name": "lane", "status": "running", "turnCount": 3,
-                     "queued": 1, "steering": true, "updatedAt": 5});
-    let peer = hub.seed_down_peer("far", vec![row]);
+    let peer = hub.seed_down_peer("far", vec![row()]);
     (hub, peer)
+}
+
+/// The chat's row as `far` lists it.
+fn row() -> Value {
+    json!({"sessionId": CHAT, "name": "lane", "status": "running", "turnCount": 3,
+           "queued": 1, "steering": true, "updatedAt": 5})
 }
 
 /// `m` with `params` on a new unix-socket connection to `hub`: its result, or its error.
@@ -48,12 +51,12 @@ async fn call(hub: &Arc<Hub>, m: &str, params: Value) -> Result<Value, Value> {
 async fn a_sends_info_of_a_peer_chat_is_answered_from_its_row() {
     let (hub, peer) = hub_with_peer();
     // Ready, with no transport: any request for the peer would fail as unreachable.
-    peer.connected.store(true, SeqCst);
+    hub.seed_peer_back(&peer, vec![row()]);
     let info =
         call(&hub, method::MUX_INFO, json!({"sessionId": format!("far/{CHAT}"), "row": true}))
             .await
             .expect("answered here");
-    assert_eq!(info["row"], true);
+    assert_eq!(info["row"], true, "{info}");
     assert_eq!(info["status"], "running");
     assert_eq!(info["queued"], 1);
     assert_eq!(info["steering"], true);
@@ -66,7 +69,7 @@ async fn a_sends_info_of_a_peer_chat_is_answered_from_its_row() {
 #[tokio::test]
 async fn a_subscription_to_a_streamed_peer_chat_is_answered_here() {
     let (hub, peer) = hub_with_peer();
-    peer.connected.store(true, SeqCst);
+    hub.seed_peer_back(&peer, vec![row()]);
     let key = format!("far/{CHAT}");
     let first =
         call(&hub, method::MUX_ATTACH, json!({"sessionId": key, "limit": 0, "row": true})).await;
@@ -75,7 +78,7 @@ async fn a_subscription_to_a_streamed_peer_chat_is_answered_here() {
     let sub = call(&hub, method::MUX_ATTACH, json!({"sessionId": key, "limit": 0, "row": true}))
         .await
         .expect("answered here");
-    assert_eq!(sub["row"], true);
+    assert_eq!(sub["row"], true, "{sub}");
     assert_eq!(sub["events"], json!([]));
     assert_eq!(sub["session"]["status"], "running");
     let page =
@@ -98,7 +101,7 @@ async fn a_link_that_is_not_ready_never_answers_from_its_row() {
 #[tokio::test]
 async fn a_read_without_the_flag_goes_to_the_peer() {
     let (hub, peer) = hub_with_peer();
-    peer.connected.store(true, SeqCst);
+    hub.seed_peer_back(&peer, vec![row()]);
     let info = call(&hub, method::MUX_INFO, json!({"sessionId": format!("far/{CHAT}")})).await;
     assert!(info.is_err(), "{info:?}");
 }
