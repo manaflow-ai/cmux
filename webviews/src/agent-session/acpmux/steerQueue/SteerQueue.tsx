@@ -65,7 +65,17 @@ export function SteerQueue({
   );
   const focused = items[index];
 
+  const frame = useRef<HTMLDivElement>(null);
   useEffect(() => field.current?.focus(), []);
+  useEffect(() => {
+    const panel = frame.current;
+    if (!panel) return;
+    const keepField = (event: MouseEvent) => {
+      if (event.target !== field.current) event.preventDefault();
+    };
+    panel.addEventListener("mousedown", keepField);
+    return () => panel.removeEventListener("mousedown", keepField);
+  }, []);
   useEffect(() => {
     if (step?.state !== "done") return;
     const timer = window.setTimeout(() => setStep(undefined), DONE_MS);
@@ -131,12 +141,7 @@ export function SteerQueue({
     <KeyboardScope className="acpmux-steer-queue ui-popup ui-glass" handleKeyDown={handleKeyDown}>
       {/* A press anywhere on the panel keeps the keyboard in the field: with focus on the page, keys
           would reach the chat under the queue (its composer, a permission card's digits, Esc Esc). */}
-      <div
-        className="acpmux-steer-frame"
-        onMouseDown={(event) => {
-          if (event.target !== field.current) event.preventDefault();
-        }}
-      >
+      <div ref={frame} className="acpmux-steer-frame">
         <div className="acpmux-steer-head">
           <span>{t("steerQueue.title")}</span>
           <span className="acpmux-steer-count">{items.length || ""}</span>
