@@ -84,6 +84,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The app's made-ahead open panel for a page's `<input type="file">`; the app sets it once at startup with
     /// ``chromiumHosting`` (its composition root). Nil: a file input does nothing (tests).
     public static var openPanel: MadeAheadOpenPanel?
+    /// Inspect Element in this page's menu (``PageDeveloperTools``): the person's setting and the
+    /// app's inspector by default; a test passes its own.
+    var developerTools = PageDeveloperTools()
     /// This page's file chooser (its web view holds the UI delegate weakly).
     private(set) var fileChooser: PageOpenPanel?
     var loaded = false
@@ -380,6 +383,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // The web view got the keyboard: WebKit focuses no element by itself, so the page focuses its
         // primary input (Monaco) when nothing has focus (pane-focus-DESIGN.md P1).
         webView.onBecameFirstResponder = { [weak self] in self?.send(command: PageNativeOp.focusContent) }
+        webView.contextMenuTail = { [weak self] menu in self?.appendDeveloperTools(to: menu) }
         SystemScrollers.observe(self) { [weak self] _ in self?.applyTheme() } // theme carries data-scrollers
         observeStatusLook()
         wantsLayer = true
