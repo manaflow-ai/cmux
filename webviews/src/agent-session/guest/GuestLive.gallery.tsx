@@ -43,7 +43,10 @@ export default componentEntry<GuestPageProps>({
         // A folded thought reads its own words by the brain glyph (Codex parity), not "Thought".
         await ctx.waitFor(() => ctx.document.querySelector('button.cv-thought[aria-expanded="false"]'));
         await ctx.click({ selector: 'button.cv-thought[aria-expanded="false"]' });
-        await ctx.click({ text: /^Ran bun test/ });
+        // The failed run, by its tool id: a failed call keeps its command line (commandActions.ts),
+        // so a label selector would break whenever the wording changes.
+        await ctx.waitFor(() => ctx.document.querySelector('button[data-tool-id="run-1"]'));
+        await ctx.click({ selector: 'button[data-tool-id="run-1"]' });
         await ctx.waitFor(() => ctx.document.body.textContent?.includes("Test timed out after 5000ms"));
       },
     },

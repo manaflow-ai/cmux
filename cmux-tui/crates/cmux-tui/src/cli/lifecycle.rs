@@ -886,6 +886,36 @@ fn run_ensure(
             if let Some(flags) = &carried_flags {
                 result.set("carried_launch", json!(flags));
             }
+            // A restart is done when the kept terminals run again: the new
+            // owner answers first and adopts their hosts after (R41).
+            if previous_pid.is_some() && matches!(ensured, crate::local_owner::Ensured::Started(_))
+            {
+                let adopted = wait_for_adoption(&spec.socket, spec.socket_is_derived);
+                result.set("terminals", adopted.counts());
+                if !adopted.listed || !adopted.not_running.is_empty() {
+                    let text = if adopted.listed {
+                        messages
+                            .restart_terminals_not_running
+                            .replace("{count}", &adopted.not_running.len().to_string())
+                            .replace("{terminals}", &adopted.not_running.join(", "))
+                    } else {
+                        messages.restart_terminals_unknown.to_owned()
+                    };
+                    // The top-level message says what is wrong; the success
+                    // text ("every terminal was kept") would contradict it.
+                    if let Some(result) = result.as_object_mut() {
+                        result.remove("message");
+                    }
+                    result.set("not_running", json!(adopted.not_running));
+                    return local_error_with_details(
+                        "server.terminals_not_running",
+                        &text,
+                        result,
+                        output,
+                        3,
+                    );
+                }
+            }
             print_success(result, output)
         }
         Err(error) => {
@@ -912,6 +942,75 @@ fn run_ensure(
         }
     }
 }
+
+/// How long a restart waits for the new owner to run every kept terminal.
+const ADOPTION_DEADLINE: Duration = Duration::from_secs(30);
+
+/// The terminals of a restarted owner, by lifecycle, once none is adopting
+/// (or at [`ADOPTION_DEADLINE`]): `not_running` are the ids still adopting
+/// or launching then; `listed` is false when the owner could not be read.
+#[derive(Debug, Default)]
+struct Adopted {
+    /// Whether the new owner listed its terminals at all.
+    listed: bool,
+    running: usize,
+    exited: usize,
+    not_running: Vec<String>,
+}
+
+impl Adopted {
+    fn counts(&self) -> Value {
+        json!({"running": self.running, "exited": self.exited, "not_running": self.not_running.len()})
+    }
+
+    /// From a `list-terminals` answer, and whether no terminal is still
+    /// being adopted or launched.
+    fn settled(listed: &Value) -> (Self, bool) {
+        let mut adopted = Self { listed: true, ..Self::default() };
+        for row in listed["terminals"].as_array().into_iter().flatten() {
+            match row["lifecycle"].as_str() {
+                Some("running") => adopted.running += 1,
+                Some("exited") => adopted.exited += 1,
+                Some("adopting" | "launching") => adopted
+                    .not_running
+                    .push(row["terminal_id"].as_str().unwrap_or_default().to_owned()),
+                _ => {}
+            }
+        }
+        let settled = adopted.not_running.is_empty();
+        (adopted, settled)
+    }
+}
+
+/// Waits until the owner at `socket` adopted every kept terminal (none is
+/// `adopting` or `launching`), up to [`ADOPTION_DEADLINE`].
+fn wait_for_adoption(socket: &std::path::Path, socket_is_derived: bool) -> Adopted {
+    let deadline = Instant::now() + ADOPTION_DEADLINE;
+    let mut last = Adopted::default();
+    let Ok(stream) = cmux_tui_core::server::connect_session_socket(socket, socket_is_derived)
+    else {
+        return last;
+    };
+    let mut connection = BufReader::new(stream);
+    let mut id = 0_u64;
+    loop {
+        id += 1;
+        let Ok(listed) =
+            exchange(&mut connection, json!({"id": id, "cmd": "list-terminals"}), deadline)
+        else {
+            return last;
+        };
+        let (adopted, settled) = Adopted::settled(&listed);
+        if settled || Instant::now() + ADOPTION_POLL >= deadline {
+            return adopted;
+        }
+        last = adopted;
+        std::thread::sleep(ADOPTION_POLL);
+    }
+}
+
+/// The pause between two terminal lists while a restart waits for adoption.
+const ADOPTION_POLL: Duration = Duration::from_millis(25);
 
 /// One restore progress line on stdout (`server ensure --restore-progress`). The
 /// result stays the last JSON line, so a reader that takes the last line
