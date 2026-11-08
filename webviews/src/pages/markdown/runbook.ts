@@ -29,56 +29,129 @@ export function isRunnableLanguage(language: string): boolean {
 /**
  * The command a block runs: its text as written, or for a session block (`console`) only its prompt
  * lines (`$ ` or `% `), without the prompt and without the output lines. A line counts as more of the
- * command only while the shell would still read it (a trailing `\\`, an open quote, an open
- * heredoc), and then its `> ` continuation prompt goes, so it never runs as a redirection. Any other
- * line, `# ` and `> ` ones too, is output. Empty when nothing runs.
+ * command only while the shell would still read it: after a trailing `\\`, in an open quote or
+ * heredoc (the line as shown, its `> ` continuation prompt dropped so it never runs as a
+ * redirection), and after a trailing `|`, `||` or `&&` or in an open `if`, `for`, `case` or `{`
+ * (only a `> ` prompt line: a real transcript shows one there). Any other line is output. Empty when
+ * nothing runs.
  */
 export function runnableCommand(language: string, text: string): string {
   const lines = text.replace(/\r\n?/g, "\n").split("\n");
   if (!SESSION_LANGUAGES.has(fenceLanguage(language))) return lines.join("\n").trim();
   const commands: string[] = [];
-  let open: ShellOpen = { quote: null, heredoc: null, escaped: false };
+  let open = CLOSED;
   for (const line of lines) {
-    const continued = open.quote !== null || open.heredoc !== null || open.escaped;
+    const prompted = /^\s*>\s?(.*)$/.exec(line);
+    const continued =
+      open.quote !== null || open.heredoc !== null || open.escaped || ((open.pipe || open.depth > 0) && !!prompted);
     const prompt = continued ? null : /^\s*[$%]\s+(.*)$/.exec(line);
-    if (!prompt && !continued) continue;
-    const command = prompt ? prompt[1]! : line.replace(/^\s*>\s?/, "");
+    if (!prompt && !continued) {
+      open = CLOSED;
+      continue;
+    }
+    const command = prompt ? prompt[1]! : prompted ? prompted[1]! : line;
     commands.push(command);
-    open = shellOpen(command, open);
+    open = shellOpen(command, prompt ? CLOSED : open);
   }
   return commands.join("\n").trim();
 }
 
-/** What a shell still waits for after a line: the end of a quote or of a heredoc, or a next line. */
+/** What a shell still waits for after a line: the end of a quote or of a heredoc, a next line after a
+ * `\\` or an operator, or the end of `depth` open compound commands. */
 interface ShellOpen {
   quote: "'" | '"' | null;
   heredoc: string | null;
   escaped: boolean;
+  pipe: boolean;
+  depth: number;
 }
+
+const CLOSED: ShellOpen = { quote: null, heredoc: null, escaped: false, pipe: false, depth: 0 };
+/** Reserved words in command position that open and close a compound command, and those after which
+ * the next word is again in command position. */
+const OPENS = new Set(["if", "case", "do", "{"]);
+const CLOSES = new Set(["fi", "esac", "done", "}"]);
+const LEADS = new Set(["then", "else", "elif", "do", "while", "until", "if", "!", "{", "time"]);
 
 function shellOpen(line: string, before: ShellOpen): ShellOpen {
   if (before.heredoc !== null)
     return { ...before, heredoc: line.trim() === before.heredoc ? null : before.heredoc, escaped: false };
   let quote = before.quote;
   let heredoc: string | null = null;
-  let comment = false;
+  let depth = before.depth;
+  let escaped = false;
+  // The current unquoted word, whether a word may be a reserved word here, and the last operator.
+  let word = "";
+  let plain = true;
+  let commandPosition = quote === null;
+  let last = "";
+  const endWord = () => {
+    if (word && plain && commandPosition) {
+      if (OPENS.has(word)) depth++;
+      else if (CLOSES.has(word)) depth = Math.max(0, depth - 1);
+    }
+    if (word) commandPosition = commandPosition && plain && LEADS.has(word);
+    word = "";
+    plain = true;
+  };
   for (let at = 0; at < line.length; at++) {
     const char = line[at]!;
     if (quote === "'") {
       if (char === "'") quote = null;
-    } else if (char === "\\") at++;
-    else if (quote === '"') {
+      continue;
+    }
+    if (char === "\\") {
+      // A `\\` that ends the line continues it; any other escapes the next character.
+      if (at === line.length - 1) escaped = true;
+      at++;
+      plain = false;
+      word += "x";
+      last = "";
+      continue;
+    }
+    if (quote === '"') {
       if (char === '"') quote = null;
-    } else if (char === "'" || char === '"') quote = char;
-    else if (char === "#" && (at === 0 || /\s/.test(line[at - 1]!))) {
-      // A comment runs to the line's end: a `\\` there continues nothing.
-      comment = true;
+      continue;
+    }
+    if (char === "'" || char === '"') {
+      quote = char;
+      plain = false;
+      word += "x";
+      last = "";
+    } else if (char === "#" && !word) {
+      // A comment runs to the line's end: nothing in it continues the line.
       break;
-    } else if (char === "<" && line[at + 1] === "<" && line[at + 2] !== "<") {
-      heredoc = /^<<-?\s*(['"]?)([A-Za-z_][\w-]*)\1/.exec(line.slice(at))?.[2] ?? heredoc;
+    } else if (char === "<" && line[at + 1] === "<") {
+      endWord();
+      // `<<<` is a here-string, not a heredoc.
+      if (line[at + 2] === "<") at += 2;
+      else {
+        const match = /^<<-?\s*(['"]?)([A-Za-z_][\w-]*)\1/.exec(line.slice(at));
+        if (match) {
+          heredoc = match[2]!;
+          at += match[0].length - 1;
+        } else at++;
+      }
+      last = "";
+    } else if (/\s/.test(char)) endWord();
+    else if (";&|()".includes(char)) {
+      endWord();
+      commandPosition = char !== ")";
+      last = char === "&" && line[at + 1] === "&" ? "&&" : char === "|" ? "|" : char;
+      if (last === "&&" || (char === "|" && line[at + 1] === "|")) at++;
+    } else {
+      word += char;
+      last = "";
     }
   }
-  return { quote, heredoc, escaped: quote === null && !comment && /\\$/.test(line) };
+  endWord();
+  return {
+    quote,
+    heredoc,
+    escaped: quote === null && escaped,
+    pipe: quote === null && !escaped && (last === "|" || last === "&&"),
+    depth,
+  };
 }
 
 /** Why the agent, or the Run button, asks before a step runs. */
@@ -114,10 +187,27 @@ const DESTRUCTIVE: RegExp[] = [
   pattern(String.raw`${AT}(kill\s+${ARGS}-(9|KILL)\b|pkill|killall)\s`),
   pattern(String.raw`${AT}(chmod|chown)\s+${ARGS}-[a-zA-Z]*R`),
   pattern(String.raw`${AT}find\s+${ARGS}(-delete\b|-exec\s+rm\b)`),
-  /\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(ba|z|fi|da)?sh\b/,
   pattern(String.raw`${AT}(npm|pnpm|yarn|cargo)\s+${ARGS}publish\b|${AT}gh\s+${ARGS}release\s+(create|delete)\b`),
   pattern(String.raw`${AT}deploy\b|${AT}(wrangler|fly|flyctl|vercel)\s+${ARGS}(deploy|destroy|--prod)\b`),
 ];
+
+/** The longest simple command the patterns read; a longer one always asks (the patterns backtrack
+ * over its words, so a bound keeps the check off the frame budget). */
+const SEGMENT_LIMIT = 512;
+
+/** Whether `command` is destructive: each simple command (split at newlines and `;`, `&`, `|`) is
+ * matched on its own, and a pipe into a shell over the whole command. */
+function destructive(command: string): boolean {
+  if (PIPE_TO_SHELL.test(command)) return true;
+  for (const segment of command.split(/[\n;&|]/)) {
+    if (segment.length > SEGMENT_LIMIT) return true;
+    if (DESTRUCTIVE.some((pattern) => pattern.test(segment))) return true;
+  }
+  return false;
+}
+
+/** Code fetched from the network, run by a shell. */
+const PIPE_TO_SHELL = /\b(curl|wget)\b[^|\n]*\|\s*(sudo\s+)?(ba|z|fi|da)?sh\b/;
 
 /** Commands that log in, take a secret, or carry a placeholder the reader fills in. */
 const CREDENTIALS: RegExp[] = [
@@ -135,7 +225,7 @@ export function stepRisks(command: string, lead = ""): StepRisk[] {
   const risks: StepRisk[] = [];
   // A `\\` line continuation joins one command (`git push \\` then `--force`): match it as one line.
   command = command.replace(/\\\r?\n\s*/g, " ");
-  if (DESTRUCTIVE.some((pattern) => pattern.test(command))) risks.push("destructive");
+  if (destructive(command)) risks.push("destructive");
   if (CREDENTIALS.some((pattern) => pattern.test(command))) risks.push("credentials");
   if (DECISION.test(lead)) risks.push("decision");
   return risks;

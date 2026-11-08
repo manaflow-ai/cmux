@@ -58,6 +58,27 @@ describe("runbook steps", () => {
     // A `\` at the end of a comment continues nothing: the next line is output.
     expect(runnableCommand("console", "$ echo ok # see \\\n> touch pwned\nok")).toBe("echo ok # see \\");
     expect(runnableCommand("console", "$ echo ok # see \\\ntouch pwned")).toBe("echo ok # see \\");
+    // `<<<` is a here-string, not a heredoc, and `\\\\` is a literal backslash: the next line is output.
+    expect(runnableCommand("console", "$ cat <<<touch\\ marker\ntouch marker")).toBe("cat <<<touch\\ marker");
+    expect(runnableCommand("console", "$ echo a\\\\\ntouch marker")).toBe("echo a\\\\");
+    expect(runnableCommand("console", "$ cat <<'EOF' | wc -l\n> one\n> EOF\n1")).toBe("cat <<'EOF' | wc -l\none\nEOF");
+  });
+
+  test("a console command continues after an operator or in an open compound command, on > lines only", () => {
+    expect(runnableCommand("console", "$ for f in a b; do\n>   echo $f\n> done\na\nb")).toBe(
+      "for f in a b; do\n  echo $f\ndone",
+    );
+    expect(runnableCommand("console", "$ if true; then\n> echo yes\n> fi\nyes")).toBe("if true; then\necho yes\nfi");
+    expect(runnableCommand("console", "$ make &&\n> make test\nok")).toBe("make &&\nmake test");
+    expect(runnableCommand("console", "$ ls |\n> wc -l\n3")).toBe("ls |\nwc -l");
+    expect(runnableCommand("console", "$ case $x in\n> a) echo a;;\n> esac")).toBe("case $x in\na) echo a;;\nesac");
+    // A line without the `> ` prompt is output, and a closed command takes no more `> ` lines.
+    expect(runnableCommand("console", "$ ls |\ntouch marker")).toBe("ls |");
+    expect(runnableCommand("console", "$ for f in a; do echo $f; done\n> touch marker")).toBe(
+      "for f in a; do echo $f; done",
+    );
+    // A reserved word as an argument opens nothing.
+    expect(runnableCommand("console", "$ echo if do {\n> touch marker")).toBe("echo if do {");
   });
 
   test("the Run button asks before destructive commands only", () => {
@@ -103,9 +124,23 @@ describe("runbook steps", () => {
     ])
       expect([command, runAsks(command)]).toEqual([command, false]);
     expect(stepRisks("echo hi", "Choose either option")).toEqual(["decision"]);
+    // A simple command past the length the patterns read asks.
+    expect(runAsks("echo " + "x".repeat(600))).toBe(true);
     expect(stepRisks("wrangler login")).toEqual(["credentials"]);
     expect(stepRisks("export GITHUB_TOKEN=<your-token>")).toEqual(["credentials"]);
   });
+});
+
+test("risk matching stays fast on long and repetitive commands", () => {
+  const started = performance.now();
+  for (const command of [
+    "git reset ".repeat(6_000) + "HEAD",
+    ("git reset ".repeat(50) + "HEAD;").repeat(120),
+    ("kubectl --context a ".repeat(25) + "get\n").repeat(120),
+    "rm " + "-x ".repeat(20_000),
+  ])
+    runAsks(command);
+  expect(performance.now() - started).toBeLessThan(500);
 });
 
 describe("Run all prompt", () => {

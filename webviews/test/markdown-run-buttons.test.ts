@@ -190,6 +190,17 @@ describe("Run all steps", () => {
     ]);
   });
 
+  test("a block's line is its own opening fence, even when its command is its language", async () => {
+    const doc =
+      "# Shells\n\n```bash\nbash\n```\n\n- Then:\n\n  ```sh\n  sh\n  ```\n\n````md\n```bash\nls\n```\n````\n\n```bash\nls\n```\n";
+    const steps = (await setup(doc)).editor.runbookSteps();
+    expect(steps.map((step) => [step.command, step.line])).toEqual([
+      ["bash", 3],
+      ["sh", 9],
+      ["ls", 19],
+    ]);
+  });
+
   test("a doc with no runnable block reports none", async () => {
     const { editor, runnable } = await setup("# Notes\n\n```json\n{}\n```\n\n```bash\n\n```\n");
     expect(editor.runbookSteps()).toEqual([]);

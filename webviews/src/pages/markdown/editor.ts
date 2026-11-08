@@ -658,11 +658,31 @@ export class MarkdownEditor {
       counted = Math.max(counted, offset);
       return lines;
     };
+    // Where the next block's fence is searched from: its top-level node's start, then past the last block.
+    let from = 0;
+    // A fence's opening line, after any container prefix (`> `, `- `, `1. `, indentation).
+    const FENCE = /^(?:[ \t]*(?:>|[-*+]|\d{1,9}[.)])(?=[ \t]|$))*[ \t]*(`{3,}|~{3,})[ \t]*([^\n]*)$/gm;
+    // The opening fence of a block from `from` on: its language matches and, with code, the next line
+    // ends with the code's first line. Null when the source does not show one (then the search start).
+    const fenceAt = (language: string, text: string): number | null => {
+      const first = text.split("\n", 1)[0]!;
+      FENCE.lastIndex = from;
+      for (let match = FENCE.exec(map.text); match; match = FENCE.exec(map.text)) {
+        const info = match[2]!.trim().split(/\s/, 1)[0] ?? "";
+        const end = match.index + match[0].length;
+        const close = map.text.indexOf("\n", end + 1);
+        const next = map.text.slice(end + 1, close < 0 ? undefined : close);
+        if (info === language.split(/\s/, 1)[0] && (!first || next.endsWith(first))) {
+          // The code is at least this long in the source (container prefixes only add to it).
+          from = end + text.length;
+          return match.index;
+        }
+      }
+      return null;
+    };
     const blocks: RunbookBlock[] = [];
     let section = "";
     let lead = "";
-    // Where the next block's text is searched from: its top-level node's start, then past the last match.
-    let from = 0;
     // Visits one node in document order; true goes into its children.
     const visit = (node: ProseNode): boolean => {
       if (node.type.name === "heading") {
@@ -671,17 +691,9 @@ export class MarkdownEditor {
       } else if (node.type.name === "paragraph") lead = node.textContent;
       else if (node.type.name === "code_block") {
         const text = node.textContent;
-        // The fence line is the one above the code's first line.
-        const first = text.split("\n", 1)[0]!;
-        const at = first ? map.text.indexOf(first, from) : -1;
-        if (at >= 0) from = at + first.length;
-        blocks.push({
-          section,
-          lead,
-          language: String(node.attrs.language ?? ""),
-          text,
-          line: at >= 0 ? Math.max(1, lineAt(at) - 1) : lineAt(from),
-        });
+        const language = String(node.attrs.language ?? "");
+        const at = fenceAt(language, text);
+        blocks.push({ section, lead, language, text, line: lineAt(at ?? from) });
         lead = "";
       } else return true;
       return false;
