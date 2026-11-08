@@ -441,9 +441,14 @@ impl Mux {
                 // Hooks already use the durable projector, which decides
                 // events with the same session fence as this fold.
                 // Applying their reducer delta again would duplicate its
-                // projection mutations.
+                // projection mutations. The daemon's own program status
+                // evidence has no projector: its delta is applied here.
                 if record.payload.get("format").and_then(Value::as_str)
                     == Some(crate::journal_reducers::AGENT_PLUGIN_FORMAT)
+                    || crate::journal_reducers::is_program_status_evidence(
+                        &record.producer.id,
+                        &record.payload,
+                    )
                 {
                     deltas.extend(changes.into_iter().map(|delta| (delta, record.kind.clone())));
                 }
@@ -504,8 +509,8 @@ impl Mux {
         left
     }
 
-    /// Repair public projections whose plugin roster event was folded before
-    /// the daemon stopped. The roster is the canonical live view; the
+    /// Repair public projections whose plugin or program-status roster event
+    /// was folded before the daemon stopped. The roster is the canonical live view; the
     /// projection is a separately committed compatibility view for clients.
     /// Compare durable values first so a healthy restart emits no mutations.
     pub(super) fn reconcile_agent_roster_projections(&self) {
@@ -516,7 +521,7 @@ impl Mux {
             .roster
             .entries
             .iter()
-            .filter(|(_, entry)| entry.agent_source() == AgentSource::Plugin)
+            .filter(|(_, entry)| reducer_owned(entry))
             .map(|(terminal_id, entry)| (terminal_id.clone(), entry.clone()))
             .collect::<Vec<_>>();
         for (terminal_id, entry) in entries {
@@ -536,7 +541,7 @@ impl Mux {
             .roster
             .entries
             .get(terminal_id.as_str())
-            .filter(|entry| entry.agent_source() == AgentSource::Plugin)
+            .filter(|entry| reducer_owned(entry))
             .cloned();
         if let Some(entry) = entry {
             self.reconcile_agent_roster_projection_for_entry(terminal_id, entry);
@@ -692,4 +697,11 @@ impl Mux {
             eprintln!("cmux-tui: journaling an agent report for {terminal_id} failed: {error}");
         }
     }
+}
+
+/// Whether the roster pass, not the hook projector, commits `entry`'s public
+/// projection: plugin rows, and the detected rows plugins and program-status
+/// evidence write.
+fn reducer_owned(entry: &crate::journal_reducers::RosterEntry) -> bool {
+    matches!(entry.agent_source(), AgentSource::Plugin | AgentSource::Detected)
 }

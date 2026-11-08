@@ -31,7 +31,7 @@ export type GuestTranscriptProps = {
   snapshot: AcpmuxSnapshot;
   sessionId: string;
   expanded: Set<string>;
-  onToggle: (id: string) => void;
+  onToggle: (id: string, covers?: readonly string[]) => void;
   hasMore: boolean;
   onLoadOlder: () => Promise<void>;
 };
