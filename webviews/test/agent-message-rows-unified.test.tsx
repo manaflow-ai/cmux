@@ -522,3 +522,38 @@ test("two preview-only notices from one sender whose previews clean to nothing b
     .map((r) => r.inboxThread!.threadId);
   expect(again).toEqual(["pr:1"]);
 });
+
+// Opening a received line or an inbox thread keeps the line as it was, its first line in place, as
+// the disclosure line these rows drew before kept its label: the chevron after the words stays on
+// its pixel instead of jumping back to the chip (gallery health, agent-pane.inbox-notice#one-open,
+// whose layout-shift row is 0). Leo, 2026-11-04: "we move all our affected, possibly affected
+// elements in the cohesive way".
+test("an opened received line or inbox thread keeps its first line, so its chevron does not move", async () => {
+  const message = received(
+    relayed("Matrix run 14 is green.\n\nNext: the cold-start numbers.", "56d7d1c5", "vm/lane-a"),
+    { verification: "verified", harness: "codex", relay: { by: "lane-gh broker", machine: "vm" } },
+    "vm/lane-a",
+  );
+  const line = await render(<IncomingMessageLine id="m-keep" message={message} onOpen={() => undefined} />);
+  await openAll(line);
+  expect(line.querySelector(".cv-agentmsg[data-open]")).not.toBeNull();
+  expect(line.querySelector(".cv-agentmsg__preview")?.textContent).toContain("Matrix run 14 is green.");
+
+  const notice: InboxNotice = {
+    threads: [
+      {
+        threadId: "pr:9",
+        label: "#9",
+        from: ["lane-a"],
+        count: 1,
+        preview: "Rebase on main.",
+        blocker: false,
+        promptIds: ["a1"],
+      },
+    ],
+  };
+  const thread = await render(<InboxNoticeCard rowId="r-keep" notice={notice} onOpen={() => undefined} />);
+  await openAll(thread);
+  expect(thread.querySelector(".cv-agentmsg[data-open]")).not.toBeNull();
+  expect(thread.querySelector(".cv-agentmsg__preview")?.textContent).toBe("Rebase on main.");
+});
