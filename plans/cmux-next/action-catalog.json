@@ -30724,7 +30724,14 @@
           "isTargetName" : false,
           "kind" : "string",
           "name" : "chief",
-          "suggestions" : null,
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "homeChiefs"
+          },
           "title" : "Chief"
         }
       ],
@@ -30736,7 +30743,7 @@
         "default_aliases" : [
 
         ],
-        "is_palette_visible" : false,
+        "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
         "palette_tier" : "standard"
@@ -30774,9 +30781,7 @@
 
         ],
         "mcpExemption" : null,
-        "palette" : {
-          "exempt" : "noTargetSurface"
-        }
+        "palette" : "offered"
       },
       "surfaces" : [
         "keyboard"
@@ -30799,7 +30804,14 @@
           "isTargetName" : false,
           "kind" : "string",
           "name" : "chief",
-          "suggestions" : null,
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "homeChiefs"
+          },
           "title" : "Chief"
         }
       ],
@@ -30811,7 +30823,7 @@
         "default_aliases" : [
 
         ],
-        "is_palette_visible" : false,
+        "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
         "palette_tier" : "standard"
@@ -30851,9 +30863,7 @@
 
         ],
         "mcpExemption" : null,
-        "palette" : {
-          "exempt" : "noTargetSurface"
-        }
+        "palette" : "offered"
       },
       "surfaces" : [
         "keyboard"
@@ -30876,7 +30886,14 @@
           "isTargetName" : false,
           "kind" : "string",
           "name" : "chief",
-          "suggestions" : null,
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "homeChiefs"
+          },
           "title" : "Chief"
         },
         {
@@ -30898,7 +30915,7 @@
         "default_aliases" : [
 
         ],
-        "is_palette_visible" : false,
+        "is_palette_visible" : true,
         "palette_family" : null,
         "palette_suggestion_rank" : null,
         "palette_tier" : "standard"
@@ -30936,9 +30953,7 @@
 
         ],
         "mcpExemption" : null,
-        "palette" : {
-          "exempt" : "noTargetSurface"
-        }
+        "palette" : "offered"
       },
       "surfaces" : [
         "keyboard"

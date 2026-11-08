@@ -43,18 +43,13 @@ public nonisolated enum SpaceWindowAction: Hashable, Sendable {
     @ObservationIgnored private weak var source: (any SpaceWindowSource)?
     @ObservationIgnored private var windowID: (@MainActor @Sendable () -> String?)?
     /// The observation task, in a lock so the nonisolated deinit can cancel it without a main-actor hop.
-    @ObservationIgnored private let observation = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
+    @ObservationIgnored let observation = OSAllocatedUnfairLock<Task<Void, Never>?>(initialState: nil)
 
     public init() {}
 
     // A dropped `Task` handle does not cancel its task: cancel the observation here (#38333 review).
     // cx-t7hu: nonisolated; the lock is a Sendable let, so cancelling needs no main-actor hop.
     nonisolated deinit { observation.withLock { $0?.cancel() } }
-
-    /// The marks observe the windows now (tests: a closed window's switcher leaves no observer behind).
-    var isObserving: Bool { observation.withLock { $0 != nil } }
-    /// The observation task itself (tests: releasing the marks cancels it).
-    var observationTask: Task<Void, Never>? { observation.withLock { $0 } }
 }
 
 /// The App's side of one window's switcher (`SpaceWindowMarks.install`): it reads the open windows and runs a choice.
