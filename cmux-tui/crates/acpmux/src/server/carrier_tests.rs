@@ -825,3 +825,25 @@ async fn a_teammate_prompts_only_in_the_strictest_asking_modes_whatever_the_owne
     drop(send);
     tokio::time::timeout(WAIT, server).await.unwrap().unwrap();
 }
+
+/// A chat the machine started for itself runs with its own Claude permissions: a teammate's
+/// prompt to it is refused like any Web client's, even when the grant names it (intended,
+/// `docs/carrier-roles.md`).
+#[tokio::test]
+async fn a_teammates_prompt_to_a_local_claude_chat_it_was_given_is_refused() {
+    // `strict`: a local-origin Claude chat in `default`, which passes the carrier's mode gate.
+    let hub = hub_with_relaxed_modes();
+    let meta = hub.resolve("strict").unwrap().meta();
+    assert!(!meta.remote_origin, "strict is a local-origin chat");
+    let who = Attested { chats: vec!["strict".into()], ..teammate() };
+    let prompt = json!({"sessionId": "strict", "prompt": [{"type": "text", "text": "hi"}]});
+    assert!(strictest_modes(&hub, &who, method::SESSION_PROMPT, &prompt).is_ok());
+    let (send, inbound) = tokio::sync::mpsc::channel(8);
+    let (out, mut recv) = tokio::sync::mpsc::channel(256);
+    let server = tokio::spawn(serve_attested(hub.clone(), inbound, out, who));
+    ask(&send, &mut recv, 0, "initialize", json!({"protocolVersion": 1})).await;
+    let reply = ask(&send, &mut recv, 1, "session/prompt", prompt).await;
+    assert_eq!(reply["error"]["data"]["reason"], "remote.local_claude_session", "{reply}");
+    drop(send);
+    tokio::time::timeout(WAIT, server).await.unwrap().unwrap();
+}

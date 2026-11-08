@@ -136,6 +136,16 @@ checked at the carrier gate and again at dispatch, and the prompt never goes on 
 A teammate cannot change the mode (`session/set_mode` and `session/set_config_option` are
 refused).
 
+**Intended refusals.** Two refusals are deliberate, and reviewed as such:
+
+- A teammate header with `team: null` is refused (`carrier.header_malformed`): a teammate's
+  grant always names its team.
+- A teammate's prompt to a chat this machine started for itself (a local-origin Claude chat,
+  which runs with the machine's own Claude permissions) is refused with
+  `remote.local_claude_session`, as for any Web client, even when the grant's `chats` names
+  it. A shared chat gets no exemption. Test:
+  `a_teammates_prompt_to_a_local_claude_chat_it_was_given_is_refused`.
+
 **Cancel.** A teammate's `session/cancel` stops the running turn of a chat it was given,
 including a turn the owner started. That is the teammate verb `agent-session-cancel` as
 cmux-tui's proxy has it; whether a teammate should be able to stop the owner's turn is a
