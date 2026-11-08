@@ -172,12 +172,14 @@ public nonisolated struct CloudMoveCLI: Sendable {
     }
 
     /// A start's wait on a spare warm's login copy onto `machine` (Rust's `wait-copy`, at most 80 s): returns once no
-    /// copy of `provider`'s login onto it is in flight, at once for a provider the warm does not copy.
-    public func startChatWaitCopy(machine: String, provider: String) async {
+    /// copy of `provider`'s login onto it is in flight, at once for a provider the warm does not copy. Answers whether it waited.
+    public func startChatWaitCopy(machine: String, provider: String) async -> Bool {
         struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
         let wait: [String: Any] = ["account": "wait", "waitCopy": ["machine": machine, "provider": provider]]
-        guard let payload = try? JSONSerialization.data(withJSONObject: wait, options: [.sortedKeys]) else { return }
-        _ = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation", stdin: nil)
+        guard let payload = try? JSONSerialization.data(withJSONObject: wait, options: [.sortedKeys]),
+              let object = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation", stdin: nil).object,
+              let reply = try? JSONSerialization.jsonObject(with: object) as? [String: Any] else { return false }
+        return reply["waited"] as? Bool == true
     }
 
     /// `cmux link start-chat plan --request JSON`, the cmux `access` token on stdin.

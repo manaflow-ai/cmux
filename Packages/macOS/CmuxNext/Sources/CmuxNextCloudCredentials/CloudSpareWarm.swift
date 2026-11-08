@@ -72,6 +72,19 @@ public import os
     }
 }
 
+public extension CloudHarnessLoginDecision {
+    /// Reads the machine's Claude login into the decision. A start whose step would install it races a spare warm's
+    /// copy onto this machine (Rust's ``Verdict/warmCopyConflict``, known only now): it waits for that copy (Rust's
+    /// `wait-copy`) and, if it waited, reads again, so the warm's finished copy is "machine login cached".
+    mutating func takeMachineLogin(on api: CloudAPIClient, machineID: String, teamID: String?, userID: String, otherTeams: [String?],
+                                   warmCopy cli: CloudMoveCLI?) async {
+        take(await CloudMachineLogin.read(on: api, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams))
+        guard let cli, verdict.warmCopyConflict == true, let provider = verdict.transferProvider,
+              await cli.startChatWaitCopy(machine: machineID, provider: provider.rawValue) else { return }
+        take(await CloudMachineLogin.read(on: api, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams))
+    }
+}
+
 public extension CloudAuth {
     /// Every scope a person's cached Claude login may sit under: each of their teams, then their personal scope. One login per person, whichever team is selected.
     var loginScopes: [String?] { teams.map { Optional($0.id) } + [nil] }

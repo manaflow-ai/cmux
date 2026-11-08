@@ -38,9 +38,9 @@ extension CloudStartChat {
             if verdict.gate, verdict.transferProvider != nil, let userID {
                 decision.callerOwns = try await cloud.callerOwnsVM(machineID)
                 verdict = decision.verdict
-                if verdict.readsMachine { try await decision.readGuest(exec: { (try? await api.exec(machineID, command: $0, timeoutMs: 20_000))?.stdout }, pause: CloudCredentialTransfer.guestCheckPause, warmCopy: cloud.move.cli.map { (CloudMoveCLI(binary: $0), machineID) }) } // again until a new guest binds
+                if verdict.readsMachine { try await decision.readGuest(exec: { (try? await api.exec(machineID, command: $0, timeoutMs: 20_000))?.stdout }, pause: CloudCredentialTransfer.guestCheckPause) } // again until a new guest binds
                 // A login the provider rejects (a reused machine's expired token) is replaced like a missing one.
-                if verdict.transferProvider == .claude, decision.verdict.guestTakesLogin { decision.take(await CloudMachineLogin.read(on: api, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams)) }
+                if verdict.transferProvider == .claude, decision.verdict.guestTakesLogin { await decision.takeMachineLogin(on: api, machineID: machineID, teamID: teamID, userID: userID, otherTeams: otherTeams, warmCopy: cloud.move.cli.map { CloudMoveCLI(binary: $0) }) }
             }
             verdict = decision.verdict
             guard let provider = verdict.transferProvider, let userID else { return false }
