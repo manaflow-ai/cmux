@@ -682,8 +682,10 @@ impl TerminalPredictionEngine {
                     }
                     UntrackedOutput::Ambiguous => {
                         // It could be either; guessing wrong would put every
-                        // later glyph one cell off, so everything goes.
-                        return self.withdraw_all(false, now, false);
+                        // later glyph one cell off, so everything goes. It is
+                        // some key's echo either way, so it does not extend the
+                        // opaque period.
+                        return self.withdraw_entries(false, now, false);
                     }
                     // The first tracked key's echo: everything untracked was
                     // ahead of it in the stream, so it has all arrived.
@@ -773,9 +775,7 @@ impl TerminalPredictionEngine {
     fn consume_printable(&mut self, byte: u8, now: Duration) -> bool {
         if let Some(&rewritten) = self.rewound.first() {
             if rewritten != byte {
-                // Not a rewrite of what it moved back over: a redraw, which may
-                // go on printing.
-                self.mark_opaque_echo(now);
+                // Not a rewrite of what it moved back over: a redraw.
                 return self.withdraw_all(false, now, false);
             }
             self.rewound.remove(0);
@@ -802,10 +802,6 @@ impl TerminalPredictionEngine {
             Keystroke::Glyph(expected) => expected,
         };
         if expected != byte {
-            // The remote printed something nobody predicted, such as a prompt
-            // redraw, and more of it may follow: until it settles, output that
-            // matches a key tracked since proves nothing about echo.
-            self.mark_opaque_echo(now);
             return self.withdraw_all(true, now, false);
         }
         self.record_echo_latency(now.saturating_sub(entry.typed_at));
@@ -858,11 +854,7 @@ impl TerminalPredictionEngine {
         match entry.keystroke {
             Keystroke::Barrier => self.resolve_barrier(now),
             Keystroke::Erase(_) => self.advance_erase(index, signal, now),
-            // A redraw nobody predicted, which may go on printing.
-            Keystroke::Glyph(_) => {
-                self.mark_opaque_echo(now);
-                self.withdraw_all(true, now, false)
-            }
+            Keystroke::Glyph(_) => self.withdraw_all(true, now, false),
         }
     }
 
@@ -918,7 +910,24 @@ impl TerminalPredictionEngine {
 
     /// Drops everything. `sending_keystroke`: the withdrawal is for a key sent
     /// now, whose echo is as untracked as those of the entries dropped.
+    /// Otherwise output (or silence) nobody predicted caused it, such as a
+    /// redraw, and more of it may follow: until it settles, output that
+    /// matches a key tracked since proves nothing about echo.
     fn withdraw_all(
+        &mut self,
+        counting_misprediction: bool,
+        now: Duration,
+        sending_keystroke: bool,
+    ) -> bool {
+        if !sending_keystroke {
+            self.mark_opaque_echo(now);
+        }
+        self.withdraw_entries(counting_misprediction, now, sending_keystroke)
+    }
+
+    /// [`Self::withdraw_all`] without marking what follows opaque, for output
+    /// known to be a key's echo.
+    fn withdraw_entries(
         &mut self,
         counting_misprediction: bool,
         now: Duration,
@@ -1193,8 +1202,9 @@ impl TerminalPredictionEngine {
         if expired.iter().any(|entry| entry.keystroke == Keystroke::Barrier)
             || expired.iter().any(|entry| now.saturating_sub(entry.typed_at) > lifetime * 4)
         {
-            // Or long past any stall: the key was swallowed, not delayed.
-            return self.withdraw_all(false, now, false) || stale_confirmation;
+            // Or long past any stall: the key was swallowed, not delayed. No
+            // output caused this, so nothing after it is opaque.
+            return self.withdraw_entries(false, now, false) || stale_confirmation;
         }
         // Nothing came back in time. What was drawn goes, but the link may only
         // have stalled: keep matching the echoes in order, so they re-arm the

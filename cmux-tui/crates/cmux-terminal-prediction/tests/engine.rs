@@ -1269,3 +1269,29 @@ fn retyping_the_character_a_backspace_erased_cannot_leave_a_key_unechoed() {
         session.live_offsets()
     );
 }
+
+#[test]
+fn a_rewind_past_the_echoed_text_does_not_re_arm_by_matching_new_keys() {
+    // A cursor move further back than anything echoed is a redraw too, and
+    // what it prints next is no more an echo than any other redraw's text.
+    let mut session = Session::new();
+    for key in ["l", "s", "a", "b"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(150));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("q", ms(100));
+    session.remote_after("\x1b[5D", ms(20));
+    for key in ["y", "z"] {
+        session.type_key_after(key, ms(100));
+        session.remote_after(key, ms(80));
+        session.engine.presented_frame(session.clock);
+    }
+    session.type_key_after("w", ms(50));
+    assert!(
+        !session.drawn().contains('w'),
+        "drawn {:?}, status {:?}",
+        session.drawn(),
+        session.status()
+    );
+}
