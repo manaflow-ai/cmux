@@ -1,7 +1,7 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1373,
+    "entries": 1375,
     "shortcuts": 188
   },
   "sections": [
@@ -6490,6 +6490,12 @@
           "command": null
         },
         {
+          "id": "palette.newCloudChat",
+          "title": "New Cloud Chat",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "tasks.new",
           "title": "New Task",
           "shortcut": null,
@@ -7868,6 +7874,12 @@
           "title": "Reload Configuration",
           "shortcut": "⇧⌘,",
           "command": "cmux settings reload-configuration"
+        },
+        {
+          "id": "app.reloadCustomViews",
+          "title": "Reload Custom Views",
+          "shortcut": null,
+          "command": "cmux apps reload"
         },
         {
           "id": "app.remove",
