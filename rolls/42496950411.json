@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42496950411",
+  "recorded_at": "2026-11-08T16:01:17Z",
+  "reason": "cmux-tui 2e120a12ad51 changes the image's cmux-tui (pinned 571b1bc07236)",
+  "dry_run": false,
+  "cmux_tui": "2e120a12ad51c87a75ed5f0ce22e5dbf773d221c",
+  "fixes": [
+    {
+      "sha": "2e120a12ad51c87a75ed5f0ce22e5dbf773d221c",
+      "mergedAt": "2026-11-08T07:36:49-08:00",
+      "subject": "cmux-remote: acpmux refusals carry the bridge's reason, keepalive pings, and a grant cap that fits its claims (#38420 follow-ups) (#38641)"
+    },
+    {
+      "sha": "3fdf3ee3efbe16a7ddbe85af0cfe42689c153988",
+      "mergedAt": "2026-11-08T07:35:24-08:00",
+      "subject": "cmux-tui packaging: ship cmux-agent-screen-detection beside the daemon (app, npm, artifacts) (#38572)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T16:01:17Z",
+    "snapshot_id": "sh-a7d6dd0c22d94d149cb5f96269a4bbc2",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42496950411): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1272a692658d8d651b7e5ca3f2da7bdc0d974a9a",
+    "image": "cloud-native-auto-2e120a12-42496950411-1",
+    "revision": "ci-42496950411-1",
+    "at": "2026-11-08T16:01:17Z"
+  },
+  "rolled_back": false
+}
