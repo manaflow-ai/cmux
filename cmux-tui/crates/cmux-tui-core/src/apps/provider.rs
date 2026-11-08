@@ -513,6 +513,8 @@ mod tests {
         assert_eq!(family_of("app.settings.set"), "app.settings");
         assert_eq!(family_of("fs.pick"), "fs");
         assert!(FAMILIES.contains(&family_of("agent_cli.list")));
+        assert!(FAMILIES.contains(&family_of("agent_chat.list")));
+        assert!(!FAMILIES.contains(&family_of("agent.list")), "the daemon owns agent.*");
         let mut params = json!({ "provider": "github" });
         normalize_method(&mut params);
         assert_eq!(params["method"], "GET");
