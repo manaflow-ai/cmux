@@ -31,6 +31,16 @@ export default agentPaneEntry({
         summary: { ...chat(transcript).summary!, watching: "claude" },
       }),
     },
+    "claude-desktop": {
+      note: "A Claude desktop session acpmux lists (agents.desktopBridge.enabled): a reply goes to the app, taking nothing over",
+      snapshot: chat(transcript, {
+        summary: {
+          ...chat(transcript).summary!,
+          watching: "claude",
+          tags: { origin: "claude-desktop", "origin.pid": "4242" },
+        },
+      }),
+    },
     "take-over-refused": {
       note: "A reply or Take Over that acpmux refuses as live: Fork It and Open Anyway over the watched chat",
       snapshot: chat(transcript, {

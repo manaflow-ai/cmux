@@ -213,6 +213,7 @@ pub(crate) mod turn_cap;
 mod turn_retry;
 mod watch;
 mod bridge;
+mod desktop_bridge;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
 };

@@ -124,16 +124,16 @@ async fn a_prompt_to_a_watched_desktop_chat_is_delivered_and_its_answer_shown() 
     assert_eq!(accepted.lock().unwrap().as_ref().unwrap()["state"], "delivered");
     let events = hub.store.events(&session.id, 0, usize::MAX).unwrap();
     let user = events.iter().find(|e| e.kind == "user_message").expect("the prompt shows");
-    assert_eq!(user.data["promptId"], "p-desk");
-    assert_eq!(user.data["text"], "ping from acpmux");
-    assert_eq!(user.data["client"], "bridge");
+    assert_eq!(user.msg["promptId"], "p-desk");
+    assert_eq!(user.msg["text"], "ping from acpmux");
+    assert_eq!(user.msg["client"], "bridge");
     assert!(events.iter().any(|e| e.kind == "bridge_delivered"));
     assert!(
         events.iter().any(|e| e.kind == "agent_message_chunk"
-            && e.data.pointer("/params/update/content/text") == Some(&json!("PONG"))),
+            && e.msg.pointer("/params/update/content/text") == Some(&json!("PONG"))),
         "the answer shows"
     );
-    assert!(events.iter().any(|e| e.kind == "turn_result" && e.data["promptId"] == "p-desk"));
+    assert!(events.iter().any(|e| e.kind == "turn_result" && e.msg["promptId"] == "p-desk"));
 }
 
 /// A watched chat whose app is gone is still refused: Take Over runs it here.
