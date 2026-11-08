@@ -2073,10 +2073,10 @@ pub mod local_app;
 pub(crate) mod machine_health;
 mod memory_inbox;
 mod models_fanout;
-mod review_queue;
 mod new_worktree;
 mod project_new;
 mod outbound;
+mod review_queue;
 use outbound::{
     OUTBOUND_CONTROL_RESERVE, enqueue_after_controls, enqueue_outbound, enqueue_outbound_locked,
     report_outbound_loss_locked,

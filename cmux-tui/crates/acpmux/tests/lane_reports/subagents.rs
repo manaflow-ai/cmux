@@ -69,7 +69,7 @@ fn subagent_stops(session: &str) -> Option<Value> {
 }
 
 /// A FIFO whose first write lets the parent's `child-gate:` turn (and its subagent) end.
-fn fifo(name: &str) -> std::path::PathBuf {
+pub(super) fn fifo(name: &str) -> std::path::PathBuf {
     let path = std::env::temp_dir().join(format!("w5m-{name}-{}", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let c = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
@@ -79,7 +79,7 @@ fn fifo(name: &str) -> std::path::PathBuf {
 }
 
 /// The parent runs a turn with one subagent running in it (fake_agent.py `child-gate:`).
-async fn parent_with_a_running_subagent(
+pub(super) async fn parent_with_a_running_subagent(
     hub: &Arc<Hub>,
     person: &mut Client,
     gate: &Path,
@@ -104,7 +104,7 @@ async fn parent_with_a_running_subagent(
 }
 
 /// The lane reports of turns in `parent`'s queue, not run yet (its turn is running).
-async fn queued_reports(person: &mut Client, parent: &str) -> Vec<Value> {
+pub(super) async fn queued_reports(person: &mut Client, parent: &str) -> Vec<Value> {
     let page = person.ok("_acpmux/events", json!({"sessionId": parent, "limit": 5000})).await;
     page["events"]
         .as_array()
@@ -123,7 +123,7 @@ fn queued_text(msg: &Value) -> String {
 }
 
 /// Waits until `lane`'s turn `turn` ended.
-async fn turn_ended(hub: &Arc<Hub>, lane: &str, turn: u64) {
+pub(super) async fn turn_ended(hub: &Arc<Hub>, lane: &str, turn: u64) {
     let s = hub.resolve(lane).unwrap();
     tokio::time::timeout(WAIT, async {
         loop {
