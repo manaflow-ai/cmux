@@ -109,10 +109,7 @@ fn local_candidates(socket: SocketAddr, networks: &[LocalNetwork]) -> Vec<Socket
 /// allowed network (a cmux endpoint's `/128` or `/32`). A peer that owns
 /// only wider ranges (a gateway into a network) gets neither. The receiver
 /// intercepts both by port before routing.
-fn probe_route(
-    addresses: &[InterfaceAddress],
-    allowed: &[IpNetwork],
-) -> Option<(IpAddr, IpAddr)> {
+fn probe_route(addresses: &[InterfaceAddress], allowed: &[IpNetwork]) -> Option<(IpAddr, IpAddr)> {
     allowed.iter().find_map(|network| {
         let remote = network.network_address();
         let host = if remote.is_ipv4() { 32 } else { 128 };

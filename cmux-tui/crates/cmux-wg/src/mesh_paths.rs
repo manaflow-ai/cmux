@@ -415,7 +415,11 @@ mod tests {
         }
         assert!(sprayed, "every proven path while the LAN is suspect");
         assert_eq!(targets(&mut paths, now), vec![relay]);
-        assert!(now - start < std::time::Duration::from_secs(5), "fell back after {:?}", now - start);
+        assert!(
+            now - start < std::time::Duration::from_secs(5),
+            "fell back after {:?}",
+            now - start
+        );
     }
 
     #[test]

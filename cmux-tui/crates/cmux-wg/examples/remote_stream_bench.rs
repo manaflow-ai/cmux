@@ -925,15 +925,18 @@ async fn start_wg_mesh(
         fronts.push((*kind, impair_cuttable(host_udp, *rtt_ms, args.loss_pct, cut.clone()).await?));
         cuts.push(cut);
     }
-    let first = fronts.first().map(|(_, front)| *front).ok_or_else(|| io::Error::other("--paths"))?;
+    let first =
+        fronts.first().map(|(_, front)| *front).ok_or_else(|| io::Error::other("--paths"))?;
     // bench: candidates begin
     let candidates = fronts
         .iter()
         .map(|(kind, address)| cmux_wg::PeerCandidate { address: *address, kind: Some(*kind) })
         .collect();
     // bench: candidates end
-    let host_network = cmux_wg::IpNetwork::new(mesh_address(2).address, 128).map_err(io::Error::other)?;
-    let viewer_network = cmux_wg::IpNetwork::new(mesh_address(1).address, 128).map_err(io::Error::other)?;
+    let host_network =
+        cmux_wg::IpNetwork::new(mesh_address(2).address, 128).map_err(io::Error::other)?;
+    let viewer_network =
+        cmux_wg::IpNetwork::new(mesh_address(1).address, 128).map_err(io::Error::other)?;
     viewer
         .add_peer(cmux_wg::WgPeer {
             public_key: host_public,

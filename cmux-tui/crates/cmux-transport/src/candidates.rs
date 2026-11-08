@@ -100,7 +100,8 @@ mod tests {
             "169.254.3.4:4101".parse().unwrap(),
         ];
         assert_eq!(decode_candidates(&encode_candidates(&list)), Ok(list.clone()));
-        let many: Vec<SocketAddr> = (0..20).map(|n| SocketAddr::new([10, 0, 0, n].into(), 1)).collect();
+        let many: Vec<SocketAddr> =
+            (0..20).map(|n| SocketAddr::new([10, 0, 0, n].into(), 1)).collect();
         assert_eq!(decode_candidates(&encode_candidates(&many)).unwrap().len(), MAX_CANDIDATES);
     }
 

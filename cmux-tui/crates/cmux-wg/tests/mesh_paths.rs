@@ -86,9 +86,11 @@ async fn a_peer_learns_the_other_sides_addresses_inside_the_session_and_fails_ov
     let b = node_bound(&[overlay(2)], b_private, b_public, 1380, "0.0.0.0:0").await;
     // A knows B only behind a relay link, as a pairing that knows one
     // address; B learns A from its datagrams.
-    let (relayed, cut) =
-        cuttable_link(SocketAddr::new([127, 0, 0, 1].into(), b.udp.port()), Duration::from_millis(15))
-            .await;
+    let (relayed, cut) = cuttable_link(
+        SocketAddr::new([127, 0, 0, 1].into(), b.udp.port()),
+        Duration::from_millis(15),
+    )
+    .await;
     let mut to_b = peer_of(&b, &[overlay(2)], false);
     to_b.route = Some(relayed.into());
     to_b.candidates = vec![PeerCandidate { address: relayed, kind: Some(PathKind::DoRelay) }];
