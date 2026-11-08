@@ -1706,6 +1706,19 @@ An empty group now keeps only its header at rest. The header's existing + appear
 - The +'s top snaps to the device pixel grid, not whole points (the line can sit on a half point).
 - The sidebar re-lays out its top row when the card's reach changes: gutter, pane padding, floating panes, strip tokens.
 
+## A space another window shows wears a ring; its click offers Go to Window and Move Here (2026-11-08, #38281)
+
+- Leo 2026-10-29: "there's also other ergo wrt new windows being like new spaces, incognito spaces, etc... this could
+  legit make our thing more useful than chrome by having windows be switchable in this way"
+- The spaces strip's dot for a space another open window shows gets a thin 1 pt ring; no dot moves and its click
+  target stays. A click on a ringed space opens a menu at once with Go to Window and Move Here (`space.bringHere`);
+  Option-click goes straight to that window; Move Here is left out when either window is incognito. While the menu is
+  open the dot stays lit and the hover chrome stays revealed. A space no other window shows still switches in place.
+  Debug tunable `tunable.sidebar.spaceSwitcher` (ring, the default; glyph; menu; plain). Rules:
+  `SpaceSwitcherLogic`; tests: `SpaceSwitcherWindowMarksTests`, gallery `SpaceSwitcherGalleryTests`.
+- Commits (carried from #30817): 991f4dae1cd, a90551963f2, 6a4ba590061, d052543bd1d, d9cef9ff37d, aa68b42fc71,
+  9ba13003412.
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:
