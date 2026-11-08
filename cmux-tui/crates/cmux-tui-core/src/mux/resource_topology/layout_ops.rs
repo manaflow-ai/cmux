@@ -215,7 +215,11 @@ impl Mux {
                     .with_context(|| format!("unknown split {split_id}"))?;
                 let (workspace, screen) =
                     state.screen_of(pane).context("resolved pane has no screen")?;
-                let current = &state.workspaces[workspace].screens[screen];
+                let current = state
+                    .workspaces
+                    .get(workspace)
+                    .and_then(|workspace| workspace.screens.get(screen))
+                    .context("resolved pane's screen is gone")?;
                 anyhow::ensure!(
                     current.root.contains_split(split),
                     "split belongs to another screen"
@@ -254,7 +258,13 @@ impl Mux {
                     result,
                     deltas,
                     move |state| {
-                        let target = &mut state.workspaces[workspace].screens[screen];
+                        let Some(target) = state
+                            .workspaces
+                            .get_mut(workspace)
+                            .and_then(|workspace| workspace.screens.get_mut(screen))
+                        else {
+                            return;
+                        };
                         let before = target.layout_snapshot_for_coalescing_change(coalesce);
                         target.root = layout.root;
                         target.layout_columns = layout.layout_columns;

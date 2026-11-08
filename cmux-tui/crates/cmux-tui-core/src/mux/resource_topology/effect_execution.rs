@@ -1151,7 +1151,11 @@ impl Mux {
 /// the target alone there.
 fn around_split_ends_at(state: &State, around: SplitId, target: PaneId) -> bool {
     let Some((workspace, screen)) = state.screen_of(target) else { return false };
-    let screen = &state.workspaces[workspace].screens[screen];
+    let Some(screen) =
+        state.workspaces.get(workspace).and_then(|workspace| workspace.screens.get(screen))
+    else {
+        return false;
+    };
     if screen.layout_columns_active() {
         screen.layout_columns.iter().find(|column| column.root.contains(target)).is_some_and(
             |column| column.is_row_split(around) || column.root.split_ends_at(around, target),
