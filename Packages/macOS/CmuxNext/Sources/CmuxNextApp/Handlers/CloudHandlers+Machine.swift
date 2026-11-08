@@ -327,15 +327,10 @@ extension CloudHandlers {
                 return machineFields(restored, ["snapshot_id": .string(snapshot)])
             }
         }
-        // A snapshot, then a new machine from it: cmux-platform restores a snapshot still being taken once it is ready.
-        bind("palette.cloud.fork", registry, reason: reason) { invocation in
-            let session = try machine(invocation, context); guard session.machine.allows(.fork) else { throw operationUnavailable }
-            result("fork machine", context, pendingAfter: machineAnswerWait, pending: ["source_machine_id": .string(session.machineID)]) {
-                let snapshot = try await cloud.machineChange("cloud.snapshot.create", ["machine": .string(session.machineID)], answers: "snapshot", allow: allows("palette.cloud.fork", invocation, registry, context)) ?? ""
-                let forked = try await cloud.machineChange("cloud.snapshot.restore", ["snapshot": .string(snapshot)], answers: "machine", allow: { true }) ?? ""
-                await cloud.refresh()
-                return machineFields(forked, ["source_machine_id": .string(session.machineID), "snapshot_id": .string(snapshot)])
-            }
+        bind("palette.cloud.fork", registry, reason: reason) { invocation in // A snapshot, then a machine from it (restored once it is ready).
+            let session = try machine(invocation, context); guard session.machine.allows(.fork) else { throw operationUnavailable }; result("fork machine", context, pendingAfter: machineAnswerWait, pending: ["source_machine_id": .string(session.machineID)]) {
+                let snapshot = try await cloud.machineChange("cloud.snapshot.create", ["machine": .string(session.machineID)], answers: "snapshot", allow: allows("palette.cloud.fork", invocation, registry, context)) ?? ""; let forked = try await cloud.machineChange("cloud.snapshot.restore", ["snapshot": .string(snapshot)], answers: "machine", allow: { true }) ?? ""
+                await cloud.refresh(); return machineFields(forked, ["source_machine_id": .string(session.machineID), "snapshot_id": .string(snapshot)]) }
         }
     }
 
