@@ -642,12 +642,14 @@ impl ClientConnection {
         if *self.state.borrow() != ConnectionState::Connected {
             self.actions.send_modify(|count| *count = count.wrapping_add(1));
         }
+        // The deadline is polled first: a wait that is ready at or past it
+        // still loses, so nothing goes on after its deadline.
         tokio::select! {
             biased;
-            value = wait => Ok(value),
             () = tokio::time::sleep_until(deadline) => {
                 Err(ConnectionError::ReconnectDeadlineExceeded { attempts: 0 })
             }
+            value = wait => Ok(value),
         }
     }
 
