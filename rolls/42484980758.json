@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42484980758",
+  "recorded_at": "2026-11-08T13:38:39Z",
+  "reason": "cmux-tui 748456624bdd changes the image's cmux-tui (pinned eb277eb0cbe7)",
+  "dry_run": false,
+  "cmux_tui": "748456624bdd8335988277ac821047923d92410a",
+  "fixes": [
+    {
+      "sha": "748456624bdd8335988277ac821047923d92410a",
+      "mergedAt": "2026-11-08T05:11:02-08:00",
+      "subject": "cmux-tui test: native_workflow reads a child's events through the daemon, not a second store open (#38338)"
+    },
+    {
+      "sha": "3233df4d2e4748523446452065b14d82f6f5502e",
+      "mergedAt": "2026-11-08T05:08:18-08:00",
+      "subject": "acpmux: agent-to-agent messaging an agent gets right the first time (#38374)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T13:38:39Z",
+    "snapshot_id": "sh-f58a38a333c54ba18a8601d7f798c347",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42484980758): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "6608189e93ae34e6dbc25b27ff59b448172b6465",
+    "image": "cloud-native-auto-74845662-42484980758-1",
+    "revision": "ci-42484980758-1",
+    "at": "2026-11-08T13:38:39Z"
+  },
+  "rolled_back": false
+}
