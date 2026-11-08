@@ -13,7 +13,7 @@ import { resetLinkStore } from "../chips/linkStore";
 import { activityText } from "./chatFind";
 import { TranscriptReadOnly } from "./readOnly";
 import { ToolRow } from "./ToolRow";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;

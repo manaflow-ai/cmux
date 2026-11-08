@@ -281,13 +281,43 @@ fn daemon_upgrade_restart_keeps_the_old_owners_launch_flags_and_environment() {
             "new owner lost CMUX_APPS_DIRS"
         );
     }
-    // The terminal is adopted as before: the same incarnation, running
-    // (the new owner may still be adopting its host when restart returns).
-    let resolve = || {
-        fixture.request(json!({"cmd": "resolve-terminal", "terminal_id": created["terminal_id"]}))
-    };
-    wait_for("the adopted terminal", || resolve()["lifecycle"] != "adopting");
-    let resolved = resolve();
+    // The terminal is adopted as before: restart returns once it runs.
+    let resolved =
+        fixture.request(json!({"cmd": "resolve-terminal", "terminal_id": created["terminal_id"]}));
     assert_eq!(resolved["lifecycle"], "running", "{resolved}");
     assert_eq!(resolved["terminal_incarnation"], created["terminal_incarnation"], "{resolved}");
+}
+
+/// cmux-ad i3: `server restart` said "every terminal was kept" while the new
+/// owner still adopted their hosts: right after it returned, a terminal read
+/// lifecycle `adopting` (Linux fleet, steps c73722be and 1c1addbb). A
+/// seamless upgrade returns only when every kept terminal runs again, and
+/// its report counts them.
+#[test]
+fn daemon_upgrade_restart_returns_when_every_kept_terminal_runs() {
+    let fixture = Fixture::new("restart-adopted");
+    pid_of(&fixture.server("ensure", &[]));
+    let mut kept = Vec::new();
+    for at in 0..6 {
+        let created =
+            fixture.request(json!({"cmd": "run", "argv": ["/bin/sh"], "new_workspace": true}));
+        let text = format!("echo kept-$((100+{at}))\n");
+        fixture.request(json!({"cmd": "send", "surface": created["surface"], "text": text}));
+        let shown = format!("kept-{}", 100 + at);
+        wait_for("the shell before the restart", || {
+            fixture.screen_has(&created["surface"], &shown)
+        });
+        kept.push(created["terminal_id"].clone());
+    }
+
+    let restarted = fixture.server("restart", &[]);
+    let listed = fixture.request(json!({"cmd": "list-terminals"}));
+    for terminal in &kept {
+        let row = listed["terminals"]
+            .as_array()
+            .and_then(|rows| rows.iter().find(|row| row["terminal_id"] == *terminal))
+            .unwrap_or_else(|| panic!("terminal {terminal} gone after restart: {listed}"));
+        assert_eq!(row["lifecycle"], "running", "restart returned before adoption: {row}");
+    }
+    assert_eq!(restarted["terminals"]["running"], 6, "{restarted}");
 }

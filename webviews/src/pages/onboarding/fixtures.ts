@@ -204,6 +204,7 @@ const importer = (over: Partial<ImportState> = {}): ImportState => ({
 
 export type ImportFixture =
   | "idle"
+  | "crowded"
   | "detecting"
   | "ready"
   | "noBrowsers"
@@ -227,6 +228,45 @@ function importStateFor(kind: ImportFixture): { importer: ImportState; footer: O
       };
     case "ready":
       return { importer: importer(), footer: footer({ primary: "import" }) };
+    case "crowded":
+      // The worst list: a Full Disk Access row first, a long profile name, more rows than fit, one
+      // kind checked, and the passwords CSV offered (the footer's menu).
+      return {
+        importer: importer({
+          rows: [
+            { ...PROFILES[2]!, id: "harbor/Default", browserName: "Harbor", icon: appIcon("#1a73e8", "H") },
+            { ...PROFILES[0]!, profileName: null, avatar: null },
+            {
+              ...PROFILES[1]!,
+              checked: true,
+              target: null,
+              profileName: "Client Work — Northwind Traders Quarterly Planning",
+            },
+            {
+              ...PROFILES[1]!,
+              id: "lumen/Default",
+              browserName: "Lumen Classic",
+              profileName: null,
+              avatar: null,
+              checked: true,
+              target: null,
+              icon: appIcon("#5f6368", "L"),
+            },
+            {
+              ...PROFILES[0]!,
+              id: "kestrel/Default",
+              browserName: "Kestrel",
+              profileName: "School",
+              icon: appIcon("#d93025", "K"),
+            },
+            AWAITING,
+          ],
+          kindChoices: ["bookmarks", "history", "openTabs", "cookies", "searchEngines", "passwords"],
+          kinds: ["cookies"],
+          offersPasswordCSV: true,
+        }),
+        footer: footer({ primary: "import" }),
+      };
     case "noBrowsers":
       return { importer: importer({ rows: [] }), footer: footer({ primary: "import", primaryEnabled: false }) };
     case "importing":

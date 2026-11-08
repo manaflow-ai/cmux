@@ -81,6 +81,31 @@ import Foundation
         return store.intentLog.replacedAStandIn(surface) && !store.intentLog.entries.contains { $0.createdSurface == surface && ($0.closeWhenCreated || $0.standInClosed) }
     }
 
+    /// Whether `pane`'s tab `id` is what stand-in tab `standIn` became, so it may take the stand-in's cell and selection: the daemon
+    /// named it as that stand-in's creation's (its reply, its echo or its terminal's host id), or it carries the terminal host id
+    /// the stand-in's creation minted (a dock's fresh tab, which no reply names), pending or settled. Never a tab moved in, a
+    /// script's, a closed stand-in's (F1 on #38085), or another stand-in's (F2 on #38108).
+    public func became(standIn: String, tab id: String, in pane: PaneModel) -> Bool {
+        guard let tab = pane.tabs.first(where: { $0.id == id }) else { return false }
+        if store.intentLog.replacement(ofStandIn: standIn) == tab.surface {
+            return !store.intentLog.entries.contains { $0.createdSurface == tab.surface && ($0.closeWhenCreated || $0.standInClosed) }
+        }
+        guard let terminal = tab.snapshot.terminalID else { return false }
+        if store.intentLog.settled(standIn: standIn, minted: terminal) { return true }
+        return store.intentLog.entries.contains { entry in
+            !entry.closeWhenCreated && !entry.standInClosed && entry.kind.standInTab.map { $0.tabResourceID?.rawValue == standIn && $0.terminalID == terminal } == true
+        }
+    }
+
+    /// Whether stand-in tab `standIn`, leaving as `pane`'s tab `id` arrives alone, hands that tab its cell and selection: yes for
+    /// the tab it became (``became(standIn:tab:in:)``), and for a tab not yet named (a swap observed before its record lands, as
+    /// before #38108); never when the person closed the stand-in (F1 on #38085) or the tab is another stand-in's (F2 on #38108).
+    public func handsOver(standIn: String, to id: String, in pane: PaneModel) -> Bool {
+        if became(standIn: standIn, tab: id, in: pane) { return true }
+        let closed = store.intentLog.entries.contains { ($0.closeWhenCreated || $0.standInClosed) && $0.kind.standInTab?.tabResourceID?.rawValue == standIn }
+        return !closed && !tookAStandInsPlace(tab: id, in: pane)
+    }
+
     /// Whether tab `id` is still a pending creation's provisional tab (a close cancels it).
     public func isPending(tab id: String) -> Bool { CancelledCreation.transaction(showingTab: id, in: store) != nil }
 

@@ -6,7 +6,7 @@
 //
 // This file holds the parts with no DOM: the rows the preview lists, and the hover intent that
 // decides when it opens and closes.
-import { changeItems, mergedView, readableChanges, readableUpdate } from "./model";
+import { changeItems, echoKey, mergedView, readableChanges, readableUpdate } from "./model";
 import type { ReleaseNotes, WhatsNewCategory } from "./types";
 import type { UpdateHighlights } from "./updateHighlights";
 import { GENERIC_ENTRY_ID, hasCuratedChanges, isGenericEntry, isGenericWhatsNewEntry } from "./updateSummary";
@@ -78,11 +78,11 @@ const ECHO_PREFIX = 20;
     cut to one line, and a pull request's changelog sentence often restates its title ("Show in
     Mini points the floating mini at any chat, …" / "Show in Mini points the floating mini at any
     agent chat (…)"). Case, punctuation and spacing aside, the two lines repeat each other when one
-    starts with the other or they open with the same ECHO_PREFIX characters. */
+    starts with the other or they open with the same ECHO_PREFIX characters. A leading article does
+    not count, as in the notes' own comparison (``echoKey``). */
 export function repeatsTitle(title: string, detail: string): boolean {
   const plain = (text: string) =>
-    text
-      .toLowerCase()
+    echoKey(text)
       .replace(/[^\p{L}\p{N}]+/gu, " ")
       .trim();
   const a = plain(title);

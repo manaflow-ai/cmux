@@ -18,8 +18,10 @@ import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
-import { BrowseFailure, browseFailureMessage } from "../BrowseFailure";
-import { BROWSE_BUSY, type BrowseRequest, type BrowseResult } from "../AddProjectPanel";
+import { BrowseFailure } from "../BrowseFailure";
+import { browseFailureMessage } from "../browseFailureModel";
+import { type BrowseRequest } from "../AddProjectPanel";
+import { BROWSE_BUSY, type BrowseResult } from "../addProjectPanelModel";
 import { errorMessage, isStartCancelled } from "../transportErrors";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { sandboxFailureKey, type RunMode, type RunModeRows } from "../sandboxRun";
@@ -102,7 +104,7 @@ import { tabsToComposer } from "../composerFocus";
 import { useEscapingPopup } from "../../../ui/popupHost";
 import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
-import { useComposerChrome } from "../composerChrome";
+import { useComposerChrome } from "../composerChromeModel";
 import { useComposerSettings } from "../composerSettings";
 import { useComposerLook } from "../composerLook";
 import { MarkdownField, type MarkdownFieldHandle } from "../MarkdownField";
@@ -132,6 +134,7 @@ import { NewTabExtras } from "./NewTabExtras";
 import type { SuggestionOrder } from "./suggestionOrder";
 import { newTabComposerTrailingGapArm } from "./composerGap.experiment";
 import { newTabIconColumnArm } from "./iconColumn.experiment";
+import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = NewTabCommandActions & {
@@ -1072,6 +1075,9 @@ export function NewTabScreen(props: Props) {
   // under the whole composer instead, so they never cover those controls (a press there would pick
   // a row).
   const [composer, setComposer] = useState<HTMLDivElement | null>(null);
+  // At the page's foot (the stage layout) the app's toasts lift above the composer card and never
+  // cover it (toastAvoidance.ts). Elsewhere it sits at the top or the middle, clear of them.
+  useEffect(() => (stage && composer ? reportToastAvoidance(composer, elementBox) : undefined), [stage, composer]);
   const anchor = split ? (composer ?? box) : box;
   useEscapingPopup(host, shown, () => anchor, {
     // At the foot of the page (the stage layout) the rows open over the composer.

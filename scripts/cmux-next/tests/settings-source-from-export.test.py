@@ -5,6 +5,7 @@ Run: python3 -I scripts/cmux-next/tests/settings-source-from-export.test.py
 import glob
 import importlib.util
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -63,6 +64,9 @@ class SettingsSourceFromExportTests(unittest.TestCase):
                     if "choices" in source:
                         source["choices"] = [{"value": c["value"], "title": c["title"]} for c in source["choices"]]
                     drafted = DRAFT.draft_row(exported)
+                    if drafted.get("palette_shown") and source.get("page_hidden"):
+                        # The export does not carry the reason of a row the palette still offers.
+                        drafted["page_hidden"] = source["page_hidden"]
                     if "choices_from" in row:
                         # The source lists the leading choices; the Swift member lists the rest.
                         drafted["choices"] = drafted["choices"][:len(source["choices"])]
@@ -89,8 +93,13 @@ class SettingsSourceFromExportTests(unittest.TestCase):
         self.assertNotIn("consumers", row)
 
     def test_select_by_swift_type_reads_title_keys(self):
-        picked = DRAFT.select(self.rows, swift_types=["ChromePlacementSetting"])
-        self.assertIn("sidebar.side", [row["key"] for row in picked])
+        # A stand-in CmuxNextSettings tree: the real hand-written rows keep moving into sources.
+        with tempfile.TemporaryDirectory() as root:
+            folder = Path(root) / DRAFT.SETTINGS_SOURCES
+            folder.mkdir(parents=True)
+            (folder / "Example.swift").write_text('extension ExampleSetting { static let t = "settings.sidebar.side" }\n')
+            picked = DRAFT.select(self.rows, swift_types=["ExampleSetting"], root=root)
+        self.assertEqual(["sidebar.side"], [row["key"] for row in picked])
         with self.assertRaises(SystemExit):
             DRAFT.select(self.rows, keys=["no.such.key"])
 

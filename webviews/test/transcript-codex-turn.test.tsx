@@ -10,7 +10,7 @@ import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow"
 import { ToolRow } from "../src/agent-session/acpmux/conversation/ToolRow";
 import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { callDescription } from "../src/agent-session/acpmux/direct";
-import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
+import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const shell = (id: string, extra: Partial<Tool> = {}): AcpmuxActivity => ({
@@ -63,22 +63,22 @@ test("a finished run that is one group folds to its closed line", () => {
   expect(listed).toContain('aria-expanded="true"');
 });
 
-test("a command reads as its command without the setup, never its description", () => {
+test("a known command reads as what it did without the setup, read off the command, not its description", () => {
   const html = renderToStaticMarkup(
     <CommandRow item={shell("x", { command: 'export PATH="/a:$PATH"; bun test', description: "Run the web tests" })} />,
   );
-  // Codex parity: the command, as Codex draws it.
-  expect(words(html)).toContain("Ran bun test");
+  // Leo, 2026-11-07: "you ran a specific thing" (commandActions.ts); the table reads what ran.
+  expect(words(html)).toContain("Ran tests with bun");
   expect(words(html)).not.toContain("Run the web tests");
   expect(html).not.toContain("export PATH");
   const plain = renderToStaticMarkup(<CommandRow item={shell("y")} />);
   expect(words(plain)).toContain("Ran echo y");
 });
 
-test("a lone shell call reads as its command, never its description or the bare tool name", () => {
+test("a lone shell call the table does not know reads as its description, else its command, never the bare tool name", () => {
   const described = renderToStaticMarkup(<ToolRow item={shell("x", { description: "List the build folder" })} />);
-  expect(words(described)).toContain("Ran echo x");
-  expect(words(described)).not.toContain("List the build folder");
+  expect(words(described)).toContain("List the build folder");
+  expect(words(renderToStaticMarkup(<ToolRow item={shell("x")} />))).toContain("Ran echo x");
   const bare = renderToStaticMarkup(<ToolRow item={shell("y", { command: undefined })} />);
   expect(words(bare)).toContain("Ran a command");
   expect(words(bare)).not.toMatch(/\bBash\b/);

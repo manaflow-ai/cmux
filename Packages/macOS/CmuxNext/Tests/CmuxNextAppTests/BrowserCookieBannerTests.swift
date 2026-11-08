@@ -25,10 +25,14 @@ import Testing
         let services: AppServices
         let settings: SettingsController
         let url: URL
+        /// The import record the app's service keeps in the standard defaults before this test (put back after).
+        let savedRecord: Data?
 
         func tearDown() {
             services.onboarding.controller?.window?.close()
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+            let key = BrowserImportOfferState.defaultsKey
+            if let savedRecord { UserDefaults.standard.set(savedRecord, forKey: key) } else { UserDefaults.standard.removeObject(forKey: key) }
         }
 
         /// `browser.import.cookieBanner` as cmux.json holds it now (nil: absent).
@@ -50,6 +54,9 @@ import Testing
 
     func make() async throws -> Harness {
         _ = NSApplication.shared
+        // Each test starts with no cookies imported, whatever an earlier run left in the standard defaults.
+        let savedRecord = UserDefaults.standard.data(forKey: BrowserImportOfferState.defaultsKey)
+        UserDefaults.standard.removeObject(forKey: BrowserImportOfferState.defaultsKey)
         let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-cookie-banner-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let url = directory.appending(path: "cmux.json")
@@ -60,7 +67,7 @@ import Testing
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         services.settings = settings
         await settings.reload()
-        return Harness(services: services, settings: settings, url: url)
+        return Harness(services: services, settings: settings, url: url, savedRecord: savedRecord)
     }
 
     static func freshDefaults() -> UserDefaults {
@@ -173,13 +180,7 @@ import Testing
     /// cookies came over, Show Import Cookies Banner changes nothing: the setting stays and no card shows.
     @Test func theShowActionAsksNothingAfterAnImport() async throws {
         let h = try await make()
-        // The app's service saves the import record in the standard defaults: put it back for the next tests.
-        let key = BrowserImportOfferState.defaultsKey
-        let saved = UserDefaults.standard.data(forKey: key)
-        defer {
-            h.tearDown()
-            if let saved { UserDefaults.standard.set(saved, forKey: key) } else { UserDefaults.standard.removeObject(forKey: key) }
-        }
+        defer { h.tearDown() }
         try await h.settings.set(.bool(false), at: Self.cookieBannerPath)
         h.services.onboarding.browserImportOffer.importFinished(ImportCounts(cookies: 3))
         #expect(h.services.registry.perform("browser.showCookieImportBanner", invocation: ActionInvocation(origin: .cli)))

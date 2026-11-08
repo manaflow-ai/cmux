@@ -27,7 +27,7 @@ import { SessionInfo, SessionInfoPanel, type SessionInfoPlacement } from "./Sess
 import { SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
 import type { SubagentHeaderVariant } from "./subagentScopeHeaderModel";
 import { subagentSummary, type SubagentScope } from "./subagentScope";
-import { outputArtifacts } from "./OutputsSection";
+import { outputArtifacts } from "./outputsSectionModel";
 import { DEFAULT_SECTIONS } from "./sessionInfoState";
 import { sessionEntry, type AcpmuxSessionEntry } from "../sessionList";
 import type { SessionUsageStats } from "../usageStats";

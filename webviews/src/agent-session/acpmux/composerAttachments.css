@@ -496,12 +496,8 @@
   overflow: hidden;
   /* The width stays, the line is clear: the glass rim draws the one edge (.ui-glass). */
   border: var(--cmux-hairline, 0.5px) solid transparent;
-  border-radius: 12px;
   /* Glass, not the page color: a translucent window's page color is clear, so the chat read
-     through the viewer (as the Add project dialog, addProject.css). */
-  --glass-elevation: var(--elevation-2);
-  /* glass-opaque-allow: the Reduce Transparency fill only */
-  --glass-opaque: var(--surface-popup);
+     through the viewer (as the Add project dialog, addProject.css); the sheet role's veil, radius and depth (ui/popupSurface.css .ui-dialog.ui-glass). */
   color: var(--agent-text);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
