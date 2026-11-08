@@ -64,12 +64,15 @@ interface ShellOpen {
   escaped: boolean;
   pipe: boolean;
   depth: number;
+  /** After a `\\`: whether the next line's first word is in command position. */
+  position: boolean;
 }
 
-const CLOSED: ShellOpen = { quote: null, heredoc: null, escaped: false, pipe: false, depth: 0 };
-/** Reserved words in command position that open and close a compound command, and those after which
- * the next word is again in command position. */
-const OPENS = new Set(["if", "case", "do", "{"]);
+const CLOSED: ShellOpen = { quote: null, heredoc: null, escaped: false, pipe: false, depth: 0, position: true };
+/** Reserved words in command position that open and close a compound command (a loop opens at its
+ * keyword, so `do` may stand on the next line), and those after which the next word is again in
+ * command position. */
+const OPENS = new Set(["if", "case", "for", "while", "until", "select", "{"]);
 const CLOSES = new Set(["fi", "esac", "done", "}"]);
 const LEADS = new Set(["then", "else", "elif", "do", "while", "until", "if", "!", "{", "time"]);
 
@@ -83,7 +86,8 @@ function shellOpen(line: string, before: ShellOpen): ShellOpen {
   // The current unquoted word, whether a word may be a reserved word here, and the last operator.
   let word = "";
   let plain = true;
-  let commandPosition = quote === null;
+  // A `\\` continuation goes on where the line before stopped; any other line starts a command.
+  let commandPosition = before.escaped ? before.position : quote === null;
   let last = "";
   const endWord = () => {
     if (word && plain && commandPosition) {
@@ -151,6 +155,7 @@ function shellOpen(line: string, before: ShellOpen): ShellOpen {
     escaped: quote === null && escaped,
     pipe: quote === null && !escaped && (last === "|" || last === "&&"),
     depth,
+    position: commandPosition,
   };
 }
 
@@ -198,16 +203,31 @@ const SEGMENT_LIMIT = 512;
 /** Whether `command` is destructive: each simple command (split at newlines and `;`, `&`, `|`) is
  * matched on its own, and a pipe into a shell over the whole command. */
 function destructive(command: string): boolean {
-  if (PIPE_TO_SHELL.test(command)) return true;
-  for (const segment of command.split(/[\n;&|]/)) {
-    if (segment.length > SEGMENT_LIMIT) return true;
+  // Each `|` once: the part before it fetches (`curl`, `wget` on its last line), the part after runs a shell.
+  const piped = command.split("|");
+  for (let at = 1; at < piped.length; at++) {
+    const before = piped[at - 1]!;
+    if (
+      SHELL_AFTER_PIPE.test(piped[at]!) &&
+      FETCH.test(before.slice(before.lastIndexOf("\n") + 1).slice(-SEGMENT_LIMIT))
+    )
+      return true;
+  }
+  if (command.split(/[\n;&|]/).some((segment) => segment.length > SEGMENT_LIMIT)) return true;
+  for (const segment of segments(command)) {
     if (DESTRUCTIVE.some((pattern) => pattern.test(segment))) return true;
   }
   return false;
 }
 
-/** Code fetched from the network, run by a shell. */
-const PIPE_TO_SHELL = /\b(curl|wget)\b[^|\n]*\|\s*(sudo\s+)?(ba|z|fi|da)?sh\b/;
+/** The simple commands of `command` the patterns read (a longer one already asks as destructive). */
+function segments(command: string): string[] {
+  return command.split(/[\n;&|]/).filter((segment) => segment.length <= SEGMENT_LIMIT);
+}
+
+/** Code fetched from the network (`curl … | sh`), run by a shell. */
+const FETCH = /\b(curl|wget)\b/;
+const SHELL_AFTER_PIPE = /^\s*(sudo\s+)?(ba|z|fi|da)?sh\b/;
 
 /** Commands that log in, take a secret, or carry a placeholder the reader fills in. */
 const CREDENTIALS: RegExp[] = [
@@ -226,7 +246,8 @@ export function stepRisks(command: string, lead = ""): StepRisk[] {
   // A `\\` line continuation joins one command (`git push \\` then `--force`): match it as one line.
   command = command.replace(/\\\r?\n\s*/g, " ");
   if (destructive(command)) risks.push("destructive");
-  if (CREDENTIALS.some((pattern) => pattern.test(command))) risks.push("credentials");
+  if (segments(command).some((segment) => CREDENTIALS.some((pattern) => pattern.test(segment))))
+    risks.push("credentials");
   if (DECISION.test(lead)) risks.push("decision");
   return risks;
 }
@@ -314,7 +335,9 @@ export function runbookPrompt(path: string, steps: readonly RunbookStep[]): stri
     const where = [step.section, `line ${step.line}`].filter(Boolean).join(", ");
     const asks = step.risks.length ? ` ASK FIRST (${step.risks.map((risk) => RISK_NOTE[risk]).join(", ")})` : "";
     // A backtick fence longer than any backtick run in the command, so no line of it closes the fence.
-    const fence = "`".repeat(Math.max(3, ...[...step.command.matchAll(/`+/g)].map((run) => run[0].length + 1)));
+    let longest = 2;
+    for (const run of step.command.matchAll(/`+/g)) longest = Math.max(longest, run[0].length);
+    const fence = "`".repeat(longest + 1);
     const entry = [
       `${step.index}. Step ${step.index} of ${total} (${where})${asks}`,
       step.lead ? `   The doc says: ${step.lead}` : "",

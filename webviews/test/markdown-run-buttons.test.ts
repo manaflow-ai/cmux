@@ -201,6 +201,16 @@ describe("Run all steps", () => {
     ]);
   });
 
+  test("line numbers hold with CRLF line endings", async () => {
+    const doc =
+      "# List\r\n\r\n- One:\r\n\r\n  ```bash\r\n  npm ci\r\n  ```\r\n\r\n- Two:\r\n\r\n  ```bash\r\n  make\r\n  ```\r\n";
+    const steps = (await setup(doc)).editor.runbookSteps();
+    expect(steps.map((step) => [step.command, step.line])).toEqual([
+      ["npm ci", 5],
+      ["make", 11],
+    ]);
+  });
+
   test("a doc with no runnable block reports none", async () => {
     const { editor, runnable } = await setup("# Notes\n\n```json\n{}\n```\n\n```bash\n\n```\n");
     expect(editor.runbookSteps()).toEqual([]);

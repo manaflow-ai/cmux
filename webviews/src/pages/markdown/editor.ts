@@ -671,7 +671,7 @@ export class MarkdownEditor {
         const info = match[2]!.trim().split(/\s/, 1)[0] ?? "";
         const end = match.index + match[0].length;
         const close = map.text.indexOf("\n", end + 1);
-        const next = map.text.slice(end + 1, close < 0 ? undefined : close);
+        const next = map.text.slice(end + 1, close < 0 ? undefined : close).replace(/\r$/, "");
         if (info === language.split(/\s/, 1)[0] && (!first || next.endsWith(first))) {
           // The code is at least this long in the source (container prefixes only add to it).
           from = end + text.length;

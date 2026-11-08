@@ -77,6 +77,15 @@ describe("runbook steps", () => {
     expect(runnableCommand("console", "$ for f in a; do echo $f; done\n> touch marker")).toBe(
       "for f in a; do echo $f; done",
     );
+    // A loop's `do` may stand on the next line.
+    expect(runnableCommand("console", "$ for f in a b\n> do\n>   echo $f\n> done\na")).toBe(
+      "for f in a b\ndo\n  echo $f\ndone",
+    );
+    // After a `\\` continuation the words go on as arguments: `if` there opens nothing, so grep's
+    // output (the `> ` line after it) is not run.
+    expect(runnableCommand("console", "$ grep \\\n> if README.md\n> rm important.txt # if cleanup is needed")).toBe(
+      "grep \\\nif README.md",
+    );
     // A reserved word as an argument opens nothing.
     expect(runnableCommand("console", "$ echo if do {\n> touch marker")).toBe("echo if do {");
   });
@@ -138,6 +147,10 @@ test("risk matching stays fast on long and repetitive commands", () => {
     ("git reset ".repeat(50) + "HEAD;").repeat(120),
     ("kubectl --context a ".repeat(25) + "get\n").repeat(120),
     "rm " + "-x ".repeat(20_000),
+    "curl ".repeat(50_000),
+    "curl x |".repeat(20_000),
+    "A".repeat(60_000),
+    "<a".repeat(30_000),
   ])
     runAsks(command);
   expect(performance.now() - started).toBeLessThan(500);
@@ -172,6 +185,11 @@ describe("Run all prompt", () => {
     const command = "cat <<'EOF'\n```\n~~~~\nEOF";
     const prompt = runbookPrompt("/doc.md", runbookSteps([block(command)]));
     expect(prompt).toContain("````bash\n" + command + "\n````\n");
+  });
+
+  test("a command with many backtick runs gets a fence and the prompt stays bounded", () => {
+    const prompt = runbookPrompt("/doc.md", runbookSteps([block("echo " + "`a` ".repeat(100_000)), block("make")]));
+    expect(prompt).toContain("(Steps 1 to 2 are in the file: read them there.)");
   });
 
   test("stays bounded in UTF-8 bytes, for long steps, many short ones and wide characters", () => {
