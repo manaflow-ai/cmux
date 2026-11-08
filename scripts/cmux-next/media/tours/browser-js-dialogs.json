@@ -1,5 +1,5 @@
 {
-  "title": "Browser JavaScript dialogs over a page: Leave site?, confirm, alert and prompt (Lawrence 2026-11-07: weird roundness and border)",
+  "title": "Browser dialogs over a page: confirm, prompt and the window fixtures, all on one card (Lawrence 2026-11-07: weird roundness and border)",
   "steps": [
     {
       "title": "Launch",
@@ -27,6 +27,18 @@
         }
       },
       "wait": 6,
+      "shot": false
+    },
+    {
+      "title": "Settle the page",
+      "rpc": {
+        "method": "browser.page.eval",
+        "params": {
+          "script": "1"
+        }
+      },
+      "optional": "the page reopens once after its first load (no saved password stays filled in) and asks for a retry",
+      "wait": 2,
       "shot": false
     },
     {
@@ -72,32 +84,33 @@
       "shot": false
     },
     {
-      "title": "The page asks before it unloads",
+      "title": "The same card as a window confirm (debug.dialog fixture)",
       "rpc": {
-        "method": "browser.page.eval",
+        "method": "debug.dialog",
         "params": {
-          "script": "window.addEventListener('beforeunload', (event) => { event.preventDefault(); event.returnValue = ''; }); document.body.click(); true"
+          "open": "confirm",
+          "scope": "window"
+        }
+      },
+      "wait": 3
+    },
+    {
+      "title": "Close the window confirm",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "key": "escape"
         }
       },
       "wait": 1,
       "shot": false
     },
     {
-      "title": "Leave site?: the tab closes over a page that asks",
-      "cmux": [
-        "tab",
-        "current",
-        "close"
-      ],
-      "optional": "Chromium shows beforeunload only after a user gesture on the page",
-      "wait": 3
-    },
-    {
-      "title": "Window confirm over the page (debug.dialog fixture)",
+      "title": "The same card as a window text prompt (debug.dialog fixture)",
       "rpc": {
         "method": "debug.dialog",
         "params": {
-          "open": "confirm",
+          "open": "text",
           "scope": "window"
         }
       },
