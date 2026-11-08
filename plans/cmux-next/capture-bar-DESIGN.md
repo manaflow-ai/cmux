@@ -65,7 +65,8 @@ long as the chat's other uploads. A recording stops by itself after 5 minutes (`
 the window closes, or when the app quits, and its stream and writer are released then. A quit
 waits for it after the composers are saved: the movie is finalized, kept in its chat's Chat
 Uploads folder and put on the clipboard, since no page collects it any more. An incognito
-chat's recording is discarded with the chat instead. A recording
+chat's recording is discarded with the chat instead. One still starting (ScreenCaptureKit's
+start takes up to 20 seconds) is cancelled before its first frame, and no new one starts. A recording
 that is never collected is deleted with the temporary folder, after a day.
 
 ## Not in this step

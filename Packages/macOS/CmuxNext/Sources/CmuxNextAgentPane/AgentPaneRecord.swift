@@ -32,6 +32,9 @@ final class AgentPaneRecorder {
 
     private var current: AgentPaneRecording?
     private var starting = false
+    /// The recording whose ScreenCaptureKit start is in flight (up to two
+    /// ``AgentPaneRecording/callLimit``s): a quit then ends it (``finishForQuit()``).
+    var startup: AgentPaneRecording?
     /// Its window's close, move and resize, and the app's quit, only while a recording runs.
     private var observers: [MainActorObservation] = []
     /// The movies this process wrote, exactly as the page was given them (as made, never resolved):
@@ -112,7 +115,7 @@ final class AgentPaneRecorder {
     /// Starts filming `window`: `{started: true}`, `capture.busy` while one runs, `capture.failed`
     /// when ScreenCaptureKit could not start (no window, macOS before 14.4).
     func start(in window: NSWindow, for model: AgentPaneModel, cursor: Bool, clicks: Bool) async -> [String: Any] {
-        guard !starting, !finishing, current?.isEnding != false else {
+        guard !starting, !finishing, !quitting, current?.isEnding != false else {
             return AgentPaneReply.failure(code: "capture.busy", message: AgentPaneModel.captureFailedMessage)
         }
         // One that ended whose end has not reached the main actor yet: retired as its end would.
@@ -133,11 +136,18 @@ final class AgentPaneRecorder {
             MainDelivery().run { self?.ended(over) }
         }
         starting = true
-        defer { starting = false }
+        startup = recording
+        defer { starting = false; startup = nil }
         do {
             try await recording.start()
         } catch {
             Self.logger.error("capture.record.start failed: \(String(describing: error), privacy: .public)")
+            Task.detached(priority: .utility) { await recording.discard() }
+            return AgentPaneReply.failure(code: "capture.failed", message: AgentPaneModel.captureFailedMessage)
+        }
+        // The app quit while it started: the quit ended it then, so it kept no frame, and it goes
+        // instead of running past the quit's cleanup.
+        guard !quitting else {
             Task.detached(priority: .utility) { await recording.discard() }
             return AgentPaneReply.failure(code: "capture.failed", message: AgentPaneModel.captureFailedMessage)
         }
@@ -192,9 +202,11 @@ final class AgentPaneRecorder {
     /// stop): the running recording and every one not collected end, their movies are finalized
     /// and moved into their chat's Chat Uploads folder, and their files go on the clipboard, so a
     /// quit never loses a clip. An incognito chat's is discarded with the chat, never kept or
-    /// copied. The stream's stop is under ``AgentPaneRecording/callLimit``.
+    /// copied. The stream's stop is under ``AgentPaneRecording/callLimit``. A recording still
+    /// starting is cancelled: it ends at once, before its first frame is kept, and no new one starts.
     func finishForQuit() async {
         quitting = true
+        startup?.end()
         // A stop finalizing now: its movie first, so the process never ends under its writer.
         if finishing { await withCheckedContinuation { finishWaiters.append($0) } }
         var pending = leftovers.map { (recording: $0.recording, session: $0.session, model: $0.model, incognito: $0.incognito) }

@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -186,6 +187,25 @@ struct AgentPaneCaptureCallTests {
         gone = nil
         second.end()
         #expect(!recorder.isRecording)
+    }
+
+    /// A quit while ScreenCaptureKit still starts a recording (up to two call limits) cancels
+    /// it before the quit's cleanup returns: it ends at once, so it never runs on past the quit
+    /// unfinished, and no other recording starts after the quit began.
+    @MainActor @Test func aQuitCancelsARecordingStillStarting() async {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-quit-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let recorder = AgentPaneRecorder()
+        let starting = AgentPaneRecording(AgentPaneRecording.Options(window: 1, scale: 1, cursor: false, clicks: false,
+                                                                     url: root.appendingPathComponent("starting/Recording.mp4"), windows: [1]))
+        recorder.startup = starting
+        await recorder.finishForQuit()
+        #expect(starting.isEnding)
+        #expect(!recorder.isRecording)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.titled], backing: .buffered, defer: true)
+        let model = AgentPaneModel(host: NoHost(), sessionId: "chat-quit")
+        let refused = await recorder.start(in: window, for: model, cursor: false, clicks: false)
+        #expect((refused["error"] as? [String: Any])?["code"] as? String == "capture.busy")
     }
 
     /// Review follow-up on #37898 (F2): a screenshot's Copy and Save are spent once the capture is
