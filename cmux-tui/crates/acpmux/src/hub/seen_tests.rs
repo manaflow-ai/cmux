@@ -101,3 +101,22 @@ async fn turns_that_end_while_background_work_runs_each_count() {
     assert!(meta.unread);
     assert_eq!(meta.unread_turns, 2, "the work ending adds no turn");
 }
+
+#[tokio::test]
+async fn coming_back_while_background_work_runs_tells_every_client_the_count_cleared() {
+    let (hub, s) = chat().await;
+    s.subagents.lock().unwrap().annotate_live(
+        &mut json!({"sessionId": s.id, "update": {
+            "sessionUpdate": "subagent_spawned", "subagentSessionId": "background",
+            "background": true
+        }}),
+        true,
+    );
+    hub.refresh_work_below(&s);
+    hub.mark_unread_unless_work_below(&s);
+    assert!(!s.meta().unread, "the dot waits for the work");
+    hub.attach_count(&s, 1, true);
+    let read = last_read(&hub, &s).expect("clearing the count is published with no dot to clear");
+    assert_eq!(read["turns"], json!(1));
+    assert_eq!(s.meta().unread_turns, 0);
+}

@@ -134,22 +134,23 @@ impl Hub {
             meta.last_return = Some(crate::store::LastReturn { since, turns });
         }
         drop(meta);
-        if was_unread || turns > 0 {
-            self.save_meta(session);
+        // A turn can end while background work holds the dot back, so a count alone is
+        // published too: other clients would keep drawing it otherwise.
+        if !was_unread && turns == 0 {
+            return;
         }
-        if was_unread {
-            self.append(
-                session,
-                "mux",
-                "status",
-                json!({
-                    "status": session.status().to_string(),
-                    "read": true,
-                    "since": since,
-                    "turns": turns,
-                }),
-            );
-        }
+        self.save_meta(session);
+        self.append(
+            session,
+            "mux",
+            "status",
+            json!({
+                "status": session.status().to_string(),
+                "read": true,
+                "since": since,
+                "turns": turns,
+            }),
+        );
     }
 }
 
