@@ -1,0 +1,274 @@
+{
+  "id": "cmdw-closes-pinned-tab",
+  "priority": "P1",
+  "title": "Cmd-W on a pinned tab closes it and selects the tab before (the first tab: the tab after)",
+  "why": "cmux-ad i8: Cmd-W closes a pinned tab as in Chrome; selection is the one close rule.",
+  "source": "cmux-ad i8 (PR #38442)",
+  "budget_seconds": 120,
+  "steps": [
+    {
+      "do": "new_terminal",
+      "name": "jr-cwp-${nonce}",
+      "as": "t"
+    },
+    {
+      "do": "expect",
+      "title": "the first tab",
+      "timeout": 15,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "debug.focus",
+            "path": "windows.0.model.resolved_tab",
+            "not_equals": null,
+            "bind": "t_id"
+          }
+        }
+      ]
+    },
+    {
+      "do": "new_terminal",
+      "via": "key",
+      "as": "b0"
+    },
+    {
+      "do": "expect",
+      "title": "b0",
+      "timeout": 15,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "debug.focus",
+            "path": "windows.0.model.resolved_tab",
+            "not_in": [
+              null,
+              "${t_id}"
+            ],
+            "bind": "b0_id"
+          }
+        }
+      ]
+    },
+    {
+      "do": "new_terminal",
+      "via": "key",
+      "as": "b1"
+    },
+    {
+      "do": "expect",
+      "title": "b1",
+      "timeout": 15,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "debug.focus",
+            "path": "windows.0.model.resolved_tab",
+            "not_in": [
+              null,
+              "${t_id}",
+              "${b0_id}"
+            ],
+            "bind": "b1_id"
+          }
+        }
+      ]
+    },
+    {
+      "do": "new_terminal",
+      "via": "key",
+      "as": "b2"
+    },
+    {
+      "do": "expect",
+      "title": "b2",
+      "timeout": 15,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "debug.focus",
+            "path": "windows.0.model.resolved_tab",
+            "not_in": [
+              null,
+              "${t_id}",
+              "${b0_id}",
+              "${b1_id}"
+            ],
+            "bind": "b2_id"
+          }
+        }
+      ]
+    },
+    {
+      "do": "rpc",
+      "method": "action.run",
+      "params": {
+        "action": "palette.toggleTabPin",
+        "target": "tab:${t_id}",
+        "focus": true,
+        "wait": true
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "action.run",
+      "params": {
+        "action": "palette.toggleTabPin",
+        "target": "tab:${b0_id}",
+        "focus": true,
+        "wait": true
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "action.run",
+      "params": {
+        "action": "palette.toggleTabPin",
+        "target": "tab:${b1_id}",
+        "focus": true,
+        "wait": true
+      }
+    },
+    {
+      "do": "rpc",
+      "method": "action.run",
+      "params": {
+        "action": "tab.focus",
+        "target": "tab:${b0_id}",
+        "focus": true,
+        "wait": true
+      }
+    },
+    {
+      "do": "use",
+      "name": "b0"
+    },
+    {
+      "do": "expect",
+      "title": "T b0 b1 pinned, b0 selected",
+      "timeout": 10,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "debug.focus",
+            "path": "windows.0.model.resolved_tab",
+            "equals": "${b0_id}"
+          }
+        },
+        {
+          "app_layout": {
+            "workspace": "jr-cwp-${nonce}",
+            "pane_tabs": 4
+          }
+        }
+      ]
+    },
+    {
+      "do": "key",
+      "key": "w",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "close1"
+    },
+    {
+      "do": "expect",
+      "title": "Cmd-W on pinned b0: it closes, pinned T (the tab before) is selected",
+      "since": "close1",
+      "timeout": 10,
+      "settle": 1,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "debug.focus",
+            "path": "windows.0.model.resolved_tab",
+            "equals": "${t_id}"
+          }
+        },
+        {
+          "app_layout": {
+            "workspace": "jr-cwp-${nonce}",
+            "pane_tabs": 3
+          }
+        },
+        {
+          "app_rpc": {
+            "method": "debug.surfaces",
+            "path": "windows.0",
+            "contains": "\"selected_tab\": \"${t_id}\""
+          }
+        }
+      ]
+    },
+    {
+      "do": "use",
+      "name": "t"
+    },
+    {
+      "do": "key",
+      "key": "w",
+      "modifiers": [
+        "cmd"
+      ],
+      "mark": "close2"
+    },
+    {
+      "do": "expect",
+      "title": "Cmd-W on pinned T, the first tab: it closes, b1 (the tab after) is selected",
+      "since": "close2",
+      "timeout": 10,
+      "settle": 1,
+      "all": [
+        {
+          "app_rpc": {
+            "method": "debug.focus",
+            "path": "windows.0.model.resolved_tab",
+            "equals": "${b1_id}"
+          }
+        },
+        {
+          "app_layout": {
+            "workspace": "jr-cwp-${nonce}",
+            "pane_tabs": 2
+          }
+        },
+        {
+          "app_rpc": {
+            "method": "debug.surfaces",
+            "path": "windows.0",
+            "contains": "\"selected_tab\": \"${b1_id}\""
+          }
+        }
+      ]
+    },
+    {
+      "do": "use",
+      "name": "b1"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "type",
+      "text": "echo kept-${nonce}-$((6*7))",
+      "enter": true,
+      "mark": "typed"
+    },
+    {
+      "do": "expect",
+      "title": "the selected b1 is the shown terminal and takes the keys",
+      "since": "typed",
+      "timeout": 10,
+      "all": [
+        {
+          "daemon_line": "kept-${nonce}-42"
+        },
+        {
+          "app_text_line": "kept-${nonce}-42"
+        },
+        {
+          "frame_text": "kept-${nonce}-42"
+        }
+      ]
+    }
+  ]
+}
