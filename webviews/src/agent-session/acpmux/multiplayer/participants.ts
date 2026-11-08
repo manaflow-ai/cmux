@@ -36,7 +36,7 @@ export function displayName(value: unknown): string | undefined {
 const identity = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim() && value.length <= MAX_ID ? value.trim() : undefined;
 
-/// Longest profile picture link the pane keeps, as the daemon bounds an author's `avatar`.
+/// Longest profile picture link the pane keeps, in UTF-8 bytes, as the daemon bounds an author's `avatar`.
 const MAX_AVATAR_URL = 1024;
 
 /// An inline picture; with `links`, also an https link. Only an author's picture may be a link: the
@@ -45,7 +45,8 @@ const MAX_AVATAR_URL = 1024;
 const picture = (value: unknown, links = false): string | undefined => {
   if (typeof value !== "string") return undefined;
   if (/^data:image\/(png|jpeg|gif|webp);base64,/.test(value)) return value;
-  if (!links || value.length > MAX_AVATAR_URL || !value.startsWith("https://")) return undefined;
+  if (!links || !value.startsWith("https://") || new TextEncoder().encode(value).length > MAX_AVATAR_URL)
+    return undefined;
   try {
     return new URL(value).protocol === "https:" ? value : undefined;
   } catch {

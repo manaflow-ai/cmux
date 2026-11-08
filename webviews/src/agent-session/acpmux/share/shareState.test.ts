@@ -152,58 +152,17 @@ test("a viewer link the daemon made with no room is ended, not left live", async
   });
   await expect(client.viewerLink(shareView([]))).rejects.toThrow("share.no_room");
   expect(ops).toEqual([
-    ["link", { role: "talk", session: "chat" }],
+    ["link", { role: "view", session: "chat" }],
     ["revoke", { shareId: "orphan", session: "chat" }],
   ]);
 });
 
-test("Anyone with the link is made with role talk; a daemon that refuses talk links gets view", async () => {
-  const made: unknown[] = [];
+test("Copy link asks the daemon once, for a view link (the host's gesture gate allows one call per click)", async () => {
+  const calls: [string, Record<string, unknown> | undefined][] = [];
   const client = shareClient("chat", async (op, params) => {
-    if (op !== "link") return {};
-    made.push(params);
-    return { shareId: "t1", url: "https://room/g/t1#secret" };
+    calls.push([op, params]);
+    return op === "link" ? { shareId: "v1", url: "https://room/g/v1#secret" } : {};
   });
-  expect(await client.viewerLink(shareView([]))).toBe("https://room/g/t1#secret");
-  expect(made).toEqual([{ role: "talk", session: "chat" }]);
-  forgetShareLinks();
-  // A daemon from before talk links took 1000 uses answers share.bad_request: the link is view.
-  const older: unknown[] = [];
-  const fallback = shareClient("chat", async (op, params) => {
-    if (op !== "link") return {};
-    older.push(params);
-    if ((params as { role?: string }).role === "talk")
-      throw Object.assign(new Error("bad request"), { code: "share.bad_request" });
-    return { shareId: "v1", url: "https://room/g/v1#secret" };
-  });
-  expect(await fallback.viewerLink(shareView([]))).toBe("https://room/g/v1#secret");
-  expect(older.map((params) => (params as { role: string }).role)).toEqual(["talk", "view"]);
-  // Any other refusal is not retried as view.
-  forgetShareLinks();
-  const offline = shareClient("chat", async () => {
-    throw Object.assign(new Error("offline"), { code: "unavailable" });
-  });
-  await expect(offline.viewerLink(shareView([]))).rejects.toThrow("offline");
-});
-
-test("a live talk link counts as Anyone with the link, its guests too, and Restricted ends it", async () => {
-  const talk = {
-    ...base,
-    shareId: "t",
-    role: "talk" as const,
-    guests: [{ guestId: "g", name: "Priya", account: "priya@example.com", role: "talk" as const, joined: true }],
-  };
-  const view = shareView([talk, { ...base, shareId: "v", role: "view" }]);
-  expect(view.general).toBe("anyone");
-  expect(view.links.map((share) => share.shareId)).toEqual(["t", "v"]);
-  expect(view.guestsNow).toBe(1);
-  const revoked: unknown[] = [];
-  await shareClient("chat", async (op, params) => {
-    if (op === "revoke") revoked.push(params);
-    return op === "state" ? { shares: [] } : {};
-  }).restrict(view);
-  expect(revoked).toEqual([
-    { shareId: "t", session: "chat" },
-    { shareId: "v", session: "chat" },
-  ]);
+  await client.viewerLink(shareView([]));
+  expect(calls).toEqual([["link", { role: "view", session: "chat" }]]);
 });

@@ -2,13 +2,8 @@
 // dialog"; Leo, 2026-11-07: "like being able to share Google Docs, right?"). The daemon owns every
 // share (agent_session_shares.rs); the host forwards `share.op` to it for this pane's own chat and
 // never takes a chat from the page. This module only reads its answer into the dialog's rows and
-// names the steps: people (accounts invited with a role), General access (an Anyone-with-the-link
-// link, or none), and the link Copy link puts on the clipboard.
-//
-// The Anyone link is made with role `talk` (contract of ask-2a1105b933: a guest signed in to cmux
-// joins as their account and may send, each message held for the owner's Approve; an anonymous
-// guest still only watches, which the daemon enforces). Leo, 2026-11-07: "if you imagine the Google
-// Docs sharing flow, you just come in with your Gmail account and that's it".
+// names the steps: people (accounts invited with a role), General access (a viewer link, or none),
+// and the link Copy link puts on the clipboard.
 import { postNative } from "../native";
 
 export type ShareRole = "view" | "talk";
@@ -35,9 +30,8 @@ export interface ChatShare {
   state: string;
   url: string | null;
   inviteUrl: string | null;
-  /** The role the link was made for: `talk` for a dialog's Anyone with the link (signed-in guests
-   * may send, anonymous ones watch), `view` for a viewers-only link (or one made by an older
-   * dialog); null for a link made elsewhere (Share with Guest…). */
+  /** The role every link guest gets: `view` for a dialog's Anyone with the link; null for a link
+   * made elsewhere (Share with Guest…, whose guests may send held messages). */
   role: ShareRole | null;
   createdAt: number;
   expiresAt: number;
@@ -57,7 +51,7 @@ export interface SharePerson {
 export interface ShareView {
   people: SharePerson[];
   general: GeneralAccess;
-  /** The live Anyone-with-the-link shares, `view` and `talk` (Restricted ends them). */
+  /** The live Anyone-with-the-link shares (Restricted ends them). */
   links: ChatShare[];
   /** The link invitees open (`<room>/i/<share>`, no secret); null until someone is invited. */
   inviteUrl: string | null;
@@ -81,9 +75,9 @@ export function shareView(shares: readonly ChatShare[]): ShareView {
       else people.set(invitee.account, { account: invitee.account, role: invitee.role, joined });
     }
   }
-  // Every live share made with a role is a bearer link, whatever invite records it also holds:
-  // Restricted must end each one, or a link would keep working while the dialog says Restricted.
-  const links = open.filter((share) => share.role === "view" || share.role === "talk");
+  // Every live view-role share is a bearer link, whatever invite records it also holds: Restricted
+  // must end each one, or a link would keep working while the dialog says Restricted.
+  const links = open.filter((share) => share.role === "view");
   const inviteShare = [...open]
     .filter((share) => share.invitees.some((invitee) => invitee.state === "invited"))
     .sort((a, b) => b.createdAt - a.createdAt)[0];
@@ -96,13 +90,6 @@ export function shareView(shares: readonly ChatShare[]): ShareView {
     guestsNow,
   };
 }
-
-/** Whether a refused op was the daemon's `share.bad_request` (an older daemon caps a talk link's uses). */
-const refusedAsBadRequest = (error: unknown) => {
-  const code = (error as { code?: unknown } | null)?.code;
-  const message = error instanceof Error ? error.message : String(error);
-  return code === "share.bad_request" || message.includes("share.bad_request");
-};
 
 /** The host's `share.op`; tests and the gallery replace it. */
 export type ShareCall = (op: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -138,17 +125,11 @@ export function shareClient(sessionId: string, host: ShareCall = nativeShareCall
       await call("uninvite", { account });
       await call("invite", { account, role });
     },
-    /** The Anyone link Copy link hands out: the one this page made while it is live, else a new one
-     * (role `talk`; a daemon from before talk links took 1000 uses refuses it, and gets `view`). */
+    /** The viewer link Copy link hands out: the one this page made while it is live, else a new one. */
     async viewerLink(view: ShareView): Promise<string> {
       const kept = madeLinks.get(sessionId);
       if (kept && view.links.some((share) => share.shareId === kept.shareId)) return kept.url;
-      const link = (role: ShareRole) =>
-        call("link", { role }) as Promise<{ shareId?: string; url?: string | null } | undefined>;
-      const made = await link("talk").catch((error: unknown) => {
-        if (!refusedAsBadRequest(error)) throw error;
-        return link("view");
-      });
+      const made = (await call("link", { role: "view" })) as { shareId?: string; url?: string | null } | undefined;
       if (!made?.shareId || !made.url) {
         // A share with no room has no link to hand out: end it, so each try does not leave one
         // live that counts toward the daemon's share limit.

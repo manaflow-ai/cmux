@@ -421,3 +421,39 @@ test("another guest's message draws as a prompt under their picture and name", a
   expect(author?.querySelector("img")?.getAttribute("src")).toBe("https://avatars.example.com/priya.png");
   await page.unmount();
 });
+
+test("a signed-in link join keeps the daemon's talk: the composer shows, and again after a reload", async () => {
+  const { joinedRole, rememberJoined } = await import("../src/agent-session/guest/redeem");
+  const tab = memoryStorage();
+  const page = await mount({
+    storage: tab,
+    whoami: signedIn(),
+    redeem: async () => ({ ok: true, guestId: "g1", role: "talk" }),
+    onJoined: (guestId, name, role, via) => rememberJoined(SHARE, guestId, tab, name, role, via),
+    openSocket: fakeRoom(joinFrames(workingRecords())),
+  });
+  await roomFrames();
+  await submit(page.host);
+  await roomFrames();
+  expect(page.host.querySelector("textarea, [contenteditable='true']")).not.toBeNull();
+  await page.unmount();
+  // A reload reads the kept role.
+  expect(joinedRole(SHARE, tab)).toBe("talk");
+  const reloaded = await mount({
+    storage: tab,
+    guestId: "g1",
+    role: joinedRole(SHARE, tab),
+    openSocket: fakeRoom(joinFrames(workingRecords())),
+  });
+  await roomFrames();
+  expect(reloaded.host.querySelector("textarea, [contenteditable='true']")).not.toBeNull();
+  await reloaded.unmount();
+});
+
+test("a joined page with no role watches: no composer", async () => {
+  const page = await mount({ guestId: "g1", openSocket: fakeRoom(joinFrames(workingRecords())) });
+  await roomFrames();
+  expect(page.host.querySelector("textarea, [contenteditable='true']")).toBeNull();
+  expect(page.host.textContent).toContain(translate("guest.live.viewOnly"));
+  await page.unmount();
+});

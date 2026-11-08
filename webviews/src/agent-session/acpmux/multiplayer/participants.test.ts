@@ -104,6 +104,10 @@ test("a prompt's author keeps acpmux's https picture (fromAvatar); other picture
   expect(author("http://avatars.example.com/p.png")?.avatar).toBeUndefined();
   expect(author("javascript:alert(1)")?.avatar).toBeUndefined();
   expect(author(`https://a.example/${"x".repeat(1024)}`)?.avatar).toBeUndefined();
+  // The cap is 1024 UTF-8 bytes, not characters: 510 two-byte characters (528 characters, 1038 bytes) are over it.
+  expect(author(`https://a.example/${"é".repeat(510)}`)?.avatar).toBeUndefined();
+  const fits = `https://a.example/${"x".repeat(1024 - "https://a.example/".length)}`;
+  expect(author(fits)?.avatar).toBe(fits);
   expect(author(undefined)).toEqual({ id: "guest:s.g", name: "Priya" });
   expect(queuedAuthor({ id: "guest:s.g", name: "Priya", avatar: "https://a.example/p.png" })?.avatar).toBe(
     "https://a.example/p.png",

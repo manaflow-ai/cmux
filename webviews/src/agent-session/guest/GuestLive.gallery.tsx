@@ -10,6 +10,7 @@ import type { GuestPageProps } from "./GuestPage";
 const live = (frames: object[]): GuestPageProps => ({
   shareId: "c2hhcmUtZ2FsbGVyeQ",
   guestId: "g1",
+  role: "talk",
   storage: memoryStorage(),
   redeem: () => new Promise(() => undefined),
   attempt: () => "0".repeat(32),

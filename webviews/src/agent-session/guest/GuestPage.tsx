@@ -305,7 +305,7 @@ export function LiveChat({
   name?: string;
   /** The signed-in account's picture this guest joined with, for its own chip. */
   avatar?: string;
-  /** An invitee's role: `view` watches only, so there is no composer. */
+  /** This guest's role: only `talk` sends (a composer); `view` or none watches. */
   role?: GuestRole;
   /** This guest's own messages (guestPrompts.ts). */
   prompts: GuestPrompts;
@@ -453,10 +453,11 @@ export function LiveChat({
         )}
         <div className="guest-live__dock">
           <GuestMessages prompts={mine} me={me} owner={ownerName} />
-          {role === "view" ? (
-            <p className="guest-live__view-only">{t("guest.live.viewOnly")}</p>
-          ) : (
+          {/* Only a `talk` guest sends; no role (an answer that named none) or `view` watches. */}
+          {role === "talk" ? (
             <GuestComposer onSend={send} onDraft={(draft) => typing.input(draft)} />
+          ) : (
+            <p className="guest-live__view-only">{t("guest.live.viewOnly")}</p>
           )}
         </div>
       </div>
