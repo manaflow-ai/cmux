@@ -47,6 +47,8 @@ final class ScreenContentView: NSView {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// CLOSE VARIANTS film selector (never ships): a V0/V2 close moving its frames on a CURVE SET curve (``FilmCurveRun``).
     var filmCurveRun: FilmCurveRun?
+    /// V6 pictures fading out above the panes, each on its own progress (``FilmFade``).
+    var filmFades: [FilmFade] = []
     #endif
     /// A split's or a close's panes spring to their new sizes: their terminals keep their grids
     /// until every pane landed (`LayoutViewContext.gridHoldScreens`, the PTY resizes once at rest).
@@ -369,6 +371,8 @@ final class ScreenContentView: NSView {
         if let film {
             playFilmClose(paneFrames.keys.filter { baseGeometry.panes[$0] == nil && !context.livePanes.contains($0) }, variant: film,
                           before: before, after: baseGeometry)
+        } else if departing, DesignSettings.shared.filmClose.growsAndFades {
+            addFilmFades(paneFrames.keys.filter { baseGeometry.panes[$0] == nil && !context.livePanes.contains($0) })
         }
         #endif
         var closing: [(pane: PaneID, frame: AnimatedFrame?)] = []
