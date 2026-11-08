@@ -1073,6 +1073,10 @@ pub struct Sidebar {
     pub rail_glyph: String,
     /// Workspace row label template with `{index}` and `{name}`.
     pub workspace_label: String,
+    /// Show the agents section (every agent across workspaces, most urgent
+    /// first) at the bottom of the workspace rail.
+    #[allow(dead_code)] // Red stub: nothing reads it yet.
+    pub agents: bool,
 }
 
 /// Background agent integrations. The process is optional and runs outside
@@ -1111,6 +1115,7 @@ impl Default for Sidebar {
             row_gap: 1,
             rail_glyph: "\u{258e}".to_string(),
             workspace_label: "{name}".to_string(),
+            agents: true,
         }
     }
 }

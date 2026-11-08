@@ -4161,6 +4161,12 @@ pub enum Hit {
     RecoverableWorkspace {
         index: usize,
     },
+    /// A row of the workspace rail's agents section: focus that agent's tab.
+    #[allow(dead_code)] // Red stub: the sidebar does not draw it yet.
+    AgentRow {
+        surface: SurfaceId,
+        target: ProjectionTarget,
+    },
     CreateWorkspace {
         mode: Option<WorkspaceCreationMode>,
     },
@@ -7470,6 +7476,9 @@ pub struct App {
     pub(crate) tabs_footer_scroll: usize,
     projection_rails: HashMap<String, ProjectionRailState>,
     projection_order_cache: AgentOrderCache,
+    /// Agent status for the default sidebar and tab chips.
+    #[allow(dead_code)] // Red stub: nothing builds or reads it yet.
+    pub(crate) sidebar_status: crate::sidebar_status::SidebarStatus,
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
     pub(crate) tabs_rail_follow_selection: bool,
@@ -9747,6 +9756,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         tabs_footer_scroll: 0,
         projection_rails: HashMap::new(),
         projection_order_cache: AgentOrderCache::default(),
+        sidebar_status: crate::sidebar_status::SidebarStatus::default(),
         machine_rail_follow_selection: true,
         workspace_rail_follow_selection: true,
         tabs_rail_follow_selection: true,
@@ -12588,6 +12598,7 @@ impl App {
             | Hit::WorkspaceScrollbar { .. }
             | Hit::RailResize(_)
             | Hit::PaneResize { .. }
+            | Hit::AgentRow { .. }
             | Hit::TabScroll { .. } => None,
         }
     }
@@ -23063,6 +23074,7 @@ impl App {
                     }
                 }
                 Hit::TabScroll { pane, delta } => self.scroll_tabs(pane, delta),
+                Hit::AgentRow { .. } => {}
             }
             return Ok(RenderAction::Draw);
         }
@@ -25183,6 +25195,7 @@ fn browser_character_code(character: char) -> (&'static str, u32) {
 #[cfg(test)]
 mod tests {
     mod attention;
+    mod sidebar_agent_status;
 
     #[test]
     fn input_class_groups_routing_semantics() {
@@ -46903,6 +46916,7 @@ mod tests {
             tabs_footer_scroll: 0,
             projection_rails: HashMap::new(),
             projection_order_cache: AgentOrderCache::default(),
+            sidebar_status: crate::sidebar_status::SidebarStatus::default(),
             machine_rail_follow_selection: true,
             workspace_rail_follow_selection: true,
             tabs_rail_follow_selection: true,

@@ -9,6 +9,7 @@
 //! themselves, which is what makes the backend attachable.
 
 mod agent_hooks;
+mod agent_status;
 pub mod backoff;
 mod browser;
 mod browser_provider;
@@ -64,6 +65,7 @@ pub mod unix_process_scope;
 pub use agent_hooks::{
     AGENT_HOOK_MANIFEST_VERSION, AGENT_HOOK_PRODUCER_ID, agent_hook_journal_ingress,
 };
+pub use agent_status::AgentStatus;
 pub use browser::{BrowserFailure, TRANSPORT_SAFE_CAPTURE_MEGAPIXELS, normalize_url};
 pub use event_bus::{MuxEventBroadcaster, MuxEventReceiver};
 pub use journal_ingress::{FrontendFocusTarget, FrontendJournalEvent};

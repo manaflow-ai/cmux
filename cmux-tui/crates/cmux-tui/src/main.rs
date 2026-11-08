@@ -76,6 +76,7 @@ mod remote_trust;
 mod session;
 mod sidebar_files;
 mod sidebar_projection;
+mod sidebar_status;
 mod ui;
 
 #[cfg(target_os = "linux")]
