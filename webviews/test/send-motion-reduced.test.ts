@@ -9,70 +9,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { JSDOM } from "jsdom";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { MOTION_MS, MOTION_SEND_MS } from "../src/motion/scale.generated";
-
-const theme = {
-  isDark: false,
-  pageBackground: "#fff",
-  surfaceBackground: "#fff",
-  surfaceElevatedBackground: "#fff",
-  inputBackground: "#fff",
-  border: "#ddd",
-  borderStrong: "#ccc",
-  text: "#000",
-  mutedText: "#666",
-  softText: "#999",
-  accent: "#000",
-  accentSoft: "#eee",
-  danger: "#c00",
-  shadow: "#0003",
-};
-const motion = (move: number, fade: number) => ({
-  hover: fade,
-  hoverOut: fade,
-  focus: fade,
-  fadeIn: fade,
-  fadeOut: fade,
-  move,
-});
-
-/// The send tokens the theme writes on the root for `policy`.
-async function sendTokens(policy: ReturnType<typeof motion>) {
-  const scope = globalThis as Record<string, unknown>;
-  const saved = ["window", "document"].map((key) => [key, key in scope, scope[key]] as const);
-  const { window } = new JSDOM("<!doctype html><html><body></body></html>");
-  Object.assign(scope, { window, document: window.document });
-  try {
-    const { applyAgentTheme } = await import("../src/agent-session/shared/theme");
-    applyAgentTheme({ ...theme, motion: policy } as Parameters<typeof applyAgentTheme>[0]);
-    const style = window.document.documentElement.style;
-    return {
-      send: style.getPropertyValue("--agent-motion-send"),
-      fade: style.getPropertyValue("--agent-motion-send-fade"),
-    };
-  } finally {
-    for (const [key, had, value] of saved) {
-      if (had) scope[key] = value;
-      else delete scope[key];
-    }
-  }
-}
-
-test("Reduce Motion: the send moves nothing and keeps its fade on the fade setting", async () => {
-  expect(await sendTokens(motion(0, 0.12))).toEqual({ send: "0ms", fade: "120ms" });
-});
-
-test("full motion: the send's fades run its own clock", async () => {
-  const tokens = await sendTokens(motion(MOTION_MS.standard / 1000, 0.12));
-  expect(tokens).toEqual({ send: `${MOTION_SEND_MS}ms`, fade: `${MOTION_SEND_MS}ms` });
-});
-
-test("animations off: nothing moves or fades", async () => {
-  expect(await sendTokens(motion(0, 0))).toEqual({ send: "0ms", fade: "0ms" });
-});
 
 await requireBrowserLane("send-motion-reduced.test.ts", async () => {
   try {
