@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 @testable import CmuxNextApp
+import CmuxNextBookmarks
 import CmuxNextBrowser
 import CmuxNextHome
 import CmuxNextPages
@@ -25,7 +26,7 @@ import Testing
         (.homeMessages, PageFactory.homeChannelsEngineOptions),
         (.homeChatColors, HomeChatColorsService.engineOptions),
         (.changelog, .standard), (.coderouter, .standard), (.files, .standard), (.stats, .standard),
-        (.chiefUsage, .standard), (.mobilePairing, .standard), (.agentActivity, .standard), (.github, .standard),
+        (.chiefUsage, .standard), (.mobilePairing, .standard), (.agentActivity, .standard), (.github, .standard), (.bookmarks, .standard),
         (.serverCards, WebCardPanel.engineOptions),
     ]
 

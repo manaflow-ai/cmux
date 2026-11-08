@@ -71,6 +71,12 @@ test("a label the person typed stays their own prompt", () => {
   expect(incomingPrompt(text, { client: "acpmux" })).toBeUndefined();
   expect(incomingPrompt(text, undefined)).toBeUndefined();
   expect(incomingPrompt(text, { _meta: { provenance: { kind: "user" } }, client: "acpmux" })).toBeUndefined();
+  // The owner's own `acpmux send` at a plain terminal, which acpmux records as theirs
+  // (`_meta.origin`, `owner_terminal`): its CLI client makes no label a sender (#38260 F2).
+  const owner = { _meta: { origin: { actor: "person", verified: true } }, client: "acpmux-cli#1@my-mac" };
+  expect(incomingPrompt(text, owner)).toBeUndefined();
+  expect(incomingPrompt("[P1] fix the race", owner)).toBeUndefined();
+  expect(incomingPrompt("From P1: fix the race", { ...owner, client: "acpmux-outbox#1@my-mac" })).toBeUndefined();
 });
 
 test("a signature inside the label still names the sender once", () => {

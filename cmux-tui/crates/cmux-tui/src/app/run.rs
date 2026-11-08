@@ -486,6 +486,10 @@ pub(super) fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Res
         shortcut_help: None,
         omnibar: None,
         toast: None,
+        host_notify: crate::host_notify::HostNotifyGate::new(
+            crate::host_notify::HostTerminalInfo::detect(|name| std::env::var(name).ok()),
+        ),
+        host_focused: true,
         shake_frames: 0,
         selection: None,
         selection_generation: 0,

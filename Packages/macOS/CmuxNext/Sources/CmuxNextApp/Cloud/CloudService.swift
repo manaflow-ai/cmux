@@ -40,7 +40,9 @@ final class CloudService {
     /// The Release login copy's remote off switch (CloudService+LoginCopy.swift).
     @ObservationIgnored let harnessLoginCopySwitch = CloudHarnessLoginCopySwitch()
     @ObservationIgnored let work: BackgroundWork
-    @ObservationIgnored private(set) var hub: CloudTunnelHub?
+    @ObservationIgnored var hub: CloudTunnelHub?
+    /// Sign-out's peer tail erase (an acpmux child, no deadline): it runs after the revokes.
+    @ObservationIgnored var clearPeerTails: @MainActor (BuildIdentity?, BackgroundWork) async throws -> Void = AcpmuxEnvironment.clearPeerTails(build:work:)
     /// Whether a cmux Pro offer is on screen (CloudPresenter.offerPro).
     @ObservationIgnored var proOfferOpen = false
     /// Each machine list that carries the plan (`limits.planId`) reports it: the paid-plan welcome step
@@ -221,8 +223,7 @@ final class CloudService {
                     return await link.ownerLink != nil
                 },
                 isLive: { [weak machines] machineID in machines?.session(machineID)?.machine.status.isLive ?? false }))
-        hostReplica = CloudHostReplicaFollower(origin: HomeCloudLease.origin(configuration.ownerAPIBaseURL()),
-            clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+        hostReplica = CloudHostReplicaFollower(origin: HomeCloudLease.origin(configuration.ownerAPIBaseURL()), clientVersion: clientVersion,
             installToken: { [installIdentity] in let token = try await installIdentity.installToken(); return (token, HomeCloudLease.expiry(ofJWT: token) ?? HomeCloudLease.fallbackExpiry(now: Date())) },
             invalidate: { [installIdentity] in await installIdentity.invalidate() })
         hands = HandsService(
@@ -234,9 +235,8 @@ final class CloudService {
         credentialProvider = CloudCredentialProvider(relay: relay)
         // The app server link: the Native device route (#28947) with `cmux link` as its fallback when Native
         // does not start, or with `CMUX_NEXT_CLOUD_NATIVE_LINK=0` this Mac's `cmux link` alone.
-        let linkBuild = LaunchIdentity.current().build
-        let appServerLink = CloudAppServerLink(appServer: true, link: CloudLinkLauncher.forApp(build: linkBuild, relay: relay),
-            native: { CloudNativeRouteHolder.forApp(identity: identity, auth: auth, paths: paths, build: linkBuild, deviceName: Self.deviceName) }) { error in
+        let appServerLink = CloudAppServerLink(appServer: true, link: CloudLinkLauncher.forApp(build: build, relay: relay),
+            native: { CloudNativeRouteHolder.forApp(identity: identity, auth: auth, paths: paths, build: build, deviceName: Self.deviceName) }) { error in
             Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
                 .error("cloud.link native route failed, using cmux link: \(String(describing: error), privacy: .public)")
         }
@@ -846,7 +846,6 @@ final class CloudService {
         link.beginEnding()
         dropAllMachines()
         await link.endLink(final: false)
-        do { try await AcpmuxEnvironment.clearPeerTails(build: LaunchIdentity.current().build, work: work) } catch { logger.error("clear peer tails on sign-out: \(String(describing: error), privacy: .public)") }
         if let hub { await hub.revoke() }
         // Revoke the install while the Stack session still exists.
         if let stackUser = auth.user?.id {
@@ -854,6 +853,7 @@ final class CloudService {
             await installIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
             for share in await shareInstalls.ended(except: installIdentity) { await share.signOut(stackUser: stackUser, session: { try await auth.tokens().access }) }
         }
+        do { try await clearPeerTails(LaunchIdentity.current().build, work) } catch { logger.error("clear peer tails on sign-out: \(String(describing: error), privacy: .public)") }
         // An ensure that slipped in during the revoke: stop that link too.
         await link.stopLink()
         await auth.signOut()

@@ -67,8 +67,10 @@ mod pane_ops;
 mod sidebar_keys;
 
 mod actions;
+mod attention_jump;
 mod browser_ops;
 mod focus_nav;
+mod host_notify_ops;
 mod menu_activate;
 mod prompt_keys;
 
@@ -516,6 +518,11 @@ pub struct App {
     pub shortcut_help: Option<ShortcutHelp>,
     pub omnibar: Option<OmnibarState>,
     pub toast: Option<Toast>,
+    /// Host terminal notification forwarding (`host_notify.rs`).
+    pub(crate) host_notify: crate::host_notify::HostNotifyGate,
+    /// The host terminal window has focus: false after a focus-out report,
+    /// true again after focus-in (and before any report).
+    pub(crate) host_focused: bool,
     pub(crate) shake_frames: u8,
     pub selection: Option<Selection>,
     selection_generation: u64,
