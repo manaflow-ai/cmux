@@ -37,10 +37,11 @@ pub enum Restart {
     /// on it: the client's handshake finished, and its first request finds
     /// the link gone (the updater restarting the session host at boot).
     AfterFirstSession,
-    /// When the first mux-control stream connects to the mux socket: the
-    /// session's first stream is open, and the next one (a desktop stream)
-    /// finds the host gone. From that moment no client byte reaches the old
-    /// host (the link drops instead) and new links wait for the new one.
+    /// Once the first mux-control stream has opened: from the moment it
+    /// connects to the mux socket no client byte reaches the old host (the
+    /// host's answers still flow, so the open completes), then the host
+    /// restarts and every link drops. The session's next stream (a desktop
+    /// stream) goes out on the resume and finds the session gone.
     AfterMuxOpen,
 }
 
@@ -223,6 +224,9 @@ fn restarting_mux(path: &Path, host: Arc<tokio::sync::Mutex<Host>>, starts: Arc<
                 proxy.holding.send_replace(true);
                 let (host, starts) = (host.clone(), starts.clone());
                 tokio::spawn(async move {
+                    // The daemon's Opened, written after this accept,
+                    // reaches the client meanwhile.
+                    tokio::time::sleep(Duration::from_millis(500)).await;
                     stop(&host).await;
                     let (accepted, services, shutdown) = register(&host, &starts).await;
                     run(accepted, services, shutdown);
@@ -312,7 +316,8 @@ struct Proxy {
     holding: watch::Sender<bool>,
     /// Client links it accepted.
     links: AtomicUsize,
-    /// While set, a client byte drops its link instead of crossing.
+    /// While set, client bytes wait (until the link is cut) instead of
+    /// crossing; the host's bytes still flow.
     frozen: AtomicBool,
 }
 
@@ -346,8 +351,12 @@ impl Proxy {
                         let mut chunk = [0_u8; 16 * 1024];
                         loop {
                             let Ok(read) = client_read.read(&mut chunk).await else { return };
-                            if read == 0 || proxy.frozen.load(Ordering::SeqCst) {
+                            if read == 0 {
                                 return;
+                            }
+                            if proxy.frozen.load(Ordering::SeqCst) {
+                                // Held until a cut ends this link.
+                                std::future::pending::<()>().await;
                             }
                             if upstream_write.write_all(&chunk[..read]).await.is_err() {
                                 return;
