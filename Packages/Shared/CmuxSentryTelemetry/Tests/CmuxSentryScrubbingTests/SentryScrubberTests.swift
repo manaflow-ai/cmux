@@ -16,6 +16,11 @@ import Testing
         )
     }
 
+    /// A home with a trailing slash still matches its paths (cmux#38555 review 8 F1).
+    @Test func aHomeWithATrailingSlashStillMatches() {
+        #expect(!SentryScrubber(homeDirectory: "/srv/alice/").scrub("at /srv/alice/project/x").contains("alice"))
+    }
+
     /// A home that is the users' directory itself must not hide the user name from the generic rule.
     @Test(arguments: ["/Users", "/home", "/Users/"])
     func aHomeThatIsTheUsersDirectoryKeepsNoName(home: String) {
