@@ -593,6 +593,7 @@ import { WatchBanner } from "./WatchBanner";
 import { ManagedBanner } from "./ManagedBanner";
 import { PaneNotices } from "./PaneNotices";
 import { PlanScopeDriftNotice } from "./PlanScopeDriftNotice";
+import { dismissPlanScopeDrift, keepPlanScopeArea } from "./planScopeDriftStore";
 import { setPaneNotices } from "./paneNoticeStore";
 import { chiefOf, isTakenOver, managedBy, managerDrivingUntil, takeOverManaged } from "./managedBy";
 import { HandoffReviewMessage } from "./handoff/ReviewMessage";
@@ -7414,6 +7415,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               typeof taken === "function" ? (taken as () => void) : undefined,
             ),
           "chat.cancel": () => client.cancel(),
+          "chat.planScopeDrift": ({ action, sessionId, path, area }) => {
+            const id = typeof sessionId === "string" ? sessionId : undefined;
+            if (!id || id !== client.selectedSession) return Promise.resolve(false);
+            if (action === "keepGoing") {
+              keepPlanScopeArea(id, typeof area === "string" ? area : "");
+              return Promise.resolve(true);
+            }
+            dismissPlanScopeDrift(id);
+            if (action === "stop") return client.cancel().then(() => true);
+            const editedPath = typeof path === "string" ? path : "the new area";
+            return send(
+              `Replan before editing ${editedPath}: update the approved plan to include this area, then continue.`,
+              [],
+              undefined,
+              true,
+              undefined,
+              id,
+            ).then(() => true);
+          },
           "chat.typing": async ({ text, sessionId }) =>
             client.typing(typeof text === "string" ? text : "", typeof sessionId === "string" ? sessionId : undefined),
           "chat.queue.remove": ({ promptId }) => client.removeQueued(String(promptId)),

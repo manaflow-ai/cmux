@@ -26,6 +26,13 @@ function inScope(path: string, scope: string): boolean {
 }
 
 function areaOf(path: string): string {
+  // Absolute ACP locations can have arbitrary workspace prefixes. Use their containing
+  // directory as the stable area key so `/Users/a/repo/auth/x.rs` and `/Users/a/repo/auth/y.rs`
+  // share one warning without collapsing every absolute location into `Users/`.
+  if (path.startsWith("/")) {
+    const slash = path.lastIndexOf("/");
+    return slash > 0 ? `${path.slice(0, slash)}/` : path;
+  }
   const relative = path.replace(/^\/+/, "");
   const slash = relative.indexOf("/");
   return slash < 0 ? relative : `${relative.slice(0, slash)}/`;
