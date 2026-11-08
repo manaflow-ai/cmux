@@ -666,3 +666,71 @@ fn a_crash_right_after_the_chat_goes_keeps_the_forks_history() {
     assert!(view.load("fork").unwrap().unwrap().history_from.is_none(), "the reference came back");
     assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 2));
 }
+
+/// A fork whose meta a list could not read is still a fork of the chat: the chat does not go
+/// while it is unreadable, and goes with the history written in once it reads again (review of
+/// #37020 at 04c1dc0, F1: the list skipped it, so the delete left it without its history).
+#[test]
+fn a_chat_does_not_go_while_a_forks_meta_is_unreadable() {
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().join("sessions");
+    let view = forked(Box::new(LocalStore::new(root.clone(), 1 << 20).unwrap()), 30, 20, 2);
+    view.flush().unwrap();
+    drop(view);
+    let fork_meta = root.join("fork").join("session.json");
+    let saved = std::fs::read(&fork_meta).unwrap();
+    std::fs::write(&fork_meta, b"{ not json").unwrap();
+    let view = ForkView::new(Box::new(LocalStore::new(root.clone(), 1 << 20).unwrap()));
+    assert!(view.list().unwrap().iter().all(|m| m.id != "fork"), "the list read the broken meta");
+    assert!(view.delete("chat").is_err(), "the chat went while a fork's meta was unreadable");
+    assert!(view.load("chat").unwrap().is_some());
+    std::fs::write(&fork_meta, &saved).unwrap();
+    view.delete("chat").unwrap();
+    assert!(view.load("fork").unwrap().unwrap().history_from.is_none());
+    assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 2));
+}
+
+/// A chat log that does not read whole is never written into its fork as the history: the
+/// reference stays, and so does the chat (review of #37020 at 04c1dc0, F2: a lenient read wrote
+/// what it could and dropped the reference).
+#[test]
+fn a_chat_log_that_does_not_read_whole_keeps_the_forks_reference() {
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().join("sessions");
+    let view = forked(Box::new(LocalStore::new(root.clone(), 1 << 20).unwrap()), 30, 20, 2);
+    view.flush().unwrap();
+    let events = root.join("chat").join("events");
+    let segment = std::fs::read_dir(&events).unwrap().next().unwrap().unwrap().path();
+    let whole = std::fs::read(&segment).unwrap();
+    let mut torn = b"{ a torn line\n".to_vec();
+    torn.extend_from_slice(&whole);
+    std::fs::write(&segment, &torn).unwrap();
+    assert!(view.delete("chat").is_err(), "the chat went with a log that did not read whole");
+    assert!(view.load("fork").unwrap().unwrap().history_from.is_some(), "the reference was dropped");
+    std::fs::write(&segment, &whole).unwrap();
+    view.delete("chat").unwrap();
+    assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 2));
+}
+
+/// An events folder that cannot be listed is not an empty log (review of #37020 at 04c1dc0, F2).
+#[cfg(unix)]
+#[test]
+fn a_chat_whose_events_folder_does_not_list_keeps_the_forks_reference() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempfile::tempdir().unwrap();
+    let root = home.path().join("sessions");
+    let view = forked(Box::new(LocalStore::new(root.clone(), 1 << 20).unwrap()), 30, 20, 2);
+    view.flush().unwrap();
+    let events = root.join("chat").join("events");
+    let mode = std::fs::metadata(&events).unwrap().permissions().mode();
+    std::fs::set_permissions(&events, std::fs::Permissions::from_mode(0o300)).unwrap();
+    if std::fs::read_dir(&events).is_ok() {
+        // Root lists any folder: nothing to prove here.
+        std::fs::set_permissions(&events, std::fs::Permissions::from_mode(mode)).unwrap();
+        return;
+    }
+    let refused = view.delete("chat").is_err();
+    std::fs::set_permissions(&events, std::fs::Permissions::from_mode(mode)).unwrap();
+    assert!(refused, "the chat went with an events folder that did not list");
+    assert!(view.load("fork").unwrap().unwrap().history_from.is_some(), "the reference was dropped");
+}
