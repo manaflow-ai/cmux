@@ -1,8 +1,10 @@
 // l10n-allow-file: synthetic prompt fixtures, not shipped UI.
 import { afterEach, expect, spyOn, test } from "bun:test";
 import * as marked from "marked";
-import { setChatDisplay } from "./chatDisplay";
+import { currentChatMetrics, setChatDisplay } from "./chatDisplay";
+import { COLLAPSED_PROMPT_LINES, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
 import { layoutConversation, type AcpmuxRow } from "./model";
+import { BUBBLE } from "./transcriptSpacing";
 
 const text = "Describe this synthetic onboarding fixture";
 const long = "A long ordinary prompt about a session and its next sensible step. ".repeat(8).trim();
@@ -28,11 +30,20 @@ afterEach(() => setChatDisplay({}));
 // bubble is 44 tall (design/transcript-spacing.md "Prompt bubble"): its block padding is what a 44
 // leaves around the line, so every estimate moved by that padding's change from the 16 before it
 // (+5.25 at font 14's 22.75 line, -4.5 at font 20's 32.5), and no prompt wraps differently.
+// The long prompt at 320 wraps past the fold (about 23 lines at either font), so it is estimated
+// as the bubble draws it folded: its padding, COLLAPSED_PROMPT_LINES lines (the
+// `.cv-user__text.is-clamped` max-height) and the Show more line. #37675 raised the fold from ten
+// lines to twenty (Leo, 2026-11-07: "we should show more than we are showing right now").
+const FOLDED = -1;
+const folded = () => {
+  const { lineHeight } = currentChatMetrics();
+  return BUBBLE.oneLine - lineHeight + COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT;
+};
 for (const [font, expected] of [
   [
     14,
     [
-      [66.75, 272.75, 89.5],
+      [66.75, FOLDED, 89.5],
       [44, 248.75, 44],
       [44, 135, 44],
     ],
@@ -40,7 +51,7 @@ for (const [font, expected] of [
   [
     20,
     [
-      [76.5, 360.5, 109],
+      [76.5, FOLDED, 109],
       [44, 336.5, 44],
       [44, 174, 44],
     ],
@@ -50,7 +61,8 @@ for (const [font, expected] of [
     setChatDisplay({ "agentPane.display.font.size": font });
     [320, 720, 1400].forEach((width, index) => {
       [text, long, unicode].forEach((value, sample) => {
-        expect(height(prompt(value), width)).toBeCloseTo(expected[index]![sample]!, 5);
+        const want = expected[index]![sample]!;
+        expect(height(prompt(value), width)).toBeCloseTo(want === FOLDED ? folded() : want, 5);
       });
     });
   });
