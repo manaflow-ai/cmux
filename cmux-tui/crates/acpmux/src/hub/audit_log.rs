@@ -18,12 +18,17 @@
 //!   (keys sorted at every level, no spaces) without `hash`. The first entry's `prevHash` is
 //!   [`GENESIS`]. `seq` counts from 1. Editing, dropping or reordering a line breaks the link
 //!   after it, which `verify` reports.
+//! - Opens: every open of the file (and of the purge's tmp file) goes through the private state
+//!   helpers (`config::private_state_*`): no symlink is followed, only a regular file this user
+//!   owns is used, and its mode is 0600.
 //! - Writes: the file is opened `O_APPEND` and never rewritten; each line is synced to disk
 //!   before it counts. One writer thread numbers, chains and writes every entry. An answer to a
 //!   permission (recorded under a session's append lock) only sends its entry down a channel; a
 //!   line that cannot be written is counted (`writeErrors` in `_acpmux/audit`) and logged, never
 //!   silently dropped. A review verdict waits for its line ([`AuditLog::record_durable`]): the
-//!   verdict fails, and its pull request stays in the queue, unless the line is on disk. `open`
+//!   verdict fails, and its pull request stays in the queue, unless the line is on disk. One the
+//!   writer has not taken within the wait is withdrawn, never written later; one it has taken is
+//!   waited for to the end. `open`
 //!   reads the file once, before it returns, for the chain's head (so a restart continues the
 //!   chain) and the pull requests that already have a verdict, by session and URL, so the first
 //!   queue read already leaves them out. At shutdown (`Hub::flush`) [`AuditLog::close`] ends the
@@ -44,7 +49,7 @@
 use std::collections::HashSet;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, mpsc};
 use std::time::Duration;
 
@@ -67,9 +72,22 @@ const DURABLE_WAIT: Duration = Duration::from_secs(10);
 /// A pull request with a verdict: the session that opened it and its URL.
 type Reviewed = HashSet<(String, String)>;
 
+/// A durable record's answer, and whether its writer took it or its caller gave up on it.
+struct Durable {
+    done: mpsc::Sender<Result<Value, String>>,
+    state: Arc<AtomicU8>,
+}
+
+/// [`Durable::state`]: waiting in the queue.
+const QUEUED: u8 = 0;
+/// The writer started on it: its outcome is coming.
+const STARTED: u8 = 1;
+/// The caller stopped waiting before the writer took it: never written.
+const CANCELLED: u8 = 2;
+
 enum Msg {
     /// An entry, and where to answer once it is written (the entry as written) or failed.
-    Entry(Value, Option<mpsc::Sender<Result<Value, String>>>),
+    Entry(Value, Option<Durable>),
     /// Answered once every entry sent before it is written.
     Flush(mpsc::Sender<()>),
     /// Removes a purged session's entries: answered with how many.
@@ -150,15 +168,28 @@ impl AuditLog {
     /// Writes `entry` and waits until its line is on disk: the entry as written, or why not.
     /// Blocking.
     pub(crate) fn record_durable(&self, entry: Value) -> Result<Value, String> {
-        let (tx, rx) = mpsc::channel();
-        if self.send(Msg::Entry(entry, Some(tx))).is_err() {
+        let (done, rx) = mpsc::channel();
+        let state = Arc::new(AtomicU8::new(QUEUED));
+        if self.send(Msg::Entry(entry, Some(Durable { done, state: state.clone() }))).is_err() {
             self.lost("the writer is gone");
             return Err("the audit writer is gone".into());
         }
-        // A timeout leaves the outcome to the writer, which counts a failure itself.
-        rx.recv_timeout(DURABLE_WAIT)
-            .map_err(|_| "the audit writer did not answer".to_owned())
-            .and_then(|r| r)
+        match rx.recv_timeout(DURABLE_WAIT) {
+            Ok(r) => r,
+            Err(mpsc::RecvTimeoutError::Disconnected) => Err("the audit writer is gone".into()),
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                // Still queued: withdrawn, so a failed verdict is never written later.
+                if state
+                    .compare_exchange(QUEUED, CANCELLED, Ordering::AcqRel, Ordering::Acquire)
+                    .is_ok()
+                {
+                    self.lost("the audit writer did not take it in time");
+                    return Err("the audit writer did not answer".into());
+                }
+                // The writer has it: its answer is the outcome.
+                rx.recv().unwrap_or_else(|_| Err("the audit writer is gone".into()))
+            }
+        }
     }
 
     fn send(&self, msg: Msg) -> Result<(), ()> {
@@ -324,7 +355,17 @@ impl Writer {
     fn run(mut self, rx: mpsc::Receiver<Msg>) {
         while let Ok(msg) = rx.recv() {
             match msg {
-                Msg::Entry(entry, done) => {
+                Msg::Entry(entry, durable) => {
+                    let taken = durable.as_ref().is_none_or(|d| {
+                        d.state
+                            .compare_exchange(QUEUED, STARTED, Ordering::AcqRel, Ordering::Acquire)
+                            .is_ok()
+                    });
+                    if !taken {
+                        // Its caller gave up and reported a failure: it must not appear later.
+                        continue;
+                    }
+                    let done = durable.map(|d| d.done);
                     let sid = entry.get("sessionId").and_then(Value::as_str);
                     if sid.is_some_and(|s| self.purged.contains(s)) {
                         // A purged chat leaves no history: not an error to count.
@@ -454,16 +495,10 @@ impl Writer {
     fn append(&mut self, path: &Path, line: &[u8]) -> std::io::Result<()> {
         if self.file.is_none() {
             if let Some(dir) = path.parent() {
-                std::fs::create_dir_all(dir)?;
+                crate::config::private_state_dir(dir).map_err(std::io::Error::other)?;
             }
-            let mut opts = std::fs::OpenOptions::new();
-            opts.append(true).create(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                opts.mode(0o600);
-            }
-            self.file = Some(opts.open(path)?);
+            self.file =
+                Some(crate::config::private_state_append(path).map_err(std::io::Error::other)?);
         }
         let file = self.file.as_mut().ok_or_else(|| std::io::Error::other("no file"))?;
         let before = file.metadata()?.len();
@@ -497,16 +532,16 @@ fn seal(head: &Head, mut entry: Value) -> Option<(Value, Head)> {
 
 /// Cuts what follows the last newline of `path` (a line a crash left half written).
 fn cut_torn_tail(path: &Path) -> std::io::Result<()> {
-    let bytes = match std::fs::read(path) {
-        Ok(b) => b,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(e),
-    };
+    if !exists(path)? {
+        return Ok(());
+    }
+    let mut file = crate::config::private_state_rw(path).map_err(std::io::Error::other)?;
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut file, &mut bytes)?;
     let whole = bytes.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
     if whole == bytes.len() {
         return Ok(());
     }
-    let file = std::fs::OpenOptions::new().write(true).open(path)?;
     file.set_len(whole as u64)?;
     file.sync_all()
 }
@@ -514,14 +549,12 @@ fn cut_torn_tail(path: &Path) -> std::io::Result<()> {
 /// Writes `entries` to `path` whole: a new file beside it, synced, renamed over it.
 fn replace(path: &Path, entries: &[Value]) -> std::io::Result<()> {
     let tmp = path.with_extension("jsonl.tmp");
-    let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.mode(0o600);
+    // A leftover (or planted) tmp goes first: removing a link never touches what it names.
+    match std::fs::remove_file(&tmp) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
+        _ => {}
     }
-    let mut file = opts.open(&tmp)?;
+    let mut file = crate::config::private_state_create_new(&tmp).map_err(std::io::Error::other)?;
     for e in entries {
         file.write_all(e.to_string().as_bytes())?;
         file.write_all(b"\n")?;
@@ -536,12 +569,22 @@ fn replace(path: &Path, entries: &[Value]) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Whether something is at `path` (a link counts, and is refused when opened).
+fn exists(path: &Path) -> std::io::Result<bool> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
+/// Every line of `path`, opened as private state: a link, a file that is not regular or one
+/// another user owns is refused, and a wider mode is narrowed to 0600.
 fn read_lines(path: &Path) -> std::io::Result<Vec<Value>> {
-    let file = match std::fs::File::open(path) {
-        Ok(f) => f,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
-        Err(e) => return Err(e),
-    };
+    if !exists(path)? {
+        return Ok(vec![]);
+    }
+    let file = crate::config::private_state_file(path).map_err(std::io::Error::other)?;
     let mut out = Vec::new();
     for line in std::io::BufReader::new(file).lines() {
         let line = line?;
@@ -911,6 +954,59 @@ mod tests {
             .unwrap();
         // No flush or wait: the first read after open already knows the verdict.
         assert!(AuditLog::open(Some(d.clone())).reviewed("s1", url));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_planted_link_is_refused_and_what_it_names_is_untouched() {
+        let d = dir("link");
+        std::fs::create_dir_all(&d).unwrap();
+        let target = d.join("elsewhere");
+        std::fs::write(&target, b"{\"secret\":1}\n").unwrap();
+        std::os::unix::fs::symlink(&target, d.join(FILE)).unwrap();
+        let log = AuditLog::open(Some(d.clone()));
+        assert!(log.all().is_err(), "a linked log is not read");
+        let verdict = json!({"at": 1, "sessionId": "s1", "kind": "review",
+                             "prUrl": "https://github.com/o/r/pull/1", "ask": "Review",
+                             "decision": {"kind": "accept"}, "answeredBy": {"person": true}});
+        assert!(log.record_durable(verdict).is_err(), "nothing is written through the link");
+        assert_eq!(std::fs::read(&target).unwrap(), b"{\"secret\":1}\n");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_purge_replaces_a_planted_tmp_link_without_writing_through_it() {
+        let d = dir("tmplink");
+        let log = AuditLog::open(Some(d.clone()));
+        log.record(entry("s1", 1));
+        log.record(entry("s2", 2));
+        log.flush();
+        let target = d.join("elsewhere");
+        std::fs::write(&target, b"keep").unwrap();
+        std::os::unix::fs::symlink(&target, d.join(FILE).with_extension("jsonl.tmp")).unwrap();
+        assert_eq!(log.purge("s1").unwrap().await.unwrap(), Ok(1));
+        assert_eq!(std::fs::read(&target).unwrap(), b"keep");
+        let meta = std::fs::symlink_metadata(d.join(FILE)).unwrap();
+        assert!(meta.file_type().is_file());
+        assert_eq!(log.all().unwrap().len(), 1);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_durable_record_given_up_on_is_never_written() {
+        let d = dir("cancel");
+        let log = AuditLog::open(Some(d.clone()));
+        let (done, rx) = mpsc::channel();
+        let state = Arc::new(AtomicU8::new(CANCELLED));
+        log.send(Msg::Entry(entry("s1", 1), Some(Durable { done, state }))).unwrap();
+        log.record(entry("s1", 2));
+        log.flush();
+        assert!(rx.try_recv().is_err(), "a withdrawn entry gets no answer");
+        let all = log.all().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0]["at"], 2);
         let _ = std::fs::remove_dir_all(&d);
     }
 
