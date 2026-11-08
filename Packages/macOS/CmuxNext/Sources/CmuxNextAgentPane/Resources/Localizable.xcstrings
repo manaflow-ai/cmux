@@ -34473,6 +34473,17 @@
         }
       }
     },
+    "agentPane.error.gitPushUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The branch could not be pushed; reconnect the chat and try again."
+          }
+        }
+      }
+    },
     "agentPane.error.gitWrite": {
       "extractionState": "manual",
       "localizations": {

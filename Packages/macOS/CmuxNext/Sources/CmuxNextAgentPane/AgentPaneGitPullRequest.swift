@@ -3,9 +3,10 @@ import Foundation
 /// The Changes view's Create PR (cx-tcwj, Codex desktop's): `git.pullRequest` with `{cwd}`. The
 /// App opens the pull request of the chat's checked-out branch with the GitHub CLI: the open one
 /// when the branch has one, else `gh pr create --fill` from its commits (only when gh says the
-/// branch has none: a failed lookup creates nothing). It answers `{url, number}`. It never pushes
-/// (the session host's Push does, cx-ncc.1), so a branch that is not exactly its upstream (none,
-/// ahead or behind) is refused, and gh never has anything to push. It needs a real click or key in the pane, a chat on this
+/// branch has none: a failed lookup creates nothing). It answers `{url, number}`. Before asking
+/// `gh`, it asks the session host's Rust `git.push` mutation to push the branch and set its
+/// upstream when needed; that mutation never force-pushes and reports actionable remote errors.
+/// It needs a real click or key in the pane, a chat on this
 /// Mac and `cwd` inside the pane's folders; gh never prompts, and each step has a deadline. A
 /// worktree chat's branch targets the branch it was made from (cx-lyqio.6), not the default.
 public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
@@ -48,7 +49,7 @@ public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
     /// Opens the pull request where ``AgentPaneGitProcess/place(_:roots:home:)`` allows, with `gh`
     /// at that path (nil: not installed).
     @concurrent static func run(_ request: AgentPaneGitPullRequest, roots: [String], home: String = NSHomeDirectory(),
-                                gh: String?) async -> Outcome {
+                                gh: String?, push: (@Sendable (String, String?) async throws -> Void)? = nil) async -> Outcome {
         let folder: String
         switch await AgentPaneGitProcess.place(request.cwd, roots: roots, home: home) {
         case .refused(let message): return .refused(message)
@@ -60,10 +61,16 @@ public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
         let git = { (arguments: [String]) in await AgentPaneGitProcess.output(["-C", folder] + arguments, timeout: localTimeout) }
         let head = await git(["symbolic-ref", "--quiet", "--short", "HEAD"])
         guard head.status == 0 else { return .refused(detachedMessage) }
-        let counts = await git(["rev-list", "--left-right", "--count", "@{upstream}...HEAD"])
-        let behindAhead = counts.text.split(whereSeparator: \.isWhitespace).compactMap { Int($0) }
-        guard counts.status == 0, behindAhead.count == 2, behindAhead[1] == 0 else { return .refused(pushFirstMessage) }
-        guard behindAhead[0] == 0 else { return .refused(pullFirstMessage) }
+        let commit = await git(["rev-parse", "HEAD"])
+        guard commit.status == 0 else { return .refused(pushUnavailableMessage) }
+        guard let push else { return .refused(pushUnavailableMessage) }
+        do {
+            try await push(folder, commit.text.trimmingCharacters(in: .whitespacesAndNewlines))
+        } catch let error as AgentPaneGitFailure {
+            return .refused(pushMessage(error))
+        } catch {
+            return .refused(pushUnavailableMessage)
+        }
         let cli = { (arguments: [String]) in
             await AgentPaneGitProcess.output(arguments, executable: gh, directory: folder, timeout: networkTimeout, network: true)
         }
@@ -138,10 +145,34 @@ extension AgentPaneGitPullRequest {
         String(localized: "agentPane.error.gitDetached", defaultValue: "Check out a branch to open a pull request.", bundle: .module)
     }
 
-    /// The branch has no upstream, or commits its upstream lacks.
+    /// The branch has no upstream, or commits its upstream lacks. Kept for the
+    /// Changes page's existing wording; Create PR now invokes the Rust push.
     nonisolated static var pushFirstMessage: String {
         String(localized: "agentPane.error.gitPushFirst",
                defaultValue: "Push this branch first; the pull request opens from what's on the remote.", bundle: .module)
+    }
+
+    /// The Create PR caller did not provide the session-host push wire.
+    nonisolated static var pushUnavailableMessage: String {
+        String(localized: "agentPane.error.gitPushUnavailable",
+               defaultValue: "The branch could not be pushed; reconnect the chat and try again.", bundle: .module)
+    }
+
+    /// The Rust push mutation carries its machine reason and an actionable
+    /// message in `details.extra.message`. Keep that message as the inline
+    /// Create PR error instead of hiding it behind the generic git text.
+    nonisolated static func pushMessage(_ failure: AgentPaneGitFailure) -> String {
+        guard let data = failure.details,
+              let details = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let extra = details["extra"] as? [String: Any],
+              let message = extra["message"] as? String, !message.isEmpty else {
+            return pushUnavailableMessage
+        }
+        return message
+    }
+
+    nonisolated static var sessionRepositoryMessage: String {
+        "The pull request folder is not this chat's repository. Refresh the chat and try again."
     }
 
     /// The branch is behind its upstream (pushed from elsewhere).
@@ -168,7 +199,47 @@ extension AgentPaneGitPullRequest {
             return AgentPaneReply.failure(code: AgentPaneTransportError.gestureRequired.rawValue,
                                           message: needsGestureMessage, details: nil, retryable: nil, origin: "native")
         }
-        switch await run(request, roots: model.fileOpenRoots(), gh: gh) {
+        guard gh != nil else {
+            return AgentPaneReply.failure(code: "git.failed", message: noGitHubCLIMessage)
+        }
+        let push: (@Sendable (String, String?) async throws -> Void)?
+        var runRoots = model.fileOpenRoots()
+        if request.readsThreads || request.merges != nil {
+            push = nil
+        } else {
+            let sessionFolder: AgentPaneSessionFolder?
+            do {
+                sessionFolder = try await model.host.sessionFolder(sessionId: model.sessionId ?? "")
+            } catch {
+                return AgentPaneReply.failure(code: "git.failed", message: pushUnavailableMessage)
+            }
+            guard let sessionFolder, sessionFolder.isLocal, sessionFolder.cwd.hasPrefix("/") else {
+                return AgentPaneReply.failure(code: "git.failed", message: pushUnavailableMessage)
+            }
+            guard case .folder(let requestedFolder) = await AgentPaneGitProcess.place(request.cwd,
+                                                                                        roots: [sessionFolder.cwd],
+                                                                                        home: NSHomeDirectory()) else {
+                return AgentPaneReply.failure(code: "git.failed", message: sessionRepositoryMessage)
+            }
+            let requestedTop = await AgentPaneGitProcess.output(["-C", requestedFolder, "rev-parse", "--show-toplevel"], timeout: localTimeout)
+            let sessionTop = await AgentPaneGitProcess.output(["-C", sessionFolder.cwd, "rev-parse", "--show-toplevel"], timeout: localTimeout)
+            guard requestedTop.status == 0, sessionTop.status == 0,
+                  let requestedRoot = AcpmuxPathPolicy.canonical(requestedTop.text.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  let sessionRoot = AcpmuxPathPolicy.canonical(sessionTop.text.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  requestedRoot == sessionRoot else {
+                return AgentPaneReply.failure(code: "git.failed", message: sessionRepositoryMessage)
+            }
+            guard let onGitWrite = model.onGitWrite, let sessionId = model.sessionId else {
+                return AgentPaneReply.failure(code: "git.failed", message: pushUnavailableMessage)
+            }
+            let pushKey = UUID().uuidString
+            let pushFolder = sessionFolder.cwd
+            push = { @MainActor _, expectedHead in
+                _ = try await onGitWrite(.push(sessionId: sessionId, expectedHead: expectedHead, key: pushKey), pushFolder)
+            }
+            runRoots = [sessionFolder.cwd]
+        }
+        switch await run(request, roots: runRoots, gh: gh, push: push) {
         case .opened(let url, let number): return AgentPaneReply.success(["url": url, "number": number.map { $0 as Any } ?? NSNull()])
         case .threads(let url, let number, let threads):
             return AgentPaneReply.success(["url": url.map { $0 as Any } ?? NSNull(), "number": number.map { $0 as Any } ?? NSNull(),

@@ -139,13 +139,13 @@ fn push(
         .unwrap_or_else(|| "origin".to_string());
     if !remotes.contains(&remote) {
         let message = if remotes.is_empty() {
-            "the repository has no remote to push to".to_string()
+            "the repository has no remote; add one before opening a pull request".to_string()
         } else {
-            format!("there is no remote named {remote}")
+            format!("there is no remote named {remote}; configure it before opening a pull request")
         };
         return Err(refused(OPERATION, "no_remote", message, json!({"remote": remote})));
     }
-    refuse_special_remote(git, &remote)?;
+    refuse_special_remote(git, &remote, branch)?;
     let destination = format!("refs/heads/{branch}");
     let upstream_merge = config(format!("branch.{branch}.merge"));
     let tracked = upstream_remote.is_some() && upstream_merge.is_some();
@@ -204,9 +204,14 @@ fn push(
 
 /// Refuses a remote whose config changes what a push sends: its own push
 /// refspecs, or mirroring.
-fn refuse_special_remote(git: &UserGit<'_>, remote: &str) -> Result<(), ResourceError> {
+fn refuse_special_remote(
+    git: &UserGit<'_>,
+    remote: &str,
+    branch: &str,
+) -> Result<(), ResourceError> {
     let refspecs = config_lines(git, &["config", "--get-all", &format!("remote.{remote}.push")]);
-    if !refspecs.is_empty() {
+    let same_branch = format!("refs/heads/{branch}:refs/heads/{branch}");
+    if !refspecs.is_empty() && refspecs.iter().any(|refspec| refspec != &same_branch) {
         let message = format!("remote {remote} has its own push refspecs; push it in a terminal");
         let extra = json!({"remote": remote, "refspecs": refspecs});
         return Err(refused(OPERATION, "push_refspec_configured", message, extra));
@@ -307,14 +312,25 @@ fn classified(git: &UserGit<'_>, line: Option<&str>, run: &UserRun) -> ResourceE
         .collect::<Vec<_>>()
         .join("\n");
     let mentions = |patterns: &[&str]| patterns.iter().any(|pattern| diagnostics.contains(pattern));
-    let (reason, message) = if rejected
+    let lower_summary = summary.to_lowercase();
+    let protected =
+        diagnostics.contains("protected branch") || lower_summary.contains("protected branch");
+    let (reason, message) = if rejected && protected {
+        (
+            "rejected_by_remote",
+            "the remote branch is protected; push a feature branch or change its protection",
+        )
+    } else if rejected
         && (summary.contains("non-fast-forward")
             || summary.contains("fetch first")
             || summary.contains("stale info"))
     {
         ("rejected_non_fast_forward", "the remote has commits this branch does not; pull first")
     } else if rejected {
-        ("rejected_by_remote", "the remote refused the push")
+        (
+            "rejected_by_remote",
+            "the remote refused the push; check repository permissions and branch rules",
+        )
     } else if line.is_none()
         && run.code != Some(FATAL_EXIT)
         && !active_hooks(git, &["pre-push"]).is_empty()
@@ -331,7 +347,10 @@ fn classified(git: &UserGit<'_>, line: Option<&str>, run: &UserRun) -> ResourceE
         "returned error: 401",
         "returned error: 403",
     ]) {
-        ("auth_failed", "the remote did not accept the credentials git has")
+        (
+            "auth_failed",
+            "the remote did not accept the credentials git has; sign in or configure a credential helper",
+        )
     } else if mentions(&[
         "could not resolve host",
         "could not resolve hostname",
