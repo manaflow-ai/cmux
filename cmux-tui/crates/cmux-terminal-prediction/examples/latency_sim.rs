@@ -117,7 +117,7 @@ fn simulate(rtt_ms: i64, jitter_ms: i64, seed: u64) -> Outcome {
                 if engine.typed(Some(bytes[key]), us(time)) {
                     let newest = engine.glyphs().last().copied();
                     if newest.is_some_and(|g| {
-                        g.standing == Standing::Speculative && g.character == char::from(bytes[key])
+                        g.standing == Standing::Speculative && g.character == bytes[key]
                     }) {
                         shown_at[key] = Some(time);
                     }
