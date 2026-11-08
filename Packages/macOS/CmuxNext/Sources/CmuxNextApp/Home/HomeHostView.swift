@@ -109,7 +109,7 @@ final class HomeHostView: NSView {
         petRows.install(in: self, addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) },
                         open: { [weak self] in self?.toggleChiefSettings(openOnly: true) ?? false })
         computerPopup.install(in: transcript, settings: settings, source: .init(
-            paid: { [weak services] in services?.machines.cloudLimits?.paysForCloud == true }, chief: { [weak service] in service?.chiefName(of: id) ?? HomeStrings.chiefName },
+            paid: { [weak services] in HomeChiefComputer.planAllows(paysForCloud: services?.machines.cloudLimits?.paysForCloud) }, chief: { [weak service] in service?.chiefName(of: id) ?? HomeStrings.chiefName },
             route: .init(agent: { [weak services] in services?.home.cloudChiefs.chief(for: conversation)?.id }, send: service.hostedChief.brainRoute))) { [weak self] in _ = self?.toggleChiefSettings(openOnly: true) }
         settingsView.onAvatar = { [weak self, weak service] in
             self?.loadAvatar()
