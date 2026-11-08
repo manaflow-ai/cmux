@@ -21,7 +21,7 @@ import { codeActionsLook } from "./codeActions.experiment";
 import { CodeHeader } from "./CodeHeader";
 import { codeHeaderClass } from "./codeHeaderModel";
 import { AGENT_DIFF_THEME, AGENT_DIFF_THEME_LIGHT, registerAgentDiffTheme } from "../diffTheme";
-import { DiffsHost } from "./HighlightedCode";
+import { DiffsHost } from "./usePierreCode";
 import { cornerUnsafeCSS } from "./highlightedCodeModel";
 import { CopyButton } from "./CopyButton";
 import { cornerAction } from "./cornerActions";
