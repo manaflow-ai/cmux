@@ -1856,11 +1856,17 @@ impl Hub {
         // A live full-access harness may execute tools without permission RPCs.
         // Wait before handing it a new prompt, including the already-live path; one that gates
         // every tool on the sync itself gets its prompt at the repository's head (repo_sync.rs).
-        let head_ok = {
-            let meta = session.meta();
-            let cfg = self.config.read().await;
-            super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
-                .is_ok_and(|p| super::repo_sync::gates_its_tools(p.kind))
+        // A running agent is judged by what it speaks (a reload may change the profile's harness
+        // without replacing it); one started below waits again in `ensure_child`, by its profile.
+        let live = session.child.lock().await.clone();
+        let head_ok = match live {
+            Some(child) => super::repo_sync::child_gates_its_tools(&child),
+            None => {
+                let meta = session.meta();
+                let cfg = self.config.read().await;
+                super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
+                    .is_ok_and(|p| super::repo_sync::gates_its_tools(p.kind))
+            }
         };
         let cwd = session.meta().cwd;
         let _repo_ready = super::repo_sync::wait_for_start(session, cwd, head_ok, || {
