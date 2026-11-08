@@ -335,6 +335,42 @@ describe("the preview's rows", () => {
     };
     expect(previewEntries(host, undefined, "en").map((row) => row.detail)).toEqual([undefined]);
   });
+
+  // A leading article on either line is not a new word: "The host pressure warning…" over "Host
+  // pressure warning…" repeats, as the notes' own comparison (model.ts echoKey) reads it.
+  test("a leading the, a or an does not hide a repeat", () => {
+    const span = [
+      {
+        build: "1",
+        shortVersion: "1.0.0-nightly.1",
+        date: "2026-11-07",
+        highlights: [],
+        changes: [],
+        items: [
+          {
+            title: "fix(sidebar): the host pressure warning names the busy machine (#8)",
+            pr: 8,
+            description: "Host pressure warning names the busy machine and its load.",
+          },
+          {
+            title: "feat(agent): chat folder opens in Finder (#9)",
+            pr: 9,
+            description: "A chat folder opens in Finder from the chat menu.",
+          },
+          {
+            title: "fix(sidebar): the sidebar keeps its width (#10)",
+            pr: 10,
+            description: "Dragging the edge past the window keeps the last width.",
+          },
+        ],
+      },
+    ] as unknown as ReleaseNotes[];
+    expect(previewEntries(data, span, "en").map((row) => row.detail)).toEqual([
+      undefined,
+      undefined,
+      "Dragging the edge past the window keeps the last width.",
+    ]);
+  });
 });
 
 describe("the card", () => {
