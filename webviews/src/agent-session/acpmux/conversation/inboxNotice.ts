@@ -9,7 +9,7 @@
 // (`mergeInboxNotices`), a thread named in two of them once.
 import type { AcpmuxRow } from "../model";
 import { withoutRelayEnvelope, withoutRelayHead } from "./relayEnvelope";
-import { bareSender, senderRecord, senderUnverified, type SenderRecord } from "./senderIdentity";
+import { bareSender, relayAddress, senderRecord, senderUnverified, type SenderRecord } from "./senderIdentity";
 import type { SentFrom } from "./sentFromHarness";
 
 /// Who sent a message, as acpmux records it (`sender`, prompt_provenance.rs
@@ -73,17 +73,13 @@ export type InboxNotice = { threads: InboxThread[] };
 export const inboxThreadKey = (rowId: string, threadId: string) => `${rowId}\u0000${threadId}`;
 
 const text = (value: unknown): string => (typeof value === "string" ? value : "");
-/// A relayed sender's address (`MACHINE/SESSION`, the relay's `--relayed-from`): the chat its chip
-/// asks for. The record's label is then only the name the sender declared (`--from`), which a
-/// local namesake may hold too (cmux#38642 review).
-const relayAddress = (record: SenderRecord): string | undefined =>
-  record.relay?.machine && record.relay.session ? `${record.relay.machine}/${record.relay.session}` : undefined;
-
 /// The session and lookup label of acpmux's sender record (senderIdentity.ts `senderRecord`): a
-/// relayed sender's label is its relay address.
+/// relayed sender's label is its relay address (senderIdentity.ts `relayAddress`), since the
+/// record's label is then only the name the sender declared (`--from`), which a local namesake may
+/// hold too (cmux#38642 review).
 const senderRef = (record: SenderRecord | undefined): SenderRef | undefined => {
   if (!record) return undefined;
-  const label = relayAddress(record) ?? record.label;
+  const label = relayAddress(record.relay) ?? record.label;
   return record.session || label
     ? { ...(record.session && { session: record.session }), ...(label && { label }) }
     : undefined;
@@ -226,22 +222,23 @@ export function inboxCounts(notice: InboxNotice): { messages: number; senders: s
 /// A thread's newest sender: its newest message's, else its last named.
 const newestFrom = (thread: InboxThread): string => thread.messages?.at(-1)?.from ?? thread.from.at(-1) ?? "";
 
-/// A thread's sender as acpmux identified it: its session id, else its record's label.
-const senderIdentity = (thread: InboxThread) => ({
-  session: thread.sender?.session || thread.fromSession,
-  label: thread.sender?.label,
-});
+/// A thread's sender as acpmux identified it: its session id, else its record's label, from the
+/// thread's record, else its newest message's own (acpmux may name it only there).
+const senderIdentity = (thread: InboxThread) => {
+  const record = thread.sender ?? thread.messages?.at(-1)?.sender;
+  return { session: record?.session || thread.fromSession, label: record?.label };
+};
 
 /// Whether the later thread's newest sender is the earlier one's own chat, not only its name: the
-/// later one names no identity of its own, or both name the same session (else the same record).
-/// Two chats can share a name (cmux#38642 review), so a matching name alone never lends one's
-/// record, session, family or unverified mark to the other.
+/// later one names no identity of its own, or both name the same session (else, when neither names
+/// one, the same record). Two chats can share a name or a label (cmux#38642, cmux#38791 reviews), so
+/// a matching one alone never lends one's record, session, family or unverified mark to the other.
 const sameSender = (held: InboxThread, next: InboxThread): boolean => {
   if (newestFrom(held) !== newestFrom(next)) return false;
   const a = senderIdentity(held);
   const b = senderIdentity(next);
   if (!b.session && !b.label) return true;
-  if (a.session && b.session) return a.session === b.session;
+  if (a.session || b.session) return a.session === b.session;
   return !!a.label && a.label === b.label;
 };
 
@@ -264,12 +261,15 @@ export function joinNotices(first: InboxNotice, later: InboxNotice): InboxNotice
       promptIds: [...held.promptIds, ...next.promptIds],
     };
     // The later notice names the newest sender; when it is the earlier one's own chat and says less
-    // of it, the earlier one's record, session, family and unverified mark still hold.
+    // of it, the earlier one's record, session, family and unverified mark still hold. A record of
+    // its own (the thread's, or its newest message's) says whether that sender is verified, so the
+    // earlier mark never reaches a newest message its own notice did not mark (cmux#38642 review).
     if (sameSender(held, next)) {
       if (!next.sender && held.sender) joined.sender = held.sender;
       if (!next.fromSession && held.fromSession) joined.fromSession = held.fromSession;
       if (!next.fromHarness && held.fromHarness) joined.fromHarness = held.fromHarness;
-      if (!next.unverified && held.unverified && !next.sender) joined.unverified = held.unverified;
+      const ownRecord = next.sender ?? next.messages?.at(-1)?.sender;
+      if (!next.unverified && held.unverified && !ownRecord) joined.unverified = held.unverified;
     }
     if (held.sentFrom || next.sentFrom) joined.sentFrom = { ...held.sentFrom, ...next.sentFrom };
     // Whole only when both notices held their messages whole.

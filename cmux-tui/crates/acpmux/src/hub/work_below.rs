@@ -38,7 +38,7 @@ impl Hub {
             (after != before).then_some(after)
         };
         if let Some(count) = count {
-            self.append(session, "mux", super::views::SUBAGENTS_RUNNING, json!({"count": count}));
+            self.subagents_running(session, count);
         }
     }
 
@@ -111,6 +111,8 @@ impl Hub {
     pub(super) fn end_background_subagents(&self, session: &Session) {
         session.subagents.lock().unwrap_or_else(|e| e.into_inner()).end_background();
         self.refresh_work_below(session);
+        // Reports left for its subagents go to it now (`lane_report_subagents.rs`).
+        self.subagent_notices_sweep(session);
     }
 
     /// Before a daemon adopts `session`'s running host (`hosts.rs` `adopt_held`), its subagents
@@ -154,12 +156,7 @@ impl Hub {
             (before, live.running_count())
         };
         if running_after != running_before {
-            self.append(
-                session,
-                "mux",
-                super::views::SUBAGENTS_RUNNING,
-                json!({"count": running_after}),
-            );
+            self.subagents_running(session, running_after);
         }
         self.refresh_work_below(session);
     }

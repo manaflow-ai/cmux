@@ -821,6 +821,67 @@ test("an Escape on the list is forgotten once the text changes: the same word ty
   expect(menu()).not.toBeNull();
 });
 
+test("a lone GitHub issue URL offers an explicit fix worktree action", async () => {
+  const fixes: Array<{ url: string; cwd?: string }> = [];
+  let finish!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const asks: unknown[][] = [];
+  const opened: string[] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat([], { summary: { sessionId: "seed", harness: "claude" } })}
+        onAsk={(...args) => asks.push(args)}
+        onOpen={(url) => opened.push(url)}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        onFixFromLink={(url, cwd) => {
+          fixes.push({ url, cwd });
+          return pending;
+        }}
+        lastAgent="claude"
+        cwd="/tmp/picked-checkout"
+      />,
+    );
+  });
+  const field = await typePrompt("https://github.com/manaflow-ai/cmux/issues/123");
+  const chip = container.querySelector<HTMLButtonElement>(".nt-fix-chip");
+  expect(chip?.textContent).toContain("Fix in a new worktree");
+  await act(async () => chip!.click());
+  await act(async () => chip!.click());
+  expect(fixes).toEqual([{ url: "https://github.com/manaflow-ai/cmux/issues/123", cwd: "/tmp/picked-checkout" }]);
+  expect(chip!.disabled).toBe(true);
+  await act(async () => finish());
+  expect(chip!.disabled).toBe(false);
+  await press(field, "Enter");
+  expect(asks).toEqual([]);
+  expect(opened).toEqual(["https://github.com/manaflow-ai/cmux/issues/123"]);
+});
+
+for (const mode of ["sandboxed", "cloud"] as const) {
+  test(`an issue URL never offers a local fix in ${mode} mode`, async () => {
+    await act(async () => {
+      root!.render(
+        <NewTabScreen
+          {...firstRunProps}
+          snapshot={noChat()}
+          onFixFromLink={() => {
+            throw new Error("local fix must not run");
+          }}
+          runMode={{ mode, onMode: () => {} }}
+          location="https://github.com/manaflow-ai/cmux/issues/123"
+        />,
+      );
+    });
+    expect(container.querySelector(".nt-fix-chip")).toBeNull();
+  });
+}
+
 test("a chosen document uses the New Tab upload path and becomes sendable", async () => {
   const uploaded: File[][] = [];
   const asks: unknown[][] = [];

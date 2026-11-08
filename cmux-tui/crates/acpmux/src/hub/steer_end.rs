@@ -290,6 +290,7 @@ impl Hub {
                     trust_gate,
                     reports: super::lane_reports::reports_only(opts.provenance.as_ref()),
                     trigger: crate::prompt_provenance::is_trigger(opts.provenance.as_ref()),
+                    asked: opts.provenance.clone(),
                 },
             };
             now.sent.insert(prompt_id.clone(), sent);

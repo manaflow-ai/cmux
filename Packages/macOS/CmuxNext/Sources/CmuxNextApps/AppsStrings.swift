@@ -9,6 +9,9 @@ nonisolated enum AppsStrings {
     static var windowTitle: String { t("store.window.title", "App Store") }
     /// An app mount failed and the supervisor gave no reason.
     static var mountFailed: String { t("apps.mount.failed", "The app could not start") }
+    /// A failed app view's error card: runs the app's script again from its saved files.
+    static var reload: String { t("apps.mount.reload", "Reload") }
+    static var reloadHelp: String { t("apps.mount.reload.help", "Run the script again from its saved files") }
     /// The second line of an app's toast detail (`cmux.toast`): the app that showed it.
     static func toastSource(_ app: String) -> String { String(format: t("apps.toast.source", "From %@"), app) }
     static var discover: String { t("store.tab.discover", "Discover") }

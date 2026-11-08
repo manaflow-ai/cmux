@@ -444,6 +444,17 @@ impl Hub {
         let heard_at = session.last_model_at.load(Ordering::Relaxed);
         // After `turn`: a retry's turn that started since is seen there (`retry_row`).
         let (retry, retry_deciding) = self.retry_row(session, m.last_turn.as_ref());
+        let loop_episode = if m.status == SessionStatus::Closed
+            || turn.as_ref().is_none_or(|current| {
+                session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()).as_deref()
+                    != Some(current.turn_id.as_str())
+            }) {
+            None
+        } else {
+            session.loop_detector.lock().unwrap_or_else(|e| e.into_inner()).active().cloned()
+        };
+        // Harness failure state has scheduling meaning beyond the UI. A tool loop remains a
+        // running turn and is reported separately as `loopEpisode`.
         let stuck =
             (m.status != SessionStatus::Closed).then(|| m.harness_failures.stuck()).flatten();
         let stopping = turn.as_ref().is_some_and(|t| {
@@ -469,6 +480,15 @@ impl Hub {
             stuck_reason: stuck.map(|s| s.0),
             stuck_since: stuck.map(|s| s.1),
             stuck_error: stuck.map(|s| s.2.to_owned()),
+            loop_episode: loop_episode.map(|episode| {
+                crate::protocol::session::LoopEpisodeSummary {
+                    episode_id: episode.episode_id,
+                    since: episode.since,
+                    count: episode.count,
+                    diagnosis: episode.diagnosis,
+                    hint: episode.hint,
+                }
+            }),
             agent_session_id: m.agent_session_id.clone(),
             retired_agent_session_ids: m.retired_agent_session_ids.clone(),
             created_at: m.created_at,

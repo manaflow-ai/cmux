@@ -1144,7 +1144,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
     assert_eq!(fake_models[0], "fake/m3", "{fake_models:?}");
     assert!(fake_models.contains(&"m1"));
     // Presets: one harness, bundled model/effort/policy/env; -m still wins.
-    let p = c.request(method::MUX_PRESETS, json!({"name": "fast", "set": {"harness": "fake-pool", "model": "m1", "policy": "deny-all", "env": {"FAKE_MODEL": "${model}"}}})).await.unwrap();
+    let p = c.request(method::MUX_PRESETS, json!({"name": "fast", "set": {"harness": "fake-pool", "model": "m1", "policy": "approve-reads", "env": {"FAKE_MODEL": "${model}"}}})).await.unwrap();
     assert_eq!(p["profile"], "fake-pool");
     let err = c
         .request(method::MUX_PRESETS, json!({"name": "bad", "set": {"harness": "nope"}}))
@@ -1154,7 +1154,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
     let s4 = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"preset": "fast", "name": "pre"}}})).await.unwrap();
     assert_eq!(s4["_meta"]["acpmux"]["harness"], "fake-pool");
     assert_eq!(s4["_meta"]["acpmux"]["model"], "m1");
-    assert_eq!(s4["_meta"]["acpmux"]["policy"], "deny-all");
+    assert_eq!(s4["_meta"]["acpmux"]["policy"], "approve-reads");
     // ${model} in the preset env: the model is a spawn parameter the process sees.
     let id4 = s4["sessionId"].as_str().unwrap().to_owned();
     c.request(method::MUX_SET_POLICY, json!({"sessionId": id4, "policy": "approve-all"}))
@@ -1171,7 +1171,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
     // `fake` is the family: its prefer list still decides the profile.
     assert_eq!(s5["_meta"]["acpmux"]["harness"], "fake-pool");
     assert_eq!(s5["_meta"]["acpmux"]["model"], "m2");
-    assert_eq!(s5["_meta"]["acpmux"]["policy"], "deny-all");
+    assert_eq!(s5["_meta"]["acpmux"]["policy"], "approve-reads");
     let err = c
         .request(
             method::SESSION_NEW,
@@ -1180,6 +1180,18 @@ async fn family_defaults_presets_and_the_target_grammar() {
         .await
         .unwrap_err();
     assert!(err.contains("unknown preset"), "{err}");
+    // A deny-all preset on a harness that can keep it neither by a gate nor by a mode: the chat
+    // does not start (W5-L).
+    let locked = json!({"name": "locked", "set": {"harness": "fake-pool", "policy": "deny-all"}});
+    c.request(method::MUX_PRESETS, locked).await.unwrap();
+    let err = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"preset": "locked"}}}),
+        )
+        .await
+        .unwrap_err();
+    assert!(err.contains("cannot be enforced"), "{err}");
     let list = c.request(method::MUX_PRESETS, json!({})).await.unwrap();
     assert_eq!(list["presets"][0]["name"], "fast");
 }
