@@ -20,6 +20,8 @@
 //! - [`connect_info`]: Cloud host ids resolved through
 //!   `cloud.machine.connect_info`, cached without their tokens.
 //! - [`token`]: the host side's link token check (deny by default).
+//! - [`carrier_grant`]: the session daemon's check of a carrier grant, the
+//!   signed admission a Mac presents over the relay carrier.
 //! - [`keyset`]: the Cloud host's link-token keyset: the reader of a keyset
 //!   answer and its refresh schedule.
 //! - [`caller`]: who may connect to the link's socket and to the daemon's
@@ -29,10 +31,12 @@
 
 pub mod app_caller;
 pub mod caller;
+pub mod carrier_grant;
 pub mod connect_info;
 pub mod dial;
 pub mod elapsed;
 pub mod entry_path;
+mod jws;
 pub mod keyset;
 pub mod native_token;
 pub mod overlay_addr;

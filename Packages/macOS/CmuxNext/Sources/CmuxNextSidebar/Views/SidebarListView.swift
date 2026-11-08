@@ -18,6 +18,11 @@ typealias SidebarListViewComponents = SidebarListView
 final class SidebarListView: NSView {
     let model: SidebarModel
     var displayed = SidebarLayout.empty
+    /// The model revision and options `displayed` is the full layout of (a plain reload): a one-row insert splices onto
+    /// it (`spliceInsertion`). Nil after any other apply.
+    var spliceBase: (revision: UInt64, options: SidebarLayoutOptions)?
+    /// The row the apply running now splices in (`spliceInsertion`): its only new row, nothing else added or removed.
+    var splicedRow: SidebarRowKey?
     /// Each layout `apply` draws, in order (a test records every frame the list shows, a one-hop glitch too).
     var onApply: ((SidebarLayout) -> Void)?
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
@@ -100,6 +105,11 @@ final class SidebarListView: NSView {
     /// A click on a group's name waits out the double-click interval before it folds.
     let groupNameClick = SidebarGroupNameClick()
     var drag: Drag?
+    /// The rect the shown group lines were made for (`lineWindow`; nil: the whole list): a scroll past it makes the
+    /// lines it reaches.
+    var lineCover: NSRect?
+    /// Every `reload`, counted: a drag's base (`SidebarDragBaseKey`) is made again after one.
+    var reloads: UInt64 = 0
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []
     var openingRows: [SidebarRowKey: SidebarRowOpening] = [:] // Rows still opening their slot (`SidebarRowOpening`).

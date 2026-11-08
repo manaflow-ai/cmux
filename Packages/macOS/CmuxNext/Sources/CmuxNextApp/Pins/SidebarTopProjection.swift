@@ -39,28 +39,25 @@ struct SidebarWorkspaceItems {
     /// How each open workspace a layout item names draws; a ref with no
     /// entry is closed or another device's (drawn dimmed by the fallback).
     /// `favicon` gives a page tab's favicon (`AppServices.sidebarPageFavicon`), so a site's item shows it once it loads.
-    static func workspaceInfos(_ layout: SidebarLayoutDocument, refs: WorkspaceLayoutRefs, autoNames: Bool = true,
-                               favicon: (WorkspaceModel, TabModel) -> SidebarFavicon? = { _, _ in nil }) -> [LayoutItemRef: SidebarItemInfo] {
-        var infos: [LayoutItemRef: SidebarItemInfo] = [:]
-        for item in layout.sections.lazy.flatMap(\.items) where item.ref.kind == LayoutItemRef.workspaceKind && infos[item.ref] == nil {
-            if let (workspace, daemon) = refs.workspace(for: item.ref) {
-                infos[item.ref] = workspaceInfo(workspace, machine: MachineID(daemon.machineID), autoNames: autoNames, favicon: favicon)
-            }
-        }
-        return infos
+    static func workspaceInfos(_ layout: SidebarLayoutDocument, refs: WorkspaceLayoutRefs, autoNames: Bool = true, favicon: @escaping (WorkspaceModel, TabModel) -> SidebarFavicon? = { _, _ in nil },
+                               faces: SidebarFaceBatch? = nil) -> [LayoutItemRef: SidebarItemInfo] {
+        var seen = Set<LayoutItemRef>()
+        let items = layout.sections.flatMap(\.items).filter { $0.ref.kind == LayoutItemRef.workspaceKind && seen.insert($0.ref).inserted }
+            .compactMap { item in refs.workspace(for: item.ref).map { (ref: item.ref, workspace: $0.0, machine: MachineID($0.1.machineID)) } }
+        let infos = SidebarMapping.shared.tileInfos(items.map { ($0.workspace, $0.machine) }, favicon: favicon, homeShellTitle: homeShellTitle(autoNames), faces: faces)
+        return Dictionary(zip(items.map(\.ref), infos), uniquingKeysWith: { first, _ in first })
     }
 
     /// A workspace's band item (`SidebarItemInfo(workspaceRow:color:)`) with the row's status; the selection marks it
     /// active (SidebarModel.selectedItem).
     static func workspaceInfo(_ workspace: WorkspaceModel, machine: MachineID, autoNames: Bool = true,
-                              favicon: (WorkspaceModel, TabModel) -> SidebarFavicon? = { _, _ in nil }) -> SidebarItemInfo {
-        // The page face's favicon only: the item keeps its own title rule (the row's name, not the page's).
-        let row = SidebarMapping.shared.row(workspace, machine: machine, showsUnread: false, pageFace: { workspace, tab, _ in .init(favicon: favicon(workspace, tab)) },
-                                            homeShellTitle: autoNames && MachineRegistry.isCloudMachineID(machine.rawValue) ? Strings.untitledTerminal : nil, foldersLabel: true)
-        var info = SidebarItemInfo(workspaceRow: row, color: SidebarMapping.shared.color(workspace.color))
-        info.activity = row.activity
-        info.activityStyle = row.activityStyle
-        (info.workspace, info.workspaceRow) = (row.id, row) // the row's hover card reads `workspaceRow`
-        return info
+                              favicon: @escaping (WorkspaceModel, TabModel) -> SidebarFavicon? = { _, _ in nil }) -> SidebarItemInfo {
+        SidebarMapping.shared.tileInfos([(workspace, machine)], favicon: favicon, homeShellTitle: homeShellTitle(autoNames)).first
+            ?? SidebarItemInfo(workspaceRow: SidebarMapping.unmapped(workspace, machine: machine), color: nil)
+    }
+
+    /// A Cloud machine's unnamed workspace whose shell idles at its home reads "Terminal" while workspaces auto-name.
+    private static func homeShellTitle(_ autoNames: Bool) -> (MachineID) -> String? {
+        { autoNames && MachineRegistry.isCloudMachineID($0.rawValue) ? Strings.untitledTerminal : nil }
     }
 }

@@ -222,6 +222,12 @@ nonisolated enum CatalogArgument {
     }
 
     /// `cloud new-machine --repo OWNER/NAME[@REF]`: the GitHub repository the machine clones.
+    /// `cloud new-machine --environment ID|NAME`: the Cloud environment the new machine boots in.
+    static var environmentString: ActionArgument {
+        ActionArgument(name: "environment", title: String(localized: "argument.environment", defaultValue: "Cloud Environment", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     static var repoString: ActionArgument {
         ActionArgument(name: "repo", title: String(localized: "argument.repo", defaultValue: "Repository", bundle: .module),
                        kind: .string, isRequired: false)
@@ -283,18 +289,6 @@ nonisolated enum CatalogArgument {
     static var pinnedBool: ActionArgument {
         ActionArgument(name: "pinned", title: String(localized: "argument.pinned", defaultValue: "Pinned", bundle: .module), kind: .bool,
                        isRequired: false)
-    }
-
-    /// `cloud share-machine --teammate USER_ID`: the teammate whose chats on the machine change.
-    static var teammateString: ActionArgument {
-        ActionArgument(name: "teammate", title: String(localized: "argument.teammate", defaultValue: "Teammate", bundle: .module),
-                       kind: .string, isRequired: false)
-    }
-
-    /// `cloud share-machine --teammate USER_ID --revoke`: take the teammate's share back.
-    static var revokeBool: ActionArgument {
-        ActionArgument(name: "revoke", title: String(localized: "argument.revoke", defaultValue: "Revoke", bundle: .module),
-                       kind: .bool, isRequired: false)
     }
 
     static var onBool: ActionArgument {

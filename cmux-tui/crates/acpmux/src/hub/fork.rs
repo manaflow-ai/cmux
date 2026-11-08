@@ -102,6 +102,9 @@ impl Hub {
             None => (None, None, None),
         };
         let parent_meta = session.meta();
+        // Its agent started it (`created_by.rs`); a fork the person made records none.
+        let created_by =
+            lineage.as_ref().map(|l| super::created_by::agent(&l.parent, &parent_meta));
         let (is_claude, mut fork_env) = self.harness_env(&parent_meta).await;
         // The fork's workspace: the one the request names (typed or in its
         // env, `session_env::workspace_id`), else its parent's.
@@ -426,6 +429,8 @@ impl Hub {
             tags: Default::default(),
             unread: false,
             claude_unstored: false,
+            // Never the parent's: only its creator asks (`SessionMeta::wait_start`).
+            wait_start: false,
             hibernated_ms: 0,
             idle_launch: None,
             moved_to: None,
@@ -474,6 +479,7 @@ impl Hub {
             subsession_limits: Default::default(),
             // A fork is the person's branch of the chat, never a spawn (`lineage.rs`), unless
             // its agent started it (`sub`).
+            created_by,
             lineage,
             subagent_retry_open: false,
             // The person's setting for the chat it came from, not for the fork.
@@ -517,7 +523,12 @@ impl Hub {
         self.child_tags.note(&new);
         let creation_guard = super::lifecycle::CreationGuard::new(self.clone(), new.clone(), 0);
         // Copy the transcript-relevant history so attach replays it.
-        // Read one record at a time; only these kinds are parsed.
+        // Read one record at a time; only these kinds are parsed. The copies are stored under one
+        // hold of the fork's append lock and sent to no client one by one: nothing is attached
+        // to the fork yet, and every watcher of every chat heard each copied turn's records (a
+        // summary per record, the app's whole list lagging past 8192). Watchers hear of the
+        // fork once, from its `forked` record; an attach replays the copy from the log. Each
+        // record's paths were made canonical when its chat stored it.
         const COPIED: &[&str] = &[
             "user_message",
             "agent_message_chunk",
@@ -532,9 +543,17 @@ impl Hub {
         // The running turn's tool calls not settled yet, and its start's seq in the fork.
         let mut open_tools: Vec<(String, String)> = Vec::new();
         let mut running_turn_seq: Option<u64> = None;
+        // Cancel stops the copy where it is; the fork is then discarded whole (`fork_cancel.rs`).
+        let mut cancelled = false;
         {
+            let order = new.append_lock.lock().unwrap_or_else(|e| e.into_inner());
+            self.catch_up_locked(&new);
             let copied = self.store.scan_kinds(&session.id, COPIED, &mut |e: EventRecord| {
                 if empty || e.seq > fork_seq {
+                    return false;
+                }
+                if super::fork_cancel::cancelled() {
+                    cancelled = true;
                     return false;
                 }
                 if running.is_some() {
@@ -569,7 +588,16 @@ impl Hub {
                             .and_then(Value::as_str)
                             .map(|text| short_text(text, 200));
                     }
-                    let (copy, _) = self.append_at(&new, &e.dir, &e.kind, e.msg, None, Some(e.at));
+                    let (copy, _) = self.append_at_locked(
+                        &new,
+                        &e.dir,
+                        &e.kind,
+                        e.msg,
+                        None,
+                        Some(e.at),
+                        false,
+                        false,
+                    );
                     if starts_running {
                         running_turn_seq = Some(copy.seq);
                     }
@@ -583,6 +611,10 @@ impl Hub {
                 }
                 true
             });
+            drop(order);
+            if cancelled {
+                return Err(super::fork_cancel::cancelled_refusal());
+            }
             if before.is_some() {
                 copied
                     .map_err(|e| super::fork_before::refused("fork.incomplete", &e.to_string()))?;
@@ -655,6 +687,10 @@ impl Hub {
         // history are all in its meta and log by now, a harness start takes
         // seconds, and the fork's first prompt waits for this start (`child_for`
         // holds the spawn lock). A start that fails says why at that prompt.
+        // Cancelled once the copy was done: still discarded whole, before its agent starts.
+        if super::fork_cancel::cancelled() {
+            return Err(super::fork_cancel::cancelled_refusal());
+        }
         self.save_meta(&new);
         creation_guard.disarm();
         if let Some(checked) = checked {

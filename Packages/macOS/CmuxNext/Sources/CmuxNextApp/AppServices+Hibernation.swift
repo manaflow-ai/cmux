@@ -24,6 +24,7 @@ extension AppServices {
         }
         hibernation.workspaceTabs = { [weak self] workspace, window in self?.windows.controller(for: window)?.shownTabsIfSelected(workspace) ?? [] }
         hibernation.agentPages = AgentPageHibernation(services: self)
+        hibernation.agentPages?.pages.followDiscard { [weak settings] in settings?.snapshot.workspaceHibernation.hiddenChatDiscardSetting ?? .off }
         hibernation.follow(settings)
         hibernation.start()
     }
@@ -33,6 +34,9 @@ extension AppServices {
         cache.setWarmBudget(budget)
         // Critical keeps only what shows, the parked workspaces too.
         if level == .critical { windows.controllers.forEach { $0.releaseParked() } }
+        daemon.store.reservationPaused = level != .normal // the next Cmd-N's reservation goes until normal (views, store, page)
+        windows.controllers.forEach { level == .normal ? $0.reservedContent.fill() : $0.reservedContent.drop() }
+        if level != .normal { agentTabs.releaseReservedWorkspace(on: daemon.store, .pressure) }
         workspaceHibernation.pressureDidChange(level)
     }
 }

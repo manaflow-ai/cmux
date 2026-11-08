@@ -6,8 +6,7 @@
 /// - `endSharingOnQuit` (off by default): a Screen Sharing session ends when cmux quits. Off,
 ///   cmux Remote keeps this Mac available to the person's devices while cmux is quit.
 public nonisolated struct RemoteSettings: Sendable, Equatable {
-    public static let endSharingOnQuitPath = ["remote", "endSharingOnQuit"]
-    public var endSharingOnQuit = false
+    public var endSharingOnQuit = RemoteSettings.endSharingOnQuitDefault
 
     public init() {}
 
@@ -17,23 +16,5 @@ public nonisolated struct RemoteSettings: Sendable, Equatable {
         if let value = reader.bool("endSharingOnQuit") { settings.endSharingOnQuit = value }
         diagnostics = reader.diagnostics
         return settings
-    }
-}
-
-/// Agents > cmux Remote.
-nonisolated enum RemoteSettingsSchema {
-    static var descriptors: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.cmuxRemote", "cmux Remote")
-        return [
-            SettingDescriptor(
-                RemoteSettings.endSharingOnQuitPath, section: .general, group: group,
-                title: SettingsText.keyed("settings.remote.endSharingOnQuit", "End Sharing When cmux Quits"),
-                help: SettingsText.keyed("settings.remote.endSharingOnQuit.help",
-                                         "Off, cmux Remote keeps this Mac available to your devices and shows their requests while cmux is quit."),
-                summary: SettingsText.keyed("settings.remote.endSharingOnQuit.summary", "A session ends when cmux quits"),
-                kind: .toggle, default: .bool(RemoteSettings().endSharingOnQuit),
-                keywords: ["cmux remote", "screen sharing", "mac screen", "quit", "background", "device hub"]
-            ),
-        ]
     }
 }

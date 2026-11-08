@@ -71,6 +71,21 @@ async fn ran(hub: &Arc<Hub>, id: &str, prompt_id: &str) -> Value {
     }
 }
 
+/// Waits until chat `id` holds a `prompt_refused` for prompt `prompt_id`, and returns it.
+async fn refused(hub: &Arc<Hub>, id: &str, prompt_id: &str) -> Value {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let records = hub.events(id, 0, 1_000_000).unwrap();
+        if let Some(r) =
+            records.iter().find(|r| r.kind == "prompt_refused" && r.msg["promptId"] == prompt_id)
+        {
+            return r.msg.clone();
+        }
+        assert!(tokio::time::Instant::now() < deadline, "{prompt_id} in {id} was never refused");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 /// A duplicate id is applied once: the client retries a prompt it sent before the daemon
 /// restarted, under the same id, and gets the first run's outcome.
 #[tokio::test]
@@ -171,6 +186,93 @@ async fn a_prompt_accepted_before_its_turn_started_runs_once_after_a_restart() {
     assert_eq!(requeued.len(), 1, "{requeued:?}");
     assert_eq!(requeued[0]["cloudMobile"], true, "{requeued:?}");
     assert_eq!(requeued[0]["restored"], "unstarted", "{requeued:?}");
+}
+
+/// cmux#37231: a prompt from the CLI's unix socket (a Cloud machine's chat relay), accepted just
+/// before a daemon restart while its agent was still starting, runs after the restart in a folder
+/// nobody answered the trust question for: the socket is never trust-gated, and the restart does
+/// not make it so. A gated prompt (the app's pane, a Web client) cut the same way, or one from a
+/// log that did not record its gate, is still held until the folder is trusted.
+#[tokio::test]
+async fn a_prompt_cut_by_a_restart_keeps_the_trust_gate_it_came_with() {
+    let (cfg, dir) = (on_disk(BTreeMap::new()), dir("trust"));
+    std::fs::create_dir_all(&dir).unwrap();
+    // No agent's file and no record: every folder's trust question is open.
+    let gate = acpmux::trust::Paths {
+        claude_json: dir.join("claude.json"),
+        codex_config: dir.join("config.toml"),
+        record: dir.join("trust.json"),
+        agent_home: None,
+        cmux_worktrees: None,
+    };
+    let (hub, mut c) = daemon(&cfg, &dir).await;
+    hub.set_trust_gate(Some(gate.clone()));
+    // The CLI's prompt runs, and its record says it was not gated.
+    let probe = new_session(&mut c, "probe").await;
+    let first = c
+        .request(method::SESSION_PROMPT, prompt_with_id(&probe, "hi", "p-first", false))
+        .await
+        .unwrap();
+    assert_eq!(first["stopReason"], "end_turn", "{first}");
+    let logged = hub
+        .events(&probe, 0, 1_000_000)
+        .unwrap()
+        .into_iter()
+        .find(|r| r.kind == "user_message" && r.msg["promptId"] == "p-first")
+        .unwrap();
+    assert_eq!(logged.msg["trustGate"], false, "{}", logged.msg);
+    // Each cut prompt is its chat's first: no turn of it ran yet (`trust_gate.rs` `running`).
+    let cli = new_session(&mut c, "cli").await;
+    let gated = new_session(&mut c, "gated").await;
+    let legacy = new_session(&mut c, "legacy").await;
+    let last =
+        |id: &str| hub.session_summary(&hub.resolve(id).unwrap())["lastSeq"].as_u64().unwrap();
+    let seqs = [last(&cli), last(&gated), last(&legacy)];
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+    // What the stopped daemon wrote for each: the prompt, acknowledged, and no turn yet.
+    let store = acpmux::store::open(&cfg.store, &dir).unwrap();
+    let cut = [
+        (&cli, json!(false)),
+        (&gated, json!(true)),
+        // A log from before `user_message` recorded the gate.
+        (&legacy, Value::Null),
+    ];
+    for ((id, gate), seq) in cut.iter().zip(seqs) {
+        let mut msg = json!({"text": "hi", "client": "test", "promptId": "p-cut", "turnId": "t-cut", "control": "local"});
+        if !gate.is_null() {
+            msg["trustGate"] = gate.clone();
+        }
+        let record = EventRecord {
+            seq: seq + 1,
+            at: acpmux::store::now_ms(),
+            dir: "mux".into(),
+            kind: "user_message".into(),
+            msg,
+            host_seq: None,
+        };
+        store.append(id, &record).unwrap();
+    }
+    store.flush().unwrap();
+    drop(store);
+
+    let (hub, _c) = daemon(&cfg, &dir).await;
+    hub.set_trust_gate(Some(gate));
+    for id in [&cli, &gated, &legacy] {
+        let _ = hub.resolve(id).unwrap();
+    }
+    hub.resume_queues();
+    let result = ran(&hub, &cli, "p-cut").await;
+    let held = [refused(&hub, &gated, "p-cut").await, refused(&hub, &legacy, "p-cut").await];
+    let refused_cli = naming(&hub, &cli, "prompt_refused", "p-cut");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(result["stopReason"], "end_turn", "{result}");
+    assert_eq!(refused_cli, 0, "the CLI's prompt was held on the folder's trust question");
+    for msg in held {
+        assert_eq!(msg["data"]["reason"], "trust.pending", "{msg}");
+    }
 }
 
 /// Cancel during a steer: the person steers into the running turn, then Stops it. The steer

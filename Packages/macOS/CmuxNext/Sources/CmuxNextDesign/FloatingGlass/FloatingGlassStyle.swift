@@ -16,7 +16,7 @@ public import CoreGraphics
 /// because it sits inside it.
 ///
 /// ```swift
-/// let look = FloatingGlassStyle.toast.look(isDark: tokens.isDark)
+/// let look = FloatingGlassStyle.dialog.look(isDark: tokens.isDark)
 /// glass.tintColor = look.veil.nsColor
 /// ```
 public nonisolated struct FloatingGlassStyle: Sendable, Equatable {
@@ -33,6 +33,10 @@ public nonisolated struct FloatingGlassStyle: Sendable, Equatable {
     public var lightRim: (top: Double, bottom: Double)
     /// Whether it casts the popups' soft shadow (floating panels); sidebar cards do not.
     public var castsShadow: Bool
+    /// Whether the veil is the theme's glass tint (``Palette/glassTint``, the theme background the
+    /// popovers tint with) at the veil's opacity instead of the gray: the toasts' (Leo 2026-11-07:
+    /// "these toasts are still coloured unthemed"). The rim stays the neutral one.
+    public var veilTakesThemeTint: Bool
 
     /// - Parameters:
     ///   - cornerDepth: The corner's level inside the one corner radius (0: the outer radius).
@@ -41,20 +45,24 @@ public nonisolated struct FloatingGlassStyle: Sendable, Equatable {
     ///   - darkRim: Rim top/bottom opacity on dark.
     ///   - lightRim: Rim top/bottom opacity on light.
     ///   - castsShadow: Whether it casts a shadow.
+    ///   - veilTakesThemeTint: Whether the veil is the theme's glass tint instead of the gray.
     public init(cornerDepth: Int, darkVeilAlpha: Double, lightVeilAlpha: Double,
-                darkRim: (top: Double, bottom: Double), lightRim: (top: Double, bottom: Double), castsShadow: Bool) {
+                darkRim: (top: Double, bottom: Double), lightRim: (top: Double, bottom: Double), castsShadow: Bool,
+                veilTakesThemeTint: Bool = false) {
         self.cornerDepth = cornerDepth
         self.darkVeilAlpha = darkVeilAlpha
         self.lightVeilAlpha = lightVeilAlpha
         self.darkRim = darkRim
         self.lightRim = lightRim
         self.castsShadow = castsShadow
+        self.veilTakesThemeTint = veilTakesThemeTint
     }
 
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.cornerDepth == rhs.cornerDepth && lhs.darkVeilAlpha == rhs.darkVeilAlpha
             && lhs.lightVeilAlpha == rhs.lightVeilAlpha && lhs.darkRim == rhs.darkRim
             && lhs.lightRim == rhs.lightRim && lhs.castsShadow == rhs.castsShadow
+            && lhs.veilTakesThemeTint == rhs.veilTakesThemeTint
     }
 
     // The roles' looks (`toast`, `dialog`, `card`) are in SurfaceRole.swift, which follows

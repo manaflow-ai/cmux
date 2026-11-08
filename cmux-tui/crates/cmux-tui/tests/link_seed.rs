@@ -269,6 +269,47 @@ fn a_full_seed_then_deltas_carry_the_working_state() {
 }
 
 #[test]
+fn a_stash_only_delta_moves_both_creation_and_deletion_without_touching_work() {
+    let w = World::new(Serves::Seed);
+    let remote = w.remote("widget");
+    let (ok, first, _) = w.push(&w.work, &remote, false);
+    assert!(ok && first["mode"] == "seed", "{first}");
+
+    // Neither HEAD, index, nor worktree changes: only refs/stash does.
+    write(&w.work.join("README.md"), "stashed on the mac\n");
+    git(&w.work, &["stash", "push", "-q", "-m", "move-me"]);
+    let stash = git(&w.work, &["rev-parse", "refs/stash"]);
+    let (ok, delta, _) = w.push(&w.work, &remote, true);
+    assert!(ok && delta["mode"] == "delta" && delta["unchanged"] == false, "{delta}");
+    assert!(delta["bundle_bytes"].as_u64().unwrap() > 0, "{delta}");
+    assert_eq!(git(&remote, &["rev-parse", "refs/stash"]), stash);
+    let (ok, stable, _) = w.push(&w.work, &remote, true);
+    assert!(ok && stable["unchanged"] == true && stable["bundle_bytes"] == 0, "{stable}");
+
+    // Stash deletion also needs a bundle, even though Git has no new object
+    // after the deletion. The synthetic marker is transient on the machine.
+    git(&w.work, &["update-ref", "-d", "refs/stash"]);
+    let (ok, removed, _) = w.push(&w.work, &remote, true);
+    assert!(ok && removed["unchanged"] == false, "{removed}");
+    assert!(removed["bundle_bytes"].as_u64().unwrap() > 0, "{removed}");
+    let ref_exists = |name: &str| {
+        Command::new("git")
+            .arg("-C")
+            .arg(&remote)
+            .args(["show-ref", "--verify", "--quiet", name])
+            .status()
+            .unwrap()
+            .success()
+    };
+    assert!(!ref_exists("refs/stash"), "the Cloud machine kept a removed stash");
+    assert!(!ref_exists("refs/cmux-seed-incoming/stash-cleared"), "the marker was retained");
+    assert_eq!(git(&remote, &["rev-parse", "HEAD"]), git(&w.work, &["rev-parse", "HEAD"]));
+    assert_eq!(std::fs::read(remote.join("README.md")).unwrap(), b"widget\n");
+    let (ok, stable, _) = w.push(&w.work, &remote, true);
+    assert!(ok && stable["unchanged"] == true && stable["bundle_bytes"] == 0, "{stable}");
+}
+
+#[test]
 fn since_last_never_copies_and_says_why() {
     let w = World::new(Serves::Seed);
     let remote = w.remote("widget");

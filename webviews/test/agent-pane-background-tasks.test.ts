@@ -342,7 +342,7 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
 
   type Page = Awaited<ReturnType<typeof recordingPage>>;
   /// Where the chat lists its background tasks: Session Info's section (the App pushes Debug
-  /// Settings `agent.sessionInfo` with the header state; Session Info opens by default), or, with it
+  /// Settings `agent.sessionInfo` with the header state; its toggle opens it), or, with it
   /// off, the summary card's under the header's Chat summary.
   const surfaces = {
     inspector: {
@@ -352,6 +352,10 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
             window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
           ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
         );
+        // A new chat starts with Session Info closed (#37576): the person opens it.
+        const toggle = page.locator("button.acpmux-session-info-toggle");
+        await toggle.waitFor({ timeout: 5_000 });
+        if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click();
         const section = page.locator('aside.acpmux-session-info section[data-section="tasks"]');
         await section.waitFor({ timeout: 5_000 });
         return section;

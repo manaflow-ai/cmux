@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSpinner
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -15,6 +16,8 @@ final class HomePictureViewer: NSView {
     /// What a key does in the viewer (``handle(_:)``; `keyDown` maps the real keys to it).
     enum Key: Equatable, Sendable {
         case left, right, escape, compare, undo, zoomIn, zoomOut, fit
+        /// The row above or below in the comparison ("Light" ↔ "Dark").
+        case up, down
     }
 
     typealias Load = @MainActor (HomePictureGallery.Item) async -> CGImage?
@@ -41,12 +44,24 @@ final class HomePictureViewer: NSView {
     private let titleLabel = NSTextField(labelWithString: "")
     private let counterLabel = NSTextField(labelWithString: "")
     private let status = NSTextField(labelWithString: "")
-    private let spinner = NSProgressIndicator(frame: .zero)
+    private let spinner = CmuxSpinnerView(side: 32)
     private let closeButton = NSButton(frame: .zero)
     private let previousButton = NSButton(frame: .zero)
     private let nextButton = NSButton(frame: .zero)
     private let bar = NSVisualEffectView(frame: .zero)
     private let tools = NSSegmentedControl(frame: .zero)
+    /// The comparison's rows ("Light | Dark"), when the gallery's rows have labels.
+    private let rowSwitch = NSSegmentedControl(frame: .zero)
+    private var rowSwitchRows: [Int] = []
+    /// The opening's matched geometry: the thumbnail clicked and its frame in this view (``present(from:thumbnail:)``).
+    private var origin: (rect: CGRect, image: CGImage, index: Int)?
+    /// Whether Reduce Motion is on (tests pass a fixed answer): the viewer then opens and closes at once.
+    var reduceMotion: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    /// The open and close's length, seconds.
+    static let openDuration: CFTimeInterval = 0.3
+    static let closeDuration: CFTimeInterval = 0.22
+    /// Ease out, quick start and a long settle (the open's motion).
+    static let easeOut = CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
     private var barButtons: [NSButton] = []
     private var compareButton: NSButton?
     private var undoButton: NSButton?
@@ -92,9 +107,6 @@ final class HomePictureViewer: NSView {
         counterLabel.textColor = NSColor.white.withAlphaComponent(0.7)
         status.alignment = .center
         status.textColor = NSColor.white.withAlphaComponent(0.75)
-        spinner.style = .spinning
-        spinner.controlSize = .regular
-        spinner.isDisplayedWhenStopped = false
         spinner.appearance = NSAppearance(named: .darkAqua)
 
         Self.style(closeButton, symbol: "xmark.circle.fill", label: CmuxStrings.closePictureViewer, size: 20)
@@ -143,12 +155,27 @@ final class HomePictureViewer: NSView {
                       barButton("arrowshape.turn.up.left.fill", CmuxStrings.pictureReply, #selector(replyClicked))]
         for b in barButtons { bar.addSubview(b) }
 
-        for v in [backdrop, dim, scroll, compare, status, spinner, titleLabel, counterLabel, previousButton, nextButton, bar, closeButton] as [NSView] {
+        rowSwitchRows = gallery.labeledRows
+        rowSwitch.segmentCount = rowSwitchRows.count
+        rowSwitch.trackingMode = .selectOne
+        rowSwitch.segmentStyle = .capsule
+        rowSwitch.appearance = NSAppearance(named: .vibrantDark)
+        for (i, row) in rowSwitchRows.enumerated() {
+            rowSwitch.setLabel(gallery.rowLabels[row] ?? "", forSegment: i)
+            rowSwitch.setWidth(0, forSegment: i)
+        }
+        rowSwitch.target = self
+        rowSwitch.action = #selector(rowSwitched)
+        rowSwitch.setAccessibilityLabel(CmuxStrings.pictureRowSwitch)
+        rowSwitch.isHidden = true
+
+        for v in [backdrop, dim, scroll, compare, status, spinner, titleLabel, counterLabel, previousButton, nextButton, bar, rowSwitch, closeButton] as [NSView] {
             addSubview(v)
         }
         setAccessibilityRole(.group)
         setAccessibilityLabel(CmuxStrings.pictureViewer)
         show()
+        if gallery.opensComparing { setComparing(true) }
     }
     required init?(coder: NSCoder) { fatalError() }
 
@@ -199,6 +226,7 @@ final class HomePictureViewer: NSView {
         }
         refreshStatus()
         if isComparing { showCompare() }
+        if let at = rowSwitchRows.firstIndex(of: item?.row ?? -1) { rowSwitch.selectedSegment = at }
         loadMissing()
         needsLayout = true
     }
@@ -272,6 +300,9 @@ final class HomePictureViewer: NSView {
         compare.isHidden = !isComparing
         scroll.isHidden = isComparing
         tools.isEnabled = !isComparing
+        rowSwitch.isHidden = !isComparing || rowSwitchRows.count < 2
+        // The switch takes room in the top bar: the title's space changes with it.
+        needsLayout = true
         if isComparing { showCompare() }
         compareButton?.state = isComparing ? .on : .off
         compareButton?.contentTintColor = isComparing ? .controlAccentColor : NSColor.white.withAlphaComponent(0.85)
@@ -281,14 +312,21 @@ final class HomePictureViewer: NSView {
         super.layout()
         backdrop.frame = bounds
         dim.frame = bounds
-        let top: CGFloat = 44, bottom: CGFloat = 64, side: CGFloat = gallery.items.count > 1 ? 56 : 20
+        let top = HomePictureViewerTopBar.height, bottom: CGFloat = 64, side: CGFloat = gallery.items.count > 1 ? 56 : 20
         let area = CGRect(x: side, y: top, width: max(0, bounds.width - 2 * side), height: max(0, bounds.height - top - bottom))
         scroll.frame = area
         compare.frame = area
-        titleLabel.frame = CGRect(x: 16, y: 14, width: max(0, bounds.width - 180), height: 18)
-        counterLabel.frame = CGRect(x: bounds.maxX - 150, y: 15, width: 100, height: 16)
+        let topBar = HomePictureViewerTopBar(
+            width: bounds.width,
+            titleWidth: naturalWidth(titleLabel),
+            center: rowSwitch.isHidden ? .zero : rowSwitch.fittingSize,
+            counterWidth: naturalWidth(counterLabel),
+            avoiding: topBarObstacles)
+        titleLabel.frame = topBar.title
+        rowSwitch.frame = topBar.center
+        counterLabel.frame = topBar.counter
         counterLabel.alignment = .right
-        closeButton.frame = CGRect(x: bounds.maxX - 38, y: 10, width: 26, height: 26)
+        closeButton.frame = topBar.close
         previousButton.frame = CGRect(x: 12, y: bounds.midY - 18, width: 36, height: 36)
         nextButton.frame = CGRect(x: bounds.maxX - 48, y: bounds.midY - 18, width: 36, height: 36)
         spinner.frame = CGRect(x: bounds.midX - 16, y: bounds.midY - 16, width: 32, height: 32)
@@ -308,6 +346,35 @@ final class HomePictureViewer: NSView {
         }
     }
 
+    /// The width `label` needs for its whole text, with the label cell's 2-point side insets (0 when empty). Not the
+    /// intrinsic width: a truncating label's follows its current frame, so a short frame kept it short ("Ligh…After").
+    private func naturalWidth(_ label: NSTextField) -> CGFloat {
+        guard !label.stringValue.isEmpty else { return 0 }
+        return max(label.cell?.cellSize.width ?? 0, label.attributedStringValue.size().width + 4).rounded(.up)
+    }
+
+    /// Controls the pane floats over the viewer's top bar, in the viewer's coordinates: visible views drawn above
+    /// it (the Home chat column's round compose button is the chat's sibling, above it) and the window's traffic
+    /// lights, where they reach into the bar. A view half the viewer's width or wider is an overlay, not a control.
+    private var topBarObstacles: [CGRect] {
+        let band = CGRect(x: 0, y: 0, width: bounds.width, height: HomePictureViewerTopBar.height)
+        var found: [CGRect] = []
+        var child: NSView = self
+        while let parent = child.superview, child !== window?.contentView {
+            for view in parent.subviews.drop(while: { $0 !== child }).dropFirst() where !view.isHidden && view.alphaValue > 0 {
+                let rect = convert(view.bounds, from: view)
+                if rect.intersects(band), rect.width < bounds.width / 2 { found.append(rect) }
+            }
+            child = parent
+        }
+        for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = window?.standardWindowButton(kind), !button.isHiddenOrHasHiddenAncestor else { continue }
+            let rect = convert(button.bounds, from: button)
+            if rect.intersects(band) { found.append(rect) }
+        }
+        return found
+    }
+
     // MARK: Keys
 
     /// Does what `key` does in the viewer; false when it does nothing here.
@@ -325,6 +392,10 @@ final class HomePictureViewer: NSView {
             gallery = next
             show()
         case .compare: setComparing(!isComparing)
+        case .up, .down:
+            guard let row = gallery.current?.row, let at = rowSwitchRows.firstIndex(of: row),
+                  let target = rowSwitchRows[checked: at + (key == .up ? -1 : 1)] else { return false }
+            showRow(target)
         case .undo:
             var markup = markups[gallery.index] ?? HomePictureMarkup()
             markup.undo()
@@ -344,6 +415,8 @@ final class HomePictureViewer: NSView {
         case (53, _): .escape
         case (123, _): .left
         case (124, _): .right
+        case (126, _) where isComparing: .up
+        case (125, _) where isComparing: .down
         case (_, "z") where command: .undo
         case (_, "="), (_, "+"): command ? .zoomIn : nil
         case (_, "-") where command: .zoomOut
@@ -425,6 +498,26 @@ final class HomePictureViewer: NSView {
         endText(commit: true)
     }
     @objc private func undoClicked() { handle(.undo) }
+    @objc private func rowSwitched() {
+        guard let row = rowSwitchRows[checked: rowSwitch.selectedSegment] else { return }
+        showRow(row)
+    }
+
+    /// Shows row `row`'s picture in the same column (the comparison's Light | Dark switch).
+    private func showRow(_ row: Int) {
+        let next = gallery.moved(toRow: row)
+        guard next.index != gallery.index else { return }
+        endText(commit: true)
+        gallery = next
+        // The pair changes in place: a quick crossfade, none with Reduce Motion.
+        if !reduceMotion(), let layer = compare.layer ?? scroll.layer {
+            let fade = CATransition()
+            fade.type = .fade
+            fade.duration = 0.16
+            layer.add(fade, forKey: "row")
+        }
+        show()
+    }
     @objc private func compareClicked() { handle(.compare) }
     @objc private func previousClicked() { handle(.left) }
     @objc private func nextClicked() { handle(.right) }
@@ -451,16 +544,120 @@ final class HomePictureViewer: NSView {
         }
     }
 
+    /// The viewer closed (it may still be fading out over the pane).
+    var isClosed: Bool { closed }
+
+    /// A closing viewer takes no clicks: the chat under it has them again.
+    override func hitTest(_ point: NSPoint) -> NSView? { closed ? nil : super.hitTest(point) }
+
+    /// Opens from the thumbnail clicked: `image` at `rect` (in this view) grows into the viewer's picture while
+    /// the pane dims, and closing shrinks it back there (matched geometry). With Reduce Motion it is at once.
+    func present(from rect: CGRect, thumbnail image: CGImage) {
+        origin = (rect, image, gallery.index)
+        guard !reduceMotion(), rect.width > 0, rect.height > 0 else { return }
+        layoutSubtreeIfNeeded()
+        let chrome = subviews.filter { $0 !== backdrop && $0 !== dim }
+        for v in chrome { v.alphaValue = 0 }
+        backdrop.alphaValue = 0
+        dim.alphaValue = 0
+        let ghost = Self.ghost(image, frame: rect)
+        layer?.addSublayer(ghost)
+        let target = Self.fitted(CGSize(width: image.width, height: image.height), in: isComparing ? compare.frame : scroll.frame)
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(Self.openDuration)
+        CATransaction.setAnimationTimingFunction(Self.easeOut)
+        // The block runs on the main thread, in this main-actor method's isolation: the ghost goes once the real
+        // picture shows.
+        CATransaction.setCompletionBlock { [weak self] in
+            ghost.removeFromSuperlayer()
+            guard let self, !self.closed else { return }
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.12
+                for v in chrome { v.animator().alphaValue = 1 }
+            }
+        }
+        Self.move(ghost, from: rect, to: target)
+        CATransaction.commit()
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = Self.openDuration * 0.8
+            backdrop.animator().alphaValue = 1
+            dim.animator().alphaValue = 1
+        }
+    }
+
+    /// `size` scaled to fit `area`, centred.
+    static func fitted(_ size: CGSize, in area: CGRect) -> CGRect {
+        guard size.width > 0, size.height > 0, area.width > 0, area.height > 0 else { return area }
+        let scale = min(area.width / size.width, area.height / size.height)
+        let w = (size.width * scale).rounded(), h = (size.height * scale).rounded()
+        return CGRect(x: (area.midX - w / 2).rounded(), y: (area.midY - h / 2).rounded(), width: w, height: h)
+    }
+
+    private static func ghost(_ image: CGImage, frame: CGRect) -> CALayer {
+        let ghost = CALayer()
+        ghost.contents = image
+        ghost.contentsGravity = .resizeAspect
+        ghost.frame = frame
+        ghost.cornerRadius = 8
+        ghost.masksToBounds = true
+        ghost.zPosition = 10
+        ghost.actions = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "frame": NSNull()]
+        return ghost
+    }
+
+    /// Moves `layer` from `from` to `to` (its model takes `to` now) with an explicit animation, in the current
+    /// transaction's duration and timing (so the transaction's completion waits for it).
+    private static func move(_ layer: CALayer, from: CGRect, to: CGRect) {
+        layer.frame = to
+        let bounds = CABasicAnimation(keyPath: "bounds")
+        bounds.fromValue = NSValue(rect: CGRect(origin: .zero, size: from.size))
+        bounds.toValue = NSValue(rect: CGRect(origin: .zero, size: to.size))
+        let position = CABasicAnimation(keyPath: "position")
+        position.fromValue = NSValue(point: CGPoint(x: from.midX, y: from.midY))
+        position.toValue = NSValue(point: CGPoint(x: to.midX, y: to.midY))
+        let group = CAAnimationGroup()
+        group.animations = [bounds, position]
+        group.duration = CATransaction.animationDuration()
+        group.timingFunction = CATransaction.animationTimingFunction()
+        layer.add(group, forKey: "move")
+    }
+
     func close() {
         guard !closed else { return }
         closed = true
         loading?.cancel()
         textField?.removeFromSuperview()
         textField = nil
-        removeFromSuperview()
         let done = onClose
         onClose = {}
-        done()
+        defer { done() }
+        guard !reduceMotion(), window != nil, superview != nil else { removeFromSuperview(); return }
+        // The picture shrinks back into its thumbnail when it is still the one opened, and the viewer fades; one
+        // transaction, whose completion (on the main thread) takes the viewer off the pane.
+        let chrome = subviews.filter { $0 !== backdrop && $0 !== dim }
+        var ghost: CALayer?
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(Self.closeDuration)
+        CATransaction.setAnimationTimingFunction(Self.easeOut)
+        CATransaction.setCompletionBlock { [weak self] in
+            ghost?.removeFromSuperlayer()
+            self?.removeFromSuperview()
+        }
+        if let origin, origin.index == gallery.index {
+            let from = Self.fitted(CGSize(width: origin.image.width, height: origin.image.height), in: isComparing ? compare.frame : scroll.frame)
+            let layer = Self.ghost(origin.image, frame: from)
+            self.layer?.addSublayer(layer)
+            for v in chrome { v.alphaValue = 0 }
+            Self.move(layer, from: from, to: origin.rect)
+            ghost = layer
+        }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 1
+        fade.toValue = 0
+        fade.fillMode = .forwards
+        fade.isRemovedOnCompletion = false
+        for v in [backdrop, dim] + (ghost == nil ? chrome : []) { v.layer?.add(fade, forKey: "close") }
+        CATransaction.commit()
     }
 }
 

@@ -59,7 +59,7 @@ extension SidebarListViewComponents {
             payload = .item(item)
             hidden = [press.key]
             origin = .position(DropPosition(section: row.section, group: row.group, index: row.siblingIndex)) // a group's member item: inside it
-        case .section, .emptySection, .emptyGroup, .folder, .block, .doneFold, .showMore, .status:
+        case .section, .emptySection, .emptyGroup, .folder, .block, .doneFold, .showMore, .status, .listHeader:
             return
         }
         // A group lifts as one block: its header and the member rows under it (cx-bp40).
@@ -97,8 +97,10 @@ extension SidebarListViewComponents {
         suppressed.formUnion(hidden)
         setHovered(nil)
         for key in hidden { rowViews[key]?.alphaValue = 0 }
+        SidebarEmptyZones.keepPinned(self, drag)
         // The source slot closes on the drag's spring; the list does not reload while the drag is held.
         showDragLayout()
+        SidebarEmptyZones.begin(self, drag)
     }
     func updateDrag(windowPoint: NSPoint) {
         guard let drag else { return }
@@ -119,16 +121,38 @@ extension SidebarListViewComponents {
             drag.movingUp = point.y < drag.lastY
             drag.lastY = point.y
         }
+        SidebarEmptyZones.update(self, drag, at: point)
         if drag.group != nil { return updateGroupDrag(drag) }
         if drag.docItems != nil { return updateDocDrag(drag, point: point) }
-        let sections = listSections // the held rows as shown (`SidebarRowHold`)
-        let base = SidebarLayout.make(sections: sections, metrics: metrics, options: options(includeGap: false))
-        let resolved = drag.resolve(card: card, displayed: displayed, base: base, sections: sections, ungroupedFirst: model.ungroupedFirst)
+        let (base, rules) = dragBase(drag)
+        let resolved = drag.resolve(card: card, displayed: displayed, base: base, rules: rules)
         guard let target = SidebarGroupDrop.gate(self, drag, card: card, resolved: resolved) else { return }
         guard target != drag.target else { return }
         drag.target = target
         drag.lift.setRefused(target == nil)
         showDragLayout()
+    }
+    /// The drag's base layout (no gap) and its drop rules in the Rust reducer, made again only when the rows or their
+    /// look change: a move builds no options, lays out nothing and crosses into Rust with the card's points only, so its
+    /// cost does not grow with the rows the list holds (`SidebarDragMoveCostTests`, `SidebarDragFullMoveCostTests`). The rows are the held ones as shown (`SidebarRowHold`).
+    func dragBase(_ drag: Drag) -> (layout: SidebarLayout, rules: DropResolver.DragRules?) {
+        let key = dragBaseKey(drag)
+        if let base = drag.base, base.key == key { return (base.layout, base.rules) }
+        let sections = listSections
+        let o = options(includeGap: false)
+        let layout = SidebarLayout.make(sections: sections, metrics: metrics, options: o)
+        let rules = DropResolver.DragRules(payload: drag.payload, base: layout, sections: sections, ungroupedFirst: model.ungroupedFirst)
+        var look: SidebarDragLook?
+        if case let .workspaces(ids) = drag.payload {
+            look = SidebarDragLook(base: layout, sections: sections, options: SidebarDragLook.shown(o, leaving: leaving), moving: ids)
+        }
+        drag.base = (key, layout, rules, look)
+        return (layout, rules)
+    }
+    /// What the drag's base is made from now: while it equals the base's key, the base and its look hold.
+    func dragBaseKey(_ drag: Drag) -> SidebarDragBaseKey {
+        SidebarDragBaseKey(content: model.contentRevision, reloads: reloads, width: bounds.width, metrics: metrics,
+                           ungroupedFirst: model.ungroupedFirst, openZone: drag.openZone)
     }
     func finishDrag(at windowPoint: NSPoint? = nil) {
         guard let drag else { return }
@@ -491,9 +515,11 @@ extension SidebarListViewComponents {
     func showDragLayout() {
         let layout = displayLayout()
         displayed = layout
+        spliceBase = nil // the drag's look is no full layout of the model
         updateDocumentHeight()
         let realize = realizationRect()
-        for row in layout.rows {
+        for i in dragLookRows(layout, realize: realize) {
+            let row = layout.rows[i]
             let target = frame(for: row)
             guard let view = rowViews[row.key] else {
                 // A row the look adds (an empty Pinned that takes the drop) fades in at its slot.
@@ -544,6 +570,21 @@ extension SidebarListViewComponents {
         let lines = groupLineViews.update(groupLines(layout), from: groupLines(layout, current: true), in: self, above: decorations, animated: true)
         SidebarDragSpring.move(lines.springs, in: self)
         Motion.sidebar.animate(.move, in: self, { lines.changes() }, completion: { [leaving = lines.leaving] in leaving.forEach { $0.removeFromSuperview() } })
+    }
+
+    /// The rows a drag look moves, in layout order: the rows with a view and the rows the realization rect reaches
+    /// (found from the rows at or above its top: the rows are in y order and do not overlap). The other rows have no
+    /// view and get none, so a retarget costs the rows on screen, not every row the list holds.
+    func dragLookRows(_ layout: SidebarLayout, realize: NSRect) -> [Int] {
+        var rows = Set(rowViews.keys.compactMap { layout.position(of: $0) })
+        if !realize.isNull {
+            var i = layout.lastIndex(startingAtOrBefore: realize.minY) ?? 0
+            while i < layout.rows.count, layout.rows[i].y < realize.maxY {
+                rows.insert(i)
+                i += 1
+            }
+        }
+        return rows.sorted()
     }
 
     /// How far in the held drag's gap starts: the x of the rows of the group its drop joins (`SidebarIndent`).

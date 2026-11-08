@@ -10,7 +10,7 @@
 //! goes to `journal-unapplied/`. `session_dir` and `flush_session`, which hand the folder to such
 //! code or make it durable, first write the chat's image (`settle_meta`).
 //!
-//! A run without the journal (the switch off after a catch-up that failed, or an older build) can
+//! A run without the journal (an older build) can
 //! write `session.json` after the journal's records (review of #35483, F1). Every write of the
 //! store's own carries `journalLsn` and the journal's id (`journalId`): an LSN means something
 //! only in the journal that gave it, and a chat folder can come from another home's journal
@@ -348,8 +348,10 @@ impl super::repair::Replay {
 
 impl Inner {
     /// `Store::save` with the journal: the `meta` record and the overlay, no file written
-    /// ([module docs](self)).
-    pub(super) fn save_meta(&self, meta: &SessionMeta) -> Result<()> {
+    /// ([module docs](self)). A kept change's record (`keep`, `super::durability`) is a `Stream`
+    /// record, except the save that makes the chat's folder: a new chat is shown only once
+    /// durable ([`super::new_folders`]).
+    pub(super) fn save_meta(&self, meta: &SessionMeta, keep: ShowAfter) -> Result<()> {
         let image = serde_json::to_vec(meta)?;
         let dir = self.local.dir(&meta.id);
         // The file there now, stamped before the appends' lock: only the store's own writes
@@ -372,14 +374,21 @@ impl Inner {
         // A folder made now holds no `session.json`.
         let saw = if made { None } else { saw };
         let payload = encode_meta(&meta.id, folder, saw, &image);
+        let kept = keep == ShowAfter::Written && !made;
+        // A kept record is a `Stream` record synced in the journal's idle time, so the next acked
+        // change (a prompt) does not sync a burst of drafts in its own turn.
         let append = || {
-            self.journal
-                .append(KIND_META, Class::Ack, &payload)
-                .map_err(JournalStore::journal_error)
+            if kept {
+                self.journal.append_kept(KIND_META, &payload)
+            } else {
+                self.journal.append(KIND_META, Class::Ack, &payload)
+            }
+            .map_err(JournalStore::journal_error)
         };
         // A new folder's record is held back from the gate until the folder's entry is synced.
         let lsn = if made { self.new_folders.append_made(append)? } else { append()? };
-        self.acked.store(lsn, std::sync::atomic::Ordering::SeqCst);
+        let shown = if kept { &self.kept } else { &self.acked };
+        shown.store(lsn, std::sync::atomic::Ordering::SeqCst);
         order.applied = lsn;
         order.bytes = order.bytes.saturating_add(u64::try_from(payload.len()).unwrap_or(u64::MAX));
         order.metas.insert(meta.id.clone(), Pending { lsn, meta: meta.clone(), folder });
@@ -466,10 +475,18 @@ impl Inner {
     /// #35483: a settle that read its image before a checkpoint wrote a newer one). A failed sync
     /// freezes the checkpoint, as a failed log sync does (F3).
     fn write_through(&self, id: &str, pending: &Pending) -> Result<()> {
-        // Against a delete's removal of the folder (`Store::delete` drops the entry first).
+        // Against a delete's removal of the folder (`Store::delete` drops the entry first), and
+        // against the seal (`Inner::last_checkpoint`).
         let _folder = self.folders.lock_or_recover();
+        let current = {
+            let order = self.order.lock_or_recover();
+            // Sealed: the home is the next daemon's, whose open applies the journaled image.
+            if order.sealed {
+                return Ok(());
+            }
+            order.metas.get(id).map(|now| now.folder)
+        };
         // Deleted since, or deleted and made again in another folder: nothing of this image.
-        let current = self.order.lock_or_recover().metas.get(id).map(|now| now.folder);
         if current != Some(pending.folder) {
             return Ok(());
         }
@@ -528,7 +545,7 @@ impl Inner {
                         Ok(SessionFile::Journaled(_) | SessionFile::Missing) => None,
                         Ok(SessionFile::Plain(stamp)) if replayed.saw.contains(&stamp) => None,
                         Ok(SessionFile::Plain(_)) => Some(
-                            "its session.json changed without this journal since (a run with store.journal off, an older build, or another journal)",
+                            "its session.json changed without this journal since (an older build, or another journal)",
                         ),
                         Err(_) => Some("its session.json does not read"),
                     }

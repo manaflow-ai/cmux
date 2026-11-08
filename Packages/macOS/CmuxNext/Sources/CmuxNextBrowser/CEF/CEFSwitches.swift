@@ -82,6 +82,13 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // the check per renderer only (a renderer with a DevTools agent is never shared), so one
         // agent does not end sharing everywhere (fork API 29; tab-lifecycle.md "Renderer sharing").
         if rendererPaths { result.append(Self.processReusePerRendererDevTools) }
+        // Every agent chat is the same first-party page (cmux-page://cmux.agent/), and Chromium's
+        // process-per-site-instance gave each its own renderer: 100 idle chats held 107 renderers,
+        // 17.5 GB of footprint and 30% CPU. The same-site main-frame sharing above never applies to
+        // these pages (threshold 8 changed nothing). The fork gives the named schemes one renderer
+        // per site, as Chrome gives its NTP (process-per-site for all sites in the same bench: 6
+        // renderers, 6.6 GB, 7.3%); web pages keep Chrome's model. Older forks ignore the switch.
+        result.append(Self.processPerSitePageSchemes)
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
         // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
@@ -145,6 +152,10 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// (removed in Chromium 154, kPrivacySandboxAdPrivacyUxDeprecation).
     /// The fork's switch for per-renderer DevTools checks in main-frame process reuse (fork API 29).
     static let processReusePerRendererDevTools = "cmux-process-reuse-per-renderer-devtools"
+
+    /// The fork's switch: one renderer per site for cmux's first-party page scheme
+    /// (`PageDescriptor.scheme`; `cmux-process-per-site-schemes`, chrome_content_browser_client_cef.cc).
+    static let processPerSitePageSchemes = "cmux-process-per-site-schemes=cmux-page"
 
     static let chromePromptOffSwitches = [
         "no-first-run",

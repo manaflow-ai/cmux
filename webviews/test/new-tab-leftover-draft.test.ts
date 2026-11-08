@@ -2,7 +2,7 @@
 // next New Tab page as an editable draft: the host hands it once with the page's context
 // (`newTab.draft`), and nothing sends it.
 import { expect, test } from "bun:test";
-import { newTabHost } from "../src/agent-session/acpmux/NewTabPage";
+import { newTabHost } from "../src/agent-session/acpmux/newTabModel";
 
 test("the New Tab page reads the draft a new chat left in its window", () => {
   const host = newTabHost({ newTab: { layout: "b", kind: "agent", draft: "left in a new chat" } })!;

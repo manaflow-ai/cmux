@@ -108,11 +108,6 @@ const failed = bash(
       'Exit code 4\nacpmux: no_session: no session matches "perf-lane"; run `acpmux ls` or `acpmux ensure perf-lane`',
   },
 );
-const running = bash(
-  `acpmux send coord-deputy '${REPORT}'`,
-  "Report merge to coord-deputy and wait for the reply",
-  "in_progress",
-);
 
 /// A cmux-subsessions `send_message` (Claude Code's shape): the same row.
 const subsessionSend = tool("mcp__cmux-subsessions__send_message", "other", "completed", {
@@ -179,19 +174,19 @@ const openTurn: Play = async (ctx) => {
   // Adjacent sends are one closed group ("Sent 7 messages", SentMessageLine.tsx `SentMessageGroup`).
   const groupHead = ".cv-sent-group .cv-message-group__head";
   const group = () => ctx.document.querySelector(groupHead);
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent") ?? run() ?? group());
-  if (!ctx.document.querySelector(".cv-sent") && run()?.getAttribute("aria-expanded") === "false")
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg") ?? run() ?? group());
+  if (!ctx.document.querySelector(".cv-sent-msg") && run()?.getAttribute("aria-expanded") === "false")
     await ctx.click({ selector: "button[data-message-run]" });
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent") ?? group());
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg") ?? group());
   if (group()?.getAttribute("aria-expanded") === "false") await ctx.click({ selector: groupHead });
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent"));
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg"));
 };
 
 /// Opens the turn, then its first sent row.
 const openFirst: Play = async (ctx) => {
   await openTurn(ctx);
-  await ctx.click({ selector: ".cv-sent" });
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-md"));
+  await ctx.click({ selector: ".cv-sent-msg .cv-disclosure__toggle" });
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg .cv-received__text .cv-md"));
 };
 
 export default agentPaneEntry({
@@ -214,9 +209,11 @@ export default agentPaneEntry({
         // Trusted clicks settle before the next step, so Raw is clicked where it rests. The message's
         // first line toggles the row, on the row (one line, #34464) or under it (stacked, #33249).
         await ctx.click({ text: /^net-retries: done$/ });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-md h2"));
-        await ctx.click({ selector: ".cv-subsession__under .cv-subsession__toggle" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-shell"));
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg .cv-received__text .cv-md h2"));
+        await ctx.click({ selector: ".cv-sent-msg .cv-sent__raw > .cv-received__more" });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".cv-sent-msg :is(.cv-sent__raw, .cv-sent__call) [data-tool-id]"),
+        );
       },
     },
     "recorded-file": {
@@ -224,8 +221,8 @@ export default agentPaneEntry({
       snapshot: recordedFile(),
       play: async (ctx) => {
         await openTurn(ctx);
-        await ctx.click({ selector: ".cv-sent" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-md h2"));
+        await ctx.click({ selector: ".cv-sent-msg .cv-disclosure__toggle" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg .cv-received__text .cv-md h2"));
       },
     },
     "written-file": {
@@ -233,8 +230,8 @@ export default agentPaneEntry({
       snapshot: writtenFile(),
       play: async (ctx) => {
         await openTurn(ctx);
-        await ctx.click({ selector: ".cv-sent" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-md h2"));
+        await ctx.click({ selector: ".cv-sent-msg .cv-disclosure__toggle" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg .cv-received__text .cv-md h2"));
       },
     },
     failed: {
@@ -251,14 +248,6 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await openFirst(ctx);
       },
-    },
-    "running-row": {
-      note: "A send that waits for the reply, in flight, with the Codex-style runs off: its own row, with the working spinner (with them on, the live line names it: agent-pane.sending-line).",
-      theme: { codexToolRuns: false },
-      snapshot: chat([user("Report the merge and wait for the deputy's answer.", 1), activity([running], 0.8)], {
-        title: "net-retries",
-        isWorking: true,
-      }),
     },
     "look-arrow": {
       note: "Gallery version: #24977's arrow line, → coord-deputy: <first line> (theme sentLook arrow).",

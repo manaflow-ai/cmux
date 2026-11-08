@@ -73,7 +73,14 @@ extension CEFTab {
         // A page detached for a resize motion (fork API 30) has no window on screen: a grant now moves no keys, and
         // typed keys reach no view. It gets its window back first; the window is a child of this window again only
         // after the next commit, so the grant waits for that commit. Every grant path comes here.
-        if host.hostView.layerHosting.pageTakesFocus() {
+        // A page shown in a recent turn waits for its first frame out of the window (`CEFLayerHosting.firstFrameHold`):
+        // the ask is kept and the hold's end grants it, so nothing re-arms a grant each pass meanwhile.
+        let hosting = host.hostView.layerHosting
+        if hosting.holdsFirstFrame() {
+            pendingFocus = true
+            return
+        }
+        if hosting.pageTakesFocus() {
             pendingFocus = true
             AfterFrameCommit().run { [weak self] in self?.grantPendingFocusIfShown() }
             return

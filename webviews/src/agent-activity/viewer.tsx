@@ -313,7 +313,7 @@ export function FrameDialog({
         if (!open) dispatch({ type: "close" });
       }}
       label={`${session.agentName} · ${session.label}`}
-      className="ui-glass activity-viewer-dialog"
+      className="ui-glass ui-glass-floats activity-viewer-dialog"
     >
       <header className="activity-viewer-title">
         <span className="dot" style={{ background: session.colorHex }} />

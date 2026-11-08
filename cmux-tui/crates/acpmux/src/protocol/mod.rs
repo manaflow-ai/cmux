@@ -278,6 +278,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TAG, Request),
         untyped(method::MUX_DETACH_PARENT, Request),
         untyped(method::MUX_INFO, Request),
+        untyped(method::MUX_MACHINE_INFO, Request),
         untyped(method::MUX_SESSION_FILES, Request),
         request::<events::EventsParams, events::EventsResult>(method::MUX_EVENTS),
         keyed::<params::AttachmentParams>(method::MUX_ATTACHMENT, Request),
@@ -360,6 +361,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SECRET_REQUEST, Request),
         keyed::<params::SecretSubmitParams>(method::MUX_SECRET_SUBMIT, Request),
         untyped(method::MUX_SECRET_RUN, Request),
+        untyped(method::MUX_ELEVATION_REQUEST, Request),
         untyped(method::MUX_MCP_CONNECT_REQUEST, Request),
         untyped(method::MUX_MCP_CONNECT_ANSWER, Request),
         // Chats (`server/chats.rs`).

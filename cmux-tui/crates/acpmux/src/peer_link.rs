@@ -23,11 +23,15 @@ pub struct LinkTimings {
     // timeout: a peer that never completes its handshake is not usable; the link retries while
     // the socket remains open and this is the long hazard bound for a wedged handshake.
     pub handshake: Duration,
-    /// A ping goes out this often; any frame from the peer counts as an answer.
+    /// A ping goes out this often; any byte from the peer counts as an answer.
     pub ping_every: Duration,
-    /// The link is dropped after this many intervals without a frame, and a
-    /// send that cannot go out for as long.
+    /// The link is dropped after this many intervals without a byte from the peer.
     pub ping_misses: u32,
+    /// The link is dropped when one send cannot go out for this long (a peer that stops
+    /// reading). Longer than the silence budget: a large frame on a slow uplink takes a while.
+    // timeout: a peer that never reads would hold every queued write; a dead transport is
+    // detected sooner by the silence budget.
+    pub send: Duration,
     /// A link that stayed ready this long starts its next backoff over.
     pub stable_after: Duration,
     /// How long one request waits for the peer's answer.
@@ -51,8 +55,12 @@ impl Default for LinkTimings {
         Self {
             connect: Duration::from_secs(30),
             handshake: Duration::from_secs(90),
-            ping_every: Duration::from_secs(20),
-            ping_misses: 4,
+            // A dead link (a dropped network, a computer that slept) is found within 6 to 8 s,
+            // not 80, so its redial starts while the person still waits. A ping is a few bytes
+            // over the tunnel each 2 s, answered by the peer's connection reader.
+            ping_every: Duration::from_secs(2),
+            ping_misses: 3,
+            send: Duration::from_secs(80),
             stable_after: Duration::from_secs(60),
             request: Duration::from_secs(600),
             start: START_DEFAULT,
@@ -82,8 +90,7 @@ impl LinkTimings {
         t
     }
 
-    /// How long the peer may stay silent (or refuse a send) before the link
-    /// is dropped.
+    /// How long the peer may stay silent before the link is dropped.
     pub fn silence_budget(&self) -> Duration {
         self.ping_every * self.ping_misses
     }
@@ -125,6 +132,11 @@ impl Backoff {
 
     pub fn reset(&mut self) {
         self.failures = 0;
+    }
+
+    /// Steps drawn since the last `reset`.
+    pub fn failures(&self) -> u32 {
+        self.failures
     }
 }
 
@@ -187,6 +199,83 @@ where
 {
     let end = now + budget;
     wake_probe.map_or(end, |probe| probe.min(end))
+}
+
+/// When the transport under a link last read a byte. A link is alive while bytes arrive, also in
+/// the middle of a large frame that takes longer than the silence budget to come in, so the
+/// budget can be short without cutting a slow but working link (`Peer::serve`).
+#[derive(Debug, Clone)]
+pub struct Heard {
+    origin: tokio::time::Instant,
+    at_ms: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl Default for Heard {
+    fn default() -> Self {
+        Self { origin: tokio::time::Instant::now(), at_ms: Default::default() }
+    }
+}
+
+impl Heard {
+    pub fn mark(&self) {
+        let ms = self.origin.elapsed().as_millis() as u64;
+        self.at_ms.fetch_max(ms, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// How long since the last byte (since this was made, before any).
+    pub fn silent(&self) -> Duration {
+        let at = Duration::from_millis(self.at_ms.load(std::sync::atomic::Ordering::Relaxed));
+        self.origin.elapsed().saturating_sub(at)
+    }
+
+    pub fn wrap<S>(&self, inner: S) -> HeardStream<S> {
+        HeardStream { inner, heard: self.clone() }
+    }
+}
+
+/// A stream that marks its `Heard` on each read that returned bytes.
+pub struct HeardStream<S> {
+    inner: S,
+    heard: Heard,
+}
+
+impl<S: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for HeardStream<S> {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let before = buf.filled().len();
+        let polled = std::pin::Pin::new(&mut self.inner).poll_read(cx, buf);
+        if matches!(polled, std::task::Poll::Ready(Ok(()))) && buf.filled().len() > before {
+            self.heard.mark();
+        }
+        polled
+    }
+}
+
+impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for HeardStream<S> {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
 }
 
 /// A fresh jitter in `0.0..1.0` from the OS generator (0.5 if it fails).
@@ -675,7 +764,8 @@ mod tests {
     #[test]
     fn env_sets_the_connect_handshake_and_ping_deadlines() {
         let t = LinkTimings::default();
-        assert_eq!(t.silence_budget(), Duration::from_secs(80));
+        assert_eq!(t.silence_budget(), Duration::from_secs(6));
+        assert_eq!(t.send, Duration::from_secs(80));
         assert!(t.connect >= Duration::from_secs(30) && t.handshake >= t.connect);
     }
 }

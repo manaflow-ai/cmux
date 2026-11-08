@@ -17,51 +17,19 @@ import { Icon } from "../icons/Icon";
 import type { StartedSession } from "../started/startedSessions";
 import { AgentLine } from "../subagents/AgentLine";
 import { useAgentProgress } from "../subagents/agentProgressStore";
-import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/AgentIdentity";
+import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/agentIdentityModel";
 import { subagentProgress } from "../subagents/subagentProgress";
-import { nestAgents } from "../subagents/AgentsPill";
-import { elapsed, running, useNow } from "../subagents/SubagentGroup";
+import { nestAgents } from "../subagents/agentsPillModel";
+import { elapsed, running, useNow } from "../subagents/subagentGroupModel";
 import { agentTone } from "../subagents/agentTones";
 import type { Subagent } from "../subagents/subagentFold";
 import { retrying } from "../subagents/retryState";
-import { subagentStateText, subagentStatus, type SubagentStatus } from "../summary/SubagentStatusList";
-import { orderedSessions, sessionStatus, sessionStateText } from "./ChildSessionRows";
+import { subagentStateText, subagentStatus, type SubagentStatus } from "../summary/subagentStatusListModel";
+import { orderedSessions, sessionStatus, sessionStateText } from "./childSessionRowsModel";
 import "./SubagentsSection.css";
 import { SessionInfoFold } from "./SessionInfoSection";
-
-/// Running lines shown before "Show more", as Claude Code desktop's panel caps its list.
-export const SUBAGENTS_SHOWN = 5;
-const NO_SESSIONS: readonly StartedSession[] = [];
-
-/// "1 waiting · 3 running · 1 queued · 40 done" for the section's head, the started chats counted with the
-/// subagents, or nothing for neither.
-/// With the clock (`now`), a subagent quiet past IDLE_AFTER_MS counts as idle, as its line reads:
-/// the head and the lines read one status each (Leo, 2026-11-02: "but what's going on with these?").
-export function subagentCounts(
-  t: Translate,
-  agents: readonly Subagent[],
-  waiting: ReadonlySet<string>,
-  sessions: readonly StartedSession[] = NO_SESSIONS,
-  now?: number,
-): string {
-  // A chat acpmux holds for a free slot (`waitsForSlot`) is queued, as the running limit's line
-  // says, never done or idle by its state.
-  const queued = sessions.filter((child) => child.waitsForSlot).length;
-  const count = (status: SubagentStatus) =>
-    agents.filter((agent) => subagentStatus(agent, waiting, now) === status).length +
-    sessions.filter((child) => !child.waitsForSlot && sessionStatus(child) === status).length;
-  return [
-    count("waiting") > 0 && t("summary.subagents.waiting", { n: count("waiting") }),
-    count("running") > 0 && t("summary.subagents.running", { n: count("running") }),
-    queued > 0 && t("sessionInfo.subagents.limit.queued", { n: queued }),
-    count("idle") > 0 && t("summary.subagents.idle", { n: count("idle") }),
-    count("failed") > 0 && t("summary.subagents.failed", { n: count("failed") }),
-    count("stopped") > 0 && t("summary.subagents.stopped", { n: count("stopped") }),
-    count("done") > 0 && t("summary.subagents.done", { n: count("done") }),
-  ]
-    .filter(Boolean)
-    .join(" · ");
-}
+import { SUBAGENTS_SHOWN, NO_SESSIONS, subagentCounts } from "./subagentsSectionModel";
+import { WindowedRows } from "./WindowedRows";
 
 /// The section head's counts on the clock the lines read, so an idle one leaves "running" in both
 /// at once; only this span re-renders on the tick.
@@ -227,7 +195,9 @@ export function SubagentsSection({
   return (
     <div className="acpmux-session-info-subagents">
       {runningLines.length > 0 && (
-        <ul className="acpmux-summary-list acpmux-session-info-subagents__running">{shown.map(line)}</ul>
+        <ul className="acpmux-summary-list acpmux-session-info-subagents__running">
+          <WindowedRows items={shown} render={line} />
+        </ul>
       )}
       {runningLines.length > SUBAGENTS_SHOWN && (
         <SessionInfoFold className="acpmux-session-info-subagents__more" open={more} onToggle={() => setMore(!more)}>
@@ -251,7 +221,7 @@ export function SubagentsSection({
               ref={endedEdges}
               className="acpmux-summary-list acpmux-session-info-scroll acpmux-session-info-subagents__list ui-scroll-edge-fade"
             >
-              {endedLines.map(line)}
+              <WindowedRows items={endedLines} render={line} />
             </ul>
           )}
         </>
