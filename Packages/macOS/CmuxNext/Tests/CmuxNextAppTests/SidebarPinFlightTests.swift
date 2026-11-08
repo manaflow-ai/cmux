@@ -588,38 +588,111 @@ struct SidebarPinFlightTests {
         #expect(failures.isEmpty, "\(failures.prefix(16).joined(separator: "\n"))")
     }
 
-    /// Pin `d` while the Pinned block is scrolled out of view: the row moves from its slot toward the block and slides
-    /// out of view, one copy on every tick. It must not vanish because the block has no view.
-    @Test func aPinToABlockOutOfViewSlidesOutOfView() throws {
+    /// The workspace rows whose views intersect the clip (`d` aside), at rest, in the list.
+    static func inView(_ list: SidebarListView, clip: CGRect) -> [WorkspaceID: CGRect] {
+        var frames: [WorkspaceID: CGRect] = [:]
+        for (key, view) in list.rowViews where !view.isHiddenOrHasHiddenAncestor {
+            guard case let .workspace(id) = key, id != moved else { continue }
+            let frame = list.convert(view.bounds, from: view)
+            if frame.intersects(clip) { frames[id] = frame }
+        }
+        return frames
+    }
+
+    /// Pins `d` in the long list scrolled to `offset` (a reachable scroll: the clip at `offset(rowFrame, maxOffset)`)
+    /// with the Pinned block out of view, and checks what a person sees, in the clip: `d` starts where its row was drawn
+    /// and moves toward the block, every row in view starts where it was drawn and ends on its new slot with no jump, and
+    /// the clip does not move again after the reload (no later clamp). Returns `d`'s row pitch and each row's on-screen
+    /// move (its rest in the clip after, less its rest in the clip before) for the caller's own rule.
+    func pinScrolled(_ name: String, offset: (CGRect, CGFloat) -> CGFloat) throws -> (pitch: CGFloat, moved: [WorkspaceID: CGFloat], failures: [String]) {
         let (list, scroll, window) = Self.scrolledList(pins: [])
         defer { window.close() }
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let row = try #require(list.displayed.row(for: .workspace(Self.moved)).map { list.frame(for: $0) })
-        // A scroll a person can reach, with room for the pin to shorten the list by less than a row: at 100 pt above d
-        // the clip ran past the list's end (816 + 300 > 984), so the reload's shorter list clamped it by 134 pt and the
-        // test read that clamp as the flight's jump (fleet diag 9506cf1: clip 816 -> 682, list 984 -> 982 pt).
+        let next = try #require(list.displayed.row(for: .workspace(WorkspaceID("e"))).map { list.frame(for: $0) })
         let clipHeight = scroll.contentView.bounds.height
-        scroll.contentView.scroll(to: NSPoint(x: 0, y: min(row.minY - 100, list.frame.height - clipHeight - row.height)))
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: offset(row, list.frame.height - clipHeight)))
         scroll.reflectScrolledClipView(scroll.contentView)
         list.realizeVisibleRows()
         list.layoutSubtreeIfNeeded()
-        let clipBefore = scroll.contentView.bounds.origin
+        let clipBefore = scroll.contentView.bounds
         let start = try #require(list.rowViews[.workspace(Self.moved)], "d's row has no view after the scroll")
         let startFrame = list.convert(start.bounds, from: start)
+        #expect(startFrame.intersects(clipBefore), "the fixture's d \(startFrame) is out of view \(clipBefore)")
         let blockRow = try #require(list.displayed.row(for: .block(SidebarLayoutDocument.pinnedSectionID.rawValue)))
-        #expect(!list.frame(for: blockRow).intersects(scroll.contentView.bounds), "the fixture's Pinned block is in view")
+        #expect(!list.frame(for: blockRow).intersects(clipBefore), "the fixture's Pinned block is in view")
+        let before = Self.inView(list, clip: clipBefore)
+        #expect(before.count >= 8, "the fixture shows only \(before.count) rows")
         Self.show([Self.moved], listed: Self.long, on: list)
         list.reload(animated: true)
         let now = CACurrentMediaTime()
+        let clipAfter = scroll.contentView.bounds.minY
+        // In the list after the reload, the clip-relative (on-screen) start of anything drawn before it.
+        let dy = clipAfter - clipBefore.minY
         let probes = Self.probes(Self.moved, list, now: now)
+        let others = Dictionary(uniqueKeysWithValues: before.keys.map { ($0, Self.probes($0, list, now: now)) })
+        let after = Dictionary(uniqueKeysWithValues: before.keys.compactMap { id in
+            list.rowViews[.workspace(id)].map { (id, list.convert($0.bounds, from: $0)) }
+        })
         let arrived = try #require(Self.copies(of: Self.moved, in: list).first { $0 is SidebarItemRowView && !$0.isHiddenOrHasHiddenAncestor },
                                    "the pinned item has no view: the row vanished")
-        #expect(scroll.contentView.bounds.origin == clipBefore, "the pin scrolled the list: the rows in view jumped")
         var failures: [String] = []
-        Self.checkOpaque("pinned d (block out of view)", arrived, failures: &failures)
-        Self.checkPath("pinned d (block out of view)", probes: probes, now: now, start: startFrame,
+        Self.checkOpaque("pinned d (\(name))", arrived, failures: &failures)
+        Self.checkPath("pinned d (\(name))", probes: probes, now: now, start: startFrame.offsetBy(dx: 0, dy: dy),
                        end: list.convert(arrived.bounds, from: arrived), failures: &failures)
+        var moved: [WorkspaceID: CGFloat] = [:]
+        for (id, from) in before {
+            guard let to = after[id], let probes = others[id] else { failures.append("\(id.rawValue) (\(name)) is gone"); continue }
+            Self.checkPath("\(id.rawValue) (\(name))", probes: probes, now: now, start: from.offsetBy(dx: 0, dy: dy), end: to, failures: &failures)
+            moved[id] = to.minY - from.minY - dy
+        }
+        // AppKit's own passes after the reload (layout, the scroller's reflect, a run loop turn) must not move the clip:
+        // a list that the reload left taller or shorter than its rows would be clamped there, in a later frame.
+        list.layoutSubtreeIfNeeded()
+        scroll.reflectScrolledClipView(scroll.contentView)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        if abs(scroll.contentView.bounds.minY - clipAfter) > 0.25 {
+            failures.append("\(name): the clip moved again after the reload, \(clipAfter) -> \(scroll.contentView.bounds.minY)")
+        }
+        if abs(list.frame.height - max(list.displayed.totalHeight, clipHeight)) > 0.25 {
+            failures.append("\(name): the list is \(list.frame.height) pt, its rows \(list.displayed.totalHeight) pt")
+        }
+        return (next.minY - row.minY, moved, failures)
+    }
+
+    /// Pin `d` while the Pinned block is scrolled out of view above: the row moves from its slot toward the block and
+    /// slides out of view, one copy on every tick; it must not vanish because the block has no view. The block grows
+    /// above the clip, so the list keeps what the person sees (ListViewport V5, scroll anchoring): the clip follows the
+    /// rows the block pushed down, the rows above `d` stay still on screen, the rows below it close its slot. Before
+    /// (d16ad95) this test read the anchor's clip move (660 -> 682) as the pin scrolling the list and the flight's start
+    /// in the list's own coordinates (938 vs 916) as a 22 pt jump; on screen both are 0 pt.
+    @Test func aPinToABlockOutOfViewSlidesOutOfView() throws {
+        // A scroll a person can reach, with room for the anchor below the list's end (the new end is 2 pt shorter).
+        let result = try pinScrolled("block out of view") { row, maxOffset in min(row.minY - 100, maxOffset - row.height) }
+        var failures = result.failures
+        let slot = try #require(Self.long.firstIndex(of: Self.moved))
+        for (id, dy) in result.moved {
+            let below = (Self.long.firstIndex(of: id) ?? 0) > slot
+            if !below, abs(dy) > 0.5 { failures.append("\(id.rawValue) above d moved \(dy) pt on screen (the anchor holds it)") }
+            if below, abs(dy + result.pitch) > 0.5 { failures.append("\(id.rawValue) below d moved \(dy) pt on screen, not up one row (\(result.pitch) pt)") }
+        }
+        #expect(failures.isEmpty, "\(failures.prefix(16).joined(separator: "\n"))")
+    }
+
+    /// Pin `d` with the list scrolled to its end: the pin makes the list 2 pt shorter than the clip's reach, so the list
+    /// stays at its end (the clamp the anchor applies with the rows, in the reload's turn, never AppKit's later), the
+    /// last row stays still on screen and the rows above `d` close its slot from above. No row in view jumps on any
+    /// tick, `d` starts where its row was drawn, and the clip does not move after the reload.
+    @Test func aPinWithTheListAtItsEndKeepsTheRowsInViewStill() throws {
+        let result = try pinScrolled("list at its end") { _, maxOffset in maxOffset }
+        var failures = result.failures
+        let slot = try #require(Self.long.firstIndex(of: Self.moved))
+        for (id, dy) in result.moved {
+            let below = (Self.long.firstIndex(of: id) ?? 0) > slot
+            if below, abs(dy) > 0.5 { failures.append("\(id.rawValue) below d moved \(dy) pt on screen (the list's end holds it)") }
+            if !below, abs(dy - result.pitch) > 0.5 { failures.append("\(id.rawValue) above d moved \(dy) pt on screen, not down one row (\(result.pitch) pt)") }
+        }
         #expect(failures.isEmpty, "\(failures.prefix(16).joined(separator: "\n"))")
     }
 
