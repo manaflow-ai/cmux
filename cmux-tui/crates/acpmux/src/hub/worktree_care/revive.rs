@@ -36,7 +36,7 @@ pub(in crate::hub) fn origin_of(cwd: &Path, git: &GitState) -> Option<Option<Wor
 }
 
 impl Hub {
-    pub(super) async fn revive_folder(
+    pub(in crate::hub) async fn revive_folder(
         &self,
         session: &Arc<Session>,
         one: &tokio::sync::Mutex<()>,
