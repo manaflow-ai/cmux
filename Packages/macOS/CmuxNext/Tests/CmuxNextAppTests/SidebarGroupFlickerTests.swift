@@ -38,7 +38,7 @@ import Testing
     }
 
     static func make(topCollapsed: Bool = false, lowerCollapsed: Bool = true, selected: WorkspaceID = members[0],
-                     expanded: Bool = false, scope: ThemeScope? = nil) -> (SidebarModel, SidebarListView, NSWindow) {
+                     expanded: Bool = false, scope: ThemeScope? = nil, surface: NSColor? = nil) -> (SidebarModel, SidebarListView, NSWindow) {
         _ = NSApplication.shared
         let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: nodes(topCollapsed: topCollapsed, lowerCollapsed: lowerCollapsed))],
                                  activeWorkspaceID: selected)
@@ -54,7 +54,17 @@ import Testing
         window.contentView = root
         scope?.root(root)
         list.frame = root.bounds
-        root.addSubview(list)
+        if let surface {
+            // The sidebar's own surface fill (`appearance.surfaces.sidebar`), as `SidebarContainerView` paints it on a view
+            // between the window and the list (`applySurfaceFill`).
+            let fill = NSView(frame: root.bounds)
+            fill.wantsLayer = true
+            fill.layer?.backgroundColor = surface.cgColor
+            root.addSubview(fill)
+            fill.addSubview(list)
+        } else {
+            root.addSubview(list)
+        }
         list.leftButtonIsDown = { false }
         list.pointerIsOverList = { _ in false }
         window.orderFrontRegardless()
@@ -218,18 +228,21 @@ import Testing
     }
 
     /// Every frame's failures for one run of `event`.
+    /// An opaque `appearance.surfaces.sidebar` fill (`opaqueSurface`): the rows' ground is opaque even in a see-through window.
+    static let opaqueSurfaceFill = NSColor(srgbRed: 0.12, green: 0.10, blue: 0.16, alpha: 1)
+
     static func run(_ event: Event, intent: Bool, topCollapsed: Bool = false, then second: Event? = nil, seeThrough: Bool = false,
-                    log: inout [String]) -> [String] {
+                    opaqueSurface: Bool = false, log: inout [String]) -> [String] {
         let started = Date()
         let scope = seeThrough ? seeThroughScope() : nil
         if seeThrough, scope == nil { return ["no see-through theme scope"] }
         let (model, list, window) = make(topCollapsed: topCollapsed, lowerCollapsed: event != .topFolds,
                                          selected: event == .selectedPassesOver ? loose[1] : members[0],
                                          expanded: [.memberGrows, .looseGrows].contains(event) || [.memberGrows, .looseGrows].contains(second),
-                                         scope: scope)
+                                         scope: scope, surface: opaqueSurface ? opaqueSurfaceFill : nil)
         defer { withExtendedLifetime(scope) { window.close() } }
         let label = "\(event.rawValue)\(second.map { " + \($0.rawValue) 2 frames later" } ?? "")\(intent ? " (user intent)" : " (calm)")"
-            + "\(topCollapsed ? " [top collapsed]" : "")\(seeThrough ? " [see-through window]" : "")"
+            + "\(topCollapsed ? " [top collapsed]" : "")\(seeThrough ? " [see-through window]" : "")\(opaqueSurface ? " [opaque sidebar surface]" : "")"
         if seeThrough, list.performWithTheme({ WindowBackdrop.current(list.themeTokens, reduceTransparency: ReduceTransparency.shared.isEnabled).isOpaque }) {
             return ["\(label): the window is opaque, not see-through"]
         }
@@ -243,8 +256,10 @@ import Testing
         var frames: [Frame] = []
         // Event i: the selected row passing over the top group. In a see-through window no opaque cover matches what
         // is behind the rows, so there the crossed rows hide and fade back as before the cover (nothing worse than that).
+        // An opaque sidebar surface in a see-through window: nothing behind the rows shows through, so the row covers.
+        let showsThrough = seeThrough && !opaqueSurface
         let passes = event == .selectedPassesOver
-        let covers = passes && !seeThrough
+        let covers = passes && !showsThrough
         var movers: [Mover?] = []
         var applyFrames: [(Int, Frame)] = []
         list.onApply = { _ in
@@ -301,14 +316,14 @@ import Testing
         for (index, frame) in frames.enumerated() {
             let h = frame.header
             // The rail draws with its header: never brighter or dimmer than the bar (a pass-over fade, a new line's fade).
-            if !(passes && seeThrough), frame.rail.shown, h.shown, abs(frame.rail.alpha - h.alpha) > 0.05 {
+            if !(passes && showsThrough), frame.rail.shown, h.shown, abs(frame.rail.alpha - h.alpha) > 0.05 {
                 fail(index, "rail alpha \(frame.rail.alpha), header alpha \(h.alpha) (rail \(frame.rail), header \(h))")
             }
             if folds { continue }
             if h.object != before.header.object { fail(index, "header view replaced or gone (\(h))") }
             if !h.attached { fail(index, "header removed from the list (\(h))") }
             if h.hidden { fail(index, "header hidden (\(h))") }
-            if !seeThrough, h.alpha < least { fail(index, "header alpha \(h.alpha) (\(h))") }
+            if !showsThrough, h.alpha < least { fail(index, "header alpha \(h.alpha) (\(h))") }
             if abs((h.maxY - h.minY) - headerHeight) > 0.5 { fail(index, "header height \(Piece.f(h.maxY - h.minY)), was \(Piece.f(headerHeight))") }
             // The pieces drawn before stay drawn, at full opacity, with the header.
             for (name, was, now) in [("bar fill", before.fill, frame.fill), ("glass rim", before.rim, frame.rim)] where was.shown {
@@ -330,7 +345,7 @@ import Testing
                 let now = frame.members[id] ?? Piece()
                 if now.object != was.object { fail(index, "member \(id.rawValue) view replaced or gone (\(now))") }
                 if !now.shown { fail(index, "member \(id.rawValue) detached or hidden (\(now))") }
-                if !seeThrough, now.alpha < least { fail(index, "member \(id.rawValue) alpha \(now.alpha) (\(now))") }
+                if !showsThrough, now.alpha < least { fail(index, "member \(id.rawValue) alpha \(now.alpha) (\(now))") }
             }
         }
         if covers, let landed {
@@ -347,7 +362,7 @@ import Testing
             log.append("\(label): selected row y \(movers.prefix(10).map { $0.map { Piece.f($0.y) } ?? "-" }) fill alpha \(movers.prefix(10).map { $0.map { Piece.f($0.fillAlpha) } ?? "-" }), landed \(Piece.f(landed.fillAlpha)); "
                 + "header, rail, m1..m3 alpha by frame \(frames.prefix(6).map { f in ([f.header, f.rail] + members.map { f.members[$0] ?? Piece() }).map { String(format: "%.2f", $0.alpha) }.joined(separator: "/") })")
         }
-        if passes, seeThrough, let landed {
+        if passes, showsThrough, let landed {
             // See-through: as before the cover, the crossed rows hide while the selected row moves over them and are
             // back at full opacity once it lands; the selected row shows its own fill throughout, never an opaque one.
             let moving = movers.indices.filter { movers[$0].map { abs($0.y - landed.y) > 0.5 } ?? false }
@@ -409,9 +424,11 @@ import Testing
         var second: Event?
         var newWorkspace = false
         var seeThrough = false
+        var opaqueSurface = false
         var testDescription: String {
             "\(newWorkspace ? "[newWorkspace motion] " : "")\(event.rawValue)\(second.map { " + \($0.rawValue)" } ?? "")"
                 + "\(intent ? " (user intent)" : " (calm)")\(topCollapsed ? " [top collapsed]" : "")\(seeThrough ? " [see-through window]" : "")"
+                + "\(opaqueSurface ? " [opaque sidebar surface]" : "")"
         }
 
         static var all: [FlickerRun] {
@@ -428,6 +445,9 @@ import Testing
             }
             // A see-through window: the selected row passing over the top group hides what it crosses, as before.
             runs.append(FlickerRun(event: .selectedPassesOver, seeThrough: true))
+            // A see-through window whose sidebar has an opaque surface fill: the rows' ground is opaque, so the
+            // selected row covers what it crosses and no crossed row hides.
+            runs.append(FlickerRun(event: .selectedPassesOver, seeThrough: true, opaqueSurface: true))
             return runs
         }
     }
@@ -445,7 +465,8 @@ import Testing
         if run.seeThrough { ReduceTransparency.shared.override = false }
         defer { ReduceTransparency.shared.override = reduceTransparency }
         var log = ["animatesMovement \(Motion.sidebar.animatesMovement), screens \(NSScreen.screens.count)"]
-        let failures = Self.run(run.event, intent: run.intent, topCollapsed: run.topCollapsed, then: run.second, seeThrough: run.seeThrough, log: &log)
+        let failures = Self.run(run.event, intent: run.intent, topCollapsed: run.topCollapsed, then: run.second, seeThrough: run.seeThrough,
+                                opaqueSurface: run.opaqueSurface, log: &log)
             .map { (run.newWorkspace ? "[newWorkspace motion] " : "") + $0 }
         print("SidebarGroupFlicker log:\n" + log.joined(separator: "\n"))
         for failure in failures { print("GRPFAIL \(failure)") }
@@ -521,5 +542,63 @@ import Testing
         print("SidebarGroupFlicker new group log:\n" + log.joined(separator: "\n"))
         for failure in failures { print("GRPFAIL \(failure)") }
         #expect(failures.isEmpty, "\(failures.count) failures:\n\(failures.prefix(60).joined(separator: "\n"))")
+    }
+
+    /// How the selection leaves the row passing over the top group, mid-move: a click's patch (`patchSelection`), or the
+    /// reload a selection with other changes takes (SidebarView's observation).
+    nonisolated enum Deselect: String, CaseIterable, Sendable, CustomTestStringConvertible {
+        case patch = "a click selects a top group member (selection patch)"
+        case reload = "a top group member is selected (reload)"
+        var testDescription: String { rawValue }
+    }
+
+    /// The selected row passing over the top group (event i) is covered while it moves (`passOverCover`). When the
+    /// selection leaves it 2 frames in, it no longer stands for the selection: within one frame it paints only its own
+    /// fill, with no opaque cover left on it until the cover's duration would have ended.
+    @Test(arguments: Deselect.allCases) func aCoverEndsWhenItsRowIsDeselected(_ deselect: Deselect) throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let (model, list, window) = Self.make(selected: Self.loose[1])
+        defer { window.close() }
+        guard let headerView = list.rowViews[.group(Self.top)], let headerLayer = headerView.layer else {
+            Issue.record("no top group header after the first layout")
+            return
+        }
+        let flipped = abs(headerLayer.frame.minY - headerView.frame.minY) > 0.5
+        Self.apply(.selectedPassesOver, model, list, intent: true)
+        list.layoutSubtreeIfNeeded()
+        CATransaction.flush()
+        var alphas: [String] = []
+        for _ in 0..<2 {
+            Self.step(list)
+            alphas.append(Self.mover(list, Self.loose[1], flipped: flipped).map { Piece.f($0.fillAlpha) } ?? "-")
+        }
+        guard let view = list.rowViews[.workspace(Self.loose[1])], let layer = view.layer else {
+            Issue.record("the selected row is gone mid-move")
+            return
+        }
+        let covered = Self.mover(list, Self.loose[1], flipped: flipped)?.fillAlpha ?? 0
+        #expect(covered > 0.999, "the moving selected row is not covered 2 frames in: fill alpha \(alphas)")
+        let old = model.selectedItem, oldSelection = model.selection
+        model.noteUserIntent()
+        model.activeWorkspaceID = Self.members[0]
+        model.selection = [Self.members[0]]
+        switch deselect {
+        case .patch:
+            if !list.patchSelection(from: old, oldSelection: oldSelection) { list.reload(animated: true, fromModel: true) }
+        case .reload:
+            list.reload(animated: true, fromModel: true)
+        }
+        Self.step(list)
+        let shown = Self.presented(layer).backgroundColor?.alpha ?? 0
+        let own = layer.backgroundColor?.alpha ?? 0
+        let cover = layer.animation(forKey: "cmux.passOverCover") != nil
+        print("SidebarGroupFlicker cover \(deselect.rawValue): fill alpha by frame \(alphas), 1 frame after the deselect \(Piece.f(shown)), "
+            + "its own \(Piece.f(own)), cover animation \(cover), selected \(view.isSelected)")
+        #expect(!view.isSelected, "the deselected row still shows as selected")
+        #expect(!cover, "the deselected row still carries its pass-over cover (fill alpha \(Piece.f(shown)), its own \(Piece.f(own)))")
+        #expect(abs(shown - own) < 0.01, "the deselected row draws fill alpha \(Piece.f(shown)) one frame after the deselect, its own \(Piece.f(own))")
     }
 }
