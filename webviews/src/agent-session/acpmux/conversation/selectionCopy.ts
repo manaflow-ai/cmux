@@ -4,19 +4,23 @@
 // never takes the pane's dark-theme colors; and the same selection as Markdown for its plain text, so
 // a paste into the composer or a terminal keeps its bullets (richClipboard.ts).
 //
-// It takes over only a selection inside one message's Markdown (`.cv-md`). A selection with math is
-// mathCopy.ts's (the TeX as written), one that holds highlighted code (drawn in a shadow root the
-// copy cannot read) or reaches across messages copies as the page would copy it.
+// It takes over a selection inside one message's Markdown (`.cv-md`), and across messages copies the
+// selected message bodies, including complete code cards, without timestamps or controls
+// (transcriptSelectionCopy.ts). Inside one message, a selection with math is mathCopy.ts's (the TeX
+// as written), and one that holds highlighted code (drawn in a shadow root the copy cannot read)
+// copies as the page would copy it.
 //
 // A cmux link drawn as its chip (chips/CmuxLinkChip.tsx: a workspace's or chat's title) copies as
-// the link, as the plain link did before the chips (review of #38166): in a reply's copy, and in
-// any other selection that holds one (a sent prompt's text, a reply's code or table), whose plain
-// text is then the page's with each chip's words swapped for its link (chipCopy.ts). With math,
-// mathCopy.ts's copy does the same; math it declines (across messages) keeps the chips' links here.
+// the link, as the plain link did before the chips (review of #38166): in a reply's copy, across
+// messages, and in any other selection that holds one (a sent prompt's text, a reply's code or
+// table), whose plain text is then the page's with each chip's words swapped for its link
+// (chipCopy.ts). With math, mathCopy.ts's copy does the same; math it declines keeps the chips'
+// links here.
 import { copyHref, htmlMarkdown } from "../richClipboard";
 import { safeHref } from "../replyHref";
 import { chipText, chipsAsLinks, withWholeChips } from "./chipCopy";
 import { mathCopyOf } from "./mathCopy";
+import { transcriptSelectionContents } from "./transcriptSelectionCopy";
 
 export { withWholeChips };
 
@@ -45,7 +49,10 @@ function elementOf(node: Node): Element | null {
 export function selectionHtml(selected: Range): string | null {
   const range = withWholeChips(selected);
   const reply = elementOf(range.commonAncestorContainer)?.closest(".cv-md");
-  if (!reply) return null;
+  if (!reply) {
+    const transcript = transcriptSelectionContents(range);
+    return transcript ? cleanSelectionHtml(transcript) : null;
+  }
   // Math is mathCopy.ts's, also a selection that starts or ends inside an equation (its clone
   // leaves out the element that holds the TeX). Code is the page's own copy: highlighted code draws
   // in a shadow root a clone leaves empty, and plain code draws each line as its own element, whose
@@ -76,11 +83,23 @@ export function selectionHtml(selected: Range): string | null {
     wrapper.append(...holder.childNodes);
     holder.append(wrapper);
   }
+  return cleanSelectionHtml(holder);
+}
+
+function cleanSelectionHtml(holder: HTMLElement): string {
   chipsAsLinks(holder);
   for (const element of holder.querySelectorAll(CHROME)) element.remove();
   for (const button of holder.querySelectorAll("button")) button.replaceWith(...button.childNodes);
   for (const element of holder.querySelectorAll("*"))
-    for (const name of element.getAttributeNames()) if (!KEEP.has(name)) element.removeAttribute(name);
+    for (const name of element.getAttributeNames()) {
+      // A fenced code language is content metadata, not the transcript's styling.
+      if (name === "class" && element.tagName === "CODE" && /^language-[\w+#-]+$/.test(element.className)) continue;
+      // Plain prompts rely on pre-wrap for their line ends and indentation. This one safe style
+      // is content layout; no transcript colors or fonts travel with it.
+      if (name === "style" && element.tagName === "SPAN" && element.getAttribute(name) === "white-space: pre-wrap;")
+        continue;
+      if (!KEEP.has(name)) element.removeAttribute(name);
+    }
   // A target goes into another app only where it is safe there (a web or mail link, a web picture).
   for (const link of holder.querySelectorAll("[href]")) {
     const href = copyHref(link.getAttribute("href") ?? "");
