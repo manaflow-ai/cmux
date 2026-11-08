@@ -32,9 +32,21 @@ extension MockAgentSession {
         """
         let named: JSONValue = .object(["kind": .string("agent_message"), "from": .string("fromAgent"),
                                         "fromName": .string("build-box/lane-3")])
+        // As hub/digest.rs `digest_provenance` writes it: each part's own provenance names its
+        // sending chat. Two of these sessions' ids hash to one tone, so the chat moves the second to
+        // the next (AgentTones), as the Mac does.
+        let part = { (from: String, session: String?) -> JSONValue in
+            var part: [String: JSONValue] = ["from": .string(from)]
+            if let session {
+                part["provenance"] = .object(["kind": .string("agent_message"), "from": .string("acp:\(session)"),
+                                              "fromName": .string(from)])
+            }
+            return .object(part)
+        }
         let digested: JSONValue = .object(["kind": .string("agent_digest"), "messages": .array([
-            .object(["from": .string("build-box/lane-3")]), .object(["from": .string("coordinator")]),
-            .object(["from": .string("studio-mac/codex-1")]),
+            part("build-box/lane-3", "0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a02"),
+            part("coordinator", "0193a6f2-7c41-7e0b-9d2a-5f1e8c3b4a09"),
+            part("studio-mac/codex-1", nil),
         ])])
         for (index, (text, provenance, answer)) in [
             (report, named, "Noted: #36125 lands once its base-only reds are confirmed."),

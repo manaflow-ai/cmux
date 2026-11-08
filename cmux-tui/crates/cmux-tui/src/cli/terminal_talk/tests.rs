@@ -531,3 +531,227 @@ fn claude_code_plugin_records_name_the_claude_harness() {
     let rows = roster::agent_rows(&snapshot);
     assert!(rows.iter().any(|row| row.harness == "claude" && row.source == "hook"));
 }
+
+const SHELL: &str = "term_5be11000000000000000000000000003";
+
+/// A daemon with one zsh terminal: each `terminal.get` answers the next of
+/// `records` (then stays on the last), each screen read the next of
+/// `screens`. Without `unwrap`, it refuses the `unwrap` field as an older
+/// daemon does.
+struct ShellDaemon {
+    snapshot: Value,
+    records: RefCell<Vec<Value>>,
+    screens: RefCell<Vec<String>>,
+    unwrap: bool,
+    sent: RefCell<Vec<(String, Value)>>,
+}
+
+impl ShellDaemon {
+    fn new(before: Option<Value>, records: Vec<Value>, screens: &[&str], unwrap: bool) -> Self {
+        let mut snapshot = snapshot();
+        if let Some(before) = before {
+            snapshot["terminals"][2]["extra"] = json!({"last_command": before});
+        }
+        Self {
+            snapshot,
+            records: RefCell::new(records),
+            screens: RefCell::new(screens.iter().map(|screen| (*screen).to_owned()).collect()),
+            unwrap,
+            sent: RefCell::new(Vec::new()),
+        }
+    }
+
+    fn reads(&self) -> Vec<Value> {
+        self.sent
+            .borrow()
+            .iter()
+            .filter(|(operation, _)| operation == "terminal.screen.read")
+            .map(|(_, params)| params.clone())
+            .collect()
+    }
+}
+
+fn next<T: Clone>(items: &RefCell<Vec<T>>) -> T {
+    let mut items = items.borrow_mut();
+    if items.len() > 1 { items.remove(0) } else { items[0].clone() }
+}
+
+impl Daemon for ShellDaemon {
+    fn request(&self, _session: Option<&str>, plan: RequestPlan) -> Result<Value, CallFailure> {
+        let request = request_value(&plan).expect("a valid request");
+        let operation = request["operation"].as_str().unwrap_or_default().to_owned();
+        let params = request["params"].clone();
+        self.sent.borrow_mut().push((operation.clone(), params.clone()));
+        Ok(match operation.as_str() {
+            "session.snapshot" => self.snapshot.clone(),
+            "terminal.state.read" => json!({"state_base64": ""}),
+            "terminal.get" => next(&self.records),
+            "agent.list" => json!([]),
+            "terminal.screen.read" => {
+                if !self.unwrap && params.get("unwrap").is_some() {
+                    return Err(CallFailure {
+                        kind: FailureKind::Rejected,
+                        error: json!({"code": "validation.invalid", "message": "unknown field"}),
+                        idempotency_key: None,
+                    });
+                }
+                json!({"revision": "1", "text": next(&self.screens)})
+            }
+            "terminal.history.read" => json!({"rows": [], "next": null}),
+            _ => json!({}),
+        })
+    }
+}
+
+fn shell_record(extra: Value) -> Value {
+    json!({"id": SHELL, "lifecycle": "running", "extra": extra})
+}
+
+fn shell_send(text: &str) -> SendRequest {
+    SendRequest {
+        target: SHELL.into(),
+        wait: Wait::Prompt,
+        settle: Duration::from_secs(30),
+        ..quick(text)
+    }
+}
+
+#[test]
+fn read_run_send_wait_prompt_returns_the_typed_commands_exit_status_without_the_settle() {
+    let old = json!({"exit_code": 0, "finished_at_ms": "100"});
+    let new = json!({"exit_code": 7, "started_at_ms": "200", "finished_at_ms": "210"});
+    let daemon = ShellDaemon::new(
+        Some(old.clone()),
+        vec![
+            shell_record(json!({"activity": {"state": "running"}, "last_command": old})),
+            shell_record(json!({"prompt": {"since_ms": "211"}, "last_command": new})),
+        ],
+        &["$ sh -c 'exit 7'", "$ sh -c 'exit 7'\n$"],
+        true,
+    );
+    let started = Instant::now();
+    let receipt = send::run(&daemon, None, &shell_send("sh -c 'exit 7'")).expect("sent");
+    assert!(started.elapsed() < Duration::from_secs(10), "the finished command ends the wait");
+    assert_eq!(receipt["exit_status"], 7);
+    assert_eq!(receipt["state"], "idle");
+    assert_eq!(receipt["timed_out"], false);
+    assert_eq!(super::send_exit_code(&receipt, true), 7);
+    assert_eq!(super::send_exit_code(&receipt, false), 0);
+    assert!(daemon.reads().iter().all(|read| read["unwrap"] == true), "reads join soft wraps");
+}
+
+#[test]
+fn read_run_send_without_shell_integration_has_no_exit_status_and_run_exits_unknown() {
+    // No OSC 133: no prompt, no last_command; the still screen ends the wait.
+    let daemon =
+        ShellDaemon::new(None, vec![shell_record(json!({}))], &["$ sh -c 'exit 7'\n$ "], false);
+    let request = SendRequest {
+        wait: Wait::Idle,
+        settle: Duration::from_millis(40),
+        ..shell_send("sh -c 'exit 7'")
+    };
+    let receipt = send::run(&daemon, None, &request).expect("sent");
+    assert!(receipt.get("exit_status").is_none(), "absent, never guessed: {receipt}");
+    assert_eq!(super::send_exit_code(&receipt, true), 125);
+    // The older daemon refused unwrap once; the rest read plain rows.
+    let reads = daemon.reads();
+    assert_eq!(reads[0]["unwrap"], true);
+    assert!(reads[1..].iter().all(|read| read.get("unwrap").is_none()));
+}
+
+#[test]
+fn read_run_send_ignores_a_last_command_that_finished_before_the_send() {
+    let old = json!({"exit_code": 3, "finished_at_ms": "100"});
+    let daemon = ShellDaemon::new(
+        Some(old.clone()),
+        vec![shell_record(json!({"prompt": {"since_ms": "90"}, "last_command": old}))],
+        &["$ true"],
+        true,
+    );
+    let request = SendRequest { settle: Duration::from_millis(40), ..shell_send("true") };
+    let receipt = send::run(&daemon, None, &request).expect("sent");
+    assert!(receipt.get("exit_status").is_none(), "the old command's status is not this one's");
+}
+
+#[test]
+fn read_run_send_pattern_matches_only_output_after_the_typed_command() {
+    let message = "for i in 1 2 3; do echo step $i; sleep 1; done; echo BENCH_OK";
+    let echo = format!("$ {message}");
+    let daemon = ShellDaemon::new(
+        None,
+        vec![shell_record(json!({"activity": {"state": "running"}}))],
+        &[&echo, &format!("{echo}\nstep 1"), &format!("{echo}\nstep 1\nstep 2\nstep 3\nBENCH_OK")],
+        true,
+    );
+    let request = SendRequest { pattern: Some("(?m)^BENCH_OK".into()), ..shell_send(message) };
+    let receipt = send::run(&daemon, None, &request).expect("sent");
+    assert_eq!(receipt["matched"], true);
+    assert!(receipt["output"].as_str().unwrap().ends_with("BENCH_OK"));
+    assert_eq!(daemon.reads().len(), 3, "the echo alone did not match");
+    // A pattern that never shows, and the command finishes: no match, exit 1.
+    let daemon = ShellDaemon::new(
+        None,
+        vec![shell_record(
+            json!({"prompt": {"since_ms": "5"}, "last_command": {"exit_code": 0, "finished_at_ms": "5"}}),
+        )],
+        &[&format!("{echo}\nstep 1\n$")],
+        true,
+    );
+    let receipt = send::run(&daemon, None, &request).expect("sent");
+    assert_eq!(receipt["matched"], false);
+    assert_eq!(super::send_exit_code(&receipt, false), 1);
+}
+
+#[test]
+fn read_run_run_is_send_wait_prompt_with_exit_status() {
+    let words = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    let request =
+        super::parse_run("term_a", &words(&["--timeout", "10s", "--", "sh", "-c", "'exit 7'"]))
+            .expect("parsed");
+    assert_eq!(request.text, "sh -c 'exit 7'");
+    assert_eq!(request.wait, Wait::Prompt);
+    assert!(request.exit_with_status);
+    assert_eq!(request.timeout, Duration::from_secs(10));
+    let request = super::parse_run("term_a", &words(&["--text", "make"])).expect("parsed");
+    assert_eq!(request.text, "make");
+    assert!(super::parse_run("term_a", &words(&["--wait", "idle", "--", "x"])).is_err());
+    assert!(super::parse_run("term_a", &words(&["--text", "a", "--", "b"])).is_err());
+    assert!(super::parse_run("term_a", &words(&[])).is_err());
+    let send = super::parse_send(
+        "term_a",
+        &words(&["--text", "x", "--pattern", "ok", "--exit-with-status"]),
+    )
+    .expect("parsed");
+    assert_eq!(send.pattern.as_deref(), Some("ok"));
+    assert!(send.exit_with_status);
+    // A timeout wins over the status; a signal-sized status wraps as $? does.
+    assert_eq!(super::send_exit_code(&json!({"timed_out": true, "exit_status": 0}), true), 124);
+    assert_eq!(super::send_exit_code(&json!({"exit_status": 130}), true), 130);
+}
+
+#[test]
+fn read_run_read_and_wait_flags_send_unwrap_lines_and_new() {
+    use super::super::command::{self, CommandPlan};
+    let params = |args: &[&str]| {
+        let args: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
+        match command::parse(&args, super::super::Surface::CmuxTui) {
+            Ok(CommandPlan::Protocol(plan)) => {
+                request_value(&plan).expect("request")["params"].clone()
+            }
+            _ => panic!("{args:?} is a protocol request"),
+        }
+    };
+    let read = params(&["terminal", SHELL, "screen", "read", "--unwrap", "--lines", "5"]);
+    assert_eq!((read["unwrap"].clone(), read["lines"].clone()), (json!(true), json!(5)));
+    let plain = params(&["terminal", SHELL, "screen", "read"]);
+    assert!(plain.get("unwrap").is_none() && plain.get("lines").is_none());
+    let wait = params(&["terminal", SHELL, "screen", "wait", "--pattern", "ok", "--new"]);
+    assert_eq!(wait["new"], true);
+    let copy = params(&["terminal", SHELL, "copy", "--mode", "scrollback", "--unwrap"]);
+    assert_eq!(copy["unwrap"], true);
+    let args: Vec<String> = ["terminal", SHELL, "screen", "read", "--lines", "0"]
+        .iter()
+        .map(|a| (*a).to_owned())
+        .collect();
+    assert!(command::parse(&args, super::super::Surface::CmuxTui).is_err());
+}

@@ -219,11 +219,13 @@ public final class SettingsController {
 
     /// Whether something other than the row's default fills `key` when cmux-next.json leaves it
     /// unset, so only a value in the file keeps the person's pick of the default: MDM recommended or
-    /// the team's default, under the key or an older name (`EffectiveSettings.legacyKeys`), or a
-    /// reader with its own fallback (`SettingsSchema.unsetIsNotDefault`).
+    /// the team's default, under the key or an older name (`EffectiveSettings.legacyKeys`), an older
+    /// name in the file itself (classic's `browser.openTerminalLinksInCmuxBrowser`), or a reader with
+    /// its own fallback (`SettingsSchema.unsetIsNotDefault`).
     func layerBelowFileSets(_ key: String) -> Bool {
-        let names = [key] + EffectiveSettings.legacyKeys.filter { $0.value == key }.map(\.key)
-        return names.contains { lastSource?.managed.recommended[$0] != nil || teamPolicy.defaults[$0] != nil }
+        let older = EffectiveSettings.legacyKeys.filter { $0.value == key }.map(\.key)
+        return ([key] + older).contains { lastSource?.managed.recommended[$0] != nil || teamPolicy.defaults[$0] != nil }
+            || older.contains { fileRoot.value(at: CmuxConfigFile.keyPath(from: $0)) != nil }
             || SettingsSchema.unsetIsNotDefault(key)
     }
 

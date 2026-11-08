@@ -19,6 +19,8 @@ use std::time::Duration;
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
+#[path = "peer_carrier.rs"]
+mod carrier;
 #[path = "peer_features.rs"]
 mod features;
 #[path = "peer_health.rs"]
@@ -161,6 +163,8 @@ pub struct Peer {
     /// while it is open and not `connected`.
     open: AtomicBool,
     pub last_error: StdMutex<Option<String>>,
+    /// The carrier, a token refusal and when the state began (`peer_carrier.rs`).
+    facts: StdMutex<carrier::LinkFacts>,
     /// Version and build the peer reported at handshake.
     pub remote_version: StdMutex<Option<(String, String)>>,
     /// The build of this peer whose watch list the last handshake read in pages of rows
@@ -368,6 +372,7 @@ impl Peer {
             rows_ready: AtomicBool::new(false),
             open: AtomicBool::new(false),
             last_error: StdMutex::new(None),
+            facts: StdMutex::new(carrier::LinkFacts::default()),
             remote_version: StdMutex::new(None),
             row_pages_for: StdMutex::new(None),
             served_as: StdMutex::new(None),
@@ -477,11 +482,32 @@ impl Peer {
     }
 
     fn observed(&self, link: &Link) -> crate::peer_states::Observed {
+        let error = self.last_error.lock_or_recover().clone();
+        let state = link.state();
+        let mut facts = self.facts.lock_or_recover();
+        let (whole, since) = facts.observe(state, crate::store::now_ms());
         crate::peer_states::Observed {
-            state: link.state().wire(),
+            link: whole,
+            carrier: facts.live_carrier(state),
+            cause: carrier::cause(whole, error.as_deref()),
+            since,
+            next_retry_at: link.retry_at.filter(|_| !link.is_ready()),
             last_seen: link.last_seen,
-            error: self.last_error.lock_or_recover().clone(),
+            error,
         }
+    }
+
+    /// The carrier this attempt runs over (`carrier` while its link is open).
+    fn carried_by(&self, by: crate::protocol::peer_state::Carrier) {
+        let mut facts = self.facts.lock_or_recover();
+        facts.carrier = Some(by);
+        // The upgrade went through, so the token was taken.
+        facts.refused = false;
+    }
+
+    /// The peer refused this attempt's token: the link is `authFailed` until one is taken.
+    fn token_refused(&self) {
+        self.facts.lock_or_recover().refused = true;
     }
 
     pub fn state(&self) -> PeerState {
@@ -940,6 +966,7 @@ impl Peer {
 
     pub fn summary(&self) -> Value {
         let link = self.link();
+        let observed = self.observed(&link);
         let (health, health_at) = self.health_summary();
         json!({
             "name": self.name,
@@ -955,6 +982,11 @@ impl Peer {
             "canonicalEndpoint": canonical_endpoint(&self.url),
             "outdated": self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b != crate::hub::build()).unwrap_or(false),
             "state": link.state().as_str(),
+            "link": observed.link,
+            "carrier": observed.carrier,
+            "cause": observed.cause,
+            "since": observed.since,
+            "nextRetryAt": observed.next_retry_at,
             "lastSeen": link.last_seen,
             "downSince": link.down_since,
             "attempts": link.attempts,
@@ -1290,11 +1322,12 @@ impl Peer {
             // cache while handling it, so a daemon restart mid-wait keeps the parked deadline.
             let delay = (!restarting).then(|| {
                 self.with_link(|l| {
-                    l.schedule_retry(
-                        &mut backoff,
-                        crate::store::now_ms(),
-                        crate::peer_link::jitter(),
-                    )
+                    let now = crate::store::now_ms();
+                    let delay = l.schedule_retry(&mut backoff, now, crate::peer_link::jitter());
+                    // Reported only (`nextRetryAt`): the wait below keeps its own delay.
+                    let waits = if redial_now { Duration::ZERO } else { delay };
+                    l.retry_at = Some(now.saturating_add(waits.as_millis() as u64));
+                    delay
                 })
             });
             if let Some(notice) = notice {
@@ -1415,6 +1448,7 @@ impl Peer {
         self: &Arc<Self>,
         out_rx: &mut mpsc::Receiver<Outbound>,
     ) -> Result<LinkEnd, String> {
+        self.facts.lock_or_recover().refused = false;
         // An SSH peer may source this launch's application credentials over
         // SSH. Resolve them before WG too, or a remote-origin handshake can
         // reread a newer peer token and reconnect forever with the old one.
@@ -1454,6 +1488,7 @@ impl Peer {
             if let Ok(Ok((ws, _))) = opened {
                 *self.presented.lock().unwrap_or_else(|e| e.into_inner()) =
                     peer_token.map(str::to_owned);
+                self.carried_by(crate::protocol::peer_state::Carrier::Direct);
                 return self.serve_heard(ws, out_rx, Some(heard)).await;
             }
             tracing::debug!(peer = %self.name, "WireGuard unavailable; trying the configured peer route");
@@ -1528,6 +1563,7 @@ impl Peer {
                         refused = tokens::refused(&e);
                         e.to_string()
                     })?;
+                self.carried_by(crate::protocol::peer_state::Carrier::Ssh);
                 self.serve_heard(ws, out_rx, Some(heard.clone())).await
             }
             .await;
@@ -1542,6 +1578,7 @@ impl Peer {
                 continue;
             }
             if refused {
+                self.token_refused();
                 self.read_tokens.forget();
                 // Kept tokens the remote no longer takes: read them again and retry once, now.
                 if kept && !self.stop.load(Ordering::SeqCst) {
@@ -1588,11 +1625,17 @@ impl Peer {
                 None,
             )
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| {
+                if tokens::refused(&e) {
+                    self.token_refused();
+                }
+                e.to_string()
+            })
         };
         let (ws, _) = tokio::time::timeout(self.timings.connect, connect)
             .await
             .map_err(|_| connect_timed_out(self.timings.connect))??;
+        self.carried_by(crate::protocol::peer_state::Carrier::Direct);
         self.serve_heard(ws, out_rx, Some(heard)).await
     }
 

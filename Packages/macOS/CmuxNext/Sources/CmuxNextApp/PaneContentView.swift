@@ -50,6 +50,8 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     var swapDrag: PaneSwapDrag?
     /// The acting agent's name tag (`PaneContentView+AgentTag`).
     let agentTag = AgentPresenceTagView()
+    /// A zoomed pane's Exit Zoom button at the content's top-right (`PaneContentView+AgentTag`).
+    private(set) lazy var zoomIndicator = PaneZoomIndicatorView(model: stripView.model)
     private var agentTagObservation: Task<Void, Never>?
     /// No strip: the person hid this pane's tab bar (``PaneTabBar``).
     var hidesStrip = false {

@@ -424,8 +424,11 @@ Params:
 | `force` | `boolean` | `false` | Requires `daemon-handoff-force-v1`; bypasses native-browser ownership only |
 | `end_terminals` | `boolean` | `false` | Requires `terminal-reap-v1`; ends every terminal and removes its tabs before the handoff |
 | `keep_layout` | `boolean` | `false` | Requires `end-terminals-keep-layout-v1` and `end_terminals`; placed terminals keep their tabs |
+| `restart` | `boolean\|null` | absent | `true` when a replacement daemon follows (`server restart`), `false` when the session stops (`server stop`); repeated on the `daemon-shutdown` event |
 
 Result: `object{accepted:true,pid:uint32,generation:string,ended_terminals?:uint64|null}`.
+
+`restart` tells attached clients what follows: the interactive TUI reconnects to the replacement and keeps its view after `restart:true`, and exits with a message after `restart:false`. An older daemon ignores the field. Only clients that negotiated `daemon-shutdown-restart-v1` get it on the event.
 
 A normal shutdown keeps terminal hosts alive for the next owner. With `end_terminals`, the daemon ends every terminal that has a live runtime in one commit (one projection; the terminal tombstones and the removal of their tabs in one transaction, as `close-tabs` with `end_terminals` does), ends a pending or exited terminal through the `close-terminal` path, waits for their hosts to exit, and reports the count in `ended_terminals`. The batch is one `terminals.end` resource record (not one `terminal.close` record per terminal), and its terminal events carry reason `topology-closed`. Each host's close deadline starts when the host is asked to exit; the call waits while hosts are still being signaled or keep exiting, at most 60 s, and stops waiting after a close deadline with no progress. A host still running after its close deadline (it ignored termination) is killed, and the call succeeds only once every terminal host of the session is provably dead; otherwise it fails and the daemon keeps serving. Test harnesses use it so a run leaves no terminal host or PTY behind. A failure to end a terminal cancels the handoff and the daemon keeps serving.
 

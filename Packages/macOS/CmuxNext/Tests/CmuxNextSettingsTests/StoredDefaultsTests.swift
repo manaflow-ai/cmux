@@ -111,6 +111,15 @@ import Testing
         #expect(try await writingTheDefault(LinkRouting.openPath, in: settings) == .bool(LinkRouting.openDefault))
     }
 
+    /// With no older key and no lower layer, the browser key and the editor import's own selector
+    /// follow their defaults like any other (#38167 F1, F2).
+    @Test func withNothingBelowTheDefaultIsRemoved() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller("{}")
+        #expect(try await writingTheDefault(LinkRouting.openPath, in: settings) == nil)
+        #expect(try await writingTheDefault(EditorSettingsSchema.importFromPath, in: settings) == nil)
+    }
+
     /// The Debug tunable `agent.harnessPlacement` fills `agentPane.display.harnessPlacement`.
     @Test func aDebugTunableKeepsAnExplicitDefault() async throws {
         defer { try? FileManager.default.removeItem(at: home) }

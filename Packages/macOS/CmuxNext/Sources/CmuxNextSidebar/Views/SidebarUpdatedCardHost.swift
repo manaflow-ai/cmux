@@ -56,6 +56,16 @@ final class SidebarUpdatedCardHost: NSView {
     let glass = GlassPanelView(cornerRadius: LayoutGrid.composerRadius) // glass-level-allow: the material only; the page paints the composer's popover-level tint over it
     /// The glass's frame for the preview height it was last laid out at.
     private(set) var glassFrame = NSRect.zero
+    /// The glass's frame before a close that is still running: the preview still shows there, so the
+    /// card keeps the pointer over it until the close ends (review F1 of #38117's third pass).
+    /// Kept as a height from the card's resting edge, so a relayout mid-close (a sidebar resize) moves
+    /// it with the card instead of dropping it (review F2 of #38222).
+    var closingFrame: NSRect? {
+        closingHeight.map { NSRect(x: 0, y: anchor == .top ? 0 : bounds.height - $0, width: bounds.width, height: $0) }
+    }
+    private var closingHeight: CGFloat?
+    /// Counts preview motions: only the close that is still the latest ends the hold (review F1 of #38222).
+    private var glassMotion = 0
     private var glassPreview: CGFloat = 0
     /// Makes ``island`` once a card shows (a web page; none at launch without one).
     var surfaces: (any SidebarUpdateSurfaces)? {
@@ -394,26 +404,42 @@ final class SidebarUpdatedCardHost: NSView {
         let tall = min(bounds.height, (height > 0 ? height : bounds.height) + preview)
         let next = NSRect(x: 0, y: anchor == .top ? 0 : bounds.height - tall, width: bounds.width, height: tall)
         glass.isHidden = card == nil || tall <= 0
+        // The composer's corner at the page's zoom: the page's corner grows with the interface scale.
+        glass.cornerRadius = LayoutGrid.composerRadius * (island?.zoom ?? 1)
         guard next != glassFrame else { return }
         let moves = preview != glassPreview && window != nil && !glassFrame.isEmpty
+        if preview != glassPreview {
+            // A new open or close: the latest one decides what the card holds.
+            glassMotion += 1
+            closingHeight = moves && preview < glassPreview ? glassFrame.height : nil
+        }
         (glassFrame, glassPreview) = (next, preview)
         guard moves else { return Motion.withoutAnimation { glass.frame = next } }
+        let motion = glassMotion
         // The page's gate (web), not the sidebar's: with web motion off or reduced the page's preview
         // is simply there, and so is the glass (review F1 of #38117).
-        Motion.web.animateCard(in: self) { glass.animator().frame = next }
+        Motion.web.animateCard(in: self, { glass.animator().frame = next }) { [weak self] in
+            // An earlier motion's end leaves a later close's hold alone.
+            if self?.glassMotion == motion { self?.closingHeight = nil }
+        }
     }
 
     /// Whether the card's glass covers `windowPoint`: the rows under it light nothing and open no card
     /// (``SidebarListView/hoverOccluded``).
     func covers(windowPoint: NSPoint) -> Bool {
         guard !isHiddenOrHasHiddenAncestor, card != nil else { return false }
-        return glassFrame.contains(convert(windowPoint, from: nil))
+        return owns(convert(windowPoint, from: nil))
+    }
+
+    /// The card owns `point` (this view's coordinates): on its glass, or on the preview still closing.
+    private func owns(_ point: NSPoint) -> Bool {
+        glassFrame.contains(point) || closingFrame?.contains(point) == true
     }
 
     /// The view grown for the preview's room takes the pointer only where the card's glass is: a
     /// closing preview's room, and the room asked for before it opens, pass clicks to the rows.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let superview, glassFrame.contains(convert(point, from: superview)) else { return nil }
+        guard let superview, owns(convert(point, from: superview)) else { return nil }
         return super.hitTest(point)
     }
 
