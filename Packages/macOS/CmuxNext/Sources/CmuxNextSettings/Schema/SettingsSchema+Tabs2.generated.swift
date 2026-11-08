@@ -225,16 +225,6 @@ nonisolated enum TabSettingsSchema {
                 keywords: ["new terminal", "workspace", "space", "tab", "option"]
             ),
             SettingDescriptor(
-                CmdWClosesPinnedTabsSetting.configPath,
-                section: .general,
-                group: group,
-                title: SettingsText.keyed("settings.tabs.cmdWClosesPinnedTabs", "Cmd-W Closes Pinned Tabs"),
-                help: SettingsText.keyed("settings.tabs.cmdWClosesPinnedTabs.help", "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu."),
-                kind: .toggle,
-                default: .bool(CmdWClosesPinnedTabsSetting.fallback),
-                keywords: ["pin", "pinned", "close", "cmd-w", "tab", "keep"]
-            ),
-            SettingDescriptor(
                 VerticalTabsSetting.configPath,
                 section: .general,
                 group: group,

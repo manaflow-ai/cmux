@@ -13,7 +13,6 @@ use crate::resource::RequestId as ResourceRequestId;
 use crate::resource::ResourceError;
 use crate::resource::ResourceOperation;
 use crate::resource::WireDecimal;
-use regex::Regex;
 use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
@@ -92,7 +91,7 @@ fn run_terminal_resource_wait(
 ) -> Result<Option<Value>, ResourceError> {
     let (_, surface) = resource_terminal_surface(mux, &request.selectors)?;
     let pattern = crate::resource_router::required_string(&request.fields, "pattern")?;
-    let regex = Regex::new(pattern).map_err(|_| {
+    let regex = crate::wait_pattern::compile(pattern).map_err(|_| {
         ResourceError::validation_invalid(
             None,
             "terminal wait pattern is not a valid regular expression",
