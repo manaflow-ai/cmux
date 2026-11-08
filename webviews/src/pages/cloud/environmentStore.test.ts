@@ -3,6 +3,9 @@ import { EnvironmentStore } from "./environmentStore";
 import {
   environmentDraft,
   environmentPatch,
+  hostsValid,
+  secretHosts,
+  validateEnvironment,
   SETUP_SCRIPT_BYTES,
   type CloudEnvironment,
   type EnvironmentClient,
@@ -333,4 +336,161 @@ test("editing away and back to the same text still invalidates a pending file re
   pending.resolve("echo selected file");
   await reading;
   expect(store.getSnapshot().draft?.script).toBe("echo original");
+});
+
+describe("secret delivery hosts and header", () => {
+  const delivered = () =>
+    environment({
+      secrets: [
+        { name: "PACKAGE_TOKEN", updated_at: "2026-11-01T00:00:00Z" },
+        { name: "GITHUB_TOKEN", updated_at: "2026-11-01T00:00:00Z", hosts: ["api.github.com"] },
+        {
+          name: "SEARCH_KEY",
+          updated_at: "2026-11-01T00:00:00Z",
+          hosts: ["search.example.com"],
+          header: { name: "x-api-key", format: "{value}" },
+        },
+      ],
+    });
+
+  test("hosts parse from commas and spaces, lowercased and deduplicated, and validate exact names", () => {
+    expect(secretHosts(" API.github.com, uploads.github.com  api.github.com,")).toEqual([
+      "api.github.com",
+      "uploads.github.com",
+    ]);
+    expect(hostsValid("")).toBe(true);
+    expect(hostsValid("api.example.com")).toBe(true);
+    for (const bad of [
+      "https://api.example.com",
+      "api.example.com:443",
+      "api.example.com/v1",
+      "*.example.com",
+      "localhost",
+    ])
+      expect(hostsValid(bad)).toBe(false);
+    expect(hostsValid(Array.from({ length: 8 }, (_, i) => `h${i}.example.com`).join(","))).toBe(true);
+    expect(hostsValid(Array.from({ length: 9 }, (_, i) => `h${i}.example.com`).join(","))).toBe(false);
+  });
+
+  test("GET's hosts and header fill the draft; a value the server sends is never kept", async () => {
+    const leaked = delivered();
+    const { store } = fake({
+      get: async () =>
+        ({
+          ...leaked,
+          secrets: leaked.secrets.map((secret) => ({ ...secret, value: "server-leaked-value" })),
+        }) as CloudEnvironment,
+    });
+    await store.open({ environmentId: "env_personal" });
+    const secrets = store.getSnapshot().draft?.secrets;
+    expect(secrets).toEqual([
+      { name: "PACKAGE_TOKEN", value: "" },
+      { name: "GITHUB_TOKEN", value: "", hosts: "api.github.com" },
+      { name: "SEARCH_KEY", value: "", hosts: "search.example.com", header: { name: "x-api-key", format: "{value}" } },
+    ]);
+    expect(JSON.stringify(store.getSnapshot())).not.toContain("server-leaked-value");
+  });
+
+  test("a set secret carries its hosts and a custom header; the default header is left to the platform", async () => {
+    const { store, writes } = fake();
+    await store.open();
+    store.edit({
+      secrets: [
+        { name: "PACKAGE_TOKEN", value: "" },
+        { name: "GITHUB_TOKEN", value: "ghp-test", hosts: "api.github.com, uploads.github.com" },
+        {
+          name: "SEARCH_KEY",
+          value: "key-test",
+          hosts: "search.example.com",
+          header: { name: "X-Api-Key", format: "{value}" },
+        },
+        { name: "PLAIN", value: "plain-test", header: { name: "x", format: "nothing" } },
+      ],
+    });
+    await store.save();
+    expect(writes[0]?.patch).toEqual({
+      set_secrets: [
+        { name: "GITHUB_TOKEN", value: "ghp-test", hosts: ["api.github.com", "uploads.github.com"] },
+        {
+          name: "SEARCH_KEY",
+          value: "key-test",
+          hosts: ["search.example.com"],
+          header: { name: "x-api-key", format: "{value}" },
+        },
+        { name: "PLAIN", value: "plain-test" },
+      ],
+    });
+  });
+
+  test("invalid hosts or a header without {value} block Save", async () => {
+    const { store, writes } = fake();
+    await store.open();
+    store.edit({ secrets: [{ name: "PACKAGE_TOKEN", value: "v", hosts: "https://api.example.com" }] });
+    await store.save();
+    expect(store.getSnapshot().error).toBe("hosts");
+    store.edit({
+      secrets: [
+        {
+          name: "PACKAGE_TOKEN",
+          value: "v",
+          hosts: "api.example.com",
+          header: { name: "authorization", format: "Bearer" },
+        },
+      ],
+    });
+    await store.save();
+    expect(store.getSnapshot().error).toBe("header");
+    store.edit({
+      secrets: [
+        {
+          name: "PACKAGE_TOKEN",
+          value: "v",
+          hosts: "api.example.com",
+          header: { name: "bad header", format: "{value}" },
+        },
+      ],
+    });
+    expect(validateEnvironment(store.getSnapshot().draft!)).toBe("header");
+    expect(writes).toEqual([]);
+  });
+
+  test("changing an existing secret's delivery needs its value again; an untouched one writes nothing", async () => {
+    const { store, writes } = fake({ list: async () => [delivered()] });
+    await store.open();
+    const draft = store.getSnapshot().draft!;
+    expect(environmentPatch(delivered(), draft)).toEqual({});
+    store.edit({
+      secrets: draft.secrets.map((row) =>
+        row.name === "GITHUB_TOKEN" ? { ...row, hosts: "api.github.com, uploads.github.com" } : row,
+      ),
+    });
+    await store.save();
+    expect(store.getSnapshot().error).toBe("retype");
+    expect(writes).toEqual([]);
+    store.edit({
+      secrets: store
+        .getSnapshot()
+        .draft!.secrets.map((row) => (row.name === "GITHUB_TOKEN" ? { ...row, value: "ghp-new" } : row)),
+    });
+    await store.save();
+    expect(writes[0]?.patch).toEqual({
+      set_secrets: [{ name: "GITHUB_TOKEN", value: "ghp-new", hosts: ["api.github.com", "uploads.github.com"] }],
+    });
+  });
+
+  test("retyping only the value keeps the stored hosts and header", () => {
+    const original = delivered();
+    const draft = environmentDraft(original);
+    draft.secrets = draft.secrets.map((row) => (row.name === "SEARCH_KEY" ? { ...row, value: "rotated" } : row));
+    expect(environmentPatch(original, draft)).toEqual({
+      set_secrets: [
+        {
+          name: "SEARCH_KEY",
+          value: "rotated",
+          hosts: ["search.example.com"],
+          header: { name: "x-api-key", format: "{value}" },
+        },
+      ],
+    });
+  });
 });

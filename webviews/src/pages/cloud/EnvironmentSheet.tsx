@@ -18,6 +18,9 @@ const errorKeys: Record<NonNullable<EnvironmentState["error"]>, string> = {
   file: L.envFileFailed,
   copy: L.envCopyFailed,
   secret: L.envSecretRequired,
+  hosts: L.envInvalidHosts,
+  header: L.envInvalidHeader,
+  retype: L.envSecretRetype,
 };
 const sections = {
   overview: L.envTitle,

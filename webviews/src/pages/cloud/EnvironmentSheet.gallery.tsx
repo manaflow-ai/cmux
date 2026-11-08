@@ -4,9 +4,27 @@ import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import type { CloudEnvironment, EnvironmentSection } from "./environmentModel";
 
-type Props = { section: EnvironmentSection; failure?: boolean; full?: boolean };
+type Props = { section: EnvironmentSection; failure?: boolean; full?: boolean; delivery?: boolean };
 const ready: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cloud-environment-sheet .env-fields"));
+};
+const hostsField = (index: number) => ({ selector: `.env-secret:nth-of-type(${index + 1}) .env-secret-hosts input` });
+const headerOpen: Play = async (ctx) => {
+  await ready(ctx);
+  await ctx.click({ selector: ".env-secret:nth-of-type(3) .env-disclosure" });
+  await ctx.waitFor(() => ctx.document.querySelector('.env-disclosure[aria-expanded="true"]'));
+};
+const invalidHost: Play = async (ctx) => {
+  await ready(ctx);
+  await ctx.type("https://api.example.com/v1", hostsField(0));
+  await ctx.click({ selector: ".env-primary" });
+  await ctx.waitFor(() => ctx.document.querySelector(".env-secret .env-error"));
+};
+const retype: Play = async (ctx) => {
+  await ready(ctx);
+  await ctx.type(", uploads.github.com", hostsField(1));
+  await ctx.click({ selector: ".env-primary" });
+  await ctx.waitFor(() => ctx.document.querySelector(".env-body > .env-error"));
 };
 const saveFailure: Play = async (ctx) => {
   await ready(ctx);
@@ -29,7 +47,7 @@ export default componentEntry<Props>({
       import("../shared/i18n"),
       import("./generated/strings.json"),
     ]);
-    return function EnvironmentGallery({ section, failure, full }: Props) {
+    return function EnvironmentGallery({ section, failure, full, delivery }: Props) {
       const [strings] = useState(() => createStrings(table));
       const [store] = useState(() => {
         let environment: CloudEnvironment = {
@@ -42,7 +60,21 @@ export default componentEntry<Props>({
             { name: "NODE_ENV", value: "development" },
             { name: "LOG_LEVEL", value: "info" },
           ],
-          secrets: [{ name: "PACKAGE_TOKEN", updated_at: "2026-11-01T00:00:00Z" }],
+          secrets: [
+            { name: "PACKAGE_TOKEN", updated_at: "2026-11-01T00:00:00Z" },
+            ...(delivery
+              ? [
+                  // The default header (absent): Authorization: Bearer {value}.
+                  { name: "GITHUB_TOKEN", updated_at: "2026-11-01T00:00:00Z", hosts: ["api.github.com"] },
+                  {
+                    name: "SEARCH_KEY",
+                    updated_at: "2026-11-01T00:00:00Z",
+                    hosts: ["search.example.com", "search-eu.example.com"],
+                    header: { name: "x-api-key", format: "{value}" },
+                  },
+                ]
+              : []),
+          ],
           network: {
             mode: full ? "full" : "limited",
             package_managers: true,
@@ -69,7 +101,12 @@ export default componentEntry<Props>({
                     !patch.remove_secrets?.includes(secret.name) &&
                     !patch.set_secrets?.some((set) => set.name === secret.name),
                 ),
-                ...(patch.set_secrets ?? []).map(({ name }) => ({ name, updated_at: "2026-11-01T00:01:00Z" })),
+                ...(patch.set_secrets ?? []).map(({ name, hosts, header }) => ({
+                  name,
+                  updated_at: "2026-11-01T00:01:00Z",
+                  ...(hosts ? { hosts } : {}),
+                  ...(header ? { header } : {}),
+                })),
               ],
             };
             return environment;
@@ -110,6 +147,26 @@ export default componentEntry<Props>({
       note: "Existing names are visible; values are blank and write-only.",
       props: { section: "secrets" },
       play: ready,
+    },
+    "secret-hosts": {
+      note: "Secrets sent only to hosts: the default Authorization header, and a custom one; a plain env var above.",
+      props: { section: "secrets", delivery: true },
+      play: ready,
+    },
+    "secret-header-open": {
+      note: "The Header disclosure open on a secret with a custom header name and format.",
+      props: { section: "secrets", delivery: true },
+      play: headerOpen,
+    },
+    "secret-invalid-host": {
+      note: "A URL typed as a host: the inline error under the row, and Save refuses it.",
+      props: { section: "secrets", delivery: true },
+      play: invalidHost,
+    },
+    "secret-retype": {
+      note: "An existing secret's hosts changed without its value: the row asks for the value again.",
+      props: { section: "secrets", delivery: true },
+      play: retype,
     },
     variables: {
       note: "Environment variable names and editable values.",

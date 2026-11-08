@@ -2,7 +2,7 @@ import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { EnvironmentStore } from "./environmentStore";
-import type { CloudEnvironment, EnvironmentPatch } from "./environmentModel";
+import type { CloudEnvironment, EnvironmentPatch, EnvironmentSection } from "./environmentModel";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 
@@ -56,7 +56,7 @@ const sample: CloudEnvironment = {
   updated_at: "2026-11-01T00:00:00Z",
   updated_by: "user_example",
 };
-async function mount(section: "overview" | "script" = "overview") {
+async function mount(section: EnvironmentSection = "overview") {
   const writes: EnvironmentPatch[] = [];
   const store = new EnvironmentStore({
     list: async () => [sample],
@@ -138,6 +138,40 @@ test("the checklist entry displays the derived Bash script and backs into the co
     });
     expect(mounted.writes).toEqual([]);
     expect(mounted.store.getSnapshot().open).toBe(false);
+  } finally {
+    await mounted.dispose();
+  }
+});
+
+test("a secret's Sent to hosts unfold its header, and an invalid host shows inline and blocks Save", async () => {
+  const mounted = await mount("secrets");
+  try {
+    const hosts = document.querySelector<HTMLInputElement>('input[aria-label="Sent to"]');
+    expect(hosts?.value).toBe("");
+    const fold = document.querySelector(".env-secret > .env-fold");
+    expect(fold?.hasAttribute("data-open")).toBe(false);
+    expect(fold?.hasAttribute("inert")).toBe(true);
+    await act(async () => {
+      mounted.store.edit({ secrets: [{ name: "PACKAGE_TOKEN", value: "tok", hosts: "registry.example.com" }] });
+    });
+    expect(fold?.hasAttribute("data-open")).toBe(true);
+    expect(document.querySelector(".env-header-summary")?.textContent).toBe("authorization: Bearer {value}");
+    const disclosure = document.querySelector<HTMLButtonElement>(".env-disclosure");
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => disclosure!.click());
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector<HTMLInputElement>('input[aria-label="Header name"]')?.value).toBe("authorization");
+    await act(async () => {
+      mounted.store.edit({ secrets: [{ name: "PACKAGE_TOKEN", value: "tok", hosts: "https://registry.example.com" }] });
+    });
+    expect(hosts?.getAttribute("aria-invalid")).toBe("true");
+    expect(document.querySelector(".env-secret .env-error")?.textContent).toContain("up to 8 host names");
+    await act(async () => {
+      button("Save changes")!.click();
+      await settle();
+    });
+    expect(mounted.writes).toEqual([]);
+    expect(mounted.store.getSnapshot().error).toBe("hosts");
   } finally {
     await mounted.dispose();
   }

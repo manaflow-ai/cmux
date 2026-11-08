@@ -118,12 +118,16 @@ impl CloudConversations {
             other => other,
         })?;
         let mut body = reply.body;
-        // Never forward secret values, even if an upstream reply accidentally includes one.
+        // Never forward secret values, even if an upstream reply accidentally includes one. A
+        // secret's delivery targets (`hosts`, `header`: the edge grants' hosts and header format)
+        // are not values, and the editor shows them.
         fn redact(environment: &mut Value) {
             if let Some(secrets) = environment.get_mut("secrets").and_then(Value::as_array_mut) {
                 for secret in secrets {
                     if let Some(fields) = secret.as_object_mut() {
-                        fields.retain(|key, _| key == "name" || key == "updated_at");
+                        fields.retain(|key, _| {
+                            matches!(key.as_str(), "name" | "updated_at" | "hosts" | "header")
+                        });
                     }
                 }
             }

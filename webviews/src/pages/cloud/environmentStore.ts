@@ -2,7 +2,9 @@ import {
   environmentDraft,
   environmentPatch,
   scriptFits,
+  secretDeliveryChanged,
   SETUP_SCRIPT_BYTES,
+  storedEnvironment,
   validateEnvironment,
   type CloudEnvironment,
   type EnvironmentClient,
@@ -21,7 +23,19 @@ export type EnvironmentState = {
   derivedScript?: string;
   deriving?: boolean;
   deriveFailed?: boolean;
-  error?: "load" | "save" | "missing" | "name" | "names" | "script" | "file" | "copy" | "secret";
+  error?:
+    | "load"
+    | "save"
+    | "missing"
+    | "name"
+    | "names"
+    | "script"
+    | "file"
+    | "copy"
+    | "secret"
+    | "hosts"
+    | "header"
+    | "retype";
 };
 
 /** One draft for every entry point; stale reads never resurrect a closed or different editor. */
@@ -39,6 +53,8 @@ export class EnvironmentStore {
     return () => this.listeners.delete(listener);
   };
   private set(patch: Partial<EnvironmentState>) {
+    // A secret value a server sends by mistake is dropped here, whichever read brought it.
+    if (patch.original) patch = { ...patch, original: storedEnvironment(patch.original) };
     this.state = { ...this.state, ...patch };
     for (const listener of this.listeners) listener();
   }
@@ -116,6 +132,13 @@ export class EnvironmentStore {
     if (invalid) return this.error(invalid);
     if (draft.secrets.some((row) => !row.value && !original.secrets.some((secret) => secret.name === row.name)))
       return this.error("secret");
+    if (
+      draft.secrets.some((row) => {
+        const stored = original.secrets.find((secret) => secret.name === row.name);
+        return !row.value && stored !== undefined && secretDeliveryChanged(row, stored);
+      })
+    )
+      return this.error("retype");
     const patch = environmentPatch(original, draft);
     if (!Object.keys(patch).length) return this.close();
     this.set({ saving: true, error: undefined });
