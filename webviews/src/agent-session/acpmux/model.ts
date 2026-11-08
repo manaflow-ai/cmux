@@ -1,6 +1,7 @@
 import { experimentArm } from "../../experiments/experiment";
 import { backgroundReactionLook, reactsOnCall } from "./conversation/backgroundReaction.experiment";
 import { permissionCardHeight } from "./permissions/cardHeight";
+import type { SentFrom } from "./conversation/sentFromHarness";
 import { BUBBLE } from "./transcriptSpacing";
 import {
   footerAfter,
@@ -509,6 +510,9 @@ export type AcpmuxRow = {
   /// The machine the person's own `acpmux send` ran on (acpmux records it on the client, as
   /// `acpmux-cli#…@big-red`): "via CLI on big-red" under their prompt.
   viaCli?: string;
+  /// The harness or app the prompt was sent from with `acpmux send` (acpmux's `sender_claim`
+  /// record, conversation/sentFromHarness.ts): a sender chip under it, which never says who sent it.
+  sentFrom?: SentFrom;
   /// Part of the person's typed text reads as another agent's output (acpmux `agentText`, a paste
   /// from a client that marks none): the agent it names, if any. One quiet line under the prompt.
   agentText?: { from?: string };
@@ -1636,14 +1640,19 @@ export function restRoom(): number {
 /// sending a steer changes no row's height. A waiting prompt of images alone has no bubble to lay
 /// the row under, so its row (Send now first, PendingSteer.tsx) stays in flow.
 const userMetaHeight = (row: AcpmuxRow) => (row.steer === "waiting" && !row.text?.trim() ? META_GAP + metaRow() : 0);
-/// The author line over a shared chat's prompt (multiplayer/multiplayer.css `.cv-author`).
-const AUTHOR_HEIGHT = 22;
+/// The author line over a shared chat's prompt (multiplayer/multiplayer.css `.cv-author`): the taller
+/// of its 18 line and its face (`--cv-author-face`, five grid units, 20 at 1x, scaling with the
+/// interface), and the 4 under it.
+const AUTHOR_LINE = 18;
+const AUTHOR_FACE = 20;
+const AUTHOR_GAP = 4;
+const authorHeight = () => Math.max(AUTHOR_LINE, AUTHOR_FACE * chromeScale) + AUTHOR_GAP;
 const chromeHeight = (row: AcpmuxRow, _actions: boolean) =>
   row.kind === "user"
     ? userBubblePadding() +
       userMetaHeight(row) +
       (row.status ? USER_STATUS_HEIGHT : 0) +
-      (row.author ? AUTHOR_HEIGHT : 0)
+      (row.author ? authorHeight() : 0)
     : 0; // Reply controls overlay the container gap.
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
 const USER_BUBBLE_SHARE = 0.7;

@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture tool titles and output, not shipped UI.
 // Every collapsible in the transcript opens and closes in one motion (Leo 2026-10-20): its body's
-// height and opacity over the shared fold token (`--cv-fold-duration`, the host's move duration),
+// height and opacity over the shared fold token (`--cv-fold-duration`, the settle, `--cmux-motion-settle`),
 // easing out, the chevron turning on the same token, and at once under Reduce Motion or with the
 // pane's animation off. A body that closes stays drawn until it has slid away.
 import { afterEach, beforeEach, expect, test } from "bun:test";
@@ -23,7 +23,7 @@ import { McpCallRows } from "../src/agent-session/acpmux/conversation/McpCallRow
 import { ToolGroupRow } from "../src/agent-session/acpmux/conversation/ToolGroupRow";
 import { ToolRow } from "../src/agent-session/acpmux/conversation/ToolRow";
 import { ToolRun } from "../src/agent-session/acpmux/conversation/ToolRun";
-import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
+import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -363,7 +363,9 @@ test("a fold reopened as its close ends opens from its own size, not the pinned 
   expect(container.querySelector(".cv-fold")).toBe(box);
   expect(animations.length).toBe(3);
   expect(animations[2]!.keyframes[0]).toEqual({ height: "0px", opacity: 0 });
-  expect(box.style.height).toBe("");
+  // Under the motion the box holds the open's start height, never the close's pin: a frame drawn
+  // before the motion applies shows it shut, not open at full height (composer-hat-fold-balance).
+  expect(box.style.height).toBe("0px");
   expect(box.style.opacity).toBe("");
   animations[2]!.finish();
   expect(box.style.height).toBe("");
@@ -371,14 +373,16 @@ test("a fold reopened as its close ends opens from its own size, not the pinned 
   expect(box.style.overflow).toBe("");
 });
 
-test("the fold token is the host's move duration, and the chevron turns on it", () => {
+// Leo, 2026-11-07: "they dont overshoot but they decelerate at the end. i think that might be the key".
+test("the fold token is the settle (one curve for every web fold), and the chevron turns on it", () => {
   const css = readFileSync(
     path.resolve(import.meta.dir, "../src/agent-session/acpmux/conversation/conversation.css"),
     "utf8",
   );
   expect(FOLD_DURATION_VAR).toBe("--cv-fold-duration");
-  expect(css).toMatch(/--cv-fold-duration:\s*var\(--agent-motion-move,\s*180ms\)/);
-  expect(css).toMatch(/\.cv-rotor\s*\{\s*transition:\s*transform var\(--cv-fold-duration\) var\(--agent-ease-out/);
+  expect(css).toMatch(/--cv-fold-duration:\s*var\(--cmux-motion-settle,\s*265ms\)/);
+  expect(css).toMatch(/--cv-fold-ease:\s*var\(--cmux-ease-settle,\s*cubic-bezier\(0\.16, 1, 0\.3, 1\)\)/);
+  expect(css).toMatch(/\.cv-rotor\s*\{\s*transition:\s*transform var\(--cv-fold-duration\) var\(--cv-fold-ease/);
   // The chevron snaps under Reduce Motion: its transition is only under no-preference.
   expect(css).toMatch(
     /@media \(prefers-reduced-motion: no-preference\)\s*\{\s*\.cv-rotor\s*\{\s*transition: transform var\(--cv-fold-duration\)/,
