@@ -1,0 +1,782 @@
+{
+ "id": "pm-p1-k6-view",
+ "priority": "P1",
+ "title": "PIN MOTION p1 K6 VIEW: SB-PIN, SB-UNPIN, TAB-PIN, TAB-UNPIN, RAPID, GRP",
+ "why": "cmux-ad m70 (Lawrence 2026-11-08): pin and unpin must translate from the old position to the new slot.",
+ "source": "pin-motion task kit (video-cases/gen_pinmotion.py)",
+ "budget_seconds": 250,
+ "recordings": [
+  "pm-v-p1-sb-pin-k6",
+  "pm-v-p1-sb-unpin-k6",
+  "pm-v-p1-rapid-k6",
+  "pm-v-p1-grp-k6",
+  "pm-v-p1-tab-pin-k6",
+  "pm-v-p1-tab-unpin-k6"
+ ],
+ "options": {
+  "key_path": "real"
+ },
+ "steps": [
+  {
+   "do": "smoke_ready",
+   "timeout": 60
+  },
+  {
+   "do": "smoke_make_key"
+  },
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "pm-p1-k6-view"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "name_pane",
+   "as": "home"
+  },
+  {
+   "do": "window_place",
+   "title": "set-up: the window at 90% x 90% of the screen",
+   "fraction": [
+    0.05,
+    0.05,
+    0.9,
+    0.9
+   ]
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace for the case"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "p0"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo pm-ready-${nonce}",
+   "enter": true,
+   "mark": "ready"
+  },
+  {
+   "do": "expect",
+   "title": "set-up check: the app types",
+   "since": "ready",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "pm-ready-${nonce}"
+    },
+    {
+     "app_text_line": "pm-ready-${nonce}"
+    },
+    {
+     "frame_text": "pm-ready-${nonce}"
+    }
+   ]
+  },
+  {
+   "do": "settings_file",
+   "title": "set-up: VIEW pass: the default theme, no close warning, no hover cards",
+   "set": {
+    "sidebar": {
+     "hoverCards": {
+      "enabled": false
+     }
+    },
+    "app": {
+     "warnBeforeClosingTab": false
+    },
+    "appearance": {
+     "appTheme": "followTerminal"
+    }
+   },
+   "unset": [
+    "appearance.theme",
+    "appearance.themeEdits",
+    "appearance.surfaces"
+   ]
+  },
+  {
+   "do": "settings_file",
+   "title": "set-up: bind Pin/Unpin Workspace to Ctrl-Opt-Cmd-P for the film (no default key)",
+   "set": {
+    "shortcuts": {
+     "bindings": {
+      "palette.toggleWorkspacePin": "ctrl+opt+cmd+p"
+     }
+    }
+   }
+  },
+  {
+   "do": "px_tunable",
+   "key": "motion.spring.move",
+   "value": null,
+   "required": true,
+   "title": "pin curve: K6 (critically damped 0.15 s)"
+  },
+  {
+   "do": "try_action",
+   "action": "renameWorkspace",
+   "args": {
+    "name": "alpha"
+   },
+   "title": "set-up: name p0 alpha"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (bravo)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "w1"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "try_action",
+   "action": "renameWorkspace",
+   "args": {
+    "name": "bravo"
+   },
+   "title": "set-up: name it bravo"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (charlie)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "w2"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "try_action",
+   "action": "renameWorkspace",
+   "args": {
+    "name": "charlie"
+   },
+   "title": "set-up: name it charlie"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (delta)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "w3"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "try_action",
+   "action": "renameWorkspace",
+   "args": {
+    "name": "delta"
+   },
+   "title": "set-up: name it delta"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (echo)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "w4"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "try_action",
+   "action": "renameWorkspace",
+   "args": {
+    "name": "echo"
+   },
+   "title": "set-up: name it echo"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (foxtrot)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "w5"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "try_action",
+   "action": "renameWorkspace",
+   "args": {
+    "name": "foxtrot"
+   },
+   "title": "set-up: name it foxtrot"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (golf)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "w6"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "try_action",
+   "action": "renameWorkspace",
+   "args": {
+    "name": "golf"
+   },
+   "title": "set-up: name it golf"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newInNewGroup",
+   "args": {
+    "name": "group"
+   },
+   "title": "set-up: a group"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "g1"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "try_action",
+   "action": "renameWorkspace",
+   "args": {
+    "name": "hotel"
+   },
+   "title": "set-up: name it hotel"
+  },
+  {
+   "do": "action",
+   "action": "workspaceGroup.newWorkspace",
+   "title": "set-up: a second workspace in the group"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "g2"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "try_action",
+   "action": "renameWorkspace",
+   "args": {
+    "name": "india"
+   },
+   "title": "set-up: name it india"
+  },
+  {
+   "do": "action",
+   "action": "workspace.newAtBottom",
+   "title": "set-up: a new workspace (juliet)"
+  },
+  {
+   "do": "adopt_pane",
+   "as": "w7"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "try_action",
+   "action": "renameWorkspace",
+   "args": {
+    "name": "juliet"
+   },
+   "title": "set-up: name it juliet"
+  },
+  {
+   "do": "try_action",
+   "action": "workspaceGroup.collapseAll",
+   "title": "set-up: the group collapsed"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "p0",
+   "title": "set-up: focus p0 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "palette.toggleWorkspacePin",
+   "args": {
+    "pinned": true
+   },
+   "title": "set-up: pin p0 (the pinned group exists before the films)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "w1",
+   "title": "set-up: focus w1 (cmux pane focus)"
+  },
+  {
+   "do": "action",
+   "action": "palette.toggleWorkspacePin",
+   "args": {
+    "pinned": true
+   },
+   "title": "set-up: pin w1 (the pinned group exists before the films)"
+  },
+  {
+   "do": "px_tab_new",
+   "pane": "w6",
+   "title": "set-up: a new terminal tab in w6 (newSurface)"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "px_tab_new",
+   "pane": "w6",
+   "title": "set-up: a new terminal tab in w6 (newSurface)"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "px_tab_new",
+   "pane": "w6",
+   "title": "set-up: a new terminal tab in w6 (newSurface)"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "px_tab_new",
+   "pane": "w6",
+   "title": "set-up: a new terminal tab in w6 (newSurface)"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "px_tab_new",
+   "pane": "w6",
+   "title": "set-up: a new terminal tab in w6 (newSurface)"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "w5",
+   "title": "set-up: focus w5 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "video_start",
+   "name": "pm-v-p1-sb-pin-k6",
+   "seconds": 3.0,
+   "mbps": 24,
+   "rows": [],
+   "columns": [],
+   "require_hz": 120,
+   "lead": 0.6,
+   "title": "start the 120 Hz movie pm-v-p1-sb-pin-k6"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.2,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "pm_keys",
+   "film": "pm-v-p1-sb-pin-k6",
+   "i": 0,
+   "keys": [
+    {
+     "key": "p",
+     "modifiers": [
+      "control",
+      "option",
+      "cmd"
+     ]
+    }
+   ],
+   "probe": "sidebar",
+   "rest": 1.1,
+   "title": "pin key(s) (pm-v-p1-sb-pin-k6)"
+  },
+  {
+   "do": "video_stop",
+   "name": "pm-v-p1-sb-pin-k6",
+   "tail": 0.2,
+   "title": "the motion ends; stop the recording (pm-v-p1-sb-pin-k6)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "w5",
+   "title": "set-up: focus w5 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "video_start",
+   "name": "pm-v-p1-sb-unpin-k6",
+   "seconds": 3.0,
+   "mbps": 24,
+   "rows": [],
+   "columns": [],
+   "require_hz": 120,
+   "lead": 0.6,
+   "title": "start the 120 Hz movie pm-v-p1-sb-unpin-k6"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.2,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "pm_keys",
+   "film": "pm-v-p1-sb-unpin-k6",
+   "i": 1,
+   "keys": [
+    {
+     "key": "p",
+     "modifiers": [
+      "control",
+      "option",
+      "cmd"
+     ]
+    }
+   ],
+   "probe": "sidebar",
+   "rest": 1.1,
+   "title": "pin key(s) (pm-v-p1-sb-unpin-k6)"
+  },
+  {
+   "do": "video_stop",
+   "name": "pm-v-p1-sb-unpin-k6",
+   "tail": 0.2,
+   "title": "the motion ends; stop the recording (pm-v-p1-sb-unpin-k6)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "w4",
+   "title": "set-up: focus w4 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "video_start",
+   "name": "pm-v-p1-rapid-k6",
+   "seconds": 3.0,
+   "mbps": 24,
+   "rows": [],
+   "columns": [],
+   "require_hz": 120,
+   "lead": 0.6,
+   "title": "start the 120 Hz movie pm-v-p1-rapid-k6"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.2,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "pm_keys",
+   "film": "pm-v-p1-rapid-k6",
+   "i": 2,
+   "keys": [
+    {
+     "key": "p",
+     "modifiers": [
+      "control",
+      "option",
+      "cmd"
+     ]
+    },
+    {
+     "key": "p",
+     "modifiers": [
+      "control",
+      "option",
+      "cmd"
+     ],
+     "gap": 0.09
+    },
+    {
+     "key": "p",
+     "modifiers": [
+      "control",
+      "option",
+      "cmd"
+     ],
+     "gap": 0.09
+    }
+   ],
+   "probe": "sidebar",
+   "rest": 1.1,
+   "title": "pin key(s) (pm-v-p1-rapid-k6)"
+  },
+  {
+   "do": "video_stop",
+   "name": "pm-v-p1-rapid-k6",
+   "tail": 0.2,
+   "title": "the motion ends; stop the recording (pm-v-p1-rapid-k6)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "w7",
+   "title": "set-up: focus w7 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "video_start",
+   "name": "pm-v-p1-grp-k6",
+   "seconds": 3.0,
+   "mbps": 24,
+   "rows": [],
+   "columns": [],
+   "require_hz": 120,
+   "lead": 0.6,
+   "title": "start the 120 Hz movie pm-v-p1-grp-k6"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.2,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "pm_keys",
+   "film": "pm-v-p1-grp-k6",
+   "i": 3,
+   "keys": [
+    {
+     "key": "p",
+     "modifiers": [
+      "control",
+      "option",
+      "cmd"
+     ]
+    }
+   ],
+   "probe": "sidebar",
+   "rest": 1.1,
+   "title": "pin key(s) (pm-v-p1-grp-k6)"
+  },
+  {
+   "do": "video_stop",
+   "name": "pm-v-p1-grp-k6",
+   "tail": 0.2,
+   "title": "the motion ends; stop the recording (pm-v-p1-grp-k6)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "rk_focus",
+   "pane": "w6",
+   "title": "set-up: focus w6 (cmux pane focus)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "hid_key",
+   "key": "1",
+   "modifiers": [
+    "control"
+   ],
+   "title": "set-up: tab 1"
+  },
+  {
+   "do": "hid_key",
+   "key": "p",
+   "modifiers": [
+    "option",
+    "cmd"
+   ],
+   "title": "set-up: pin tab 1 (the pinned group)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "hid_key",
+   "key": "4",
+   "modifiers": [
+    "control"
+   ],
+   "title": "set-up: select the 4th tab (Ctrl-4)"
+  },
+  {
+   "do": "video_start",
+   "name": "pm-v-p1-tab-pin-k6",
+   "seconds": 3.0,
+   "mbps": 24,
+   "rows": [],
+   "columns": [],
+   "require_hz": 120,
+   "lead": 0.6,
+   "title": "start the 120 Hz movie pm-v-p1-tab-pin-k6"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.2,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "pm_keys",
+   "film": "pm-v-p1-tab-pin-k6",
+   "i": 4,
+   "keys": [
+    {
+     "key": "p",
+     "modifiers": [
+      "option",
+      "cmd"
+     ]
+    }
+   ],
+   "probe": "tabs",
+   "rest": 1.1,
+   "title": "pin key(s) (pm-v-p1-tab-pin-k6)"
+  },
+  {
+   "do": "video_stop",
+   "name": "pm-v-p1-tab-pin-k6",
+   "tail": 0.2,
+   "title": "the motion ends; stop the recording (pm-v-p1-tab-pin-k6)"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.6,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "video_start",
+   "name": "pm-v-p1-tab-unpin-k6",
+   "seconds": 3.0,
+   "mbps": 24,
+   "rows": [],
+   "columns": [],
+   "require_hz": 120,
+   "lead": 0.6,
+   "title": "start the 120 Hz movie pm-v-p1-tab-unpin-k6"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.2,
+   "title": "the layout and the load settle (nothing observable to wait on)"
+  },
+  {
+   "do": "pm_keys",
+   "film": "pm-v-p1-tab-unpin-k6",
+   "i": 5,
+   "keys": [
+    {
+     "key": "p",
+     "modifiers": [
+      "option",
+      "cmd"
+     ]
+    }
+   ],
+   "probe": "tabs",
+   "rest": 1.1,
+   "title": "pin key(s) (pm-v-p1-tab-unpin-k6)"
+  },
+  {
+   "do": "video_stop",
+   "name": "pm-v-p1-tab-unpin-k6",
+   "tail": 0.2,
+   "title": "the motion ends; stop the recording (pm-v-p1-tab-unpin-k6)"
+  }
+ ],
+ "finally": [
+  {
+   "do": "settings_file",
+   "title": "clean-up: the film's workspace pin key off",
+   "unset": [
+    "shortcuts.bindings"
+   ]
+  },
+  {
+   "do": "settings_file",
+   "title": "clean-up: the fixture colors off (the next journey's theme is its own)",
+   "set": {
+    "appearance": {
+     "appTheme": "followTerminal"
+    }
+   },
+   "unset": [
+    "appearance.themeEdits",
+    "appearance.surfaces",
+    "sidebar.hoverCards"
+   ]
+  },
+  {
+   "do": "px_tunable",
+   "key": "motion.spring.move",
+   "value": null,
+   "title": "clean-up: .move back to its default"
+  }
+ ]
+}

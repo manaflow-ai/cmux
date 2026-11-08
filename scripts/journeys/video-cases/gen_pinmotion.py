@@ -30,6 +30,9 @@ BIND = {"do": "settings_file", "title": "set-up: bind Pin/Unpin Workspace to Ctr
 UNBIND = {"do": "settings_file", "title": "clean-up: the film's workspace pin key off", "unset": ["shortcuts.bindings"]}
 LABELS = {"V0": "current", "CUR": "current curve", "K2": "ease-out 100 ms", "K6": "critically damped 0.15 s",
           "K12": "critically damped 0.2 s"}
+# K6 is the shipped .move (response 0.15, damping 1): None keeps the default. K2 (ease-out 100 ms) is a bezier, which
+# the spring tunable cannot express: not filmed.
+CURVES = {"CUR": None, "K6": None, "K12": {"response": 0.2, "dampingFraction": 1.0}}
 CASES = {"SB-PIN": "sidebar row 6 to the pinned group", "SB-UNPIN": "the row back out of the pinned group",
          "TAB-PIN": "4th tab of 6 pinned", "TAB-UNPIN": "the tab unpinned", "RAPID": "pin, unpin, pin 90 ms apart",
          "GRP": "pin a row below a collapsed group"}
@@ -65,9 +68,10 @@ def journey(jid, prefix, curve, view):
              {"do": "expect", "title": "set-up check: the app types", "since": "ready", "timeout": 10,
               "all": [{"daemon_line": "pm-ready-${nonce}"}, {"app_text_line": "pm-ready-${nonce}"}, {"frame_text": "pm-ready-${nonce}"}]}]
     steps = G.first_pane(jid, False) + check + [VIEW_SETTINGS if view else X.fixture_settings(), BIND]
-    if curve not in ("V0",):
-        steps.append({"do": "rpc", "method": "debug.frames", "required": True, "title": f"pin curve selector: {curve}",
-                      "params": {"action": f"pin_curve {curve}"}})
+    if curve in CURVES:
+        # The rows' and the flight's one spring is `.move` (motion.spring.move): the curve under test is that tunable.
+        steps.append({"do": "px_tunable", "key": "motion.spring.move", "value": CURVES[curve], "required": True,
+                      "title": f"pin curve: {curve} ({LABELS.get(curve, curve)})"})
     # Rows: p0 (first_pane), w1..w6, a group of two (collapsed), w7. p0 and w1 are pinned first: the pinned group.
     steps += [{"do": "try_action", "action": "renameWorkspace", "args": {"name": "alpha"}, "title": "set-up: name p0 alpha"}]
     names = ["bravo", "charlie", "delta", "echo", "foxtrot", "golf"]
@@ -110,7 +114,9 @@ def journey(jid, prefix, curve, view):
             "why": "cmux-ad m70 (Lawrence 2026-11-08): pin and unpin must translate from the old position to the new slot.",
             "source": "pin-motion task kit (video-cases/gen_pinmotion.py)", "budget_seconds": 250,
             "recordings": [f["film"] for f in index], "options": {"key_path": "real"}, "steps": steps,
-            "finally": [UNBIND, X.settings_back()]}
+            "finally": [UNBIND, X.settings_back()]
+            + ([{"do": "px_tunable", "key": "motion.spring.move", "value": None, "title": "clean-up: .move back to its default"}]
+               if curve in CURVES else [])}
     return spec, index
 
 
