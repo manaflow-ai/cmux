@@ -148,3 +148,14 @@ test("the scanner flags every banned pattern and ignores comments", () => {
   expect(scan("// eval(x) at https://example.com\n/* <iframe> */ const a = 1;", false)).toEqual([]);
   expect(scan("/* url(https://example.com) */ a { color: red; }", true)).toEqual([]);
 });
+
+// The page ships its bundle as a file script (build-pages-web.sh FILE_SCRIPT_PAGES), and the app's
+// policy for it allows no inline script. A signed web update built before that (web ABI 4) inlines
+// the page's script, which this app would refuse to run, and calls no join consent op; web ABI 5
+// keeps each app on the web it can run (plans/cmux-next/web-ota.md, "Native interface").
+test("the page's file-script build comes with web ABI 5 or later", () => {
+  const build = readFileSync(path.resolve(webviews, "../scripts/cmux-next/build-pages-web.sh"), "utf8");
+  expect(build).toMatch(/^FILE_SCRIPT_PAGES="[^"]*\bserver-cards\b[^"]*"$/m);
+  const { abi } = JSON.parse(readFileSync(path.join(src, "web-abi.json"), "utf8")) as { abi: number };
+  expect(abi).toBeGreaterThanOrEqual(5);
+});

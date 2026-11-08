@@ -68,6 +68,9 @@ Bump it also in the change that edits `OUTPUTS` (web-bundle-key.py, `WebUpdateTr
 `outputs` digest hashes every listed path, a missing one included, so an older app would refuse every
 newer pointer as a lasting `tree digest` failure; with the bump it waits as app-too-old instead
 (abi 4: the palette ranker bundle left `OUTPUTS`).
+(abi 5, cmux#37286: the server card page calls the new native `cmux.joinConsent.*` ops, and the
+app's policy for it allows no inline script, which an abi-4 update's page needs, so neither side
+may take the other's web).
 `build-pages-web.sh` ships the file as `pages/web-abi.json`, so the app and every update read the
 same source.
 
