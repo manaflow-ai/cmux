@@ -320,47 +320,27 @@ test("History opens a chat in its own tab (`chat.select`); another machine's pul
 });
 
 test("Export audit fails when neither clipboard path copies, rather than saying it copied", async () => {
-  const scope = globalThis as Record<string, unknown>;
-  const saved = { navigator: Object.getOwnPropertyDescriptor(scope, "navigator"), document: scope.document };
-  let legacyCopies = false;
-  const field = { value: "", style: {}, select: () => {}, remove: () => {} };
-  Object.defineProperty(scope, "navigator", {
-    configurable: true,
-    value: {
-      clipboard: {
-        writeText: async () => {
-          throw new Error("clipboard.denied");
-        },
-      },
+  let copies = false;
+  const copied: string[] = [];
+  const pages = historyPages({
+    client: () => ({
+      ledger: async () => ({}),
+      reviewQueue: async () => ({}),
+      reviewVerdict: async () => ({}),
+      audit: async () => ({ entries: [{ seq: 1 }] }),
+    }),
+    callNative: async <T>() => undefined as T,
+    selectSession: () => {},
+    asks: [],
+    copy: async (text) => {
+      copied.push(text);
+      return copies;
     },
   });
-  scope.document = {
-    activeElement: null,
-    createElement: () => field,
-    body: { append: () => {} },
-    execCommand: () => legacyCopies,
-  };
-  try {
-    const pages = historyPages({
-      client: () => ({
-        ledger: async () => ({}),
-        reviewQueue: async () => ({}),
-        reviewVerdict: async () => ({}),
-        audit: async () => ({ entries: [{ seq: 1 }] }),
-      }),
-      callNative: async <T>() => undefined as T,
-      selectSession: () => {},
-      asks: [],
-    });
-    await expect(pages.queue.exportAudit()).rejects.toThrow();
-    legacyCopies = true;
-    expect(await pages.queue.exportAudit()).toBe(1);
-  } finally {
-    if (saved.navigator) Object.defineProperty(scope, "navigator", saved.navigator);
-    else delete scope.navigator;
-    if (saved.document === undefined) delete scope.document;
-    else scope.document = saved.document;
-  }
+  await expect(pages.queue.exportAudit()).rejects.toThrow();
+  copies = true;
+  expect(await pages.queue.exportAudit()).toBe(1);
+  expect(JSON.parse(copied.at(-1) ?? "")).toEqual([{ seq: 1 }]);
 });
 
 test("a row that entered late still collapses when answered: the entrance never outlasts its run", async () => {

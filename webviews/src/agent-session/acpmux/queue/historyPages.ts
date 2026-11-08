@@ -67,6 +67,7 @@ export function historyPages({
   selectSession,
   asks,
   sessions = [],
+  copy = copyTextResult,
 }: {
   client: () => HistoryPagesClient | undefined;
   callNative: CallNative;
@@ -75,6 +76,8 @@ export function historyPages({
   asks: readonly WatchedAsk[];
   /// The chats the pane lists, this Mac's and other machines' (the snapshot's `sessions`).
   sessions?: readonly AcpmuxSessionEntry[];
+  /// Copies text, false when neither clipboard path took it (conversation/clipboard.ts).
+  copy?: (text: string) => Promise<boolean>;
 }): { queue: ComponentProps<typeof QueueScreen>; ledger: ComponentProps<typeof LedgerScreen> } {
   const connected = () => {
     const current = client();
@@ -110,7 +113,7 @@ export function historyPages({
           AUDIT_PAGES,
         );
         // copyText resolves even when both clipboard paths fail: say so instead of "copied".
-        if (!(await copyTextResult(`${JSON.stringify(entries, null, 2)}\n`))) throw new Error("clipboard refused");
+        if (!(await copy(`${JSON.stringify(entries, null, 2)}\n`))) throw new Error("clipboard refused");
         return entries.length;
       },
       openReview: () => void callNative("action.run", { id: "agentReview.show" }).catch(() => undefined),
