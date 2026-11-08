@@ -170,7 +170,9 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
     const pop = root.querySelector<HTMLElement>(".wn-pop");
     // The whole content: what shows, plus what the scroller hides past its edge.
     const whole = root.getBoundingClientRect().height + (scroller ? scroller.scrollHeight - scroller.clientHeight : 0);
-    const cap = pop ? Number.parseFloat(getComputedStyle(pop).getPropertyValue("--wn-pop-max")) : Number.NaN;
+    // Read through the page's own window: the surface may mount in a document that isn't the global one.
+    const style = pop ? root.ownerDocument.defaultView?.getComputedStyle(pop) : undefined;
+    const cap = style ? Number.parseFloat(style.getPropertyValue("--wn-pop-max")) : Number.NaN;
     const height = Math.ceil(Number.isFinite(cap) ? Math.min(whole, cap) : whole);
     const width = pop?.classList.contains("wn-pop-brief") ? Math.ceil(pop.getBoundingClientRect().width) : 0;
     const key = `${height}x${width}`;
