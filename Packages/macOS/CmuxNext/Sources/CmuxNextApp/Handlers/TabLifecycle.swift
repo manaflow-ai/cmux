@@ -411,21 +411,19 @@ enum TabLifecycle {
             defer { pane.workspace?.showCancelledCreation() } // a close of a pending split's stand-in: the focus to a live pane now
             // A Cmd-W while the last one's close still asks the daemon closes the next tab (TabCloseGuard).
             guard let id = invocation.origin == .user ? TabCloseGuard.cmdWTarget(selected, in: pane) : selected else { return }
-            // The user's Cmd-W closes a pinned tab, as Chrome's does, unless `tabs.cmdWClosesPinnedTabs`
-            // is off (then it keeps it, PINNED-ITEMS-END-TO-END P3); the tab menu, the CLI and MCP close it either way.
+            // The user's Cmd-W closes a pinned tab like any other, as Chrome's does (cmux-ad i8); the close
+            // selects by the one rule (FocusAfterClose.tab: the tab before). Only Home's tab is kept.
             if invocation.origin == .user {
-                let closesPinned = ctx.services.settings?.snapshot.cmdWClosesPinnedTabs ?? CmdWClosesPinnedTabsSetting.fallback
-                // Several selected tabs close together (Chrome); a selected pinned tab stays, as above.
-                if let selected = pane.stripModel.keyboardCloseSelection(id, closesPinned: closesPinned) {
+                // Several selected tabs close together (Chrome).
+                if let selected = pane.stripModel.keyboardCloseSelection(id) {
                     let empties = TabCloseGuard.empties(pane, closing: selected)
                     if empties { pane.workspace?.focus.noteEmptied(pane.paneKey, by: press) }
                     trace.closed(tabs: selected.map(\.rawValue), emptiesPane: empties, input: input)
                     return CloseUndoToasts.close(in: pane, selected)
                 }
-                switch pane.stripModel.keyboardClose(id, closesPinned: closesPinned) {
+                switch pane.stripModel.keyboardClose(id) {
                 case .close: break
                 case .select(let next): return pane.select(next)
-                case .keep: return ctx.refuse(RefusalStrings.pinnedTabKept)
                 // Cmd-W in the Home Chief pane: nothing to close there, so no notice either.
                 case .ignore: return
                 }

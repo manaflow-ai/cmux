@@ -120,13 +120,7 @@ pub fn answer_line(result: &Result<Value, Failure>) -> String {
 }
 
 /// Every call [`perform`] answers.
-pub const CALLS: [&str; 40] = [
-    "vm.resize",
-    "vm.snapshot",
-    "vm.snapshots",
-    "vm.delete_snapshot",
-    "vm.restore",
-    "vm.fork",
+pub const CALLS: [&str; 34] = [
     "vm.scp_endpoint",
     "vm.tunnel_enroll",
     "vm.tunnel_revoke",
@@ -163,7 +157,8 @@ pub const CALLS: [&str; 40] = [
     "machine.io",
 ];
 
-/// The longest fixed deadline of a call (`vm.delete_snapshot`'s).
+/// A bound past every fixed deadline of a call (the longest, a staged machine read's, is about
+/// 330 s; this was classic's snapshot delete, 960 s, and stays as the margin a waiting caller has).
 const LONGEST_FIXED_MS: u64 = 960_000;
 
 /// The longest `request` can take before its own deadlines answer it: the bound for a caller that

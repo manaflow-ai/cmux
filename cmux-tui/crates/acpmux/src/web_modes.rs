@@ -327,6 +327,18 @@ pub(crate) fn family_of(m: &SessionMeta) -> String {
     m.family.clone().unwrap_or_else(|| m.harness.clone())
 }
 
+/// The family whose permission modes `m`'s agent offers: `claude` for every chat on acpmux's own
+/// Claude Code backend (`claude_stdio`), whatever family its profile declares, else `family_of`.
+/// A launcher profile such as `claude-sr2` (`sr2 claude`) names its own family to stay out of
+/// the default Claude row, but runs Claude Code with Claude Code's modes: keyed by that family,
+/// the mode tables knew no mode that asks, and a chat under deny-all or review stayed in `auto`.
+pub(crate) fn mode_family(m: &SessionMeta) -> String {
+    if crate::claude_stdio::steers_by_info(m.agent_info.as_ref()) {
+        return "claude".to_owned();
+    }
+    family_of(m)
+}
+
 /// Whether a Web connection may run a session in ANY mode: Codex through
 /// `codex app-server`, bridged in process (`codex_app_server.rs`), both as
 /// recorded at its creation (`harness_argv`) and as its harness name runs
