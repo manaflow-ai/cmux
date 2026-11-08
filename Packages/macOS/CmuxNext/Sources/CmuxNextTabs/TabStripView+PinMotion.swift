@@ -53,19 +53,30 @@ extension TabStripView {
     /// The divider's path when tabs fly across the pinned group's end: from `oldX` it fades out on the first half of
     /// the move (sooner if a flying tab reaches it; a tab that grows into it from the left pushes it along), and at
     /// `newX` it fades in once no flying tab covers that place. Opacity and x per 120 Hz sample, as keyframes.
-    func addPinnedDividerCrossing(_ move: TabStripMove, from oldX: CGFloat, wasShown: Bool, crossing: [CALayer]) {
+    /// `neighbours`: the tabs that stay in their region (they slide, they do not fly). One that lands right of the new
+    /// place carries the divider on its leading edge and one it would cover hides it, as a flying tab does: the divider
+    /// never draws through a sliding tab's icon (the films: through tab1's icon for 4 frames).
+    func addPinnedDividerCrossing(_ move: TabStripMove, from oldX: CGFloat, wasShown: Bool, crossing: [CALayer],
+                                  neighbours: [CALayer] = []) {
         let divider = pinnedDivider
         let newX = divider.position.x
         let duration = move.duration(closing: false)
         let count = MotionPath.sampleCount(seconds: duration)
         let times = MotionPath.times(from: move.begin, to: move.begin + duration, count: count)
-        let paths = crossing.map { ($0, MotionPath($0, "position", now: move.begin), MotionPath($0, "bounds.size", now: move.begin)) }
-        let frames: [[CGRect]] = times.map { time in
-            paths.map { layer, position, size in
-                let p = position.value(at: time), s = size.value(at: time)
-                return CGRect(x: p.x - layer.anchorPoint.x * s.x, y: 0, width: s.x, height: s.y)
+        func frames(of layers: [CALayer]) -> [[CGRect]] {
+            let paths = layers.map { ($0, MotionPath($0, "position", now: move.begin), MotionPath($0, "bounds.size", now: move.begin)) }
+            return times.map { time in
+                paths.map { layer, position, size in
+                    let p = position.value(at: time), s = size.value(at: time)
+                    return CGRect(x: p.x - layer.anchorPoint.x * s.x, y: 0, width: s.x, height: s.y)
+                }
             }
         }
+        let frames = frames(of: crossing)
+        // The sliding tabs whose resting frame leaves the divider's new place free (a resting neighbour may reach into
+        // the gap; it never moves through the divider).
+        let slid = frames(of: neighbours)
+        let slidEnds = slid.last ?? []
         func covers(_ x: CGFloat, _ frame: CGRect) -> Bool { x > frame.minX - 0.5 && x < frame.maxX + 0.5 }
         let last = times.count - 1
         // Out: by half the move, or the sample before a tab from its right reaches it (at least two samples).
@@ -77,11 +88,18 @@ extension TabStripView {
         // never draws inside that tab; it shows after the last sample a flying tab covers it (at least three before the end).
         let ends = frames[last]
         let inXs = times.indices.map { k in
-            frames[k].indices.reduce(newX) { x, index in
+            let left = frames[k].indices.reduce(newX) { x, index in
                 ends[index].maxX <= newX ? max(x, frames[k][index].maxX + (newX - ends[index].maxX)) : x
             }
+            // A sliding tab that lands right of the new place carries it on its leading edge.
+            return slidEnds.indices.reduce(left) { x, index in
+                slidEnds[index].minX >= newX ? min(x, slid[k][index].minX - (slidEnds[index].minX - newX)) : x
+            }
         }
-        let coveredLast = frames.indices.last { k in frames[k].contains { covers(inXs[k], $0) } } ?? -1
+        let coveredLast = frames.indices.last { k in
+            frames[k].contains { covers(inXs[k], $0) }
+                || slid[k].indices.contains { index in !covers(newX, slidEnds[index]) && covers(inXs[k], slid[k][index]) }
+        } ?? -1
         let inStart = min(max(outEnd, coveredLast + 1), max(outEnd, last - 3))
         var xs: [CGFloat] = [], opacities: [Float] = []
         for k in times.indices {

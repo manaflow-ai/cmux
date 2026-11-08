@@ -47,7 +47,10 @@ extension TabStripView {
         pinnedDivider.isHidden = false
         if let move, !crossing.isEmpty {
             TabStripMove.cancel(pinnedDivider)
-            addPinnedDividerCrossing(move, from: from.x - scroll, wasShown: wasShown, crossing: crossing)
+            let neighbours = cells.compactMap { id, cell in
+                cell.layer.isHidden || dying.contains(id) || crossing.contains { $0 === cell.layer } ? nil : cell.layer
+            }
+            addPinnedDividerCrossing(move, from: from.x - scroll, wasShown: wasShown, crossing: crossing, neighbours: neighbours)
             return
         }
         // A divider that just showed is at its place at once, as a new tab's separator is.
