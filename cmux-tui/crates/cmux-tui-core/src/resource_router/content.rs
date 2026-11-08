@@ -251,36 +251,9 @@ fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Valu
         })
         .transpose()?;
     // `new`: only text printed below the cursor's line as the wait starts
-    // counts, so the echo of a just-typed command and older output never
-    // match (`terminal-wait-new-v1`).
-    let anchor = if request.fields.get("new").and_then(Value::as_bool).unwrap_or(false) {
-        Some(
-            surface
-                .try_with_terminal(|terminal| terminal.anchor_cursor_line())
-                .map_err(resource_operation_error)?
-                .map_err(|error| resource_operation_error(error.into()))?,
-        )
-    } else {
-        None
-    };
-    let outcome = {
-        let check = || -> Result<String, ResourceError> {
-            surface
-                .try_with_terminal(|terminal| match &anchor {
-                    Some(anchor) => terminal.text_after_anchor(anchor),
-                    None => terminal.active_text(),
-                })
-                .map_err(resource_operation_error)?
-                .map_err(|error| resource_operation_error(error.into()))
-        };
-        wait_for_match(&surface, &regex, timeout, deadline, check)
-    };
-    // The anchor is a tracked row of the terminal's page list: release it
-    // under the terminal lock, as every other access to it is.
-    if let Some(anchor) = anchor {
-        let _ = surface.try_with_terminal(move |_| drop(anchor));
-    }
-    outcome
+    // counts (`terminal-wait-new-v1`).
+    let text = super::WaitText::start(&surface, &request.fields)?;
+    wait_for_match(&surface, &regex, timeout, deadline, || text.read())
 }
 
 /// Re-reads `check` on every output change until `regex` matches it or
