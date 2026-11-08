@@ -50,7 +50,7 @@ import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmu
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
 import { composerHatLook } from "../agent-session/acpmux/subagents/composerHat.experiment";
 import { hatQuestionsLook } from "../agent-session/acpmux/question/hatQuestions.experiment";
-import { hatChevronLook, hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experiment";
+import { hatChevronLook, hatDoneCheckPlace, hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
 import { trayKindLineLook } from "../agent-session/acpmux/subagents/trayKindLine.experiment";
@@ -138,6 +138,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hatQuestionsLook,
   hatChevronLook,
   hatDoneLook,
+  hatDoneCheckPlace,
   trayHeadLook,
   trayFoldHeadLook,
   trayHeadKindsLook,

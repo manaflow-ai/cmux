@@ -14,6 +14,7 @@ import { chat, row, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo, recentRun } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
+import { hatDoneCheckPlace } from "./hatParts.experiment";
 
 function agent(name: string, minutes: number, state: Subagent["state"] = "running", ran = 0.8): Subagent {
   return {
@@ -50,6 +51,17 @@ export default agentPaneEntry({
     "agent-session/acpmux/subagents/AgentLine.tsx",
     "agent-session/acpmux/subagents/subagents.css",
   ],
+  experiment: {
+    definition: hatDoneCheckPlace,
+    script: [
+      {
+        name: "a lone finished item heads the folded hat with its time and check",
+        run: async (ctx: PlayContext) => {
+          await ctx.waitFor(() => head(ctx)?.querySelector("[data-done-check]"));
+        },
+      },
+    ],
+  },
   variants: {
     rows: {
       note: "Open: a running line (its time, its Stop square), a finished one (its time, its check) and a failed one (its state and time). The check stands in the Stop square's column at the square's ink size and the hat's stroke, a track gap after the time.",
