@@ -89,6 +89,11 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // per site, as Chrome gives its NTP (process-per-site for all sites in the same bench: 6
         // renderers, 6.6 GB, 7.3%); web pages keep Chrome's model. Older forks ignore the switch.
         result.append(Self.processPerSitePageSchemes)
+        // Chromium keeps one spare, unused renderer process warm for the next navigation. cmux already
+        // keeps its own spare page warm for the next tab (CEFSpareWindow, `browserPage.sparePage`), and
+        // that page's unused renderer takes the tab's first navigation, so Chromium's spare was a second
+        // idle renderer that held memory from launch on.
+        result.append("disable-features=SpareRendererForSitePerProcess")
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
         // (CEFShim/src/command_line_switches.h). Chromium's code-sign clone
