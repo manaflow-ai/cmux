@@ -86,7 +86,9 @@ pub(in crate::cli) struct Ended {
 }
 
 pub(in crate::cli) fn last_turn(items: &[Value], baseline: u64) -> Option<Ended> {
-    let role = |item: &Value| item.get("role").and_then(Value::as_str).unwrap_or_default();
+    fn role(item: &Value) -> &str {
+        item.get("role").and_then(Value::as_str).unwrap_or_default()
+    }
     let end = items.iter().rposition(|item| role(item) == "turn_end")?;
     let seq = items[end].get("id").and_then(Value::as_u64).unwrap_or(0);
     if seq <= baseline {
