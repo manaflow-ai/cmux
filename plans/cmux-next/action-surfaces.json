@@ -34238,9 +34238,7 @@
           "name" : "viewer",
           "required" : false,
           "values" : [
-            "rd",
-            "web",
-            "native"
+            "rd"
           ]
         }
       ],
@@ -34554,46 +34552,6 @@
       "palette_suggested" : null,
       "title" : "Resize Machine…",
       "title_key" : "action.cloudResizeMachine",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "args" : [
-        {
-          "kind" : "string",
-          "name" : "name",
-          "required" : false
-        },
-        {
-          "kind" : "string",
-          "name" : "sshKey",
-          "required" : false
-        }
-      ],
-      "cli" : "offered",
-      "cli_name" : "cloud enroll-machine",
-      "context_menu" : "offered",
-      "context_menus" : [
-        "cloudMachine"
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "cloudEnrollMachine",
-      "main_menu" : null,
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.cloud",
-        "order" : 110,
-        "title" : "Cloud and Account",
-        "title_key" : "category.cloud",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Enroll Machine as Agent Host",
-      "title_key" : "action.cloudEnrollMachine",
       "title_table" : "ActionCatalog"
     },
     {
@@ -36191,61 +36149,6 @@
       "palette_suggested" : null,
       "title" : "Start Agent Session on Cloud Machine…",
       "title_key" : "action.cloudStartSession",
-      "title_table" : "CloudSessionActions"
-    },
-    {
-      "args" : [
-        {
-          "kind" : "string",
-          "name" : "agent",
-          "required" : true
-        },
-        {
-          "kind" : "string",
-          "name" : "prompt",
-          "required" : true
-        },
-        {
-          "kind" : "string",
-          "name" : "cwd",
-          "required" : false
-        },
-        {
-          "kind" : "string",
-          "name" : "promptId",
-          "required" : false
-        },
-        {
-          "kind" : "string",
-          "name" : "login",
-          "required" : false
-        }
-      ],
-      "cli" : "offered",
-      "cli_name" : "cloud relay-chat",
-      "context_menu" : "pointerMenuTrim",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "cloudRelayChat",
-      "main_menu" : null,
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.cloud",
-        "order" : 110,
-        "title" : "Cloud and Account",
-        "title_key" : "category.cloud",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Chat on Cloud Machine via the Relay…",
-      "title_key" : "action.cloudRelayChat",
       "title_table" : "CloudSessionActions"
     },
     {
@@ -52604,7 +52507,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "cloudEnrollMachine",
+              "id" : "cloudApplyMachineConfig",
               "kind" : "action",
               "order" : 15,
               "visible_when" : {
@@ -52617,7 +52520,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "cloudApplyMachineConfig",
+              "id" : "cloudDeliverSecrets",
               "kind" : "action",
               "order" : 16,
               "visible_when" : {
@@ -52630,22 +52533,9 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "cloudDeliverSecrets",
-              "kind" : "action",
-              "order" : 17,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : "cloud",
-                "requires" : [
-                  "cloudWorkspace"
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
               "id" : "cloudProvisionAPI",
               "kind" : "action",
-              "order" : 18,
+              "order" : 17,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -52656,13 +52546,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 19
+              "order" : 18
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.cloud.tools",
               "kind" : "action",
-              "order" : 20,
+              "order" : 19,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",

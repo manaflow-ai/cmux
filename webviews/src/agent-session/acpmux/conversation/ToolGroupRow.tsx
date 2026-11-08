@@ -359,12 +359,15 @@ export function ToolGroupRow({
   disclosureKey,
   folded = false,
   findTitle,
+  inherits,
   thoughtId = (n) => `${disclosureKey}:thought:${n}`,
 }: {
   kind: ToolGroupKind;
   items: readonly AcpmuxActivity[];
   disclosureKey: string;
   folded?: boolean;
+  /// The key of the run line this group's line takes the place of (TurnRows.tsx): opened, it opens this.
+  inherits?: readonly string[];
   /** Original single-call title, revealed when Find matches a path the summary shortens. */
   findTitle?: string;
   /// The id of the group's n-th thought (TurnRows.tsx `thoughtIds`): the same one the thought had
@@ -378,7 +381,12 @@ export function ToolGroupRow({
   // holds a thought, so the thought it opens is on screen.
   const thinking = useTranscriptViewContext() === "thinking";
   const holdsThought = useMemo(() => thinking && items.some(isThought), [thinking, items]);
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, (kind !== "edits" && !folded) || holdsThought, true);
+  const [open, setOpen] = useTranscriptDisclosure(
+    disclosureKey,
+    (kind !== "edits" && !folded) || holdsThought,
+    true,
+    inherits,
+  );
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   // Whether the reader's click opened the run: only then do its rows past the window draw after the
   // fold (StepList). Find opens it with every row drawn, so its match is there to show.

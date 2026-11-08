@@ -1559,6 +1559,18 @@
       "route": "frontend shortcut overlay"
     },
     {
+      "variant": "NextAttention",
+      "key": "next-attention",
+      "classification": "presentation-only",
+      "route": "frontend attention queue + client focus"
+    },
+    {
+      "variant": "AttentionList",
+      "key": "attention-list",
+      "classification": "presentation-only",
+      "route": "frontend attention list overlay"
+    },
+    {
       "variant": "Detach",
       "key": "detach",
       "classification": "presentation-only",
@@ -1837,6 +1849,11 @@
       "variant": "ShowShortcuts",
       "classification": "presentation-only",
       "route": "frontend shortcut overlay"
+    },
+    {
+      "variant": "FocusAttention",
+      "classification": "presentation-only",
+      "route": "frontend attention list + client focus"
     },
     {
       "variant": "SetClientSizing",

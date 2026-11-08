@@ -26,6 +26,7 @@ mod pointer;
 mod selection;
 mod viewport;
 
+mod daemon_reconnect;
 mod frame_geometry;
 mod machine_worker;
 mod run;
@@ -67,8 +68,10 @@ mod pane_ops;
 mod sidebar_keys;
 
 mod actions;
+mod attention_jump;
 mod browser_ops;
 mod focus_nav;
+mod host_notify_ops;
 mod menu_activate;
 mod prompt_keys;
 
@@ -133,6 +136,8 @@ use self::clear_history::{
     localized_clear_history_failure, should_claim_clear_history_shortcut,
 };
 use self::client_view::{client_focus_identity, preserve_client_view};
+use self::daemon_reconnect::DaemonReconnect;
+pub(crate) use self::daemon_reconnect::SessionReconnector;
 use self::events::{
     AppEvent, OwnerReloadWorker, SessionEventSender, SessionEventWorker, SessionTrySendError,
 };
@@ -360,6 +365,8 @@ pub struct App {
     machine_deleted_rail_index: Option<usize>,
     machine_provider_reconnect_attempts: u8,
     machine_provider_reconnect_retry_at: Option<Instant>,
+    /// Reconnecting a plain session client after its daemon was replaced.
+    daemon_reconnect: DaemonReconnect,
     pending_machine_replacement: Option<PendingMachineReplacement>,
     machine_update_pump: Option<MachineUpdatePump>,
     machine_update_generation: u64,
@@ -516,6 +523,11 @@ pub struct App {
     pub shortcut_help: Option<ShortcutHelp>,
     pub omnibar: Option<OmnibarState>,
     pub toast: Option<Toast>,
+    /// Host terminal notification forwarding (`host_notify.rs`).
+    pub(crate) host_notify: crate::host_notify::HostNotifyGate,
+    /// The host terminal window has focus: false after a focus-out report,
+    /// true again after focus-in (and before any report).
+    pub(crate) host_focused: bool,
     pub(crate) shake_frames: u8,
     pub selection: Option<Selection>,
     selection_generation: u64,
@@ -699,6 +711,13 @@ impl App {
             }
             event => event,
         };
+        if let AppEvent::NormalizedInput(input) = &event
+            && self.drops_input_while_reconnecting(input)
+        {
+            // Nothing can receive it until the replacement daemon is attached;
+            // a key cleared the status line, so say "reconnecting" again.
+            return Ok(self.show_reconnecting());
+        }
         if let AppEvent::NormalizedInput(input) = &event
             && input.is_keyboard_or_paste()
         {

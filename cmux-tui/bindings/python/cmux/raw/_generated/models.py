@@ -4870,6 +4870,7 @@ class ShutdownDaemonRequest:
     force: Union[bool, MissingType] = field(default=MISSING)
     end_terminals: Union[bool, MissingType] = field(default=MISSING)
     keep_layout: Union[bool, MissingType] = field(default=MISSING)
+    restart: Union[bool, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -5570,6 +5571,7 @@ class ConversationTypingEvent(EventBase):
 class DaemonShutdownEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/daemon-shutdown/payload'
     event: Literal['daemon-shutdown']
+    restart: Union[bool, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 

@@ -349,12 +349,14 @@ jobs:
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
-      # Go selects the exact toolchain requested by libtailscale's pinned go.mod.
+      # The Go libtailscale's go.mod asks for (go >= 1.27.1), as cmux-tui.yml's macOS job pins it.
+      # Not daemon/remote/go.mod: that is cmuxd-remote's exact Go (1.26.x), and setup-go
+      # sets GOTOOLCHAIN=local, so cmux-tailnet's build.rs then refused it.
       - name: Install Go for the embedded tailnet archive
         if: runner.os == 'macOS' || matrix.darwin_on_linux
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: daemon/remote/go.mod
+          go-version-file: cmux-tui/crates/cmux-tailnet/go-version
           cache: false
 
       - name: Install Rust target

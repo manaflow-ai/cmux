@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "fce01c6dd876b7e80113b9722066371ad8b6852586678ff23a42b9b73e0aeb2a";
+pub const ir_sha256 = "ee4b3937d97da28c53db379446b34c56136f210d18a45700fd142ed157b7f47b";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -9459,6 +9459,7 @@ pub const ShutdownDaemonRequest = struct {
     generation: []const u8,
     keep_layout: ?bool = null,
     pid: u32,
+    restart: wire.Field(bool) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "end_terminals",
@@ -9479,6 +9480,7 @@ pub fn shutdownDaemon(client: anytype, request: ShutdownDaemonRequest) !wire.Dec
                 .{ .name = "end_terminals", .since = 12, .capability = "terminal-reap-v1" },
                 .{ .name = "force", .since = 10, .capability = "daemon-handoff-force-v1" },
                 .{ .name = "keep_layout", .since = 12, .capability = "end-terminals-keep-layout-v1" },
+                .{ .name = "restart", .since = 12, .capability = null },
             },
         },
         request,
@@ -10759,6 +10761,11 @@ pub const ConversationTypingEvent = struct {
 
 pub const DaemonShutdownEvent = struct {
     event: []const u8,
+    restart: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "restart",
+    };
 };
 
 pub const DetachedEvent = struct {

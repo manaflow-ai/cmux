@@ -189,52 +189,15 @@ async fn connect_same_uid(
     }
 }
 
-/// How a spliced stream ended: the bytes each way, or the copy's error.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Spliced {
-    /// Bytes from the peer to the entry (or sshd), when the copy ended cleanly.
-    pub to_entry: Option<u64>,
-    /// Bytes from the entry (or sshd) back to the peer.
-    pub to_peer: Option<u64>,
-    /// The copy's error, when it ended on one.
-    pub error: Option<io::ErrorKind>,
-}
-
-impl Spliced {
-    pub(super) fn of(copied: io::Result<(u64, u64)>) -> Self {
-        match copied {
-            Ok((to_entry, to_peer)) => {
-                Self { to_entry: Some(to_entry), to_peer: Some(to_peer), error: None }
-            }
-            Err(error) => Self { to_entry: None, to_peer: None, error: Some(error.kind()) },
-        }
-    }
-}
-
 /// Splice `stream` into the session's remote entry with `peer` (and the
 /// `check` the link made for this stream, only after it passed) stamped as
 /// the first line, after the entry proved it is one (same user and cmux
 /// code, then the entry banner).
 pub(super) async fn hand_to_entry<S>(
-    stream: S,
-    peer: &cmux_link::stamp::LinkPeer,
-    check: Option<cmux_link::stamp::StampCheck>,
-    session_socket: &Path,
-) -> Result<(), InboundRefused>
-where
-    S: AsyncRead + AsyncWrite + Unpin,
-{
-    hand_to_entry_traced(stream, peer, check, session_socket, &mut None).await
-}
-
-/// [`hand_to_entry`], setting `spliced` once the stamp went to the entry and
-/// the copy ended.
-pub(super) async fn hand_to_entry_traced<S>(
     mut stream: S,
     peer: &cmux_link::stamp::LinkPeer,
     check: Option<cmux_link::stamp::StampCheck>,
     session_socket: &Path,
-    spliced: &mut Option<Spliced>,
 ) -> Result<(), InboundRefused>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -252,18 +215,10 @@ where
     let mut verifying = ShutdownOnCancel(Some(
         entry.as_fd().try_clone_to_owned().map_err(|_| InboundRefused::NotAnEntry)?,
     ));
-    #[cfg(test)]
-    let hold = verify_hold::take(&daemon_entry(session_socket));
-    tokio::task::spawn_blocking(move || {
-        #[cfg(test)]
-        if let Some(hold) = hold {
-            hold();
-        }
-        cmux_link::caller::verify_fd(fd.as_raw_fd())
-    })
-    .await
-    .map_err(|_| InboundRefused::NotAnEntry)?
-    .map_err(|_| InboundRefused::NotAnEntry)?;
+    tokio::task::spawn_blocking(move || cmux_link::caller::verify_fd(fd.as_raw_fd()))
+        .await
+        .map_err(|_| InboundRefused::NotAnEntry)?
+        .map_err(|_| InboundRefused::NotAnEntry)?;
     verifying.finished();
     let banner =
         read_line(&mut entry, MAX_LINE_BYTES).await.map_err(|_| InboundRefused::NotAnEntry)?;
@@ -271,7 +226,7 @@ where
         return Err(InboundRefused::NotAnEntry);
     }
     write_stamp(&mut entry, &stamp).await.map_err(|_| InboundRefused::EntryUnavailable)?;
-    *spliced = Some(Spliced::of(tokio::io::copy_bidirectional(&mut stream, &mut entry).await));
+    let _ = tokio::io::copy_bidirectional(&mut stream, &mut entry).await;
     Ok(())
 }
 
@@ -297,32 +252,4 @@ impl Drop for ShutdownOnCancel {
 async fn write_stamp(entry: &mut tokio::net::UnixStream, stamp: &str) -> io::Result<()> {
     entry.write_all(stamp.as_bytes()).await?;
     entry.write_all(b"\n").await
-}
-
-/// Test seam: hold the entry verification of one entry socket (the macOS
-/// signature check can take seconds) until the test releases it.
-#[cfg(test)]
-pub(super) mod verify_hold {
-    use std::collections::HashMap;
-    use std::path::{Path, PathBuf};
-    use std::sync::{Mutex, OnceLock};
-
-    type Hold = Box<dyn FnOnce() + Send>;
-
-    fn holds() -> &'static Mutex<HashMap<PathBuf, Hold>> {
-        static HOLDS: OnceLock<Mutex<HashMap<PathBuf, Hold>>> = OnceLock::new();
-        HOLDS.get_or_init(Default::default)
-    }
-
-    /// Run `hold` on the verification thread of the next handoff to `entry`.
-    pub(in crate::link) fn set(entry: &Path, hold: Hold) {
-        holds()
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(entry.into(), hold);
-    }
-
-    pub(super) fn take(entry: &Path) -> Option<Hold> {
-        holds().lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(entry)
-    }
 }

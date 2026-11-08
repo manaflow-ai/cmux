@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'fce01c6dd876b7e80113b9722066371ad8b6852586678ff23a42b9b73e0aeb2a'
+IR_SHA256 = 'ee4b3937d97da28c53db379446b34c56136f210d18a45700fd142ed157b7f47b'
 
 
 @dataclass(frozen=True)
@@ -3470,6 +3470,7 @@ COMMANDS = {
             'generation': CommandFieldMetadata(None, None),
             'keep_layout': CommandFieldMetadata(12, 'end-terminals-keep-layout-v1'),
             'pid': CommandFieldMetadata(None, None),
+            'restart': CommandFieldMetadata(12, None),
         },
     ),
     'sidebar-plugin': CommandMetadata(

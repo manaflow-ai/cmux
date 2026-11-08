@@ -45,13 +45,13 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `sidebar`: 95
 - `notifications`: 31
 - `agents`: 131
-- `cloud`: 73
+- `cloud`: 71
 - `remote`: 30
 - `settings`: 154
 
-## Counts (1436 actions)
+## Counts (1434 actions)
 
-Palette 1376, CLI verbs 859, right-click 634, MCP tools 773.
+Palette 1374, CLI verbs 857, right-click 633, MCP tools 771.
 
 ## Menus
 
@@ -68,7 +68,7 @@ Palette 1376, CLI verbs 859, right-click 634, MCP tools 773.
 - **browserLink**: browser.link.openInNewTab browser.link.openInNewWindow browser.link.openInNewSpace browser.link.openInNewWorkspace browser.link.openInSplit openLinkInDefaultBrowser | browser.link.openInIncognitoWindow | browser.link.saveAs browser.link.copy browser.link.copyText
 - **browserImage**: browser.image.openInNewTab | browser.image.saveAs browser.image.copy browser.image.copyAddress
 - **browserSelection**: browser.selection.copy home.sendSelectionToChief home.sendSelectionTo | browser.selection.search browser.selection.lookUp
-- **cloudMachine**: cloudNewTerminal cloudOpenMachine cloudSSH cloudSetupGitHub | cloudRenameMachine | [connection] > (cloudOpenDesktop | cloudResizeMachine palette.cloud.status palette.cloud.snapshot palette.cloud.fork palette.cloud.handoff palette.cloud.ports palette.cloud.promoteTemplate palette.cloud.restore cloudPauseMachine cloudResumeMachine cloudSetIdlePause cloudSetNetworkAccess cloudOpenBrowser cloudPortList cloudPortForward cloudPortClose cloudPreviewShare cloudPreviewRevoke cloudStartSession | palette.cloud.deleteSnapshot) | [copy] > (cloudCopyMachineID cloudCopyLink cloudCopyPort) [tools] > (cloudFilesList cloudFileRead cloudFileWrite cloudFileMkdir cloudFileRemove cloudFileStat cloudPrepareSCP cloudTunnelAttach cloudTunnelDetach cloudTunnelRotateKey cloudNetworkList cloudFirewallList cloudFirewallGet cloudFirewallCreate cloudFirewallDelete cloudEnrollMachine cloudApplyMachineConfig cloudDeliverSecrets cloudProvisionAPI | palette.cloud.tools) | cloudKillMachine
+- **cloudMachine**: cloudNewTerminal cloudOpenMachine cloudSSH cloudSetupGitHub | cloudRenameMachine | [connection] > (cloudOpenDesktop | cloudResizeMachine palette.cloud.status palette.cloud.snapshot palette.cloud.fork palette.cloud.handoff palette.cloud.ports palette.cloud.promoteTemplate palette.cloud.restore cloudPauseMachine cloudResumeMachine cloudSetIdlePause cloudSetNetworkAccess cloudOpenBrowser cloudPortList cloudPortForward cloudPortClose cloudPreviewShare cloudPreviewRevoke cloudStartSession | palette.cloud.deleteSnapshot) | [copy] > (cloudCopyMachineID cloudCopyLink cloudCopyPort) [tools] > (cloudFilesList cloudFileRead cloudFileWrite cloudFileMkdir cloudFileRemove cloudFileStat cloudPrepareSCP cloudTunnelAttach cloudTunnelDetach cloudTunnelRotateKey cloudNetworkList cloudFirewallList cloudFirewallGet cloudFirewallCreate cloudFirewallDelete cloudApplyMachineConfig cloudDeliverSecrets cloudProvisionAPI | palette.cloud.tools) | cloudKillMachine
 - **sshMachine**: remote.newWorkspace | remote.reconnect remote.disconnect remote.install machine.doctor | remote.copyError | remote.forget
 - **machineSection**: [appearance] > (machine.setIcon machine.clearIcon) | machine.reconnect | remote.removeGroup
 - **newTab**: newSurface openBrowser.chromium palette.newAgentChat macScreen.open | browserProfile.newTab newTab.page
@@ -160,7 +160,7 @@ Palette 1376, CLI verbs 859, right-click 634, MCP tools 773.
 
 **minimalMenu** (4): `space.newWindow`, `space.setDefaults`, `space.clearDefaults`, `browserProfile.clearSpaceDefault`
 
-**pointerMenuTrim** (49): `copyWorkspaceSSHError`, `revealWorkspaceInFinder`, `palette.copyWorkspaceIDAndRef`, `palette.openWorkspacePullRequests`, `workspace.copyPath`, `terminal.setTheme`, `terminal.clearTheme`, `newPaneAutoLayout`, `triggerFlash`, `palette.swapWithSession`, `toggleCanvasLayout`, `palette.newSimulatorPane`, `palette.toggleTabUnread`, `palette.toggleFullWidthTab`, `tab.muteOtherAudio`, `tab.screenshot`, `workspace.showResources`, `terminal.keep`, `browser.resetPinnedTab`, `agentChat.toggleNotificationMute`, `remote.openTerminalHere`, `workspace.setRemoteLocalhost`, `cloudRelayChat`, `workspace.setTint`, `hibernateTab`, `neverHibernateSite`, `wakeTab`, `tab.moveToSpace`, `column.moveLeft`, `column.moveRight`, `column.center`, `column.widthOneThird`, `column.widthHalf`, `column.widthTwoThirds`, `column.widthFull`, `column.dock`, `column.dockLeft`, `column.dockRight`, `column.dockTop`, `column.dockBottom`, `column.float`, `column.undock`, `workspace.dockLeft`, `workspace.dockRight`, `workspace.dockTop`, `workspace.dockBottom`, `workspace.undock`, `workspace.toggleDockFloating`, `window.movePaneToDock`
+**pointerMenuTrim** (48): `copyWorkspaceSSHError`, `revealWorkspaceInFinder`, `palette.copyWorkspaceIDAndRef`, `palette.openWorkspacePullRequests`, `workspace.copyPath`, `terminal.setTheme`, `terminal.clearTheme`, `newPaneAutoLayout`, `triggerFlash`, `palette.swapWithSession`, `toggleCanvasLayout`, `palette.newSimulatorPane`, `palette.toggleTabUnread`, `palette.toggleFullWidthTab`, `tab.muteOtherAudio`, `tab.screenshot`, `workspace.showResources`, `terminal.keep`, `browser.resetPinnedTab`, `agentChat.toggleNotificationMute`, `remote.openTerminalHere`, `workspace.setRemoteLocalhost`, `workspace.setTint`, `hibernateTab`, `neverHibernateSite`, `wakeTab`, `tab.moveToSpace`, `column.moveLeft`, `column.moveRight`, `column.center`, `column.widthOneThird`, `column.widthHalf`, `column.widthTwoThirds`, `column.widthFull`, `column.dock`, `column.dockLeft`, `column.dockRight`, `column.dockTop`, `column.dockBottom`, `column.float`, `column.undock`, `workspace.dockLeft`, `workspace.dockRight`, `workspace.dockTop`, `workspace.dockBottom`, `workspace.undock`, `workspace.toggleDockFloating`, `window.movePaneToDock`
 
 ## Exemptions: mcp
 

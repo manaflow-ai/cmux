@@ -545,6 +545,7 @@ final class AppServices {
     /// (plans/cmux-next/hovercards.md).
     let hoverCards = HoverCardCoordinator()
     let dialogs = OverlayDialogDrawing(drawing: .shared) // the shared center's dialogs draw on the overlay page
+    let toasts = CmuxToastWebHost(drawing: .shared) // the shared center's toasts draw on the overlay page
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
