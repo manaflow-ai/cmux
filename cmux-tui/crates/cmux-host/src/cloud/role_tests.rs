@@ -19,7 +19,7 @@ fn vm_receiver_client_socket_refuses_unbound_and_caller_identity() {
     let (_control, theirs) = UnixStream::pair().unwrap();
     let mut worker =
         Worker::new(paths.clone(), "vm-1".into(), None, theirs, Arc::default()).unwrap();
-    worker.listener = Some(worker.serve_socket().unwrap());
+    worker.listener = Some(super::super::agent_socket::listen(&paths, AGENT_SOCKET).unwrap());
     let mut first = UnixStream::connect(paths.at(AGENT_SOCKET)).unwrap();
     let mut second = UnixStream::connect(paths.at(AGENT_SOCKET)).unwrap();
     first.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
