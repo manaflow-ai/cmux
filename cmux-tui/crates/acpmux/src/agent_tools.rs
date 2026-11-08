@@ -520,6 +520,26 @@ pub fn remove_mcp_config(home: &Path, session_id: &str) {
     let _ = std::fs::remove_file(path);
 }
 
+/// How `cmux-cua mcp` starts. On a Mac (`gated`), behind acpmux's locked-screen gate: a call
+/// waits with `mac_locked` while the screen is locked (`cua_lock_gate.rs`), and the env reaches
+/// the helper through the gate unchanged. Elsewhere there is no screen lock to gate on.
+fn cua_launch(
+    cua: PathBuf,
+    args: Vec<String>,
+    acpmux: Option<&crate::self_command::SelfCommand>,
+    gated: bool,
+) -> Option<(PathBuf, Vec<String>)> {
+    match acpmux {
+        Some(acpmux) if gated => {
+            let mut words = vec![crate::cua_lock_gate::COMMAND.to_owned(), "--".to_owned()];
+            words.push(cua.to_string_lossy().into_owned());
+            words.extend(args);
+            Some((acpmux.exe.clone(), acpmux.args_lossy(&words)))
+        }
+        _ => Some((cua, args)),
+    }
+}
+
 pub fn resolve(inputs: &Inputs) -> AgentTools {
     let mut tools = resolve_with_cua_helper(inputs, cua_helper::installed);
     if crate::cli::cloud_join::require_joined_consent("control").is_err() {
@@ -562,37 +582,28 @@ fn resolve_with_cua_helper(
                 socket_env.push(("CMUX_CUA_SOCKET_AUTH_TOKEN".into(), socket.token.clone()));
             }
         }
-        // On a Mac, behind acpmux's locked-screen gate when this acpmux is known: a call waits
-        // with `mac_locked` while the screen is locked (`cua_lock_gate.rs`). The env reaches the
-        // helper through the gate unchanged. Elsewhere there is no screen lock to gate on.
-        let (command, args) = match &inputs.acpmux {
-            Some(acpmux) if cfg!(target_os = "macos") => {
-                let mut words = vec![crate::cua_lock_gate::COMMAND.to_owned(), "--".to_owned()];
-                words.push(cua.to_string_lossy().into_owned());
-                words.extend(args);
-                (acpmux.exe.clone(), acpmux.args_lossy(&words))
-            }
-            _ => (cua, args),
-        };
-        servers.push(McpServer {
-            name: "cmux-cua".into(),
-            command,
-            args,
-            env: [
-                // Always the signed helper over its socket, never in-process
-                // computer use with this agent's TCC identity.
-                ("CMUX_CUA_MCP_FORCE_PROXY", "1"),
-                ("CMUX_CUA_TELEMETRY_ENABLED", "false"),
-                ("CMUX_CUA_UPDATE_CHECK", "false"),
-                ("CMUX_CUA_CURSOR_GRADIENT", "#12c7f5,#2d8cff,#6c5cff"),
-                ("CMUX_CUA_CURSOR_BLOOM", "#2d8cff"),
-                ("CMUX_CUA_CURSOR_LABEL", "cmux"),
-            ]
-            .into_iter()
-            .map(|(k, v)| (k.to_owned(), v.to_owned()))
-            .chain(socket_env)
-            .collect(),
-        });
+        let launch = cua_launch(cua, args, inputs.acpmux.as_ref(), cfg!(target_os = "macos"));
+        if let Some((command, args)) = launch {
+            servers.push(McpServer {
+                name: "cmux-cua".into(),
+                command,
+                args,
+                env: [
+                    // Always the signed helper over its socket, never in-process
+                    // computer use with this agent's TCC identity.
+                    ("CMUX_CUA_MCP_FORCE_PROXY", "1"),
+                    ("CMUX_CUA_TELEMETRY_ENABLED", "false"),
+                    ("CMUX_CUA_UPDATE_CHECK", "false"),
+                    ("CMUX_CUA_CURSOR_GRADIENT", "#12c7f5,#2d8cff,#6c5cff"),
+                    ("CMUX_CUA_CURSOR_BLOOM", "#2d8cff"),
+                    ("CMUX_CUA_CURSOR_LABEL", "cmux"),
+                ]
+                .into_iter()
+                .map(|(k, v)| (k.to_owned(), v.to_owned()))
+                .chain(socket_env)
+                .collect(),
+            });
+        }
     }
     if let (true, Some(acpmux)) = (inputs.secrets, &inputs.acpmux) {
         // request_secret and run_with_secret (`secret_mcp.rs`): `for_session`

@@ -111,6 +111,23 @@ fn cmux_cua_falls_back_to_the_nested_helper_app() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// On a Mac, `cmux-cua mcp` runs only behind acpmux's locked-screen gate. When this acpmux
+/// cannot name itself to run the gate, no Computer Use server starts: never one that acts on a
+/// locked screen (review follow-up on #37239, F2).
+#[test]
+fn a_mac_without_the_lock_gate_starts_no_computer_use_server() {
+    let cua = std::path::PathBuf::from("/app/bin/cmux-cua");
+    let args = vec!["mcp".to_owned()];
+    assert_eq!(super::cua_launch(cua.clone(), args.clone(), None, true), None);
+    let acpmux = crate::self_command::SelfCommand::new("/app/bin/acpmux".into(), Vec::new());
+    let (command, gated) =
+        super::cua_launch(cua.clone(), args.clone(), Some(&acpmux), true).unwrap();
+    assert_eq!(command, std::path::PathBuf::from("/app/bin/acpmux"));
+    assert_eq!(gated, [crate::cua_lock_gate::COMMAND, "--", "/app/bin/cmux-cua", "mcp"]);
+    // Off a Mac there is no screen lock to gate on.
+    assert_eq!(super::cua_launch(cua.clone(), args.clone(), None, false), Some((cua, args)));
+}
+
 /// On a Linux machine `acpmux` is a symlink to `cmux-tui`, and `current_exe`
 /// resolves it: the daemon runs as `cmux-tui acp daemon run` with the prefix
 /// `acp`. cmux-tui starts acpmux only under `acp` (or as argv0 `acpmux`), so
