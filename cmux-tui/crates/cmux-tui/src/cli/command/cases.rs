@@ -509,7 +509,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             ],
             "terminal.wait",
         ),
-        (vec!["terminal", TERMINAL, "copy", "--mode", "screen"], "terminal.copy"),
+        (vec!["terminal", TERMINAL, "copy", "--mode", "screen", "--unwrap"], "terminal.copy"),
         (vec!["terminal", TERMINAL, "process", "show"], "terminal.process.get"),
         (
             vec!["terminal", TERMINAL, "process", "wait", "--timeout-ms", "5000"],
