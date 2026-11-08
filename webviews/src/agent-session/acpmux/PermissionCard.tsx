@@ -23,8 +23,6 @@ import {
 } from "./permissions/prompt";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 
-export { permissionOptionKind } from "./permissions/prompt";
-
 type PermissionOption = AcpmuxPermission["options"][number];
 
 /** The single card frame used by legacy ACP asks and grouped tool permissions. */

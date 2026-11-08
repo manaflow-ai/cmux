@@ -671,6 +671,8 @@ notification clear [--terminal <term_id> | --workspace <ws_id> | --notification 
 notification ack --client <id> <notification-id>...
 attention request --tab <tab_…> --reason <text>
 attention clear --tab <tab_…>
+attention next [--after <tab_…>] [--focus]
+attention list
 git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector>]
 git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch] [--patch]
   [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>] [--after-path <path>]
@@ -1040,6 +1042,13 @@ idle and done together, then unknown; `recent` ignores state; `none` keeps the
 daemon's order. Within a group the most recently updated agent comes first,
 and equal times fall back to the agent id. `--limit <n>` (at least 1) keeps
 the first `n` ranked rows.
+
+Without `--terminal` the list is the caller's session: its terminal agents
+and the acpmux chats created in one of its workspaces (the chat's
+`createdBy.workspace` is a workspace `key` of `workspace.list`). Chats of
+other sessions, such as the desktop app's, and chats with no workspace on
+record are left out; `--all-sessions` lists every session's terminal agents
+and every acpmux chat on the machine.
 
 The command also reads `terminal.list` on the same connection, so each row
 can show its terminal's title and folder. A refused or failed terminal read

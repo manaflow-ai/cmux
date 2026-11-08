@@ -19,6 +19,7 @@ mod agent_start_host;
 mod app;
 #[cfg(unix)]
 mod app_identity;
+mod attention;
 mod browser_input;
 #[cfg(unix)]
 mod build_adopt;
@@ -59,6 +60,7 @@ mod feature_flags;
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
 mod host_colors;
+mod host_notify;
 mod keys;
 mod layout_undo;
 // Decided on every Unix so its tests run off the Mac; used on macOS only.

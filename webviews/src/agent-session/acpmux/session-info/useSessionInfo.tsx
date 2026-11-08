@@ -41,6 +41,7 @@ import {
 } from "./sessionInfoState";
 import { outputArtifacts, outputLinks, type OutputArtifact, type OutputLink } from "./outputsSectionModel";
 import { chatOutputs, type OutputFile } from "./chatOutputs";
+import { producedLinks, type ProducedLink } from "./producedLinks";
 import { type ProcessRegistry, type SessionInfoProcess } from "./processes";
 import { currentPlan, type SessionInfoPlan } from "./progressSectionModel";
 import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
@@ -576,6 +577,8 @@ export type SessionInfoLists = {
   readonly summary: AcpmuxSnapshot["summary"];
   readonly made: SessionSummary | undefined;
   readonly links: readonly OutputLink[];
+  /// The pull requests, issues and commits the chat produced (producedLinks.ts).
+  readonly produced: readonly ProducedLink[];
   readonly outputFiles: OutputFile[];
   readonly scopedPlan: SessionInfoPlan | undefined;
   readonly artifacts: number;
@@ -622,6 +625,11 @@ function useSessionInfoLists({
     ),
   );
   const links = useSameValue(useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]));
+  // The pull requests, issues and commits the chat produced (producedLinks.ts), kept while they are the
+  // same, so a streamed token draws no section for them.
+  const produced = useSameValue(
+    useMemo(() => (drawn ? producedLinks(rows, repository) : NO_PRODUCED), [drawn, rows, repository]),
+  );
   // What the chat made for the person (chatOutputs.ts), read here beside `made` and kept while it is the
   // same files, so the sections need not read the rows for it.
   const outputFiles = useSameValue(
@@ -699,6 +707,7 @@ function useSessionInfoLists({
       summary,
       made,
       links,
+      produced,
       outputFiles,
       scopedPlan,
       artifacts,
@@ -714,6 +723,7 @@ function useSessionInfoLists({
       summary,
       made,
       links,
+      produced,
       outputFiles,
       scopedPlan,
       artifacts,
@@ -780,6 +790,8 @@ const closeSessionInfo = () => {
 const NO_OUTPUT_FILES: ReturnType<typeof chatOutputs> = [];
 /// No gallery items (a stable value, so the gallery rows hold while the panel is hidden).
 const NO_GALLERY: readonly GalleryItem[] = [];
+/// Nothing produced (a stable value, so the sections' memo holds).
+const NO_PRODUCED: readonly ProducedLink[] = [];
 
 /// Session Info while it is drawn: its presence, its width and folds, whether it floats or pushes,
 /// and what it lists. Its own component, so its enter and exit phases, a drag step and a fold draw the panel
@@ -1086,6 +1098,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     summary,
     made,
     links,
+    produced,
     outputFiles,
     scopedPlan,
     artifacts,
@@ -1296,6 +1309,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           cloudRepositoryAvailable={cloudRepositoryAvailable}
           made={made}
           links={links}
+          produced={produced}
           artifacts={artifacts}
           documents={documents}
           rows={sectionRows}
@@ -1378,6 +1392,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         documents={documents}
         rows={sectionRows}
         outputFiles={outputFiles}
+        produced={produced}
         plan={plan}
         toolCalls={toolCalls}
         agents={agents}

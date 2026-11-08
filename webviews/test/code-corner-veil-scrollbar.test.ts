@@ -1,7 +1,7 @@
 // cmux-web-test-timeout: 120
 // An unlabeled highlighted code card keeps its horizontal scrollbar visible under the corner veil.
 // Pierre hangs that scrollbar below the body's box into the card's bottom inset
-// (HighlightedCode.tsx `codeUnsafeCSS`, 6 px in WebKit), and the veil masks the body
+// (highlightedCodeModel.ts `codeUnsafeCSS`, 6 px in WebKit), and the veil masks the body
 // (conversation.css `--cv-code-corner-veil`): a mask painted only over the body's own lines cut the
 // scrollbar off at rest and on hover (cross-model review of #37521). At rest and hovered, the
 // mask's painted area must reach the scrollbar's bottom, and the lane must look the same as it does

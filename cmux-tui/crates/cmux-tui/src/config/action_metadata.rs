@@ -53,6 +53,8 @@ pub(crate) enum ActionExecution {
     BrowserReload,
     BrowserEditUrl,
     ShowShortcuts,
+    NextAttention,
+    AttentionList,
     Detach,
     DockWorkspaceLeft,
     DockWorkspaceRight,
@@ -512,6 +514,18 @@ impl Action {
                 ActionClassification::PresentationOnly,
                 "frontend shortcut overlay",
                 ActionExecution::ShowShortcuts,
+            ),
+            Action::NextAttention => ActionMetadata::new(
+                "next-attention",
+                ActionClassification::PresentationOnly,
+                "frontend attention queue + client focus",
+                ActionExecution::NextAttention,
+            ),
+            Action::AttentionList => ActionMetadata::new(
+                "attention-list",
+                ActionClassification::PresentationOnly,
+                "frontend attention list overlay",
+                ActionExecution::AttentionList,
             ),
             Action::Detach => ActionMetadata::new(
                 "detach",

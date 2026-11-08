@@ -30,6 +30,9 @@
 // A record with no provenance and no `_meta.origin` (acpmux's mark of the proven person's prompt)
 // predates both: it keeps its bubble as it was, with no mark, since every person's prompt before
 // that mark was recorded so (only the explicit `unverified` kind marks a prompt).
+// A record with that mark is the person's, whatever its client: the owner's own `acpmux send` at a
+// plain terminal keeps a CLI client, yet its text is never read for a sender's label or a notice,
+// as the composer's identical text is not (`ownerRecord`).
 // acpmux's inbox notice (hub/inbox.rs, kind `inbox_notice`) is no prompt to draw as written: its
 // threads draw as received lines (inboxNotice.ts), its text for the agent never shows.
 import { clipMessagePreview as clip } from "./clipMessagePreview";
@@ -322,11 +325,24 @@ const AGENT_KINDS = new Set([
   "notice",
 ]);
 
+/// Whether acpmux recorded the prompt as the person's own (`_meta.origin`, prompt_provenance.rs
+/// `marked`: no provenance, and the origin acpmux alone writes). The owner's own `acpmux send` at a
+/// plain terminal is recorded so (server/requests.rs `owner_terminal`), with a CLI client: like the
+/// composer's prompt, its text is never read for a sender's label (`[P1] fix the race` is the
+/// person's words, not a message from "P1"). A record from before that mark has no origin and is
+/// read as it always was.
+function ownerRecord(msg: Parameters<typeof promptOf>[1]): boolean {
+  if (msg?._meta?.provenance) return false;
+  const origin = msg?._meta?.origin as { actor?: unknown } | undefined;
+  return origin?.actor === "person";
+}
+
 /// Whether acpmux recorded the message as another agent's: its provenance says so, or (an older
 /// acpmux with none) it came by `acpmux send` at a shell or its outbox.
 function fromAgent(msg: Parameters<typeof promptOf>[1]): boolean {
   const provenance = msg?._meta?.provenance as { kind?: unknown } | undefined;
   if (provenance) return typeof provenance.kind === "string" && AGENT_KINDS.has(provenance.kind);
+  if (ownerRecord(msg)) return false;
   return typeof msg?.client === "string" && (CLI_CLIENT.test(msg.client) || OUTBOX_CLIENT.test(msg.client));
 }
 
@@ -351,7 +367,7 @@ function promptOf(
   text: string,
   msg:
     | {
-        _meta?: { provenance?: unknown };
+        _meta?: { provenance?: unknown; origin?: unknown };
         client?: unknown;
         fromHarness?: unknown;
         fromModel?: unknown;
@@ -489,8 +505,11 @@ function promptOf(
   // A notice an older acpmux kept no provenance for, and tell-coordinator's page (agentNotice.ts
   // `legacyNotice`): only from `acpmux send` at a shell or its outbox, or a sender that named
   // itself, never the person's own prompt in the pane.
+  // The person's own record (`ownerRecord`) is none of those, whatever its client.
+  const owner = ownerRecord(msg);
   const viaSend =
     (!provenance &&
+      !owner &&
       typeof msg?.client === "string" &&
       (CLI_CLIENT.test(msg.client) || OUTBOX_CLIENT.test(msg.client))) ||
     (provenance?.kind === "agent_message" && provenance.from === NAMED_SENDER);
@@ -565,11 +584,11 @@ function promptOf(
       },
     };
   }
-  if (!provenance && typeof msg?.client === "string" && OUTBOX_CLIENT.test(msg.client)) {
+  if (!provenance && !owner && typeof msg?.client === "string" && OUTBOX_CLIENT.test(msg.client)) {
     const named = fromFirst(text.trim());
     if (named) return { kind: "message", message: { ...named, ...remote, ...harness, raw: text } };
   }
-  if (!provenance && typeof msg?.client === "string" && CLI_CLIENT.test(msg.client)) {
+  if (!provenance && !owner && typeof msg?.client === "string" && CLI_CLIENT.test(msg.client)) {
     const named = namedFirst(text.trim()) ?? fromFirst(text.trim()) ?? addressedFirst(text.trim(), context);
     if (named) return { kind: "message", message: { ...named, ...remote, ...harness, raw: text } };
   }
