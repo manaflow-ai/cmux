@@ -31,6 +31,11 @@
 // PlanUsageCard.tsx), picked from the ring's right-click (Leo 2026-11-04: "i guess we can turn that
 // into a 5h/weekly usage type thing instead as well for some people"). The page sets it at once and
 // asks the host to write it (`pane.setComposerRing {ring}`). Anything else reads as "context".
+// `dictationSource` is `agentPane.dictationSource` ("cmux" by default): what the mic dictates with,
+// cmux's own dictation or the dictation app the person already uses, whose shortcut the host sends
+// (dictationSources.ts, design/composer-dictation.md). The mic's right-click picks it
+// (`pane.setDictationSource {source}`). `dictationShortcut` (`agentPane.dictationShortcut`) is only
+// read: the chord the host sends, empty for the app's own. Anything else reads as "cmux".
 // `newChatsIn` is `agentPane.newChatsIn` ("Start New Chats In", "local" by default): "cloud" makes a
 // new chat's run location Cloud unless its composer picks another (runLocationDefault.ts).
 import { useSyncExternalStore } from "react";
@@ -44,9 +49,13 @@ export type ReasoningSliderStyle = "accent" | "minimal";
 export type AttachmentView = "inline" | "strip" | "both";
 export type NewChatPlace = "local" | "cloud";
 export type ComposerRing = "context" | "planUsage";
+export const DICTATION_SOURCES = ["cmux", "macos", "chatgpt", "claude", "gemini", "wisprFlow", "superwhisper"] as const;
+export type DictationSource = (typeof DICTATION_SOURCES)[number];
 export type ComposerSettings = {
   showContextUsage: boolean;
   showDictation: boolean;
+  dictationSource: DictationSource;
+  dictationShortcut: string;
   spellChecking: boolean;
   attachmentView: AttachmentView;
   scrollToBottomOnSend: boolean;
@@ -63,6 +72,8 @@ export type ComposerSettings = {
 export const DEFAULT_COMPOSER: ComposerSettings = {
   showContextUsage: true,
   showDictation: true,
+  dictationSource: "cmux",
+  dictationShortcut: "",
   spellChecking: false,
   attachmentView: "inline",
   scrollToBottomOnSend: true,
@@ -96,6 +107,10 @@ export function readComposerSettings(value: unknown): ComposerSettings {
   return {
     showContextUsage: flag("showContextUsage"),
     showDictation: flag("showDictation"),
+    dictationSource: DICTATION_SOURCES.includes(raw.dictationSource as DictationSource)
+      ? (raw.dictationSource as DictationSource)
+      : "cmux",
+    dictationShortcut: typeof raw.dictationShortcut === "string" ? raw.dictationShortcut : "",
     spellChecking: flag("spellChecking"),
     attachmentView,
     scrollToBottomOnSend: flag("scrollToBottomOnSend"),
@@ -267,6 +282,25 @@ export function setComposerRing(ring: ComposerRing) {
   setComposerSettings({ composerRing: ring });
   try {
     void Promise.resolve(composerRingHost?.(ring)).catch(() => undefined);
+  } catch {
+    // The page keeps its choice (above).
+  }
+}
+
+/// The host's write of `agentPane.dictationSource` (`pane.setDictationSource {source}`).
+let dictationSourceHost: ((source: DictationSource) => unknown) | undefined;
+
+/// App's route to the host; a page with none (a gallery, a test) keeps its choice in the page.
+export function registerDictationSourceHost(write: ((source: DictationSource) => unknown) | undefined) {
+  dictationSourceHost = write;
+}
+
+/// Picks what every composer's mic dictates with, and asks the host to persist it. The page changes
+/// at once, as the ring's pick does; the host's next value is authoritative.
+export function setDictationSource(source: DictationSource) {
+  setComposerSettings({ dictationSource: source });
+  try {
+    void Promise.resolve(dictationSourceHost?.(source)).catch(() => undefined);
   } catch {
     // The page keeps its choice (above).
   }

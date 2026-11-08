@@ -97,26 +97,30 @@ function rowsShowing(rows: AcpmuxRow[]): string[] {
     .map((row) => row.id);
 }
 
+// Drawn once at every step: the live line while it is pending and runs, then, the moment it
+// completes, its run, with the line on Thinking (Leo, 2026-11-07: "Why don't we just immediately
+// switch to the thinking?"; takes back the held finished call of #29938 and #37568).
 for (const [kind, states] of Object.entries(KINDS))
-  test(`${kind}: one row with one id from pending to done`, () => {
+  test(`${kind}: one row from pending to running, then its run the moment it completes`, () => {
     const steps = [
       rowsShowing(view([call(states.pending, "pending")])),
       rowsShowing(view([call(states.running, "in_progress")])),
       rowsShowing(view([call(states.done, "completed")])),
     ];
     for (const step of steps) expect(step).toHaveLength(1);
-    expect(new Set(steps.flat()).size).toBe(1);
+    expect(new Set(steps.slice(0, 2).flat()).size).toBe(1);
+    expect(steps[2]).toEqual(["a1"]);
   });
 
-test("a Write named before its input reads as the row it becomes: Writing a file, then Wrote gen.py", () => {
+test("a Write named before its input reads as the row it becomes: Writing a file, then Writing gen.py", () => {
   const line = (items: AcpmuxActivity[]) => view(items).find((row) => row.kind === "thinking");
   expect(line([call(KINDS.Write!.pending, "pending")])?.doing).toBe("Writing a file");
-  expect(line([call(KINDS.Write!.running, "in_progress")])?.doing).toBe("Writing gen.py");
-  const done = line([call(KINDS.Write!.done, "completed")]);
-  expect(done?.doing).toBe("Wrote gen.py");
-  expect(done?.doingDone).toBe(true);
+  const running = line([call(KINDS.Write!.running, "in_progress")]);
+  expect(running?.doing).toBe("Writing gen.py");
   // The line carries the call's id, so it updates in place rather than rolling a new step in.
-  expect(done?.doingCall).toBe("c1");
+  expect(running?.doingCall).toBe("c1");
+  // Done: the line reads Thinking at once.
+  expect(line([call(KINDS.Write!.done, "completed")])?.doing).toBeUndefined();
 });
 
 test("a finished Write folds into its run once the next call starts, as any finished step does", () => {

@@ -13,6 +13,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useSettingsState, useStore } from "../context";
 import { channelsQuery } from "../sectionQueries";
 import type { ChannelBuild, ChannelMachines, ChannelSwitch, ChannelTrack, ChannelsState } from "../ops";
+import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
 
 function BuildRow({ build, labels }: { build: ChannelBuild; labels: ChannelsState["labels"] }) {
   const store = useStore();
@@ -246,9 +247,11 @@ export function ChannelsCard({ focus = null }: { focus?: string | null }) {
   useEffect(() => {
     if (drawn && revealsCard(focus)) card.current?.scrollIntoView?.({ block: "start" });
   }, [drawn, focus]);
+  // The card arrives with the host's lists: after a blank first paint it fades in (shared/loadFade.ts).
+  const fade = useLoadFade(Boolean(state));
   if (!state) return null;
   return (
-    <section className="group" data-card="channels" ref={card}>
+    <section className={fade ? `group ${LOAD_FADE_CLASS}` : "group"} data-card="channels" ref={card}>
       <h3 className="group-title">{state.title}</h3>
       <div className="row-help">{state.installed}</div>
       {/* The app's acpmux daemon: its build, and whether it is up to date or restarting. */}

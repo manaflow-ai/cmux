@@ -211,6 +211,7 @@ export function App({ config, initialStatus }: ConfigProps) {
   const commentLabels = resolveCommentLabels(payload);
   const comments = useDiffComments({
     bridgeAvailable,
+    canSend: payload.commentsSend === true,
     dispatch,
     latestState,
     repoRoot: commentRepoRoot,
@@ -955,9 +956,11 @@ export function App({ config, initialStatus }: ConfigProps) {
         <FilesSidebar
           commentEntries={commentEntries}
           commentLabels={commentLabels}
+          commentsSendState={comments.sendState}
           hasDraft={state.draft != null}
           label={label}
           onSelectComment={selectCommentEntry}
+          onSendComments={comments.canSend ? comments.send : undefined}
           onActivateItem={activateTreeFile}
           onSelectItem={scrollToItem}
           onToggleViewedPath={toggleViewedPath}

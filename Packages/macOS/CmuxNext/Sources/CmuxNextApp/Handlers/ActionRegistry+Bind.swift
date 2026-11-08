@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextWindowRules
 
 extension ActionRegistry {
     /// Binds a throwing handler; a thrown error is reported with `refuse`.
@@ -19,12 +20,8 @@ extension ActionRegistry {
         return bind(id, unavailable: reason, invoke: { [weak self] invocation in
             do {
                 try run(invocation)
-            } catch let failure as ActionFailure where failure.isNotFound {
-                self?.refuseNotFound(failure.message)
-            } catch let failure as ActionFailure where failure.isQuiet {
-                self?.refuse(failure.message, quiet: true)
             } catch {
-                self?.refuse(RefusalStrings.describe(error))
+                self?.refuse(thrown: error)
             }
         })
     }
@@ -45,15 +42,22 @@ extension ActionRegistry {
         return bindEffect(id, unavailable: reason, effect: { [weak self] invocation in
             do {
                 return try effect(invocation)
-            } catch let failure as ActionFailure where failure.isNotFound {
-                self?.refuseNotFound(failure.message)
-            } catch let failure as ActionFailure where failure.isQuiet {
-                self?.refuse(failure.message, quiet: true)
             } catch {
-                self?.refuse(RefusalStrings.describe(error))
+                self?.refuse(thrown: error)
             }
             return .done
         })
+    }
+
+    /// Refuses with what a handler threw: the one table from a failure to its refusal is Rust's
+    /// (cmux-window-rules `targets::refusal`: not found first, then quiet, else shown).
+    func refuse(thrown error: any Error) {
+        let failure = error as? ActionFailure
+        switch WindowRules().refusal(notFound: failure?.isNotFound == true, quiet: failure?.isQuiet == true) {
+        case .notFound: refuseNotFound(failure?.message ?? RefusalStrings.describe(error))
+        case .quiet: refuse(failure?.message ?? RefusalStrings.describe(error), quiet: true)
+        case .shown: refuse(RefusalStrings.describe(error))
+        }
     }
 
     /// Binds every ID as unavailable in this build with `failure`'s reason.

@@ -294,7 +294,8 @@ body,
   padding-top: var(--grid-half-step);
 }
 .hc-msg-hover-time {
-  visibility: hidden;
+  opacity: 0;
+  transition: var(--cmux-hover-reveal-out-transition);
   font-size: var(--text-caption);
   line-height: 22px;
   color: var(--page-text-3);
@@ -303,7 +304,12 @@ body,
 }
 .hc-msg:hover .hc-msg-hover-time,
 .hc-msg:focus-within .hc-msg-hover-time {
-  visibility: visible;
+  opacity: 1;
+  transition: var(--cmux-hover-reveal-in-transition);
+}
+/* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
+.hc-msg:has(:focus-visible) .hc-msg-hover-time {
+  transition: none;
 }
 .hc-msg-head {
   display: flex;

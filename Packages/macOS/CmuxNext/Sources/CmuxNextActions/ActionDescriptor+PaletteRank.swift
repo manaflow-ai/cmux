@@ -246,7 +246,7 @@ extension ActionDescriptor {
                           "appearance.chromeStyle.default", "appearance.chromeStyle.bare", "appearance.chromeStyle.card",
                           "appearance.chromeStyle.cardOutlined", "appearance.chromeStyle.flat",
                           "appearance.chromeStyle.flatSidebarLine", "appearance.chromeStyle.floating",
-                          "appearance.chromeStyle.panes", "appearance.chromeStyle.twoTone",
+                          "appearance.chromeStyle.panes", "appearance.chromeStyle.twoTone", "appearance.chromeStyle.blocks",
                       ]),
         PaletteFamily("paneChrome", title: familyTitle("palette.family.paneChrome", "Pane Borders and Focus Ring…"),
                       symbol: "square.dashed", members: [

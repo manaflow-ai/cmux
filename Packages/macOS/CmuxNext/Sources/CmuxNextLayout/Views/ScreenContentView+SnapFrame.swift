@@ -26,7 +26,7 @@ extension ScreenContentView {
                 .pixelEdges(scale)
             guard placed.size != host.frame.size else { continue }
             resized = true
-            host.drawAhead(sizeChange: CGSize(width: placed.width - host.frame.width, height: placed.height - host.frame.height))
+            host.drawAhead(sizeChange: CGSize(width: placed.width - host.frame.width, height: placed.height - host.frame.height), keyPress: false)
         }
         guard resized else { return false }
         (frameInput.snapWaitsForContent, frameInput.presentationWaiting) = (true, true)

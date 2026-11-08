@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
@@ -69,7 +70,7 @@ struct WorkspaceIconPicker: View {
             }
             .background(theme.colors.bg.color.ignoresSafeArea())
         } else {
-            ProgressView()
+            CmuxSpinner()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(theme.colors.bg.color.ignoresSafeArea())
         }

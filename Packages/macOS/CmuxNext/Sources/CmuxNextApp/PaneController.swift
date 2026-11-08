@@ -14,6 +14,7 @@ import CmuxNextTabs
 import CmuxNextTerminal
 import Observation
 import CmuxNextFocus
+import CmuxNextWakeups
 
 /// Mirrors one daemon pane into a tab strip and shows the selected tab's
 /// content. Tab selection is client-local (`WindowState.selection`); every
@@ -39,7 +40,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var pendingDock = PendingDockChats() // chats bound for a new chat dock, never in this strip (NewChatPlacement)
     /// A tab this app just created or reopened here, selected once the daemon reports it (`selectWhenReported*`).
     var pendingSelect = PendingTabSelect()
-    var lastPlacement: ActionWork? // this pane's last new tab's move into its slot: the next reads its slot after it (NewTabSlot)
+    let placements = WorkLine<ActionWorkFailure?>() // this pane's new tabs' moves into their slots, in press order: each reads its slot after the last (NewTabSlot)
     private var observation: Task<Void, Never>?
     /// One observation per daemon tab's strip item and focus kind (`focusPane` reads it; I1, I2).
     private lazy var tabItems = ObservedItems<TabModel, (StripTabItem, FocusTopology.Kind)>(
@@ -316,7 +317,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url, known: (tab, incognito)).apply(to: &item)
             item.audio = BrowserTabAudio.badge(services.cache.existingBrowser(tab.id)?.tab.state)
         }
-        item.agentTone = tab.userIcon == nil ? SubagentTabTitles.shared.tone(ofTab: tab.id) : nil; TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: daemon))
+        item.agentTone = tab.userIcon == nil ? SubagentTabTitles.shared.tone(ofTab: tab.id) : nil; TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: daemon)); if let sub = SubagentTabTitles.shared.facts(ofTab: tab.id) { item.showSubagent(state: sub.state.rawValue, since: sub.since, model: sub.model, spins: DesignSettings.shared.statusIndicator.showsAgentWorkingOnTabs) }
         return item
     }
 

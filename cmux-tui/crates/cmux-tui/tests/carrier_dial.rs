@@ -196,3 +196,72 @@ fn a_desktop_dial_without_the_owner_grant_is_refused_as_a_service() {
     );
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(6));
 }
+
+/// Another device's Noise key (base64url of 32 bytes of 5).
+const OTHER_DEVICE: &str = "BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU";
+
+#[test]
+fn a_handed_over_answer_is_the_first_attempt_s_without_asking_the_platform() {
+    // Off a Mac each dial makes its own Noise key, so the handed-over grant
+    // names another device's: the daemon refusing it shows the dial used it.
+    let world = world(200, Arc::new(AtomicUsize::new(0)));
+    let mut child = dial_with(&world, &["--answer-fd", "0"]);
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(world.answer_line(OTHER_DEVICE, true).as_bytes()).unwrap();
+    stdin.flush().unwrap();
+    let mut stderr = BufReader::new(child.stderr.take().unwrap());
+    let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+    let route = line(&mut stderr);
+    assert!(route.contains("phase=connect outcome=handshake"), "{route} {reply}");
+    let keys = world.keys.lock().unwrap().clone();
+    assert!(
+        keys.iter().all(|key| key.as_deref() != Some(OTHER_DEVICE)),
+        "the platform never named the other device: {keys:?}"
+    );
+    drop(stdin);
+    let _ = wait(&mut child, Duration::from_secs(20));
+}
+
+#[test]
+fn an_answer_line_that_is_not_an_answer_is_bad_usage() {
+    let world = world(200, Arc::new(AtomicUsize::new(0)));
+    for bad in ["not json\n", "{\"carrier_answer\":{}}\n", ""] {
+        let mut child = dial_with(&world, &["--answer-fd", "0"]);
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(bad.as_bytes()).unwrap();
+        drop(stdin);
+        let mut stderr = BufReader::new(child.stderr.take().unwrap());
+        let reply: Value = serde_json::from_str(&line(&mut stderr)).unwrap();
+        assert_eq!(reply["error_code"], "bad_request", "{bad:?}: {reply}");
+        assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(64), "{bad:?}");
+    }
+}
+
+#[test]
+fn key_public_prints_no_key_where_none_lasts_past_one_dial() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = |args: &[&str]| {
+        Command::new(BIN)
+            .arg("carrier")
+            .args(args)
+            .env_clear()
+            .env("HOME", dir.path())
+            .output()
+            .unwrap()
+    };
+    // Off a Mac each dial makes its own key, so no key printed here could
+    // be the one a later dial presents: nothing on stdout, dial's line.
+    let out = run(&["key", "--public"]);
+    assert!(out.stdout.is_empty(), "{:?}", String::from_utf8_lossy(&out.stdout));
+    let reply: Value = serde_json::from_slice(&out.stderr).unwrap();
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(reply["error_code"], "handshake", "{reply}");
+    assert_eq!(out.status.code(), Some(5));
+    for bad in [&["key"][..], &["key", "--private"], &["key", "--public", "x"]] {
+        let out = run(bad);
+        assert!(out.stdout.is_empty());
+        let reply: Value = serde_json::from_slice(&out.stderr).unwrap();
+        assert_eq!(reply["error_code"], "bad_request", "{bad:?}: {reply}");
+        assert_eq!(out.status.code(), Some(64), "{bad:?}");
+    }
+}

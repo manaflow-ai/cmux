@@ -173,7 +173,9 @@
               "workspaces.freeing.enabled",
               "workspaces.freeing.idleMinutes",
               "workspaces.freeing.agents",
-              "workspaces.freeing.runningCommands"
+              "workspaces.freeing.runningCommands",
+              "agents.hiddenChats.discard",
+              "agents.hiddenChats.discardAfterMinutes"
             ],
             "title" : {
               "key" : "settings.group.workspaceHibernation",
@@ -620,7 +622,8 @@
             "rows" : [
               "sidebar.workspacesAsTabs",
               "sidebar.chromeGroups",
-              "sidebar.sideBySide"
+              "sidebar.sideBySide",
+              "sidebar.groupPalette"
             ],
             "title" : {
               "key" : "settings.pageGroup.sidebarLayout",
@@ -1086,6 +1089,7 @@
               "browser.enabled",
               "browser.openLinksInCmuxBrowser",
               "browser.openSignInPagesInCmux",
+              "browser.openPullRequestsInGitHubPage",
               "browser.hostsToOpenInEmbeddedBrowser",
               "browser.urlsToAlwaysOpenExternally"
             ],
@@ -1111,7 +1115,8 @@
             "key" : "settings.group.import",
             "rows" : [
               "browser.import.enabled",
-              "browser.import.cookieBanner"
+              "browser.import.cookieBanner",
+              "browser.import.cookieSync"
             ],
             "title" : {
               "key" : "settings.group.import",
@@ -1226,6 +1231,8 @@
               "agentPane.showContextUsage",
               "agentPane.composerRing",
               "agentPane.showDictation",
+              "agentPane.dictationSource",
+              "agentPane.dictationShortcut",
               "agentPane.spellChecking",
               "agentPane.attachmentView",
               "agentPane.scrollToBottomOnSend",
@@ -7454,7 +7461,6 @@
     },
     {
       "accepts" : [
-        "ask",
         "keep",
         "end-keep-layout",
         "end-everything"
@@ -7462,13 +7468,6 @@
       "agent_refusal" : "destructive",
       "agent_settable" : false,
       "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.quitAsk",
-            "text" : "Ask"
-          },
-          "value" : "ask"
-        },
         {
           "title" : {
             "key" : "settings.choice.quitKeep",
@@ -7495,7 +7494,7 @@
         "cmux-browser",
         "cmux-next"
       ],
-      "default" : "ask",
+      "default" : "keep",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.quit",
@@ -23279,6 +23278,292 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceHibernation",
+        "text" : "Hibernation"
+      },
+      "help" : {
+        "key" : "settings.workspaceHibernation.hiddenChatDiscard.help",
+        "text" : "A chat you have not looked at for a while gives back its memory, and comes back where you left it when you open it. Chats that are working, waiting on you or holding a draft are never released."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.hiddenChats.discard",
+      "keywords" : [
+        "agent",
+        "chat",
+        "chats",
+        "release",
+        "discard",
+        "hidden",
+        "memory",
+        "ram",
+        "idle",
+        "saver"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "hiddenChats",
+        "discard"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:agents.hiddenChats.discard"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceHibernation.hiddenChatDiscard",
+        "text" : "Release Hidden Agent Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        1,
+        1440,
+        720.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 15,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceHibernation",
+        "text" : "Hibernation"
+      },
+      "help" : {
+        "key" : "settings.workspaceHibernation.hiddenChatDiscardAfterMinutes.help",
+        "text" : "How many minutes a chat stays out of sight before its memory is given back. When the Mac runs low on memory, it happens sooner."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.hiddenChats.discardAfterMinutes",
+      "keywords" : [
+        "agent",
+        "chat",
+        "release",
+        "discard",
+        "hidden",
+        "minutes",
+        "timeout",
+        "memory"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "hiddenChats",
+        "discardAfterMinutes"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 1440,
+        "min" : 1,
+        "placeholder" : 1,
+        "step" : 1,
+        "unit" : "minutes"
+      },
+      "refuses" : [
+        -1438,
+        2879,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.hiddenChats.discardAfterMinutes"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.workspaceHibernation.hiddenChatDiscardAfterMinutes",
+        "text" : "Release Hidden Chats After"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "list",
         "board",
         "inbox"
@@ -23434,6 +23719,156 @@
       "title" : {
         "key" : "settings.tasks.layout",
         "text" : "Tasks Layout"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "default",
+        "neko"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.default",
+            "text" : "Default"
+          },
+          "value" : "default"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "Neko"
+          },
+          "value" : "neko"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "default",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.iconTheme",
+        "text" : "Icon Theme"
+      },
+      "help" : {
+        "key" : "settings.appearance.iconTheme.help",
+        "text" : "The icon drawings used by cmux."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.iconTheme",
+      "keywords" : [
+        "icons",
+        "icon",
+        "theme",
+        "neko",
+        "cat"
+      ],
+      "kind" : "choice",
+      "page_hidden" : true,
+      "path" : [
+        "appearance",
+        "iconTheme"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : false,
+          "operations" : [
+
+          ],
+          "reason" : "reserved until the Neko artwork passes light/dark 1x/2x review",
+          "row" : null
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.appearance.iconTheme",
+        "text" : "Icon Theme"
       },
       "validation" : "portable"
     },
@@ -31514,7 +31949,8 @@
         "bare",
         "panes",
         "two-tone",
-        "floating"
+        "floating",
+        "blocks"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -31581,6 +32017,13 @@
             "text" : "Floating Panes"
           },
           "value" : "floating"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.chromeStyle.blocks",
+            "text" : "Blocks"
+          },
+          "value" : "blocks"
         }
       ],
       "consumers" : [
@@ -31615,7 +32058,8 @@
         "minimal",
         "bare",
         "floating",
-        "gaps"
+        "gaps",
+        "blocks"
       ],
       "kind" : "choice",
       "page_hidden" : false,
@@ -59887,6 +60331,188 @@
     },
     {
       "accepts" : [
+        "glass",
+        "theme",
+        "wallpaper",
+        "grayscale",
+        "vibrant"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.groupPaletteGlass",
+            "text" : "Glass"
+          },
+          "value" : "glass"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupPaletteTheme",
+            "text" : "App Theme"
+          },
+          "value" : "theme"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupPaletteWallpaper",
+            "text" : "Wallpaper"
+          },
+          "value" : "wallpaper"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupPaletteGrayscale",
+            "text" : "Grayscale"
+          },
+          "value" : "grayscale"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.groupPaletteVibrant",
+            "text" : "Vibrant"
+          },
+          "value" : "vibrant"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "glass",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.groupPalette.help",
+        "text" : "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.groupPalette",
+      "keywords" : [
+        "sidebar",
+        "group",
+        "groups",
+        "color",
+        "colors",
+        "colour",
+        "palette",
+        "theme",
+        "wallpaper",
+        "grayscale",
+        "vibrant",
+        "glass",
+        "automatic"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "groupPalette"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:sidebar.groupPalette"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.sidebar.groupPalette",
+        "text" : "Group Colors"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "off",
         "bottom",
         "top",
@@ -79222,6 +79848,142 @@
         true,
         false
       ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.import",
+        "text" : "Import"
+      },
+      "help" : {
+        "key" : "settings.browser.importCookieSync.help",
+        "text" : "After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.import.cookieSync",
+      "keywords" : [
+        "import",
+        "cookies",
+        "sync",
+        "keep",
+        "chrome",
+        "sign in",
+        "login",
+        "signed in"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "import",
+        "cookieSync"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:browser.import.cookieSync"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.browser.importCookieSync",
+        "text" : "Keep Imported Cookies in Sync"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
@@ -84422,6 +85184,141 @@
       "title" : {
         "key" : "settings.browser.openSignInPages",
         "text" : "Open Sign-In Pages in cmux Browser"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.openingLinks",
+        "text" : "Opening Links"
+      },
+      "help" : {
+        "key" : "settings.browser.openPullRequestsInGitHubPage.help",
+        "text" : "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.openPullRequestsInGitHubPage",
+      "keywords" : [
+        "github",
+        "github.com",
+        "pull request",
+        "pr",
+        "link",
+        "native page"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "openPullRequestsInGitHubPage"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:browser.openPullRequestsInGitHubPage"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.browser.openPullRequestsInGitHubPage",
+        "text" : "Open Pull Requests in cmux GitHub Page"
       },
       "validation" : "portable"
     },
@@ -97923,6 +98820,341 @@
       "title" : {
         "key" : "settings.agentPane.showDictation",
         "text" : "Show Dictation Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "cmux",
+        "macos",
+        "chatgpt",
+        "claude",
+        "gemini",
+        "wisprFlow",
+        "superwhisper"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.dictationSourceCmux",
+            "text" : "cmux"
+          },
+          "value" : "cmux"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.dictationSourceMacos",
+            "text" : "macOS Dictation"
+          },
+          "value" : "macos"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.dictationSourceChatgpt",
+            "text" : "ChatGPT"
+          },
+          "value" : "chatgpt"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.dictationSourceClaude",
+            "text" : "Claude"
+          },
+          "value" : "claude"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.dictationSourceGemini",
+            "text" : "Gemini"
+          },
+          "value" : "gemini"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.dictationSourceWisprFlow",
+            "text" : "Wispr Flow"
+          },
+          "value" : "wisprFlow"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.dictationSourceSuperwhisper",
+            "text" : "Superwhisper"
+          },
+          "value" : "superwhisper"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "cmux",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.dictationSource.help",
+        "text" : "What the dictation button uses: cmux's own dictation, or the dictation app you already use. An app's button sends that app's shortcut."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.dictationSource",
+      "keywords" : [
+        "dictation",
+        "dictate",
+        "microphone",
+        "mic",
+        "voice",
+        "speech",
+        "chatgpt",
+        "claude",
+        "gemini",
+        "wispr",
+        "flow",
+        "superwhisper",
+        "macos",
+        "composer"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "dictationSource"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.dictationSource"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.dictationSource",
+        "text" : "Dictate With"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.dictationShortcut.help",
+        "text" : "The shortcut the dictation button sends to the app it dictates with, such as ctrl+opt+space, when you set that app to one other than its default. Leave it empty for the app's default."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.dictationShortcut",
+      "keywords" : [
+        "dictation",
+        "shortcut",
+        "hotkey",
+        "key",
+        "chatgpt",
+        "claude",
+        "gemini",
+        "wispr",
+        "flow",
+        "superwhisper"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "dictationShortcut"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.dictationShortcut"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.dictationShortcut",
+        "text" : "Dictation App Shortcut"
       },
       "validation" : "portable"
     },

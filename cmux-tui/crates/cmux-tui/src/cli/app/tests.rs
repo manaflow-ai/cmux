@@ -2110,3 +2110,30 @@ fn exchange_within_reads_after_the_daemon_sync() {
     assert_eq!(reply, Ok(Ok(json!({ "value": "cloud" }))));
     assert_eq!(sent.get("params"), Some(&json!({ "path": "chat.on", "after": "sync" })), "{sent}");
 }
+
+/// An optional read's `--socket` kind probe ends at its deadline: a socket that takes the request
+/// and never answers is `socket.wrong_kind` within the deadline, not after the app timeout that
+/// waits out a busy app (#37485's review at 20fdfedd, F1).
+#[test]
+fn a_bounded_socket_probe_ends_at_its_deadline() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("silent.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+    let silent = std::thread::spawn(move || {
+        let (mut peer, _) = listener.accept().unwrap();
+        let mut request = [0_u8; 256];
+        let _ = peer.read(&mut request);
+        std::thread::sleep(Duration::from_secs(3));
+    });
+    let global =
+        GlobalArgs { socket: Some(path), output: OutputMode::Quiet, ..GlobalArgs::default() };
+    let started = std::time::Instant::now();
+    let connected = connect_command_within(&global, Some(Duration::from_millis(300)));
+    let took = started.elapsed();
+    let code = connected
+        .err()
+        .and_then(|error| error.get("code").and_then(Value::as_str).map(str::to_owned));
+    assert_eq!(code.as_deref(), Some("socket.wrong_kind"));
+    assert!(took < Duration::from_millis(1500), "the probe took {took:?}");
+    silent.join().unwrap();
+}

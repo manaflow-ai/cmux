@@ -1,0 +1,217 @@
+{
+  "$comment": "HAND-EDITED source of the Terminal section's rows (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it (its docstring is the row format); schemas/settings/settings-schema.json is still exported from Swift and must not change when rows move here.",
+  "lists": [
+    {
+      "name": "terminalFont",
+      "section": "terminal",
+      "group": {
+        "key": "settings.group.terminalFont",
+        "text": "Font"
+      },
+      "note": "terminal.fontFamily and terminal.fontSize: Ghostty overrides (TerminalFontSetting).",
+      "rows": [
+        {
+          "key": "terminal.fontFamily",
+          "name": "family",
+          "title": {
+            "key": "settings.terminal.fontFamily",
+            "text": "Font Family"
+          },
+          "help": {
+            "key": "settings.terminal.fontFamily.help",
+            "text": "A monospaced font installed on this Mac."
+          },
+          "kind": "font_family",
+          "default": null,
+          "default_label": {
+            "key": "settings.source.ghostty",
+            "text": "Ghostty"
+          },
+          "keywords": [
+            "font",
+            "typeface",
+            "monospace",
+            "monospaced",
+            "font-family",
+            "ghostty"
+          ],
+          "swift_owner": {
+            "type": "TerminalFontSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "terminal.fontSize",
+          "name": "size",
+          "note": "The sizes the Ghostty override accepts (GhosttyRuntime.fontOverrideLines).",
+          "title": {
+            "key": "settings.terminal.fontSize",
+            "text": "Font Size"
+          },
+          "kind": "number",
+          "range": {
+            "min": 4,
+            "max": 96,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 13
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.source.ghostty",
+            "text": "Ghostty"
+          },
+          "keywords": [
+            "font",
+            "text",
+            "size",
+            "zoom",
+            "font-size",
+            "ghostty"
+          ],
+          "swift_owner": {
+            "type": "TerminalFontSetting",
+            "prefixed": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "openingLinks",
+      "section": "terminal",
+      "group": {
+        "key": "settings.group.openingLinks",
+        "text": "Opening Links"
+      },
+      "note": "terminal.linkOpener.*: where a URL a terminal program opens goes (TerminalLinkOpener).",
+      "rows": [
+        {
+          "key": "terminal.linkOpener.default",
+          "note": "The target when no rule matches.",
+          "title": {
+            "key": "settings.terminal.linkOpener.default",
+            "text": "Open Program Links In"
+          },
+          "help": {
+            "key": "settings.terminal.linkOpener.default.help",
+            "text": "Where a URL goes when a program in a terminal opens a browser, such as aws login or gh auth login: cmux, system, chrome, safari, arc, firefox, edge, brave, app:<name>, a profile after @ (chrome@Profile 1), or command:<command> to let your script decide. A BROWSER you set yourself wins."
+          },
+          "kind": "text",
+          "default": "cmux",
+          "keywords": [
+            "browser",
+            "open",
+            "url",
+            "link",
+            "BROWSER",
+            "xdg-open",
+            "login",
+            "oauth",
+            "default browser",
+            "chrome",
+            "safari",
+            "profile"
+          ],
+          "swift_owner": {
+            "type": "TerminalLinkOpener",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "terminal.linkOpener.rules",
+          "note": "Checked in order before the default; the first match wins (TerminalLinkOpenerRule).",
+          "title": {
+            "key": "settings.terminal.linkOpener.rules",
+            "text": "Program Link Rules"
+          },
+          "help": {
+            "key": "settings.terminal.linkOpener.rules.help",
+            "text": "Checked in order before the default; the first match wins. Write <match> -> <target>: caller:aws matches the program that opened the URL, and text, * wildcards or re: match the URL. Example: caller:gh github.com -> safari"
+          },
+          "summary": {
+            "key": "settings.terminal.linkOpener.rules.summary",
+            "text": "Rules for program links"
+          },
+          "kind": "string_list",
+          "default": [],
+          "placeholder": {
+            "key": null,
+            "text": "caller:gh github.com -> safari"
+          },
+          "keywords": [
+            "browser",
+            "rules",
+            "url",
+            "link",
+            "caller",
+            "regex",
+            "profile",
+            "script"
+          ],
+          "swift_owner": {
+            "type": "TerminalLinkOpener",
+            "prefixed": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "terminalCompatibility",
+      "section": "terminal",
+      "group": {
+        "key": "settings.group.terminalCompatibility",
+        "text": "Compatibility"
+      },
+      "note": "terminal.term (TerminalTermSetting).",
+      "rows": [
+        {
+          "key": "terminal.term",
+          "note": "The TERM every new local terminal starts with. Default xterm-256color (user decision 2026-11-05: ssh host htop failed with \"cannot initialize terminal type xterm-ghostty\" on hosts without Ghostty's terminfo); xterm-ghostty is the opt-in, applied only when its entry is installed on this Mac.",
+          "title": {
+            "key": "settings.terminal.term",
+            "text": "Terminal Type (TERM)"
+          },
+          "help": {
+            "key": "settings.terminal.term.help",
+            "text": "The TERM new terminals start with. xterm-256color works on every host you ssh to. xterm-ghostty needs Ghostty's terminfo on each of those hosts, and applies only when it is installed on this Mac."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "xterm-256color",
+              "title": {
+                "key": "settings.choice.xterm256color",
+                "text": "xterm-256color (standard)"
+              }
+            },
+            {
+              "value": "xterm-ghostty",
+              "title": {
+                "key": "settings.choice.xtermGhostty",
+                "text": "xterm-ghostty"
+              }
+            }
+          ],
+          "default": "xterm-256color",
+          "keywords": [
+            "TERM",
+            "terminfo",
+            "xterm",
+            "xterm-256color",
+            "xterm-ghostty",
+            "ssh",
+            "htop",
+            "ncurses",
+            "terminal type",
+            "compatibility"
+          ],
+          "swift_owner": "TerminalTermSetting",
+          "swift_enum": {
+            "name": "TerminalTerm",
+            "generated": false
+          }
+        }
+      ]
+    }
+  ]
+}

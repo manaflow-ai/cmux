@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSpinner
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -43,7 +44,7 @@ final class HomePictureViewer: NSView {
     private let titleLabel = NSTextField(labelWithString: "")
     private let counterLabel = NSTextField(labelWithString: "")
     private let status = NSTextField(labelWithString: "")
-    private let spinner = NSProgressIndicator(frame: .zero)
+    private let spinner = CmuxSpinnerView(side: 32)
     private let closeButton = NSButton(frame: .zero)
     private let previousButton = NSButton(frame: .zero)
     private let nextButton = NSButton(frame: .zero)
@@ -106,9 +107,6 @@ final class HomePictureViewer: NSView {
         counterLabel.textColor = NSColor.white.withAlphaComponent(0.7)
         status.alignment = .center
         status.textColor = NSColor.white.withAlphaComponent(0.75)
-        spinner.style = .spinning
-        spinner.controlSize = .regular
-        spinner.isDisplayedWhenStopped = false
         spinner.appearance = NSAppearance(named: .darkAqua)
 
         Self.style(closeButton, symbol: "xmark.circle.fill", label: CmuxStrings.closePictureViewer, size: 20)

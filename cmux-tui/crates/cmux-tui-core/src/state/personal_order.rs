@@ -12,6 +12,7 @@ use std::collections::HashSet;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
+use super::created_by::CreatedBy;
 use super::values::{local_registry_id, workspace_public_id_for_key};
 use crate::user_settings::NewWorkspacePlacement;
 use crate::workspace_registry::personal_store::{
@@ -70,6 +71,10 @@ pub(crate) struct CreatedWorkspaces {
     /// The key of the session's active workspace before the patch: the
     /// "current" workspace of `workspaces.newPlacement = afterCurrent`.
     current: Option<String>,
+    /// Who makes them (`workspace.create {created_by}`), and the live key of
+    /// the workspace it names: an agent or script create goes there.
+    created_by: Option<CreatedBy>,
+    creator: Option<String>,
 }
 
 /// The workspaces `patch` creates (no live resource row yet). Read before
@@ -110,7 +115,12 @@ pub(crate) fn created_workspaces(
             None => None,
         }
     };
-    Ok(CreatedWorkspaces { keys, current })
+    let created_by = if keys.is_empty() { None } else { CreatedBy::current() };
+    let creator = match created_by.as_ref().and_then(|by| by.workspace.as_deref()) {
+        Some(named) => super::created_by::live_workspace_key(transaction, named)?,
+        None => None,
+    };
+    Ok(CreatedWorkspaces { keys, current, created_by, creator })
 }
 
 /// Give each created workspace its personal row, unless it already has one
@@ -180,12 +190,31 @@ fn place_created_rows(
         )?;
         placed.push(key.clone());
     }
+    if let Some(created_by) = &created.created_by {
+        super::created_by::record(
+            transaction,
+            &created.keys,
+            created_by,
+            created.creator.as_deref(),
+        )?;
+    }
     if placed.is_empty() {
         return Ok(());
     }
     bump_personal_revision(transaction)?;
     // The slot of the first new row; the others follow it in creation order.
+    // An agent or script workspace goes below its creator and the creator's
+    // earlier children, never next to the person's selection; with no live
+    // creator, last (ask-48544d7525).
+    let by_creator = created.created_by.as_ref().is_some_and(CreatedBy::places_by_creator);
     let slot = match placement {
+        _ if by_creator => match created.creator.as_deref() {
+            Some(creator) => match after_row_slot(transaction, &local, &placed, creator, true)? {
+                Some(slot) => Some(slot),
+                None => Some(top_slot(transaction, &local, &placed)?),
+            },
+            None => None,
+        },
         NewWorkspacePlacement::Bottom => None,
         NewWorkspacePlacement::Top => Some(top_slot(transaction, &local, &placed)?),
         NewWorkspacePlacement::AfterCurrent => {
@@ -275,10 +304,26 @@ fn after_current_slot(
     placed: &[String],
     current: Option<&str>,
 ) -> anyhow::Result<Option<(usize, Option<String>)>> {
-    let Some(current) = current.filter(|current| !placed.iter().any(|key| key == current)) else {
+    match current {
+        Some(current) => after_row_slot(transaction, local, placed, current, false),
+        None => Ok(None),
+    }
+}
+
+/// Right after the row of `anchor` (with `subtree`, after the rows below it
+/// that `anchor` made, directly or through its children), in its group.
+/// None when it is a new row, has no row, or is the home workspace.
+fn after_row_slot(
+    transaction: &Transaction<'_>,
+    local: &str,
+    placed: &[String],
+    anchor: &str,
+    subtree: bool,
+) -> anyhow::Result<Option<(usize, Option<String>)>> {
+    if placed.iter().any(|key| key == anchor) {
         return Ok(None);
-    };
-    if super::home_store::live_home(transaction)?.is_some_and(|(_, home)| home == current) {
+    }
+    if super::home_store::live_home(transaction)?.is_some_and(|(_, home)| home == anchor) {
         return Ok(None);
     }
     let rows = read_workspaces(transaction)?
@@ -286,11 +331,22 @@ fn after_current_slot(
         .filter(|row| !(row.session_id == local && placed.contains(&row.workspace_key)))
         .collect::<Vec<_>>();
     let Some(index) =
-        rows.iter().position(|row| row.session_id == local && row.workspace_key == current)
+        rows.iter().position(|row| row.session_id == local && row.workspace_key == anchor)
     else {
         return Ok(None);
     };
-    let Some(group) = rows[index].group.clone() else { return Ok(Some((index + 1, None))) };
+    let group = rows[index].group.clone();
+    let mut last = index;
+    while subtree
+        && let Some(row) = rows.get(last + 1)
+        && row.session_id == local
+        && row.group == group
+        && super::created_by::descends_from(transaction, &row.workspace_key, anchor)?
+    {
+        last += 1;
+    }
+    let index = last;
+    let Some(group) = group else { return Ok(Some((index + 1, None))) };
     // Into the group only when the new workspace shows in the group's room:
     // a workspace pinned to another room (the app pins before it creates)
     // goes to the top instead.

@@ -1,6 +1,7 @@
 public import CmuxNextCloud
 import CmuxNextCompat
 public import CmuxNextSettings
+import CmuxNextWakeups
 public import Foundation
 import os
 
@@ -220,6 +221,9 @@ struct AgentPaneHandOff {
     private func cloudChecked(_ start: AgentPaneCloudStart, signingIn: Bool = false) async -> [String: Any] {
         // The folder is a path on this Mac: a chat on another machine never names one to copy.
         guard let run = model.onCloudStartChat, !model.chatIsElsewhere else { return AgentPaneModel.unsupported("cloud.startChat") }
+        // Taken before the folder checks and `held`'s waits: a `cloud.signInCancel` that arrives
+        // during them withdraws this sign-in, so it opens no browser and keeps no hold.
+        let requestGeneration = model.cloudSignInGeneration
         if let reservationKey = start.reservationKey,
            !model.ownsCloudReservation(reservationKey) {
             // A page cannot attach a lease owned by another compose or pane. The native model is
@@ -268,19 +272,32 @@ struct AgentPaneHandOff {
             // Reserve the send's click before opening the browser. The callback may take longer
             // than a gesture lives; this hold authorizes only this already-validated request.
             if signingIn {
-                let generation = model.cloudSignInGeneration
-                guard let signIn = model.onCloudSignIn else {
+                let generation = requestGeneration
+                guard model.cloudSignInGeneration == generation else {
                     replacements.endSandbox()
-                    return AgentPaneReply.failure(code: "not_signed_in", message: "Sign in to continue")
+                    return AgentPaneReply.failure(code: "cloud_sign_in_cancelled", message: "cloud_sign_in_cancelled")
                 }
-                // `cloud.signInCancel` ends this wait at once (nil), not when the browser returns:
+                // Already signed in (another pane, window or Settings did it meanwhile): no browser.
+                // `cloud.signInCancel` ends a browser wait at once, not when the browser returns:
                 // the hold goes with it, so the person's new pick can start right away.
-                switch await model.waitForCloudSignIn(signIn) {
-                case true?: break
-                case false?:
+                let end: CloudSignInEnd
+                if model.onCloudSignedIn?() == true {
+                    end = .signedIn
+                } else if let signIn = model.onCloudSignIn {
+                    end = await model.waitForCloudSignIn(signIn)
+                } else {
+                    end = .notSignedIn
+                }
+                switch end {
+                case .signedIn: break
+                case .notSignedIn:
                     replacements.endSandbox()
                     return AgentPaneReply.failure(code: "not_signed_in", message: "Sign in to continue")
-                case nil:
+                case .expired:
+                    // The card's sign in again: the same code, so it offers the button once more.
+                    replacements.endSandbox()
+                    return AgentPaneReply.failure(code: "not_signed_in", message: "Sign-in timed out. Sign in again to continue.")
+                case .withdrawn:
                     replacements.endSandbox()
                     return AgentPaneReply.failure(code: "cloud_sign_in_cancelled", message: "cloud_sign_in_cancelled")
                 }
@@ -459,28 +476,74 @@ extension AgentPaneCloudStart {
     }
 }
 
+/// How a `cloud.signIn`'s wait on the browser ended (``AgentPaneModel/waitForCloudSignIn(_:)``).
+enum CloudSignInEnd: Equatable, Sendable {
+    /// Signed in: the browser came back signed in, or the account already was.
+    case signedIn
+    /// The browser came back without a sign-in.
+    case notSignedIn
+    /// `cloud.signInCancel`: the page left Cloud, so the send is gone.
+    case withdrawn
+    /// Nothing came back within ``AgentPaneModel/cloudSignInWaitLimit``.
+    case expired
+}
+
+/// A `cloud.signIn` out on the browser: its continuation, and the deadline that expires it.
+struct CloudSignInWait {
+    let generation: Int
+    let done: CheckedContinuation<CloudSignInEnd, Never>
+    let deadline: DemandTimer
+}
+
 extension AgentPaneModel {
-    /// Runs the browser sign-in for a held `cloud.signIn`: its answer, or nil once
-    /// `cloud.signInCancel` withdrew the send (``endCloudSignInWait(_:)``), whichever comes first.
-    /// A sign-in that finishes after a cancel still stands; only its send is gone.
-    func waitForCloudSignIn(_ signIn: @escaping @MainActor () async -> Bool) async -> Bool? {
-        endCloudSignInWait(nil)
+    /// Runs the browser sign-in for a held `cloud.signIn`: its answer, `.withdrawn` once
+    /// `cloud.signInCancel` withdrew the send, or `.expired` past ``cloudSignInWaitLimit``,
+    /// whichever comes first. A sign-in that finishes after a cancel still stands; only its send is gone.
+    /// One browser sign-in per pane: a click after a cancel, while that browser is still open,
+    /// waits on it again and opens no second one.
+    func waitForCloudSignIn(_ signIn: @escaping @MainActor () async -> Bool) async -> CloudSignInEnd {
+        endCloudSignInWait(.withdrawn)
         let generation = cloudSignInGeneration
+        let browser = cloudSignInBrowser ?? Task { @MainActor in await signIn() }
+        cloudSignInBrowser = browser
+        let limit = cloudSignInWaitLimit
         return await withCheckedContinuation { done in
-            cloudSignInWait = (generation, done)
+            // Its stop: the wait ends (endCloudSignInWait cancels it) or the limit passes.
+            let deadline = DemandTimer(owner: "agent-pane.cloud-sign-in-wait")
+            deadline.schedule(after: limit) { @MainActor [weak self] in
+                guard let self, self.cloudSignInWait?.generation == generation else { return }
+                self.withdrawCloudSignIn(.expired)
+            }
+            cloudSignInWait = CloudSignInWait(generation: generation, done: done, deadline: deadline)
             Task { @MainActor in
-                let signedIn = await signIn()
+                let signedIn = await browser.value
+                if cloudSignInBrowser == browser { cloudSignInBrowser = nil }
                 guard cloudSignInWait?.generation == generation else { return }
-                endCloudSignInWait(signedIn)
+                endCloudSignInWait(signedIn ? .signedIn : .notSignedIn)
             }
         }
     }
 
-    /// Ends the sign-in wait, if one is out, with `answer` (nil: withdrawn).
-    func endCloudSignInWait(_ answer: Bool?) {
+    /// Ends the sign-in wait, if one is out, with `end`.
+    func endCloudSignInWait(_ end: CloudSignInEnd) {
         guard let wait = cloudSignInWait else { return }
         cloudSignInWait = nil
-        wait.done.resume(returning: answer)
+        wait.deadline.cancel()
+        wait.done.resume(returning: end)
+    }
+
+    /// `cloud.signInCancel` (`.withdrawn`) or a wait's expiry (`.expired`): any sign-in under the
+    /// current generation sends nothing, the kept click goes, and the wait ends with `end`. A cancel
+    /// keeps the browser open for the next click to wait on; an expired one is cancelled (the App's
+    /// sign-in ends its auth attempt on that), so the next click opens a fresh sign-in.
+    func withdrawCloudSignIn(_ end: CloudSignInEnd) {
+        cloudSignInGeneration += 1
+        cloudSignInGrant = nil
+        if end == .expired {
+            cloudSignInBrowser?.cancel()
+            cloudSignInBrowser = nil
+        }
+        endCloudSignInWait(end)
     }
 
     /// How long a sign-in's kept click waits for the page's send again; the page sends it at once.

@@ -186,5 +186,30 @@ struct AgentPaneTabRowHolesTests {
             #expect(!rects.contains { $0.contains(toolsMid) })
         }
     }
+    /// Leo (2026-11-07): "it's not, like, showing the close button for some reason at all. I tried to right-click and
+    /// then close it, but I don't see that option." A subagent's pane adopts a prewarmed page (``AgentPaneView/adoptSession``)
+    /// and lays it outside the window until it drew. The pane offered the row in that time, the tabs' hole was worked out
+    /// against the page where it lay then, and the page came back with no hole where the tabs are: its window took the
+    /// strip's mouse, so the tab showed no close button on hover and its right-click opened the chat's menu. The holes
+    /// follow the page back in place.
+    @Test func thePagesHolesFollowItBackFromWhereItWaited() async throws {
+        let (view, page) = try await chromiumChat()
+        view.model.tabRow.report(width: 120)
+        AgentPaneTabRow.offer(points: 36, trailingInset: 60, to: view)
+        let inPlace = holes(page, in: view)
+        #expect(inPlace.count == 3)
+
+        // Held away while the adopted chat draws: the pane lays out and offers the row meanwhile.
+        view.holdsPageAway = true
+        view.needsLayout = true
+        view.layoutSubtreeIfNeeded()
+        AgentPaneTabRow.offer(points: 36, trailingInset: 60, to: view)
+
+        // It drew: back in place (what the paint's release does), with no new offer from the pane.
+        view.holdsPageAway = false
+        view.needsLayout = true
+        view.layoutSubtreeIfNeeded()
+        #expect(holes(page, in: view) == inPlace, "the tabs and the toolbar take the mouse again")
+    }
 }
 #endif

@@ -355,6 +355,12 @@ public final class CloudAuth {
     /// Ends the sign-in in progress.
     public func cancelSignIn() { browserSignIn.cancelSignIn() }
 
+    /// ``signIn(selectAccount:)`` for a waiter that may give up: cancelling the task that awaits it
+    /// ends the sign-in in progress, so the next sign-in opens a fresh one instead of reusing it.
+    public func signInEndedOnCancel() async -> Bool {
+        await withTaskCancellationHandler { await signIn() } onCancel: { Task { @MainActor in self.cancelSignIn() } }
+    }
+
     public func signOut() async { await browserSignIn.signOut() }
 
     /// Whether `url` is a sign-in callback this build accepts, in any form

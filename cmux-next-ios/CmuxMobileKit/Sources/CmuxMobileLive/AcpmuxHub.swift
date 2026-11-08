@@ -40,6 +40,9 @@ public final class AcpmuxHub {
     /// switch. acpmux sends no notice when the setting changes: a refusal turns it off here,
     /// and the next connection reads it again.
     public private(set) var fullAccess = false
+    /// The protocol surfaces the Mac's acpmux serves (`initialize` `_meta.acpmux.capabilities`,
+    /// acpmux `capabilities.rs`); empty until this connection initializes.
+    @ObservationIgnored private(set) var capabilities: Set<String> = []
 
     /// The phone's approval signer for the linked Mac.
     public struct Approver: Sendable {
@@ -124,6 +127,7 @@ public final class AcpmuxHub {
             ]), timeout: requestTimeout)
             personInstance = initialized["_meta"]?["acpmux"]?["personInstance"]?.stringValue
             fullAccess = initialized["_meta"]?["acpmux"]?["fullAccess"] == .bool(true)
+            capabilities = Set((initialized["_meta"]?["acpmux"]?["capabilities"]?.arrayValue ?? []).compactMap(\.stringValue))
             let watched = try await connection.wholeList("_acpmux/watch", ["enabled": .bool(true)], timeout: requestTimeout)
             guard !(await connection.isClosed), self.connection === connection else { return }
             var next: [String: AcpmuxSession] = [:]
@@ -252,6 +256,29 @@ public final class AcpmuxHub {
         }
         _ = try await request("_acpmux/permission_respond", .object(params))
     }
+
+    /// The sudo card's answer (acpmux hub/elevation.rs): `_acpmux/secret_submit` with the
+    /// password and this phone's signature over the card's id, `card_provide` and the card's
+    /// nonce (acpmux `Hub::card_answer_signed`); a Deny sends no value and needs no signature.
+    /// The password goes in the request only, never in a log line or an error.
+    public func answerElevation(sessionID: String, ask: AgentElevationAsk, password: AgentSecretText?) async throws {
+        var params: [String: JSONValue] = ["sessionId": .string(sessionID), "secretId": .string(ask.id)]
+        if let password {
+            guard let approver else { throw ApproverUnsupported() }
+            let sign = try await approver.authorize("Run \(ask.commandLine) as root")
+            let expiresAt = Int(approver.now().timeIntervalSince1970 + ApprovalPayload.lifetime)
+            let payload = ApprovalPayload(
+                instance: ask.instance, macDevice: approver.macDevice, approver: approver.phoneID,
+                session: sessionID, permission: ask.id, option: Self.elevationOption, nonce: ask.nonce,
+                expiresAt: expiresAt)
+            params["_meta"] = payload.meta(signature: try sign(payload.message))
+            params["value"] = .string(password.value)
+        }
+        _ = try await request("_acpmux/secret_submit", .object(params))
+    }
+
+    /// The option a phone signs for a sudo card's Approve (acpmux `secrets::CARD_PROVIDE`).
+    static let elevationOption = "card_provide"
 
     /// Answers a question with the harness-shaped reply, signed like an Allow.
     public func answer(_ question: AgentQuestion, with answer: AgentQuestionAnswer) async throws {
@@ -437,7 +464,18 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// retries (a harness record, never `transcript`), so a retrying turn says so; and its
     /// `bookmarks` record, so a bookmark or pin made on the Mac shows here.
     static let chatKinds: JSONValue = .array(
-        ["transcript", "queue_updated", "queue_order", "queue_paused", "queue_resumed", "claude.system.api_retry", "bookmarks"].map { .string($0) })
+        ["transcript", "queue_updated", "queue_order", "queue_paused", "queue_resumed", "claude.system.api_retry", "bookmarks"]
+            .map { .string($0) })
+    /// The sudo card's records (acpmux `hub/elevation.rs`), asked for only from a Mac whose acpmux
+    /// serves `elevation-cards-v1`: an older one refuses an attach with more than 8 kinds.
+    static let elevationCapability = "elevation-cards-v1"
+    static let chatKindsWithElevation: JSONValue = .array(
+        (chatKinds.arrayValue ?? []) + [.string("elevation_request"), .string("elevation_decision")])
+
+    /// The kinds this chat's reads ask the Mac for.
+    static func kinds(_ hub: AcpmuxHub) -> JSONValue {
+        hub.capabilities.contains(elevationCapability) ? chatKindsWithElevation : chatKinds
+    }
 
     init(hub: AcpmuxHub, sessionID: String, summary: AgentSessionSummary) {
         self.hub = hub
@@ -491,6 +529,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     try await hub.notify("session/cancel", .object(["sessionId": session]))
                 case .respondPermission(let permissionID, let optionID):
                     try await hub.respond(sessionID: sessionID, permissionID: permissionID, optionID: optionID)
+                case .answerElevation(let ask, let password):
+                    try await hub.answerElevation(sessionID: sessionID, ask: ask, password: password)
                 case .answerQuestion(let questionID, let answer):
                     guard let question = questions[questionID] else {
                         self.emit(.clientError("This question is no longer open on \(self.summary.macName)."))
@@ -1155,7 +1195,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             var params: [String: JSONValue] = [
                 "sessionId": .string(read.sessionID),
                 "limit": .number(Double(pageSize)),
-                "kinds": chatKinds,
+                "kinds": kinds(hub),
                 "eventStream": .bool(true),
             ]
             if read.firstAttach {
@@ -1175,7 +1215,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 while more, let newest = out.page.last?["seq"]?.numberValue {
                     let next = try await request("_acpmux/events", [
                         "sessionId": .string(read.sessionID), "afterSeq": .number(newest),
-                        "limit": .number(Double(pageSize)), "kinds": chatKinds,
+                        "limit": .number(Double(pageSize)), "kinds": kinds(hub),
                     ])
                     let events = next["events"]?.arrayValue ?? []
                     out.page += events
@@ -1403,7 +1443,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             for _ in 0..<maxEarlierReads {
                 let page = try await hub.request("_acpmux/events", .object([
                     "sessionId": .string(sessionID), "beforeSeq": .number(Double(cursor)),
-                    "limit": .number(Double(pageSize)), "maxBytes": .number(Double(olderBytes)), "kinds": chatKinds,
+                    "limit": .number(Double(pageSize)), "maxBytes": .number(Double(olderBytes)), "kinds": kinds(hub),
                 ]), timeout: pageTimeout)
                 let events = page["events"]?.arrayValue ?? []
                 let hasMore = page["hasMore"] == .bool(true)

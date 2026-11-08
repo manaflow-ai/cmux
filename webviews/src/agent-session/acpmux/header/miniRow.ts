@@ -7,7 +7,7 @@
 import { useEffect, useSyncExternalStore } from "react";
 import { type Translate, translate } from "../i18n";
 import { postNative } from "../native";
-import type { ChatMenuItem } from "./ChatHeaderTools";
+import type { ChatMenuItem } from "./chatHeaderToolsModel";
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 let call: Call = postNative;
