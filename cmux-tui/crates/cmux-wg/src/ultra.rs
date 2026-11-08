@@ -53,7 +53,9 @@
 //! ends; agreeing on it inside the tunnel is a follow-up.
 //!
 //! The mode is the `CMUX_WG_ULTRA` environment variable (`off`, `dup`,
-//! `dup3`, `fec`, `fec:8:2`, `rs`, `rs:8:4`), read when a tunnel starts.
+//! `dup3`, `fec`, `fec:8:2`, `rs`, `rs:8:4`), read when a tunnel starts, else
+//! the app's setting in [`crate::WgConfig::ultra`] ([`UltraMode::SETTING`]:
+//! desktop `remote.ultraMode`, the iPhone's "Ultra mode on cellular").
 
 use std::collections::{HashMap, VecDeque};
 use std::io;
@@ -184,6 +186,33 @@ impl UltraMode {
     fn fec(group: u8, parity: u8) -> Option<Self> {
         ((1..=MAX_GROUP).contains(&group) && (1..=MAX_PARITY.min(group)).contains(&parity))
             .then_some(Self::Fec { group, parity })
+    }
+
+    /// The mode an app's "ultra mode" setting turns on: Reed-Solomon `rs:4:4`,
+    /// which holds the lossless latency up to 10 % random loss on the desktop
+    /// bench at about 2.4-2.9x the bytes (#38861).
+    pub const SETTING: Self = Self::Rs { group: 4, parity: 4 };
+
+    /// The mode a tunnel starts with: [`ENV`] when it is set and not empty
+    /// (so `CMUX_WG_ULTRA=off` turns a setting's mode off for one run), else
+    /// the app's `setting`, else off. An unreadable [`ENV`] is reported and
+    /// the setting applies.
+    pub fn resolve(setting: Option<Self>) -> Self {
+        Self::resolve_with(std::env::var(ENV).ok().as_deref(), setting)
+    }
+
+    /// [`UltraMode::resolve`] with [`ENV`]'s value given.
+    fn resolve_with(env: Option<&str>, setting: Option<Self>) -> Self {
+        let fallback = setting.unwrap_or(Self::Off);
+        match env.map(str::trim).filter(|text| !text.is_empty()) {
+            None => fallback,
+            Some(text) => Self::parse(text).unwrap_or_else(|| {
+                eprintln!(
+                    "{ENV}={text:?} is not off, dup, dupN, fec, fec:K:M, rs or rs:K:M; using {fallback:?}"
+                );
+                fallback
+            }),
+        }
     }
 
     /// The mode in [`ENV`], or off when it is unset or unreadable.
@@ -953,6 +982,29 @@ mod tests {
         out.extend_from_slice(&counter.to_le_bytes());
         out.extend((0..len).map(|i| fill.wrapping_add(i as u8)));
         out
+    }
+
+    #[test]
+    fn the_environment_overrides_the_setting() {
+        let on = Some(UltraMode::SETTING);
+        assert_eq!(UltraMode::resolve_with(None, None), UltraMode::Off);
+        assert_eq!(UltraMode::resolve_with(None, on), UltraMode::SETTING);
+        assert_eq!(UltraMode::resolve_with(Some(""), on), UltraMode::SETTING);
+        assert_eq!(UltraMode::resolve_with(Some("  "), None), UltraMode::Off);
+        assert_eq!(UltraMode::resolve_with(Some("off"), on), UltraMode::Off);
+        assert_eq!(UltraMode::resolve_with(Some("dup"), on), UltraMode::Duplicate { copies: 2 });
+        assert_eq!(
+            UltraMode::resolve_with(Some("fec:8:2"), None),
+            UltraMode::Fec { group: 8, parity: 2 }
+        );
+        assert_eq!(UltraMode::resolve_with(Some("bogus"), on), UltraMode::SETTING);
+        assert_eq!(UltraMode::resolve_with(Some("bogus"), None), UltraMode::Off);
+    }
+
+    #[test]
+    fn the_setting_is_rs_4_4() {
+        assert_eq!(UltraMode::parse("rs"), Some(UltraMode::SETTING));
+        assert_eq!(UltraMode::SETTING.normalized(), UltraMode::SETTING);
     }
 
     #[test]

@@ -1889,11 +1889,18 @@ fn start_wireguard(
     runtime: &tokio::runtime::Runtime,
     path: &Path,
 ) -> anyhow::Result<Arc<cmux_wg::WgNet>> {
-    let config = read_wireguard_config(path)?;
+    let mut config = read_wireguard_config(path)?;
+    config.ultra = ultra_setting();
     let net = runtime.block_on(cmux_wg::WgNet::start_with_new_socket(config)).map_err(|error| {
         anyhow!(catalog().remote_client.wireguard_start_failed(&error.to_string()))
     })?;
     Ok(Arc::new(net))
+}
+
+/// The ultra mode Settings asks for (`remote.ultraMode`, read at each tunnel
+/// start); `CMUX_WG_ULTRA` still wins over it ([`cmux_wg::UltraMode::resolve`]).
+fn ultra_setting() -> Option<cmux_wg::UltraMode> {
+    cmux_tui_core::user_settings::ultra_mode().then_some(cmux_wg::UltraMode::SETTING)
 }
 
 fn read_wireguard_config(path: &Path) -> anyhow::Result<cmux_wg::WgConfig> {
