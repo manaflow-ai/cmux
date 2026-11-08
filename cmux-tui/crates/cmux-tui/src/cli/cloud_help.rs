@@ -528,7 +528,7 @@ usage: cmux cloud start-chat [--prompt TEXT] [--agent AGENT] [--cwd DIR]
 Starts an agent chat on a Cloud machine and sends it a prompt, in one step.
 The chat opens as a tab in the machine's workspace in the cmux app.
 The machine's agents reach models through the Cloud service's model route;
-no login is copied from this Mac (`cmux cloud model-route --machine ID`).
+no login is copied from this Mac (`cmux cloud machine-auth --machine ID` checks it).
 This is `cmux chat --on vm:ID|NAME|new` (`cmux chat --help`), by its
 older name; both run the same start.
 

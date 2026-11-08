@@ -157,6 +157,10 @@ pub enum Command {
     /// Print the protocol capability ids this build serves, one per line (`--json`: an object).
     /// Needs no daemon: the app bundle records them for the web agent pane.
     Capabilities,
+    /// How this Cloud machine's agents reach models (base URLs, placeholder keys) and whether it
+    /// holds any provider login. Names and verdicts only, never a value. Needs no daemon.
+    #[command(name = "machine-auth")]
+    MachineAuth,
     /// Show or set presets: `preset`, `preset deepseek harness=opencode model=opencode-go/deepseek-v4-pro effort=low`,
     /// `preset omx harness=codex 'env.CODEX_HOME=${cwd}/.codex'`. `key=` clears one key; `--clear` removes the preset.
     #[command(alias = "presets")]

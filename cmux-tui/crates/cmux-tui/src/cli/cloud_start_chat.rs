@@ -67,16 +67,8 @@ const PROMPT_PIECE_BYTES: usize = 384 * 1024;
 const SMALL_PROMPT_PIECE_BYTES: usize = 45 * 1024;
 
 /// This command's flags that take the next word as their value.
-const TAKES_VALUE: &[&str] = &[
-    "--prompt",
-    "-p",
-    "--agent",
-    "--cwd",
-    "--environment",
-    "--name",
-    "--target",
-    "--timeout",
-];
+const TAKES_VALUE: &[&str] =
+    &["--prompt", "-p", "--agent", "--cwd", "--environment", "--name", "--target", "--timeout"];
 
 /// Which machine the chat starts on.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -402,8 +394,8 @@ pub(super) trait Runner {
     fn prompt_id(&mut self) -> String;
 }
 
-struct SelfRunner {
-    globals: Vec<String>,
+pub(super) struct SelfRunner {
+    pub(super) globals: Vec<String>,
 }
 
 impl Runner for SelfRunner {
@@ -443,7 +435,7 @@ impl Runner for SelfRunner {
 }
 
 /// The globals a step needs to reach the same app.
-fn forwarded_globals(global: &GlobalArgs) -> Vec<String> {
+pub(super) fn forwarded_globals(global: &GlobalArgs) -> Vec<String> {
     let mut words = Vec::new();
     if let Some(socket) = &global.app_socket {
         words.extend(["--app-socket".to_owned(), socket.display().to_string()]);

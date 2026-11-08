@@ -41,6 +41,7 @@ pub mod host_vault;
 pub mod hosts;
 pub mod join_input;
 pub mod ls_table;
+pub mod machine_auth;
 pub(crate) mod machine_consent;
 pub mod machine_deps;
 pub mod mesh_control;

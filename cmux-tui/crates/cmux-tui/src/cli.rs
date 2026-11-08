@@ -58,6 +58,7 @@ mod cloud_environment;
 mod cloud_hands;
 mod cloud_help;
 #[cfg(unix)]
+mod cloud_machine_auth;
 mod cloud_machine_io;
 #[cfg(unix)]
 mod cloud_machines;
@@ -630,6 +631,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_start_chat::run_if_requested(args))
         .or_else(|| cloud_repo::run_if_requested(args))
         .or_else(|| cloud_client_session::run_if_requested(args))
+        .or_else(|| cloud_machine_auth::run_if_requested(args))
         .or_else(|| cloud_machine_io::run_if_requested(args))
         .or_else(|| cloud_api::run_if_requested(args))
         .or_else(|| cloud_hands::run_if_requested(args))
