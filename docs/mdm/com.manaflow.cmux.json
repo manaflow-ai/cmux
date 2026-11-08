@@ -4213,14 +4213,15 @@
     },
     "sidebar.groupPalette" : {
       "default" : "glass",
-      "description" : "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient.",
+      "description" : "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient. Pictorial colors each group from the desktop picture at its place in the list.",
       "enum" : [
         "glass",
         "theme",
         "wallpaper",
         "grayscale",
         "vibrant",
-        "gradient"
+        "gradient",
+        "pictorial"
       ],
       "title" : "Group Colors",
       "type" : "string"
