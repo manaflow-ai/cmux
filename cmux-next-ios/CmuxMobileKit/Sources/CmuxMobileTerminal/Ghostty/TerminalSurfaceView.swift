@@ -112,7 +112,9 @@ final class TerminalSurfaceView: UIView {
             // Only the person's own input, once the session took it: a
             // terminal reply or a mouse report is no keystroke and would
             // withdraw what is drawn, and a refused key would stand there
-            // until it timed out.
+            // until it timed out. Ghostty also writes a mouse report while
+            // it holds the renderer lock, so redrawing for one (which reads
+            // its grid metrics) froze the screen.
             guard typed, inputGoesOut() else { return }
             prediction?.sent(data)
         }

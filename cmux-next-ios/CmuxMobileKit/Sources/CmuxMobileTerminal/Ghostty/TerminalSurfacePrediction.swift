@@ -80,9 +80,15 @@ final class TerminalSurfacePrediction {
     /// Input the session refused or dropped (a disconnect, a reattach that
     /// gave up), or the link went down with keys on it: their echoes may
     /// never come, so nothing in flight can stand.
+    ///
+    /// The overlay goes without asking Ghostty where the cursor is: a refusal
+    /// can arrive inside `io_write_cb`, and Ghostty writes a mouse report
+    /// while it holds the renderer lock that its grid metrics take too.
     func inputDropped() {
         _ = engine.missedOutput(nowUs: Self.now())
-        refresh()
+        expiry?.invalidate()
+        expiry = nil
+        overlay.hide()
     }
 
     /// Settings → Terminal → Predictive echo.

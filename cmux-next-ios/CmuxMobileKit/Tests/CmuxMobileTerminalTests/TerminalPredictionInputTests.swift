@@ -139,6 +139,28 @@ import UIKit
         #expect(Self.predicts("z", screen.prediction), "a mouse report stopped prediction")
     }
 
+    @Test func aMouseReportTheSessionRefusesDoesNotFreezeTheScreen() async throws {
+        // Ghostty writes a mouse report while it holds its renderer lock, and
+        // the session's refusal comes back inside that write: withdrawing
+        // the glyphs must not ask Ghostty for the cursor (it would wait on
+        // the lock forever).
+        await TerminalScreenTestLock.acquire()
+        defer { TerminalScreenTestLock.release() }
+        let screen = try await Self.makeScreen(setup: "\u{1B}[?1000h")
+        defer { screen.close() }
+        try await Self.engage(screen)
+        try #require(screen.prediction.drawnLayout != nil, "nothing drawn before the refusal")
+        screen.session.echoes = false
+        screen.session.refuses = true
+
+        let cell = try #require(screen.screen.surface.visibleCursorCell, "the cursor is not on screen")
+        try #require(screen.screen.surface.click(at: CGPoint(x: cell.midX, y: cell.midY)), "the mouse is not captured")
+        try await Self.waitUntil(1) { screen.prediction.drawnLayout == nil }
+        #expect(screen.prediction.drawnLayout == nil, "glyphs stayed for a link that refuses input")
+        screen.screen.surface.perform([.text("z")])
+        #expect(!Self.predicts("z", screen.prediction), "a refused key was predicted")
+    }
+
     @Test func aKeyTypedWhileTheLinkIsDownIsNotPredicted() async throws {
         await TerminalScreenTestLock.acquire()
         defer { TerminalScreenTestLock.release() }
