@@ -471,3 +471,29 @@ fn the_synced_folder_name_is_not_a_skill_name() {
     assert!(!valid_name("synced"));
     assert!(valid_name("synced-notes"));
 }
+
+#[test]
+fn a_skill_made_past_the_folder_bound_is_answered_not_failed() {
+    let f = fixture();
+    let folder = f.env.claude_dir.join("skills");
+    for i in 0..(MAX_ENTRIES_PER_FOLDER + 5) {
+        skill(&folder, &format!("s{i:04}"), &front(&format!("s{i:04}"), "d"));
+    }
+    // The folder lists its first entries by name, the same ones on every read.
+    let listed = list(&f.env, &[]);
+    assert_eq!(listed.len(), MAX_ENTRIES_PER_FOLDER);
+    assert_eq!(listed.last().unwrap().name, format!("s{:04}", MAX_ENTRIES_PER_FOLDER - 1));
+    for (harness, name) in [("claude", "zz-late"), ("codex", "zz-codex")] {
+        let new = NewSkill {
+            harness: harness.into(),
+            scope: "user".into(),
+            project: None,
+            name: name.into(),
+            description: "Made last".into(),
+        };
+        let made = create(&f.env, &[], &new).unwrap();
+        assert_eq!((made.name.as_str(), made.description.as_str()), (name, "Made last"));
+        assert!(made.enabled);
+        assert!(Path::new(&made.file).is_file());
+    }
+}

@@ -104,7 +104,16 @@ export function modeTitle(mode: string | null): string | null {
   return null;
 }
 
+/** The daemon's longest description (characters, as `skills_catalog::MAX_DESCRIPTION`). */
+export const MAX_SKILL_DESCRIPTION = 1024;
+
+/** A description as one frontmatter line: line breaks and runs of spaces fold to one space. */
+export function oneLineDescription(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
 const ERRORS = new Set([
+  "bad_description",
   "not_found",
   "not_toggleable",
   "settings_unreadable",

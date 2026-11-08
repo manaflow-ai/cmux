@@ -5281,6 +5281,138 @@
         }
       }
     },
+    "settingsPage.skills.error.bad_description": {
+      "comment": "Settings > Skills: the New skill form's description is refused (over 1,024 characters or more than one line).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A description is one line of up to 1,024 characters."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الوصف سطر واحد بحد أقصى 1,024 حرفًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opis je jedan red do 1.024 znaka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En beskrivelse er én linje på højst 1.024 tegn."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Beschreibung ist eine Zeile mit bis zu 1.024 Zeichen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La descripción es una línea de hasta 1024 caracteres."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une description est une ligne de 1 024 caractères max."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La descrizione è una riga di massimo 1.024 caratteri."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "説明は 1,024 文字以内の 1 行です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការពិពណ៌នាគឺមួយបន្ទាត់ មិនលើស 1,024 តួអក្សរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설명은 1,024자 이내의 한 줄입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En beskrivelse er én linje på opptil 1 024 tegn."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opis to jeden wiersz o długości do 1024 znaków."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A descrição é uma linha de até 1.024 caracteres."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Описание — одна строка длиной до 1024 символов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำอธิบายเป็นบรรทัดเดียว ยาวไม่เกิน 1,024 อักขระ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Açıklama en fazla 1.024 karakterlik tek satırdır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Опис — один рядок довжиною до 1024 символів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mô tả là một dòng, tối đa 1.024 ký tự."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "描述为一行，最多 1,024 个字符。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "描述為一行，最多 1,024 個字元。"
+          }
+        }
+      }
+    },
     "settingsPage.skills.error.failed": {
       "comment": "Settings > Skills: a gesture failed for another reason; %@ is the reason.",
       "extractionState": "manual",
