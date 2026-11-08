@@ -11578,6 +11578,54 @@
         }
       }
     },
+    "classicImport.preview.source": {
+      "comment": "The Source value in the classic import preview: the classic cmux app's name (%1$@, e.g. cmux NIGHTLY) and when it saved the session (%2$@, a date and time).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (classic), saved %2$@"
+          }
+        }
+      }
+    },
+    "classicImport.preview.sourceOpen": {
+      "comment": "The Source value in the classic import preview when that classic cmux app is still open: its name (%1$@) and the time of its last autosave (%2$@).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ (classic), still open: its autosave from %2$@. Quit it first to bring its latest state."
+          }
+        }
+      }
+    },
+    "classicImport.toast.classicOpen": {
+      "comment": "A toast on the first launch when a classic cmux app (%@, its name) is open, so its workspaces were not imported.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (classic) is open, so its workspaces weren’t imported. Quit it and reopen this app, or import them from Settings › Import."
+          }
+        }
+      }
+    },
+    "classicImport.toast.declined": {
+      "comment": "A toast after the person cancels the launch's classic import preview; later launches do not ask again.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classic workspaces stay in classic cmux. Import them any time from Settings › Import."
+          }
+        }
+      }
+    },
     "classicImport.preview.cleanup": {
       "extractionState": "manual",
       "localizations": {

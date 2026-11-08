@@ -229,6 +229,55 @@ import Testing
         #expect(planner.decision(.ledger(ledger), source: source(createdAt: 2), classicRunning: true) == .skip(.classicRunning))
     }
 
+    /// Cancel on the launch's preview stands, whatever classic saves later; a run cut off midway still resumes.
+    @Test func aDeclinedPreviewIsNotAskedAgain() {
+        let planner = ClassicMigrationPlanner()
+        var ledger = ClassicMigrationLedger(state: .completed, source: source(createdAt: 1), declinedAt: 10)
+        #expect(planner.decision(.ledger(ledger), source: source(createdAt: 2), classicRunning: false) == .skip(.declined))
+        #expect(planner.decision(.ledger(ledger), source: source(createdAt: 2, bundle: "com.cmuxterm.app.nightly"),
+                                 classicRunning: false) == .skip(.declined))
+        ledger.state = .inProgress
+        #expect(planner.decision(.ledger(ledger), source: source(createdAt: 2), classicRunning: false) == .resume)
+        // Import Workspaces from Classic cmux clears it: classic's next save merges again.
+        ledger.state = .completed
+        ledger.declinedAt = nil
+        #expect(planner.decision(.ledger(ledger), source: source(createdAt: 2), classicRunning: false) == .merge)
+    }
+
+    /// An older ledger has no `declinedAt`; one with it still reads in the same schema.
+    @Test func declinedAtIsOptionalInTheLedger() throws {
+        let old = #"{"schema":1,"state":"completed","workspaces":{},"groups":{},"runs":1,"updatedAt":5}"#
+        let ledger = try JSONDecoder().decode(ClassicMigrationLedger.self, from: Data(old.utf8))
+        #expect(ledger.declinedAt == nil && ledger.runs == 1)
+        let declined = ClassicMigrationLedger(state: .completed, declinedAt: 7)
+        #expect(try JSONDecoder().decode(ClassicMigrationLedger.self, from: JSONEncoder().encode(declined)) == declined)
+    }
+
+    /// What the preview names: the classic app, when it saved, and whether it is still open.
+    @Test func thePreviewNamesTheClassicAppAndItsSave() {
+        let nightly = ClassicImportPlan(source: source(createdAt: 1_793_946_417, bundle: "com.cmuxterm.app.nightly"),
+                                        migration: ClassicMigrationPlan(), classicRunning: true)
+        #expect(nightly.source == .nightly && nightly.source.appName == "cmux NIGHTLY")
+        #expect(nightly.savedAt == 1_793_946_417 && nightly.classicRunning)
+        let stable = ClassicImportPlan(source: source(createdAt: 1), migration: ClassicMigrationPlan())
+        #expect(stable.source.appName == "cmux" && !stable.classicRunning)
+    }
+
+    /// Launch Services' open apps: classic is 0.x under a classic channel's bundle id; cmux-next (1.x, the same
+    /// bundle ids), this process, debug builds and other apps are not.
+    @Test func openClassicAppsAreToldFromCmuxNext() {
+        let apps = [
+            ClassicRunningProbe.App(bundleID: "com.cmuxterm.app", version: "0.65.2", pid: 38050),
+            ClassicRunningProbe.App(bundleID: "com.cmuxterm.app.nightly", version: "1.0.0-nightly.4245364216501", pid: 70559),
+            ClassicRunningProbe.App(bundleID: "com.cmuxterm.app.rc", version: "0.66.0", pid: 1),
+            ClassicRunningProbe.App(bundleID: "com.cmuxterm.app.staging", version: nil, pid: 2),
+            ClassicRunningProbe.App(bundleID: "com.cmuxterm.app.debug.next", version: "0.65.0", pid: 3),
+            ClassicRunningProbe.App(bundleID: nil, version: "0.1", pid: 4),
+        ]
+        #expect(ClassicRunningProbe.classicChannels(apps, ownPID: 1) == ["com.cmuxterm.app", "com.cmuxterm.app.staging"])
+        #expect(ClassicRunningProbe.classicChannels([apps[1]], ownPID: 1).isEmpty)
+    }
+
     // MARK: cmux-next in use before its first migration
 
     /// The tree already had workspaces (cmux-next in use, classic work maybe
@@ -301,18 +350,44 @@ import Testing
         #expect(kept == (2..<7).map { "2026101\($0)" })
     }
 
-    /// cmux-next nightly reads classic nightly's session; stable reads stable's.
-    @Test func theOwnChannelIsPreferredThenTheNewest() throws {
+    /// The newest classic save wins whichever cmux-next reads it: a nightly installed beside the classic
+    /// stable someone still uses brings stable's session, not a days-old classic nightly one. Debug is never a source.
+    @Test func theNewestChannelIsReadWhateverTheBuild() throws {
         defer { try? FileManager.default.removeItem(at: root) }
-        _ = try write("{}", "support/cmux/session-com.cmuxterm.app.json", modified: Date(timeIntervalSince1970: 1))
+        _ = try write("{}", "support/cmux/session-com.cmuxterm.app.json", modified: Date(timeIntervalSince1970: 3))
         _ = try write("{}", "support/cmux/session-com.cmuxterm.app.nightly.json", modified: Date(timeIntervalSince1970: 2))
         _ = try write("{}", "support/cmux/session-com.cmuxterm.app.debug.json", modified: Date(timeIntervalSince1970: 9))
         let support = root.appendingPathComponent("support")
+        for own in ["com.cmuxterm.app", "com.cmuxterm.app.nightly", "com.cmuxterm.app.nightly.cmux-next", "com.cmuxterm.app.rc"] {
+            let finder = ClassicMigrationSourceFinder(support: support, ownBundleID: own)
+            #expect(finder.channel() == "com.cmuxterm.app", "\(own)")
+            #expect(finder.channelsByRecency() == ["com.cmuxterm.app", "com.cmuxterm.app.nightly"], "\(own)")
+        }
+    }
+
+    /// Equal save times go to the build's own channel, then stable first.
+    @Test func aTieGoesToTheOwnChannel() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let same = Date(timeIntervalSince1970: 5)
+        _ = try write("{}", "support/cmux/session-com.cmuxterm.app.json", modified: same)
+        _ = try write("{}", "support/cmux/session-com.cmuxterm.app.nightly.json", modified: same)
+        let support = root.appendingPathComponent("support")
+        #expect(ClassicMigrationSourceFinder(support: support, ownBundleID: "com.cmuxterm.app.nightly").channel() == "com.cmuxterm.app.nightly")
         #expect(ClassicMigrationSourceFinder(support: support, ownBundleID: "com.cmuxterm.app").channel() == "com.cmuxterm.app")
-        #expect(ClassicMigrationSourceFinder(support: support, ownBundleID: "com.cmuxterm.app.nightly.cmux-next").channel()
-                == "com.cmuxterm.app.nightly")
-        // A channel classic never saved falls back to the newest one; debug is never a source.
-        #expect(ClassicMigrationSourceFinder(support: support, ownBundleID: "com.cmuxterm.app.rc").channel() == "com.cmuxterm.app.nightly")
+        #expect(ClassicMigrationSourceFinder(support: support, ownBundleID: nil).channel() == "com.cmuxterm.app")
+    }
+
+    /// Every channel's files, newest channel first: a reader that cannot decode any of the newest
+    /// channel's files goes on to the next channel instead of migrating nothing.
+    @Test func allCandidatesFallBackAcrossChannels() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let nightly = try write("{", "support/cmux/session-com.cmuxterm.app.nightly.json", modified: Date(timeIntervalSince1970: 9))
+        let stable = try write("{}", "support/cmux/session-com.cmuxterm.app.json", modified: Date(timeIntervalSince1970: 3))
+        let stablePrevious = try write("{}", "support/cmux/session-com.cmuxterm.app-previous.json", modified: Date(timeIntervalSince1970: 2))
+        let finder = ClassicMigrationSourceFinder(support: root.appendingPathComponent("support"), ownBundleID: "com.cmuxterm.app")
+        let all = finder.allCandidates()
+        #expect(all.map(\.url.lastPathComponent) == [nightly, stable, stablePrevious].map(\.lastPathComponent))
+        #expect(all.map(\.bundleID) == ["com.cmuxterm.app.nightly", "com.cmuxterm.app", "com.cmuxterm.app"])
     }
 
     /// The session file, its `-previous` copy, then the newest archive of the same channel only.

@@ -8,8 +8,10 @@ public import Foundation
 /// on classic's `main`). No sentinel means classic quit: the Sparkle update
 /// relaunch starts cmux-next seconds after classic's quit save, and that save
 /// migrates. A sentinel with a save older than ``quietSeconds`` is a classic
-/// that crashed (it autosaves every 8 s while it runs). No process scan
-/// (plans/cmux-next/pty-holder.md).
+/// that crashed (it autosaves every 8 s while it runs). Classic builds older
+/// than the sentinel write none, so the app also asks Launch Services which
+/// classic apps are open (``classicChannels(_:ownPID:)``); that is one lookup
+/// per channel's bundle id, no process scan (plans/cmux-next/pty-holder.md).
 ///
 /// ```swift
 /// let probe = ClassicRunningProbe(stateRoot: ClassicRunningProbe.defaultStateRoot(home: home, environment: environment))
@@ -46,5 +48,33 @@ public nonisolated struct ClassicRunningProbe: Sendable {
     /// Whether the classic that wrote `source` is running now (`now` in seconds since 1970).
     public func isRunning(_ source: ClassicMigrationSource, now: Double) -> Bool {
         FileManager.default.fileExists(atPath: sentinel(channel: source.bundleID).path) && now - source.modifiedAt < Self.quietSeconds
+    }
+
+    /// An open app as Launch Services lists it (`NSRunningApplication`).
+    public nonisolated struct App: Equatable, Sendable {
+        public var bundleID: String?
+        /// Its `CFBundleShortVersionString`.
+        public var version: String?
+        public var pid: Int32
+
+        public init(bundleID: String?, version: String?, pid: Int32) {
+            self.bundleID = bundleID
+            self.version = version
+            self.pid = pid
+        }
+    }
+
+    /// The classic channels (bundle ids) with a classic app open among `apps`.
+    ///
+    /// cmux-next ships under classic's own bundle ids (its nightly replaces
+    /// classic nightly in place), so the version tells them apart: classic is
+    /// 0.x, cmux-next 1.x. An app with no version counts as classic, and this
+    /// process (`ownPID`) never does.
+    public static func classicChannels(_ apps: [App], ownPID: Int32) -> Set<String> {
+        Set(apps.compactMap { app in
+            guard let id = app.bundleID, ClassicMigrationSourceFinder.channels.contains(id), app.pid != ownPID else { return nil }
+            guard let version = app.version else { return id }
+            return version.hasPrefix("0.") ? id : nil
+        })
     }
 }
