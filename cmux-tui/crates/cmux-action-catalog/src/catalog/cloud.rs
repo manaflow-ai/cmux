@@ -172,7 +172,7 @@ pub static ACTIONS: &[Action] = &[
         category: "cloud",
         symbol: "icloud.and.arrow.up",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 0)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 0).folder("move")], ..SurfacePlan::DEFAULT },
         arguments: &[args::PATH.optional(), args::MACHINE.optional()],
         targets: &["tab"],
         cli_name: "cloud move",
@@ -187,7 +187,7 @@ pub static ACTIONS: &[Action] = &[
         category: "cloud",
         symbol: "icloud.and.arrow.down",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 1)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 1).folder("move")], ..SurfacePlan::DEFAULT },
         targets: &["tab"],
         cli_name: "cloud bring-back",
         ..Action::DEFAULT
@@ -202,7 +202,7 @@ pub static ACTIONS: &[Action] = &[
         symbol: "laptopcomputer.and.arrow.down",
         surfaces: PALETTE | CONTEXT_MENU,
         arguments: &[args::PATH.optional()],
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 2)], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 2).folder("move")], ..SurfacePlan::DEFAULT },
         targets: &["tab"],
         cli_name: "cloud transfer-local",
         ..Action::DEFAULT

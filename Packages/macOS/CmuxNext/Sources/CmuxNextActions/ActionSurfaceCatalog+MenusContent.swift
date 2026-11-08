@@ -193,9 +193,10 @@ nonisolated extension ActionSurfaceCatalog {
         "cloudSSH": [p(.cloudMachine, .create, 2)],
         "cloudSetupGitHub": [p(.cloudMachine, .create, 3)],
         "cloudOpenDesktop": [p(.cloudMachine, .connection, 199, folder: .connection)],
-        "cloudMove": [p(.agentChat, .move, 0)],
-        "cloudBringBack": [p(.agentChat, .move, 1)],
-        "cloudTransferLocal": [p(.agentChat, .move, 2)],
+        // One of the three shows for a chat (a chat here, a moved one, any other on a machine), in Move ▸.
+        "cloudMove": [p(.agentChat, .move, 0, folder: .move)],
+        "cloudBringBack": [p(.agentChat, .move, 1, folder: .move)],
+        "cloudTransferLocal": [p(.agentChat, .move, 2, folder: .move)],
         "cloudRenameMachine": [p(.cloudMachine, .identity, 2)],
         "cloudKillMachine": [p(.cloudMachine, .close, 300)],
         "cloudPauseMachine": [p(.cloudMachine, .connection, 208, folder: .connection)],

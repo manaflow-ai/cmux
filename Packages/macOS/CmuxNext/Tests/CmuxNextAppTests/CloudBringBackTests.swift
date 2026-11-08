@@ -658,6 +658,13 @@ struct CloudBringBackTests {
         try await trip.waitUntil { machine.daemon.store.workspaces.first(where: { $0.key == workspace })?.screens.first?.panes.first?.tabs.first?.cwd != nil }
         let pane = try #require(machine.daemon.store.workspaces.first(where: { $0.key == workspace })?.screens.first?.panes.first)
         let host = try #require(AgentTabStore.registryHost(of: machine.daemon))
+        // The machine's own chat: a session its agent host already has (the stand-in's landed receipt, as in the
+        // started-in-Cloud fixture), so the tab only reopens it; a new chat there starts through agent-session-start.
+        let state = trip.root.appendingPathComponent("vm-state")
+        let files = FileManager.default.enumerator(at: state, includingPropertiesForKeys: nil)?.compactMap { $0 as? URL } ?? []
+        let registry = try #require(files.first { $0.lastPathComponent == "workspace-registry.sqlite3" })
+        let landed = [["session": "chat-on-vm", "landed_at_ms": Int64(Date().timeIntervalSince1970 * 1000)]] as [[String: Any]]
+        try JSONSerialization.data(withJSONObject: landed).write(to: registry.deletingLastPathComponent().appendingPathComponent("agent-transfer-landed.json"))
         let created = try await connection.request(NewConversationTabRequest(agentSession: AgentSessionRef(host: host, session: "chat-on-vm", harness: "claude"),
                                                                               pane: pane.handle))
         try await trip.waitUntil { machine.daemon.store.tab(surface: created.surface) != nil }
