@@ -1,5 +1,4 @@
 import CmuxHomeRender
-import CmuxNextApps
 
 /// A chat widget's scene (what the app's `cmux.chat.widget/1` export returned) as the snapshot
 /// the Home transcript draws natively (plans/cmux-next/chat-widgets-DESIGN.md section 4): stacks

@@ -1,6 +1,5 @@
-import CmuxHomeCore
-import CmuxHomeRender
-import CmuxNextApps
+public import CmuxHomeCore
+public import CmuxHomeRender
 import CmuxNextCompat
 import Foundation
 
@@ -11,7 +10,7 @@ import Foundation
 /// the transcript draws natively. Scripts run in the daemon's sandboxed app host with the app's
 /// granted scopes; this only mounts, maps and forwards clicks.
 @MainActor
-final class ChatWidgetHost: HomeWidgetHosting {
+public final class ChatWidgetHost: HomeWidgetHosting {
     static let interface = "cmux.chat.widget/1"
     static let surface = "chatWidget"
 
@@ -30,12 +29,15 @@ final class ChatWidgetHost: HomeWidgetHosting {
     private var owners: [ObjectIdentifier: Set<String>] = [:]
     private var listeners: [UUID: AsyncStream<String>.Continuation] = [:]
 
-    init(client: AppsClient, isPresented: @escaping (String) -> Bool) {
+    /// - Parameters:
+    ///   - client: the app host client the widgets mount through.
+    ///   - isPresented: whether an installed app shows (the user did not hide it).
+    public init(client: AppsClient, isPresented: @escaping (String) -> Bool) {
         self.client = client
         self.isPresented = isPresented
     }
 
-    func snapshot(for key: String, widget: ChatWidget) -> HomeWidgetSnapshot? {
+    public func snapshot(for key: String, widget: ChatWidget) -> HomeWidgetSnapshot? {
         if let entry = entries[key] {
             if entry.app == widget.app, entry.props == widget.propsJSON { return entry.snapshot }
             // The sender edited the part (new props or app): mount again.
@@ -49,7 +51,8 @@ final class ChatWidgetHost: HomeWidgetHosting {
                                  context: ["props": props, "widget": .object(["key": .string(key)])])
         let model = mount.model
         // task-owner: one watch per mounted widget, cancelled when it is released.
-        let watch = Task { @MainActor [weak self] in
+        // Inherits the host's main-actor isolation; each step only maps one scene.
+        let watch = Task { [weak self] in
             for await _ in ObservationStream({ (model.status, model.scene) }) {
                 self?.sceneChanged(key, model: model)
             }
@@ -59,23 +62,20 @@ final class ChatWidgetHost: HomeWidgetHosting {
         return entries[key]?.snapshot
     }
 
-    func tap(key: String, node: String) {
+    public func tap(key: String, node: String) {
         entries[key]?.mount.dispatch(node: node, event: "tap", payload: .object([:]))
     }
 
-    func keep(_ keys: Set<String>, owner: ObjectIdentifier) {
+    public func keep(_ keys: Set<String>, owner: ObjectIdentifier) {
         owners[owner] = keys.isEmpty ? nil : keys
         let kept = owners.values.reduce(into: Set<String>()) { $0.formUnion($1) }
         for key in Array(entries.keys) where !kept.contains(key) { release(key) }
     }
 
-    func changes() -> AsyncStream<String> {
+    public func changes() -> AsyncStream<String> {
         let id = UUID()
         let (stream, continuation) = AsyncStream<String>.makeStream(bufferingPolicy: .bufferingNewest(64))
         listeners[id] = continuation
-        continuation.onTermination = { [weak self] _ in
-            Task { @MainActor in self?.listeners[id] = nil }
-        }
         return stream
     }
 
@@ -88,7 +88,12 @@ final class ChatWidgetHost: HomeWidgetHosting {
         guard next != entry.snapshot else { return }
         entry.snapshot = next
         entries[key] = entry
-        for listener in listeners.values { listener.yield(key) }
+        // A listener whose stream ended is dropped at the next change (no hop from its termination).
+        var ended: [UUID] = []
+        for (id, listener) in listeners {
+            if case .terminated = listener.yield(key) { ended.append(id) }
+        }
+        for id in ended { listeners.removeValue(forKey: id) }
     }
 
     private func release(_ key: String) {
