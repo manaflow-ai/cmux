@@ -54,15 +54,7 @@ impl Hub {
             return Ok(None);
         }
         let own = crate::pairing::machine_name();
-        let [named, cased, prefixed, short, short_cased, spaced] = self.key_candidates(key, &own);
         if let Some((host, rest)) = key.split_once('/').filter(|(_, rest)| !rest.is_empty()) {
-            // A session's whole name before a host and a name on it, as `resolve` reads it
-            // (`locate.rs`, `by_key_exact`): a local `coord/lane` is never peer `coord`'s
-            // `lane-extra`. Only a qualified id, here or on a peer, comes first.
-            if !self.names_an_id(host, rest) && named.iter().any(|c| c.name == key) {
-                let whole: Vec<Candidate> = named.into_iter().filter(|c| c.name == key).collect();
-                return pick(key, &whole).map(|c| c.map(|c| c.route.clone()));
-            }
             // `HOST/NAME` with a peer's or this machine's exact name, and a qualified id: an
             // exact name or id is read as before (`own_host.rs`, `resolve_remote`); a name in
             // another case, a prefix or one without separators finds its one session there.
@@ -75,6 +67,7 @@ impl Hub {
                 return self.name_on(&Machine::Here(own), key, rest, true);
             }
         }
+        let [named, cased, prefixed, short, short_cased, spaced] = self.key_candidates(key, &own);
         let found = if let Some((host, rest)) = key.split_once('/') {
             // Any other `/` is a sub-session's whole name (`parent/child`) or a machine named
             // in another case or by a prefix (`LANE-VM/td2-a`): the whole name first, never a
@@ -97,28 +90,6 @@ impl Hub {
                 .unwrap_or_default()
         };
         pick(key, &found).map(|c| c.map(|c| c.route.clone()))
-    }
-
-    /// Whether `HOST/rest` is a qualified id: `rest` an id (or the start of one) of a session on
-    /// `host`, this machine (`local`, its own name) or a peer, as `name_on` reads one exactly.
-    /// Such a key is left to the exact lookup (`resolve_here`, `resolve_remote`), never taken
-    /// by a session whose whole name is the same text.
-    fn names_an_id(&self, host: &str, rest: &str) -> bool {
-        if host == crate::session_identity::LOCAL_HOST_ID
-            || super::own_host::is_own_machine_name(host)
-        {
-            return self
-                .sessions
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .keys()
-                .any(|id| id.starts_with(rest));
-        }
-        self.remote_sessions
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .values()
-            .any(|r| r.peer == host && r.receipt.mux_session_id.starts_with(rest))
     }
 
     /// The machine `host` names by [`name_match`](crate::name_match) (this one or a peer this

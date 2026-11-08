@@ -238,17 +238,3 @@ fn list_as_peers_do(hub: &Hub, peer: &str, id: &str, name: &str) {
     let row = RemoteSession { peer: peer.into(), summary, receipt };
     hub.remote_sessions.lock().unwrap().insert(format!("{peer}/{id}"), row);
 }
-
-/// Review of #36919: `send` reads a key as a session's whole name before it reads `HOST/NAME`
-/// as a configured peer and a name on it, as `resolve` does; a qualified id still comes first.
-#[tokio::test]
-async fn send_takes_a_whole_name_before_a_peer_named_like_its_parent() {
-    let hub = test_hub();
-    let child = named(&hub, "coord/lane").await;
-    add_peer(&hub, "coord");
-    list(&hub, "coord", "0199dddd-4444", "lane-extra", "idle");
-    assert_eq!(hub.key_route("coord/lane").unwrap().as_deref(), Some(child.id.as_str()));
-    let lookalike = named(&hub, "coord/0199dddd-4444").await;
-    let id = hub.key_route("coord/0199dddd-4444").unwrap();
-    assert_ne!(id.as_deref(), Some(lookalike.id.as_str()));
-}
