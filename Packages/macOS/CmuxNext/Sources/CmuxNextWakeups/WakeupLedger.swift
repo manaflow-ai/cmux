@@ -69,6 +69,9 @@ public final class WakeupLedger: Sendable {
 
     private let counters = Mutex<[Key: Counter]>([:])
     private let activity = Atomic<UInt64>(0)
+    /// DIAG (RESIZE P0 17, -nomerge): the current main turn's tags while `debug.frames` records (WakeupLedger+TurnTrace).
+    let turnTags = Mutex<[String: TurnTag]>([:])
+    let turnTracing = Atomic<Bool>(false)
     private let uptime: @Sendable () -> UInt64
 
     /// `uptime` returns monotonic nanoseconds (tests inject a fake).
@@ -92,6 +95,7 @@ public final class WakeupLedger: Sendable {
             counters[Key(owner: owner, reason: reason), default: Counter(second: second)].add(count, at: now, second: second)
         }
         activity.add(1, ordering: .relaxed)
+        if turnTracing.load(ordering: .relaxed), Thread.isMainThread { turnMark("\(owner)/\(reason)") }
     }
 
     /// Every owner and reason seen, busiest first.

@@ -299,7 +299,7 @@ public final class GhosttyRuntime {
     func tick() {
         context.pending.store(false, ordering: .releasing)
         guard let app else { return }
-        ghostty_app_tick(app)
+        WakeupLedger.shared.turnSpan("ghostty.tick") { ghostty_app_tick(app) }
     }
 
     private func installObservers() {

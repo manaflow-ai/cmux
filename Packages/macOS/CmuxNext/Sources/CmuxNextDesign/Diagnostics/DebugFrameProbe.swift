@@ -44,6 +44,7 @@ public final class DebugFrameProbe {
     private var turnMainEnd: CFTimeInterval?
     /// Just before Core Animation's commit (2,000,000) and the frame presenter's pass (1,999,999).
     static let mainEndOrder: CFIndex = 1_999_998
+    private var turnLog = MainTurnLog() // DIAG (RESIZE P0 17, -nomerge)
 
     public init() {}
 
@@ -67,12 +68,14 @@ public final class DebugFrameProbe {
     private func start() {
         clear()
         client.activate()
+        WakeupLedger.shared.setTurnTracing(true)
         watchMainRunLoop()
         expiry.schedule(after: Self.maximumRun) { @MainActor [weak self] in self?.stop() }
     }
 
     private func stop() {
         client.deactivate()
+        WakeupLedger.shared.setTurnTracing(false)
         layouts.stop()
         expiry.cancel()
         for observer in observers { CFRunLoopObserverInvalidate(observer) }
@@ -88,6 +91,7 @@ public final class DebugFrameProbe {
         awakeSince = CACurrentMediaTime()
         split = FrameMissSplit()
         (turnWoke, turnMainEnd) = (awakeSince, nil)
+        turnLog.reset(origin: awakeSince)
     }
 
     /// Two observers of the main run loop: one when it wakes (first of the
@@ -116,11 +120,13 @@ public final class DebugFrameProbe {
     private func didWake() {
         awakeSince = CACurrentMediaTime()
         turnWoke = awakeSince
+        turnLog.woke()
     }
 
     private func willWait() {
         let now = CACurrentMediaTime()
         split.turnEnded(woke: turnWoke, mainEnd: turnMainEnd, commitEnd: now)
+        turnLog.ended(woke: turnWoke, mainEnd: turnMainEnd, end: now)
         turnMainEnd = nil
         guard awakeSince > 0 else { return }
         awake += now - awakeSince
@@ -137,6 +143,7 @@ public final class DebugFrameProbe {
         }
         let records = last > 0 && intervals.count < Self.capacity
         if records {
+            turnLog.ticked(at: now)
             intervals.append((tick.timestamp - last) * 1_000)
             busy.append(awake * 1_000)
         }
@@ -181,6 +188,7 @@ public final class DebugFrameProbe {
         if raw {
             stats["intervals_ms"] = intervals.map { ($0 * 100).rounded() / 100 }
             stats["main_ms"] = busy.map { ($0 * 100).rounded() / 100 }
+            stats.merge(turnLog.report) { $1 }
         }
         return stats
     }
