@@ -7,7 +7,16 @@
 //! it later. A DEV build listens on `127.0.0.1:0` and never saves its port, and a daemon whose
 //! saved port was taken moves to a free one, so config.json is also often wrong.
 //!
-//! The daemon writes the record once its listener is bound and removes it on a clean exit. A
+//! The daemon writes the record once its listener is bound and removes it on a clean exit. It
+//! records the address to dial: a wildcard bind (`0.0.0.0:P`, `[::]:P`) is recorded as loopback
+//! (`127.0.0.1:P`, `[::1]:P`). The record is written once per run: the daemon binds its web
+//! listener once, before it serves (`daemon.rs`: the configured address, or a free loopback port
+//! when that one is taken), and moves that listener into its one `serve_ws_until` task; nothing
+//! rebinds it while the daemon runs. If that task ends early, the port is closed while the
+//! record stays; a service that binds the port later cannot answer the nonce, so the link refuses
+//! it.
+//!
+//! A
 //! reader ([`connect_live`]) trusts it only when all of these hold, and otherwise sends nothing:
 //! - the record's process still runs, with the start time the record names (a reused pid has
 //!   another) and this reader's uid;
@@ -20,7 +29,7 @@
 //! Linux `/proc/<pid>/stat` field 22 (clock ticks since boot) and 0.
 
 use std::io;
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::Path;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -69,9 +78,21 @@ pub fn answer() -> String {
     format!("{ANSWER_PREFIX}{}\n", nonce())
 }
 
-/// Record `listen` as this process's listener in `home`.
+/// The address to dial for a listener bound at `listen`: a wildcard is reached on loopback.
+fn dialable(mut listen: SocketAddr) -> SocketAddr {
+    match listen.ip() {
+        IpAddr::V4(ip) if ip.is_unspecified() => listen.set_ip(IpAddr::V4(Ipv4Addr::LOCALHOST)),
+        IpAddr::V6(ip) if ip.is_unspecified() => listen.set_ip(IpAddr::V6(Ipv6Addr::LOCALHOST)),
+        _ => {}
+    }
+    listen
+}
+
+/// Record `listen` (the bound address; a wildcard is recorded as loopback) as this process's
+/// listener in `home`.
 pub fn write(home: &Path, listen: SocketAddr) -> io::Result<()> {
     use std::io::Write as _;
+    let listen = dialable(listen);
     let pid = std::process::id();
     let (start, _) = process_identity(pid)?;
     if nonce().is_empty() {
@@ -225,6 +246,7 @@ fn process_identity(_pid: u32) -> io::Result<((u64, u64), u32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
     #[test]
     fn the_start_time_is_field_22_after_the_command_name() {
@@ -246,6 +268,40 @@ mod tests {
         assert_eq!(mode & 0o777, 0o600);
         remove_if_owned(home.path());
         assert!(!home.path().join(FILE_NAME).exists());
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn a_wildcard_bind_is_recorded_as_loopback() {
+        for (bound, recorded) in [
+            ("0.0.0.0:52341", "127.0.0.1:52341"),
+            ("[::]:52341", "[::1]:52341"),
+            ("127.0.0.1:52341", "127.0.0.1:52341"),
+            ("[::1]:52341", "[::1]:52341"),
+        ] {
+            let home = tempfile::tempdir().unwrap();
+            write(home.path(), bound.parse().unwrap()).unwrap();
+            assert_eq!(read(home.path()).unwrap().listen, recorded.parse().unwrap(), "{bound}");
+        }
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[tokio::test]
+    async fn a_wildcard_listener_is_reached_through_its_record() {
+        // A listener bound to the wildcard, answering the probe as the daemon's does.
+        let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await.unwrap();
+        let bound = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut probe = vec![0u8; PROBE.len()];
+            stream.read_exact(&mut probe).await.unwrap();
+            assert_eq!(probe, PROBE);
+            stream.write_all(answer().as_bytes()).await.unwrap();
+            let _ = stream.read_u8().await;
+        });
+        let home = tempfile::tempdir().unwrap();
+        write(home.path(), bound).unwrap();
+        assert!(connect_live(home.path(), Duration::from_secs(5)).await.is_ok());
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
