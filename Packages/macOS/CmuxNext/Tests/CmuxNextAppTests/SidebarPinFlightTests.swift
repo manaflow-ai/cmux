@@ -596,10 +596,15 @@ struct SidebarPinFlightTests {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let row = try #require(list.displayed.row(for: .workspace(Self.moved)).map { list.frame(for: $0) })
-        scroll.contentView.scroll(to: NSPoint(x: 0, y: row.minY - 100))
+        // A scroll a person can reach, with room for the pin to shorten the list by less than a row: at 100 pt above d
+        // the clip ran past the list's end (816 + 300 > 984), so the reload's shorter list clamped it by 134 pt and the
+        // test read that clamp as the flight's jump (fleet diag 9506cf1: clip 816 -> 682, list 984 -> 982 pt).
+        let clipHeight = scroll.contentView.bounds.height
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: min(row.minY - 100, list.frame.height - clipHeight - row.height)))
         scroll.reflectScrolledClipView(scroll.contentView)
         list.realizeVisibleRows()
         list.layoutSubtreeIfNeeded()
+        let clipBefore = scroll.contentView.bounds.origin
         let start = try #require(list.rowViews[.workspace(Self.moved)], "d's row has no view after the scroll")
         let startFrame = list.convert(start.bounds, from: start)
         let blockRow = try #require(list.displayed.row(for: .block(SidebarLayoutDocument.pinnedSectionID.rawValue)))
@@ -610,6 +615,7 @@ struct SidebarPinFlightTests {
         let probes = Self.probes(Self.moved, list, now: now)
         let arrived = try #require(Self.copies(of: Self.moved, in: list).first { $0 is SidebarItemRowView && !$0.isHiddenOrHasHiddenAncestor },
                                    "the pinned item has no view: the row vanished")
+        #expect(scroll.contentView.bounds.origin == clipBefore, "the pin scrolled the list: the rows in view jumped")
         var failures: [String] = []
         Self.checkOpaque("pinned d (block out of view)", arrived, failures: &failures)
         Self.checkPath("pinned d (block out of view)", probes: probes, now: now, start: startFrame,
