@@ -1,0 +1,19 @@
+.acpmux-time-breakdown { padding: 8px; border-top: 1px solid color-mix(in srgb, var(--agent-text) 8%, transparent); }
+.acpmux-time-breakdown__heading, .acpmux-time-breakdown__total-row, .acpmux-time-breakdown__lane { display: flex; align-items: center; gap: 8px; min-height: 22px; }
+.acpmux-time-breakdown__heading { color: var(--agent-muted); font-weight: 500; }
+.acpmux-time-breakdown__total { margin-left: auto; color: var(--agent-text); font-variant-numeric: tabular-nums; }
+.acpmux-time-breakdown__stack, .acpmux-time-breakdown__lane-bars { display: flex; gap: 2px; min-height: 18px; margin-top: 6px; overflow: hidden; }
+.acpmux-time-breakdown__span { min-width: 3px; flex: 1 1 0; height: 18px; border: 0; padding: 0; opacity: .88; cursor: pointer; }
+.acpmux-time-breakdown__span:hover, .acpmux-time-breakdown__span:focus-visible { opacity: 1; outline: 2px solid var(--agent-text); outline-offset: 1px; }
+.acpmux-time-breakdown__lane > span { width: 72px; color: var(--agent-muted); font-size: var(--text-detail); }
+.acpmux-time-breakdown__lane-bars { flex: 1; margin-top: 0; }
+.acpmux-time-breakdown__total-row { position: relative; color: var(--agent-muted); font-size: var(--text-detail); }
+.acpmux-time-breakdown__total-row > span:first-child { width: 72px; }
+.acpmux-time-breakdown__total-row > span:nth-child(2) { margin-left: auto; color: var(--agent-text); font-variant-numeric: tabular-nums; }
+.acpmux-time-breakdown__total-bar { position: absolute; left: 80px; bottom: 0; height: 2px; opacity: .7; }
+.acpmux-time-breakdown__legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; color: var(--agent-muted); font-size: var(--text-detail); }
+.acpmux-time-breakdown__legend span { display: inline-flex; align-items: center; gap: 4px; }
+.acpmux-time-breakdown__legend i { width: 7px; height: 7px; border-radius: 50%; }
+.acpmux-time-breakdown__hint { display: block; margin-top: 5px; color: var(--agent-muted); }
+.acpmux-time-breakdown__scale { display: none; }
+@media (prefers-reduced-motion: reduce) { .acpmux-time-breakdown__span { transition: none; } }

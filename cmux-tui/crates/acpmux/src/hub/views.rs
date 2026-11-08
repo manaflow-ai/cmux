@@ -424,6 +424,24 @@ impl Hub {
         self.summary_with_tools(session, true)
     }
 
+    /// Fold a chat's journal once, then keep the reducer current at the append seam. The append
+    /// lock makes the seed and the next record one ordered view for Session Info.
+    fn time_breakdown_of(&self, session: &Session) -> Option<crate::hub::time_breakdown::TimeBreakdown> {
+        let _append = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+        if !state.initialized {
+            let scanned = self.store.scan(&session.id, 0, &mut |record| {
+                state.record(&record);
+                true
+            });
+            if scanned.is_err() {
+                return None;
+            }
+            state.initialized = true;
+        }
+        Some(state.snapshot(crate::store::now_ms()))
+    }
+
     /// Census rows omit the inventory and cut a long title (`TITLE_CHARS`); `_acpmux/info` and
     /// attach keep both.
     pub(crate) fn session_list_summary(&self, session: &Session) -> Value {
@@ -633,6 +651,9 @@ impl Hub {
             self.started_at,
         );
         let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
+        if with_tools && let Some(breakdown) = self.time_breakdown_of(session) {
+            summary.set("timeBreakdown", serde_json::to_value(breakdown).unwrap_or(Value::Null));
+        }
         summary.set("qualifiedSessionId", Value::String(receipt.qualified_id()));
         summary.set("sessionReceipt", receipt.to_value());
         // The branch its folder has checked out now (`git_watch.rs`); null on

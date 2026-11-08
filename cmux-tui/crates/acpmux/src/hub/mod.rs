@@ -213,6 +213,7 @@ mod tool_paths;
 mod tool_read_images;
 mod tool_shell;
 mod tools;
+pub(crate) mod time_breakdown;
 pub(crate) mod turn_cap;
 mod turn_retry;
 mod watch;
@@ -1425,6 +1426,7 @@ impl Hub {
             harness_use: RwLock::new(()),
             idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
+            time_breakdown: StdMutex::new(Default::default()),
             meta_writer: Default::default(),
             message_ids: StdMutex::new(None),
             log_deferral: StdMutex::new(Default::default()),
@@ -2121,6 +2123,10 @@ impl Hub {
         };
         if stored {
             session.note_transfer_event(&record);
+            let mut breakdown = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
+            if breakdown.initialized {
+                breakdown.record(&record);
+            }
         }
         // A closed session's log is not held open: its last records (`status`,
         // then the agent's `stopped`) each close it again (`store.rs` Writers).
