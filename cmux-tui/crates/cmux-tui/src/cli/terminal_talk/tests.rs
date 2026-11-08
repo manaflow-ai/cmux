@@ -1023,3 +1023,66 @@ fn w5q_send_timeout_says_working() {
     assert_eq!(receipt["timed_out"], true);
     assert_eq!(receipt["state"], "working");
 }
+
+const CLAUDE: &str = "term_c1a0de00000000000000000000000001";
+
+/// Claude Code in a narrow pane: the answer and the turn summary wrap at
+/// the pane's width, and the input box follows.
+const NARROW_ANSWER: &str = "> What is the capital of Australia?\n\n⏺ Canberr\n  a\n\n✻ Churned\n  for 1s · done\n  2:36 PM\n\n─────────────────\n> \n─────────────────\n  ? for shortcuts";
+
+fn idle_hook_record(extra: Value) -> Value {
+    json!([{"terminal_id": CLAUDE, "state": "idle", "source": "hook",
+            "updated_at_ms": u64::MAX.to_string(), "extra": extra}])
+}
+
+/// W5-Q (bench round 4 orchestration friction 6): `send --wait idle`
+/// answers the agent's own last message whole as `reply`, the text its
+/// Stop hook gave, not the screen's wrapped lines and footer.
+#[test]
+fn w5q_send_reply_is_the_agents_whole_last_message() {
+    let whole = "Canberra is the capital of Australia.\n\nIt was chosen in 1908 as a compromise \
+                 between Sydney and Melbourne.";
+    let mut daemon = FakeDaemon::new(
+        snapshot(),
+        &[(1, "> What is the capital of Australia?\n\n✻ Thinking"), (2, NARROW_ANSWER)],
+    );
+    daemon.agents = idle_hook_record(json!({
+        "agent": "claude",
+        "last_reply": "Canberra is the capital of Australia. It was chosen in 1908 as a compromise",
+        "last_reply_text": whole,
+        "last_reply_at_ms": u64::MAX.to_string(),
+    }));
+    let receipt =
+        send::run(&daemon, None, &quick("What is the capital of Australia?")).expect("sent");
+    assert_eq!(receipt["state"], "idle", "{receipt}");
+    assert_eq!(receipt["reply"], whole, "{receipt}");
+    assert_eq!(receipt["reply_source"], "hook", "{receipt}");
+}
+
+/// W5-Q: a reply the daemon kept before this send is an older turn's; the
+/// reply then comes from the screen, without the harness's footer, even
+/// when the turn summary wrapped in a narrow pane.
+#[test]
+fn w5q_send_reply_from_the_screen_has_no_footer_and_never_an_older_turn() {
+    let mut daemon = FakeDaemon::new(
+        snapshot(),
+        &[(1, "> What is the capital of Australia?\n\n✻ Thinking"), (2, NARROW_ANSWER)],
+    );
+    daemon.agents = idle_hook_record(json!({
+        "agent": "claude",
+        "last_reply": "ALPHA_OK",
+        "last_reply_text": "ALPHA_OK",
+        "last_reply_at_ms": "1",
+    }));
+    let receipt =
+        send::run(&daemon, None, &quick("What is the capital of Australia?")).expect("sent");
+    assert_eq!(receipt["reply_source"], "screen", "{receipt}");
+    let reply = receipt["reply"].as_str().unwrap_or_else(|| panic!("a reply: {receipt}"));
+    assert!(!reply.contains("ALPHA_OK"), "an older turn's reply: {reply}");
+    for footer in ["Churned", "for 1s", "2:36 PM", "─", "? for shortcuts"] {
+        assert!(!reply.contains(footer), "footer {footer:?} in the reply: {reply:?}");
+        let output = receipt["output"].as_str().unwrap_or_default();
+        assert!(!output.contains(footer), "footer {footer:?} in the output: {output:?}");
+    }
+    assert!(reply.starts_with("⏺ Canberr"), "{reply:?}");
+}

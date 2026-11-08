@@ -630,3 +630,194 @@ fn w3h_the_wait_times_out_while_the_agent_still_starts() {
     assert_eq!(report["state"], "timeout");
     assert_eq!(report["waited_ms"], "5000");
 }
+
+/// Claude's folder-trust dialog with the cursor on "No, exit".
+const TRUST_NO_SELECTED: &str = "\
+ Accessing workspace:
+
+ /Users/me/new-project
+
+ Quick safety check: Is this a project you created or one you trust?
+
+   1. Yes, I trust this folder
+ ❯ 2. No, exit
+
+ Enter to confirm · Esc to cancel";
+
+/// `agent start` that ends at `screen`, a folder-trust dialog.
+fn start_at_trust(screen: &'static str) -> Value {
+    let snapshot = snapshot();
+    let daemon = Fake::new(move |operation, _params, count| match operation {
+        "session.snapshot" => snapshot.clone(),
+        "pane.split" => created(
+            "pane_33333333333333333333333333333333",
+            "tab_50505050505050505050505050505050",
+            "term_5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e",
+        ),
+        "pane.run" => created(
+            "pane_33333333333333333333333333333333",
+            "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0",
+            NEW,
+        ),
+        "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
+        "terminal.screen.read" if count == 0 => json!({"text": "Loading"}),
+        "terminal.screen.read" => json!({"text": screen}),
+        "agent.list" => json!([]),
+        _ => json!({}),
+    });
+    let options = Options { cmd: Some("sr2 claude".into()), ..Options::default() };
+    let (report, exit) =
+        run_with_clock(|clock| start(&daemon, &env(), clock, "beta", &options)).expect("start");
+    assert_eq!(exit, super::BLOCKED_EXIT, "{report}");
+    assert_eq!(report["dialog"], "folder_trust", "{report}");
+    report
+}
+
+/// W5-Q (bench round 4 orchestration friction 7): the folder-trust result
+/// lists the dialog's options, which one is selected, and the keys that
+/// accept the folder from there; the reason says to ask the person first.
+#[test]
+fn w5q_folder_trust_result_lists_the_options_and_the_keys_that_accept_it() {
+    let report = start_at_trust(TRUST_NO_SELECTED);
+    assert_eq!(
+        report["options"],
+        json!([
+            {"number": 1, "label": "Yes, I trust this folder", "selected": false},
+            {"number": 2, "label": "No, exit", "selected": true},
+        ]),
+        "{report}"
+    );
+    assert_eq!(report["accept_keys"], json!(["up", "enter"]), "{report}");
+    let reason = report["reason"].as_str().unwrap_or_default();
+    assert!(reason.contains("ask the person"), "{reason}");
+    assert!(reason.contains("cmux terminal beta keys up enter"), "{reason}");
+
+    // The cursor already on "Yes": Enter alone accepts.
+    let report = start_at_trust(TRUST);
+    assert_eq!(report["options"][0]["selected"], true, "{report}");
+    assert_eq!(report["accept_keys"], json!(["enter"]), "{report}");
+}
+
+/// W5-Q: a ready agent has no dialog options.
+#[test]
+fn w5q_a_ready_start_has_no_dialog_options() {
+    let snapshot = snapshot();
+    let daemon = Fake::new(move |operation, _params, _count| match operation {
+        "session.snapshot" => snapshot.clone(),
+        "pane.split" => created(
+            "pane_33333333333333333333333333333333",
+            "tab_50505050505050505050505050505050",
+            "term_5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e",
+        ),
+        "pane.run" => created(
+            "pane_33333333333333333333333333333333",
+            "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0",
+            NEW,
+        ),
+        "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
+        "terminal.screen.read" => json!({"text": COMPOSER}),
+        "agent.list" => json!([]),
+        _ => json!({}),
+    });
+    let options = Options { cmd: Some("sr2 claude".into()), ..Options::default() };
+    let (report, exit) =
+        run_with_clock(|clock| start(&daemon, &env(), clock, "beta", &options)).expect("start");
+    assert_eq!(exit, 0, "{report}");
+    assert_eq!(report["options"], Value::Null, "{report}");
+    assert_eq!(report["accept_keys"], Value::Null, "{report}");
+}
+
+const CALLER_PANE: &str = "pane_11111111111111111111111111111111";
+const ALPHA_PANE: &str = "pane_22222222222222222222222222222222";
+const BETA_PANE: &str = "pane_33333333333333333333333333333333";
+const OUTER_SPLIT: &str = "split_000000000000000000000000000000a1";
+const INNER_SPLIT: &str = "split_000000000000000000000000000000a2";
+
+/// The screen after the second start split alpha's pane in half: caller
+/// 1/2, alpha 1/4, beta 1/4.
+fn halved_layout() -> Value {
+    json!({
+        "version": 1,
+        "screen_id": "screen_d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1",
+        "root": {
+            "kind": "split", "split_id": OUTER_SPLIT, "direction": "horizontal", "ratio": 0.5,
+            "first": {"kind": "leaf", "pane_id": CALLER_PANE, "tab_ids": []},
+            "second": {
+                "kind": "split", "split_id": INNER_SPLIT, "direction": "horizontal", "ratio": 0.5,
+                "first": {"kind": "leaf", "pane_id": ALPHA_PANE, "tab_ids": []},
+                "second": {"kind": "leaf", "pane_id": BETA_PANE, "tab_ids": []},
+            },
+        },
+    })
+}
+
+/// W5-Q (bench round 4 orchestration friction 6): a start that splits a
+/// pane gives every pane of that row the same width, so the third agent
+/// pane is not a quarter of the screen (beta got 21 columns).
+#[test]
+fn w5q_start_split_gives_each_pane_of_its_row_the_same_width() {
+    let snapshot = snapshot();
+    let daemon = Fake::new(move |operation, _params, _count| match operation {
+        "session.snapshot" => snapshot.clone(),
+        "pane.split" => created(
+            BETA_PANE,
+            "tab_50505050505050505050505050505050",
+            "term_5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e",
+        ),
+        "pane.run" => created(BETA_PANE, "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0", NEW),
+        "screen.layout.export" => halved_layout(),
+        "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
+        "terminal.screen.read" => json!({"text": COMPOSER}),
+        "agent.list" => json!([]),
+        _ => json!({}),
+    });
+    let options = Options {
+        cmd: Some("sr2 claude".into()),
+        pane: Some(ALPHA_PANE.into()),
+        split: Some("right".into()),
+        ..Options::default()
+    };
+    let (report, exit) =
+        run_with_clock(|clock| start(&daemon, &env(), clock, "beta", &options)).expect("start");
+    assert_eq!(exit, 0, "{report}");
+    let mut ratios = std::collections::BTreeMap::new();
+    for set in daemon.sent("pane.split_ratio.set") {
+        let ratio = set["ratio"].as_f64().unwrap_or(f64::NAN);
+        ratios.insert(set["split_id"].as_str().unwrap_or_default().to_owned(), ratio);
+    }
+    let outer = ratios.get(OUTER_SPLIT).copied().unwrap_or(0.5);
+    let inner = ratios.get(INNER_SPLIT).copied().unwrap_or(0.5);
+    let widths = [outer, (1.0 - outer) * inner, (1.0 - outer) * (1.0 - inner)];
+    for width in widths {
+        assert!((width - 1.0 / 3.0).abs() < 0.01, "caller, alpha, beta widths {widths:?}");
+    }
+}
+
+/// W5-Q: a split in a screen of viewport columns (each column keeps its
+/// width) changes no ratio.
+#[test]
+fn w5q_start_split_in_a_column_screen_changes_no_ratio() {
+    let snapshot = snapshot();
+    let daemon = Fake::new(move |operation, _params, _count| match operation {
+        "session.snapshot" => snapshot.clone(),
+        "pane.split" => created(
+            BETA_PANE,
+            "tab_50505050505050505050505050505050",
+            "term_5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e",
+        ),
+        "pane.run" => created(BETA_PANE, "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0", NEW),
+        "screen.layout.export" => json!({"version": 1, "root": {"kind": "viewport",
+            "base_width": 200.0, "columns": [
+                {"column_id": "column_1", "width": 100.0, "root": {"kind": "leaf", "pane_id": CALLER_PANE}},
+                {"column_id": "column_2", "width": 100.0, "root": {"kind": "leaf", "pane_id": BETA_PANE}}]}}),
+        "terminal.get" => json!({"id": NEW, "lifecycle": "running"}),
+        "terminal.screen.read" => json!({"text": COMPOSER}),
+        "agent.list" => json!([]),
+        _ => json!({}),
+    });
+    let options = Options { cmd: Some("sr2 claude".into()), ..Options::default() };
+    let (report, exit) =
+        run_with_clock(|clock| start(&daemon, &env(), clock, "beta", &options)).expect("start");
+    assert_eq!(exit, 0, "{report}");
+    assert!(daemon.sent("pane.split_ratio.set").is_empty());
+}
