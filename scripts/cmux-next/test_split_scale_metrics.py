@@ -63,6 +63,20 @@ class TraceTests(unittest.TestCase):
         samples[8]["panes"] = [row(samples[8]["panes"][0][2] + 30, samples[8]["panes"][0][2] + 30 + samples[8]["panes"][0][4])]
         self.assertGreaterEqual(ssm.trace_stats({"refresh_ms": 8.33, "samples": samples})["retargets"], 1)
 
+    def test_trace_times_rounded_to_the_hundredth_add_no_retarget(self):
+        # The trace records ticks to 0.01 ms (8.33 and 8.34 ms apart): a whole-point edge stepping 1 then 2 points is
+        # still within the rounding slack (#38984 review F1).
+        w = 2 * math.pi / 0.11
+        samples = []
+        for k in range(20):
+            p = 1.0 if k == 19 else (1 - (1 + w * k / 120) * math.exp(-w * k / 120) if k else 0.0)
+            top, bottom = math.floor(501 - 179 * p + 0.5), math.floor(999 - 358 * p + 0.5)
+            row = pane("pane_bbbbbb", 208, 695)
+            row[2], row[4], row[8], row[10], row[15], row[17] = top, bottom - top, top, bottom - top, top, bottom - top
+            samples.append({"t": round(k * 1000 / 120, 2), "panes": [row]})
+        stats = ssm.trace_stats({"refresh_ms": 8.33, "samples": samples})
+        self.assertEqual(stats["retargets"], 0, stats["retargeted"])
+
     def test_a_dropped_frame_is_counted_and_is_no_retarget(self):
         times = [0, 8.33, 16.67, 25, 50, 58.3, 66.7, 75]
         stats = ssm.trace_stats(trace([1000, 1000, 800, 700, 600, 580, 575, 575], times=times))
