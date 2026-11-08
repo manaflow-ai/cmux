@@ -161,7 +161,7 @@ fn parse(target: &str, flags: &[String]) -> Result<MoveRequest, UsageError> {
     let mut words = vec!["pane".to_owned(), target.to_owned(), "move".to_owned()];
     words.extend(flags.iter().cloned());
     match super::super::command::parse(&words)? {
-        CommandPlan::PaneMove(request) => Ok(request),
+        CommandPlan::PaneMove(request) => Ok(*request),
         _ => panic!("pane {target} move is not a pane move plan"),
     }
 }

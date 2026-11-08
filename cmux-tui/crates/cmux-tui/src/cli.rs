@@ -255,8 +255,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             }
             CommandPlan::RawCommand(command) => raw::run(global, command),
             CommandPlan::Attention(plan) => attention::run(global, plan),
-            CommandPlan::AgentList(plan) => agent_list::run(global, plan),
-            CommandPlan::PaneMove(request) => pane_move::run(global, request),
+            CommandPlan::AgentList(plan) => agent_list::run(global, *plan),
+            CommandPlan::PaneMove(request) => pane_move::run(global, *request),
             CommandPlan::Identify => pane_identify::run(&global),
             CommandPlan::SkillShow => skill::run(&global),
         },

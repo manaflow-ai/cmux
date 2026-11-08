@@ -29,10 +29,10 @@ pub(super) enum CommandPlan {
     Attention(super::attention::AttentionPlan),
     /// `cmux agent list`: `agent.list` with the shared status
     /// (`cli/agent_list.rs`).
-    AgentList(super::agent_list::AgentListPlan),
+    AgentList(Box<super::agent_list::AgentListPlan>),
     /// `cmux pane <pane> move`: a composite of `tab.move` steps
     /// (`cli/pane_move.rs`).
-    PaneMove(super::pane_move::MoveRequest),
+    PaneMove(Box<super::pane_move::MoveRequest>),
     /// `cmux identify`: where this process runs (`cli/pane_identify.rs`).
     Identify,
     /// `cmux skill show`: the agent guide (`cli/skill.rs`).
@@ -1025,7 +1025,8 @@ fn parse_pane_strings(
                 focus,
                 idempotency_key: flags.take("idempotency-key"),
             };
-            super::pane_move::request(selector, move_flags).map(CommandPlan::PaneMove)
+            super::pane_move::request(selector, move_flags)
+                .map(|request| CommandPlan::PaneMove(Box::new(request)))
         }
         [selector, "tab", tail @ ..] => {
             selectors.insert("pane", "pane", selector)?;
@@ -1710,7 +1711,10 @@ fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
             else {
                 unreachable!("request() makes a protocol plan");
             };
-            Ok(CommandPlan::AgentList(super::agent_list::AgentListPlan { request: list, status }))
+            Ok(CommandPlan::AgentList(Box::new(super::agent_list::AgentListPlan {
+                request: list,
+                status,
+            })))
         }
         ["hook", "emit"] => {
             const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
