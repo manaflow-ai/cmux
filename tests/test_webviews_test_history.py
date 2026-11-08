@@ -48,6 +48,14 @@ class Flaky(unittest.TestCase):
         # Pushes that change no webview input in between still follow the code.
         self.assertEqual(history.flaky(runs(True, True, False, False, True, True, keys="wwxxrr")), [])
 
+    def test_a_red_that_comes_back_after_a_green_is_flaky_on_any_inputs(self):
+        # send-stream-motion, 2026-11-08: nearly every feat-cmux-next push changed a webview input, so its reds and
+        # greens never shared an inputs key, and its replay charged it to unrelated pull requests (#37286, #36911).
+        self.assertEqual(history.flaky(runs(True, False, True, False, True, keys="abcde")), [TEST])
+        self.assertEqual(history.flaky(runs(False, True, False, keys="abc"), [TEST]), [TEST])
+        # A run the file missed, or a timeout that names no test, does not split one red stretch in two.
+        self.assertEqual(history.flaky(runs(True, False, "-", None, False, True, keys="abcdef")), [])
+
     def test_a_break_that_holds_is_not_flaky(self):
         self.assertEqual(history.flaky(runs(True, True, False, False, keys="wwxx")), [])
 
