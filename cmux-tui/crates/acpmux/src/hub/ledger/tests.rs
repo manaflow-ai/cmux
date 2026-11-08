@@ -1,6 +1,8 @@
 use super::query::{Dim, LedgerQuery};
 use super::*;
 use serde_json::json;
+use std::fs::OpenOptions;
+use std::io::Write;
 
 const DAY: u64 = DAY_MS;
 /// 2026-11-08T00:00:00Z.
@@ -358,4 +360,140 @@ fn a_read_touches_only_the_buckets_in_its_range() {
     assert_eq!(reply.rows.len(), 3);
     let (_, visited_week) = query::fold(&state, &all(D0 - 7 * DAY, D0 - DAY), "leo@test");
     assert_eq!(visited_week, 7 * 20);
+}
+
+#[test]
+fn a_purged_session_leaves_the_index_and_the_file() {
+    let dir = scratch("purge");
+    let path = dir.join(store::FILE);
+    let secret = |_: &str, _: &str| TurnContext {
+        model: None,
+        info: SessionInfo {
+            title: Some("private plans".into()),
+            workspace_id: Some("ws-incognito".into()),
+            cwd: Some("/nowhere/private".into()),
+            ..ctx("claude", "claude").info
+        },
+    };
+    {
+        let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+        let cost = json!({"model": "claude-opus-5-5", "costUsd": 1.0});
+        turn(&l, "keep", D0, 0, cost.clone(), "claude", "claude");
+        for (kind, at) in [("user_message", D0), ("turn_result", D0 + DAY + 5)] {
+            let dir = if kind == "turn_result" { "mux" } else { "out" };
+            l.record("gone", &rec(dir, kind, at, cost.clone()), || secret("", ""));
+        }
+        l.note_pull_request("gone", "https://github.com/acme/secret/pull/1");
+        l.flush();
+        l.purge("gone");
+        // A repository lookup handed to the writer after the purge adds no row back.
+        let checkout = dir.join("checkout");
+        std::fs::create_dir_all(checkout.join(".git")).unwrap();
+        std::fs::write(
+            checkout.join(".git/config"),
+            "[remote \"origin\"]\n\turl = https://github.com/acme/secret.git\n",
+        )
+        .unwrap();
+        l.send(Work::Repo { sid: "gone".into(), cwd: checkout });
+        l.flush();
+        let reply = l.query(&all(0, D0 + 3 * DAY));
+        assert_eq!(reply.totals.turns, 1);
+        assert!(!l.lock().sessions.contains_key("gone"));
+        assert!(l.lock().days.values().all(|b| b.keys().all(|k| &*k.session != "gone")));
+    }
+    let text = std::fs::read_to_string(&path).unwrap();
+    for needle in ["gone", "private plans", "ws-incognito", "/nowhere/private", "acme/secret"] {
+        assert!(!text.contains(needle), "{needle} is still in the file:\n{text}");
+    }
+    let after = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    let reply = after.query(&all(0, D0 + 3 * DAY));
+    assert_eq!(reply.totals.turns, 1);
+    assert!(!after.lock().sessions.contains_key("gone"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_tombstone_in_the_file_drops_what_came_before_it() {
+    let dir = scratch("tombstone");
+    std::fs::create_dir_all(&dir).unwrap();
+    let spend = |sid: &str| {
+        format!(
+            r#"{{"t":"u","sid":"{sid}","at":{D0},"model":"m","pv":"v","costUsd":1.0,"turns":1}}"#
+        )
+    };
+    let text = format!("{}\n{}\n{{\"t\":\"p\",\"sid\":\"x\"}}\n", spend("x"), spend("y"));
+    std::fs::write(dir.join(store::FILE), text).unwrap();
+    let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    assert_eq!(l.query(&all(D0, D0)).totals.turns, 1);
+    assert!(!l.lock().sessions.contains_key("x"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_torn_last_line_is_cut_so_later_turns_survive_restarts() {
+    let dir = scratch("torn");
+    let path = dir.join(store::FILE);
+    let cost = json!({"model": "claude-opus-5-5", "costUsd": 1.0});
+    {
+        let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+        turn(&l, "a", D0, 0, cost.clone(), "claude", "claude");
+        l.flush();
+    }
+    // A crash mid-write: half a line, no newline.
+    let mut f = OpenOptions::new().append(true).open(&path).unwrap();
+    f.write_all(br#"{"t":"u","sid":"a","at":1,"mod"#).unwrap();
+    drop(f);
+    {
+        let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+        assert_eq!(l.query(&all(D0, D0)).totals.turns, 1);
+        turn(&l, "a", D0 + 100, 0, cost.clone(), "claude", "claude");
+        l.flush();
+    }
+    {
+        let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+        assert_eq!(l.query(&all(D0, D0)).totals.turns, 2, "the second restart keeps both");
+        turn(&l, "a", D0 + 200, 0, cost.clone(), "claude", "claude");
+        l.flush();
+    }
+    let l = Ledger::open_with(Some(dir.clone()), COMPACT_BYTES, "leo@test".into());
+    assert_eq!(l.query(&all(D0, D0)).totals.turns, 3);
+    assert!(std::fs::read_to_string(&path).unwrap().ends_with('\n'));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_turn_with_a_model_and_no_counts_is_unpriced_not_free() {
+    let l = mem();
+    turn(&l, "a", D0, 0, json!({"model": "claude-opus-5-5"}), "claude", "claude");
+    let reply = l.query(&all(D0, D0));
+    assert_eq!(reply.totals.unpriced_turns, 1);
+    assert_eq!(reply.totals.table_cost_usd, 0.0);
+}
+
+#[test]
+fn a_seeded_session_looks_up_its_repository() {
+    let dir = scratch("seed-repo");
+    let checkout = dir.join("checkout");
+    std::fs::create_dir_all(checkout.join(".git")).unwrap();
+    std::fs::write(
+        checkout.join(".git/config"),
+        "[remote \"origin\"]\n\turl = https://github.com/acme/widgets.git\n",
+    )
+    .unwrap();
+    let l = Ledger::open_with(Some(dir.join("ledger")), COMPACT_BYTES, "leo@test".into());
+    let mut c = TurnContext { model: Some("claude-opus-5-5".into()), ..ctx("claude", "claude") };
+    c.info.cwd = Some(checkout.to_string_lossy().into_owned());
+    l.seed(vec![Seed {
+        id: "a".into(),
+        at: D0,
+        turns: 1,
+        totals: TurnUsage { cost_usd: Some(1.0), ..Default::default() },
+        ctx: c,
+    }]);
+    l.flush();
+    assert_eq!(
+        l.lock().sessions.get("a").and_then(|i| i.repo.clone()).as_deref(),
+        Some("acme/widgets")
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }
