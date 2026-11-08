@@ -372,6 +372,23 @@
   height: var(--composer-material-height);
   padding: 0 var(--wn-side);
 }
+/* The same room on all four sides of the words (Lawrence 2026-11-07, "feels like too much padding on
+   top"): centred with their line boxes' leading, the title's capitals sat further from the top than
+   the note's baseline from the bottom. Each line is trimmed to its capitals and its baseline, and the
+   lines stand the side inset in from the top and the bottom, the space between them taking the rest
+   of the composer's box. Lines clip only sideways, so a trimmed line's descenders still show. */
+@supports (text-box: trim-both cap alphabetic) {
+  .wn-updated:not([data-placement="button"]) .wn-card-rest {
+    justify-content: space-between;
+    padding-block: var(--wn-side);
+  }
+  .wn-updated:not([data-placement="button"]) :is(.wn-card-head > *, .wn-card-rest > p) {
+    text-box: trim-both cap alphabetic;
+  }
+  .wn-updated:not([data-placement="button"]) :is(.wn-card-title, .wn-card-rest > p) {
+    overflow: clip visible;
+  }
+}
 /* The look before (gallery): the button under the note, as tall as its rows. */
 .wn-updated[data-placement="button"] .wn-card-rest {
   height: auto;
