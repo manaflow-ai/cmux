@@ -1446,7 +1446,19 @@ mod tests {
         retries: Mutex<Vec<Duration>>,
         migrations: AtomicUsize,
         diagnostics: Mutex<Vec<MachineAgentDiagnostic>>,
+        /// Signals that the old generation's peer received its
+        /// `GenerationRejected`. When set, each diagnostic first waits up to
+        /// `REJECTION_ORDER_WINDOW` for that signal, so a runtime that tells
+        /// the peer before it reports is caught in every run.
+        peer_rejected: Mutex<Option<Receiver<()>>>,
+        /// A diagnostic was reported after the peer already had the rejection.
+        reported_after_rejection: AtomicBool,
     }
+
+    /// How long a diagnostic waits to see whether the peer already has the
+    /// rejection. The correct order sends the rejection only after the
+    /// report, so this wait always runs out there.
+    const REJECTION_ORDER_WINDOW: Duration = Duration::from_millis(500);
 
     impl Reporter for TestReporter {
         fn pairing_code(&self, code: &str) -> io::Result<()> {
@@ -1465,6 +1477,11 @@ mod tests {
         }
 
         fn diagnostic(&self, diagnostic: MachineAgentDiagnostic) {
+            if let Some(peer_rejected) = self.peer_rejected.lock().unwrap().as_ref()
+                && peer_rejected.recv_timeout(REJECTION_ORDER_WINDOW).is_ok()
+            {
+                self.reported_after_rejection.store(true, Ordering::Release);
+            }
             self.diagnostics.lock().unwrap().push(diagnostic);
         }
     }
@@ -2557,7 +2574,11 @@ mod tests {
         let mut old_server = WirePeer::new(servers.remove(0));
         let mut replacement_server = WirePeer::new(servers.remove(0));
         let local = Arc::new(QueueLocal { streams: Mutex::new(VecDeque::new()) });
-        let reporter = Arc::new(TestReporter::default());
+        let (peer_rejected, rejection_seen) = mpsc::channel();
+        let reporter = Arc::new(TestReporter {
+            peer_rejected: Mutex::new(Some(rejection_seen)),
+            ..TestReporter::default()
+        });
         let stop = AtomicStop::new();
         let agent = MachineAgent::new(
             identity(),
@@ -2580,15 +2601,28 @@ mod tests {
             panic!("expected replacement hello");
         };
         assert_eq!(hello.migration.unwrap().generation, 5);
+        // The old peer reads on its own thread, so a rejection that the
+        // runtime sends before it reports reaches the reporter while it waits.
+        let old_peer = thread::spawn(move || {
+            let message = old_server.read().message;
+            let _ = peer_rejected.send(());
+            (old_server, message)
+        });
         replacement_server.write(registered(registered_generation, pairing_code));
 
+        let (old_server, rejection) = old_peer.join().unwrap();
         assert!(matches!(
-            old_server.read().message,
+            rejection,
             Message::GenerationRejected(GenerationRejected { generation: 5, ref code })
                 if code.as_str() == expected_code
         ));
+        // Whoever sees the rejection can rely on the failure being reported.
         assert_eq!(*reporter.diagnostics.lock().unwrap(), vec![expected_diagnostic]);
-        assert_eq!(reporter.migrations.load(Ordering::Relaxed), 1);
+        assert_eq!(reporter.migrations.load(Ordering::Acquire), 1);
+        assert!(
+            !reporter.reported_after_rejection.load(Ordering::Acquire),
+            "the old generation's peer got its rejection before the failure was reported"
+        );
 
         stop.stop();
         old_server.shutdown();
