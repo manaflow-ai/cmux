@@ -200,6 +200,9 @@ import CmuxNextCompat
         /// The uploads of this send in progress (``holdForUpload(_:upload:connection:sessionId:promptId:)``),
         /// each with its own last progress.
         var uploads: [String: TimeInterval] = [:]
+        /// Uploads whose finish is in flight (``uploadFinishing(_:)``): the host awaits their Cloud or
+        /// peer transfer, so no chunk reports progress and they do not stall out.
+        var finishing: Set<String> = []
         /// While `uploads` is not empty: when the ticket's clock stopped.
         var stoppedAt: TimeInterval?
         /// A ticket another process's posted gesture paid for (``consumePosted(for:)``): the grant's
@@ -212,7 +215,7 @@ import CmuxNextCompat
         func isFresh(_ now: TimeInterval) -> Bool {
             guard let stoppedAt else { return now - at <= intent.lifetime }
             return stoppedAt - at <= intent.lifetime
-                && uploads.values.allSatisfy { now - $0 <= AgentPaneUserGestures.uploadStallLimit }
+                && uploads.allSatisfy { finishing.contains($0.key) || now - $0.value <= AgentPaneUserGestures.uploadStallLimit }
         }
     }
 
@@ -348,11 +351,11 @@ import CmuxNextCompat
 
     /// `uploads.begin`'s check: `ticket` is the send ticket the person's Send reserved on this
     /// `connection` for exactly `promptId` in chat `sessionId` (``AgentPaneGestureIntent/sessionId``),
-    /// still fresh. Then `upload` holds it: the ticket's clock stands still while any of its
+    /// still fresh, and a posted one only under its standing grant. Then `upload` holds it: the ticket's clock stands still while any of its
     /// uploads is in progress, so a file of any size still sends. Not spent; false refuses the upload.
     public func holdForUpload(_ ticket: String, upload: String, connection: Int, sessionId: String, promptId: String) -> Bool {
         let at = now()
-        dropTickets { !$1.isFresh(at) }
+        dropEndedHolds()
         guard var held = tickets[ticket], held.connection == connection, held.intent.method == "session/prompt",
               held.intent.sessionId == sessionId,
               held.intent.params == ["promptId": .string(AgentPaneHandoffPrompt(id: promptId).ownID)],
@@ -367,9 +370,19 @@ import CmuxNextCompat
     /// hold ended: the uploader stops.
     public func uploadProgressed(_ upload: String) -> Bool {
         let at = now()
-        dropTickets { !$1.isFresh(at) }
+        dropEndedHolds()
         guard let key = tickets.first(where: { $0.value.uploads[upload] != nil })?.key else { return false }
         tickets[key]?.uploads[upload] = at
+        return true
+    }
+
+    /// The finish of an upload holding a send ticket began: until it is released, the host awaits its
+    /// transfer and the hold no longer stalls out (a newer Send, the connection's end or Turn Off still
+    /// end it). False when its hold ended: the finish is refused.
+    public func uploadFinishing(_ upload: String) -> Bool {
+        dropEndedHolds()
+        guard let key = tickets.first(where: { $0.value.uploads[upload] != nil })?.key else { return false }
+        tickets[key]?.finishing.insert(upload)
         return true
     }
 
@@ -378,9 +391,10 @@ import CmuxNextCompat
     @discardableResult
     public func releaseUpload(_ upload: String) -> Bool {
         let at = now()
-        dropTickets { !$1.isFresh(at) }
+        dropEndedHolds()
         guard let key = tickets.first(where: { $0.value.uploads[upload] != nil })?.key, var held = tickets[key] else { return false }
         held.uploads.removeValue(forKey: upload)
+        held.finishing.remove(upload)
         if held.uploads.isEmpty, let stopped = held.stoppedAt {
             held.at += at - stopped
             held.stoppedAt = nil
@@ -389,8 +403,17 @@ import CmuxNextCompat
         return true
     }
 
-    /// Whether `upload` holds a send ticket.
-    public func holdsTicket(upload: String) -> Bool { tickets.values.contains { $0.uploads[upload] != nil } }
+    /// Whether `upload` holds a send ticket whose grant still stands (``isGrantStanding(_:)``).
+    public func holdsTicket(upload: String) -> Bool {
+        tickets.values.contains { $0.uploads[upload] != nil && isGrantStanding($0) }
+    }
+
+    /// Drops the tickets that expired, and the posted ones whose grant was turned off since they
+    /// were reserved: their uploads stop (``onUploadHoldsEnded``).
+    private func dropEndedHolds() {
+        let at = now()
+        dropTickets { !$1.isFresh(at) || !isGrantStanding($1) }
+    }
 
     // MARK: A seeded prompt's ticket (cx-k21v gap 4)
 

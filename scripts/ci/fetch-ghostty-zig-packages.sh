@@ -27,15 +27,17 @@
 # partial under its final name, and a temp file has no archive suffix and stays.
 #
 # usage: fetch-ghostty-zig-packages.sh [ghostty source dir]
-# CMUX_ZIG_FETCH_ATTEMPTS (default 3), CMUX_ZIG_FETCH_STALL_TIMEOUT (seconds
+# CMUX_ZIG_FETCH_ATTEMPTS (default 4), CMUX_ZIG_FETCH_STALL_TIMEOUT (seconds
 # without progress, default 180), CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT (seconds an
 # attempt may run, default 1800), CMUX_ZIG_FETCH_RETRY_DELAY (seconds, default
-# 20, multiplied by the attempt number) and CMUX_ZIG_FETCH_SAMPLE (seconds
+# 20, multiplied by the attempt number: 20, 40 and 60 s, so the retries span 2
+# minutes of a package-host outage; 3 attempts 20 and 40 s apart all got the
+# same 504 on 2026-11-08) and CMUX_ZIG_FETCH_SAMPLE (seconds
 # between progress checks, default 5) bound the retries. CMUX_ZIG_SEED=0 skips
 # the curl pre-download (scripts/ci/seed-zig-package-archives.sh).
 set -euo pipefail
 source_dir="${1:-ghostty-next}"
-attempts="${CMUX_ZIG_FETCH_ATTEMPTS:-3}"
+attempts="${CMUX_ZIG_FETCH_ATTEMPTS:-4}"
 stall_timeout="${CMUX_ZIG_FETCH_STALL_TIMEOUT:-180}"
 attempt_timeout="${CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT:-1800}"
 delay="${CMUX_ZIG_FETCH_RETRY_DELAY:-20}"
@@ -60,6 +62,10 @@ if [[ -z "$cache" ]]; then
   # `zig env` prints ZON (0.15 and later: `.global_cache_dir = "..."`) or JSON (older).
   cache="$("$zig_bin" env 2>/dev/null | sed -n 's/.*global_cache_dir"\{0,1\} *[:=] *"\([^"]*\)".*/\1/p' | head -1)" || cache=""
 fi
+# Zig 0.16 writes a zip package to <cache>/tmp/ and does not make that directory
+# ("failed to create temporary zip file: FileNotFound"): when every other package
+# came from a restore or the curl seed, nothing else made it.
+if [[ -n "$cache" ]]; then mkdir -p "$cache/p" "$cache/tmp"; fi
 
 # A signature of what has been downloaded so far: it changes while bytes arrive.
 progress() {
