@@ -2364,6 +2364,17 @@
     },
     {
       "params": {
+        "action": "cloud transfer-local",
+        "args": {
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud transfer-local --path /tmp/contract"
+    },
+    {
+      "params": {
         "action": "cloud exec",
         "args": {
           "command": "/tmp/contract"
