@@ -116,7 +116,7 @@ async fn queue(
     let mut out = json!({"items": items, "now": now});
     if !omitted.is_empty() {
         omitted.sort();
-        out[PEERS_OMITTED] = json!(omitted);
+        out.set(PEERS_OMITTED, json!(omitted));
     }
     Ok(out)
 }

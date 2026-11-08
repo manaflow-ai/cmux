@@ -710,16 +710,16 @@ pub(crate) fn entry_hash(prev: &str, entry: &Value) -> String {
 fn canonical(v: &Value, out: &mut String) {
     match v {
         Value::Object(m) => {
-            let mut keys: Vec<&String> = m.keys().collect();
-            keys.sort();
+            let mut members: Vec<(&String, &Value)> = m.iter().collect();
+            members.sort_by(|a, b| a.0.cmp(b.0));
             out.push('{');
-            for (i, k) in keys.into_iter().enumerate() {
+            for (i, (k, v)) in members.into_iter().enumerate() {
                 if i > 0 {
                     out.push(',');
                 }
                 out.push_str(&Value::String(k.clone()).to_string());
                 out.push(':');
-                canonical(&m[k], out);
+                canonical(v, out);
             }
             out.push('}');
         }
