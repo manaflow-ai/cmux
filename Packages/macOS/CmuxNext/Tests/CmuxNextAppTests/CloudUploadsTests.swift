@@ -80,7 +80,7 @@ import Testing
         let store = DaemonStore()
         var chat = TabSnapshot(surface: SurfaceID(rawValue: 1), kind: .conversation, cwd: nil)
         chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "registry:cloud-1", session: "s1", harness: "claude"))
-        let terminal = TabSnapshot(surface: SurfaceID(rawValue: 2), kind: .terminal, cwd: nil)
+        let terminal = TabSnapshot(surface: SurfaceID(rawValue: 2), kind: .pty, cwd: nil)
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [chat, terminal])])
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "cloud", screens: [screen])]))
         let tabs = try #require(store.workspaces.first?.screens.first?.panes.first?.tabs)
