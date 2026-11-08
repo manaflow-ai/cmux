@@ -125,9 +125,7 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     let hook_ran = root.join("hook-ran");
     fs::create_dir_all(checkout.join(".git/hooks")).unwrap();
     let hook = checkout.join(".git/hooks/post-checkout");
-    fs::write(&hook, format!("#!/bin/sh
-touch '{}'
-", hook_ran.display())).unwrap();
+    fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\n", hook_ran.display())).unwrap();
     fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
     git(&checkout, &["config", "diff.noprefix", "true"]);
 
