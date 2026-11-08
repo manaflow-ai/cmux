@@ -757,9 +757,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Linux only, as on feat-cmux-next: no Playwright, Puppeteer or downloaded Chromium on
+        # Mac runners (Lawrence, 2026-11-02); the old Mac lane ran on a self-hosted fleet Mac.
         include:
-          - os: macos
-            runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
           - os: linux
             runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
@@ -782,27 +782,27 @@ jobs:
         working-directory: web
         run: bun install --frozen-lockfile
 
-      - name: Install pinned Playwright Chromium (Linux)
+      - name: Install system Chrome and chrome-headless-shell (Linux)
         if: runner.os == 'Linux'
         working-directory: web
-        run: bunx playwright install --with-deps chromium
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
 
-      - name: Install pinned Playwright Chromium (macOS)
-        if: runner.os == 'macOS'
-        working-directory: web
-        run: bunx playwright install chromium
-
-      - name: Resolve Playwright Chromium executable
+      # The step above installs no Playwright Chromium (system Chrome only, CVE-2026-118306).
+      # Use the chrome-headless-shell it fetched (the engine Playwright's headless launches use),
+      # else the system Chrome it checked.
+      - name: Resolve Chromium executable
         id: chromium
-        working-directory: web
         shell: bash
         run: |
           set -euo pipefail
-          path="$(bun -e 'const { chromium } = require("@playwright/test"); process.stdout.write(chromium.executablePath())')"
+          path="${CMUX_CHROME_HEADLESS_SHELL:-}"
+          if [[ -z "$path" ]]; then
+            path="$(command -v google-chrome-stable || command -v google-chrome || true)"
+          fi
           test -n "$path"
           test -x "$path"
           printf 'path=%s\n' "$path" >> "$GITHUB_OUTPUT"
-          echo "Using Playwright Chromium at $path"
+          echo "Using Chromium at $path ($("$path" --version 2>/dev/null || echo 'version unknown'))"
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
