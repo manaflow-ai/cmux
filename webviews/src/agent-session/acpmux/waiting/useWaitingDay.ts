@@ -2,7 +2,9 @@
 // shown and again after any listed chat changes status, a moment after the last change so a burst
 // of changes is one read. There is no interval: the one timer is the debounce, cleared by the next
 // change or when the home goes. A reply that an older ask brings after a newer one is dropped, and
-// a failed read leaves the last day (or nothing) in place.
+// a failed read leaves the last day (or nothing) in place. Nothing is asked while the link to acpmux
+// is down; the read runs when it comes up. A home left open past local midnight starts the new day
+// then: one timer to the next midnight, cleared when the home goes.
 import { useEffect, useRef, useState } from "react";
 import { localMidnight, parseWaitingDay, type WaitingDay } from "./waitingModel";
 
@@ -15,14 +17,33 @@ export const WAITING_READ_DEBOUNCE_MS = 400;
 // the new read is on its way. Only today's: a page left open overnight starts empty.
 let lastDay: WaitingDay | undefined;
 
-export function useWaitingDay(read: ReadWaitingDay | undefined, key: string, shown: boolean): WaitingDay | undefined {
+export function useWaitingDay(
+  read: ReadWaitingDay | undefined,
+  key: string,
+  shown: boolean,
+  linked = true,
+): WaitingDay | undefined {
   const [day, setDay] = useState<WaitingDay | undefined>(() =>
     lastDay && lastDay.since === localMidnight(Date.now()) ? lastDay : undefined,
   );
+  const [today, setToday] = useState(() => localMidnight(Date.now()));
+  useEffect(() => {
+    if (!shown) return;
+    const next = new Date(today);
+    next.setDate(next.getDate() + 1);
+    const timer = setTimeout(
+      () => {
+        setDay(undefined);
+        setToday(localMidnight(Date.now()));
+      },
+      Math.max(1_000, next.getTime() - Date.now()),
+    );
+    return () => clearTimeout(timer);
+  }, [shown, today]);
   const ticket = useRef(0);
   const first = useRef(true);
   useEffect(() => {
-    if (!shown || !read) {
+    if (!shown || !read || !linked) {
       first.current = true;
       return;
     }
@@ -45,6 +66,6 @@ export function useWaitingDay(read: ReadWaitingDay | undefined, key: string, sho
     first.current = false;
     const timer = setTimeout(ask, delay);
     return () => clearTimeout(timer);
-  }, [read, key, shown]);
+  }, [read, key, shown, linked, today]);
   return shown ? day : undefined;
 }

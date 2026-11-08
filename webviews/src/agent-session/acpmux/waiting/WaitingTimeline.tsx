@@ -40,13 +40,16 @@ type Shown = { lane: WaitingLane; title: string };
 export function HomeWaitingTimeline({
   read,
   sessions,
+  linked,
   onJump,
 }: {
   read: ReadWaitingDay;
   sessions: readonly AcpmuxSessionEntry[];
+  /// The pane's link to acpmux is up (model.ts `linkUp`): a read waits for it.
+  linked: boolean;
   onJump: (sessionId: string, turnId?: string) => void;
 }) {
-  const day = useWaitingDay(read, statusKey(sessions), true);
+  const day = useWaitingDay(read, statusKey(sessions), true, linked);
   return <WaitingTimeline day={day} sessions={sessions} onJump={onJump} />;
 }
 

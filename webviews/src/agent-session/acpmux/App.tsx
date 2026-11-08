@@ -11916,7 +11916,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       onAnswer={(item, choice) => answerFromHome(callNative, item, choice, selectSession)}
                       shortcuts={!hasBottomAsk}
                     />
-                    <HomeWaitingTimeline read={readWaitingDay} sessions={snapshot.sessions} onJump={jumpToWait} />
+                    <HomeWaitingTimeline
+                      read={readWaitingDay}
+                      sessions={snapshot.sessions}
+                      linked={linkUp(snapshot.connection)}
+                      onJump={jumpToWait}
+                    />
                   </div>
                 )}
                 {hostLine}

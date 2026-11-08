@@ -331,13 +331,7 @@ fn spans(marks: &VecDeque<Mark>, since: u64, until: u64) -> Vec<Span> {
         if end <= start {
             continue;
         }
-        out.push(Span {
-            state: mark.state,
-            start,
-            end,
-            seq: mark.seq,
-            turn_id: mark.turn.clone(),
-        });
+        out.push(Span { state: mark.state, start, end, seq: mark.seq, turn_id: mark.turn.clone() });
     }
     out
 }

@@ -138,7 +138,6 @@ pub use model_options::{
     current_effort, current_model, current_option, resolve_config_id, web_url, web_url_for_session,
 };
 pub mod ledger;
-pub mod waiting_day;
 mod model_hint;
 mod models_view;
 mod paging;
@@ -146,6 +145,7 @@ mod personal_stats;
 mod policy_mode;
 mod policy_source;
 mod pool;
+pub mod waiting_day;
 pub(crate) use pool::SESSION_NEW_BUDGET;
 mod prompt_attribution;
 pub(crate) mod prompt_images;
