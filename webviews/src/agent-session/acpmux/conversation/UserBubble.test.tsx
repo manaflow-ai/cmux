@@ -8,6 +8,7 @@ import { translate } from "../i18n";
 import { PresentationContext } from "./presentationContextModel";
 import { TurnActionsContext, type TurnActions } from "./turnActions";
 import { UserBubble } from "./UserBubble";
+import { PromptActions } from "./MessageActions";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -172,6 +173,39 @@ test("a file-only prompt recorded with retained files and inline parts draws its
 
   expect(drawnFiles(container)).toBe(1);
   expect(drawnImages(container)).toBe(0);
+});
+
+test("an attachment-only prompt draws a legacy image its inline parts do not record", async () => {
+  const sent = { ...image, src: "data:image/png;base64,iVBORw0KGgo=" };
+  const row: AcpmuxRow = {
+    ...baseRow(),
+    images: [sent],
+    inlineParts: [{ kind: "file", name: "notes.pdf", mimeType: "application/pdf", size: 12 }],
+  };
+  const container = await render(row);
+
+  expect(drawnImages(container)).toBe(1);
+  expect(drawnFiles(container)).toBe(1);
+});
+
+test("the Messages view's prompt actions offer Retry for an attachment-only prompt", async () => {
+  const row: AcpmuxRow = {
+    ...baseRow(),
+    images: undefined,
+    retryAttachments: [{ id: "attachment", kind: "image", name: "a.png", mimeType: "image/png", size: 1 }],
+  };
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <PresentationContext.Provider value="messages">
+        <TurnActionsContext.Provider value={{ retry: () => {} }}>
+          <PromptActions row={row} text="" />
+        </TurnActionsContext.Provider>
+      </PresentationContext.Provider>,
+    );
+  });
+  expect(container.querySelector(`button[aria-label="${translate("turn.retry")}"]`)).not.toBeNull();
 });
 
 test("an image-only prompt still hides retry while its send is pending", async () => {
