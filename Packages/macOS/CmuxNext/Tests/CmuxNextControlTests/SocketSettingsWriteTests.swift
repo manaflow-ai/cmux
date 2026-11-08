@@ -65,23 +65,24 @@ import Testing
         var asked: [String] = []
         var approve = false
         settings.userOnlyConfirmation = { key, _ in asked.append(key); return approve }
+        // On, not the default off: a write of the default removes the key (#38119), so it would not show the approved write.
         let path: JSONValue = "history.terminalCommands"
-        guard case .failure(let refused) = await call(router, "settings.set", ["path": path, "value": false]) else {
+        guard case .failure(let refused) = await call(router, "settings.set", ["path": path, "value": true]) else {
             Issue.record("a socket write of a user-only key went through")
             return
         }
         #expect(refused.code == "setting_user_only")
         #expect(refused.message.contains("--confirm"))
         #expect(asked.isEmpty, "no sheet without --confirm")
-        guard case .failure(let declined) = await call(router, "settings.set", ["path": path, "value": false, "confirm": true]) else {
+        guard case .failure(let declined) = await call(router, "settings.set", ["path": path, "value": true, "confirm": true]) else {
             Issue.record("a declined sheet wrote the key")
             return
         }
         #expect(declined.code == "setting_user_only")
         #expect(try await settings.file.value(at: ["history", "terminalCommands"]) == nil)
         approve = true
-        _ = try await call(router, "settings.set", ["path": path, "value": false, "confirm": true]).get()
-        #expect(try await settings.file.value(at: ["history", "terminalCommands"]) == .bool(false))
+        _ = try await call(router, "settings.set", ["path": path, "value": true, "confirm": true]).get()
+        #expect(try await settings.file.value(at: ["history", "terminalCommands"]) == .bool(true))
         #expect(asked == ["history.terminalCommands", "history.terminalCommands"])
         _ = try await call(router, "settings.set", ["path": "appearance.density", "value": "compact"]).get()
         #expect(asked.count == 2, "an agent-settable key needs no sheet")
