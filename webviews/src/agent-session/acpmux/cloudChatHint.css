@@ -64,8 +64,8 @@
   border-radius: var(--ds-radius-control, 8px);
   background: var(--acpmux-cloud-hint-fill);
   color: var(--agent-muted);
-  font-size: var(--text-detail, 12px);
-  letter-spacing: var(--text-detail--letter-spacing, normal);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
   line-height: 16px;
 }
 .acpmux-cloud-hint-icon {
@@ -78,7 +78,7 @@
   flex: 1;
   min-width: 0;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
 }
 .acpmux-cloud-hint-body {
   min-width: 0;
@@ -99,11 +99,11 @@
   background: var(--acpmux-cloud-hint-fill-strong);
   color: var(--agent-text);
   font: inherit;
-  font-weight: 500;
+  font-weight: normal;
   cursor: default;
 }
 .acpmux-cloud-hint-use {
-  min-height: 22px;
+  min-height: 24px;
   padding: 0 var(--ds-space-2, 8px);
   white-space: nowrap;
 }
@@ -111,8 +111,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   background: transparent;
   color: var(--agent-muted);
@@ -136,12 +136,12 @@
   white-space: normal;
 }
 
-/* Chip: one small block at the start of the column, the icon, Try Cloud and the X. */
+/* Chip: one small block centered in the column, the icon, Try Cloud and the X. */
 .acpmux-cloud-hint[data-look="chip"] {
   width: max-content;
   max-width: 100%;
-  margin-inline: max(0px, calc((100% - 760px) / 2)) auto;
-  padding: 2px 2px 2px var(--ds-space-2, 8px);
+  margin-inline: auto;
+  padding: var(--ds-space-1, 4px) var(--ds-space-1, 4px) var(--ds-space-1, 4px) var(--ds-space-2, 8px);
   gap: var(--ds-space-1, 4px);
 }
 .acpmux-cloud-hint[data-look="chip"] .acpmux-cloud-hint-use {

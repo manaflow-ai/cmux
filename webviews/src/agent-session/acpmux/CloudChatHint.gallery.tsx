@@ -24,7 +24,7 @@ export default componentEntry<Props>({
   height: 120,
   variants: {
     line: {
-      note: "Shipped. One quiet row on a flat tonal fill: the cloud mark, what Cloud gives in one sentence, Use Cloud and an X. It reads as part of the new chat's flow, sits over the strip and never over the box, and costs one 30 px row that folds away on a pick or the X.",
+      note: "Shipped. One quiet row on a flat tonal fill: the cloud mark, what Cloud gives in one sentence, Use Cloud and an X. It reads as part of the new chat's flow, sits over the strip and never over the box, and costs one 32 px row that folds away on a pick or the X.",
       props: { look: "line", onUse, onClose },
     },
     card: {
