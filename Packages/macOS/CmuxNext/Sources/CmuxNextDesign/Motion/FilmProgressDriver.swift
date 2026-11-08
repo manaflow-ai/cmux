@@ -14,19 +14,29 @@ public struct FilmProgressDriver: Sendable, Equatable {
         case spring(damping: Double, response: Double)
     }
 
-    public var curve: Curve
+    public let curve: Curve
+    /// A spring's progress table (``progress()``), computed once when the driver is made: a key turn makes one driver and
+    /// drives every layer of the zoom with it (frame, mask, each pane's opacity), so the 4000-step settle search runs once
+    /// per key, not twice per driven layer (ZOOM VARIANTS 3, key-turn profile item 1: 2.0 + 1.1 ms per press).
+    private let table: SpringTable?
+
+    private struct SpringTable: Sendable, Equatable { let times: [Double], values: [Double], duration: Double }
 
     public init(points: (Float, Float, Float, Float), seconds: Double) {
         curve = .bezier(x1: points.0, y1: points.1, x2: points.2, y2: points.3, seconds: seconds)
+        table = nil
     }
 
-    public init(damping: Double, response: Double) { curve = .spring(damping: damping, response: response) }
+    public init(damping: Double, response: Double) {
+        curve = .spring(damping: damping, response: response)
+        table = Self.springTable(curve)
+    }
 
     /// Seconds until rest: a bezier's duration, a spring's settle time to 0.5 pt over 900 pt.
     public var duration: TimeInterval {
         switch curve {
         case let .bezier(_, _, _, _, seconds): seconds
-        case .spring: progress()?.duration ?? 0
+        case .spring: table?.duration ?? 0
         }
     }
 
@@ -34,22 +44,34 @@ public struct FilmProgressDriver: Sendable, Equatable {
     /// sample exactly 1 at the settle time, with key times 0 ... 1. Nil for a bezier curve. The exact step response (no
     /// numeric integration), so a critically damped spring (ratio 1, m68 "no bounce") never passes 1.
     public func progress() -> (times: [NSNumber], values: [Double], duration: Double)? {
+        guard let table else { return nil }
+        return (table.times.map { NSNumber(value: $0) }, table.values, table.duration)
+    }
+
+    private static func springTable(_ curve: Curve) -> SpringTable? {
         guard case .spring = curve else { return nil }
+        let probe = FilmProgressDriver(probing: curve)
         let every = 1.0 / 240, within = 0.5 / 900
         var settle = 0.0, t = 0.0
         while t < 2 {
             t += 0.0005
-            if let p = step(t), abs(1 - p) > within { settle = t }
+            if let p = probe.step(t), abs(1 - p) > within { settle = t }
         }
         let end = max(settle, 1.0 / 120)
         var samples: [(Double, Double)] = [(0, 0)]
         var at = every
         while at < end {
-            samples.append((at, step(at) ?? 1))
+            samples.append((at, probe.step(at) ?? 1))
             at += every
         }
         samples.append((end, 1))
-        return (samples.map { NSNumber(value: $0.0 / end) }, samples.map(\.1), end)
+        return SpringTable(times: samples.map { $0.0 / end }, values: samples.map(\.1), duration: end)
+    }
+
+    /// The curve alone, no table (``step(_:)`` for the table's own search).
+    private init(probing curve: Curve) {
+        self.curve = curve
+        table = nil
     }
 
     /// The spring's step response at `t` s (0 at rest at the start, 1 at the target), from rest. Nil for a bezier curve.
@@ -67,7 +89,7 @@ public struct FilmProgressDriver: Sendable, Equatable {
     }
 
     /// The largest progress past 1 (0: no overshoot), times the travel gives the overshoot in points.
-    public var overshoot: Double { max(0, (progress()?.values.max() ?? 1) - 1) }
+    public var overshoot: Double { max(0, (table?.values.max() ?? 1) - 1) }
 
     /// `layer.keyPath` driven by the curve's progress: `value(p)` for each p (clamp inside `value` where the property
     /// must not overshoot). Every property driven this way in one turn moves on the same p at the same instant. Through

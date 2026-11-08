@@ -162,6 +162,7 @@ extension ScreenContentView {
     /// covered panes' pictures (`container`), which fade out in place; one progress value p drives all three.
     private func filmGrow(_ film: FilmZoomVariant, _ zoomed: CALayer, from: CGRect, to: CGRect, container: CALayer,
                           finish: @escaping @MainActor () -> Void) {
+        let driver = film.driver // one progress table for every layer this zoom drives
         let mask = CAShapeLayer()
         mask.frame = zoomed.bounds
         mask.fillColor = NSColor.black.cgColor
@@ -176,16 +177,16 @@ extension ScreenContentView {
         CATransaction.commit()
         let size = zoomed.bounds.size
         let nothing: @MainActor () -> Void = {}
-        film.drive(zoomed, "transform", { p in
+        driver.drive(zoomed, "transform", { p in
             let r = Self.filmLerp(from, to, p)
             return NSValue(caTransform3D: CATransform3DMakeTranslation(r.minX - to.minX, r.minY - to.minY, 0))
         }, completion: nothing)
-        film.drive(mask, "path", { p in
+        driver.drive(mask, "path", { p in
             let r = Self.filmLerp(from, to, p)
             return CGPath(rect: CGRect(x: 0, y: 0, width: max(0, min(size.width, r.width)), height: max(0, min(size.height, r.height))),
                           transform: nil)
         }, completion: nothing)
-        film.drive(container, "opacity", { p in NSNumber(value: Float(min(1, max(0, 1 - p)))) }, completion: { [weak self] in
+        driver.drive(container, "opacity", { p in NSNumber(value: Float(min(1, max(0, 1 - p)))) }, completion: { [weak self] in
             // The zoomed pane's layer as it was (found again by the screen: no layer captured here).
             if let self, let layer = self.layer?.sublayers?.first(where: { $0.mask?.name == maskName }) {
                 CATransaction.begin()
@@ -203,6 +204,7 @@ extension ScreenContentView {
     /// same p, their own layers and chrome (a terminal, a page and its toolbar fade together; no copy, so no blank page),
     /// still shown and visible. Their retire (hide; a page's orderOut) waits for the fade's end, off the key's turn.
     private func filmFadeLive(_ film: FilmZoomVariant, _ zoomed: CALayer, from: CGRect, to: CGRect) {
+        let driver = film.driver // one progress table for every layer this zoom drives
         let covered = frameInput.filmZoomRetire
         frameInput.filmZoomRetire = []
         frameInput.filmZoomFading = covered
@@ -221,16 +223,16 @@ extension ScreenContentView {
         CATransaction.commit()
         let size = zoomed.bounds.size
         let nothing: @MainActor () -> Void = {}
-        film.drive(zoomed, "transform", { p in
+        driver.drive(zoomed, "transform", { p in
             let r = Self.filmLerp(from, to, p)
             return NSValue(caTransform3D: CATransform3DMakeTranslation(r.minX - to.minX, r.minY - to.minY, 0))
         }, completion: nothing)
         let fading = covered.compactMap { context.hosts[$0] }.flatMap { [$0.layer, $0.chrome.layer] }.compactMap { $0 }
         for layer in fading {
-            film.drive(layer, "opacity", { p in NSNumber(value: Float(min(1, max(0, 1 - p)))) }, completion: nothing)
+            driver.drive(layer, "opacity", { p in NSNumber(value: Float(min(1, max(0, 1 - p)))) }, completion: nothing)
         }
         // The end: one completion on the zoomed pane's own frame (every property ends on the same p).
-        film.drive(mask, "path", { p in
+        driver.drive(mask, "path", { p in
             let r = Self.filmLerp(from, to, p)
             return CGPath(rect: CGRect(x: 0, y: 0, width: max(0, min(size.width, r.width)), height: max(0, min(size.height, r.height))),
                           transform: nil)
@@ -275,6 +277,7 @@ extension ScreenContentView {
     /// in at their places; one progress value p drives all of it.
     private func filmShrink(_ film: FilmZoomVariant, container: CALayer, from: CGRect, to: CGRect, fadingIn: [CALayer],
                             finish: @escaping @MainActor () -> Void) {
+        let driver = film.driver // one progress table for every layer this zoom drives
         guard let picture = container.sublayers?.first else { return finish() }
         let mask = CAShapeLayer()
         mask.frame = container.bounds
@@ -285,17 +288,17 @@ extension ScreenContentView {
         container.mask = mask
         CATransaction.commit()
         let nothing: @MainActor () -> Void = {}
-        film.drive(mask, "path", { p in CGPath(rect: Self.filmLerp(from, to, p).standardized, transform: nil) }, completion: nothing)
-        film.drive(picture, "transform", { p in
+        driver.drive(mask, "path", { p in CGPath(rect: Self.filmLerp(from, to, p).standardized, transform: nil) }, completion: nothing)
+        driver.drive(picture, "transform", { p in
             let r = Self.filmLerp(from, to, p)
             return NSValue(caTransform3D: CATransform3DMakeTranslation(r.minX - from.minX, r.minY - from.minY, 0))
         }, completion: nothing)
         for layer in fadingIn {
-            film.drive(layer, "opacity", { p in NSNumber(value: Float(min(1, max(0, p)))) }, completion: nothing)
+            driver.drive(layer, "opacity", { p in NSNumber(value: Float(min(1, max(0, p)))) }, completion: nothing)
         }
         // The old full picture fades out on the same p while it shrinks (film zv-z4-c3-view: kept opaque, it covered the
         // live pane at its place with the old wide lines until the spring rested); the live zoomed pane is under it.
-        film.drive(container, "opacity", { p in NSNumber(value: Float(min(1, max(0, 1 - p)))) }, completion: finish)
+        driver.drive(container, "opacity", { p in NSNumber(value: Float(min(1, max(0, 1 - p)))) }, completion: finish)
     }
 
     /// The frame at progress `p` (past 1 on a spring's overshoot) from `a` to `b`.
