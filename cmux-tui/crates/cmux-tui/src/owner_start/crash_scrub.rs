@@ -149,8 +149,8 @@ mod tests {
     #[test]
     fn url_credentials_keep_scheme_and_host() {
         assert_eq!(
-            scrub("clone https://me:pw@git.corp.dev/r.git", None),
-            "clone https://<redacted-secret>@git.corp.dev/r.git"
+            scrub("clone https://me:pw@git.example.com/r.git", None),
+            "clone https://<redacted-secret>@git.example.com/r.git"
         );
         assert_eq!(scrub("mail a.b@corp.dev now", None), "mail <redacted-email> now");
     }
