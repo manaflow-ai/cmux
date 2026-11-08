@@ -136,6 +136,16 @@ struct SpringFrameNoWindowPassTests {
             + "[\(Self.autoresizingConstrained(under: frameView))], Auto Layout views [\(Self.constraintViews(in: rig.window))], "
             + "extra \(extra.count): \(extra.prefix(8))"
         print("M2DIAG \(found)")
+        var translating: [String] = []
+        var stack: [NSView] = [rig.root]
+        while let view = stack.popLast() {
+            stack.append(contentsOf: view.subviews)
+            let own = view.constraints.filter { NSStringFromClass(type(of: $0)) != "NSAutoresizingMaskLayoutConstraint" }.count
+            if view.translatesAutoresizingMaskIntoConstraints || own > 0 {
+                translating.append("\(type(of: view))(\(view.translatesAutoresizingMaskIntoConstraints ? "AR" : "noAR") own \(own) in \(view.superview.map { "\(type(of: $0))" } ?? "-"))")
+            }
+        }
+        print("M2TREE host \(host): \(translating.count) views under the layout translate or hold constraints: \(translating)")
         let settled = Self.frames(rig.root)
         rig.window.setContentSize(NSSize(width: 1000, height: 700))
         rig.window.layoutIfNeeded()
