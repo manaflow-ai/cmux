@@ -92,7 +92,7 @@ function ToolbarRow({ session, strings }: { session: ToolbarSession; strings: St
             placeholder={strings.t("browser.omnibar.placeholder")}
           />
         }
-        onFieldPointerDown={session.fieldPointerDown}
+        onFieldMouseDown={session.fieldMouseDown}
         chipDrag={chipDrag}
         onCommand={send}
       />

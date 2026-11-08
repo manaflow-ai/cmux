@@ -413,8 +413,8 @@ export class ToolbarSession {
     });
     const bar = input.closest<HTMLElement>(".bc-omnibar");
     if (bar) this.attachDrops(bar);
-    // A press around the text never moves DOM focus or starts a selection (pointerdown's
-    // preventDefault does not stop either); the press itself is `fieldPointerDown`'s.
+    // A press around the text never moves DOM focus or starts a selection; the press itself
+    // is `fieldMouseDown`'s.
     input.closest<HTMLElement>(".bc-field")?.addEventListener("mousedown", (event) => {
       if (event.target !== input && event.button === 0) event.preventDefault();
     });
@@ -534,15 +534,18 @@ export class ToolbarSession {
 
   // MARK: Presses
 
-  /** A press on the field's area (`AddressBarView.mouseDown`, `AddressField.mouseDown`). */
-  fieldPointerDown = (event: PointerEvent | { nativeEvent: PointerEvent }): void => {
+  /**
+   * A press on the field's area (`AddressBarView.mouseDown`, `AddressField.mouseDown`). A mouse
+   * event, not a pointer event: only `mousedown.detail` carries the platform click count.
+   */
+  fieldMouseDown = (event: MouseEvent | { nativeEvent: MouseEvent }): void => {
     const native = "nativeEvent" in event ? event.nativeEvent : event;
     const input = this.input;
     if (!input || (native.button !== 0 && native.button !== 2)) return;
     if (this.pendingRelease) this.flushRelease();
     const onInput = native.target === input;
     const focused = this.editorActive && hasFocus(this.state);
-    const clicks = Math.max(1, native.detail || 1);
+    const clicks = Math.max(1, native.detail);
     const right = native.button === 2;
     let word: TextRange | null = null;
     if (!right && focused && onInput && clicks === 1 && this.state.phase === "focused" && this.state.elided) {

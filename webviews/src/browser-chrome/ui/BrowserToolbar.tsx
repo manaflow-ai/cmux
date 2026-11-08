@@ -80,7 +80,7 @@ export type BrowserToolbarProps = {
   /** The buttons never take DOM focus, so a press keeps the field editing. */
   holdsFieldFocus?: boolean;
   /** A press on the field's area; absent, an idle press sends `focusAddressBar`. */
-  onFieldPointerDown?: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onFieldMouseDown?: (event: ReactMouseEvent<HTMLDivElement>) => void;
   /** The address the chip drags out at rest; null: no drag. */
   chipDrag?: { url: string; title: string | null } | null;
   /** The pinned extension whose popup is open, and the Extensions menu open: drawn pressed. */
@@ -568,7 +568,7 @@ type OmnibarProps = {
   field?: ReactNode;
   badges?: OmnibarBadges;
   holdsFocus?: boolean;
-  onFieldPointerDown?: (event: ReactPointerEvent<HTMLDivElement>) => void;
+  onFieldMouseDown?: (event: ReactMouseEvent<HTMLDivElement>) => void;
   chipDrag?: { url: string; title: string | null } | null;
   icons: IconSizes;
 };
@@ -580,7 +580,7 @@ function Omnibar({
   field,
   badges,
   holdsFocus,
-  onFieldPointerDown,
+  onFieldMouseDown,
   chipDrag,
   icons,
 }: OmnibarProps) {
@@ -629,7 +629,8 @@ function Omnibar({
       </button>
       <div
         className="bc-field"
-        onPointerDown={onFieldPointerDown ?? (state.editing ? undefined : () => send({ type: "focusAddressBar" }))}
+        onMouseDown={onFieldMouseDown}
+        onPointerDown={onFieldMouseDown || state.editing ? undefined : () => send({ type: "focusAddressBar" })}
       >
         {field ??
           (state.text ? (
@@ -697,7 +698,7 @@ export function BrowserToolbar({
   showsButtons = true,
   showsProgress = true,
   holdsFieldFocus,
-  onFieldPointerDown,
+  onFieldMouseDown,
   chipDrag,
   extensionPressed,
   extensionsPressed,
@@ -778,7 +779,7 @@ export function BrowserToolbar({
         field={field}
         badges={badges}
         holdsFocus={hold}
-        onFieldPointerDown={onFieldPointerDown}
+        onFieldMouseDown={onFieldMouseDown}
         chipDrag={chipDrag}
         icons={icons}
       />

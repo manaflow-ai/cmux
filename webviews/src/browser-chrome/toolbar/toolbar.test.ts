@@ -592,6 +592,39 @@ describe("drafts move with their tab (two panes, two toolbar pages)", () => {
       expect(document.activeElement).not.toBe(input);
     });
   });
+
+  test("a press on the field reports the mouse event's click count", () => {
+    withDocument((document) => {
+      const view = document.defaultView!;
+      const scope = globalThis as Record<string, unknown>;
+      const had = "window" in scope;
+      const saved = scope.window;
+      scope.window = view;
+      try {
+        const a = page();
+        a.session.applyHostState(
+          hostState("tab-1", "https://example.com/foo", {
+            events: [event(1, { kind: "focus", source: "programmatic" })],
+          }),
+        );
+        const input = document.querySelector("input") as HTMLInputElement;
+        a.session.attachInput(input);
+        input.addEventListener("mousedown", a.session.fieldMouseDown);
+        const press = (detail: number) => {
+          input.dispatchEvent(new view.MouseEvent("mousedown", { bubbles: true, button: 0, detail }));
+          view.dispatchEvent(new view.MouseEvent("pointerup"));
+        };
+        press(1);
+        expect(a.session.state.mouse?.clickCount).toBe(1);
+        // The second press of a double click: `pointerdown.detail` would read 0 here.
+        press(2);
+        expect(a.session.state.mouse?.clickCount).toBe(2);
+      } finally {
+        if (had) scope.window = saved;
+        else delete scope.window;
+      }
+    });
+  });
   test("a query of the tab left behind never fills the tab restored (B, A, back to B)", () => {
     const a = page();
     type Effect = Extract<ToolbarPageCommand, { type: "effect" }>["effect"];
