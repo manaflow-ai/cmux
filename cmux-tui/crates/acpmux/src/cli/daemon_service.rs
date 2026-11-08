@@ -270,7 +270,7 @@ fn update_timer(m: &dyn Machine) -> Option<String> {
     if let Some(why) = hosts::take_auto_update_off(&out).1 {
         return Some(why);
     }
-    let probe = crate::cli::host_enroll::probe_script();
+    let probe = crate::cli::host_enroll::update_probe_script();
     let after = m
         .run("sh", &["-c", &probe], TIMER_WAIT)
         .map(|(_, out, _)| crate::cli::host_enroll::parse_update_probe(&out));

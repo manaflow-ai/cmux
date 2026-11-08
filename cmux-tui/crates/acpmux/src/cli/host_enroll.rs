@@ -24,7 +24,9 @@ use daemon_step::daemon;
 #[cfg(test)]
 use daemon_step::{Verdict, judge_daemon};
 /// The guarded timer install and its probe, shared with `daemon service install` (a join's).
-pub(crate) use update_step::{guarded_install_script, parse as parse_update_probe, probe_script};
+pub(crate) use update_step::{
+    guarded_install_script, parse as parse_update_probe, probe_script as update_probe_script,
+};
 
 /// The machine enroll or doctor works on.
 pub(crate) struct Plan {

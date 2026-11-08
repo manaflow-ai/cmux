@@ -59,7 +59,7 @@ impl Machine for Fake {
             self.scripts.borrow_mut().push(script.to_owned());
             if script == crate::cli::host_enroll::guarded_install_script() {
                 TIMER.to_owned()
-            } else if script == crate::cli::host_enroll::probe_script() {
+            } else if script == crate::cli::host_enroll::update_probe_script() {
                 PROBE.to_owned()
             } else {
                 "sh -c SCRIPT".to_owned()
@@ -277,7 +277,7 @@ fn linux_install_ends_with_the_update_timer_and_a_rerun_is_the_same() {
         *m.scripts.borrow(),
         [
             crate::cli::host_enroll::guarded_install_script(),
-            crate::cli::host_enroll::probe_script()
+            crate::cli::host_enroll::update_probe_script()
         ],
         "machine enroll --fix's own install"
     );
