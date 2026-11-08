@@ -7,9 +7,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextAccounts/Views/AccountsSectionView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextAccounts/Views/PasteField.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentActivityAppearance.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/AgentActivityColor.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/NativeNewTab/NativeNewTabHostingView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/NativeNewTab/NativeNewTabRowView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/NativeNewTab/NativeNewTabView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoPageService.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoPageView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoRow.swift
@@ -36,9 +33,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneRowView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneShapes.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneStyle.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextApps/Render/AppSceneView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Section/AppIconView.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Section/AppSectionFrame.swift
-Packages/macOS/CmuxNext/Sources/CmuxNextApps/Section/AppSectionProvider.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditBubble.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditorSheet.swift
