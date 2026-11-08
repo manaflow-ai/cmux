@@ -14,8 +14,10 @@ inputs:
   save-on-dispatch:
     description: >-
       `true` also saves on a workflow_dispatch run. For a dispatch-only workflow (cmux-tui.yml):
-      without it, its runs never save, and every run downloads every package again. The cache
-      store scopes a save to its branch, so a rerun on the same branch then uses no network.
+      without it, its runs never save. Set it only where a later run restores the save: the
+      GitHub store (owned minis) does, per branch. On Blacksmith runners the next dispatch
+      run on the same branch missed in 14 of 15 jobs (2026-11-08), so callers there pass it only for the
+      one job that restored a save across runs (Rust MSRV).
     required: false
     default: "false"
 
@@ -37,8 +39,15 @@ runs:
         if [[ -z "$dir" ]]; then
           if [[ "$RUNNER_OS" == Windows ]]; then dir="$LOCALAPPDATA\\zig"; else dir="${XDG_CACHE_HOME:-$HOME/.cache}/zig"; fi
         fi
+        # A commented-out dependency (`//     .hash = ...`) is no package: counting it made
+        # `present` false on every owned mini, so each run restored and saved the cache it
+        # already had. A source with no hashed package has an empty list (grep exits 1), and
+        # any other grep failure still fails the step.
         hashes="$(find "$SOURCE" -name build.zig.zon -not -path '*/zig-pkg/*' -not -path '*/.zig-cache/*' -print0 \
-          | xargs -0 grep -ho '\.hash *= *"[^"]*"' | sed 's/.*"\([^"]*\)"/\1/' | sort -u)"
+          | xargs -0 cat -- \
+          | { grep -v '^[[:space:]]*//' || [[ $? -eq 1 ]]; } \
+          | { grep -o '\.hash *= *"[^"]*"' || [[ $? -eq 1 ]]; } \
+          | sed 's/.*"\([^"]*\)"/\1/' | sort -u)"
         present=true missing=0
         for hash in $hashes; do
           if [[ ! -e "$SOURCE/zig-pkg/$hash" && ! -e "$dir/p/$hash" && ! -e "$dir/p/$hash.tar.gz" ]]; then
