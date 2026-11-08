@@ -80,9 +80,12 @@ fn agent_rows_name_harness_state_title_and_workspace_and_skip_plain_shells() {
 #[test]
 fn agent_rows_carry_the_shared_status_and_done_until_seen() {
     let rows = roster::agent_rows(&snapshot());
-    let statuses: Vec<Option<&str>> =
-        rows.iter().map(|row| row.to_json(0)["status"].as_str()).collect();
-    assert_eq!(statuses, [Some("blocked"), Some("working"), Some("idle")]);
+    let statuses: Vec<Option<String>> =
+        rows.iter().map(|row| row.to_json(0)["status"].as_str().map(str::to_string)).collect();
+    assert_eq!(
+        statuses.iter().map(Option::as_deref).collect::<Vec<_>>(),
+        [Some("blocked"), Some("working"), Some("idle")]
+    );
 
     // An unread notification on the idle claude terminal: its turn finished
     // and nobody viewed it, so it is done and sorts above working.

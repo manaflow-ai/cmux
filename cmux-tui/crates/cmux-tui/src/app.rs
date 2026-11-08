@@ -488,7 +488,7 @@ pub struct App {
     /// `None` until the host sends one (a host without focus reporting).
     pub(crate) host_focused: Option<bool>,
     /// The done tab this client last acknowledged as viewed.
-    pub(crate) done_tab_ack_sent: Option<cmux_tui_core::SurfaceId>,
+    pub(crate) done_tab_ack_sent: Option<SurfaceId>,
     pub(crate) machine_rail_follow_selection: bool,
     pub(crate) workspace_rail_follow_selection: bool,
     pub(crate) tabs_rail_follow_selection: bool,
