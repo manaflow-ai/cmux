@@ -1618,6 +1618,8 @@ export function NewTabScreen(props: Props) {
     projectChoice.current += 1;
     setBrowseError(undefined);
     setNewProject(undefined);
+    // A folder made for a start that failed is New project's only while it stays the choice.
+    newProjectMade.current = undefined;
     // A folder choice starts this draft on this Mac. Drop any account Cloud target selected
     // earlier so the next keystroke cannot wake that stale machine.
     props.onCloudMachinePicked?.(undefined);
@@ -1642,6 +1644,8 @@ export function NewTabScreen(props: Props) {
     projectChoice.current += 1;
     setBrowseError(undefined);
     setNewProject(undefined);
+    // A folder made for a start that failed is New project's only while it stays the choice.
+    newProjectMade.current = undefined;
     // Choosing a local or SSH machine replaces an account Cloud target for this draft.
     props.onCloudMachinePicked?.(undefined);
     saved.pick(undefined);
@@ -1710,9 +1714,17 @@ export function NewTabScreen(props: Props) {
     const extra = sentAttachments?.length ? sentAttachments : undefined;
     const name = projectSlug(newProject?.name ?? "") || projectNameFrom(prompt);
     const made = newProjectMade.current?.name === name ? newProjectMade.current.folder : undefined;
+    // The choice this send belongs to: a folder picked, or the page gone, while acpmux makes the
+    // folder starts no chat there (as a worktree's late reply, `projectChoice`).
+    const choice = projectChoice.current;
+    const current = () => browseAlive.current && choice === projectChoice.current;
     void (made ? Promise.resolve(made) : props.onNewProject(name)).then(
       (folder) => {
         newProjectPending.current = false;
+        if (!current()) {
+          created.current = false;
+          return;
+        }
         newProjectMade.current = { name, folder };
         awaitProjectPreview(folder);
         requestChat(agent, newProjectPrompt(prompt), folder, model, undefined, extra, {});
@@ -1720,7 +1732,7 @@ export function NewTabScreen(props: Props) {
       (error: unknown) => {
         newProjectPending.current = false;
         created.current = false;
-        setNewProjectError((error instanceof Error && error.message) || String(error));
+        if (current()) setNewProjectError((error instanceof Error && error.message) || String(error));
       },
     );
   }

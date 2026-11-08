@@ -10467,7 +10467,8 @@ export class AcpmuxDirectClient {
   /// git repository, trusted; resolves with the folder.
   newProject(name: string): Promise<string> {
     return this.request(PROJECT_NEW_METHOD, { name }).then((reply: { cwd?: unknown } | undefined) => {
-      if (typeof reply?.cwd !== "string" || !reply.cwd.startsWith("/")) throw new Error("acpmux made no project folder");
+      if (typeof reply?.cwd !== "string" || !reply.cwd.startsWith("/"))
+        throw new Error("acpmux made no project folder");
       return reply.cwd;
     });
   }

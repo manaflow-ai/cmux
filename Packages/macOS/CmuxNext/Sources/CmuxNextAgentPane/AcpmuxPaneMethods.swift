@@ -45,6 +45,11 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
         // Take Over a View Only chat (direct.ts takeOver): the chat runs the conversation from then on.
         "_acpmux/watch_take_over",
+        // The New Tab's New project (direct.ts newProject, newtab/newProject.ts): acpmux makes one new
+        // folder under the person's projects folder with an empty git repository and trusts it
+        // (server/project_new.rs). Only on the Send that starts its chat (``gestureRules``), and only
+        // `name` (``knownParams``), a single path component acpmux checks again.
+        "_acpmux/project_new",
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
         "_acpmux/status", "_acpmux/peers", "_acpmux/draft_get",
         // Session-scoped draft writes are kept separate from the filtered replies above.
@@ -344,6 +349,8 @@ nonisolated enum AcpmuxPaneMethods {
         "session/prompt": .always,
         // A side session's question is its first prompt.
         "_acpmux/btw": .always,
+        // New project makes a folder and records its trust: the Send that starts its chat.
+        "_acpmux/project_new": .always,
         // A saved guidance edit reaches every new chat's agent.
         "_acpmux/context_override": .always,
         // Every value until the host has a list of the permissive ones (bypass, auto-approve, yolo).

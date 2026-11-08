@@ -450,7 +450,7 @@ export default agentPaneEntry({
       },
     },
     "new-project-derived": {
-      note: "New project with a prompt typed: \"a habit tracker web app\" names the folder habit-tracker in the strip, the kind words dropped.",
+      note: 'New project with a prompt typed: "a habit tracker web app" names the folder habit-tracker in the strip, the kind words dropped.',
       ready: newTab({ template: "minimal", pageWidgets: [] }),
       snapshot: noChat([], { listedSessions: true }),
       play: async (ctx) => {
@@ -471,9 +471,7 @@ export default agentPaneEntry({
         await ctx.focus({ selector: ".nt-project-name__field" });
         ctx.document.querySelector<HTMLInputElement>(".nt-project-name__field")?.select();
         await ctx.type("Family Recipe Box With Photo Import And Weekly Meal Plans");
-        await ctx.waitFor(
-          () => projectNameValue(ctx) === "family-recipe-box-with-photo-import-and-weekly-meal-plans",
-        );
+        await ctx.waitFor(() => projectNameValue(ctx) === "family-recipe-box-with-photo-import-and-weekly-meal-plans");
         // Return hands the keyboard back to the prompt, so the capture shows the name at rest.
         await ctx.press("Enter");
         const strip = ctx.document.querySelector(".acpmux-composer-context")?.getBoundingClientRect();

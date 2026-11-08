@@ -6038,7 +6038,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // as the header's Preview would; every other chat waits for the person's click.
   useEffect(() => {
     if (!previewUrl || quick || !takeProjectPreview(localCwd)) return;
-    void callNative("pane.action", { id: HEADER_ACTIONS.preview, url: previewUrl, mode: "open" }).catch(() => undefined);
+    void callNative("pane.action", { id: HEADER_ACTIONS.preview, url: previewUrl, mode: "open" }).catch(
+      () => undefined,
+    );
   }, [previewUrl, localCwd, quick]);
   // Stop reaches acpmux even when pressed while the pane reconnects (stopThroughReconnect.ts).
   const stopThroughReconnect = useStopThroughReconnect(snapshot, cancelTurn);
