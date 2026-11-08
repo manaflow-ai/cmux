@@ -1,6 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::person::ANSWERED_BY_SLOT;
+use super::review_queue::Settled;
 use super::*;
 use cmux_json::JsonSet as _;
 
@@ -352,7 +353,9 @@ impl Hub {
                 }
             }
             "tool_call" | "tool_call_update" => {
-                if let Some(url) = super::pull_requests::absorb(session, update, &mut m) {
+                let at = now_ms();
+                if let Some(url) = super::pull_requests::absorb(session, update, &mut m, at) {
+                    self.review_index.note_pr(&session.id, &url, at);
                     self.ledger.note_pull_request(&session.id, &url);
                 }
                 super::touched::absorb(session, update, &mut m, replayed);
@@ -578,6 +581,13 @@ impl Hub {
                 )
                 .await;
             self.respond_answer(&session, &child, id, result, again).await;
+            return;
+        }
+        // acpmux's Claude Code backend asks whether its PreToolUse gate lets a tool call run
+        // (`policy_gate.rs`).
+        if m == crate::claude_stdio::TOOL_GATE {
+            let result = self.answer_tool_gate(&session, params.unwrap_or(Value::Null)).await;
+            let _ = child.respond(id, Ok(result)).await;
             return;
         }
         if m == method::SESSION_REQUEST_PERMISSION {
@@ -808,6 +818,35 @@ impl Hub {
             .unwrap_or(config_policy)
     }
 
+    /// Whether shell call `request` only reads (`shell_readonly.rs`). Judged in the environment
+    /// the harness runs it with: the daemon's, the allow-listed login values, then the env its
+    /// agent was started with (`ensure_child`). An agent this daemon did not start (re-adopted
+    /// after a restart) is not judged: false. A probe that takes too long is false; its thread
+    /// finishes on its own.
+    pub(super) async fn probe_shell_reads(&self, session: &Session, request: &Value) -> bool {
+        let launched = session.launch_env.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let Some(own) = launched else { return false };
+        let meta = session.meta();
+        let family = self.config.read().await.family(&meta.harness);
+        let mut env = probe_env(&own, remote_base, |own| {
+            crate::login_env::effective_for(family.as_deref(), own)
+        });
+        // The agent's PATH, unless its own env names one (`apply_tokio_for`).
+        if let Some(path) = crate::login_env::agent_path()
+            && !own.contains_key("PATH")
+        {
+            env.insert("PATH".to_owned(), path.to_string_lossy().into_owned());
+        }
+        let (request, cwd) = (request.clone(), meta.cwd);
+        let probe = tokio::task::spawn_blocking(move || {
+            super::shell_readonly::request_is_read_only(&request, &cwd, &env)
+        });
+        matches!(
+            tokio::time::timeout(super::shell_readonly::PROBE_TIMEOUT, probe).await,
+            Ok(Ok(true))
+        )
+    }
+
     /// `epoch` is `permission_epoch` read when the agent's request arrived.
     pub(super) async fn handle_permission(
         self: &Arc<Self>,
@@ -874,37 +913,9 @@ impl Hub {
                 PermissionPolicy::ApproveReads | PermissionPolicy::Review
             )
         };
-        // Judged in the environment the harness runs it with: the daemon's, the allow-listed
-        // login values, then the env its agent was started with (`ensure_child`). An agent this
-        // daemon did not start (re-adopted after a restart) asks.
-        let launched = session.launch_env.lock().unwrap_or_else(|e| e.into_inner()).clone();
         let shell_reads = reads_policy
             && request.pointer("/toolCall/kind").and_then(Value::as_str) == Some("execute")
-            && match launched {
-                None => false,
-                Some(own) => {
-                    let meta = session.meta();
-                    let family = self.config.read().await.family(&meta.harness);
-                    let mut env = probe_env(&own, remote_base, |own| {
-                        crate::login_env::effective_for(family.as_deref(), own)
-                    });
-                    // The agent's PATH, unless its own env names one (`apply_tokio_for`).
-                    if let Some(path) = crate::login_env::agent_path()
-                        && !own.contains_key("PATH")
-                    {
-                        env.insert("PATH".to_owned(), path.to_string_lossy().into_owned());
-                    }
-                    let (request, cwd) = (request.clone(), meta.cwd);
-                    // A probe that takes too long asks; its thread finishes on its own.
-                    let probe = tokio::task::spawn_blocking(move || {
-                        super::shell_readonly::request_is_read_only(&request, &cwd, &env)
-                    });
-                    matches!(
-                        tokio::time::timeout(super::shell_readonly::PROBE_TIMEOUT, probe).await,
-                        Ok(Ok(true))
-                    )
-                }
-            };
+            && self.probe_shell_reads(session, &request).await;
         // Read before the locks (it reads the settings file); the mode is read again under them.
         // Do not cache whether the mode is bypass here: a successful mode switch can drain
         // pending asks before this request takes the lock and inserts itself. Judge its mode
@@ -1377,6 +1388,10 @@ impl Hub {
             }
             (p, answered_by, checked_annotations)
         };
+        if option_id.is_none() {
+            // The caller dismissed it: the audit trail keeps it apart from a withdrawal.
+            self.review_index.mark_settled(&session.id, permission_id, Settled::Caller);
+        }
         let mut outcome = match option_id {
             Some(o) => json!({"outcome": "selected", "optionId": o}),
             None => json!({"outcome": "cancelled"}),

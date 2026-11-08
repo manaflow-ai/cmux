@@ -32,13 +32,15 @@ import statistics
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from one_motion_series import EPS, series  # noqa: E402
+from one_motion_series import EPS, PANE_FRAME, series  # noqa: E402
 
 TOLERANCE = 0.002
 # A re-acceleration counts as a retarget only past this speed (points per ms) and this ratio over the slowest speed
 # since the peak: a dropped frame or a rounding step must not read as a new target.
 RETARGET_MIN_SPEED = 0.05
 RETARGET_RATIO = 1.5
+# The pane frame's width in a trace pane row (one_motion_series PANE_FRAME: fx, fy, fwidth, fheight).
+PANE_FRAME_WIDTH = PANE_FRAME.start + 2
 
 TARGETS = {
     "first_frame_ms": 16.0,
@@ -65,9 +67,16 @@ def pct(values, q):
     return round(values[min(len(values) - 1, int(round((len(values) - 1) * q)))], 2)
 
 
+# A page window this far left of every screen is parked (a pre-warmed page the app keeps off screen): its resize after
+# a split is deferred off-screen work, which nobody sees, so it is not a mover (split-scale smoke 7bd5eed3: x -99840).
+PARKED_X = -10000
+
+
 def trace_movers(samples):
-    """{mover: [(t, values)]}: one_motion_series' movers plus every divider (`divider ID`)."""
-    out = series(samples)
+    """{mover: [(t, values)]}: one_motion_series' movers plus every divider (`divider ID`), less the parked pages
+    (every point's page window x left of PARKED_X)."""
+    out = {key: points for key, points in series(samples).items()
+           if not (key.startswith("page ") and points and all(p[1][0] < PARKED_X for p in points))}
     for sample in samples:
         t = float(sample.get("t", 0))
         for row in sample.get("dividers") or []:
@@ -122,12 +131,15 @@ def trace_stats(trace, sent_host_s=None):
         samples = before[-1:] + [x for x in samples if x["t"] >= sent]
     movers = trace_movers(samples)
     first = last = None
-    turns, ticks = {}, set()
+    turns, ticks, ends = {}, set(), {}
     for key, points in movers.items():
         for (_, v0), (t1, v1) in zip(points, points[1:]):
             if len(v0) != len(v1) or any(abs(a - b) > EPS for a, b in zip(v0, v1)):
                 first = t1 if first is None else min(first, t1)
                 last = t1 if last is None else max(last, t1)
+                step = max((abs(a - b) for a, b in zip(v0, v1)), default=None) if len(v0) == len(v1) else None
+                moves = ends.get(key, (0, 0, None, None, 0))[4] + 1
+                ends[key] = (t1, step, list(v0), list(v1), moves)
         turned = retargets(points)
         if turned:
             turns[key] = len(turned)
@@ -149,7 +161,61 @@ def trace_stats(trace, sent_host_s=None):
     if sent is not None:
         out["layout_first_ms"] = round(first - sent, 1) if first is not None else None
         out["layout_settled_ms"] = round(last - sent, 1) if last is not None else None
+    # What settled last (mover, its last move from the input or the trace's start, that move's largest step in points,
+    # its values before and after that move, how many ticks it moved): a settle the screen never shows (a hidden view,
+    # a page window that jumps once, an index that moved to another page) reads here.
+    origin = sent if sent is not None else (times[0] if times else 0)
+    out["last_movers"] = [[str(key), round(t - origin, 1), round(step, 2) if _number(step) else None, before, after, moves]
+                          for key, (t, step, before, after, moves) in sorted(ends.items(), key=lambda kv: -kv[1][0])[:4]]
+    out["pane_width_change"] = pane_width_change(samples)
+    out["pane_width_peak"] = pane_width_peak(samples)
     return out
+
+
+def _pane_widths(sample):
+    return {str(row[0]): float(row[PANE_FRAME_WIDTH]) for row in sample.get("panes") or []
+            if isinstance(row, list) and len(row) > PANE_FRAME_WIDTH and _number(row[PANE_FRAME_WIDTH])}
+
+
+def _width_change(start, sample):
+    end = _pane_widths(sample)
+    both = start.keys() & end.keys()
+    return round(sum(end[p] - start[p] for p in both), 1) if both else None
+
+
+def pane_width_change(samples):
+    """The panes' summed frame width at the trace's last tick minus at its first, over the panes in both (points):
+    negative when the panes narrowed (a right sidebar opened beside them), positive when they widened (it closed),
+    None without a pane in both. The side pane's toggle is one key for both ways, so this says which way it went."""
+    return _width_change(_pane_widths(samples[0]), samples[-1]) if samples else None
+
+
+def pane_width_peak(samples):
+    """The same change at the tick where it was largest (signed): a toggle whose panes moved and came back (net change
+    0) still shows which way they went. None without a pane in any tick and the first."""
+    if not samples:
+        return None
+    start = _pane_widths(samples[0])
+    changes = [c for c in (_width_change(start, s) for s in samples[1:]) if c is not None]
+    return max(changes, key=abs) if changes else None
+
+
+def side_way(row):
+    """Which way a side pane toggle went in `row` (a transition record): "opened" (the panes narrowed), "closed"
+    (they widened), or None (they kept their width, or the trace had none). The net change decides; a toggle whose
+    panes came back to their width goes by its peak (side_toggle records that as the round's error)."""
+    change = (row or {}).get("pane_width_change")
+    if not _number(change) or abs(change) <= EPS:
+        change = (row or {}).get("pane_width_peak")
+    if not _number(change) or abs(change) <= EPS:
+        return None
+    return "opened" if change < 0 else "closed"
+
+
+def side_returned(row):
+    """True when the panes moved (a peak) but ended at the width they started at: the toggle undid itself."""
+    change, peak = (row or {}).get("pane_width_change"), (row or {}).get("pane_width_peak")
+    return _number(peak) and abs(peak) > EPS and _number(change) and abs(change) <= EPS
 
 
 def strip_stats(strip, tolerance=TOLERANCE, settle_frames=6):

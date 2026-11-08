@@ -263,6 +263,17 @@ Perceive, act in logical groups, then verify:
    keyboard sequence only when the user explicitly prefers speed over
    visibility.
 
+5. To wait for a result (a sheet's button appearing, a dialog's OK button
+   going away), call `wait_for_element` (`cua_wait_for_element` in `cmux_exec`)
+   instead of sleeping and taking another look. It takes `pid`, `window_id`,
+   `query` (the same match as `get_window_state`'s `query`: only rows with an
+   `element_index` count, so plain text or a spinner never matches) and/or `role`,
+   `gone: true` to wait for disappearance, and `timeout_ms` (default 10000, at
+   most 50000). It reads the accessibility tree only, with no screenshot, and
+   returns the matching elements with fresh `element_token`s; a wait that runs
+   out returns `timed_out: true` and the last count. It is served by the
+   `upstream` driver's bridge (`acpmux cua-mcp`) only.
+
 Notes:
 - In the native profile, `launch_app` returns the pid and its windows; use
   that `window_id` for `get_window_state`. Call `list_windows` only when it

@@ -151,8 +151,10 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
   /// What `shift` moved at once since the last step (px): that display frame's step moves less by
   /// it, so the frame keeps to CHASE_LAND_LINES (a line in a burst).
   let spent = 0;
-  /// How far the last step moved the rows (px): a landing in the same display frame as that step
-  /// moves at once less by it (whether a commit lands before or after the frame's step varies).
+  /// How far the last display frame moved the rows so far (px): its step and what moved at once
+  /// before it. A landing in the same frame as that step moves at once less by it (a commit lands
+  /// before the frame's step, after it in the frame's measuring pass, or both: counting only the
+  /// step moved one frame of the send 34.5 px, its landings before and after the step together).
   let stepped = 0;
   /// While it chases the thread is its own compositor layer, so a frame's step moves it without
   /// painting its rows again (a `translate` on an unpromoted thread repainted every row each frame).
@@ -250,8 +252,8 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       v = (nextX - x) / Math.max(dt, 1e-3);
       x = nextX;
     }
+    stepped = Math.abs(x - from) + spent;
     spent = 0;
-    stepped = Math.abs(x - from);
     if (Math.abs(x) < REST_PX && Math.abs(v) < REST_SPEED) {
       stop();
       return;

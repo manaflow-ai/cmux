@@ -486,7 +486,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     .first_prompt(&args, &v)
                     .filter(|_| !lost_race && launch::never_prompted(info));
                 if let Some(text) = &first {
-                    let prompt = PromptId::new(args.prompt_id.clone());
+                    let prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
                     let accepted = before_deadline(
                         deadline,
                         route_id,
@@ -522,7 +522,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // is interrupted while the app is opening its workspace.
             let queue_before_open = args.detach && !one_shot;
             if queue_before_open && let Some(text) = &first {
-                let prompt = PromptId::new(args.prompt_id.clone());
+                let prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
                 let accepted = before_deadline(
                     deadline,
                     route_id,
@@ -535,7 +535,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if let Err(mut open_error) = show() {
                 if !queue_before_open && let Some(text) = &first {
-                    let prompt = PromptId::new(args.prompt_id.clone());
+                    let prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
                     if let Err(error) = before_deadline(
                         deadline,
                         route_id,
@@ -602,7 +602,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
             }
             if let Some(text) = first {
-                let prompt = PromptId::new(args.prompt_id.clone());
+                let prompt = PromptId::new(args.prompt_id.clone()).naming_this_caller();
                 if one_shot {
                     let opts = CollectOpts {
                         timeout: args.timeout,
@@ -875,7 +875,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 let id = before_deadline(deadline, &session, resolve_id(&client, &session)).await?;
                 let on_permission = OnPermission::parse(&on_permission)?;
                 // Never refuse: report what the prompt queues behind.
-                let info = before_deadline(deadline, &id, client.request(method::MUX_INFO, json!({"sessionId": id}))).await?;
+                // Read from a peer chat's mirrored row while its link's rows are current (`ROW_WILL_DO`).
+                let info = before_deadline(deadline, &id, client.request(method::MUX_INFO, json!({"sessionId": id, "row": true}))).await?;
                 // A session only the mesh hub reaches answers its info through the hub
                 // (`server/mesh_read.rs`), with no turn to follow here: the send goes through
                 // the hub as one to a name nobody here runs (below).
@@ -1400,8 +1401,9 @@ async fn to_parent(client: &crate::client::Client, target: &str) -> bool {
     let Some(own) = std::env::var("ACPMUX_SESSION_ID").ok().filter(|v| !v.trim().is_empty()) else {
         return false;
     };
-    let info =
-        |key: &str| client.request(method::MUX_INFO, json!({"sessionId": key, "waitLogs": false}));
+    let info = |key: &str| {
+        client.request(method::MUX_INFO, json!({"sessionId": key, "waitLogs": false, "row": true}))
+    };
     let Some(parent) = info(&own).await.ok().as_ref().and_then(started_by) else {
         return false;
     };
