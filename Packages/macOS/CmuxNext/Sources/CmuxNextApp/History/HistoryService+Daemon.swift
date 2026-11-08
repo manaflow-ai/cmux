@@ -18,12 +18,15 @@ extension HistoryService {
         return DaemonHistoryClient(connection: connection)
     }
 
-    /// The local daemon's history module, once its link is up and it serves `history-v1`: woken by the
-    /// connection itself, never by polling. nil only when the waiting task is cancelled.
+    /// The local daemon's history module, once its link is up and it serves `history-v1` (``firstClient(_:)``).
     func connectedDaemonHistory() async -> DaemonHistoryClient? {
-        for await _ in ObservationStream({ [weak self] in self?.daemonHistory != nil }) {
-            if let daemon = daemonHistory { return daemon }
-        }
+        await Self.firstClient { [weak self] in self?.daemonHistory }
+    }
+
+    /// The first client `read` gives: at once when it gives one already (an `ObservationStream`'s first `next()` evaluates
+    /// now), else on the change that gives one, woken by that change, never by polling. nil only when the wait is cancelled.
+    static func firstClient<Client: Sendable>(_ read: @escaping @MainActor @Sendable () -> Client?) async -> Client? {
+        for await client in ObservationStream(read) { if let client { return client } }
         return nil
     }
 

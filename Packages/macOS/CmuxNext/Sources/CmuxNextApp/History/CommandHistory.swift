@@ -192,8 +192,7 @@ final class CommandHistory {
         if let queue = queues[machine] { return queue }
         let machines = services.machines
         let queue = HistoryWriteQueue<DaemonHistoryClient>(retryable: DaemonHistoryClient.isLinkDrop) {
-            for await client in ObservationStream({ Self.historyClient(machine, in: machines) }) { if let client { return client } }
-            return nil
+            await HistoryService.firstClient { Self.historyClient(machine, in: machines) }
         }
         queues[machine] = queue
         return queue

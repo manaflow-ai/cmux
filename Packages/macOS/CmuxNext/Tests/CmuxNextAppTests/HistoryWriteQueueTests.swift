@@ -1,6 +1,5 @@
 import AppKit
 @testable import CmuxNextApp
-import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHistory
 import CmuxNextHistoryDaemon
@@ -312,15 +311,15 @@ import Testing
         var up = true
     }
 
-    /// cmux#38186 review: a daemon that is already connected when the queue starts takes a write at once,
-    /// with no state change (an `ObservationStream`'s first `next()` evaluates now; the app's wait has this shape).
-    @Test func aDaemonAlreadyUpTakesAWriteWithoutAStateChange() async {
+    /// cmux#38186 review: a daemon that is already connected when the queue starts takes a write at once, with no
+    /// connection-state change: the app's wait (`HistoryService.firstClient`, which `connectedDaemonHistory` and every
+    /// other daemon's queue use) returns on the stream's first value.
+    @Test func aDaemonAlreadyConnectedTakesAWriteWithoutAStateChange() async {
         let daemon = Daemon()
         daemon.up = true
         let link = Link()
         let queue = HistoryWriteQueue<Daemon>(retryable: DaemonHistoryClient.isLinkDrop) {
-            for await up in ObservationStream({ link.up }) where up { return daemon }
-            return nil
+            await HistoryService.firstClient { link.up ? daemon : nil }
         }
         await Self.sent(queue) { client, _ in try await client.send { $0.append("https://a.example/") } }
         #expect(daemon.stored == ["https://a.example/"])
