@@ -4,7 +4,7 @@
 import "./contextCard.css";
 
 import { useT } from "./i18n";
-import { contextBreakdown, type Breakdown } from "./session-info/ContextSection";
+import { contextBreakdown, type Breakdown } from "./session-info/contextSectionModel";
 import { compactBreakdownRows, CACHE_SOON_MS, cacheTimeLeft, useCacheTimeLeft } from "./contextCardModel";
 /// The prompt cache's line: a countdown while warm, then "Cache expired". acpmux sends the expiry
 /// (claude_stdio/prompt_cache.rs) only for a harness that reports its cache and a known TTL.
