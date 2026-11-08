@@ -33,6 +33,14 @@ function isTabStop(element: HTMLElement): boolean {
   return !(element.tagName === "INPUT" && (element as HTMLInputElement).type === "hidden");
 }
 
+/// Focus is on (or in) something that moves Tab through controls of its own while the document's
+/// focus stays on it: a player's play, timeline and volume, or a frame's page. The guards below
+/// cannot tell its last inner control from its first, so they leave its Tab presses to the browser.
+/// An editable box is not one: Tab leaves it (the composer's edge is a plain stop).
+function ownsTab(element: Element | null): boolean {
+  return element?.closest("audio, video, iframe") != null;
+}
+
 /// The tab stops under `root`, in document order.
 export function tabStops(root: ParentNode): HTMLElement[] {
   return [...root.querySelectorAll<HTMLElement>(TAB_STOPS)].filter(isTabStop);
@@ -85,6 +93,7 @@ export function leaveOnScreenRef(element: HTMLElement | null): (() => void) | un
 /// or with nothing on screen that way, the browser moves focus as usual.
 export function leaveLayerOnScreen(layer: HTMLElement, event: KeyboardEvent | ReactKeyboardEvent): void {
   if (event.key !== "Tab" || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+  if (ownsTab(layer.ownerDocument.activeElement)) return;
   const inside = layerStops(layer);
   const edge = event.shiftKey ? inside[0] : inside.at(-1);
   if (!edge || event.target !== edge) return;
@@ -136,7 +145,7 @@ export function keepTabOnScreen(region: HTMLElement): () => void {
   const key = (event: KeyboardEvent) => {
     if (event.key !== "Tab" || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
     const from = doc.activeElement as HTMLElement | null;
-    if (!from) return;
+    if (!from || ownsTab(from)) return;
     const stops = tabStops(doc);
     const at = stops.indexOf(from);
     if (at < 0) return;
