@@ -261,7 +261,10 @@ test("every toast's buttons stay on the page however tall the stack is", () => {
   const css = readFileSync(new URL("./toasts.css", import.meta.url), "utf8");
   const rule = (selector: string) => css.match(new RegExp(`(?:^|\\n)${selector} \\{([^}]*)\\}`))?.[1] ?? "";
   expect(rule("\\.cmux-toasts")).toContain("top: 0;");
-  expect(rule("\\.cmux-toasts")).toContain("justify-content: flex-end;");
+  // At the bottom through a spacer that shrinks to nothing, never `flex-end`, which pushed toasts
+  // that did not fit above the page (review of #37289 at 74444fd5, F1; the browser test checks it).
+  expect(rule("\\.cmux-toasts")).not.toContain("justify-content: flex-end;");
+  expect(rule("\\.cmux-toasts::before")).toContain("flex: 1 0 0;");
   expect(rule("\\.cmux-toast")).toContain("grid-template-rows: auto minmax(0, 1fr);");
   expect(rule("\\.cmux-toast")).not.toContain("min-height: 0;");
   expect(rule("\\.cmux-toast-detail")).toContain("min-height: 0;");

@@ -8,15 +8,24 @@
   /* `bottom` is the app's floor (inline style): above the window's bottom and its message box. The stack
      spans the page above it, its toasts at the bottom: a stack taller than the room shrinks its toasts'
      Details instead of pushing the older toasts' buttons off the page, and closing a toast never moves
-     the stack's top (where fading copies are placed from). */
+     the stack's top (where fading copies are placed from). The toasts sit at the bottom through the
+     spacer before them (::before), not `flex-end`: when even their title rows do not fit, the spacer
+     is 0 and the stack runs on down over the floor, inside the page, where `flex-end` pushed the oldest
+     toasts above the page and out of reach (review of #37289 at 74444fd5, F1). */
   top: 0;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
   align-items: center;
   gap: var(--ds-space-2);
   padding-inline: var(--ds-space-3);
   pointer-events: none;
+}
+
+/* The room above the toasts: all of it while they fit, none once they do not. */
+.cmux-toasts::before {
+  content: "";
+  flex: 1 0 0;
+  margin-bottom: calc(-1 * var(--ds-space-2));
 }
 
 /* One toast: a rounded rect of the toast surface's glass, never a capsule; the popups' one shadow. */
