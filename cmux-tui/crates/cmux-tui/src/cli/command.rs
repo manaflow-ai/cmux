@@ -1172,7 +1172,16 @@ fn parse_terminal(
         }
         [selector, "read"] | [selector, "screen", "read"] => {
             selectors.insert("terminal", "term", selector)?;
-            request(ResourceOperation::TerminalScreenRead, selectors, flags, Map::new())
+            let mut params = Map::new();
+            // `terminal-read-unwrap-v1`: soft wraps joined, and the last N
+            // lines of scrollback and screen.
+            if flags.boolean("unwrap") {
+                params.insert("unwrap".into(), Value::Bool(true));
+            }
+            if let Some(lines) = flags.take("lines") {
+                insert_bounded_u32(&mut params, "lines", "--lines", lines, 1, 10_000)?;
+            }
+            request(ResourceOperation::TerminalScreenRead, selectors, flags, params)
         }
         [selector, "state", "read"] => {
             selectors.insert("terminal", "term", selector)?;
@@ -1227,6 +1236,11 @@ fn parse_terminal(
             if let Some(timeout) = flags.take("timeout-ms") {
                 insert_decimal(&mut params, "timeout_ms", "--timeout-ms", timeout)?;
             }
+            // `terminal-wait-new-v1`: only output printed below the cursor's
+            // line from now on can match, never a typed command's echo.
+            if flags.boolean("new") {
+                params.insert("new".into(), Value::Bool(true));
+            }
             request(ResourceOperation::TerminalWait, selectors, flags, params)
         }
         [selector, "copy"] => {
@@ -1235,6 +1249,9 @@ fn parse_terminal(
             if let Some(mode) = flags.take("mode") {
                 validate_one_of("--mode", &mode, &["screen", "selection", "scrollback"])?;
                 params.insert("mode".into(), Value::String(mode));
+            }
+            if flags.boolean("unwrap") {
+                params.insert("unwrap".into(), Value::Bool(true));
             }
             request(ResourceOperation::TerminalCopy, selectors, flags, params)
         }
@@ -4007,6 +4024,37 @@ mod tests {
     }
 
     #[test]
+    fn read_run_terminal_reads_take_unwrap_lines_and_new() {
+        const TERMINAL: &str = "term_00000000000000000000000000000008";
+        let plain = protocol(&["terminal", TERMINAL, "screen", "read"]);
+        assert!(plain.params.get("unwrap").is_none());
+        assert!(plain.params.get("lines").is_none());
+
+        let read = protocol(&["terminal", TERMINAL, "read", "--unwrap", "--lines", "50"]);
+        assert_eq!(operation(&read), "terminal.screen.read");
+        assert_eq!(read.params["unwrap"], true);
+        assert_eq!(read.params["lines"], 50);
+        for invalid in ["0", "10001", "-1"] {
+            assert!(
+                parse(&strings(&["terminal", TERMINAL, "screen", "read", "--lines", invalid]))
+                    .is_err(),
+                "accepted --lines {invalid}"
+            );
+        }
+
+        let copy = protocol(&["terminal", TERMINAL, "copy", "--mode", "scrollback", "--unwrap"]);
+        assert_eq!(operation(&copy), "terminal.copy");
+        assert_eq!(copy.params["unwrap"], true);
+
+        let wait =
+            protocol(&["terminal", TERMINAL, "screen", "wait", "--pattern", "ready", "--new"]);
+        assert_eq!(operation(&wait), "terminal.wait");
+        assert_eq!(wait.params["new"], true);
+        let old = protocol(&["terminal", TERMINAL, "screen", "wait", "--pattern", "ready"]);
+        assert!(old.params.get("new").is_none());
+    }
+
+    #[test]
     fn terminal_output_read_parses_cursor_and_bounded_window() {
         const TERMINAL: &str = "term_00000000000000000000000000000008";
         let plain = protocol(&["terminal", TERMINAL, "output", "read"]);
@@ -4826,7 +4874,10 @@ mod tests {
                 "terminal.input.mouse",
             ),
             (vec!["terminal", TERMINAL, "focus", "in"], "terminal.input.focus"),
-            (vec!["terminal", TERMINAL, "screen", "read"], "terminal.screen.read"),
+            (
+                vec!["terminal", TERMINAL, "screen", "read", "--unwrap", "--lines", "5"],
+                "terminal.screen.read",
+            ),
             (vec!["terminal", TERMINAL, "state", "read"], "terminal.state.read"),
             (
                 vec![
@@ -4859,10 +4910,11 @@ mod tests {
                     "ready",
                     "--timeout-ms",
                     "5000",
+                    "--new",
                 ],
                 "terminal.wait",
             ),
-            (vec!["terminal", TERMINAL, "copy", "--mode", "screen"], "terminal.copy"),
+            (vec!["terminal", TERMINAL, "copy", "--mode", "screen", "--unwrap"], "terminal.copy"),
             (vec!["terminal", TERMINAL, "process", "show"], "terminal.process.get"),
             (
                 vec!["terminal", TERMINAL, "process", "wait", "--timeout-ms", "5000"],

@@ -611,13 +611,19 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
         "terminal <selector> screen read",
         Some(Op::TerminalScreenRead),
         "Print the visible screen",
-        &[],
+        &[
+            switch("unwrap", "Join soft-wrapped rows into the lines the program printed"),
+            opt("lines", "<n>", "Print the last N lines of scrollback and screen (1-10000)"),
+        ],
     ),
     action(
         "terminal <selector> read",
         Some(Op::TerminalScreenRead),
         "Print the visible screen",
-        &[],
+        &[
+            switch("unwrap", "Join soft-wrapped rows into the lines the program printed"),
+            opt("lines", "<n>", "Print the last N lines of scrollback and screen (1-10000)"),
+        ],
     ),
     action(
         "terminal <selector> screen wait",
@@ -626,6 +632,7 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
         &[
             req("pattern", "<regex>", "Pattern to wait for"),
             opt("timeout-ms", "<n>", "Give up after this many milliseconds"),
+            switch("new", "Match only output printed below the cursor's line from now on"),
         ],
     ),
     action(
@@ -663,7 +670,10 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
         "terminal <selector> copy",
         Some(Op::TerminalCopy),
         "Copy terminal text",
-        &[opt("mode", "<screen|selection|scrollback>", "What to copy")],
+        &[
+            opt("mode", "<screen|selection|scrollback>", "What to copy"),
+            switch("unwrap", "Join soft-wrapped rows (screen and scrollback)"),
+        ],
     ),
     action(
         "terminal <selector> process show",

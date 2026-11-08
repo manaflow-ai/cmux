@@ -49,6 +49,7 @@ mod sidebar_resource;
 pub mod sizing_policy;
 mod stream_interrupt;
 mod surface;
+mod terminal_command;
 mod terminal_metadata;
 mod workspace_registry;
 

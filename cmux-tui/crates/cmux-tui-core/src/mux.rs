@@ -6,6 +6,7 @@ mod public_projections;
 mod resource_content;
 mod resource_topology;
 mod terminal_directory;
+mod terminal_last_command;
 
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub(crate) use resource_content::ResourceEffectProjection;

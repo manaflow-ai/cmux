@@ -8,6 +8,8 @@ mod content;
 mod effects;
 mod session;
 mod topology;
+mod wait_text;
+pub(crate) use wait_text::WaitText;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};

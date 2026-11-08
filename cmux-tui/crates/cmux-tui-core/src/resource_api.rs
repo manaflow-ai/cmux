@@ -448,6 +448,16 @@ pub(crate) fn public_terminal_snapshot(
     if let Some(cwd) = surface.and_then(crate::Surface::presented_directory) {
         terminal["cwd"] = json!(cwd);
     }
+    // `terminal-exit-status-v1`: the last command the shell finished (OSC
+    // 133 D), with its exit code when the shell sent one. Absent without
+    // shell integration, so a missing field never reads as success.
+    if durable.lifecycle == TerminalLifecycle::Running
+        && let Some(last) = surface.and_then(crate::Surface::terminal_last_command)
+    {
+        terminal["extra"] = json!({
+            "last_command": crate::terminal_command::last_command_json(last),
+        });
+    }
     if durable.lifecycle == TerminalLifecycle::Exited {
         terminal["exit"] =
             durable.exit.clone().context("exited terminal omitted its durable outcome")?;
