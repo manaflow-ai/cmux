@@ -89,7 +89,10 @@ export function captureTurnEnd(
   const nodes = [...mounted(thread)];
   if (!nodes.some((node) => node.dataset.rowId === LIVE_LINE)) return undefined;
   // The ids the swap keeps, from the first mounted row on: rows before the window never matter.
-  const first = Math.max(0, Math.min(...nodes.map((node) => (Number(node.getAttribute("aria-posinset")) || 1) - 1)) - 1);
+  const first = Math.max(
+    0,
+    Math.min(...nodes.map((node) => (Number(node.getAttribute("aria-posinset")) || 1) - 1)) - 1,
+  );
   const kept = new Set<string>();
   // The turn's edits card takes its first edit's row id (turns.ts `editsCard`), but it is a new row
   // under the answer, not that run moved: the run goes and the card comes in.

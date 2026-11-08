@@ -214,7 +214,11 @@ await requireBrowserLane("turn-end-fold-browser.test.ts", async () => {
   type Sample = { prompt: number; answer: number; gap: number; work: number; worked: boolean; folding: boolean };
   /// Runs the turn on a fresh page for `family`: what the running turn drew, then (the reader back
   /// at the bottom, the edits group opened first when `openGroup`) every painted frame of its end.
-  async function playTurn(family: string, openGroup: boolean, reducedMotion: "reduce" | "no-preference" = "no-preference") {
+  async function playTurn(
+    family: string,
+    openGroup: boolean,
+    reducedMotion: "reduce" | "no-preference" = "no-preference",
+  ) {
     summary.harness = family;
     summary.family = family;
     // Each chat opens on the same history; the turn before it is gone.
