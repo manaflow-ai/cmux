@@ -1,0 +1,425 @@
+{
+  "version": 1,
+  "build": "4250337489701",
+  "notes": "notes/4250337489701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 38726,
+      "title": "acpmux, cmux-tui-core: no new string slice or index on feat (panic ratchet red)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38532,
+      "title": "Send Feedback on the Mac opens the bug report form, marked as sent from the app",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38449,
+      "title": "Cloud terminals: predictive local echo engine (Rust, over the app FFI)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38560,
+      "title": "ci(web): a green head shard skips the base replay's setup (about 3-11 min off a green webview verdict)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 34437,
+      "title": "feat(acpmux): race models in isolated worktrees with reviewer selection",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38679,
+      "title": "base-red-excuse: read jobs, status and history with a --jq naming the fields used",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38669,
+      "title": "cmux-cua: name cmux Settings → Agents → Computer Use; agents restart the helper themselves",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38706,
+      "title": "carry-changes: the no-index refusal names a recovery that works",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38710,
+      "title": "fix(cmux-tui): screen evidence belongs to the plugin child that saw it (roster v8)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38714,
+      "title": "cmux-tui: the transport path coverage test exercises screen create --focus (base red since #38638)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38712,
+      "title": "cmux-host: the carrier register harness is a _tests.rs file (hand_written_routes base red)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38681,
+      "title": "fix(github): mint tokens only for the selected connection; disconnect revokes its tokens",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38682,
+      "title": "cmux NEXT spaces: switcher marks drop their test-only accessors",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38630,
+      "title": "test(next): Cmd-W idle-close tests put the shown neighbour before the closed tab (#38328 rule)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38665,
+      "title": "ci(ffi-pin): read the re-pin head from GitHub, not the runner's git cache",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38659,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-a9c2d9d78085717d42e2a8af352675eff893120e",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38651,
+      "title": "Cloud start: a headless Codex start with no login choice refuses at once; the refusal says the agent isn't signed in",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38570,
+      "title": "cloud journey: a failed dial names its attempts; the guest timeline drops bind.json and times the session host to 10 ms",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38568,
+      "title": "Cloud: the Close Workspace toast names no machine state",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38544,
+      "title": "Palette: Archive, Make Primary and Delete Chief pick the Chief",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38477,
+      "title": "Webviews base reds: subtle-elevation, composer rest gap, attachment paste slot, turn-end follow jump",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38375,
+      "title": "cmux NEXT browser: the Import Cookies card is a glass toast with one line, and appears once and stays put",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38620,
+      "title": "carry-changes: a checkout with no index starts at HEAD; sparse checkouts carry",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38691,
+      "title": "cmux-tui-core: the router owns 98 connection operations (resource_attach base red since #37350)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38687,
+      "title": "cmux-tui: cloud hands tests install the rustls provider (15 nextest base reds)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38633,
+      "title": "acpmux: caller identity survives daemon restarts; Codex subagent identity; robust hook mark; review policy (W4-K)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38571,
+      "title": "Agent chat: the memory inbox offers what a chat learned for CLAUDE.md or AGENTS.md",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38593,
+      "title": "cmux-host, cmux-remote: a resume abandons a slow carrier ticket request; a long pause resets the relay backoff",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38663,
+      "title": "fix(cmux-tui): own-build pane helpers, dismissed dialog clears without the plugin, dialog-stop reply, explain --live --session (W4-I)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38468,
+      "title": "Screen stream (WebRTC): show each frame as soon as it decodes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37190,
+      "title": "acpmux: the agent reads who wrote each part of a prompt, never another agent's words as the person's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38634,
+      "title": "cmux-tui: terminal run -- ARGV also quotes a command word the shell reads as syntax (if, FOO=bar) and =word",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38346,
+      "title": "cmux NEXT spaces: a closed window's teardown stops its switcher marks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38672,
+      "title": "docs(CLAUDE.md): keep rules, move procedure to the docs that own it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38576,
+      "title": "Agent chat: a one-click tour of a new repo",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38597,
+      "title": "perf(next pages): overlay pages share one WebKit process",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38541,
+      "title": "ui/ContextMenu: a right-click on the page's own menu stays in the menu",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38645,
+      "title": "gallery-health: route the scripts a render runs by name, not their folders",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38621,
+      "title": "arena: fetch an engine's commit without its submodules",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38467,
+      "title": "cmux NEXT: New Cloud Chat in the palette and a one-time Cloud hint on new chats",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38641,
+      "title": "cmux-remote: acpmux refusals carry the bridge's reason, keepalive pings, and a grant cap that fits its claims (#38420 follow-ups)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38572,
+      "title": "cmux-tui packaging: ship cmux-agent-screen-detection beside the daemon (app, npm, artifacts)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38528,
+      "title": "New Tab: three starter tasks under the composer on a first run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38627,
+      "title": "ci(cmux-next): a queued fast-tier fleet step hands the tier its own Mac run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38469,
+      "title": "NEXT Cloud: Delete Machine… in the chat menu, pause notes, close toast, vm shutdown",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38408,
+      "title": "Settings > Agents > Harnesses accounts: Remove asks first; no usage on a signed-out account",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38474,
+      "title": "fix(next): copy transcript selections as Markdown",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38574,
+      "title": "fix(next): return brief refuses non-finite times, closed-unmerged PRs and cross-repository run links",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38637,
+      "title": "zig packages: second-round review fixes (CodeRabbit on #38592)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38326,
+      "title": "cmux-host updater: never restart under an attached carrier session or a claimed machine's first connect",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38371,
+      "title": "link: forward acpmux streams only to the live acpmux listener (security fix for #38323)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38459,
+      "title": "Agent pane: a background dev server's address is a chip on its row; a click opens the page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38615,
+      "title": "fix(next): CMUX_BENCH_HOOKS release builds compile HomeNativeFixture (DEBUG-only pill frame)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38614,
+      "title": "Cloud app server: a snapshot's and connect_info's revision is a checked decimal again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38603,
+      "title": "acpmux inbox: an fyi-only batch waits for the next notice or the flush",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38564,
+      "title": "relay: deploy the carrier relay from feat-cmux-next pushes, staging then production, with rollback",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38557,
+      "title": "What's New shows a highlight's before/after pair",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38543,
+      "title": "What's New: a highlight's gallery state and its before are its pictures",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38540,
+      "title": "relay: a resumed daemon's Ping is handed its unjoined circuits; fix the stale-daemon bench's Incoming handler",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38538,
+      "title": "cmux-action-catalog: drop the playground's removed open argument (swift_parity red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38638,
+      "title": "cmux-tui: terminal run argv, one agent status vocabulary, quiet screen create, line-anchored --pattern, pane move, clearer errors (W4-J)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38420,
+      "title": "cmux-remote: the acpmux carrier service, bridged to acpmux's carrier socket with the grant's person",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38556,
+      "title": "Agent chat: a one-time share nudge after the first chat's first reply",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38629,
+      "title": "Composer hat: its divider folds with the hat, so expand and collapse never step the dock",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38591,
+      "title": "ci(zig packages): save on dispatch only where a later run restores; review fixes",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38600,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-9c8286e8777be41f4785426cc7a4765ba3eeb6fe",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38537,
+      "title": "Remote view: Reconnect drops the ended session's end_reason",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38548,
+      "title": "perf(composer): a key into a long draft writes only its own line of markdown",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 38585,
+      "title": "acpmux: a slow disk delays replies and never restarts the daemon",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
