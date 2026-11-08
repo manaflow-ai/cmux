@@ -44,5 +44,11 @@ import Testing
                 isPhoneIdiom: true
             )
         )
+        #expect(
+            !MobileWorkspaceShellLayoutPolicy.hostsSplitDestinationsInSidebar(
+                usesCompactStack: true,
+                isPhoneIdiom: false
+            )
+        )
     }
 }
