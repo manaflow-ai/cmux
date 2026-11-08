@@ -187,7 +187,8 @@ function bgEnd(task: string, command: string, exit: number, output: string) {
   return { text, provenance };
 }
 const LONG = `wt new manaflow-ai/cmux lane/summary-sources-screenshot-labels --topic 'summary card Sources screenshot labels' --files…`;
-const REMOTE = "remote:\nremote: Create a pull request for 'fast-checks/5023' on GitHub by visiting:\nwarning: redirecting to https://github.com/x";
+const REMOTE =
+  "remote:\nremote: Create a pull request for 'fast-checks/5023' on GitHub by visiting:\nwarning: redirecting to https://github.com/x";
 
 test("a command that exited 0 reads as info whatever its output looks like, and its line keeps the exit", async () => {
   const end = bgEnd("bg-1", "cmux-ci test --committed -- 'cd tools && python3 -m unittest'", 0, REMOTE);
@@ -254,7 +255,11 @@ test("one notice that went in as a digest reads as that notice", () => {
 test("the most severe notice of a digest names its line", () => {
   const read = digest(bgEnd("bg-6", "ls", 0, "a"), bgEnd("bg-7", "make", 2, "b"), bgEnd("bg-8", "pwd", 0, "c"));
   if (read?.kind !== "message") throw new Error("not a message");
-  expect(read.message.notice).toMatchObject({ severity: "warn", title: "Background command finished: make (exit 2)", more: 2 });
+  expect(read.message.notice).toMatchObject({
+    severity: "warn",
+    title: "Background command finished: make (exit 2)",
+    more: 2,
+  });
 });
 
 test("a digest of a notice and an agent's message shows the first message's words, not its sender's name", () => {
@@ -266,7 +271,9 @@ test("a digest of a notice and an agent's message shows the first message's word
   ];
   const read = incomingPrompt(text, { _meta: { provenance: { kind: "agent_digest", messages } } });
   if (read?.kind !== "message") throw new Error("not a message");
-  expect(messagePreview(read.message.text)).toBe(`Background command finished: ${LONG} (exit 0)`);
+  expect(read.message.name).toBe("acpmux, lane-a");
+  expect(read.message.preview).toBe(`Background command finished: ${LONG} (exit 0)`);
+  expect(messagePreview(read.message.text)).not.toBe(`Background command finished: ${LONG} (exit 0)`);
   expect(read.message.text).not.toContain("[notice from");
 });
 
