@@ -79,7 +79,7 @@ describe("team shared agent keys (C4)", { timeout: 60_000 }, () => {
     const outsider = await rolesTeam()
     expect((await op(t.creator.token, "team.agent_key.set", { agent: "claude", kind: "api_key", secret: KEY }, t.team)).body.ok).toBe(true)
     const foreign = await call(outsider.creator.token, "/v1/read", { op: "team.agent_key.status", params: {} }, t.team)
-    expect(codeOf(foreign)).toBe("auth.forbidden")
+    expect(codeOf(foreign), "the edge refuses a non-member before the team reads anything").toBe("team.not_member")
     const store = new ModelKeys(createExecutionContext(), testEnv as never)
     expect(await resolveTeamSharedKey(testEnv as never, t.team, "claude", { user: member.user })).toEqual({ kind: "api_key", secret: KEY })
     expect(await store.resolveTeamSharedKey(t.team, "claude", member.user)).toEqual({ kind: "api_key", secret: KEY })

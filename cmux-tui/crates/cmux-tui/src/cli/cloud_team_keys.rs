@@ -17,8 +17,9 @@
 //! `CMUX_CLOUD_ACCESS_TOKEN`); the team from `--team` (or `CMUX_CLOUD_TEAM`).
 //!
 //! Errors (stderr JSON with `--json`, stable `code`): `usage.invalid` (exit
-//! 2); the API's own codes, verbatim (`auth.required`, `auth.forbidden` (not
-//! an owner or admin, or not a member), `validation.invalid` (a malformed
+//! 2); the API's own codes, verbatim (`auth.required`, `team.not_member`
+//! (not in the team), `auth.forbidden` (not an owner or admin),
+//! `validation.invalid` (a malformed
 //! key), `team_agent_key.not_configured` (the deployment has no sealing key),
 //! `revision.conflict` (another admin changed it at the same moment: run it
 //! again), `owner.unreachable`); `cloud.unreachable` (no answer; retry with
