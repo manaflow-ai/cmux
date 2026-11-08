@@ -9,6 +9,8 @@ public struct MacScreenHomeActions {
     public var openDevice: (String, SessionScope?) -> Void = { _, _ in }
     /// Show one of the user's devices in a new tab.
     public var openDeviceInNewTab: (String, SessionScope?) -> Void = { _, _ in }
+    /// Sign In under Your Devices while this Mac is signed out of cmux.
+    public var signIn: () -> Void = {}
 
     public init() {}
 }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import datetime
 import io
 import json
 import os
@@ -29,6 +30,7 @@ class CandidateInputs(unittest.TestCase):
         self.write(mirror.inputs.WORKFLOW, "name: fixture\njobs: {}\n")
         self.write(mirror.SCRIPT, "# planner fixture\n")
         self.write("scripts/ci/job_input_fingerprint.py", "# fingerprint fixture\n")
+        self.write("scripts/ci/job_reuse.py", "# reuse fixture\n")
         self.write(mirror.inputs.GRAPH, json.dumps({"targets": {
             "FixtureTests": {"reads": ["unrelated/fixture.json"], "targets": [],
                              "packages": [], "kind": "test"}}}))
@@ -157,6 +159,47 @@ class CandidateInputs(unittest.TestCase):
         self.assertTrue(record["candidate_skip"])
         self.assertEqual(record["previous_sha"], previous)
         self.assertNotEqual(record["previous_sha"], record["sha"])
+
+    def test_candidate_key_is_exposed_for_the_enforcement_lookup(self):
+        plan = self.root / "plan.json"
+        with mock.patch.object(mirror.job_reuse, "lookup", return_value={"hit": "false"}), \
+                contextlib.redirect_stdout(io.StringIO()) as stdout:
+            mirror.start(str(self.root), "HEAD", "release-compile", self.full(), plan)
+        record = json.loads(plan.read_text())
+        self.assertIn(f"candidate_key={record['candidate_key']}", stdout.getvalue())
+
+    def test_promotion_evidence_requires_matching_policy_and_a_full_day(self):
+        evidence = self.root / "evidence.json"
+        base = {"schema": "ci-rebuild-evidence/v1", "enabled": True,
+                "policy": mirror.policy_identity(str(self.root), "HEAD", "release-compile"),
+                "window_seconds": 86400, "false_skip_rate": 0,
+                "complete": 1, "measured_at": "2026-11-04T00:00:00Z"}
+        evidence.write_text(json.dumps(base))
+        measured = datetime.datetime(2026, 11, 4, tzinfo=datetime.timezone.utc).timestamp() + 60
+        with mock.patch.object(mirror.time, "time", return_value=measured):
+            self.assertEqual(mirror.verify_evidence(str(self.root), "HEAD", "release-compile", evidence),
+                             (True, "eligible"))
+        for field, value in (("policy", "wrong"), ("window_seconds", 86399),
+                             ("false_skip_rate", 0.01), ("complete", 0), ("enabled", False),
+                             ("window_seconds", True), ("window_seconds", float("inf")),
+                             ("false_skip_rate", False), ("false_skip_rate", float("nan")),
+                             ("complete", True)):
+            with self.subTest(field=field):
+                changed = dict(base, **{field: value})
+                evidence.write_text(json.dumps(changed))
+                eligible, _ = mirror.verify_evidence(str(self.root), "HEAD", "release-compile", evidence)
+                self.assertFalse(eligible)
+        for timestamp in ("2020-01-01T00:00:00Z", "2026-11-04T00:00:00"):
+            with self.subTest(timestamp=timestamp):
+                evidence.write_text(json.dumps(dict(base, measured_at=timestamp)))
+                eligible, _ = mirror.verify_evidence(str(self.root), "HEAD", "release-compile", evidence)
+                self.assertFalse(eligible)
+        for malformed in ([], "text"):
+            with self.subTest(malformed=malformed):
+                evidence.write_text(json.dumps(malformed))
+                eligible, reason = mirror.verify_evidence(str(self.root), "HEAD", "release-compile", evidence)
+                self.assertFalse(eligible)
+                self.assertIn("object", reason)
 
     def test_pr_job_keeps_both_actions_head_and_built_merge_commit(self):
         plan = self.root / "plan.json"

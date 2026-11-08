@@ -40,6 +40,10 @@ public nonisolated protocol AgentSessionRemoteClient: Sendable {
     func setModel(_ modelId: String) async throws -> Data
     func setMode(_ modeId: String) async throws -> Data
     func setConfig(id configId: String, value: String) async throws -> Data
+    /// The attached session's context inventory and saved cmux-added overrides.
+    func context() async throws -> Data
+    /// Saves or resets a cmux-added user/project override on the attached session's machine.
+    func setContextOverride(scope: String, text: String?, partId: String?) async throws -> Data
     /// Whether that machine's daemon relays a Cloud chat's own sign-in (`agent-session-login-v1`).
     func servesLogin() async -> Bool
     /// One step of the chat's agent's own sign-in on that machine (`agent-session-login-v1`):
@@ -66,6 +70,15 @@ extension AgentSessionRemoteClient {
     public func setModel(_ modelId: String) async throws -> Data { throw Self.settingsUnsupported }
     public func setMode(_ modeId: String) async throws -> Data { throw Self.settingsUnsupported }
     public func setConfig(id configId: String, value: String) async throws -> Data { throw Self.settingsUnsupported }
+    public func context() async throws -> Data { throw Self.contextUnsupported }
+    public func setContextOverride(scope: String, text: String?, partId: String?) async throws -> Data { throw Self.contextUnsupported }
+    public func setContextOverride(scope: String, text: String?) async throws -> Data {
+        try await setContextOverride(scope: scope, text: text, partId: nil)
+    }
+    nonisolated static var contextUnsupported: AgentSessionRemoteError {
+        AgentSessionRemoteError(code: "agent_session.context_unsupported",
+                                message: "Update cmux on that machine to view or edit this chat's context.")
+    }
     nonisolated static var settingsUnsupported: AgentSessionRemoteError {
         AgentSessionRemoteError(code: "agent_session.settings_unsupported",
                                 message: "update cmux on that machine to change this chat's model, mode or options from here")
@@ -87,12 +100,17 @@ public nonisolated struct AgentSessionPage: Sendable, Equatable {
     public var beforeSeq: UInt64?
     public var limit: Int?
     public var kinds: [String]?
+    /// The page's `_acpmux/watch` read: the wire answers it as a sessions list, so the page never
+    /// gets its records. Never sent to the daemon.
+    public var listing: Bool
 
-    public init(afterSeq: UInt64? = nil, beforeSeq: UInt64? = nil, limit: Int? = nil, kinds: [String]? = nil) {
+    public init(afterSeq: UInt64? = nil, beforeSeq: UInt64? = nil, limit: Int? = nil, kinds: [String]? = nil,
+                listing: Bool = false) {
         self.afterSeq = afterSeq
         self.beforeSeq = beforeSeq
         self.limit = limit
         self.kinds = kinds
+        self.listing = listing
     }
 }
 

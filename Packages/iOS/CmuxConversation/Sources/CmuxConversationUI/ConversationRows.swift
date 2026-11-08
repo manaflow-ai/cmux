@@ -42,7 +42,7 @@ struct ReplyQuote: Hashable {
     var isOutgoing: Bool
     var hasImage: Bool
     /// The quoted message's own reply count: Messages labels the quote
-    /// "N Replies" once it has two or more.
+    /// "N Replies" once it has one ("1 Reply").
     var replyCount: Int = 0
 }
 
@@ -69,6 +69,10 @@ struct MessageRowModel: Hashable {
     var isFirstInGroup: Bool
     var footer: MessageFooter
     var replyQuote: ReplyQuote?
+    /// The reply's place in its thread block: the line runs from the
+    /// block's quote through every reply of the block (see
+    /// `ConversationRunPlan.ReplyThread`).
+    var replyThread: ConversationRunPlan.ReplyThread? = nil
     var isEmojiOnly: Bool
     /// Distinct tapbacks in first-given order, and whether one of them is mine.
     var reactionKinds: [ConversationReaction]
@@ -216,7 +220,7 @@ enum ConversationRowBuilder {
         appendLeadingRows(store: store, hidesLoadingRow: hidesLoadingRow, into: &rows)
         let messages = store.messages
         let context = Context(store: store, info: info, isGroup: info.kind == .group, meID: store.meID, typingIDs: store.typingParticipantIDs, translations: store.translations)
-        let plan = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs)
+        let plan = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs, threadBlocks: true)
         var typingPlaced = context.typingIDs.isEmpty
         for (index, original) in messages.enumerated() {
             appendRows(for: original, entry: plan.entries[index], context: context, memo: memo, typingPlaced: &typingPlaced, into: &rows)
@@ -268,7 +272,7 @@ enum ConversationRowBuilder {
         rows.reserveCapacity((boundary + 1) * 2 + 1 + previous.count - keepFrom)
         appendLeadingRows(store: store, hidesLoadingRow: false, into: &rows)
         let context = Context(store: store, info: info, isGroup: info.kind == .group, meID: store.meID, typingIDs: store.typingParticipantIDs, translations: store.translations)
-        let plan = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs, limit: boundary + 1)
+        let plan = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs, limit: boundary + 1, threadBlocks: true)
         var typingPlaced = true
         for index in 0...boundary {
             appendRows(for: messages[index], entry: plan.entries[index], context: context, typingPlaced: &typingPlaced, into: &rows)
@@ -281,6 +285,9 @@ enum ConversationRowBuilder {
         // row is where `previous` had it, moved by the splice.
         var pageIDs = Set<String>()
         for message in messages[0..<boundary] { pageIDs.insert(message.id) }
+        // A reply quotes its thread's root, so a reply to a reply below the
+        // page re-roots too when the chain reaches the page.
+        for message in messages[boundary...] where message.replyToID.map(pageIDs.contains) == true { pageIDs.insert(message.id) }
         var rebuilt: [Int] = []
         for i in store.messageIndices(from: boundary + 1, replyingTo: pageIDs) {
             let rowID = messages[i].rowID
@@ -292,7 +299,7 @@ enum ConversationRowBuilder {
             // Only a bubble shows the quote (an unsent reply is a notice).
             guard case let .message(model) = rows[row] else { continue }
             guard model.rowID == rowID else { return nil }
-            let entry = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs, range: i..<(i + 1)).entries[0]
+            let entry = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs, range: i..<(i + 1), threadBlocks: true).entries[0]
             var single: [ConversationRow] = []
             var placed = true
             appendRows(for: messages[i], entry: entry, context: context, typingPlaced: &placed, into: &single)
@@ -350,7 +357,7 @@ enum ConversationRowBuilder {
             if let row = index(id), row < cut { return nil }
         }
         let context = Context(store: store, info: info, isGroup: info.kind == .group, meID: store.meID, typingIDs: store.typingParticipantIDs, translations: store.translations)
-        let plan = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs, range: start..<messages.count)
+        let plan = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs, range: start..<messages.count, threadBlocks: true)
         memo?.beginPass(info: info, meID: context.meID, messageCount: messages.count)
         var rows = Array(previous[..<cut])
         rows.reserveCapacity(cut + (messages.count - start) * 2 + 2)
@@ -385,7 +392,7 @@ enum ConversationRowBuilder {
             let rowID = messages[i].rowID
             guard let row = index(rowID), row < cut else { continue }
             guard case .message = previous[row] else { return nil }
-            let entry = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs, range: i..<(i + 1)).entries[0]
+            let entry = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs, range: i..<(i + 1), threadBlocks: true).entries[0]
             var single: [ConversationRow] = []
             var placed = true
             appendRows(for: messages[i], entry: entry, context: context, typingPlaced: &placed, into: &single)
@@ -435,7 +442,7 @@ enum ConversationRowBuilder {
         let presentation = context.translations.presentation(for: original)
         let inputs = ConversationRowMemo.Inputs(
             message: original, entry: entry, translation: presentation?.text, caption: presentation?.caption,
-            quoted: original.replyToID.flatMap { context.store.message(id: $0) }
+            quoted: original.replyToID.flatMap { ConversationRunPlan.threadRoot(of: $0, message: context.store.message(id:)) }
         )
         if let cached = memo.entries[original.rowID], cached.inputs == inputs {
             rows.append(contentsOf: cached.rows)
@@ -493,7 +500,11 @@ enum ConversationRowBuilder {
         let isOutgoing = message.senderID == meID
         let sender = info.participant(message.senderID)
         let footer = footer(for: entry.status, isGroup: isGroup)
-        let quote = message.replyToID.flatMap { store.message(id: $0) }.map {
+        // Only a block's first reply quotes the thread's root (Messages): a
+        // reply right under the message it answers, or one joining the block
+        // above it, shows none.
+        let root = entry.replyThread == nil ? nil : message.replyToID.flatMap { ConversationRunPlan.threadRoot(of: $0, message: store.message(id:)) }
+        let quote: ReplyQuote? = entry.replyThread?.showsQuote != true ? nil : root.map {
             ReplyQuote(text: $0.text.isEmpty ? ($0.audioAttachment != nil ? AudioMessageStrings.audioMessage : String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module)) : $0.text, isOutgoing: $0.senderID == meID, hasImage: !$0.attachments.isEmpty, replyCount: $0.replyCount)
         }
         rows.append(.message(PollRowModel.attach(to: MessageRowModel(
@@ -507,10 +518,12 @@ enum ConversationRowBuilder {
             showsAvatar: isGroup && !isOutgoing && nextBreaksGroup,
             reservesAvatarColumn: isGroup && !isOutgoing,
             isGroup: isGroup,
-            showsTail: nextBreaksGroup || quote != nil,
+            showsTail: nextBreaksGroup,
             isFirstInGroup: !groupedWithPrevious,
             footer: footer,
             replyQuote: quote,
+            // Without its root loaded the block has no quote, so no line either.
+            replyThread: root == nil ? nil : entry.replyThread,
             isEmojiOnly: message.attachments.isEmpty && message.linkPreview == nil && isEmojiOnly(message.text),
             reactionKinds: message.reactions.reduce(into: [ConversationReaction]()) { kinds, mark in
                 if !kinds.contains(mark.reaction) { kinds.append(mark.reaction) }

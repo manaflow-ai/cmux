@@ -6,6 +6,7 @@ import CmuxMobileDesign
 import CmuxMobileDiff
 import CmuxMobileMarkdown
 import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -609,9 +610,8 @@ struct AgentChatJumpButton: View {
                         .frame(width: metrics.glassButton, height: metrics.glassButton)
                         .overlay(alignment: .topTrailing) {
                             if store.isRunning {
-                                ProgressView()
+                                CmuxSpinner(tint: .primary)
                                     .controlSize(.mini)
-                                    .tint(.primary)
                                     .frame(width: metrics.workingIndicatorBadge, height: metrics.workingIndicatorBadge)
                                     .background(Color.cmuxMobileBackground, in: .circle)
                                     .allowsHitTesting(false)
@@ -709,7 +709,18 @@ public struct AgentChatBottomStack: View {
                     QueuedPromptsView(store: store, text: $surface.text)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
-                if let permission = store.pendingPermission, !surface.permissionBarHidden {
+                if let ask = store.pendingElevation {
+                    // The sudo card (acpmux hub/elevation.rs) takes the composer's place until answered.
+                    ElevationCard(ask: ask, agentName: store.summary.agentName, sending: store.sendingElevation) { password in
+                        withAnimation(.cmuxMobileSmooth) { store.answerElevation(ask, password: password) }
+                    }
+                    // A new card is a new view: a password typed for one command never stays for the next.
+                    .id(ask.id)
+                    .padding(16)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 28, style: .continuous))
+                    .padding(.horizontal, 12)
+                    .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
+                } else if let permission = store.pendingPermission, !surface.permissionBarHidden {
                     PermissionActionBar(request: permission.request, approvingOptionID: store.approvingOptionID) { option in
                         withAnimation(.cmuxMobileSmooth) { store.respond(to: permission.request, option: option) }
                     } replyInstead: {
@@ -1159,7 +1170,7 @@ struct AnswerActionRow: View {
             }
             .accessibilityLabel("More")
             Spacer()
-            if let duration = turn.duration {
+            if let duration = ToolWording().shown(turn.duration) {
                 Text(ToolWording().duration(duration)).font(.footnote.monospacedDigit()).foregroundStyle(.tertiary)
                     .lineLimit(1).fixedSize()
             }

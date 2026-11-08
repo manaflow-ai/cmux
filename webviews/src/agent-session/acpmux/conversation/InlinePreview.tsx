@@ -13,15 +13,17 @@
 // Code shows the source card, which keeps Copy. Markdown.tsx draws this only once the fence has
 // closed: an open fence stays plain code, so no frame is made or reloaded per token. The frame mounts
 // once the card nears the viewport, so a long chat does not start every frame at once.
+import { cornerAction } from "./cornerActions";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { useNearViewport } from "../useNearViewport";
 import { artifactFrameURL, artifactGallery, artifactNeedsRun } from "./artifactSandbox";
-import { CodeBlock, languageLabel } from "./CodeBlock";
+import { CodeBlock } from "./CodeBlock";
+import { languageLabel } from "./codeBlockModel";
 import { CopyButton } from "./CopyButton";
 import { OpenPreview } from "./OpenPreview";
 import { renderFrameCSS } from "./renderBase";
-import { useRenderFrame } from "./RenderCard";
+import { useRenderFrame } from "./renderCardModel";
 import {
   INLINE_PREVIEW_EXPANDED_MAX_HEIGHT,
   INLINE_PREVIEW_MAX_HEIGHT,
@@ -74,7 +76,7 @@ export function InlinePreview({
   const toggle = (
     <button
       type="button"
-      className="cv-codeblock__action cv-codeblock__action--text"
+      className={`${cornerAction()} cv-codeblock__action--text`}
       aria-pressed={showCode}
       onClick={() => setShowCode((value) => !value)}
     >

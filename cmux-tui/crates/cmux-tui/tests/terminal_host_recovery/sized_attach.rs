@@ -72,6 +72,29 @@ fn fit_everyone(path: &Path, surface: u64) {
     );
 }
 
+/// Waits until the daemon handled a dropped connection: no client named `name` is listed. The daemon removes a
+/// departed client from its registry and from the sizing state in one step under the sizing lifecycle lock, and a
+/// sized attach takes that lock too, so an attach after this wait is ordered after the departure.
+fn wait_for_client_gone(path: &Path, name: &str) {
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let clients = request(path, serde_json::json!({"cmd": "list-clients"}));
+        let listed = clients
+            .as_array()
+            .expect("list-clients answers a list")
+            .iter()
+            .any(|client| client["name"] == name);
+        if !listed {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the dropped {name} connection is still listed: {clients}"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 /// Events on an attach stream for `window`, by name.
 fn events_within(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
@@ -246,6 +269,9 @@ fn a_phone_back_at_a_larger_size_ends_the_hold() {
     wait_for_vt_size(&harness.socket, surface, 53, 39);
     drop(phone_writer);
     drop(phone_reader);
+    // The phone left: the daemon must see its connection end before it comes back, or the 53-column view is still
+    // attached and caps the new one as a second view would (this test failed so once, under a loaded full run).
+    wait_for_client_gone(&harness.socket, "phone");
 
     // Back in landscape, well inside the hold: 90 columns, not the 53 it left.
     let (_phone_writer, _phone_reader, phone_state) =

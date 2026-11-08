@@ -5,15 +5,40 @@
 
 use super::capture::Bounds;
 use super::keys::{key_code, modifier_flag};
+use super::sys::{self, cf, cg, event_type, CGEventFlags, CGEventRef, CGKeyCode, CGPoint};
 use crate::Res;
 use cmux_rd_proto::InputEvent;
-use core_graphics::event::{
-    CGEvent, CGEventFlags, CGEventTapLocation, CGEventType, CGKeyCode, CGMouseButton, EventField,
-    ScrollEventUnit,
-};
-use core_graphics::event_source::{CGEventSource, CGEventSourceStateID};
-use core_graphics::geometry::CGPoint;
 use std::collections::BTreeSet;
+
+/// A CGEvent this code created, released on drop.
+struct Event(CGEventRef);
+
+impl Event {
+    fn new(event: CGEventRef) -> Option<Self> {
+        (!event.is_null()).then_some(Self(event))
+    }
+
+    /// Posts the event at the HID level with `flags`.
+    fn post(&self, flags: CGEventFlags) {
+        // SAFETY: a live event this value owns.
+        unsafe {
+            cg::CGEventSetFlags(self.0, flags.0);
+            cg::CGEventPost(sys::TAP_HID, self.0);
+        }
+    }
+
+    fn set_field(&self, field: u32, value: i64) {
+        // SAFETY: a live event this value owns.
+        unsafe { cg::CGEventSetIntegerValueField(self.0, field, value) }
+    }
+}
+
+impl Drop for Event {
+    fn drop(&mut self) {
+        // SAFETY: the reference CGEventCreate* returned.
+        unsafe { cf::CFRelease(self.0.cast_const()) }
+    }
+}
 
 /// The modifier flags of the held keys (left and right of a modifier set the same flag).
 fn held_flags(keys: &BTreeSet<CGKeyCode>) -> CGEventFlags {
@@ -50,32 +75,34 @@ impl Button {
         })
     }
 
-    fn events(self) -> (CGEventType, CGEventType, CGEventType, CGMouseButton) {
+    /// Its down, up and dragged CGEventTypes and its CGMouseButton.
+    fn events(self) -> (u32, u32, u32, u32) {
         match self {
             Self::Left => (
-                CGEventType::LeftMouseDown,
-                CGEventType::LeftMouseUp,
-                CGEventType::LeftMouseDragged,
-                CGMouseButton::Left,
+                event_type::LEFT_MOUSE_DOWN,
+                event_type::LEFT_MOUSE_UP,
+                event_type::LEFT_MOUSE_DRAGGED,
+                sys::MOUSE_BUTTON_LEFT,
             ),
             Self::Right => (
-                CGEventType::RightMouseDown,
-                CGEventType::RightMouseUp,
-                CGEventType::RightMouseDragged,
-                CGMouseButton::Right,
+                event_type::RIGHT_MOUSE_DOWN,
+                event_type::RIGHT_MOUSE_UP,
+                event_type::RIGHT_MOUSE_DRAGGED,
+                sys::MOUSE_BUTTON_RIGHT,
             ),
             Self::Other(_) => (
-                CGEventType::OtherMouseDown,
-                CGEventType::OtherMouseUp,
-                CGEventType::OtherMouseDragged,
-                CGMouseButton::Center,
+                event_type::OTHER_MOUSE_DOWN,
+                event_type::OTHER_MOUSE_UP,
+                event_type::OTHER_MOUSE_DRAGGED,
+                sys::MOUSE_BUTTON_CENTER,
             ),
         }
     }
 }
 
 pub struct Injector {
-    source: CGEventSource,
+    /// The HID-state event source (a CGEventSourceRef, released on drop).
+    source: sys::CGEventSourceRef,
     bounds: Bounds,
     /// Stream pixels per display point.
     scale: (f64, f64),
@@ -91,8 +118,12 @@ pub struct Injector {
 
 impl Injector {
     pub fn new(bounds: Bounds, size: (u32, u32)) -> Res<Self> {
-        let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
-            .map_err(|()| "no CGEvent source (is Accessibility allowed?)")?;
+        sys::load()?;
+        // SAFETY: creates an event source this injector owns (released on drop).
+        let source = unsafe { cg::CGEventSourceCreate(sys::SOURCE_STATE_HID_SYSTEM) };
+        if source.is_null() {
+            return Err("no CGEvent source (is Accessibility allowed?)".into());
+        }
         Ok(Self {
             source,
             bounds,
@@ -116,7 +147,7 @@ impl Injector {
                 // A move with a button held is a drag of the first held button.
                 let kind = match self.buttons.iter().next() {
                     Some(button) => button.events().2,
-                    None => CGEventType::MouseMoved,
+                    None => event_type::MOUSE_MOVED,
                 };
                 let button = self.buttons.iter().next().copied();
                 self.mouse(kind, button, None);
@@ -152,20 +183,19 @@ impl Injector {
         CGPoint::new(b.x + px, b.y + py)
     }
 
-    fn mouse(&self, kind: CGEventType, button: Option<Button>, clicks: Option<i64>) {
-        let cg_button = button.map_or(CGMouseButton::Left, |b| b.events().3);
-        let Ok(event) = CGEvent::new_mouse_event(self.source.clone(), kind, self.point, cg_button)
-        else {
-            return;
-        };
+    fn mouse(&self, kind: u32, button: Option<Button>, clicks: Option<i64>) {
+        let cg_button = button.map_or(sys::MOUSE_BUTTON_LEFT, |b| b.events().3);
+        // SAFETY: a live source; the event is released by `Event`.
+        let created =
+            unsafe { cg::CGEventCreateMouseEvent(self.source, kind, self.point, cg_button) };
+        let Some(event) = Event::new(created) else { return };
         if let Some(Button::Other(number)) = button {
-            event.set_integer_value_field(EventField::MOUSE_EVENT_BUTTON_NUMBER, number);
+            event.set_field(sys::FIELD_MOUSE_EVENT_BUTTON_NUMBER, number);
         }
         if let Some(count) = clicks {
-            event.set_integer_value_field(EventField::MOUSE_EVENT_CLICK_STATE, count);
+            event.set_field(sys::FIELD_MOUSE_EVENT_CLICK_STATE, count);
         }
-        event.set_flags(self.flags);
-        event.post(CGEventTapLocation::HID);
+        event.post(self.flags);
     }
 
     fn button(&mut self, button: Button, down: bool) {
@@ -202,12 +232,13 @@ impl Injector {
         if whole_x == 0 && whole_y == 0 {
             return;
         }
-        let unit = if precise { ScrollEventUnit::PIXEL } else { ScrollEventUnit::LINE };
-        if let Ok(event) =
-            CGEvent::new_scroll_event(self.source.clone(), unit, 2, whole_y, whole_x, 0)
-        {
-            event.set_flags(self.flags);
-            event.post(CGEventTapLocation::HID);
+        let unit = if precise { sys::SCROLL_UNIT_PIXEL } else { sys::SCROLL_UNIT_LINE };
+        // SAFETY: a live source; the event is released by `Event`.
+        let created = unsafe {
+            cg::CGEventCreateScrollWheelEvent2(self.source, unit, 2, whole_y, whole_x, 0)
+        };
+        if let Some(event) = Event::new(created) {
+            event.post(self.flags);
         }
     }
 
@@ -225,9 +256,10 @@ impl Injector {
     }
 
     fn post_key(&self, code: CGKeyCode, down: bool) {
-        if let Ok(event) = CGEvent::new_keyboard_event(self.source.clone(), code, down) {
-            event.set_flags(self.flags);
-            event.post(CGEventTapLocation::HID);
+        // SAFETY: a live source; the event is released by `Event`.
+        let created = unsafe { cg::CGEventCreateKeyboardEvent(self.source, code, down) };
+        if let Some(event) = Event::new(created) {
+            event.post(self.flags);
         }
     }
 
@@ -250,11 +282,26 @@ impl Injector {
 
     fn post_text(&self, units: &[u16]) {
         for down in [true, false] {
-            if let Ok(event) = CGEvent::new_keyboard_event(self.source.clone(), 0, down) {
-                event.set_string_from_utf16_unchecked(units);
-                event.set_flags(CGEventFlags::empty());
-                event.post(CGEventTapLocation::HID);
+            // SAFETY: a live source; the event is released by `Event`, and `units` outlives
+            // the call that copies them.
+            unsafe {
+                let Some(event) = Event::new(cg::CGEventCreateKeyboardEvent(self.source, 0, down))
+                else {
+                    continue;
+                };
+                cg::CGEventKeyboardSetUnicodeString(event.0, units.len(), units.as_ptr());
+                event.post(CGEventFlags::empty());
             }
         }
     }
 }
+
+impl Drop for Injector {
+    fn drop(&mut self) {
+        // SAFETY: the source CGEventSourceCreate returned.
+        unsafe { cf::CFRelease(self.source.cast_const()) }
+    }
+}
+
+// SAFETY: the event source is only used from the session's thread that owns the injector.
+unsafe impl Send for Injector {}

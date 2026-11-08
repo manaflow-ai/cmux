@@ -96,9 +96,15 @@ impl Supervisor {
                     outs.extend(self.log_locked(&mut inner, "cmux/supervisor", "warn", message));
                 }
             }
+            if inner.customize_reads_offered.is_none() {
+                let declared =
+                    inner.catalog.packages.get(CUSTOMIZE_APP).map(|p| p.facts().requested);
+                inner.customize_reads_offered = Some(declared.unwrap_or_default());
+            }
             inner.catalog = catalog;
             if changed.iter().any(|id| id == CUSTOMIZE_APP) {
                 self.seed_customize_locked(&mut inner);
+                outs.extend(self.grant_new_customize_reads_locked(&mut inner));
             }
             for app in &changed {
                 outs.extend(self.regrant_locked(&mut inner, app));
@@ -137,6 +143,52 @@ impl Supervisor {
             mirror.sidebar_auto_place.insert(CUSTOMIZE_APP.into());
             if self.persist(&mirror).is_ok() {
                 inner.mirror = mirror;
+            }
+        }
+    }
+}
+
+impl Supervisor {
+    /// The read scopes a save of the customization app declares for the first
+    /// time, granted as its first install would have (read scopes need no
+    /// prompt). A scope offered before keeps whatever the person set, so a
+    /// read they turned off stays off; other scopes wait for them.
+    fn grant_new_customize_reads_locked(&self, inner: &mut super::supervisor::Inner) -> Vec<Out> {
+        let Some(facts) = inner.catalog.packages.get(CUSTOMIZE_APP).map(Package::facts) else {
+            return vec![];
+        };
+        let (reads, _) = facts.install_defaults();
+        let offered = inner.customize_reads_offered.get_or_insert_with(Default::default);
+        let new: Vec<String> = reads.iter().filter(|s| !offered.contains(*s)).cloned().collect();
+        offered.extend(reads);
+        let Some(record) = inner.mirror.apps.get(CUSTOMIZE_APP).filter(|r| r.installed) else {
+            return vec![];
+        };
+        let new: Vec<String> = new.into_iter().filter(|s| !record.grants.contains(s)).collect();
+        if new.is_empty() {
+            return vec![];
+        }
+        let mut next = inner.mirror.clone();
+        if let Some(record) = next.apps.get_mut(CUSTOMIZE_APP) {
+            record.grants.extend(new.iter().cloned());
+        }
+        next.revision += 1;
+        match self.persist(&next) {
+            Ok(()) => {
+                inner.mirror = next;
+                vec![]
+            }
+            Err(error) => {
+                // Not offered after all: the next save tries these again.
+                if let Some(offered) = inner.customize_reads_offered.as_mut() {
+                    offered.retain(|scope| !new.contains(scope));
+                }
+                self.log_locked(
+                    inner,
+                    "cmux/supervisor",
+                    "warn",
+                    format!("{CUSTOMIZE_APP}: its new read scopes were not saved, so the next save tries again: {error}"),
+                )
             }
         }
     }

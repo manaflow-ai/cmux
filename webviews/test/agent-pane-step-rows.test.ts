@@ -4,9 +4,10 @@
 // they share a transcript row or not. An opened run's steps sit in one card (`.cv-steps`,
 // #27896, the card the message groups draw, #27864): each is still one 22px row, the card's steps
 // on one equal pitch of their own, and the rows outside cards keep the rhythm with no gap. A
-// finished thought is one quiet row like the others that opens to its full text, wrapped, with no
-// tooltip (Leo 2026-10-20). Inner tool rows keep their chevron slot quiet until hover, then light
-// their icon, words and chevron together; the group header keeps its own disclosure.
+// finished thought is one quiet row like the others, its brain glyph and its words on one line, that
+// opens to its full text, wrapped, with no tooltip (Leo 2026-10-20; Codex parity). Inner tool rows
+// keep their chevron slot quiet until hover, then show it and light their words, never their glyph;
+// the group header keeps its own disclosure.
 //
 // Before: the background task's end used a smaller font in a 22px row with its own margins, a
 // step in the next transcript row sat 10px further down than one in the same row, a thought was
@@ -72,8 +73,8 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
       }),
     ],
     ...call("c3", "Read build-acpmux.sh", "read", { locations: [{ path: "/home/dev/cmux/scripts/build-acpmux.sh" }] }),
-    // The turn is still running. Its finished steps fold under their run's line (Debug toggle
-    // agentPane.debug.codexToolRuns, on by default), which the tests open (`openRun`).
+    // The turn is still running. Its finished steps fold under their run's line, which the tests
+    // open (`openRun`).
   ];
   const events = steps.map(([dir, kind, msg], index) => ({
     sessionId: CHAT,
@@ -233,9 +234,12 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     const page = await open();
     await openRun(page);
     const toggle = page.locator("button.cv-thought");
-    expect((await toggle.innerText()).trim()).toBe("Thought");
+    // Closed, its brain glyph and its words on one line (Codex parity); open, "Thought" over its text.
+    expect((await toggle.textContent())?.trim()).toBe(THOUGHT);
+    expect(await toggle.locator(".cv-tool__icon svg").count()).toBe(1);
     expect(await page.locator(".cv-thought__body, .cv-thought__text").count()).toBe(0);
     await toggle.click();
+    await page.locator("button.cv-thought .cv-thought__label", { hasText: /^Thought/ }).waitFor();
     // The fold plays, then the text has its height.
     const thought = page.locator(".cv-thought__body");
     await page.waitForFunction(
@@ -288,9 +292,9 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     await page.close();
   });
 
-  // Hover only reveals the chevron: the step's words and glyph keep their tone, as a lone tool row's
-  // do (#20330: tool rows "no longer change on hover"); focus and an opened step lift them.
-  test("an inner step row reveals its chevron on hover and keeps its tone", async () => {
+  // Hover reveals the chevron and lights the step's words, never its glyph (Codex parity). Opened
+  // by a click, with the pointer gone, it keeps its chevron and its words go back to rest.
+  test("an inner step row reveals its chevron and lights only its words on hover", async () => {
     const page = await open();
     await openRun(page);
     const row = page.locator(".cv-steps > .cv-step > .cv-tool").first();
@@ -322,15 +326,15 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     expect(hovered.chevron).toBe("1");
     expect(hovered.color).toBe(rest.color);
     expect(hovered.icon).toBe(rest.icon);
-    expect(hovered.text).toBe(rest.text);
+    expect(hovered.text).not.toBe(rest.text);
     expect(hovered.width).toBe(rest.width);
     await row.click();
     await page.mouse.move(0, 0);
     await waitForChevron("1");
     const opened = await look();
     expect(opened.chevron).toBe("1");
-    expect(opened.color).toBe(opened.icon);
-    expect(opened.color).toBe(opened.text);
+    expect(opened.icon).toBe(rest.icon);
+    expect(opened.text).toBe(rest.text);
     await page.close();
   });
 });

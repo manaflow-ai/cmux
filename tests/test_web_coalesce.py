@@ -444,6 +444,38 @@ class BisectTests(unittest.TestCase):
             self.assertIn("nothing to bisect", printed.getvalue())
             self.assertEqual(test_reds.bisect_report(printed.getvalue()), {})
 
+    def test_last_known_green_extends_the_lower_bound_when_it_is_on_head_history(self):
+        base, head = "b" * 40, "a" * 40
+        def git(*args):
+            return "" if args[:2] == ("merge-base", "--is-ancestor") else "12"
+        with unittest.mock.patch.object(coalesce, "git", side_effect=git) as mocked_git:
+            chosen = coalesce.choose_bisect_base(base, "c" * 40, head)
+        self.assertEqual(chosen, ("c" * 40, "last-known-green"))
+        self.assertEqual(mocked_git.call_args_list, [
+            unittest.mock.call("merge-base", "--is-ancestor", "c" * 40, head),
+            unittest.mock.call("rev-list", "--first-parent", "--count", "c" * 40 + ".." + head),
+        ])
+
+    def test_stale_last_known_green_keeps_the_coalesced_lower_bound(self):
+        """An old published ref must not discard a short range the coalescer can bisect."""
+        base, head, stale = "b" * 40, "a" * 40, "c" * 40
+
+        def git(*args):
+            if args[:2] == ("merge-base", "--is-ancestor"):
+                return ""
+            if args[:4] == ("rev-list", "--first-parent", "--count", stale + ".." + head):
+                return str(coalesce.MAX_COMMITS + 1)
+            raise AssertionError(args)
+
+        with unittest.mock.patch.object(coalesce, "git", side_effect=git):
+            self.assertEqual(coalesce.choose_bisect_base(base, stale, head), (base, "coalesced"))
+
+    def test_last_known_green_is_ignored_when_unrelated_or_missing(self):
+        base, head = "b" * 40, "a" * 40
+        self.assertEqual(coalesce.choose_bisect_base(base, "", head), (base, "coalesced"))
+        with unittest.mock.patch.object(coalesce, "git", side_effect=subprocess.CalledProcessError(1, "git")):
+            self.assertEqual(coalesce.choose_bisect_base(base, "c" * 40, head), (base, "coalesced"))
+
 
 class ProbeTests(unittest.TestCase):
     def test_the_results_writer_records_each_files_run_state(self):
@@ -599,9 +631,18 @@ class WorkflowTests(unittest.TestCase):
         # A run of every web check has no covered range to bisect.
         self.assertIn(f"needs.coalesce.outputs.base != '{coalesce.EVERYTHING}'", job["if"])
         self.assertIn("github.event_name == 'push'", job["if"])
+        checkout = next(s for s in job["steps"] if s.get("name") == "Checkout with history")
+        self.assertIs(checkout["with"]["persist-credentials"], False)
+        lkg = next(s for s in job["steps"] if s.get("name") == "Read last-known-green")
+        self.assertEqual(lkg["id"], "lkg")
+        self.assertEqual(lkg["env"]["GITHUB_TOKEN"], "${{ github.token }}")
+        self.assertIn("refs/heads/last-known-green", lkg["run"])
+        self.assertIn("http.extraheader", lkg["run"])
+        self.assertIn("unset auth GITHUB_TOKEN", lkg["run"])
         bisect = next(s for s in job["steps"] if s["name"] == "Bisect the new webview reds")
         self.assertIs(bisect["continue-on-error"], True)
         self.assertIn("web_coalesce.py\" bisect", bisect["run"])
+        self.assertIn("--last-known-green", bisect["run"])
 
     def test_web_lint_still_runs_on_every_push_in_its_own_workflow(self):
         on = self.lint.get("on", self.lint.get(True))

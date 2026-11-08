@@ -435,7 +435,7 @@ def fix_test_registry(failure: TestFailure, tree: Tree) -> Fix | None:
     if "validate_test_execution_registry.py --write" not in failure.message:
         return None
     command = "python3 scripts/ci/validate_test_execution_registry.py --write"
-    return Fix(f"Run `{command}`, which registers the new test in `tests/test-execution.toml`, and commit "
+    return Fix(f"Run `{command}`, which registers the new test in its `tests/test-execution.d/` area file, and commit "
                "the result.", command=command)
 
 

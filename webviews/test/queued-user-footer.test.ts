@@ -252,15 +252,15 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
             console.log("QUEUE_FOOTER_GEOMETRY", JSON.stringify({ width, length, themeName, before, after }));
             expect(before.footerGap).toBeGreaterThanOrEqual(0);
             expect(Math.abs(before.bubbleRight - before.rowRight)).toBeLessThanOrEqual(1);
-            // The row's 28 controls overhang the bubble's edge by their glyph inset, so their glyphs
-            // end on it (design/grid.md 5.5).
-            const overhang = (gridLength("transcript-action-control") - gridLength("transcript-icon-box")) / 2;
+            // The row's controls (every action row's 24 square, conversation.css --cv-action-button)
+            // overhang the bubble's edge by their glyph inset, so their glyphs end on it (design/grid.md 5.5).
+            const overhang = (24 - gridLength("transcript-icon-box")) / 2;
             expect(Math.abs(before.footerRight - overhang - before.bubbleRight)).toBeLessThanOrEqual(1);
             // Copy, × and Send now sit as the sent prompt's row does (Leo, relayed 2026-11-03: "Send now ×
             // and the copy icon float loosely under the bubble. Align them to the bubble's edge"): the
             // last control's ink (Send now's words while it waits) ends on the bubble's right edge, the glyphs keep the sent row's gap under the bubble,
-            // and every icon button is the sent row's square.
-            const control = gridLength("transcript-action-control");
+            // and every icon button is the sent row's square, every action row's 24 (--cv-action-button).
+            const control = 24;
             expect(Math.abs(before.lastGlyphRight - before.bubbleRight)).toBeLessThanOrEqual(1);
             expect(Math.abs(after.lastGlyphRight - after.bubbleRight)).toBeLessThanOrEqual(1);
             expect(Math.abs(before.glyphGap - after.glyphGap)).toBeLessThanOrEqual(1);
@@ -412,6 +412,12 @@ await requireBrowserLane("queued-user-footer.test.ts", async () => {
       expect(hovered.controls.at(-2)).toBe("×");
       expect(hovered.controls.indexOf("Copy")).toBeLessThan(hovered.controls.indexOf("×"));
       expect(Math.abs(hovered.sendRight - rest.sendRight)).toBeLessThanOrEqual(0.5);
+      // Retry is shown but held while the steer waits: a resend would reach the agent twice
+      // (cmux#34613), and it has no model menu in this row (cmux#34614).
+      const retry = row.locator(".cv-user__pending").getByRole("button", { name: "Retry", exact: true });
+      expect(await retry.count()).toBe(1);
+      expect(await retry.isDisabled()).toBe(true);
+      expect(await row.locator(".cv-user__pending .cv-turn-retry-menu").count()).toBe(0);
     } finally {
       await page.context().close();
     }

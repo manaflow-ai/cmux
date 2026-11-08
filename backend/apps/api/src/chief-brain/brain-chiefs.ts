@@ -3,8 +3,11 @@ import type { ToolRegistration } from "@earendil-works/pi-durable"
 import type { OwnerFrame } from "@cmux/ownership"
 import type { Env } from "../env.ts"
 import { signInRules } from "../policy-gate.ts"
-import { type BrainConfig, patchError } from "./brain-store.ts"
+import { patchError } from "./brain-store.ts"
 import { effectRefusal } from "./effect-policy.ts"
+import { declared } from "../do-stub.ts"
+import { conversationMutate } from "../home-routes.ts"
+import { chiefPrincipal } from "./brain-io.ts"
 
 /**
  * The `chiefs` tool of a Cloud Chief (Lawrence 2026-10-14: Chiefs make and edit other Chiefs; the
@@ -21,27 +24,23 @@ import { effectRefusal } from "./effect-policy.ts"
  *   default chief's grant (models, chiefs) is the person's; no archive by a Chief.
  */
 const Args = Type.Object({
-  action: Type.Union([Type.Literal("list"), Type.Literal("get"), Type.Literal("create"), Type.Literal("update")]),
+  action: Type.Union([Type.Literal("list"), Type.Literal("get"), Type.Literal("create"), Type.Literal("update"), Type.Literal("create_channel"), Type.Literal("invite")]),
   chief: Type.Optional(Type.String({ description: "The Chief's id (agent_...) or its name; for get and update." })),
   // Lengths are checked where they are stored (chief.create/update, configure's patchError), not in the schema the model reads.
   display_name: Type.Optional(Type.String()),
   role: Type.Optional(Type.String()),
   personality: Type.Optional(Type.String()),
   instructions: Type.Optional(Type.String()),
-  model: Type.Optional(Type.String())
+  model: Type.Optional(Type.String()),
+  title: Type.Optional(Type.String({ description: "create_channel: the channel's name." })),
+  people: Type.Optional(Type.Array(Type.String(), { description: "create_channel and invite: email addresses or account ids (user_...) to invite." }))
 })
-type ArgsT = { action: "list" | "get" | "create" | "update"; chief?: string; display_name?: string; role?: string; personality?: string; instructions?: string; model?: string }
+type ArgsT = { action: "list" | "get" | "create" | "update" | "create_channel" | "invite"; chief?: string; display_name?: string; role?: string; personality?: string; instructions?: string; model?: string; title?: string; people?: Array<string> }
 
 export const CHIEFS_DESCRIPTION =
-  "See, make and edit the person's other Chiefs. action list returns every Chief; get returns one (chief: its id or name). create makes a new Chief (display_name required; role, personality, instructions) that runs on your own model; the answer says whether its brain is on, and you tell the person exactly that (never that it answers when it is not on). update changes another Chief (chief plus display_name, role, personality or instructions). You cannot give a Chief more than you hold, edit a Chief that holds more than you, change the default Chief's grant, or delete a Chief (the person does)."
+  "See, make and edit the person's other Chiefs. action list returns every Chief; get returns one (chief: its id or name). create makes a new Chief (display_name required; role, personality, instructions) that runs on your own model; the answer says whether its brain is on, and you tell the person exactly that (never that it answers when it is not on). update changes another Chief (chief plus display_name, role, personality or instructions). create_channel makes a channel: a group chat the person owns with its own new Chief scoped to it (title required; display_name, role, personality and instructions shape that Chief; people are invited at once). invite adds people (emails or user_ ids) to a channel (chief: the channel's Chief, or the channel's conversation id). You cannot give a Chief more than you hold, edit a Chief that holds more than you, change the default Chief's grant, or delete a Chief (the person does)."
 
-interface Record0 { id: string; display_name: string; is_default: boolean; rev: number; archived_at: string | null; created_by?: string }
-type Settings = { status(): Promise<{ config: BrainConfig }>; configure(agent: string, owner: string, patch: Record<string, unknown>): Promise<{ ok: true; config: BrainConfig } | { ok: false; code: string; message: string }> }
-type UserStub = {
-  readOp(entity: string, p: unknown, op: string, params: unknown): Promise<{ ok: true; value: unknown } | { ok: false; code: string; message: string }>
-  homeTeamsOf(entity: string): Promise<Array<{ team: string }>>
-  chiefManage(entity: string, agent: string, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin: "script" }): Promise<{ frames: ReadonlyArray<OwnerFrame> }>
-}
+interface Record0 { id: string; display_name: string; is_default: boolean; rev: number; archived_at: string | null; created_by?: string; channel?: { conversation: string; title: string } }
 
 export class ChiefsRefused extends Error {
   constructor(readonly reason: string, message: string) {
@@ -49,8 +48,8 @@ export class ChiefsRefused extends Error {
   }
 }
 
-const settings = (env: Env, agent: string) => env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(agent)) as unknown as Settings
-const user = (env: Env, owner: string) => env.USER_DO.get(env.USER_DO.idFromName(owner)) as unknown as UserStub
+const settings = (env: Env, agent: string) => env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(agent))
+const user = (env: Env, owner: string) => declared(env.USER_DO.get(env.USER_DO.idFromName(owner)))
 
 const listChiefs = async (env: Env, owner: string): Promise<Array<Record0>> => {
   const r = await user(env, owner).readOp(owner, { identity: `session:${owner}`, kind: "session", user: owner }, "chief.list", {})
@@ -85,8 +84,21 @@ const configured = async (env: Env, agent: string, owner: string, patch: Record<
 export const manageChiefs = async (env: Env, agent: string, owner: string, args: ArgsT, key: string): Promise<string> => {
   const me = (await settings(env, agent).status()).config
   if (!me.chiefs) throw new ChiefsRefused("chief_manage_denied", "this Chief has no chiefs tool; the person grants it")
+  // A channel Chief (channel-scope.ts) invites to its own channel and does nothing else here.
+  if (me.channel !== null) {
+    if (args.action !== "invite") throw new ChiefsRefused("chief_channel_scope", `a channel Chief only invites people to its own channel [${args.action}]`)
+    const w = args.chief?.trim()
+    if (w && w !== agent && w !== me.channel) throw new ChiefsRefused("chief_channel_scope", "a channel Chief invites people to its own channel only [chief]")
+    return JSON.stringify({ channel: me.channel, invited: await invitePeople(env, owner, agent, me.channel, args.people ?? [], key) }, null, 2)
+  }
   const all = await listChiefs(env, owner)
-  if (args.action === "list") return JSON.stringify(all.map((c) => ({ id: c.id, display_name: c.display_name, is_default: c.is_default })), null, 2)
+  if (args.action === "list") return JSON.stringify(all.map((c) => ({ id: c.id, display_name: c.display_name, is_default: c.is_default, ...(c.channel ? { channel: c.channel } : {}) })), null, 2)
+  if (args.action === "invite") {
+    const w = args.chief?.trim()
+    const channel = all.find((c) => c.channel && (c.channel.conversation === w || c.id === w || c.display_name === w))?.channel
+    if (!channel) throw new ChiefsRefused("selector.not_found", "invite needs chief: a channel's Chief (id or name) or the channel's conversation id, of a channel the person owns")
+    return JSON.stringify({ channel: channel.conversation, invited: await invitePeople(env, owner, agent, channel.conversation, args.people ?? [], key) }, null, 2)
+  }
   if (args.action === "get") {
     const c = resolve(all, args.chief)
     const t = (await settings(env, c.id).status()).config
@@ -97,6 +109,21 @@ export const manageChiefs = async (env: Env, agent: string, owner: string, args:
   // The limits are checked before any write, so a refused profile never leaves a half-made or half-renamed Chief.
   const invalid = patchError(profile, () => true) ?? (args.display_name !== undefined && (args.display_name.trim().length === 0 || [...args.display_name].length > 100) ? "display_name must be 1 to 100 characters" : null)
   if (invalid) throw new ChiefsRefused("validation.invalid", invalid)
+  if (args.action === "create_channel") {
+    const title = args.title?.trim() ?? ""
+    if (title.length === 0 || [...title].length > 200) throw new ChiefsRefused("validation.invalid", "title must be 1 to 200 characters")
+    for (const { team } of await user(env, owner).homeTeamsOf(owner)) {
+      if (!(await signInRules(env, team, owner)).allowed_classes.includes("mux")) throw new ChiefsRefused("policy.denied", "a team of this person does not allow chiefs (agents.allowedClasses)")
+    }
+    const frame = { t: "op" as const, op: "channel.create", params: { title, ...(args.display_name ? { display_name: args.display_name } : {}) }, idempotency_key: `chiefs:${agent}:${key}`, origin: "script" as const }
+    const made = committed((await user(env, owner).chiefManage(owner, agent, frame)).frames)
+    // The channel Chief runs the caller's models; it keeps the chiefs grant so it can invite to its own channel (owner's word only: effect-policy).
+    const cfg = await configured(env, made.id, owner, { enabled: true, model: me.model, compactor_model: me.compactor_model, chiefs: true, ...profile })
+    // The Chief that made the channel is not in it; the channel's own Chief (a participant) invites the first people.
+    const invited = await invitePeople(env, owner, made.id, made.channel!.conversation, args.people ?? [], key)
+    const on = cfg.enabled && env.CHIEF_BRAIN_ENABLED === "1"
+    return `${JSON.stringify({ ...made, ...profile, invited, brain: on ? { state: "started" } : { state: "not_started" } }, null, 2)}\n${on ? "The channel and its Chief are ready; the Chief answers in the channel." : "The channel exists, but its Chief's brain is NOT on here, so it will not answer yet. Tell the person exactly that."}`
+  }
   if (args.action === "create") {
     if (!args.display_name) throw new Error("chiefs: create needs display_name")
     // agents.allowedClasses (P17-4): the /v1/ops create checks the session's team; a Chief has none, so every team of the owner must allow chiefs.
@@ -129,6 +156,34 @@ export const manageChiefs = async (env: Env, agent: string, owner: string, args:
   const patch = Object.fromEntries(Object.entries({ ...profile, model: args.model }).filter(([, v]) => v !== undefined))
   const cfg = Object.keys(patch).length > 0 ? await configured(env, target.id, owner, patch) : t
   return `${JSON.stringify({ ...record, role: cfg.role, personality: cfg.personality, instructions: cfg.instructions }, null, 2)}\nChanged text reaches that Chief's prompt on its next turn.`
+}
+
+/**
+ * Invites `people` to the owner's channel `conversation` as the Chief `inviter` (kind agent: the invite's
+ * invited_by and a member's added_by name that Chief, never its owner), through the same Worker path as a person's
+ * own Invite (home-routes.ts conversationMutate): the inviter must be a participant, its reach is its owner's once
+ * the owner confirms the Chief (home-reach.ts), and roles and rate limits apply. An email gets an invite, an
+ * account id is added. Each result is reported, so one refusal does not hide the others.
+ */
+const invitePeople = async (env: Env, owner: string, inviter: string, conversation: string, people: ReadonlyArray<string>, key: string): Promise<Array<{ who: string; ok: boolean; code?: string }>> => {
+  if (people.length > 20) throw new ChiefsRefused("validation.invalid", "at most 20 people per call")
+  const agent = inviter
+  // The Chief's own principal (brain-io.ts chiefPrincipal) plus send-external for this call only: an email invite
+  // leaves the system. The owner's word gates the call (effect-policy); a channel's Chief is the one agent the
+  // conversation lets invite (home-core invite-ops.ts).
+  const base = chiefPrincipal(inviter, owner)
+  const principal = { ...base, grant_classes: [...(base.grant_classes ?? []), "send-external"] }
+  const out: Array<{ who: string; ok: boolean; code?: string }> = []
+  for (const [i, raw] of people.entries()) {
+    const who = raw.trim()
+    const email = who.includes("@")
+    if (!email && !/^user_[0-9a-z]{20}$/.test(who)) { out.push({ who, ok: false, code: "invalid_participant" }); continue }
+    const params = email ? { conversation, address: { email: who }, display_name: who.replace(/@.*/, "") } : { conversation, participant: { id: who, kind: "human" } }
+    const res = await conversationMutate(env, principal, { t: "op", op: email ? "invite.create" : "participants.add", params, idempotency_key: `chiefs:${agent}:${key}:invite:${i}`, origin: "script" })
+    const f = res.frames.find((x) => x.t === "result" || x.t === "reject")
+    out.push(f?.t === "result" ? { who, ok: true } : { who, ok: false, code: (f as { code?: string } | undefined)?.code ?? "no_answer" })
+  }
+  return out
 }
 
 /** The tool, for a brain whose `who()` names its chief and owner (null: not bound yet). */

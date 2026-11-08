@@ -121,9 +121,9 @@ import Testing
     /// Lawrence 2026-10-23: "need to revert styling back to original, for the X button". The hover close is the
     /// row's own x button at the end of the title's line, on the row's trailing column, never a corner fold.
     /// cad2620b61f (#32647, Leo 2026-11-02: "JUST ADD A SLIGHT GAP (PADDING)") moved each row's fill in from the
-    /// sidebar's edge and kept every trailing mark where it was ("Trailing marks stay on the grid's 24 pt column"), so
-    /// at comfortable density the close now ends 7 pt inside the fill, not the full 8 pt row inset: the test reads the
-    /// column the close sits on, and that the close stays inside its row.
+    /// sidebar's edge; since Leo 2026-11-04 ("too much of a gutter on the right") the column sits
+    /// `trailingCenterInset` inside the fill, so the close ends 4 to 5 pt inside it: the test reads the column the
+    /// close sits on, and that the close stays inside its row.
     @Test(arguments: SidebarDensity.allCases)
     func theHoverCloseIsTheRowsTrailingX(_ density: SidebarDensity) throws {
         try SidebarGroupRailAlignmentTests.with(density, .off) {

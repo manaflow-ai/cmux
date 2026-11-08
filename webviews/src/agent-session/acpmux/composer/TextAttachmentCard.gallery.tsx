@@ -2,11 +2,12 @@
 // The text attachment card (TextAttachmentCard.tsx) in the composer's strip, in the looks considered
 // for Leo's ask (2026-11-01): "bro this is a TERRIBLE text preview we need to do better for these
 // text type attachments' previews". `page` ships: the first lines in 11 px monospace from the top,
-// faded at the bottom, over "Pasted text · N lines", as Claude's paste tile. The others are drawn
+// faded at the bottom, over "Pasted text · N lines · N characters", as Claude's paste tile. The others are drawn
 // here only, by overriding the shipped card's styles: `page-body` (the lines in the body font),
 // `header` (the label on top, as ChatGPT's file card names it first) and `tile` (Claude's square
 // tile, lines and a PASTED-style label). The prompt's inline card is gallery
-// agent-pane.composer `text-pasted-inline`.
+// agent-pane.composer `text-pasted-inline`. The pasted card carries Keep as .txt (KeepFileButton,
+// ask-48544d7525): an oversized paste sends as a file instead of folding in the prompt.
 import React from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { ComposerAttachment } from "../attachments";
@@ -60,7 +61,10 @@ export default componentEntry<Props>({
   pane: true,
   height: 240,
   widths: { normal: 560, narrow: 320 },
-  covers: ["agent-session/acpmux/composer/TextAttachmentCard.tsx"],
+  covers: [
+    "agent-session/acpmux/composer/TextAttachmentCard.tsx",
+    "agent-session/acpmux/composer/attachmentIntake.tsx#KeepFileButton",
+  ],
   styles: () => import("../styles.css"),
   load: () =>
     import("./attachmentIntake").then(
@@ -75,7 +79,12 @@ export default componentEntry<Props>({
               <style>{LOOKS[look]}</style>
               <div className="acpmux-composer">
                 <div className="acpmux-composer-box ui-glass" style={{ minHeight: 112 }}>
-                  <AttachmentStrip attachments={attachments} onRemove={() => {}} onExpand={() => {}} />
+                  <AttachmentStrip
+                    attachments={attachments}
+                    onRemove={() => {}}
+                    onExpand={() => {}}
+                    onKeepFile={() => {}}
+                  />
                   <div style={{ padding: 16 }}>Why does the build fail?</div>
                 </div>
               </div>

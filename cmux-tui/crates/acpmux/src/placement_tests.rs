@@ -29,7 +29,7 @@ fn health(ram_gb: f64, cores: u64, load: f64, disk_gb: f64, live: u64) -> Value 
 }
 
 fn c(name: &str, health: Value) -> Candidate {
-    Candidate { name: name.into(), local: false, health }
+    Candidate { name: name.into(), local: false, health, health_at: None }
 }
 
 fn host<'a>(v: &'a Value, name: &str) -> &'a Value {
