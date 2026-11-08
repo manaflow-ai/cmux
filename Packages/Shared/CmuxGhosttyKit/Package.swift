@@ -152,6 +152,13 @@ import PackageDescription
 // the frame cmux presents (RESIZE P0 10, T render hop). A frame the renderer
 // shows itself at the host size ends the wait, so at rest output stays paced.
 //
+// Since 538a3e2ef..2db2ea423 (fork PR #87, stacked on #86): host frames say
+// whether the program drew at their grid. ghostty_surface_host_frame(false)
+// returns READY_PROGRAM (7) for a frame drawn after program output parsed since
+// the last grid change, READY for a frame of the size only, and a
+// program-fresh frame turns the main run loop when it completes, so cmux's
+// presenter can hold a resize's frame for the program's redraw (RESIZE P0 12).
+//
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
 // a7c40619a or 3e9dfca98 (apple-v6 without the lib prefix on the macOS
@@ -175,8 +182,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-538a3e2efafe28ef4058483f4f942fc4cb8f8aba-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "15b130316e7beeb47e1017437bc3ad4d397f32d5edf16b1c0ba136d432392d5e"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-2db2ea42350db95a105b69e37b919943c6790140-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "0fdd886ff307085703d808503a8ed1da490a559b1fe7a83b2b76df73f00656de"
         ),
     ]
 )

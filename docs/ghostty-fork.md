@@ -12,6 +12,19 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Host frames say whether the program drew at their grid (ghostty-next)
+
+- Fork PR #87 (`resize-p0-12-hold`, head `2db2ea423`, stacked on #86 `538a3e2ef`); the pin is the release branch
+  `release/cmux-538a3e2e-resize-p0-12` at `2db2ea423` until #86 and #87 merge to fork `main`.
+- What: `Terminal.output_since_grid_change` (cleared by `Terminal.resize` when the grid changes, set by
+  `Termio.processOutputLocked` on parsed output); `generic.zig` stamps `Target.program_fresh` for cells built from the
+  live terminal at the frame's size after that output; `Metal.zig` `hostFrame(false)` returns `.ready_program` (C
+  `GHOSTTY_HOST_FRAME_READY_PROGRAM = 7`) for such a kept frame and `.ready` for a frame of the size only. While the
+  embedder presents host sizes, a program-fresh frame also goes through the main queue, so the embedder's pre-commit
+  observer presents it in that refresh. cmux uses it for the resize hold (`TerminalFramePresenter`, RESIZE P0 12).
+- Conflict notes: touches `src/renderer/Metal.zig` next to #86's `hostFrameWaits`, `src/apprt/structs.zig` `HostFrame`
+  and `include/ghostty.h` `ghostty_host_frame_e`.
+
 ### An update draws at once while a host size's frame waits for the embedder's present (ghostty-next)
 
 - Fork PR #86 (`fix/renderer-draws-now-for-a-waiting-host-frame`, head `538a3e2ef`, on `1740c4452`); the pin is the fix
