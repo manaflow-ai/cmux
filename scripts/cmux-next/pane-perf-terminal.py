@@ -26,8 +26,9 @@ The bench app activates and its window is key where the host allows it (CMUX_NEX
 the bench environment), as for a person. Each layout reads whether the window really is key (`debug.window_list`)
 when it starts: a layout measured with a window that is not key is named `<layout>-inactive` (rows
 `panes.<action>.<layout>-inactive.*`), so it is never compared with rows of a key window. The window goes on the
-main screen at the STRESS size (perf-stress-session.py `place_window`). A layout asked for and not measured (a
-STRESS shape refused, a Chromium page that never ran) fails the run, --gate or not.
+main screen at the STRESS size (perf-stress-session.py `place_window`); on a display too small to hold it the
+run measures nothing and ends `RESULT REFUSED (display too small: ...)` (`display_refusal`). A layout asked for
+and not measured (a STRESS shape refused, a Chromium page that never ran) fails the run, --gate or not.
 
 Per action: display frame intervals p50/p95/p99/max and missed frames (`debug.frames`), the layout's main-thread
 work per frame (`debug.motion` clock), each Core Animation commit (`debug.motion` work `ca.commit`: with Chromium
@@ -133,6 +134,7 @@ ROWS, LAUNCHED = [], []
 BENCH = None  # the BenchApp of this run
 MEASURED = False  # the app came up and the layouts ran: without it the run fails, --gate or not
 UNMEASURED = []  # layouts asked for and not measured: any fails the run, --gate or not
+REFUSED = []  # why this host cannot run the bench (`display_refusal`): nothing is measured, the run fails
 PROBE = {}  # --browser: the probe page's tab id
 app = None
 PROBE_PAGE = """<!doctype html><meta charset="utf-8"><title>Pane probe</title>
@@ -234,6 +236,25 @@ def wait(check, seconds, step=0.1):
             return value
         time.sleep(step)  # test harness polling a live app
     return None
+
+
+def display_refusal(placed):
+    """`display too small: ...` when the window's screen cannot hold the STRESS window, else None. AppKit keeps a
+    window inside its screen's visible frame, so a display smaller than WINDOW (an AWS Nitro display is 1024 x 768)
+    clamps it, and every layout would then time another window: on aws-m4pro-8 (cbe71202181, 2026-11-08) the
+    1600 x 680 window gave 12 more FAILs (New Column never animated, no divider to drag) on top of the placement
+    row. STRESS keeps its size: the run refuses, and the line names the display and the remedy (a host with a
+    larger display, or split-spring.sh --vdisplay). The room is the visible frame: a bottom Dock does not give
+    room, AppKit clamps the window above it (cmux-austin-mini-1, 1920 x 1080 with a 90 pt Dock, gave 1600 x 960,
+    step 5b671a0b, 2026-11-08). A wrong size on a screen with room is the app's fault, not the host's: it stays
+    the placement row's FAIL and the run goes on."""
+    frame = placed.get("frame") if isinstance(placed, dict) else None
+    visible = placed.get("visible_frame") if isinstance(placed, dict) else None
+    if not frame or not visible or (abs(frame[2] - WINDOW[0]) <= 1 and abs(frame[3] - WINDOW[1]) <= 1):
+        return None
+    if visible[2] >= WINDOW[0] - 1 and visible[3] >= WINDOW[1] - 1:
+        return None
+    return f"display too small: {STRESS_MODULE.window_problem(placed)}"
 
 
 def row(check, expected, observed, ok):
@@ -732,6 +753,11 @@ def main():
     placed, window_problem = STRESS_MODULE.place_window(rpc)
     row("the window is placed on the main screen", f"{list(WINDOW)} pt on its screen", window_problem or str(placed.get("frame") if isinstance(placed, dict) else placed),
         window_problem is None)
+    refusal = display_refusal(placed)
+    if refusal:
+        REFUSED.append(refusal)
+        print(f"REFUSED {refusal}", flush=True)
+        return
     # The bench conditions: the environment the app was really started with (mocked agent chats, the
     # isolated chief, no CMUX_NEXT_NO_ACTIVATE), the window's placement, and per layout whether the window
     # was key when it started (`layouts`).
@@ -852,6 +878,10 @@ finally:
     if opts.json and os.path.exists(opts.json):
         # The step log keeps the numbers even when a row failed (no artifact comes back then).
         print("REPORT-JSON " + json.dumps(json.load(open(opts.json)).get("summary") or []), flush=True)
+    if REFUSED:
+        # Not a measurement: no layout ran. Say so on the RESULT line, so the run never reads as a regression.
+        print(f"\nRESULT REFUSED ({REFUSED[0]})")
+        sys.exit(1)
     print("\nRESULT", "PASS" if MEASURED and not UNMEASURED and ROWS and all(r[3] for r in ROWS) else "FAIL",
           f"({sum(r[3] for r in ROWS)}/{len(ROWS)})" + (f"; not measured: {', '.join(UNMEASURED)}" if UNMEASURED else ""))
     # Without --gate a row is information: the run passes when it measured (its artifact comes back). A run
