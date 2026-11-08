@@ -40,10 +40,25 @@ import Testing
         settings.userOnlyConfirmation = { _, _ in true }
         for descriptor in SettingsSchema.all {
             let key = JSONValue.string(descriptor.id)
+            // The expectation reads the default, not `isUnsetValue`: a write path that dropped every key would
+            // also make `isUnsetValue` say "unset", and the round trip would then prove nothing. No MDM or team
+            // layer sets a key here, so the build's default is the unset value.
+            let defaultValue = settings.defaultValue(of: descriptor)
+            if descriptor.sampleValue == defaultValue {
+                // The sample is the default, whose write leaves no key (#38119): first write a value that is not
+                // the default and read it back, so the file is proven to store this setting.
+                guard let other = descriptor.otherSampleValues.first(where: { descriptor.accepts($0) && $0 != defaultValue }) else {
+                    Issue.record("\(descriptor.id): no value besides the default to prove a stored write")
+                    continue
+                }
+                let set = await call(router, "settings.set", ["path": key, "value": other, "confirm": true])
+                #expect((try? set.get()) != nil, "\(descriptor.id) = \(other): \(set)")
+                #expect(try await settings.file.value(at: descriptor.path) == other, "\(descriptor.id) did not store \(other)")
+            }
             let before = settings.validatedWrites[descriptor.id, default: 0]
             // A write of the default removes the key (#38119): the file then keeps nothing. `.none`, not a nil
             // literal: JSONValue is ExpressibleByNilLiteral, so `nil` here would be the JSON null, `.null`.
-            let stored: JSONValue? = settings.isUnsetValue(descriptor.sampleValue, of: descriptor) ? .none : .some(descriptor.sampleValue)
+            let stored: JSONValue? = descriptor.sampleValue == defaultValue ? .none : .some(descriptor.sampleValue)
             let set = await call(router, "settings.set", ["path": key, "value": descriptor.sampleValue, "confirm": true])
             #expect((try? set.get()) != nil, "\(descriptor.id): \(set)")
             #expect(settings.validatedWrites[descriptor.id, default: 0] == before + 1, "\(descriptor.id) skipped the settings owner")
@@ -242,6 +257,40 @@ extension SettingDescriptor {
         case .theme: return .string("Dracula")
         case .fontFamily: return .string("Menlo")
         case .text: return .string("TextEdit")
+        }
+    }
+
+    /// Candidate values besides `sampleValue`, in the order the round trip tries them: it writes the first one
+    /// `accepts` takes that is not the default, so a setting whose sample is its default still proves the file
+    /// stores a value. A key with its own validator gets candidates that validator takes.
+    var otherSampleValues: [JSONValue] {
+        if path == CustomDensitiesSetting.configPath { return [.array([.object(["id": "my-tight", "name": "My Tight"])])] }
+        if path == CommandLabelsSetting().configPath { return [.array(["cmux-fleet"])] }
+        if path == ChatSettings.rootsPath { return [.array(["/opt/cmux-test-chats"]), .array([])] }
+        switch kind {
+        case .choice(let choices): return choices.map { .string($0.value) }
+        case .choiceOrNumber(let choices, let number):
+            return choices.map { .string($0.value) } + [.number(number.range.lowerBound), .number(number.range.upperBound)]
+        case .choiceOrURL(let choices, let urlKey):
+            return choices.map { .string($0.value) } + [.object([urlKey: .string("http://mini.tail1234.ts.net:7320")])]
+        case .toggle: return [.bool(true), .bool(false)]
+        case .number(let number): return [.number(number.range.lowerBound), .number(number.range.upperBound)]
+        case .color: return [.string("#336699"), .string("#112233")]
+        case .sound: return [.string("default"), .string("Glass")]
+        case .url: return [.string(""), .string("https://example.com/search?q=%s"), .string("https://example.com")]
+        case .hostList: return [.array([]), .array([.string("devbox.local")])]
+        case .folderList: return [.array([]), .array([.string("~/src")])]
+        case .numberList(let number): return [.array([]), .array([.number(number.range.lowerBound)])]
+        case .stringList: return [.array([]), .array([.string("cmux")])]
+        case .orderedChoices(let choices), .choiceSet(let choices):
+            return [.array([]), .array(choices.prefix(1).map { .string($0.value) }), .array(choices.reversed().map { .string($0.value) })]
+        case .stringMap: return [.object([:]), .object(["cmux": .string("cmux")])]
+        case .soundRules: return [.object([:]), .object(["cmux": .string("Glass")])]
+        case .timeRange:
+            return [.object(["start": .string("22:00"), "end": .string("07:00")]), .object(["start": .string("23:00"), "end": .string("06:00")])]
+        case .theme: return [.string("Dracula"), .string("Nord")]
+        case .fontFamily: return [.string("Menlo"), .string("Monaco")]
+        case .text: return [.string("TextEdit"), .string("Xcode")]
         }
     }
 }
