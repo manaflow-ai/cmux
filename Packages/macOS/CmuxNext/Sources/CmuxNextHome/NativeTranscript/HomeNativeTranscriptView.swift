@@ -77,12 +77,15 @@ public final class HomeNativeTranscriptView: NSView {
         get { transcript.onAppLink }
         set { transcript.onAppLink = newValue }
     }
-    /// Start now on a queued agent's pill (its card or its menu): the host asks this chat's Chief to start it past
-    /// the cap; true when it did. Nil: no Start now.
+    /// Start now on a queued agent's pill card: the host asks this chat's Chief to start it past the cap; true
+    /// when it did. Nil: no Start now, on the card or in the pill's menu.
     public var onStartAgent: ((String) async -> Bool)?
+    /// The pill's menu row Start now for queued agent `peer`: the host's registry builds it from the
+    /// `home.startQueuedAgent` action, so the menu runs the palette's and the CLI's path. Nil: no row.
+    public var startAgentMenuItem: ((String) -> NSMenuItem?)?
     /// The card a click on a pill with no workspace showed (``openAgent(_:at:)``).
     var agentCard: HomeAgentPillCard?
-    /// The last Start now request (its card's or its menu's), while it runs and after.
+    /// The last Start now request of its card, while it runs and after.
     var pendingAgentStart: Task<Void, Never>?
     /// Forward… on a bubble: the host routes its text to another chat (nil: no Forward…).
     public var onForward: ((String) -> Void)? {
