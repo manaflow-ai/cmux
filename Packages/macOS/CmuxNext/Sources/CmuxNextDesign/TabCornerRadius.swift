@@ -31,6 +31,12 @@ extension Metrics {
         macOSMajor >= 26 ? 16 : 10
     }
 
+    /// The corner radius AppKit draws for a titled window that reports `reported` (`_cornerRadius`,
+    /// nil when it reports none) on macOS `macOSMajor`.
+    public static func drawnWindowCornerRadius(reported: CGFloat?, macOSMajor: Int) -> CGFloat {
+        reported ?? standardWindowCornerRadius(macOSMajor: macOSMajor)
+    }
+
     /// The radius of the rounded card whose top-leading corner a top-row pane's tab strip sits
     /// in: the pane's own card under Floating Panes, else the curved main pane's card when no
     /// outline runs under the strip. Nil when that corner is square or outlined (the first pill
