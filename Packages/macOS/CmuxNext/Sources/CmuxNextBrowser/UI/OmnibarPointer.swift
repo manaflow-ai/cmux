@@ -6,8 +6,9 @@ import CmuxNextDesign
 /// live check `scripts/cmux-next/omnibar-pointer-live.py` walks them.
 ///
 /// Cursor:
-/// - I-beam over the bar's text area (`AddressBarView.textArea`: from the
-///   page-info chip to the first trailing badge, the bar's full height),
+/// - I-beam over the bar's text area (the `text` rect the toolbar page
+///   reports: from the page-info chip to the first trailing badge, the bar's
+///   full height),
 ///   at rest and while editing, as in Safari and Chrome (Lawrence
 ///   2026-10-13). The same rectangle takes the press that focuses the
 ///   field, so wherever the I-beam shows, a click focuses.
@@ -23,21 +24,8 @@ import CmuxNextDesign
 ///   moves up into the toolbar, and no edge between two rects shows a stale
 ///   cursor.
 ///
-/// Hover:
-/// - One treatment: a theme-token fill (`Palette.hoverFill`, the pill's
-///   lift `OmnibarStyle.barFill(.hover, ...)`) that eases in and clears at once
-///   (`ChromeHover.fade`), so a sweep across the buttons leaves no trail.
-/// - Hover is where the pointer is now (`PointerHover`), recomputed when the
-///   view hides, shows or changes window: a tab switch, a parked pane or a
-///   collapsed button under a still pointer leaves no hover behind.
-/// - A disabled control and the bar while it edits show no hover.
-///
-/// Focus (the omnibar state machine, `OmnibarReducer`, owns the rules):
-/// the first click anywhere in the bar focuses it and selects the whole
-/// address; a second click places the caret; Cmd-L focuses and selects;
-/// Escape reverts typed text, and Escape with nothing typed returns the
-/// keyboard to the page. Text fields draw no focus ring of their own: the
-/// pill's editing ring is the one focus look (cx-ncc.57).
+/// Hover and focus belong to the toolbar page (webviews/src/pages/browser-toolbar): its CSS hover
+/// eases in and clears at once, and its omnibar state machine (omnibox/reduce.ts) owns the focus rules.
 enum OmnibarPointer {
     /// Where the pointer is, as far as the cursor rules care.
     enum Region: String, Sendable {
@@ -85,8 +73,7 @@ enum OmnibarPointer {
 
     @MainActor
     static func isClickable(_ view: NSView) -> Bool {
-        if let button = view as? ClickableButton { return button.isEnabled }
-        return view is BookmarkStarButton
+        (view as? ClickableButton)?.isEnabled ?? false
     }
 }
 
@@ -98,8 +85,11 @@ extension OmnibarPointer {
     static func cursor(atWindowPoint point: NSPoint, in row: NSView) -> Cursor {
         guard let parent = row.superview, let hit = row.hitTest(parent.convert(point, from: nil)) else { return cursor(.toolbar) }
         if clickable(at: hit, below: row) != nil { return cursor(.button) }
-        let bar = sequence(first: hit, next: \.superview).prefix(while: { $0 !== row }).lazy.compactMap { $0 as? AddressBarView }.first
+        let bar = sequence(first: hit, next: \.superview).prefix(while: { $0 !== row }).lazy.compactMap { $0 as? BrowserToolbarWebView }.first
         guard let bar else { return cursor(.toolbar) }
-        return bar.textArea.contains(bar.convert(point, from: nil)) ? cursor(.bar) : cursor(.barEdge)
+        let local = bar.convert(point, from: nil)
+        if let text = bar.layoutReport.rects["text"], text.contains(local) { return cursor(.bar) }
+        if let omnibar = bar.layoutReport.rects["omnibar"], omnibar.contains(local) { return cursor(.barEdge) }
+        return cursor(.toolbar)
     }
 }

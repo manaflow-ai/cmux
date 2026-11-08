@@ -13,7 +13,7 @@ public final class BrowserPageModes {
     /// The color scheme forced on the page; `.system` follows the app.
     public var colorScheme: BrowserColorScheme = .system
     /// The document design mode belongs to, kept while another tab of the pane shows: a page that navigated meanwhile
-    /// shows again with design mode off (`BrowserToolbarButtonsView.bind(_:modes:)`).
+    /// shows again with design mode off (`BrowserToolbarButtons.bind(_:modes:)`).
     @ObservationIgnored var pageURL: URL?
 
     public init() {}

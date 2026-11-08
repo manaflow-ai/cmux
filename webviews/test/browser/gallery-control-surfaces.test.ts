@@ -55,6 +55,13 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
         "A Home channel message is one row that washes whenever the pointer is over it (styles.css .hc-msg:hover), the channel list's row hover; a button in it (a code block's Copy, its actions) shares that wash, never a box of its own.",
     },
     {
+      selector: '.bc-omnibar[data-surface="idle"]',
+      kind: "hover",
+      control: ".bc-omnibar button",
+      reason:
+        "The browser address bar brightens whenever the pointer is over it (browserChrome.css .bc-omnibar:hover), as the native bar did; its page-info chip, star and badges sit inside it and share that fill, never a box of their own.",
+    },
+    {
       selector: '.diff-pill[role="toolbar"]',
       kind: "plate",
       reason: "The standalone floating diff toolbar is its own glass surface, not trailing tools on a row.",

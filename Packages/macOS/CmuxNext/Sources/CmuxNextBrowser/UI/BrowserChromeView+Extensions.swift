@@ -3,8 +3,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 public import CmuxNextIcons
 
-// Extensions toolbar and menu, the width-driven toolbar collapse, and
-// history recording.
+// Extensions toolbar and menu, the toolbar report, and the chrome's window and size changes.
 extension BrowserChromeView {
     /// Accessibility identifiers of the toolbar (UI automation, e2e suites).
     public static let backIdentifier = "browser.toolbar.back"
@@ -20,23 +19,23 @@ extension BrowserChromeView {
     /// Runs the Extensions menu's items (the App's action registry). Nil
     /// drives the extension store directly.
     public var extensionMenuHandler: (any ExtensionMenuHandling)? {
-        get { extensionToolbar.menuHandler }
-        set { extensionToolbar.menuHandler = newValue }
+        get { extensionActions.menuHandler }
+        set { extensionActions.menuHandler = newValue }
     }
 
     /// Opens the Extensions (puzzle) bubble of a Chromium tab; an open bubble stays open.
-    public func showExtensionsMenu() { extensionToolbar.openMenu() }
+    public func showExtensionsMenu() { extensionActions.openMenu() }
 
     /// Shows one extension's menu at its toolbar button (or the Extensions
     /// button when it is not shown).
-    public func showExtensionItemMenu(_ id: String) { extensionToolbar.showItemMenu(id) }
+    public func showExtensionItemMenu(_ id: String) { extensionActions.showItemMenu(id) }
 
     /// Opens the Extensions menu (or `id`'s menu) on the next run-loop turn, for callers that must return first
     /// (CLI, palette, debug socket): its tracking loop runs in a run-loop callout, so main-actor work keeps running.
     /// The tab has the extension toolbar but the Extensions button is not shown, so More offers the Extensions
     /// menu (cx-d0d.81). The button now shows on every Chromium tab, so this holds only while it is unbound.
     public var offersExtensionsMenuInMore: Bool {
-        extensionToolbar.host != nil && !extensionToolbar.isShowingExtensions
+        extensionActions.host != nil && !extensionActions.isShowingExtensions
     }
 
     public func presentExtensionsMenu(for id: String? = nil) {
@@ -48,72 +47,66 @@ extension BrowserChromeView {
 
     /// Runs an extension's toolbar action anchored to its button (or the
     /// Extensions button when it is not pinned or has no room).
-    public func runExtensionAction(_ id: String) { extensionToolbar.run(id) }
+    public func runExtensionAction(_ id: String) { extensionActions.run(id) }
 
     /// Moves a pinned extension to `index` among the pinned ones (the
     /// toolbar drag). False when the runtime cannot reorder (fork API < 6).
     @discardableResult
-    public func moveExtensionAction(_ id: String, to index: Int) -> Bool { extensionToolbar.movePinned(id, to: index) }
+    public func moveExtensionAction(_ id: String, to index: Int) -> Bool { extensionActions.movePinned(id, to: index) }
 
     /// Whether the Extensions bubble, or an extension's menu at its toolbar icon, is open.
-    public var isExtensionsMenuShown: Bool { extensionToolbar.isMenuShown || extensionToolbar.presentedMenu != nil }
+    public var isExtensionsMenuShown: Bool { extensionActions.isMenuShown || extensionActions.presentedMenu != nil }
 
     /// What the open Extensions bubble or extension menu shows (`debug.extensions.menu`): each
     /// item's title, identifier, extension id and enabled state; "-" titles are separators. Nil
     /// when nothing is open.
     public var extensionsMenuItems: [(title: String, identifier: String?, extensionID: String?, enabled: Bool)]? {
-        if let menu = extensionToolbar.presentedMenu {
+        if let menu = extensionActions.presentedMenu {
             return menu.items.map { item in
                 (item.isSeparatorItem ? "-" : item.title, item.identifier?.rawValue, nil, item.isEnabled)
             }
         }
-        return extensionToolbar.menuController.report?.map { ($0.title, $0.identifier, $0.extensionID, $0.isEnabled) }
+        return extensionActions.menuController.report?.map { ($0.title, $0.identifier, $0.extensionID, $0.isEnabled) }
     }
 
     /// Chooses an item of the open Extensions bubble or extension menu as a click would: a row control (`run`, `pin`,
     /// `unpin`, `more`) of `extensionID`, `manage`, `close`, or an extension menu operation (`options`, `remove`,
     /// `siteAccess`, `homePage`, `manageExtension`, `webPermissions`, `pin`, `unpin`). False when no item matches.
     public func chooseInExtensionsMenu(_ operation: String, extension extensionID: String?) -> Bool {
-        if let menu = extensionToolbar.presentedMenu, let extensionID,
+        if let menu = extensionActions.presentedMenu, let extensionID,
            let index = menu.items.firstIndex(where: { $0.identifier?.rawValue == "\(ExtensionsMenu.moreIdentifier(extensionID)).\(operation)" }) {
             menu.cancelTracking()
             menu.performActionForItem(at: index)
             return true
         }
-        return extensionToolbar.menuController.choose(operation, extension: extensionID)
+        return extensionActions.menuController.choose(operation, extension: extensionID)
     }
 
     /// Closes the open extension menu, else the Extensions bubble.
     public func dismissExtensionsMenu() {
-        if let menu = extensionToolbar.presentedMenu { menu.cancelTracking() } else { extensionToolbar.menuControllerIfMade?.dismiss() }
+        if let menu = extensionActions.presentedMenu { menu.cancelTracking() } else { extensionActions.menuControllerIfMade?.dismiss() }
     }
 
-    /// What the toolbar shows now (`debug.extensions.toolbar`).
+    /// What the toolbar shows now (`debug.extensions.toolbar`): the controls the page laid out, in
+    /// this view's coordinates.
     public var toolbarReport: BrowserToolbarReport {
+        let layout = addressBar.layoutReport
         var frames: [String: CGRect] = [:]
-        var icons: [String: IconName] = [:]
-        func add(_ key: String, _ view: NSView?) {
-            guard let view, !view.isHidden, view.superview != nil, view.window != nil else { return }
-            if let button = view as? ChromeIconButton { icons[key] = button.iconName }
-            // Constraints place the alignment rect (NSButton frames carry
-            // extra insets for the bezel).
-            let alignment = view.alignmentRect(forFrame: view.frame)
-            frames[key] = view.superview.map { $0.convert(alignment, to: self) } ?? alignment
+        for key in layout.rects.keys {
+            guard let anchor = addressBar.anchor(key), anchor.window != nil else { continue }
+            frames[key] = anchor.convert(anchor.bounds, to: self)
         }
-        add("back", backButton)
-        add("forward", forwardButton)
-        add("reload", reloadButton)
-        add("omnibar", addressBar)
-        if extensionToolbar.isShowingExtensions { add("extensions", extensionToolbar.puzzle) }
-        for id in extensionToolbar.visibleIDs { add("action:\(id)", extensionToolbar.button(for: id)) }
-        for button in BrowserToolbarButton.allCases { add("button:\(button.rawValue)", toolbarButtons.button(button)) }
-        let host = extensionToolbar.host
+        var icons: [String: IconName] = [:]
+        for button in BrowserToolbarButton.allCases where frames["button:\(button.rawValue)"] != nil {
+            if let icon = toolbarButtons.state(button)?.icon { icons["button:\(button.rawValue)"] = icon }
+        }
+        let host = extensionActions.host
         return BrowserToolbarReport(
-            width: bounds.width, showsForward: !forwardButton.isHidden,
-            showsExtensionsButton: extensionToolbar.isShowingExtensions,
-            visibleActions: extensionToolbar.visibleIDs, overflowActions: extensionToolbar.overflowIDs,
+            width: bounds.width, showsForward: layout.showsForward,
+            showsExtensionsButton: extensionActions.isShowingExtensions,
+            visibleActions: extensionActions.visibleIDs, overflowActions: extensionActions.overflowIDs,
             openPopup: host?.openExtensionPopup,
-            popupAnchor: host?.openExtensionPopup.flatMap { extensionToolbar.anchorRect(for: $0) }
+            popupAnchor: host?.openExtensionPopup.flatMap { extensionActions.anchorRect(for: $0) }
                 .map { tab.contentView.convert($0, to: self) },
             frames: frames, icons: icons, toolbarBounds: toolbar.convert(toolbar.bounds, to: self)
         )
@@ -127,17 +120,20 @@ extension BrowserChromeView {
         if grew, window != nil { layoutSubtreeIfNeeded() }
         guard widthChanged else { return }
         // A popup hangs off a toolbar button that moves or collapses now.
-        extensionToolbar.hidePopups()
-        applyToolbarLayout()
+        extensionActions.hidePopups()
     }
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil { extensionToolbar.hidePopups() }
+        if window == nil {
+            extensionActions.hidePopups()
+            toolbarButtons.detached()
+        }
         // A tab shown again repaints: overrides may have changed while it was out (R55).
         else {
             updateColors()
             renderPrompt()
+            toolbarButtons.refresh()
             if frame.size != .zero, toolbar.frame.size == .zero { layoutSubtreeIfNeeded() } // sized before it had a window
         }
         headerBandReattachIfInstalled()
@@ -148,7 +144,8 @@ extension BrowserChromeView {
     /// when it leaves the window.
     public override func viewDidHide() {
         super.viewDidHide()
-        extensionToolbar.hidePopups()
+        extensionActions.hidePopups()
+        toolbarButtons.detached()
         syncPageOverlays()
     }
 
@@ -161,6 +158,7 @@ extension BrowserChromeView {
         guard window != nil else { return }
         updateColors()
         renderPrompt()
+        toolbarButtons.refresh()
         syncPageOverlays()
     }
 
@@ -171,27 +169,6 @@ extension BrowserChromeView {
         if let findBar = pageBars.findBarIfMade, view.isDescendant(of: findBar) { return .findBar }
         if view.isDescendant(of: tab.contentView) { return .page }
         return .chrome
-    }
-
-    /// Collapses the toolbar for the pane's width (BrowserToolbarLayout).
-    func applyToolbarLayout() {
-        let resolved = BrowserToolbarLayout.resolve(
-            width: widthLeftByToolbarButtons(), pinned: extensionToolbar.pinnedCount,
-            showsExtensions: extensionToolbar.isShowingExtensions, metrics: Self.toolbarMetrics
-        )
-        guard resolved != toolbarLayout else { return }
-        toolbarLayout = resolved
-        forwardButton.isHidden = !resolved.showsForward
-        extensionToolbar.visibleLimit = resolved.visiblePinned
-    }
-
-    static var toolbarMetrics: BrowserToolbarLayout.Metrics {
-        BrowserToolbarLayout.Metrics(
-            button: OmnibarStyle.buttonSize, navigationSpacing: OmnibarStyle.buttonSpacing,
-            extensionSpacing: OmnibarStyle.buttonSpacing, inset: OmnibarStyle.toolbarInset,
-            margin: OmnibarStyle.barMargin, preferredAddress: Metrics.tabMaxWidth,
-            minimumAddress: BrowserMetrics.minimumAddressWidth
-        )
     }
 }
 

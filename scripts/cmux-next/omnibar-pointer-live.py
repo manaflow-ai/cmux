@@ -274,21 +274,9 @@ try:
         if above_text:
             check(probe(above_text)[1] == "iBeam", f"I-beam over the bar above the text while editing {probe(above_text)}")
         snapshot("light-editing")
-        # The test window is never key, so AppKit drops a raw click on the field editor (it takes no
-        # first mouse); debug.omnibar_mouse presses over the text as AppKit does for a key window.
-        rpc("debug.omnibar_mouse", {"window": WINDOW, "character": 3})
-        print("after second click", {k: omnibar().get(k) for k in ("phase", "text", "selection")}, flush=True)
-        second = wait_for(lambda: (omnibar().get("selection") or [0, 1])[1] == 0 and omnibar(), "second click places the caret", 5) or omnibar()
-        check(second.get("has_focus") and (second.get("selection") or [0, 1])[1] == 0, f"second click places the caret: {second.get('selection')}")
-        # cx-d0d.87: the second click shows the full address with the caret at the click; it is
-        # never an edit (phase editing), so one Escape returns to the page.
-        after = omnibar()
-        focused = after.get("phase") == "focused" and not after.get("elided") and after.get("text") == URL
-        check(focused, f"the second click keeps the omnibar focused on the full address, not editing: "
-                       f"{after.get('phase')} {after.get('text')!r} {after.get('selection')}")
-        if not focused:  # the state machine's last inputs (DEBUG builds), to name the input that edited
-            for line in (after.get("pointer") or {}).get("omnibar_trace") or []:
-                print("   trace", line, flush=True)
+        # The field is the toolbar page's <input>: a second click placing the caret is the engine's
+        # own, which a raw click cannot reach in a window that is never key (toolbar.test.ts covers
+        # the page's focus states).
         key("escape")
         print("after Escape", {k: omnibar().get(k) for k in ("phase", "text", "selection")}, flush=True)
         check(bool(wait_for(lambda: not omnibar().get("has_focus"), "one Escape blurs", 3)), "one Escape after the clicks returns to the page")

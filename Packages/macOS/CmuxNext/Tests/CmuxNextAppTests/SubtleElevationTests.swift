@@ -79,11 +79,6 @@ struct SubtleElevationTests {
         }
     }
 
-    @Test func theOmnibarSuggestionCardCastsTheRaisedStep() {
-        let top = OmnibarCardTopView(frame: NSRect(x: 0, y: 0, width: 400, height: 34)).card
-        expectRaised(top, flipped: false)
-    }
-
     /// Every native shadow surface above, and the docked column's backdrop: none blurs or darkens
     /// past the scale.
     @Test func noNativeShadowPassesTheCap() throws {

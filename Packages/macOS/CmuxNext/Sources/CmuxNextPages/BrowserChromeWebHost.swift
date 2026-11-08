@@ -7,10 +7,13 @@ import CmuxNextSettings
 /// page's `cmux.<page>.command` and `cmux.<page>.size` calls go back to the owner.
 @MainActor
 public final class BrowserChromeWebHost: BrowserChromeWebContent {
-    /// The bubble's page floats in a glass panel that closes when it loses the keys, and the Page
-    /// Info windows' pages draw over their window's surface; a Chromium page is an opaque child
-    /// window that takes the keys.
-    static let engineOptions = PageEngineOptions(requiresWebKit: .transparentOverlay)
+    /// The page floats in a glass panel that closes when it loses the keys, draws a Page Info window
+    /// over its window's surface, or draws the toolbar row over the chrome's own surface; a Chromium
+    /// page is an opaque child window that takes the keys. The toolbar and the suggestion card act on
+    /// the first click in a window that is not key, as the native controls did.
+    static func engineOptions(_ surface: BrowserChromeWebPage) -> PageEngineOptions {
+        PageEngineOptions(requiresWebKit: .transparentOverlay, acceptsFirstMouse: surface == .browserToolbar || surface == .omniboxPopup)
+    }
 
     let page: PageWebView
     private let provider: BrowserChromeWebProvider
@@ -29,12 +32,14 @@ public final class BrowserChromeWebHost: BrowserChromeWebContent {
         case .siteData: descriptor = .siteData
         case .certificate: descriptor = .certificate
         case .cookieImport: descriptor = .cookieImport
+        case .browserToolbar: descriptor = .browserToolbar
+        case .omniboxPopup: descriptor = .omniboxPopup
         }
         let provider = BrowserChromeWebProvider(namespace: descriptor.id + ".")
         guard let page = PageWebView(descriptor: descriptor, routes: [PageRoute(prefix: provider.namespace, provider: provider)],
-                                     options: Self.engineOptions) else { return nil }
-        // The owner sizes the card in points from the page's reports and pushes its metrics in
-        // points: one CSS pixel is one point.
+                                     options: Self.engineOptions(surface)) else { return nil }
+        // The owner sizes its card or row in points from the page's reports and pushes its
+        // metrics in points: one CSS pixel is one point.
         page.followsUIScale = false
         self.page = page
         self.provider = provider
@@ -44,8 +49,35 @@ public final class BrowserChromeWebHost: BrowserChromeWebContent {
         provider.push(JSONValue(foundation: state) ?? .null)
     }
 
+    public func keepForReload(_ state: [String: Any]) {
+        provider.keep(JSONValue(foundation: state) ?? .null)
+    }
+
     public func focus() {
         page.focusPage()
+    }
+
+    public var focusView: NSView { page.focusView }
+
+    public var acceptsKeyFocus: (() -> Bool)? {
+        get { page.acceptsKeyFocus }
+        set { page.acceptsKeyFocus = newValue }
+    }
+
+    public var onResignedKeys: (() -> Void)? {
+        get { page.onResignedKeys }
+        set { page.onResignedKeys = newValue }
+    }
+
+    public var contextMenuEditor: (@MainActor (NSMenu) -> Void)? {
+        get { page.contextMenuEditor }
+        set { page.contextMenuEditor = newValue }
+    }
+
+    /// Files dragged from Finder that the owner takes itself (WebKit hides their paths from the page).
+    public var fileDrop: PageFileDrop? {
+        get { page.fileDrop }
+        set { page.fileDrop = newValue }
     }
 
     public func close() {
@@ -71,6 +103,11 @@ final class BrowserChromeWebProvider: PageProvider {
     public func push(_ next: JSONValue) {
         state = next
         for listener in listeners.values { listener(next) }
+    }
+
+    /// The state a page that subscribes next (a reload) gets; the running page is not told.
+    func keep(_ next: JSONValue) {
+        state = next
     }
 
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {

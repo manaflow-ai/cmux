@@ -17,6 +17,11 @@ public nonisolated final class IntranetHostMemory: Sendable {
         hosts.withLock { $0.contains(label.lowercased()) }
     }
 
+    /// Every label that resolved, sorted (the toolbar page's resolver reads a copy).
+    public var all: [String] {
+        hosts.withLock { $0.sorted() }
+    }
+
     /// Records the newest answer for `label`.
     public func record(_ label: String, resolves: Bool) {
         let key = label.lowercased()

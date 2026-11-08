@@ -2,14 +2,10 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextSettings
 
-/// `debug.omnibar` and (DEBUG builds) `debug.omnibar_mouse` and
-/// `debug.omnibar_type`: the omnibar of a
+/// `debug.omnibar` and (DEBUG builds) `debug.omnibar_type`: the omnibar of a
 /// browser pane (default: the focused pane of the first window, or of
 /// `window`). `debug.omnibar` reports the state machine next to what the
-/// field editor shows; `debug.omnibar_mouse` presses, drags and releases over the
-/// omnibar text as AppKit would for a key window, without activating the
-/// app or making the window key (plans/cmux-next/focus.md, section 7);
-/// `debug.omnibar_type` types text and presses Return in the field the same way.
+/// field shows; `debug.omnibar_type` types text and presses Return in the field.
 enum DebugOmnibar {
     static func report(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         guard let bar = addressBar(params, services: services) else { return .object(["error": .string("no browser pane")]) }
@@ -70,24 +66,9 @@ enum DebugOmnibar {
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// Params: `character` (index the press lands on), optional `drag_to`,
-    /// `click_count` (1-3), `button` (`left` or `right`; a right-click skips
-    /// the context menu), `pane`, `window`.
-    static func mouse(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
-        guard let bar = addressBar(params, services: services) else { return .object(["error": .string("no browser pane")]) }
-        let gesture = OmnibarDebugMouse(
-            character: params["character"]?.intValue ?? 0,
-            dragTo: params["drag_to"]?.intValue,
-            clickCount: min(max(params["click_count"]?.intValue ?? 1, 1), 3),
-            button: params["button"]?.stringValue == "right" ? .right : .left
-        )
-        if let error = bar.debugMouse(gesture) { return .object(["error": .string(error)]) }
-        return report(params, services: services)
-    }
-
     /// `debug.omnibar_type`. Params: `text`, `commit` (default true),
     /// `pane`, `window`. Focuses the omnibar, types `text` through its field
-    /// editor and presses Return there (`AddressBarView.debugTypeAndCommit`):
+    /// editor and presses Return there (`BrowserToolbarWebView.debugTypeAndCommit`):
     /// the path typed keys take once they reach the field, without
     /// activating the app or making the window key. Reports the omnibar
     /// after, plus `typed` (false when the field did not start editing).
@@ -101,7 +82,7 @@ enum DebugOmnibar {
     }
     #endif
 
-    static func addressBar(_ params: [String: JSONValue], services: AppServices) -> AddressBarView? {
+    static func addressBar(_ params: [String: JSONValue], services: AppServices) -> BrowserToolbarWebView? {
         entry(params, services: services)?.chrome?.addressBar
     }
 

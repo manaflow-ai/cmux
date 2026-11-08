@@ -30,7 +30,7 @@ final class BrowserDownloadsPopup {
     private var content: FirstMouseHostingView<BrowserDownloadsPopupView>?
     private weak var anchor: NSView?
     /// The toolbar the popup opened from, which draws its button pressed while it is open.
-    private weak var buttons: BrowserToolbarButtonsView?
+    private weak var buttons: BrowserToolbarButtons?
     /// The automatic close of a popup that opened by itself.
     private let autoClose = DemandTimer(owner: "Browser.downloadsPopup")
 
@@ -45,7 +45,7 @@ final class BrowserDownloadsPopup {
     var shownFrame: CGRect? { popup.isShown ? popup.cardFrame : nil }
 
     /// The Downloads button: opens the popup, or closes it when it is open there.
-    func toggle(_ list: BrowserDownloadList, buttons: BrowserToolbarButtonsView, showFolder: @escaping () -> Void) {
+    func toggle(_ list: BrowserDownloadList, buttons: BrowserToolbarButtons, showFolder: @escaping () -> Void) {
         guard let anchor = buttons.popupAnchor(for: .downloads) else { return }
         if popup.isShown, self.anchor === anchor { return close() }
         show(list, anchor: anchor, buttons: buttons, showFolder: showFolder, makeKey: true)
@@ -57,9 +57,9 @@ final class BrowserDownloadsPopup {
     /// hidden, the app or its window is not active), so the caller falls
     /// back to the notice over the tab.
     @discardableResult
-    func showFinished(_ list: BrowserDownloadList, buttons: BrowserToolbarButtonsView, showFolder: @escaping () -> Void) -> Bool {
+    func showFinished(_ list: BrowserDownloadList, buttons: BrowserToolbarButtons, showFolder: @escaping () -> Void) -> Bool {
         // The Downloads button itself, or More when it is collapsed; never the bare toolbar.
-        guard NSApp.isActive, let anchor = buttons.popupAnchor(for: .downloads), anchor !== buttons.superview,
+        guard NSApp.isActive, let anchor = buttons.popupAnchor(for: .downloads), anchor !== buttons.toolbarView,
               let window = anchor.window, window.isKeyWindow || window.isMainWindow,
               !anchor.isHiddenOrHasHiddenAncestor else { return false }
         // Already open (a click, or another download): it stays as it is and lists the new row.
@@ -79,7 +79,7 @@ final class BrowserDownloadsPopup {
     }
 
     @discardableResult
-    private func show(_ list: BrowserDownloadList, anchor: NSView, buttons: BrowserToolbarButtonsView,
+    private func show(_ list: BrowserDownloadList, anchor: NSView, buttons: BrowserToolbarButtons,
                       showFolder: @escaping () -> Void, makeKey: Bool) -> Bool {
         guard let window = anchor.window else { return false }
         cancelAutoClose()

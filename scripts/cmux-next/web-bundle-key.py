@@ -37,6 +37,8 @@ INPUTS = [
     "webviews",
     "schemas/settings",
     ":(glob)release-notes/next/highlights/*.md",
+    # The omnibar TLD table's source (gen-top-level-domains.mjs, run by gen-strings.mjs).
+    "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Resources/TopLevelDomains.txt",
     "Resources/markdown-viewer/marked.min.js",
     "scripts/build-webviews-app.sh",
     "scripts/check-webviews-bun-version.sh",

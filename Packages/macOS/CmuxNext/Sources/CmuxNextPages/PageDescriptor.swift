@@ -278,6 +278,18 @@ public extension PageDescriptor {
     static let cookieImport = PageDescriptor(id: "cmux.cookie-import", resource: "cookie-import", namespaces: ["cmux.cookie-import."],
                                              acceptsFirstMouse: true)
 
+    /// The browser toolbar row (webviews/src/pages/browser-toolbar, its owner CmuxNextBrowser's
+    /// BrowserToolbarWebView): one page per browser pane, popup window or Markdown bar. It owns the
+    /// omnibar's state machine; `cmux.browser-toolbar.state` brings the tab's state and the host's
+    /// requests, the page sends its commands, effects, status and control rects.
+    static let browserToolbar = PageDescriptor(id: "cmux.browser-toolbar", resource: "browser-toolbar",
+                                               namespaces: ["cmux.browser-toolbar."], acceptsFirstMouse: true)
+
+    /// The omnibox suggestion card (webviews/src/pages/omnibox-popup) in its panel under the toolbar
+    /// (CmuxNextBrowser's OmniboxPopupPanel): rows and the highlighted one in, hover and picks out.
+    static let omniboxPopup = PageDescriptor(id: "cmux.omnibox-popup", resource: "omnibox-popup",
+                                             namespaces: ["cmux.omnibox-popup."], acceptsFirstMouse: true)
+
     /// Where the nightly publishes each build's reel (`ReleaseMediaStore.reelBase`): the changelog
     /// page's `media-src`, a folder, so nothing else on that host plays.
     static let changelogReelSource = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/nightly-next/"

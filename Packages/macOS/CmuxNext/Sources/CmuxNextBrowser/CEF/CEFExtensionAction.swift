@@ -18,7 +18,7 @@ public nonisolated struct CEFExtensionAction: Hashable, Sendable, Identifiable {
     public var iconPNG: Data?
 
     /// The icon size to request: the toolbar button at 2x.
-    @MainActor static var iconPixels: Int32 { Int32((OmnibarStyle.buttonSize * 2).rounded()) }
+    @MainActor static var iconPixels: Int32 { Int32((OmnibarMetrics.current.buttonSize * 2).rounded()) }
 
     public init(
         id: String, name: String, title: String, badge: String = "", badgeColor: String = "",

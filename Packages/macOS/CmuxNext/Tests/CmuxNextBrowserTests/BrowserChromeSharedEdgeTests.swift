@@ -40,8 +40,6 @@ import Testing
             t.close()
             u.close()
         }
-        chromeA.addressBar.controller.send(.focusGained(.keyboard))
-        chromeA.addressBar.controller.send(.fieldChanged(OmnibarInput.Field(text: "typed in A", selection: NSRange(location: 10, length: 0)), .insert))
         let chromeB = paneB.bind(t, state: stateT)
         let windowB = Self.window(chromeB)
         defer { windowB.close() }
@@ -49,7 +47,8 @@ import Testing
         #expect(chromeA.boundState == nil, "pane A's chrome no longer shows the moved tab")
         #expect(chromeA.tab !== t, "pane A's chrome no longer holds or watches the moved tab's page")
         #expect(t.contentView.superview === chromeB.contentContainer)
-        #expect(chromeB.addressBar.displayedText == "typed in A", "the moved tab keeps the text left in its omnibar: \(chromeB.addressBar.displayedText)")
+        // The tab's slot moves with its state: pane B's toolbar page shows the text left in it.
+        #expect(chromeB.addressBar.tabSlot == stateT.slot, "the moved tab keeps the text left in its omnibar")
         paneA.bind(u, state: stateU)
         #expect(chromeA.tab === u)
     }
@@ -196,27 +195,5 @@ import Testing
         let chromeB = paneB.bind(t, state: stateT)
         #expect(chromeB.showsCookieImportOffer, "the moved tab's offer shows in its new pane")
         #expect(chromeA.currentCookieImportCard == nil, "and no longer waits in the old one")
-    }
-
-    /// A tab switch made inside an omnibar step (a "switch to tab" row): the switched-to tab's state goes back first,
-    /// and inputs queued after the switch apply to it, not to the leaving tab's state.
-    @Test func inputsAfterARestoreInsideAStepApplyToTheRestoredTab() {
-        let t = Self.tab("t.example")
-        let chrome = BrowserChromeView(tab: t)
-        defer { t.close() }
-        let controller = chrome.addressBar.controller
-        let resting = controller.state
-        let later = URL(string: "https://later.example/")!
-        let prior = controller.onStep
-        var switched = false
-        controller.onStep = {
-            prior?()
-            guard !switched else { return }
-            switched = true
-            controller.restore(resting)
-            controller.send(.pageURLChanged(later))
-        }
-        controller.send(.pageURLChanged(URL(string: "https://leaving.example/")!))
-        #expect(controller.state.pageURL == later, "the input after the switch was overwritten: \(String(describing: controller.state.pageURL))")
     }
 }

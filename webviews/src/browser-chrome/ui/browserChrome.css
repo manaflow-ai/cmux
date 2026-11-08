@@ -1,0 +1,515 @@
+/* BROWSER TOOLBAR AND SUGGESTION CARD (BrowserToolbar.tsx, SuggestionDropdown.tsx). The native
+   OmnibarStyle at the Standard density; the numbers come from toolbarModel.ts as --bc-* on the root.
+   Theme grays only: no accent on the ring, the selection, the star or the progress line. */
+.bc-toolbar {
+  --bc-bar-fill: color-mix(in srgb, var(--ds-color-fg) 7%, transparent);
+  --bc-bar-hover: color-mix(in srgb, var(--ds-color-fg) 10%, transparent);
+  --bc-card: var(--ds-color-elevated);
+  --bc-bar-radius: var(--ds-radius-popup);
+  --bc-chip-radius: var(--ds-radius-md);
+  --bc-button-radius: var(--ds-radius-lg);
+  --bc-ring: 2px;
+  /* The chip's glyph sits centered in its 24 pt square (4 pt in); a label follows 2 pt after it
+     and keeps 6 pt before the chip's end. */
+  --bc-chip-icon-inset: 4px;
+  --bc-chip-label-gap: 2px;
+  --bc-chip-label-end: 6px;
+  --bc-badge-inset: 2px;
+  --bc-badge-height: 12px;
+  --bc-progress-height: 2px;
+  /* Native metrics off the spacing scale: the focus badge's side padding, the profile symbol's 9 pt glyph. */
+  --bc-badge-focus-padding: 6px;
+  --bc-badge-symbol-size: 9px;
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding-block-end: var(--bc-gap-below);
+  padding-inline: var(--bc-inset) var(--bc-trailing-inset, var(--bc-inset));
+  color: var(--ds-color-fg);
+  font-family: var(--font-ui);
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.bc-group {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--bc-spacing);
+}
+.bc-navigation {
+  margin-inline-end: var(--bc-margin);
+}
+.bc-extensions {
+  margin-inline-end: var(--bc-spacing);
+}
+.bc-omnibar + .bc-trailing:not(:empty) {
+  margin-inline-start: var(--bc-spacing);
+}
+
+/* BUTTONS: 28 pt squares with 20 pt icons; gray hover and press fills in an 8 pt rounded square. */
+.bc-button {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--bc-button);
+  height: var(--bc-button);
+  padding: 0;
+  border: 0;
+  border-radius: var(--bc-button-radius);
+  background: transparent;
+  color: var(--ds-color-fg);
+  transition: background-color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.bc-button:hover:not(:disabled) {
+  background: var(--ds-color-hover);
+}
+.bc-button:active:not(:disabled),
+.bc-button[data-active] {
+  background: var(--ds-color-pressed);
+}
+.bc-button:disabled {
+  color: var(--ds-color-faint);
+}
+.bc-button:focus-visible,
+.bc-chip:focus-visible,
+.bc-star:focus-visible {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
+  outline-offset: -1px;
+}
+.bc-progress-ring {
+  position: absolute;
+  inset: var(--ds-space-1);
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.5;
+  rotate: -90deg;
+}
+.bc-extension-icon {
+  width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
+  border-radius: var(--ds-radius-sm);
+}
+/* Chromium's drawing of the whole button (icon, badge, disabled state): drawn at the button's size. */
+img.bc-extension-icon {
+  width: var(--bc-button);
+  height: var(--bc-button);
+  border-radius: 0;
+}
+.bc-extension-initial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ds-color-pressed);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-emphasis);
+  line-height: 1;
+}
+.bc-extension-badge {
+  position: absolute;
+  inset-block-end: var(--bc-badge-inset);
+  inset-inline-end: 0;
+  min-width: var(--bc-badge-height);
+  padding-inline: var(--bc-badge-inset);
+  border-radius: var(--ds-radius-sm);
+  background: var(--bc-badge, var(--ds-color-muted));
+  color: var(--ds-color-surface);
+  font-size: var(--text-caption);
+  line-height: var(--bc-badge-height);
+  text-align: center;
+}
+
+/* OMNIBAR: the bar, its page-info chip 2 pt inside it, the address text 5 pt after the chip, the
+   star at its end. Idle: a tonal fill with a hover lift. Editing: the neutral ring. Card: the bar is
+   the top of the suggestion card (its fill, square at the seam). */
+.bc-omnibar {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+  height: var(--bc-bar);
+  margin-inline-end: var(--bc-margin);
+  padding-inline: var(--bc-chip-leading) var(--ds-space-1);
+  border-radius: var(--bc-bar-radius);
+  background: var(--bc-bar-fill);
+}
+/* A row with no controls after the bar (a popup window's or a Markdown tab's) ends at the bar, as
+   the native row did: the margin belongs between the bar and what follows it. */
+.bc-omnibar:not(:has(~ .bc-group:not(:empty))) {
+  margin-inline-end: 0;
+}
+/* Only the resting bar's hover eases; focus and the card switch at once, as a click expects
+   (OmnibarViews dropped that fade for click latency). */
+.bc-omnibar[data-surface="idle"] {
+  transition: background-color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.bc-omnibar[data-surface="idle"]:hover {
+  background: var(--bc-bar-hover);
+}
+.bc-omnibar[data-surface="editing"] {
+  background: transparent;
+  box-shadow: inset 0 0 0 var(--bc-ring) var(--ds-color-focus);
+}
+.bc-omnibar[data-surface="card"] {
+  background: var(--bc-card);
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+  transition: none;
+}
+.bc-omnibar[data-surface="card"][data-upward] {
+  border-radius: 0 0 var(--bc-bar-radius) var(--bc-bar-radius);
+}
+.bc-toolbar[data-look="outlined"] .bc-omnibar[data-surface="idle"] {
+  background: transparent;
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 1px) var(--ds-color-separator);
+}
+.bc-toolbar[data-look="outlined"] .bc-omnibar[data-surface="idle"]:hover {
+  background: var(--bc-bar-fill);
+}
+.bc-toolbar[data-look="capsule"] {
+  --bc-bar-radius: calc(var(--bc-bar) / 2);
+  --bc-chip-radius: calc(var(--bc-chip) / 2);
+}
+
+.bc-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--bc-chip-label-gap);
+  min-width: var(--bc-chip);
+  height: var(--bc-chip);
+  padding: 0;
+  padding-inline-start: var(--bc-chip-icon-inset);
+  border: 0;
+  border-radius: var(--bc-chip-radius);
+  background: transparent;
+  color: var(--ds-color-fg);
+  font: inherit;
+  transition: background-color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.bc-chip:not([data-labeled]) {
+  justify-content: center;
+  padding-inline-start: 0;
+}
+.bc-chip[data-labeled] {
+  padding-inline-end: var(--bc-chip-label-end);
+}
+.bc-chip[data-tone="danger"] {
+  color: var(--ds-color-danger);
+}
+.bc-chip:hover:not(:disabled) {
+  background: var(--ds-color-hover);
+}
+.bc-chip:active:not(:disabled),
+.bc-chip[data-pressed] {
+  background: var(--ds-color-pressed);
+}
+.bc-chip-label {
+  font-size: var(--text-field);
+  line-height: var(--text-field--line-height);
+  white-space: nowrap;
+}
+
+.bc-field {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  align-self: stretch;
+  min-width: 0;
+  padding-inline: var(--bc-text-leading) var(--bc-trailing-padding);
+  cursor: text;
+}
+.bc-address-text {
+  overflow: hidden;
+  font-size: var(--text-field);
+  line-height: var(--text-field--line-height);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bc-address-text[data-emphasis="none"] {
+  color: var(--ds-color-muted);
+}
+.bc-dim {
+  color: var(--ds-color-muted);
+}
+.bc-placeholder {
+  color: var(--ds-color-faint);
+}
+/* THE LIVE FIELD (pages/browser-toolbar): a real input, always mounted so focus and the input
+   method never wait for it. At rest its text is invisible and the styled address (host at full
+   strength) is drawn over it in the same box, so focus moves no pixel. */
+.bc-omnibox-field {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  align-self: stretch;
+  min-width: 0;
+}
+.bc-omnibox-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ds-color-fg);
+  font: inherit;
+  font-size: var(--text-field);
+  line-height: var(--text-field--line-height);
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.bc-omnibox-input::selection {
+  background: var(--cmux-selection-fill, var(--cmux-text-selection, var(--ds-color-selection)));
+}
+.bc-omnibox-input::placeholder {
+  color: var(--ds-color-faint);
+  opacity: 1;
+}
+.bc-omnibox-field[data-resting] .bc-omnibox-input {
+  color: transparent;
+  caret-color: transparent;
+}
+/* At rest the overlay draws the placeholder (the static row's), so the input's own stays hidden. */
+.bc-omnibox-field[data-resting] .bc-omnibox-input::placeholder {
+  color: transparent;
+}
+.bc-omnibox-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  pointer-events: none;
+}
+.bc-omnibox-field:not([data-resting]) .bc-omnibox-overlay {
+  display: none;
+}
+
+/* TRAILING BADGES: browser focus mode, the profile monogram, the machine chip; before the star. */
+.bc-badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  height: var(--bc-trailing-box);
+  margin-inline-end: var(--ds-space-1);
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-radius: 999px;
+  background: var(--ds-color-pressed);
+  color: var(--ds-color-fg);
+  font: inherit;
+  font-size: var(--text-caption);
+  line-height: 1;
+  white-space: nowrap;
+}
+.bc-badge:hover {
+  background: var(--ds-color-hover);
+}
+.bc-badge-machine {
+  max-width: 160px;
+  color: var(--ds-color-muted);
+}
+/* A long machine name truncates within the native chip's 160 pt (MachineBadgeView). */
+.bc-badge-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Focus mode: a lit chip in the theme's accent with the keyboard glyph, fading in as it appears
+   (FocusModeBadgeView, AddressBarView's badge fade). */
+.bc-badge-focus {
+  gap: 4px;
+  padding-inline: var(--bc-badge-focus-padding);
+  background: color-mix(in srgb, var(--ds-color-accent) 16%, transparent);
+  color: var(--ds-color-accent);
+  animation: bc-badge-in var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.bc-badge-focus:hover {
+  background: color-mix(in srgb, var(--ds-color-accent) 22%, transparent);
+}
+@keyframes bc-badge-in {
+  from {
+    opacity: 0;
+  }
+}
+.bc-badge-profile {
+  width: var(--bc-trailing-box);
+  padding: 0;
+  background: var(--bc-profile, var(--ds-color-muted));
+  color: var(--ds-color-surface);
+  font-weight: var(--weight-emphasis);
+}
+
+/* An SF Symbol profile icon (the host draws it; OmnibarBadges.profile.symbol), the native badge's 9 pt glyph. */
+.bc-badge-symbol {
+  width: var(--bc-badge-symbol-size);
+  height: var(--bc-badge-symbol-size);
+}
+
+.bc-star {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--bc-trailing-box);
+  height: var(--bc-trailing-box);
+  padding: 0;
+  border: 0;
+  border-radius: var(--bc-chip-radius);
+  background: transparent;
+  color: var(--ds-color-fg);
+  transition: background-color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.bc-star:hover {
+  background: var(--ds-color-hover);
+}
+/* The hollow star is drawn dimmer than the filled one (BookmarkStarButton: secondary text). */
+.bc-star:not([data-on]) {
+  color: var(--ds-color-muted);
+}
+
+/* LOAD PROGRESS: a thin gray line at the toolbar's bottom edge that glides with progress. */
+.bc-progress {
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline: 0;
+  height: var(--bc-progress-height);
+  background: color-mix(in srgb, var(--ds-color-focus) 80%, transparent);
+  opacity: 0;
+  transform: scaleX(var(--bc-progress, 0));
+  transform-origin: left;
+  transition: opacity var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.bc-progress:dir(rtl) {
+  transform-origin: right;
+}
+.bc-progress[data-visible] {
+  opacity: 1;
+  transition:
+    opacity var(--cmux-motion-quick) var(--cmux-ease-out),
+    transform var(--cmux-motion-standard) var(--cmux-ease-out);
+}
+
+/* SUGGESTION CARD: the bar grown downward. Rows of the bar's height, 4 pt in from the sides, 2 pt
+   above each, 4 pt at the end; the highlighted row a neutral fill concentric with the card. */
+.bc-suggestions {
+  --bc-card-radius: var(--ds-radius-popup);
+  box-sizing: border-box;
+  padding: var(--bc-row-gap) var(--bc-row-inset) var(--bc-card-end);
+  border-radius: 0 0 var(--bc-card-radius) var(--bc-card-radius);
+  background: var(--ds-color-elevated);
+  color: var(--ds-color-fg);
+  font-family: var(--font-ui);
+  font-size: var(--text-field);
+  line-height: var(--text-field--line-height);
+  -webkit-user-select: none;
+  user-select: none;
+}
+.bc-suggestion-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bc-row-gap);
+  outline: none;
+}
+.bc-suggestions[data-upward] {
+  padding-block: var(--bc-card-end) var(--bc-row-gap);
+  border-radius: var(--bc-card-radius) var(--bc-card-radius) 0 0;
+}
+.bc-suggestions[data-upward] .bc-suggestion-list {
+  flex-direction: column-reverse;
+}
+.bc-suggestions[data-look="floating"] {
+  margin-block-start: var(--ds-space-1);
+  padding-block-start: var(--bc-row-inset);
+  border-radius: var(--bc-card-radius);
+}
+.bc-suggestion {
+  box-sizing: border-box;
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: var(--bc-row);
+  padding-inline: var(--bc-row-icon-start) var(--bc-trailing-padding);
+  border-radius: calc(var(--bc-card-radius) - var(--bc-row-inset));
+  cursor: default;
+}
+.bc-suggestion[aria-selected="true"] {
+  background: var(--ds-color-selection);
+}
+.bc-suggestion-icon {
+  display: inline-flex;
+  flex: none;
+  width: var(--ds-icon-16);
+  margin-inline-end: calc(var(--bc-row-text-start) - var(--bc-row-icon-start) - var(--ds-icon-16));
+  color: var(--ds-color-muted);
+}
+.bc-suggestion-text {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bc-suggestion-detail {
+  color: var(--ds-color-muted);
+}
+.bc-suggestion-detail::before {
+  content: " – ";
+}
+.bc-suggestions[data-look="two-line"] .bc-suggestion:has(.bc-suggestion-detail) {
+  height: calc(var(--bc-row) + var(--ds-space-3));
+}
+.bc-suggestions[data-look="two-line"] .bc-suggestion-text {
+  display: flex;
+  flex-direction: column;
+}
+.bc-suggestions[data-look="two-line"] :is(.bc-suggestion-title, .bc-suggestion-detail) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bc-suggestions[data-look="two-line"] .bc-suggestion-detail {
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.bc-suggestions[data-look="two-line"] .bc-suggestion-detail::before {
+  content: none;
+}
+
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"])
+  :is(.bc-button, .bc-chip, .bc-star, .bc-omnibar, .bc-progress, .bc-progress[data-visible]) {
+  transition: none;
+}
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .bc-badge-focus {
+  animation: none;
+}
+
+/* The drag image of a page dragged out of the chip (setChipDragImage): one line of the bar's text,
+   laid out off screen for the snapshot. */
+.bc-drag-label {
+  /* Under document.body, outside the row: its own metrics (the native label's 2 pt padding). */
+  --bc-drag-label-padding-block: 2px;
+  --bc-offscreen: -1000px;
+  position: fixed;
+  top: var(--bc-offscreen);
+  left: 0;
+  max-width: 360px;
+  padding: var(--bc-drag-label-padding-block) 4px;
+  overflow: hidden;
+  color: var(--ds-color-fg);
+  font-family: var(--font-ui);
+  font-size: var(--text-field);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

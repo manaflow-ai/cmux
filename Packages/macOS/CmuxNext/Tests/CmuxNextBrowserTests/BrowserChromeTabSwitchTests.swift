@@ -42,17 +42,22 @@ import Testing
         }
     }
 
+    /// The toolbar page keeps each tab's resting omnibar (the text left in it) under the tab's slot;
+    /// a switch only names the shown slot and its address in the next push, so the text left in a
+    /// tab comes back with it (`TabSlotStore` in toolbar/slots.ts) and a switch walks no other tab.
     @Test func theOmnibarTextLeftInATabComesBackWithIt() async {
         let pane = Pane()
         defer { pane.tearDown() }
         await pane.show(pane.a)
         let bar = pane.chrome.addressBar
-        bar.controller.send(.focusGained(.keyboard))
-        bar.controller.send(.fieldChanged(OmnibarInput.Field(text: "half typed", selection: NSRange(location: 10, length: 0)), .insert))
+        #expect(bar.wireState()["tab"] as? String == pane.stateA.slot)
         await pane.show(pane.b)
-        #expect(!bar.displayedText.contains("half typed"), "tab B shows its own address, not A's typing: \(bar.displayedText)")
+        #expect(bar.wireState()["tab"] as? String == pane.stateB.slot, "tab B shows its own slot, not A's")
+        #expect(bar.wireState()["url"] as? String == "https://b.example/")
         await pane.show(pane.a)
-        #expect(bar.displayedText == "half typed", "tab A's typing came back: \(bar.displayedText)")
+        #expect(bar.wireState()["tab"] as? String == pane.stateA.slot, "tab A's slot (and the text left in it) came back")
+        #expect(bar.wireState()["url"] as? String == "https://a.example/")
+        #expect(pane.stateA.slot != pane.stateB.slot)
     }
 
     @Test func theFindPillAndItsQueryComeBackWithTheirTab() async {

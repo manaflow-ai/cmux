@@ -20,7 +20,7 @@ import Testing
 
     @Test func duckDuckGoReachesEverySearchPath() throws {
         let resolver = Self.engine("duckduckgo").resolver
-        // Omnibar Enter (both engines share AddressBarView's resolver).
+        // Omnibar Enter (both engines share the suggestion engine's resolver).
         let typed = try #require(resolver.destination(for: "cmux engine probe"))
         #expect(typed.url.absoluteString == "https://duckduckgo.com/?q=cmux%20engine%20probe")
         // Omnibar suggestions.

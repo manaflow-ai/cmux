@@ -30,8 +30,6 @@ struct ObjCSelectorRuntimeTests {
         // NSTextInputClient's optional placement: a constant answer, no super call.
         "CmuxNextAgentPane.AgentPaneWKWebView.preferredTextAccessoryPlacement",
         "CmuxNextPages.PageWKWebView.preferredTextAccessoryPlacement",
-        // NSTextViewDelegate's menu hook (the field editor's delegate): builds its own menu, no super call.
-        "CmuxNextBrowser.AddressField.textView:menu:forEvent:atIndex:",
         // NSDraggingDestination's optional end (NSView has none): no super call.
         "CmuxNextBrowser.CEFHostView.draggingEnded:",
         "CmuxNextHome.HomeNativeTranscriptView.draggingEnded:",

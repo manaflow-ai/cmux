@@ -70,6 +70,8 @@ public final class PageInfoController {
 
     /// A bubble fading out counts as closed: the button opens it again.
     public var isShown: Bool { popup.isShown }
+    /// The bubble showed (true) or closed (false): the omnibar's chip draws pressed while it shows.
+    public var onShownChange: ((Bool) -> Void)?
     /// Shown, or waiting for the page's size to show: state changes go to the page either way.
     var isOpen: Bool { isShown || presentsOnSize }
 
@@ -165,6 +167,7 @@ public final class PageInfoController {
     /// The bubble closed (``close()`` or a host dismiss rule): live data stops, the page gets
     /// the keys back.
     private func closed() {
+        onShownChange?(false)
         presentsOnSize = false
         observation?.cancel()
         observation = nil
@@ -180,6 +183,7 @@ public final class PageInfoController {
         panel.adoptThemeScope(of: anchor)
         guard let placed = popup.show(size: cardSize, anchor: anchorRect, in: window, preferred: anchor.toolbarPopupSide, makeKey: true) else { return close() }
         side = placed.side
+        onShownChange?(true)
         content?.focus()
     }
 

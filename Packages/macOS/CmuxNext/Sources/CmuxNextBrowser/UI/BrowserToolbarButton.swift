@@ -45,7 +45,7 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
     /// Accessibility identifier (UI automation, `debug.extensions.toolbar`).
     public var identifier: String { "browser.toolbar.\(rawValue)" }
 
-    /// How early the button hides as the pane narrows (`BrowserToolbarButtonsView.collapse`):
+    /// How early the button hides as the pane narrows (`BrowserToolbarButtons.collapse`):
     /// design mode and DevTools at level 1, the rest at level 2; More always
     /// stays and lists the hidden ones.
     public var collapseLevel: Int? {

@@ -34,6 +34,12 @@
       "status": "build"
     },
     {
+      "id": "top-level-domains",
+      "generator": "webviews/scripts/pages/gen-top-level-domains.mjs",
+      "outputs": ["webviews/src/browser-chrome/omnibox/resolver/top-level-domains.generated.ts"],
+      "status": "build"
+    },
+    {
       "id": "design-scale",
       "generator": "webviews/scripts/pages/gen-design-scale.mjs",
       "outputs": ["webviews/src/ui/theme.generated.css", "webviews/src/ui/designTokens.generated.ts"],

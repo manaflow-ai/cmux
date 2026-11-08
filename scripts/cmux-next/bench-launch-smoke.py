@@ -40,7 +40,6 @@ BENCHES = [
     bench("every-action", "every-action-sweep.py", "--sessions", "light", "--repeat", "1", "--limit", "3", "--no-interactions"),
     bench("tab-switch-stages", "tab-switch-stages.py", "--rounds", "1"),
     bench("palette-open-stages", "palette-open-stages.py", "--rounds", "1", "--no-gate"),
-    bench("omnibar-click", "omnibar-click-bench.py", "--runs", "2", "--engines", "webkit"),
     bench("open-panel", "open-panel-bench.py", "--sessions", "light", "--rounds", "2"),
     bench("tab-switch-matrix", "tab-switch-matrix.py", "--kinds", "terminal", "--counts", "3", "--switches", "5"),
     bench("sidebar-stress", "sidebar-stress-bench.py", "--sizes", "20", "--stop", "--tickers", "2", "--scenarios", "ticks", "--no-trace", json_flag=False),

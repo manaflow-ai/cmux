@@ -58,7 +58,7 @@ stats
 tasks
 "
 # The browser chrome's pages (CmuxNextPages BrowserChromeWebHost).
-PAGES="$PAGES page-info site-settings site-data certificate"
+PAGES="$PAGES page-info site-settings site-data certificate browser-toolbar omnibox-popup"
 # The Import Cookies card (BrowserCookieImportCard, through BrowserChromeWebHost).
 PAGES="$PAGES cookie-import"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the

@@ -36,45 +36,27 @@ import Testing
         #expect(!chrome.focusModeExitArmed)
     }
 
+    /// A press on the page's badge reaches the host's handler, the one the native chip ran.
     @Test func clickingBadgeAsksHostToLeave() {
         let (chrome, window) = chrome()
         defer { window.close() }
         var presses = 0
         chrome.onFocusModeBadgePress = { presses += 1 }
         chrome.showsFocusModeIndicator = true
-        #expect(chrome.addressBar.focusModeBadgeView.accessibilityPerformPress())
+        chrome.addressBar.handle(.focusModeBadge)
         #expect(presses == 1)
     }
 
-    /// With fades off (`ui.animations.feedback`, or the master switch) the badge appears in the
-    /// same frame. Reduce Motion alone keeps fades (shortened to a crossfade, `MotionPolicy`), so
-    /// pinning it left this to the host: where the window has an awake screen the fade ran and
-    /// alpha read 0 (aws-m4pro-8 and -9 every run).
-    @Test func fadesOffShowBadgeAtOnce() {
-        let design = DesignSettings.shared
-        let saved = design.disabledAnimationCategories
-        design.disabledAnimationCategories.insert(.feedback)
-        defer { design.disabledAnimationCategories = saved }
+    /// The badge reaches the toolbar page as its text in the pushed state; the page draws it as a
+    /// lit chip in the theme's accent (Leo 2026-10-21: "the accent is never orange"), with the
+    /// page's own motion gate.
+    @Test func badgeTextIsPushedToThePage() {
         let (chrome, window) = chrome()
         defer { window.close() }
         chrome.showsFocusModeIndicator = true
-        #expect(chrome.addressBar.focusModeBadgeView.alphaValue == 1)
-        #expect(!chrome.addressBar.focusModeBadgeView.isHidden)
-    }
-
-    /// The badge is a lit chip in the theme's accent, never orange (Leo 2026-10-21: "the accent is
-    /// never orange"). It was `systemOrange`, a color no theme sets.
-    @Test func badgeUsesTheThemeAccentNotOrange() {
-        let (chrome, window) = chrome()
-        defer { window.close() }
-        chrome.showsFocusModeIndicator = true
-        let badge = chrome.addressBar.focusModeBadgeView
-        badge.updateLayer()
-        let shown = badge.shownTextColor?.usingColorSpace(.sRGB)
-        let lit = badge.performWithTheme { Palette.litGlyph }.usingColorSpace(.sRGB)
-        let orange = NSColor.systemOrange.usingColorSpace(.sRGB)
-        #expect(shown != nil)
-        #expect(shown != orange)
-        #expect(shown == lit)
+        let badges = chrome.addressBar.badgesWire
+        #expect((badges["focusMode"] as? [String: Any])?["text"] as? String == Strings.focusModeActive)
+        chrome.showsFocusModeIndicator = false
+        #expect(chrome.addressBar.badgesWire["focusMode"] is NSNull)
     }
 }

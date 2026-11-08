@@ -285,6 +285,13 @@ export const PAGES = {
     out: "webviews/src/browser-chrome/page-info/generated/strings.json",
     catalogs: [{ file: "webviews/src/browser-chrome/page-info/Localizable.xcstrings" }],
   },
+  // The browser toolbar row and its omnibox card (cmux-page://cmux.browser-toolbar/,
+  // cmux-page://cmux.omnibox-popup/); their table lives next to the components in
+  // webviews/src/browser-chrome/ui.
+  "browser-chrome-ui": {
+    out: "webviews/src/browser-chrome/ui/generated/strings.json",
+    catalogs: [{ file: "webviews/src/browser-chrome/ui/Localizable.xcstrings" }],
+  },
   // The Chief Usage page (cmux-page://cmux.chief-usage/); its table lives next to it.
   "chief-usage": {
     out: "webviews/src/pages/chief-usage/generated/strings.json",
@@ -619,6 +626,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   // The design scale's Tailwind theme and token list are build output too (gen-design-scale.mjs).
   const { writeDesignScale } = await import("./gen-design-scale.mjs");
   const scaleFailed = writeDesignScale({ check, log: () => {} });
+  // The omnibar's top-level domain table, from the list the Swift omnibar bundles (gen-top-level-domains.mjs).
+  const { writeTopLevelDomains } = await import("./gen-top-level-domains.mjs");
+  const tldFailed = writeTopLevelDomains({ check });
   const bestEffort = process.argv.includes("--best-effort") || (!check && process.env.CMUX_STRINGS_BEST_EFFORT === "1");
   const failed = writeStrings({
     check,
@@ -626,5 +636,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ifStale: process.argv.includes("--if-stale"),
     only: process.argv.slice(2).filter((arg) => !arg.startsWith("--")),
   });
-  process.exit((failed && !bestEffort) || tipsFailed || scaleFailed ? 1 : 0);
+  process.exit((failed && !bestEffort) || tipsFailed || scaleFailed || tldFailed ? 1 : 0);
 }

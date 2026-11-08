@@ -38,7 +38,7 @@ extension BrowserChromeTabSwitch {
     /// the next tab.
     func release(_ state: BrowserChromeTabState) {
         guard chrome.boundState === state else { return }
-        chrome.extensionToolbar.hidePopups()
+        chrome.extensionActions.hidePopups()
         chrome.pageInfoIfMade?.close()
         chrome.hideNotice()
         // Its cookie import offer goes (a moved tab's shows on its new chrome); one held for another tab stays.
@@ -46,6 +46,11 @@ extension BrowserChromeTabSwitch {
         if let find = chrome.pageBars.findBarIfMade { find.isHidden = true }
         state.chrome = nil
         chrome.boundState = nil
+        // What the page still sends for the tab (a commit, a button) no longer acts on this chrome, and its
+        // page forgets the tab's resting omnibar: a moved tab's draft travels on its state, and one that
+        // comes back takes that, not what this page kept.
+        chrome.addressBar.beginBinding()
+        chrome.addressBar.send(BrowserToolbarHostEvent.forgetTab(state.slot))
         // Nothing of the tab stays: its hooks (closures that may hold its page), its modes, its page.
         let none = BrowserChromeTabState()
         BrowserChromeTabHooks(chrome: chrome, state: none).apply()

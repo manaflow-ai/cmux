@@ -15,7 +15,7 @@ public nonisolated struct FirstPartyPages {
         "cmux.bookmarks",
         "cmux.history", "cmux.apps", "cmux.settings", "cmux.cloud", "cmux.agent", "cmux.keybindings",
         "cmux.diff", "cmux.markdown", "cmux.icon-picker", "cmux.passwords", "cmux.editor", "cmux.chief-inspector", "cmux.debug-settings",
-        "cmux.home-channels", "cmux.home-messages", "cmux.changelog", "cmux.page-info",
+        "cmux.home-channels", "cmux.home-messages", "cmux.changelog", "cmux.page-info", "cmux.browser-toolbar", "cmux.omnibox-popup",
         "cmux.site-settings", "cmux.site-data", "cmux.certificate",
         "cmux.cookie-import",
     ]

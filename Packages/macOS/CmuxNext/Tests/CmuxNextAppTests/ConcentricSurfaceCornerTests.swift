@@ -54,11 +54,12 @@ import Testing
             ("CardSurfaceView", CardSurfaceView().cornerRadius),
             ("TerminalStatusBanner", TerminalStatusBanner().layer?.cornerRadius ?? -1),
             ("ServerMetrics.cornerRadius", ServerMetrics.cornerRadius),
-            ("OmnibarStyle.barCornerRadius", OmnibarStyle.barCornerRadius),
         ]
         for (name, value) in surfaces {
             #expect(value == outer, "\(radius)/\(padding): \(name) is \(value) pt, the one corner radius is \(outer) pt")
         }
+        // The omnibar's bar takes it too, up to a capsule on a bar shorter than twice it.
+        #expect(ToolbarRowMetrics.cornerRadius == min(outer, ToolbarRowMetrics.barHeight / 2))
     }
 
     /// A shape nested in a surface is concentric with it: one level in (a popover's row highlight, the

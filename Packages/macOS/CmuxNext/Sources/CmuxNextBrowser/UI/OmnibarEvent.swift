@@ -1,7 +1,16 @@
 public import Foundation
 
-/// Where an omnibar commit opens (Enter with modifiers, a modified row click).
-public typealias OmnibarDisposition = OmnibarInput.Disposition
+/// Where an omnibar commit opens (Enter with modifiers, a modified row click). The toolbar page
+/// (webviews/src/browser-chrome/omnibox) names the same four.
+public nonisolated enum OmnibarDisposition: String, Equatable, Sendable {
+    case currentTab
+    /// Cmd-Enter or Cmd-click: a background tab.
+    case newBackgroundTab
+    /// Option-Enter, Shift-Cmd-Enter.
+    case newForegroundTab
+    /// Shift-Enter.
+    case newWindow
+}
 
 /// Why the omnibar stopped editing.
 public nonisolated enum OmnibarEndReason: Equatable, Sendable {
@@ -26,4 +35,14 @@ public nonisolated enum OmnibarEndReason: Equatable, Sendable {
 public nonisolated enum OmnibarEvent: Equatable, Sendable {
     case didBeginEditing
     case didEndEditing(OmnibarEndReason)
+}
+
+extension OmnibarEndReason {
+    /// The end loads or opens something (a read-only row turns it into a cancel).
+    var navigates: Bool {
+        switch self {
+        case .commit, .open, .keyword, .switchToTab: true
+        case .cancel, .blur: false
+        }
+    }
 }

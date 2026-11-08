@@ -3,7 +3,7 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextSettings
 
-/// The browser toolbar's trailing buttons (`BrowserToolbarButtonsView`).
+/// The browser toolbar's trailing buttons (`BrowserToolbarButtons`).
 /// Every press runs a catalog action, so the palette, `cmux action run`,
 /// the socket and the menus reach the same handler:
 ///

@@ -426,7 +426,6 @@ final class FilePageService: InternalPageProvider {
             forward: { [weak page] in page?.send(command: "forward") },
             reload: { [weak page] in page?.send(command: MarkdownPageCommand.reload) })
         let bar = MarkdownOmnibarBar(suggestionEngine: services.cache.suggestionEngine, actions: actions)
-        bar.toolbar.cardClip = page
         bar.show(tab.provider?.file ?? tab.file)
         tabs[key]?.bar = bar
         return bar

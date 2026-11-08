@@ -45,6 +45,8 @@ export default defineConfig({
       "src/agent-session/shared/agentBrands.generated.ts",
       // Build output of scripts/pages/gen-design-scale.mjs.
       "src/ui/designTokens.generated.ts",
+      // Build output of scripts/pages/gen-top-level-domains.mjs.
+      "src/browser-chrome/omnibox/resolver/top-level-domains.generated.ts",
       // scripts/icon-picker/gen-emoji-data.mjs --check owns these bytes.
       "src/icon-picker/generated/**",
       // cmux-tui/bindings/codegen/page_router.py --check owns these bytes.

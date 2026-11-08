@@ -38,8 +38,8 @@ import Testing
     static func hiddenParts(of chrome: BrowserChromeView) -> [String] {
         let views = descendants(of: chrome)
         let pageBars = views.filter { $0 is FindBarView || $0 is PromptBarView || $0 is LoadErrorView || $0 is PageGoneView || $0 is PageUnresponsiveView }
-        let hiddenButtons = views.compactMap { $0 as? ChromeIconButton }.filter { $0.isDescendant(of: chrome.toolbarButtons) && $0.isHidden }
-        return pageBars.map { String(describing: type(of: $0)) } + hiddenButtons.map { "hidden \($0.accessibilityIdentifier())" }
+        // The toolbar's buttons are its React page's; a hidden one costs no view.
+        return pageBars.map { String(describing: type(of: $0)) }
     }
 
     @Test func aNewChromeBuildsOnlyWhatItsFirstFrameShows() {
@@ -48,7 +48,6 @@ import Testing
         defer { BrowserPageRetirement(tab: tab, chrome: chrome).retire() }
         let parts = Self.hiddenParts(of: chrome)
         #expect(parts.isEmpty, "the first frame shows none of these, yet the key turn built them: \(parts)")
-        #expect(chrome.toolbarButtons.button(.overflow)?.isHidden == false, "More is in the first frame")
     }
 
     @Test func theFindBarIsMadeWhenItFirstShowsAndWorks() async {

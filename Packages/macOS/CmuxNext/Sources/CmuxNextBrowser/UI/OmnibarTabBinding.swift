@@ -1,6 +1,6 @@
 public import AppKit
 
-/// Ties the omnibar (`AddressBarView`) to one page shown outside a browser
+/// Ties the omnibar (`BrowserToolbarWebView`) to one page shown outside a browser
 /// pane: a popup window (`window.open`, OAuth, extension and sign-in windows).
 /// The bar follows the page's URL and security, its chip opens page info, a
 /// committed address loads in the page (falling back to http when a typed
@@ -9,7 +9,7 @@ public import AppKit
 /// (`scripts/cmux-next/check-single-omnibar.py`).
 public final class OmnibarTabBinding {
     /// The bar this binding drives.
-    public let addressBar: AddressBarView
+    public let addressBar: BrowserToolbarWebView
     private let tab: any BrowserTab
     private var observation: ObservationLoop?
     /// The typed-address http fallback (`HTTPSUpgradeFallback`), as a tab's toolbar has.
@@ -17,6 +17,7 @@ public final class OmnibarTabBinding {
     private lazy var pageInfo: PageInfoController = {
         let controller = PageInfoController(tab: { [weak self] in self?.tab }, anchor: { [weak self] in self?.addressBar.pageInfoAnchor })
         controller.onReturnFocus = { [weak self] in self?.tab.setFocused(true) }
+        controller.onShownChange = { [weak self] shown in self?.addressBar.pageInfoOpen = shown }
         return controller
     }()
 
@@ -25,7 +26,7 @@ public final class OmnibarTabBinding {
     /// - Parameters:
     ///   - addressBar: The omnibar to drive (usually an `OmnibarToolbarView`'s bar).
     ///   - tab: The page whose URL the bar shows and loads.
-    public init(addressBar: AddressBarView, tab: any BrowserTab) {
+    public init(addressBar: BrowserToolbarWebView, tab: any BrowserTab) {
         self.addressBar = addressBar
         self.tab = tab
         addressBar.allowsChromiumSchemes = tab.engineKind == .cef
@@ -50,6 +51,8 @@ public final class OmnibarTabBinding {
 
     private func render() {
         let state = tab.state
+        // The title rides in the state (the chip's drag names the page); a title-only change pushes.
+        addressBar.pageTitleChanged(state.title)
         if let http = httpsFallback.observe(state) {
             // task-owner: one load, after this render (never a load inside the observed render).
             Task { @MainActor [weak self] in self?.tab.load(http) }

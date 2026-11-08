@@ -41,9 +41,9 @@ import Testing
         defer { reset() }
         load(radius: nil, padding: nil, density: density)
         #expect(Metrics.cornerRadius == Self.omnibarRadius, "\(density): the default radius is \(Metrics.cornerRadius) pt")
-        #expect(OmnibarStyle.barCornerRadius == Metrics.cornerRadius,
-                "\(density): the omnibar is \(OmnibarStyle.barCornerRadius) pt, the default radius \(Metrics.cornerRadius) pt")
-        #expect(OmnibarGlassLook.standard.resolvedCornerRadius(barHeight: OmnibarStyle.barHeight) == Self.omnibarRadius)
+        #expect(ToolbarRowMetrics.cornerRadius == Metrics.cornerRadius,
+                "\(density): the omnibar is \(ToolbarRowMetrics.cornerRadius) pt, the default radius \(Metrics.cornerRadius) pt")
+        #expect(OmnibarGlassLook.standard.resolvedCornerRadius(barHeight: ToolbarRowMetrics.barHeight) == Self.omnibarRadius)
     }
 
     /// A set radius moves the omnibar with it.
@@ -51,7 +51,7 @@ import Testing
     func theOmnibarFollowsTheSetRadius(radius: Double) {
         defer { reset() }
         load(radius: radius, padding: nil)
-        #expect(OmnibarStyle.barCornerRadius == CGFloat(radius))
+        #expect(ToolbarRowMetrics.cornerRadius == CGFloat(radius))
     }
 
     nonisolated static let cases: [(ChromeStyle, Double?, Double?)] =

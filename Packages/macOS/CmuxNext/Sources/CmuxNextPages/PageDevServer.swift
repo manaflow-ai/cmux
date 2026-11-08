@@ -29,6 +29,7 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.apps",
         "cmux.artifacts",
         "cmux.bookmarks",
+        "cmux.browser-toolbar",
         "cmux.changelog",
         "cmux.chief-inspector",
         "cmux.chief-usage",
@@ -54,6 +55,7 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.markdown",
         "cmux.mobile-pairing",
         "cmux.onboarding",
+        "cmux.omnibox-popup",
         // What shows over a window's content (dialogs).
         "cmux.overlay",
         "cmux.page-info",

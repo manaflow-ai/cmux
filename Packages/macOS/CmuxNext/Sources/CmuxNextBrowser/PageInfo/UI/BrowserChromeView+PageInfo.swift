@@ -15,6 +15,8 @@ extension BrowserChromeView {
     func makePageInfoController() -> PageInfoController {
         let controller = PageInfoController(tab: { [weak self] in self?.tab }, anchor: { [weak self] in self?.addressBar.pageInfoAnchor })
         controller.onReturnFocus = { [weak self] in self?.returnFocusToPage() }
+        // The omnibar's chip draws pressed while the bubble shows.
+        controller.onShownChange = { [weak self] shown in self?.addressBar.pageInfoOpen = shown }
         return controller
     }
 
@@ -23,6 +25,7 @@ extension BrowserChromeView {
     /// window list for as long as anything still holds this chrome.
     public func closePopupPanels() {
         pageInfoIfMade?.closePanel()
-        extensionToolbar.closeMenuPanel()
+        extensionActions.closeMenuPanel()
+        addressBar.close()
     }
 }
