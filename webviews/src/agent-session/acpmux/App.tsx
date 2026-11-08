@@ -505,7 +505,6 @@ import {
 import { CloudStartView } from "./CloudStartView";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import {
-  useFeatureTipsOn,
   registerChatDisplayHost,
   useChatDisplay,
   useChatPinnedPlan,
@@ -667,7 +666,6 @@ import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type RunMode } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
-import { paneTipHost } from "./featureTipsModel";
 import { CloudChatHint } from "./CloudChatHint";
 import { cloudChatHintShown, useCloudChatHint } from "./cloudChatHintModel";
 import { withCloudMachineSummary } from "./cloudSummary";
@@ -11612,6 +11610,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                               run: summaryCard.toggle,
                             },
                       }}
+                      nativeNeedsYou={{ items: needsYou.items, mode: needsYou.mode, actions: needsYou.actions }}
                       tabTools={!quick}
                       pullRequestChip={!readOnlySubagent}
                       // A new chat's picked folder too: New Worktree names its branch before the first prompt.
