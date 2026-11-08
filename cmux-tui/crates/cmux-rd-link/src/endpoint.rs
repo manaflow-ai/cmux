@@ -271,6 +271,13 @@ impl Endpoint {
     fn on_probe_reply(&mut self, id: u64, now_us: u64) {
         let Some((path, sent)) = self.probes.remove(&id) else { return };
         self.flagged.remove(&id);
+        // An answered probe proves the probed path, whichever route the
+        // reply came back on (the peer may answer on its own choice), so
+        // its silence starts over and it is not probed again at once.
+        if let Some(entry) = self.paths.get_mut(&path) {
+            entry.heard_us = now_us;
+            entry.unanswered_sends = 0;
+        }
         let outcome = ProbeOutcome::Answered { rtt_us: now_us.saturating_sub(sent).max(1) };
         if let Ok(Some(switch)) = self.selector.on_probe(path, outcome) {
             self.report_switch(switch.to);

@@ -217,15 +217,21 @@ impl Shared {
         let _ = self.record(id, outcome);
     }
 
-    /// Whether a path the next datagram would take is backlogged: the
-    /// current path, or any path while datagrams go on every path. A
-    /// backlog on a path not in use never holds the session back.
+    /// Whether the next datagram has to wait: the current path is
+    /// backlogged, or, while datagrams go on every path, every path is. A
+    /// stuck path never holds back one that can still send, and a backlog
+    /// on a path not in use never holds the session back.
     fn backlogged(&self) -> bool {
         let current = self.selector.current();
         let targeted = current.is_some_and(|id| self.slots.iter().any(|slot| slot.id == id));
-        self.slots.iter().any(|slot| {
-            !slot.failed && (!targeted || Some(slot.id) == current) && slot.carrier.backlogged()
-        })
+        if targeted {
+            return self
+                .slots
+                .iter()
+                .any(|slot| !slot.failed && Some(slot.id) == current && slot.carrier.backlogged());
+        }
+        let mut live = self.slots.iter().filter(|slot| !slot.failed).peekable();
+        live.peek().is_some() && live.all(|slot| slot.carrier.backlogged())
     }
 }
 
