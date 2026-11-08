@@ -652,6 +652,15 @@ impl Drop for ClientRuntimeHandle {
     }
 }
 
+/// Red stub: the first connect still ends at the startup timeout.
+#[cfg(test)]
+pub fn start_recovering_client_runtime(
+    options: ClientRuntimeOptions,
+    _keep_waiting: impl Fn() -> bool,
+) -> anyhow::Result<ClientRuntimeHandle> {
+    start_client_runtime(options)
+}
+
 pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<ClientRuntimeHandle> {
     if options.routes.is_empty() {
         return Err(anyhow!("remote connection has no route candidates"));
@@ -894,6 +903,16 @@ async fn run_client(
         let _ = ready.send(Err(format!("{error:#}")));
     }
     setup
+}
+
+/// Red stub: the first connect ignores the network.
+#[cfg(test)]
+async fn connect_first_available_watching(
+    options: &ClientRuntimeOptions,
+    shutdown: watch::Receiver<bool>,
+    _network: watch::Receiver<u64>,
+) -> anyhow::Result<(Arc<ClientConnection>, String)> {
+    connect_first_available(options, shutdown).await
 }
 
 async fn connect_first_available(
@@ -3296,6 +3315,8 @@ mod tests {
 
     use super::*;
 
+    #[cfg(unix)]
+    mod first_connect_recovery;
     #[cfg(unix)]
     mod initial_route_budget;
 
