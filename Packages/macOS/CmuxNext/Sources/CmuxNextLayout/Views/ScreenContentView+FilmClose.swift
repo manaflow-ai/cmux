@@ -106,6 +106,11 @@ extension ScreenContentView {
         copy.borderWidth = layer.borderWidth
         copy.borderColor = layer.borderColor
         copy.opacity = layer.opacity
+        // A text label's layer is its colour through a glyph mask: without the mask the copy is a solid light box (V6 films
+        // on build a65b64cf showed the closed pane's tab title as a light bar).
+        copy.mask = layer.mask.map { filmCopy($0) }
+        copy.compositingFilter = layer.compositingFilter
+        copy.filters = layer.filters
         for sub in layer.sublayers ?? [] where !sub.isHidden && sub.opacity > 0 {
             copy.addSublayer(filmCopy(sub))
         }
