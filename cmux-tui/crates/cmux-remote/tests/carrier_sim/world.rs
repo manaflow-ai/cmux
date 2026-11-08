@@ -451,58 +451,70 @@ async fn run_session(
         return ended(e);
     }
     connected.send_replace(true);
-    // Pings from a task of their own, so a send held by a recovery does not stop the receives.
+    // Every send goes from a task of its own, so a send held by a full window or a recovery never
+    // stops the receives that bring the acks to free it (as an app's reader and writer are apart).
     let pings: Arc<Mutex<BTreeMap<u64, Instant>>> = Arc::default();
-    let pinger = tokio::spawn({
-        let (client, pings) = (client.clone(), pings.clone());
+    let mut sender =
+        tokio::spawn(send_app(client.clone(), seen.clone(), asked.subscribe(), pings.clone()));
+    let end = tokio::select! {
+        end = serve_app(client, seen, &pings, done) => end,
+        sent = &mut sender => match sent {
+            Ok(Err(e)) => ended(e),
+            Ok(Ok(())) | Err(_) => SessionEnd::Ended("the sender stopped".into(), false),
+        },
+    };
+    sender.abort();
+    end
+}
+
+/// The app's sends: each prompt asked for and not seen started, once per session (the session's
+/// own replay carries them across reconnects; a new session needs them again), and a ping every
+/// `PING`.
+async fn send_app(
+    client: Arc<ClientConnection>,
+    seen: Arc<Mutex<Seen>>,
+    mut asked: watch::Receiver<u32>,
+    pings: Arc<Mutex<BTreeMap<u64, Instant>>>,
+) -> Result<(), ConnectionError> {
+    let send = |text: String| {
+        let client = client.clone();
         async move {
-            for n in 1_u64.. {
-                tokio::time::sleep(PING).await;
-                lock(&pings).insert(n, Instant::now());
-                let ping = Bytes::from(format!("ping {n}"));
-                if client.send(Lane::Control, APP_STREAM, ping, FrameFlags::empty()).await.is_err()
-                {
-                    return;
-                }
+            client.send(Lane::Control, APP_STREAM, Bytes::from(text), FrameFlags::empty()).await
+        }
+    };
+    let mut sent_here = 0_u32;
+    let mut next_ping = Instant::now() + PING;
+    for n in 1_u64.. {
+        let want = *asked.borrow_and_update();
+        while sent_here < want {
+            let id = sent_here;
+            sent_here += 1;
+            if !lock(&seen).started.contains(&id) {
+                send(format!("prompt {id}")).await?;
             }
         }
-    });
-    let end = serve_app(client, seen, asked, &pings, done).await;
-    pinger.abort();
-    end
+        tokio::select! {
+            _ = asked.changed() => continue,
+            () = tokio::time::sleep_until(next_ping) => {}
+        }
+        next_ping = Instant::now() + PING;
+        lock(&pings).insert(n, Instant::now());
+        send(format!("ping {n}")).await?;
+    }
+    Ok(())
 }
 
 async fn serve_app(
     client: &Arc<ClientConnection>,
     seen: &Arc<Mutex<Seen>>,
-    asked: &watch::Sender<u32>,
     pings: &Arc<Mutex<BTreeMap<u64, Instant>>>,
     mut done: watch::Receiver<bool>,
 ) -> SessionEnd {
-    let send = |text: String| async move {
-        client.send(Lane::Control, APP_STREAM, Bytes::from(text), FrameFlags::empty()).await
-    };
-    // Prompts asked for and not seen started: sent once per session (the session's own replay
-    // carries them across reconnects; a new session needs them again).
-    let mut sent_here = 0_u32;
-    let mut asked_rx = asked.subscribe();
     loop {
-        let want = *asked_rx.borrow_and_update();
-        while sent_here < want {
-            let id = sent_here;
-            sent_here += 1;
-            if lock(seen).started.contains(&id) {
-                continue;
-            }
-            if let Err(e) = send(format!("prompt {id}")).await {
-                return ended(e);
-            }
-        }
         if *done.borrow_and_update() {
             return SessionEnd::Done;
         }
         tokio::select! {
-            _ = asked_rx.changed() => {}
             _ = done.changed() => {}
             frame = client.receive() => match frame {
                 Ok(Some(frame)) => {
