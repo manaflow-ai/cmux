@@ -134,6 +134,8 @@ public final class DesignSettings {
     /// CLOSE VARIANTS film selector (``FilmCloseVariant``; DEBUG and bench builds only, never ships): the launch variables'
     /// selection, changed at run time by `debug.close_variant`.
     @ObservationIgnored public var filmClose = FilmCloseVariant(environment: ProcessInfo.processInfo.environment)
+    /// CLOSE VARIANTS film diagnostics (``FilmCloseVariant/count(_:)``): film grid paths run since the last selector read.
+    @ObservationIgnored public var filmCounters: [String: Int] = [:]
     #endif
     /// `home.channelsEnabled`: the sidebar shows the Channels entry after Home (cx-frn2y); off by default.
     public var homeChannelsEnabled = false

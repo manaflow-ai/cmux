@@ -85,7 +85,7 @@ public final class TerminalSurfaceView: NSView {
         var columns: UInt16 = 0, rows: UInt16 = 0
         guard ghostty_surface_fit_grid(surface, UInt32(pixels.width), UInt32(pixels.height), &columns, &rows), columns > 0, rows > 0,
               let report = geometry.viewSized(TerminalGridSize(columns: Int(columns), rows: Int(rows))) else { return }
-        FilmCloseVariant.counters["grid_sent", default: 0] += 1
+        FilmCloseVariant.count("grid_sent")
         gridReports.now(report)
     }
     #endif
@@ -803,7 +803,7 @@ extension TerminalSurfaceView: FilmSnapGridSending {
         }
         let pixels = convertToBacking(size)
         guard pixels.width >= 1, pixels.height >= 1 else { return }
-        FilmCloseVariant.counters["snap_surfaces", default: 0] += 1
+        FilmCloseVariant.count("snap_surfaces")
         reportFilmSnapGrid(pixels: pixels, on: surface)
     }
 }

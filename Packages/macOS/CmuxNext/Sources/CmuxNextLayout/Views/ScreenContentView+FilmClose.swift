@@ -141,7 +141,7 @@ extension ScreenContentView {
         }
         let panes = paneFrames.mapValues(path), dividers = dividerFrames.mapValues(path)
         filmCurveRun = FilmCurveRun(shape: shape, end: shape.endSeconds(travel: Double(travel) * scale), panes: panes, dividers: dividers)
-        FilmCloseVariant.counters["curve_runs", default: 0] += 1
+        FilmCloseVariant.count("curve_runs")
     }
 
     /// One frame of the curve run: nil when none runs (or a later change retargeted a frame: the springs take over from
