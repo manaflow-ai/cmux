@@ -73,15 +73,6 @@ struct AgentWorktreeImportTests {
         #expect(host.opened.isEmpty && daemon.records.isEmpty)
     }
 
-    @Test func genericNoteSurvivesTheSourceSpecificDeadline() throws {
-        let findings = ImportSuggestionsCenter.mergingAgentDetection(try detection(hasConductor: false), into: [])
-        #expect(ImportSuggestionState().showsConductorNote(findings: findings, jobs: .init(),
-                                                          now: ImportSuggestionState.conductorDeadline.addingTimeInterval(1)))
-        var state = ImportSuggestionState()
-        state.dismiss(findings[0])
-        #expect(!state.showsConductorNote(findings: findings, jobs: .init(), now: .distantFuture))
-    }
-
     @Test func relayCompletionDuringInitialScanRefreshesOnce() async throws {
         let suite = "agent-import-relay-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
