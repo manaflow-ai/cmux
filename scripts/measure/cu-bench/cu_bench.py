@@ -224,10 +224,11 @@ def find_window(doc, pid: int | None, app: str, bundle: str) -> dict | None:
         if wid is None or isinstance(wid, bool):
             continue
         names = {norm(node.get(k, "")) for k in ("app_name", "app", "owner", "owner_name", "name", "bundle_id", "app_id", "title")}
+        wanted = {norm(app), norm(bundle)} - {""}
         score = 0
         if pid is not None and node.get("pid") == pid:
             score += 4
-        if norm(app) in names or norm(bundle) in names:
+        if wanted & names:
             score += 2
         if node.get("on_screen", node.get("is_on_screen", True)) and not node.get("minimized"):
             score += 1
@@ -249,9 +250,13 @@ class Mcp:
         base = {k: os.environ[k] for k in ("HOME", "PATH", "TMPDIR", "USER", "LOGNAME", "LANG", "SHELL") if k in os.environ}
         self.proc = subprocess.Popen([command, *args], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.stderr,
                                      env={**base, **env}, start_new_session=True)
-        self.request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
-                                    "clientInfo": {"name": "cu-bench", "version": "1"}})
-        self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        try:
+            self.request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                        "clientInfo": {"name": "cu-bench", "version": "1"}})
+            self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        except Exception:
+            self.close()
+            raise
 
     def _send(self, message: dict) -> None:
         assert self.proc.stdin
@@ -319,7 +324,13 @@ class Mcp:
                 self.proc.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 self.proc.kill()
-        self.stderr.close()
+                self.proc.wait(timeout=5)
+        for stream in (self.proc.stdin, self.proc.stdout, self.stderr):
+            try:
+                if stream:
+                    stream.close()
+            except OSError:
+                pass
 
 
 # ---------------------------------------------------------------- engine adapter
