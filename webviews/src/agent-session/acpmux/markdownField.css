@@ -346,9 +346,13 @@
     calc(var(--text-content--line-height) - 2 * var(--acpmux-inline-block)),
     1px
   );
-  /* The × and Retry badges on a line-tall chip, and their inset from its edge. */
+  /* The × and Retry badges on a line-tall chip, and their inset from its edge (a tile's, inside it). */
   --acpmux-inline-badge: 14px;
   --acpmux-inline-badge-inset: 2px;
+  /* A picture's badges hang off its corners (macOS's token chips): at the line's height a badge
+     inside the picture would cover its middle, where a press starts a drag. */
+  --acpmux-inline-picture-badge: 12px;
+  --acpmux-inline-picture-badge-outset: -5px;
   margin: var(--acpmux-inline-block) 0;
   /* No strut of its own: the node is its chip's height, never the paragraph's line height plus its
      room, which alone would make a line-tall chip raise its line. Its chip reads the text's again. */
@@ -439,20 +443,16 @@
   width: calc(var(--acpmux-inline-chip-height) * 2);
 }
 /* An image, a PDF, a video or a file: the strip's own chip (composerAttachments.css). A thumbnail or
-   a video's poster is one text line tall, in its own shape between 0.7:1 and 2:1 (imageWork.ts
-   thumbRatio), so it sits in the line without raising it (#38135); an image that could not be drawn
+   a video's poster is one text line tall, in its own shape between 1:1 and 2:1 (imageWork.ts
+   thumbRatio, a tall one cropped to a square), so it sits in the line without raising it (#38135); an image that could not be drawn
    keeps the strip's tile, which has room for its note, Retry and ×. A file's name chip is the line's
    height too, so a file that finishes loading does not raise the line its tile sat in. */
 .acpmux-md-inline-chip[data-chip="strip"] .acpmux-attachment-image:not(.acpmux-attachment-image-failed) {
   --acpmux-attach-height: var(--acpmux-inline-chip-height);
 }
 .acpmux-md-inline-chip[data-chip="strip"] .acpmux-attachment-image :is(.acpmux-attachment-open > img, .acpmux-attachment-image > img) {
-  min-width: calc(var(--acpmux-inline-chip-height) * 0.7);
+  min-width: var(--acpmux-inline-chip-height);
   max-width: calc(var(--acpmux-inline-chip-height) * 2);
-}
-/* With an original's Retry as well as its ×: wide enough that the two badges never overlap. */
-.acpmux-md-inline-chip[data-chip="strip"] .acpmux-attachment-image:has(.acpmux-attachment-original-retry) :is(.acpmux-attachment-open > img, .acpmux-attachment-image > img) {
-  min-width: calc(2 * var(--acpmux-inline-badge) + 3 * var(--acpmux-inline-badge-inset));
 }
 /* A video the host is still reading: the 2:1 tile its poster will fill, not the strip's wide tile. */
 .acpmux-md-inline-chip[data-chip="strip"] .acpmux-attachment-image.acpmux-attachment-pending {
@@ -471,7 +471,7 @@
 /* A loading image whose header gave its shape: the width its thumbnail will have in the text, so
    the picture arriving moves nothing (composerAttachments.css `[data-sized]`). */
 .acpmux-md-inline > .acpmux-md-inline-chip[data-state="loading"][data-sized] {
-  min-width: calc(var(--acpmux-inline-chip-height) * 0.7);
+  min-width: var(--acpmux-inline-chip-height);
   max-width: calc(var(--acpmux-inline-chip-height) * 2);
 }
 /* A video in the text: its play glyph fits the line; its length has no room and stays in its
@@ -486,19 +486,27 @@
 .acpmux-md-inline-chip[data-chip="strip"] .acpmux-attachment-video-unread .acpmux-attachment-video-open {
   width: calc(var(--acpmux-inline-chip-height) * 2);
 }
-/* The × and an original's Retry on a line-tall chip: small badges in its corners, on whole pixels. */
-.acpmux-md-inline-chip[data-chip="strip"] :is(.acpmux-attachment-image:not(.acpmux-attachment-image-failed), .acpmux-attachment-file) .acpmux-attachment-remove,
+/* The × on a line-tall file chip or tile: a small badge inside its right end, on whole pixels. */
+.acpmux-md-inline-chip[data-chip="strip"] .acpmux-attachment-file .acpmux-attachment-remove,
 .acpmux-md-inline-chip:is([data-state="loading"], [data-state="failed"]) .acpmux-md-inline-remove {
   top: var(--acpmux-inline-badge-inset);
   right: var(--acpmux-inline-badge-inset);
   width: var(--acpmux-inline-badge);
   height: var(--acpmux-inline-badge);
 }
+/* A picture's × hangs off its top-right corner and an original's Retry off its bottom-left, so its
+   middle stays the picture's: a press there opens or drags it, never a badge. */
+.acpmux-md-inline-chip[data-chip="strip"] .acpmux-attachment-image:not(.acpmux-attachment-image-failed) .acpmux-attachment-remove {
+  top: var(--acpmux-inline-picture-badge-outset);
+  right: var(--acpmux-inline-picture-badge-outset);
+  width: var(--acpmux-inline-picture-badge);
+  height: var(--acpmux-inline-picture-badge);
+}
 .acpmux-md-inline-chip[data-chip="strip"] .acpmux-attachment-original-retry {
-  top: var(--acpmux-inline-badge-inset);
-  bottom: auto;
-  left: var(--acpmux-inline-badge-inset);
-  width: var(--acpmux-inline-badge);
+  top: auto;
+  bottom: var(--acpmux-inline-picture-badge-outset);
+  left: var(--acpmux-inline-picture-badge-outset);
+  width: var(--acpmux-inline-picture-badge);
 }
 /* A text file's page card in the text: two control rows tall, two lines over its label. */
 .acpmux-md-inline-chip[data-chip="strip"] .acpmux-text-card {

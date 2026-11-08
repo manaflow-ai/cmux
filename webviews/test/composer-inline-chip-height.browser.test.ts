@@ -26,30 +26,44 @@ await requireBrowserLane("composer-inline-chip-height.browser.test.ts", async ()
   /// Each draft and the chips it waits for: a screenshot pasted mid-sentence, two pasted at the end,
   /// a pasted file whose upload never finishes (its loading tile stays in the text), and a zip and a
   /// notes file saved by the host (their name chips) beside a video's tile. `count`: how many of
-  /// `ready` the draft shows once it is ready.
-  const CASES: { variant: string; ready: string; count: number }[] = [
-    { variant: "attachment-inline-caret", ready: ".acpmux-md [data-inline-attachment] img", count: 1 },
-    { variant: "attachment-inline-reorder", ready: ".acpmux-md [data-inline-attachment] img", count: 2 },
+  /// `ready` the draft shows once it is ready. `oneLine`: the draft fits one line at every size; the
+  /// saved files' long names may wrap in a narrow composer, onto whole lines of text.
+  const CASES: { variant: string; ready: string; count: number; oneLine: boolean }[] = [
+    { variant: "attachment-inline-caret", ready: ".acpmux-md [data-inline-attachment] img", count: 1, oneLine: true },
+    {
+      variant: "attachment-inline-reorder",
+      ready: ".acpmux-md [data-inline-attachment] img",
+      count: 2,
+      oneLine: true,
+    },
     {
       variant: "attachment-loading",
       ready: ".acpmux-md .acpmux-md-inline-chip[data-state='loading'] .acpmux-md-inline-spinner",
       count: 1,
+      oneLine: true,
     },
     {
       variant: "file-saved-as-path",
       ready: ".acpmux-md :is(.acpmux-attachment-link[data-saved], .acpmux-attachment-video)",
       count: 3,
+      oneLine: false,
     },
   ];
   /// Sub-pixel rounding of the line box at fractional interface sizes.
   const TOLERANCE = 0.5;
 
-  /// The prompt's line height, the height of its first paragraph, and each chip's visible box.
+  /// The prompt's line height as drawn, the height of its first paragraph, and each chip's box. The
+  /// line is measured on a box one line tall beside the editor, in the same zoom: a computed
+  /// `line-height` does not carry a zoom, the boxes do.
   const measure = (page: Page) =>
     page.evaluate(() => {
       const prompt = document.querySelector<HTMLElement>(".acpmux-md")!;
       const paragraph = prompt.querySelector<HTMLElement>("p") ?? prompt;
-      const lineHeight = parseFloat(getComputedStyle(paragraph).lineHeight);
+      const probe = document.createElement("div");
+      probe.style.height = "var(--text-content--line-height)";
+      prompt.parentElement!.append(probe);
+      const lineHeight = probe.getBoundingClientRect().height;
+      probe.remove();
       const chips = [...prompt.querySelectorAll<HTMLElement>("[data-inline-attachment]")].map((node) => {
         const box = node.getBoundingClientRect();
         return { height: box.height, kind: node.querySelector("img") ? "image" : "tile" };
@@ -79,7 +93,7 @@ await requireBrowserLane("composer-inline-chip-height.browser.test.ts", async ()
         });
         const page = await context.newPage();
         try {
-          for (const { variant, ready, count } of CASES) {
+          for (const { variant, ready, count, oneLine } of CASES) {
             await page.goto(
               `http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant, width: 1400, frame: "component", ...size })}`,
             );
@@ -98,13 +112,15 @@ await requireBrowserLane("composer-inline-chip-height.browser.test.ts", async ()
             const seen = await measure(page);
             report.push(`${engine} ${name} ${variant}: ${JSON.stringify(seen)}`);
             const where = `${engine} ${name} ${variant}`;
-            // A line height that does not read as a number would pass every comparison below.
-            expect(Number.isFinite(seen.lineHeight)).toBe(true);
+            // A line height that does not read as a size would pass every comparison below.
+            expect(seen.lineHeight).toBeGreaterThan(10);
             if (!seen.chips.length) failures.push(`${where}: no chip in the text`);
-            // The draft is one line of text with its chips: the line stays the text's own height.
-            if (seen.paragraph > seen.lineHeight + TOLERANCE)
+            // The draft is lines of text with its chips: one line tall, or (a draft that wraps) a whole
+            // number of the text's lines, never a line raised by a chip.
+            const lines = Math.max(1, Math.round(seen.paragraph / seen.lineHeight));
+            if ((oneLine && lines !== 1) || Math.abs(seen.paragraph - lines * seen.lineHeight) > TOLERANCE * lines)
               failures.push(
-                `${where}: the line is ${seen.paragraph.toFixed(2)}px tall, past its ${seen.lineHeight.toFixed(2)}px line height`,
+                `${where}: the draft is ${seen.paragraph.toFixed(2)}px tall, not ${oneLine ? "one" : "a whole number of"} ${seen.lineHeight.toFixed(2)}px line${oneLine ? "" : "s"}`,
               );
             for (const chip of seen.chips)
               if (chip.height > seen.lineHeight + TOLERANCE)
