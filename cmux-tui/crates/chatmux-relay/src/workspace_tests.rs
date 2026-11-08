@@ -89,8 +89,7 @@ fn tree_is_gitignore_aware_and_never_leaks_dot_git() {
         )
         .expect("tree"),
     );
-    let paths: Vec<&str> =
-        with_ignored.entries.iter().map(|entry| entry.path.as_str()).collect();
+    let paths: Vec<&str> = with_ignored.entries.iter().map(|entry| entry.path.as_str()).collect();
     assert!(paths.contains(&"ignored.txt"));
     assert!(!paths.iter().any(|path| *path == ".git" || path.starts_with(".git/")));
 
