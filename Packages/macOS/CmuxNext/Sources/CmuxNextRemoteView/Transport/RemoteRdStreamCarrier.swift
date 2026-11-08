@@ -33,6 +33,8 @@ public nonisolated final class RemoteRdStreamCarrier: RemoteRdByteCarrier {
         var task: Task<Void, Never>?
         var stream: RemoteRdByteStream?
         var cancelled = false
+        /// This side closed the stream (a failed write), so the read ending after it is not the host's.
+        var closedHere = false
     }
 
     public init(open: @escaping @Sendable () async throws -> RemoteRdByteStream) {
@@ -71,7 +73,11 @@ public nonisolated final class RemoteRdStreamCarrier: RemoteRdByteCarrier {
                         received += bytes.count
                         self.emit(.data(bytes))
                     }
-                    Self.logger.notice("rd stream ended by the host after \(received, privacy: .public) bytes")
+                    // A read also ends when this side closed the stream (cancel(), a failed write): only an end
+                    // nobody here asked for is the host's.
+                    if !self.state.withLock({ $0.cancelled || $0.closedHere }) {
+                        Self.logger.notice("rd stream ended by the host after \(received, privacy: .public) bytes")
+                    }
                     self.emit(.closed)
                 }
                 group.addTask {
@@ -80,6 +86,7 @@ public nonisolated final class RemoteRdStreamCarrier: RemoteRdByteCarrier {
                             try await stream.write(bytes)
                         } catch {
                             Self.logger.error("rd stream write failed: \(String(describing: error), privacy: .public)")
+                            self.state.withLock { $0.closedHere = true }
                             self.emit(.closed)
                             return
                         }
