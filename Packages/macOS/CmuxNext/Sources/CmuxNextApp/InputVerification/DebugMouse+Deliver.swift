@@ -1,5 +1,8 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextDesign
+import CmuxNextLayout
+import CmuxNextSettings
 
 extension DebugMouse {
     /// `debug.mouse {"deliver": "view"}`: the events go to the views as AppKit hands them on in a key window,
