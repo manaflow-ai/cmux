@@ -1,6 +1,6 @@
 import { composerHealthHarness } from "./composerPickerEntries";
 import { forkMenuRows } from "./header/forkMenu";
-import { openFork } from "./conversation/openFork";
+import { openFork, openInOwnTab } from "./conversation/openFork";
 import { setSessionRefResolver } from "./conversation/sessionRefs";
 import { useStopThroughReconnect } from "./stopThroughReconnect";
 import React, {
@@ -7097,16 +7097,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         const setMode = (modeId: string, ticket?: string) => client.setMode(modeId, ticket);
         /// `placement`: where the app opens it (AgentForkDestination: right, left, up, down,
         /// columnRight, columnLeft, row, tab, workspace, window); hand-offs explicitly retain a tab after this chat.
-        const openOwnTab = (sessionId: string, placement?: string) => {
-          if (mock) return Promise.resolve(false);
-          // The new tab draws this chat from the host's tail, and this page keeps it selected, so
-          // nothing else hands it over (tailCache.ts).
-          client.handOverCurrentTail();
-          return callNative("chat.openTab", { sessionId, placement: placement ?? "tab" }).then(
-            () => true,
-            () => false,
-          );
-        };
+        const openOwnTab = (sessionId: string, placement?: string) =>
+          mock ? Promise.resolve(false) : openInOwnTab(client, callNative, sessionId, placement);
         /// Settles when the turn ends. `accepted` runs once acpmux took the prompt; a sender that
         /// passes it (the composer) still holds the prompt until then, so a refusal loses nothing.
         /// Without it a refused prompt goes back into the composer.
