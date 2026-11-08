@@ -103,6 +103,24 @@ fn edit_ranges(update: &Value, path: &str, cwd: &std::path::Path) -> Vec<(u32, u
         ]
         .iter()
         .find_map(|key| block.get(*key).and_then(Value::as_u64))
+        .or_else(|| {
+            for location in update.get("locations").and_then(Value::as_array).into_iter().flatten()
+            {
+                let Some(raw) = location.get("path").and_then(Value::as_str) else { continue };
+                let Some(abs) = canonical_path(raw, Some(cwd)) else { continue };
+                let (_, candidate) = tf::key_of(&abs);
+                if candidate == path {
+                    if let Some(line) = location
+                        .get("line")
+                        .or_else(|| location.get("startLine"))
+                        .and_then(Value::as_u64)
+                    {
+                        return Some(line);
+                    }
+                }
+            }
+            None
+        })
         .unwrap_or(1)
         .max(1) as u32;
         let count = block
@@ -125,6 +143,17 @@ fn ranges_overlap(left: (u32, u32), right: (u32, u32)) -> bool {
 
 fn pair_key(left: &str, right: &str) -> String {
     if left < right { format!("{left}\0{right}") } else { format!("{right}\0{left}") }
+}
+
+fn change_size(session: &Session) -> u64 {
+    session
+        .changed_hunks
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .values()
+        .flat_map(|ranges| ranges.iter())
+        .map(|(start, end)| u64::from(end.saturating_sub(*start).saturating_add(1)))
+        .sum()
 }
 
 /// The notice's words for a session that shares files with `other` (an answer row).
@@ -337,8 +366,16 @@ impl Hub {
             if !fresh {
                 continue;
             }
-            let smaller =
-                if mine.name <= other_meta.name { mine.id.clone() } else { other_meta.id.clone() };
+            let mine_size = change_size(session);
+            let other_size = change_size(&other);
+            let smaller = if mine_size < other_size
+                || (mine_size == other_size && mine.name <= other_meta.name)
+            {
+                mine.id.clone()
+            } else {
+                other_meta.id.clone()
+            };
+            let reciprocal_files: Vec<Value> = event_files_swap(&files);
             let event = json!({
                 "peerSessionId": other.id,
                 "peerName": other_meta.name,
@@ -352,7 +389,7 @@ impl Hub {
                 "peerSessionId": mine.id,
                 "peerName": mine.name,
                 "peerBranch": mine.git_branch,
-                "files": event["files"].clone(),
+                "files": reciprocal_files,
                 "suggestedOrder": "smallerFirst",
                 "smallerSessionId": smaller,
             });
@@ -558,6 +595,30 @@ impl Hub {
             "lines": text,
         }))
     }
+}
+
+fn event_files_swap(files: &[Value]) -> Vec<Value> {
+    files
+        .iter()
+        .map(|file| {
+            let mut copy = file.clone();
+            if let Some(ranges) = copy.get_mut("ranges").and_then(Value::as_array_mut) {
+                for range in ranges {
+                    if let Some(object) = range.as_object_mut() {
+                        let mine = object.remove("mine");
+                        let theirs = object.remove("theirs");
+                        if let Some(theirs) = theirs {
+                            object.insert("mine".to_owned(), theirs);
+                        }
+                        if let Some(mine) = mine {
+                            object.insert("theirs".to_owned(), mine);
+                        }
+                    }
+                }
+            }
+            copy
+        })
+        .collect()
 }
 
 /// Sets `key` of the object `v` (nothing when `v` is not an object).

@@ -8,9 +8,11 @@ import type { AcpmuxOverlap } from "../model";
 /// the file and hunk detail, merge order, and one-line handoff live in its popover.
 export function OverlapChip({
   overlap,
+  additional = 0,
   onTell,
 }: {
   overlap: AcpmuxOverlap;
+  additional?: number;
   onTell?: (overlap: AcpmuxOverlap) => Promise<unknown> | void;
 }) {
   const [open, setOpen] = useState(false);
@@ -19,7 +21,7 @@ export function OverlapChip({
   const [button, setButton] = useState<HTMLButtonElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const trigger = usePopoverTrigger(open, setOpen);
-  const label = `Overlaps with ${overlap.peerName}`;
+  const label = `Overlaps with ${overlap.peerName}${additional > 0 ? ` (+${additional})` : ""}`;
   const tell = () => {
     if (!onTell) return;
     setFailed(false);

@@ -22,6 +22,8 @@ const LIVE_TRANSCRIPT_UPDATES: &[&str] = &["prompt_suggestion"];
 /// Mux records a chat client renders. `turn_end` and `turn_error` are left
 /// out because every turn also records `turn_result`.
 pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
+    // Durable conflict-radar state is rendered in the header and must survive attach/replay.
+    "worktree_overlap",
     "_acpmux/message",
     "user_message",
     "queued",

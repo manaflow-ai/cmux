@@ -457,7 +457,7 @@ function ChatHeaderToolsView({
     return (
       <div ref={toolsRef} className="acpmux-header-tools" data-header-controls="trio" onPointerEnter={onPointerEnter}>
         {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
-        {overlaps.map((overlap) => <OverlapChip key={overlap.peerSessionId} overlap={overlap} onTell={onTellOverlap} />)}
+        {overlaps[0] && <OverlapChip overlap={overlaps[0]} additional={Math.max(0, overlaps.length - 1)} onTell={onTellOverlap} />}
         {pullRequest && pullRequestChip !== false && (
           <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
         )}
@@ -481,7 +481,7 @@ function ChatHeaderToolsView({
     >
       {preview && <HeaderToolPreview target={preview} />}
       {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
-      {overlaps.map((overlap) => <OverlapChip key={overlap.peerSessionId} overlap={overlap} onTell={onTellOverlap} />)}
+      {overlaps[0] && <OverlapChip overlap={overlaps[0]} additional={Math.max(0, overlaps.length - 1)} onTell={onTellOverlap} />}
       {pullRequest && pullRequestChip !== false && (
         <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
       )}

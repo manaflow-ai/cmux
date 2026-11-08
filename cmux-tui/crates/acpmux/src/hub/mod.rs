@@ -1399,6 +1399,12 @@ impl Hub {
     }
 
     pub(super) fn make_session(&self, mut meta: SessionMeta) -> Arc<Session> {
+        let restored_edits: Vec<(String, String)> = meta
+            .touched_files
+            .iter()
+            .filter(|file| file.edited)
+            .map(|file| (file.repo.clone(), file.path.clone()))
+            .collect();
         // Hibernated before a restart: marked again, so it wakes on a click and draws no row.
         let hibernated_at = if meta.hibernated_ms != 0 { self.clock_now().max(1) } else { 0 };
         let (inbound_tx, inbound_rx) = mpsc::channel(1024);
@@ -1547,6 +1553,12 @@ impl Hub {
             start_calls: StdMutex::new(Default::default()),
             composers: StdMutex::new(Default::default()),
         });
+        if !restored_edits.is_empty() {
+            let mut index = self.overlap_files.lock().unwrap_or_else(|e| e.into_inner());
+            for key in restored_edits {
+                index.entry(key).or_default().insert(session.id.clone());
+            }
+        }
         // Found by its tags from now on (`permissions/display.rs`).
         self.child_tags.note(&session);
         session
