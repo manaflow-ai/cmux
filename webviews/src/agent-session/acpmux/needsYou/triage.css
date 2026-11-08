@@ -44,7 +44,7 @@
 .acpmux-triage[data-look="keys"] .acpmux-triage-keys {
   margin-left: 0;
 }
-/* `chip`: the count and the answer key as one small capsule at the card's end. */
+/* `chip`: the count and the answer key as one small rounded rect at the card's end (no capsules, POLISH.md). */
 .acpmux-triage[data-look="chip"] {
   justify-content: flex-end;
 }
@@ -55,6 +55,6 @@
 }
 .acpmux-triage[data-look="chip"] .acpmux-triage-keys {
   padding: var(--grid-half-step) var(--ds-space-2) var(--grid-half-step) var(--grid-half-step);
-  border-radius: 999px;
+  border-radius: var(--ds-radius-control);
   background: color-mix(in srgb, var(--agent-text) 6%, transparent);
 }

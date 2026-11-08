@@ -5,7 +5,7 @@
 // the exact command, plan or question. Three looks:
 // - strip (shipped): how long this ask has waited and how many more wait, then both keys.
 // - keys: only the keys, at the strip's start.
-// - chip: the count and the answer key as one capsule at the card's end.
+// - chip: the count and the answer key as one small rounded rect at the card's end.
 // And the shipped strip on each kind of ask: a plan, a question's first choice, a typed question
 // (the key only skips it), and the last waiting chat (no Next key).
 import { componentEntry } from "../../../gallery/format";
@@ -150,11 +150,14 @@ export default componentEntry<Props>({
       ask: "command",
       others: 3,
     }),
-    chip: variant("Alternative: the count and the answer key as one capsule at the card's end; no Next key.", {
-      look: "chip",
-      ask: "command",
-      others: 3,
-    }),
+    chip: variant(
+      "Alternative: the count and the answer key as one small rounded rect at the card's end; no Next key.",
+      {
+        look: "chip",
+        ask: "command",
+        others: 3,
+      },
+    ),
     plan: variant("A plan approval: the key approves the plan, as the card's Approve plan does.", {
       look: "strip",
       ask: "plan",
