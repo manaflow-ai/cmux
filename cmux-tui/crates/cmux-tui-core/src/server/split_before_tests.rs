@@ -59,10 +59,10 @@ impl Wire {
     fn root_split(&self) -> (SplitDir, f32, Option<String>, PaneId, PaneId) {
         self.mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
-            let crate::model::Node::Split { id, dir, ratio, a, b } = &screen.root else {
+            let Node::Split { id, dir, ratio, a, b } = &screen.root else {
                 panic!("the screen is not split: {:?}", screen.root);
             };
-            let (crate::model::Node::Leaf(a), crate::model::Node::Leaf(b)) = (&**a, &**b) else {
+            let (Node::Leaf(a), Node::Leaf(b)) = (&**a, &**b) else {
                 panic!("the split's sides are not leaves: {:?}", screen.root);
             };
             let public = state.resource_indexes.split_ids.get(id).map(ToString::to_string);
@@ -184,7 +184,7 @@ fn a_non_boolean_before_is_refused_and_creates_nothing() {
     assert!(
         wire.mux.with_state(|state| matches!(
             state.workspaces[0].screens[0].root,
-            crate::model::Node::Leaf(_)
+            Node::Leaf(_)
         )),
         "a refused split changed the layout"
     );
