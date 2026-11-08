@@ -12,7 +12,7 @@ import Testing
 @MainActor
 struct PinnedWorkspaceKeepsTitleTests {
     /// A workspace named `name` (titled `title`) with one tab: a terminal in `cwd`, or a page at `url`.
-    private static func workspace(name: String, title: String? = nil, cwd: String? = "/Users/dev/fun/cmux",
+    static func workspace(name: String, title: String? = nil, cwd: String? = "/Users/dev/fun/cmux",
                                   url: String? = nil) throws -> WorkspaceModel {
         let store = DaemonStore()
         var tab = TabSnapshot(surface: 1, kind: url == nil ? .pty : .browser, cwd: url == nil ? cwd : nil)
@@ -26,7 +26,7 @@ struct PinnedWorkspaceKeepsTitleTests {
     }
 
     /// The face the list's rows read: the auto name `label` for a workspace nobody named (nil once it is named).
-    private static func face(_ label: String?) -> (WorkspaceModel, TabModel, TabModel?) -> SidebarMapping.PageFace {
+    static func face(_ label: String?) -> (WorkspaceModel, TabModel, TabModel?) -> SidebarMapping.PageFace {
         { workspace, _, _ in .init(title: workspace.isUnnamed ? label : nil) }
     }
 
