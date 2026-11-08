@@ -62,12 +62,12 @@ fn connection_limit_after_starting_has_its_own_busy_deadline() {
         Some(&spec.session),
         &|| false,
         now + ENSURE_DEADLINE,
-        &super::RestoreBound::with(
+        &RestoreBound::with(
             now + ENSURE_DEADLINE + Duration::from_secs(5),
             Duration::ZERO,
             Duration::from_secs(10),
             Duration::from_secs(1),
-            super::restore_bound::process_work,
+            restore_bound::process_work,
         ),
         &RestoreProgress::silent(),
     );
