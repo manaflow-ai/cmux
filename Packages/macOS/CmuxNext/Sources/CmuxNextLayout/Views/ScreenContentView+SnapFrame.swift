@@ -13,9 +13,13 @@ import AppKit
 /// in one pass (as a key press's turn presents nothing until its first tick, S1B). That tick's layout finds each
 /// terminal's frame drawn at its new size, and the presenter shows it with its bounds in that commit.
 extension ScreenContentView {
-    /// Whether a structural change that snapped shows at the next frame tick: a shown screen in a window whose root
-    /// runs frames, with a pane whose host changes size. Gives those hosts their sizes ahead now.
-    func holdsSnapForContent() -> Bool {
+    /// Whether a change that snapped shows at the next frame tick: a shown screen in a window whose root runs frames,
+    /// with a pane whose host changes size. Gives those hosts their sizes ahead now. `keyPress`: the snap is a keyboard
+    /// resize press's (Reduce Motion, pane animations off; RESIZE P0 13, KEY SNAP GRID): each size drawn ahead takes its
+    /// grid to the program in the key's turn, as a key spring's first refresh does (RESIZE P0 11), so the program redraws
+    /// before the tick shows the press. A structural change's (a split, a close, a zoom) is render only: its grid goes
+    /// when it shows (m58).
+    func holdsSnapForContent(keyPress: Bool = false) -> Bool {
         guard window != nil, !isHiddenOrHasHiddenAncestor else { return false }
         let strip = stripShift, scale = self.scale
         var resized = false
@@ -26,7 +30,7 @@ extension ScreenContentView {
                 .pixelEdges(scale)
             guard placed.size != host.frame.size else { continue }
             resized = true
-            host.drawAhead(sizeChange: CGSize(width: placed.width - host.frame.width, height: placed.height - host.frame.height), keyPress: false)
+            host.drawAhead(sizeChange: CGSize(width: placed.width - host.frame.width, height: placed.height - host.frame.height), keyPress: keyPress)
         }
         guard resized else { return false }
         (frameInput.snapWaitsForContent, frameInput.presentationWaiting) = (true, true)
