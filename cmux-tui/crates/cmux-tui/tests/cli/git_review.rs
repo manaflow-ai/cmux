@@ -348,13 +348,26 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     let recipe = format!("teardown = \"touch '{}'\"\n", teardown_ran.display());
     fs::create_dir_all(checkout.join(".cmux")).unwrap();
     fs::write(checkout.join(".cmux/worktree.toml"), recipe).unwrap();
+    // Nor does an fsmonitor the review branch's own configuration names, which
+    // `git worktree remove` would start in the checkout to see it is clean.
+    let fsmonitor_ran = root.join("fsmonitor-ran");
+    let monitor = root.join("fsmonitor.sh");
+    fs::write(&monitor, format!("#!/bin/sh\ntouch '{}'\nexit 1\n", fsmonitor_ran.display()))
+        .unwrap();
+    fs::set_permissions(&monitor, fs::Permissions::from_mode(0o755)).unwrap();
+    let mut included = fs::read_to_string(&branchy).unwrap();
+    included.push_str(&format!("[core]\n\tfsmonitor = {}\n", monitor.display()));
+    fs::write(&branchy, included).unwrap();
     let other_root = PathBuf::from(other["root"].as_str().unwrap());
-    // `--discard`: the pull request's commits are on no branch of this clone.
-    let remove = ["worktree", "remove", "--discard", "--idempotency-key", "rm"];
+    // Another branch keeps the pull request's commits, so no `--discard`: the
+    // removal checks the checkout is clean.
+    git(&checkout, &["branch", "kept", &head]);
+    let remove = ["worktree", "remove", "--idempotency-key", "rm"];
     let removed = git_cli(&server, &other_root, &remove);
     assert_success(&removed);
     assert!(!other_root.exists(), "the review's worktree was not removed");
     assert!(!teardown_ran.exists(), "the project's teardown ran in a review's checkout");
+    assert!(!fsmonitor_ran.exists(), "an fsmonitor ran in a review's checkout");
 
     // A comment outside a review worktree is refused.
     let plain = git_cli(&server, &checkout, &draft);

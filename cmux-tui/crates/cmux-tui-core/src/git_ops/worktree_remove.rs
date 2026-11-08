@@ -29,7 +29,7 @@ use super::checkpoint::ledger;
 use super::journal::Journal;
 use super::mutation::{Target, key, output_extra, refused, run_failed};
 use super::user_run::{UserGit, deadline};
-use super::worktree::BRANCH_PREFIX;
+use super::worktree::{self, BRANCH_PREFIX};
 use super::{
     MAX_SMALL_OUTPUT_BYTES, MAX_STATUS_BYTES, Repository, worktree_recipe, worktree_setup,
 };
@@ -244,6 +244,16 @@ fn only_here(
 /// branch; whether the branch went.
 fn remove(repository: &Repository, attempt: &Attempt) -> Result<bool, ResourceError> {
     let git = UserGit { root: &attempt.main_root, deadline: deadline() };
+    // A review's checkout is the pull request's code: `worktree remove`
+    // checks it is clean inside it, so its hooks, fsmonitor and filter
+    // drivers (the worktree's own included) are off for every run here.
+    let untrusted = if reviews(repository, attempt.branch.as_deref()) {
+        let root = if attempt.root.exists() { &attempt.root } else { &attempt.main_root };
+        worktree::untrusted(root)?
+    } else {
+        Vec::new()
+    };
+    let untrusted = worktree::borrowed(&untrusted);
     if attempt.root.exists() && !attempt.discard {
         // After a teardown only commits are kept: its own files go.
         if attempt.teardown {
@@ -258,7 +268,9 @@ fn remove(repository: &Repository, attempt: &Attempt) -> Result<bool, ResourceEr
             arguments.push("--force");
         }
         arguments.push(listed.as_str());
-        let run = git.run(&arguments).map_err(|failure| run_failed(OPERATION, &failure))?;
+        let run = git
+            .run_with(&arguments, &untrusted)
+            .map_err(|failure| run_failed(OPERATION, &failure))?;
         if !run.success && registered(&git, &attempt.root)?.is_some() {
             let message = "git worktree remove failed";
             return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
@@ -279,8 +291,9 @@ fn remove(repository: &Repository, attempt: &Attempt) -> Result<bool, ResourceEr
     // `branch -D` drops the branch's settings with it, the recorded base
     // too. A branch git keeps (checked out elsewhere) stays: the worktree
     // is gone either way.
-    let run =
-        git.run(&["branch", "-D", branch]).map_err(|failure| run_failed(OPERATION, &failure))?;
+    let run = git
+        .run_with(&["branch", "-D", branch], &untrusted)
+        .map_err(|failure| run_failed(OPERATION, &failure))?;
     Ok(run.success)
 }
 
