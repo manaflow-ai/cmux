@@ -9191,13 +9191,27 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const pickCloudInComposer = useEffectEvent(() => {
     if (sandbox.mode !== "cloud") composerModeRows.onMode("cloud");
   });
+  /// The classic page has no Where menu: New Cloud Chat leaves it for the chat composer (as a Cloud
+  /// send from a page does, `cloudLeftPage`), which then picks Cloud below.
+  const newTabWithoutCloud = showNewTab && !newTab.history && shownTemplate(newTab) === "classic";
   useEffect(() => {
-    if (!cloudPickPending || showNewTab) return;
+    if (!cloudPickPending) return;
+    if (newTabWithoutCloud && sandboxOffered && !onOtherMachine) return setCloudLeftPage(newTabGeneration);
+    if (showNewTab) return;
     if (snapshot.sessionId) return takeCloudPick();
     if (!sandboxOffered || onOtherMachine) return;
     takeCloudPick();
     pickCloudInComposer();
-  }, [cloudPickPending, showNewTab, snapshot.sessionId, sandboxOffered, onOtherMachine, takeCloudPick]);
+  }, [
+    cloudPickPending,
+    newTabWithoutCloud,
+    newTabGeneration,
+    showNewTab,
+    snapshot.sessionId,
+    sandboxOffered,
+    onOtherMachine,
+    takeCloudPick,
+  ]);
   // The handshake is done: the page that came back in that render took the draft (`takeDraft`
   // runs as it mounts, before this effect); an existing chat's recovery has no page to give it to.
   useEffect(() => {
