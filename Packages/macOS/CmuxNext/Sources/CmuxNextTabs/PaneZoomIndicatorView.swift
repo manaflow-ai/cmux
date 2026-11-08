@@ -9,6 +9,10 @@ import CmuxNextDesign
 /// pane is zoomed (``TabStripModel/zoomsSelected``), and a click sends the strip's
 /// ``TabStripIntent/toggleZoom(_:)``, the tab double-click's and Cmd-Shift-Return's one path. Only
 /// the button takes clicks; the glass rim passes them to the content.
+/// A zoom shows and clears it by paint only (HOVER COMMIT's rule, ZOOM VARIANTS 8): its first show
+/// unhides it, and from then on it stays in the tree. An `isHidden` flip in the zoom's key turn made
+/// AppKit invalidate the window's cursor rects and drag regions. Cleared, it draws nothing, takes no
+/// click, is no accessibility element and shows no tooltip (`TooltipPresenter` skips clear views).
 ///
 /// ```swift
 /// let indicator = PaneZoomIndicatorView(model: stripModel)
@@ -61,8 +65,11 @@ public final class PaneZoomIndicatorView: NSView {
     /// while hidden.
     @discardableResult
     public func place(in content: NSRect, top: CGFloat) -> CGFloat {
-        isHidden = model?.zoomsSelected != true
-        guard !isHidden else { return 0 }
+        let shown = model?.zoomsSelected == true
+        if shown, isHidden { isHidden = false } // the first show; from then on a zoom only paints
+        if alphaValue != (shown ? 1 : 0) { alphaValue = shown ? 1 : 0 }
+        if button.isAccessibilityElement() != shown { button.setAccessibilityElement(shown) }
+        guard shown else { return 0 }
         let inset = Metrics.space2
         let size = Self.size
         frame = NSRect(x: content.maxX - inset - size.width, y: top + inset, width: size.width, height: size.height)
@@ -71,7 +78,7 @@ public final class PaneZoomIndicatorView: NSView {
 
     /// Only the button takes the pointer; the glass rim passes it to the content.
     override public func hitTest(_ point: NSPoint) -> NSView? {
-        guard let hit = super.hitTest(point), hit === button || hit.isDescendant(of: button) else { return nil }
+        guard alphaValue > 0, let hit = super.hitTest(point), hit === button || hit.isDescendant(of: button) else { return nil }
         return hit
     }
 

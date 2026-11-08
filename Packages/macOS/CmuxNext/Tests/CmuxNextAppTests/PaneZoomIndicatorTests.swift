@@ -43,10 +43,19 @@ import Testing
             settle()
         }
 
-        /// The shown view that offers Exit Zoom, anywhere in the pane.
+        /// The shown view that offers Exit Zoom, anywhere in the pane: not hidden, and neither it nor an ancestor clear.
         var indicator: NSView? {
+            func drawn(_ view: NSView) -> Bool {
+                var next: NSView? = view
+                while let current = next {
+                    if current.alphaValue == 0 { return false }
+                    next = current.superview
+                }
+                return true
+            }
             func find(_ view: NSView) -> NSView? {
-                if !view.isHiddenOrHasHiddenAncestor, view.accessibilityLabel() == Strings.exitZoom, !view.frame.isEmpty { return view }
+                if !view.isHiddenOrHasHiddenAncestor, drawn(view), view.accessibilityLabel() == Strings.exitZoom,
+                   !view.frame.isEmpty { return view }
                 for sub in view.subviews { if let hit = find(sub) { return hit } }
                 return nil
             }
@@ -97,6 +106,28 @@ import Testing
         #expect(harness.zooms == [TabID("tab0")], "\(harness.intents)")
         harness.setZoomed(false)
         #expect(harness.indicator == nil, "the indicator goes with the zoom")
+    }
+
+    /// ZOOM VARIANTS 8: a zoom shows and clears the indicator by paint only (HOVER COMMIT's rule). After its first show it
+    /// stays in the view tree, unhidden: an `isHidden` flip in the zoom's key turn made AppKit invalidate the window's
+    /// cursor rects and drag regions and post a display-link change (0.15-0.35 ms of the turn, ZOOM VARIANTS 7's
+    /// profile). A cleared indicator draws nothing, takes no click and is no accessibility element.
+    @Test func aZoomShowsAndClearsTheIndicatorByPaintOnly() throws {
+        let harness = Harness()
+        defer { harness.closeWindow() }
+        let view = harness.pane.zoomIndicator
+        harness.setZoomed(true)
+        try #require(harness.indicator != nil, "a zoomed pane shows the Exit Zoom indicator")
+        let frame = view.frame
+        harness.setZoomed(false)
+        #expect(!view.isHidden, "the unzoom flipped isHidden: AppKit's cursor rects and drag regions in the key turn")
+        #expect(view.alphaValue == 0, "the unzoomed pane's indicator still draws")
+        #expect(harness.indicator == nil, "the indicator goes with the zoom")
+        #expect(view.hitTest(NSPoint(x: frame.midX, y: frame.midY)) == nil, "the cleared indicator takes the click")
+        #expect(!view.button.isAccessibilityElement(), "the cleared indicator is still an accessibility element")
+        harness.setZoomed(true)
+        #expect(!view.isHidden && view.alphaValue == 1 && view.button.isAccessibilityElement(), "the zoom shows it again")
+        #expect(view.frame == frame && harness.indicator != nil)
     }
 
     /// The tab itself draws nothing for a zoom: no badge layer joins the selected tab, and no tab moves.

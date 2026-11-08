@@ -281,6 +281,12 @@ public final class WindowOverlayHost {
         return !(child is NSPanel) && !isAppKitChrome(child)
     }
 
+    /// Visible child windows that draw content above the parent: every child that is not one of the app's panels (in
+    /// practice Chromium pages).
+    public static func contentChildWindows(of window: NSWindow) -> [NSWindow] {
+        (window.childWindows ?? []).filter { isPageWindow($0) && $0.isVisible }
+    }
+
     /// A child window AppKit adds by itself: the full screen titlebar
     /// (`NSToolbarFullScreenWindow`, a plain `NSWindow` that is a child of
     /// every full screen window for as long as it stays in full screen).

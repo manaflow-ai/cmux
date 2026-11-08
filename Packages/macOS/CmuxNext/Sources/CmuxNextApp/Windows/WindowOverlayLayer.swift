@@ -278,14 +278,12 @@ final class WindowOverlayLayer {
         requestPageUpdate(geometryOnly: !shapesChanged) // no clip shape changed: only moved pages work geometry out
     }
 
+    func pressTarget(for event: NSEvent) -> NSWindow? { catchers.pressTarget(for: event, roots: planes.compactMap { $0.home as? LayoutRootView }) }
+
     // MARK: Placement and order
 
-    /// Visible child windows that draw content above the parent: every child
-    /// that is not one of the app's panels (in practice Chromium pages).
-    static func contentChildWindows(of window: NSWindow) -> [NSWindow] {
-        (window.childWindows ?? []).filter { isContent($0) && $0.isVisible }
-    }
-
+    /// Visible child windows that draw content above the parent (`WindowOverlayHost.contentChildWindows`).
+    static func contentChildWindows(of window: NSWindow) -> [NSWindow] { WindowOverlayHost.contentChildWindows(of: window) }
     static func isContent(_ child: NSWindow) -> Bool { WindowOverlayHost.isPageWindow(child) }
 
     /// Moves the planes to where they draw above content, and restores the

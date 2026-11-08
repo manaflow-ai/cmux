@@ -34,9 +34,12 @@ extension ScreenContentView {
         let zoomed = zooming ? after.panes.keys.first : before.panes.keys.first { after.panes[$0] != nil }
         guard let zoomed, let zoomedLayer = context.hosts[zoomed]?.layer else { return }
         let animates = film.kind != .z1 && Motion.panes.animatesMovement
-        // The film plays from the presentation on: the window's divider catchers wait for its end (`isFilmMoving`).
+        // The film plays from the presentation on: the window's divider catchers wait for its end or its deadline,
+        // whichever comes first (`isFilmMoving`); a press meanwhile moves them first (`LayoutRootView.endFilmMotionWait`).
         let generation = frameInput.filmZoomGeneration
-        frameInput.filmMotionUntil = animates ? CACurrentMediaTime() + film.driver.duration + 1 : 0
+        let wait = film.driver.duration + Self.filmEndGrace
+        frameInput.filmMotionUntil = animates ? CACurrentMediaTime() + wait : 0
+        if animates { context.filmDeadline(screenID, wait) { [weak self] in self?.filmMotionEnded(generation) } }
         // Zoom in: the panes the zoom covers stay as they are and go hidden with the presentation (retired, not torn down).
         // Zoom out: the panes the unzoom shows again wait at opacity 0 until that presentation.
         var covered: [PaneID] = [], returning: [PaneID] = []
@@ -362,6 +365,10 @@ extension ScreenContentView {
         return CGRect(x: a.minX + (b.minX - a.minX) * t, y: a.minY + (b.minY - a.minY) * t,
                       width: a.width + (b.width - a.width) * t, height: a.height + (b.height - a.height) * t)
     }
+
+    /// How long after its curve's duration a film zoom's motion ends when no end came (its deadline, ZOOM VARIANTS 8):
+    /// the presentation that starts the film comes a refresh or two after the key, and a completion can come late.
+    static let filmEndGrace = 0.1
 
     /// A film zoom's motion plays on this screen (``ScreenFrameInput/filmMotionUntil``).
     var isFilmMoving: Bool { frameInput.filmMotionUntil > CACurrentMediaTime() }

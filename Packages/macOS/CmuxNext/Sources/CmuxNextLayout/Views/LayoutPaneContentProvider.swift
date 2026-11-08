@@ -68,6 +68,17 @@ final class LayoutViewContext {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// A film zoom's motion ended (ZOOM VARIANTS 7): the window's divider catchers follow the layout now.
     var filmMotionEnded: () -> Void = {}
+    /// Runs `work` once on the main actor after `delay` seconds: a screen's film zoom deadline, which ends its motion
+    /// when no end came (ZOOM VARIANTS 8). One ``DemandTimer`` per screen: a newer film's deadline replaces the older one.
+    /// A seam for tests, which are the clock.
+    lazy var filmDeadline: (_ screen: ScreenID, _ delay: Double, _ work: @escaping @MainActor @Sendable () -> Void) -> Void = {
+        [weak self] screen, delay, work in
+        guard let self else { return }
+        let timer = self.filmDeadlineTimers[screen] ?? DemandTimer(owner: "layout.film-deadline")
+        self.filmDeadlineTimers[screen] = timer
+        timer.schedule(after: .seconds(delay)) { @MainActor in work() }
+    }
+    private var filmDeadlineTimers: [ScreenID: DemandTimer] = [:]
     #endif
     /// A pane's strip clip changed since the last overlay sync (`PaneHostView.setStripClip`): that sync tells the
     /// window once, with its divider lines, and its Chromium pages re-read their clips (`reportInteractiveRects`).
