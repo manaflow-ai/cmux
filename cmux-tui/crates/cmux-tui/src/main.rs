@@ -29,6 +29,8 @@ mod build_adopt;
 mod carrier;
 mod classic_hooks;
 #[cfg(unix)]
+mod claude_plugin;
+#[cfg(unix)]
 mod claude_wrapper;
 mod cli;
 mod client_log;
