@@ -39,8 +39,10 @@ to this, I'm out." Row #8 of the agent-workflow gaps (cmuxterm-hq
 - Two or three columns sit side by side, and four sit two by two. They stack when narrow. The
   height is fixed per count and width (`planBuildRows`).
 - **Keep this one** keeps that run's branch and worktree, closes the others and removes their
-  worktrees at once. Worktree care runs with no quiet time, archives first (so each can be
-  restored) and still leaves a worktree that a process works in. Those columns say **Removed**.
+  worktrees at once. Worktree care runs with no quiet time and still leaves a worktree that a
+  process works in. A worktree goes only once care has archived it (its manifest, and a bundle of
+  any work found only there), and its branch stays, so each removed run can be restored. Those
+  columns say **Removed**.
   The plan approval's own compare keeps its old Keep, where the others are archived and their
   worktrees stay until worktree care's quiet time.
 

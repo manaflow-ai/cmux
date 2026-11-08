@@ -49,6 +49,15 @@ fn the_build_prompt_carries_the_plan() {
 }
 
 #[test]
+fn a_build_is_done_only_once_a_turn_ended_and_none_waits() {
+    assert_eq!(build_status(SessionStatus::Ready, false, false), "working");
+    assert_eq!(build_status(SessionStatus::Idle, true, true), "working");
+    assert_eq!(build_status(SessionStatus::Idle, true, false), "done");
+    assert_eq!(build_status(SessionStatus::Running, true, false), "working");
+    assert_eq!(build_status(SessionStatus::Closed, false, false), "closed");
+}
+
+#[test]
 fn numstat_counts_and_caps_the_list() {
     let mut change = Change::default();
     parse_numstat("3\t1\tsrc/a.rs\n-\t-\tlogo.png\nbroken line\n", &mut change);

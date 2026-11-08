@@ -189,3 +189,13 @@ test("three and four runs keep a fixed height: side by side, two by two, or stac
   expect(planBuildHeight(three, 760)).toBe(planBuildHeight({ builds: [1, 2] } as never, 760));
   expect(planBuildHeight(four, 600)).toBeGreaterThan(planBuildHeight(three, 760));
 });
+
+test("a build whose chat closed stops, and the card reads its diff again", () => {
+  const rows = new Map<string, AcpmuxRow>();
+  const builds = new PlanBuildRows();
+  builds.reduce(rows, { seq: 1, at: 1 }, started);
+  builds.child(rows, { event: "closed", childSessionId: "c2" });
+  const build = rows.get(planBuildRowId("b1"))?.planBuild;
+  expect(build?.builds.map((b) => b.state)).toEqual(["running", "cancelled"]);
+  expect(build?.turnsEnded).toBe(1);
+});
