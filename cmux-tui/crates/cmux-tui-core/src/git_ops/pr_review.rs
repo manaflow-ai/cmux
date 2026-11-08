@@ -611,7 +611,14 @@ fn gh(
             "gh (GitHub's command line tool) is not installed; install it and run gh auth login";
         return Err(refused(operation, "gh_unavailable", message, Value::Null));
     };
-    let extra = [("GH_PROMPT_DISABLED", "1"), ("GH_NO_UPDATE_NOTIFIER", "1"), ("NO_COLOR", "1")];
+    // The pull request is on github.com: a `GH_HOST` the person set for an
+    // Enterprise host must not send its reviews there.
+    let extra = [
+        ("GH_HOST", "github.com"),
+        ("GH_PROMPT_DISABLED", "1"),
+        ("GH_NO_UPDATE_NOTIFIER", "1"),
+        ("NO_COLOR", "1"),
+    ];
     let run = git
         .run_program(program.as_os_str(), arguments, &extra, input)
         .map_err(|failure| run_failed(operation, &failure))?;
