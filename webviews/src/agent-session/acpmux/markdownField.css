@@ -143,6 +143,11 @@
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, var(--agent-text) 45%, transparent);
 }
+/* A cmux.com deeplink is markdown's autolink too; one nothing names is plain text, as an app link
+   is (composer/deeplinkTokens.ts), and a named one is its chip, which draws no underline. */
+.acpmux-md a:has(.acpmux-web-deeplink) {
+  text-decoration: none;
+}
 /* A `/name` that names a command (composer/slashTokens.ts), at the prompt's start or after a space:
    the link blue, so the person sees the agent will read it as a command. Only its colour changes. */
 .acpmux-md .acpmux-slash-token {
@@ -153,23 +158,6 @@
   text-decoration: underline dotted;
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
-}
-/* A cmux deeplink in the draft (composer/deeplinkTokens.ts): the link blue and the faint underline
-   a sent prompt's link has (.cv-link), so the draft reads as it will send. Only its look changes;
-   the text is the URL. The chip arm puts it on the session chip's grey wash instead. */
-.acpmux-md .acpmux-deeplink.is-link {
-  color: var(--agent-link, var(--agent-accent));
-  text-decoration: underline;
-  text-decoration-thickness: 1px;
-  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
-  text-underline-offset: 3px;
-}
-.acpmux-md .acpmux-deeplink.is-chip {
-  padding: 0 4px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--agent-text) 9%, transparent);
-  color: var(--agent-link, var(--agent-accent));
-  box-decoration-break: clone;
 }
 .acpmux-md code {
   padding: 1px 4px;
