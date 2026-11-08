@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42432244751",
+  "recorded_at": "2026-11-08T01:06:55Z",
+  "reason": "cmux-tui a8abe664914f changes the image's cmux-tui (pinned 295ad61e21e1)",
+  "dry_run": false,
+  "cmux_tui": "a8abe664914fd6d49a26ff5fee96f08fa532f0b7",
+  "fixes": [
+    {
+      "sha": "a8abe664914fd6d49a26ff5fee96f08fa532f0b7",
+      "mergedAt": "2026-11-08T00:45:25Z",
+      "subject": "cmux-tui: daemon restart returns when every kept terminal runs again (#38110)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T01:06:55Z",
+    "snapshot_id": "sh-2dc2cd10bd0e4e7b858a3e219e6c833b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42432244751): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1a1af5b270f833ae584c5ed6101ceaf993c5c8cf",
+    "image": "cloud-native-auto-a8abe664-42432244751-1",
+    "revision": "ci-42432244751-1",
+    "at": "2026-11-08T01:06:55Z"
+  },
+  "rolled_back": false
+}
