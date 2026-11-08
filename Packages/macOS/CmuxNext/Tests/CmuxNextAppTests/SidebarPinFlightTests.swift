@@ -473,4 +473,35 @@ struct SidebarPinFlightTests {
         #expect(probes.allSatisfy { !$0.size.moves(after: now) && $0.nodes.allSatisfy { !$0.position.moves(after: now) } },
                 "a copy still moves with motion off")
     }
+
+    /// A pin's Pinned item is made in the apply that flies it. AppKit puts a new subview's layer into its superview's
+    /// layer only at a later display pass, and Core Animation drops every animation added to the layer before that: in
+    /// the app the item's move springs stopped unfinished about one frame in (diag build: didStop finished=false at
+    /// +10 ms, no remove call), so the item showed at its Pinned slot at once and never flew. The flight must start on a
+    /// layer that is in its superview's layer, and still fly frames later.
+    @Test func aNewItemsFlightSurvivesItsLayerJoiningTheTree() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 300, height: 300), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 300))
+        host.wantsLayer = true
+        window.contentView?.addSubview(host)
+        window.orderFrontRegardless()
+        window.displayIfNeeded()
+        CATransaction.flush()
+        let item = SidebarItemRowView()
+        item.frame = NSRect(x: 0, y: 40, width: 200, height: 24)
+        host.addSubview(item)
+        SidebarDragSpring.fly(item, from: NSRect(x: 6, y: 160, width: 196, height: 24), now: SidebarPinFlight.begin(in: item))
+        let layer = try #require(item.layer)
+        #expect(layer.superlayer === host.layer, "the flight started on a layer that is not in its superview's layer")
+        window.displayIfNeeded()
+        CATransaction.flush()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        let moves = (layer.animationKeys() ?? []).filter { $0.hasPrefix("\(SidebarDragSpring.batchKey).position") }
+        #expect(!moves.isEmpty, "the new item's move is gone 50 ms in (its keys: \(layer.animationKeys() ?? []))")
+    }
 }
