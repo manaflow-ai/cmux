@@ -45,20 +45,25 @@ afterAll(() => {
 const SHARE = "c2hhcmUtMDAwMDAwMDAwMDAx";
 const SECRET = "c2VjcmV0LTAwMDAwMDAwMDAx";
 
-/** A window whose app attempt is scripted: `took` blurs the page (the app came forward). */
+/** A window whose app attempt is scripted: `took` hides the page (the app came forward). */
 function fakeWindow(took: boolean) {
   const listeners = new Map<string, () => void>();
   const timers = new Map<number, () => void>();
   let next = 1;
   const assigned: string[] = [];
+  const document: { visibilityState: DocumentVisibilityState } = { visibilityState: "visible" };
+  const hide = () => {
+    document.visibilityState = "hidden";
+    listeners.get("visibilitychange")?.();
+  };
   const win: AppOpenWindow = {
     location: {
       assign: (url) => {
         assigned.push(url);
-        if (took) queueMicrotask(() => listeners.get("blur")?.());
+        if (took) queueMicrotask(hide);
       },
     },
-    document: { visibilityState: "visible" },
+    document,
     addEventListener: (type, listener) => listeners.set(type, listener),
     removeEventListener: (type) => listeners.delete(type),
     setTimeout: (handler) => {
@@ -73,7 +78,7 @@ function fakeWindow(took: boolean) {
     timers.clear();
     for (const handler of due) handler();
   };
-  return { win, assigned, listeners, timers, elapse };
+  return { win, assigned, listeners, timers, elapse, document };
 }
 
 test("the app URL keeps the secret in its fragment only, never in the page address a server is asked for", () => {
@@ -96,12 +101,14 @@ test("a link opens cmux NIGHTLY unless it names its build, `?app=` names only a 
   const at = (search = "", protocol = "https:") => appScheme({ protocol, search });
   expect(at()).toBe("cmux-nightly");
   // Each build the daemon names (cmux-cloud-config `callback_scheme`): NEXT DEV, a Debug build, a tagged one, RC.
-  for (const scheme of ["cmux-next-dev", "cmux-dev", "cmux-dev-my-tag", "cmux-rc", "cmux"]) {
+  for (const scheme of ["cmux-next-dev", "cmux-dev", "cmux-dev-my-tag", "cmux-rc", "cmux", "cmux.my-build"]) {
     expect(at(`?app=${scheme}`)).toBe(scheme);
   }
   expect(at("?app=javascript")).toBe("cmux-nightly");
   expect(at("?app=https")).toBe("cmux-nightly");
   expect(at("?app=cmux-")).toBe("cmux-nightly");
+  expect(at("?app=cmux..x")).toBe("cmux-nightly");
+  expect(at("?app=cmuxevil")).toBe("cmux-nightly");
   expect(at("", "http:")).toBeUndefined();
   expect(at("?app=cmux-dev", "http:")).toBe("cmux-dev");
 });
@@ -130,6 +137,33 @@ test("an app attempt settles once, and removes its timer and listeners", async (
   expect(await tryOpenApp(app.win, "cmux://share", 1500)).toBe(true);
   expect(app.listeners.size).toBe(0);
   expect(app.timers.size).toBe(0);
+});
+
+test("a page that stays visible was not taken by the app: a visibility change to visible, or a blur, is not proof", async () => {
+  const stay = fakeWindow(false);
+  const pending = tryOpenApp(stay.win, "cmux://share", 1500);
+  // The visitor switched windows and came back: the page never hid.
+  stay.listeners.get("visibilitychange")?.();
+  expect(stay.listeners.size).toBe(2);
+  stay.elapse();
+  expect(await pending).toBe(false);
+});
+
+test("a page opened hidden asks the app only once it is shown, so a background tab is not taken for the app", async () => {
+  const background = fakeWindow(false);
+  background.document.visibilityState = "hidden";
+  const pending = tryOpenApp(background.win, "cmux://share", 1500);
+  await Promise.resolve();
+  expect(background.assigned).toEqual([]);
+  expect(background.timers.size).toBe(0);
+  // Shown: now it asks, and with no app the page stays visible, so the attempt answers no.
+  background.document.visibilityState = "visible";
+  background.listeners.get("visibilitychange")?.();
+  await Promise.resolve();
+  expect(background.assigned).toEqual(["cmux://share"]);
+  background.elapse();
+  expect(await pending).toBe(false);
+  expect(background.listeners.size).toBe(0);
 });
 
 async function mount(took: boolean) {
