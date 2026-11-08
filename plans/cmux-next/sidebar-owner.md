@@ -1732,4 +1732,4 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   the blocks with the rows in one apply; the pin flight begins on the first frame that can show it (`SidebarPinFlight.begin`);
   the bounded pin holds and their asyncAfter fallbacks are removed; the flying row gets an opaque ground and the pin glyph an
   opacity spring on the move's curve. `MotionPath` honors backwards fill. Sidebar-Look: Lawrence m70 (above). Draft PR #38267.
-  Then 7a83187: the first pin's new Pinned block no longer fades its flying item in (`revealOpeningBlock`).
+  Then the first pin's new Pinned block no longer fades its flying item in (`revealOpeningBlock`).

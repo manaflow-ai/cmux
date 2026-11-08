@@ -249,7 +249,7 @@ extension SidebarListViewComponents {
         Motion.withoutAnimation { block.alphaValue = 1 }
         block.layer?.removeAnimation(forKey: "opacity")
         let region = block.region
-        let parts: [NSView] = Array(region.headerViews.values) + region.itemViews.values.filter { $0 !== item }
+        let parts = region.headerViews.values.map { $0 as NSView } + region.itemViews.values.filter { $0 !== item }.map { $0 as NSView }
         return parts.filter { $0.superview != nil && !$0.isHidden && $0.alphaValue > 0 }
     }
 
