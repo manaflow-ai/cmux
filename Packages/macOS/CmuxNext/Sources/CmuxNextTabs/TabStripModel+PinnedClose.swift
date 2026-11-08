@@ -57,6 +57,15 @@ extension TabStripModel {
         guard let index = ordered.firstIndex(where: { $0.id == id }) else { return [] }
         return ordered[..<index].filter { !$0.isPinned && $0.isClosable }.map(\.id)
     }
+
+    /// The tab Close Other Tabs, Close Tabs to the Left or Close Tabs to the Right started from
+    /// `actedOn` selects (cmux-ad i7): `actedOn`, the tab the person acted on, which stays. Nil (the
+    /// selection does not change) when the selection is `actedOn` or one of `kept`, the tabs the
+    /// gesture keeps on purpose (a menu opened on one of several selected tabs keeps them all).
+    public func selectionKeeping(_ actedOn: TabID, kept: [TabID] = []) -> TabID? {
+        guard let selectedID, selectedID == actedOn || kept.contains(selectedID) else { return actedOn }
+        return nil
+    }
 }
 
 extension TabStripModel {
