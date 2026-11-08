@@ -112,16 +112,15 @@ pub(super) fn consent(inputs: &ConsentInputs<'_>) -> Consent {
 }
 
 /// The Sentry event for one panic line; None for a test line or a line that is not a panic.
-/// `home` is replaced by `~` in the message and backtrace, so no user name leaves the machine.
+/// The message, location and backtrace go through `crash_scrub` (docs/privacy.md, Telemetry):
+/// `home` becomes `~`, and secrets, emails and other user names are redacted, so none of them
+/// leaves the machine.
 pub(super) fn event_for(line: &str, home: Option<&str>) -> Option<Value> {
     let record: Value = serde_json::from_str(line).ok()?;
     if record.get("test").and_then(Value::as_bool) == Some(true) {
         return None;
     }
-    let scrub = |text: &str| match home.filter(|home| home.len() > 1) {
-        Some(home) => text.replace(home, "~"),
-        None => text.to_string(),
-    };
+    let scrub = |text: &str| super::crash_scrub::scrub(text, home);
     let message = scrub(record.get("message")?.as_str()?);
     let location = scrub(record.get("location").and_then(Value::as_str).unwrap_or_default());
     let text = |key: &str| record.get(key).and_then(Value::as_str).map(String::from);
@@ -459,34 +458,36 @@ mod tests {
         assert_eq!(event["fingerprint"], json!(["owner-panic", "a.rs:1"]));
     }
 
-    /// docs/privacy.md, Telemetry: the same seeds as the app's SeededSecretTests (each token split so the
-    /// repository's secret scanning does not read it as a real one). None may be left in the event sent.
+    /// docs/privacy.md, Telemetry: the app's SeededSecretTests seeds, each a prefix, the rest and
+    /// the part that must not be sent (split so secret scanning does not read them as real tokens).
+    const SEEDS: [[&str; 3]; 17] = [
+        ["sk-", "ant-api03-SEEDanthropicKEY0123456789abcdef", "SEEDanthropicKEY"],
+        ["gh", "p_SEEDgithubPAT0123456789abcdefABCD", "SEEDgithubPAT"],
+        ["github", "_pat_11SEEDGITHUBFINE0123456789_ab", "SEEDGITHUBFINE"],
+        ["gl", "pat-SEEDgitlab0123456789abcd", "SEEDgitlab"],
+        ["np", "m_SEEDnpmTOKEN0123456789abcdefghijklmn", "SEEDnpmTOKEN"],
+        ["hf", "_SEEDhuggingface0123456789abcdefghij", "SEEDhuggingface"],
+        ["AI", "zaSEEDgoogleKey0123456789abcdefghijklm", "SEEDgoogleKey"],
+        ["xo", "xb-SEEDslack-0123456789-abcdefABCDEF", "SEEDslack"],
+        ["AK", "IASEEDAWSKEY012345", "SEEDAWSKEY"],
+        ["ey", "JhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzZWVkIn0.SEEDjwtSignature0123", "SEEDjwtSignature"],
+        ["Authorization: ", "Bearer SEEDbearer0123456789abcdef", "SEEDbearer"],
+        ["password=", "SEEDpasswordValue99", "SEEDpasswordValue"],
+        ["https://", "seeduser:SEEDurlPassword99@git.corp.dev/r.git", "SEEDurlPassword"],
+        ["https://", "seeduser:SEEDurlPassword99@git.corp.dev/r.git", "seeduser"],
+        ["seeded", ".person@corp-mail.dev", "seeded.person"],
+        ["/Users/", "seededalice/plan.txt", "seededalice"],
+        ["/home/", "seededbob/.ssh/id_ed25519", "seededbob"],
+    ];
+
     #[test]
     fn seeded_secrets_never_leave_in_a_panic_event() {
-        let seeds = [
-            ("sk-".to_owned() + "ant-api03-SEEDanthropicKEY0123456789abcdef", "SEEDanthropicKEY"),
-            ("gh".to_owned() + "p_SEEDgithubPAT0123456789abcdefABCD", "SEEDgithubPAT"),
-            ("github".to_owned() + "_pat_11SEEDGITHUBFINE0123456789_abcdefghijklmnopqrstuvwxyzAB", "SEEDGITHUBFINE"),
-            ("gl".to_owned() + "pat-SEEDgitlab0123456789abcd", "SEEDgitlab"),
-            ("np".to_owned() + "m_SEEDnpmTOKEN0123456789abcdefghijklmn", "SEEDnpmTOKEN"),
-            ("hf".to_owned() + "_SEEDhuggingface0123456789abcdefghij", "SEEDhuggingface"),
-            ("AI".to_owned() + "zaSEEDgoogleKey0123456789abcdefghijklm", "SEEDgoogleKey"),
-            ("xo".to_owned() + "xb-SEEDslack-0123456789-abcdefABCDEF", "SEEDslack"),
-            ("AK".to_owned() + "IASEEDAWSKEY012345", "SEEDAWSKEY"),
-            ("ey".to_owned() + "JhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzZWVkIn0.SEEDjwtSignature0123456789", "SEEDjwtSignature"),
-            ("Authorization: Bearer SEEDbearer0123456789abcdef".to_owned(), "SEEDbearer"),
-            ("password=SEEDpasswordValue99".to_owned(), "SEEDpasswordValue"),
-            ("https://seeduser:SEEDurlPassword99@git.corp.dev/r.git".to_owned(), "SEEDurlPassword"),
-            ("https://seeduser:SEEDurlPassword99@git.corp.dev/r.git".to_owned(), "seeduser"),
-            ("seeded.person@corp-mail.dev".to_owned(), "seeded.person"),
-            ("/Users/seededalice/plan.txt".to_owned(), "seededalice"),
-            ("/home/seededbob/.ssh/id_ed25519".to_owned(), "seededbob"),
-        ];
-        let text = seeds.iter().map(|(seed, _)| seed.as_str()).collect::<Vec<_>>().join(" | ");
+        let text = SEEDS.map(|[prefix, rest, _]| format!("{prefix}{rest}")).join(" | ");
         for kind in ["panic", "memory"] {
-            let line = json!({"message": text, "location": text, "backtrace": text, "kind": kind}).to_string();
-            let sent = String::from_utf8(envelope(&event_for(&line, Some("/home/other")).unwrap())).unwrap();
-            for (_, marker) in &seeds {
+            let line = json!({"message": text, "location": text, "backtrace": text, "kind": kind});
+            let event = event_for(&line.to_string(), Some("/home/other")).unwrap();
+            let sent = String::from_utf8(envelope(&event)).unwrap();
+            for [_, _, marker] in SEEDS {
                 assert!(!sent.contains(marker), "{kind}: {marker} survived: {sent}");
             }
         }
