@@ -1836,6 +1836,8 @@ function TranscriptView({
         registry: NativeRegistry;
         /// A new chat look (Minimal Mode included) estimates every row again too: nothing is kept.
         look: ReturnType<typeof useChatDisplay>;
+        /// So does a new attachment view (inline or strip, UserBubble.tsx).
+        view: typeof attachmentView;
         first: number;
         last: number;
         /// Rows mounted outside that range because a margin drag's selection holds them (at most two).
@@ -2404,6 +2406,7 @@ function TranscriptView({
       last.sessionId === sessionId &&
       last.registry === registry &&
       last.look === chatLook &&
+      last.view === attachmentView &&
       drawn.size > 0
     ) {
       const limit = Math.min(rows.length, last.rows.length);
@@ -2493,12 +2496,13 @@ function TranscriptView({
       sessionId,
       registry,
       look: chatLook,
+      view: attachmentView,
       first: last?.first ?? 0,
       last: last?.last ?? 0,
       held: last?.held ?? [],
     };
     return { layout, ms: acpmuxPerf.enabled ? performance.now() - layoutStart : 0 };
-  }, [estimated, drawn, registry, rows, sessionId, chatLook, scaledRowWidth, canLoadOlder, earlier, promptCount]);
+  }, [estimated, drawn, registry, rows, sessionId, chatLook, attachmentView, scaledRowWidth, canLoadOlder, earlier, promptCount]);
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view.
   // The bottom stack's room follows the rows, so the latest row ends above it.
