@@ -1733,5 +1733,6 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   the bounded pin holds and their asyncAfter fallbacks are removed; the flying row gets an opaque ground and the pin glyph an
   opacity spring on the move's curve. `MotionPath` honors backwards fill. Sidebar-Look: Lawrence m70 (above). Draft PR #38267.
   Then the first pin's new Pinned block no longer fades its flying item in (`revealOpeningBlock`).
+  Then a new pinned item's pin glyph has its own layer from its init, so the flight's fade applies (it showed at once).
   Then a flying list row keeps its opaque ground through its own display pass (`SidebarRowView.flightGround`: the fill is
   painted over the ground, opaque); the p1j films showed the passed titles through a flying selected row.

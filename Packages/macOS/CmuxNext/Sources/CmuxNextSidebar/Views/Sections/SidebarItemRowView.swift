@@ -143,6 +143,9 @@ class SidebarItemRowView: NSView {
         title.lineBreakMode = .byTruncatingTail
         title.maximumNumberOfLines = 1
         [pin, icon, title, badge, rowBadge, avatarView, activity].forEach(addSubview)
+        // The pin has its own layer from the start: a pin's flight fades it in on the move (`SidebarPinFlight.glyph`) in
+        // the turn that makes the item, before AppKit's first display pass would give the subview a layer of its own.
+        pin.wantsLayer = true
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         // Keyboard focus is the fill's next tonal step (`fill`), never the system's blue ring.
