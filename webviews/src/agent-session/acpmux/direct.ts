@@ -31,6 +31,7 @@ import type {
   AcpmuxRow,
   AcpmuxSessionStart,
   AcpmuxSnapshot,
+  AcpmuxOverlap,
   MissingSessionReason,
   PromptImage,
   PromptContentPart,
@@ -1981,6 +1982,7 @@ export class AcpmuxDirectClient {
   /// (requestBudget.ts). Reset with the connection.
   private budget = new RequestBudget();
   private events: EventRecord[] = [];
+  private overlaps = new Map<string, AcpmuxOverlap>();
   private rows = new OrderedRows();
   /// Each drawn offer's row (a suggested tasks card), by offer id (offer/SuggestedTasks.tsx).
   private offerRows = new Map<string, string>();
@@ -3192,6 +3194,7 @@ export class AcpmuxDirectClient {
     this.runningTurnId = undefined;
     this.stoppingEnded();
     this.events = [];
+    this.overlaps.clear();
     this.turnOpener = undefined;
     this.turnPrompt = undefined;
     this.historyExhausted = false;
@@ -6077,6 +6080,7 @@ export class AcpmuxDirectClient {
     // After a reset of the chat on screen, the rows it showed then, under any drawn since.
     const previous = new Map([...(this.shownRowsToKeep() ?? []), ...this.rows]);
     this.unknownSenders.clear();
+    this.overlaps.clear();
     // A prompt still in flight keeps its optimistic row until an event settles it; a failed one stays to show it was not sent.
     // Only prompts still awaiting acceptance are retained before replay. Durable keys are used
     // when their replayed user_message is reduced, but retaining every historical key here would
@@ -6868,6 +6872,11 @@ export class AcpmuxDirectClient {
 
   private reduceEvent(event: EventRecord): void {
     const msg = event.msg ?? {};
+    if (event.dir === "mux" && event.kind === "worktree_overlap") {
+      const peer = typeof msg.peerSessionId === "string" ? msg.peerSessionId : "";
+      if (peer && Array.isArray(msg.files)) this.overlaps.set(peer, msg as AcpmuxOverlap);
+      return;
+    }
     if (event.dir === "mux" && event.kind === NATIVE_HISTORY_KIND) {
       // Draws nothing: where the transcript's older turns end. The oldest one held is the seeded
       // page's (a page of the log seq order puts first).
@@ -8298,6 +8307,7 @@ export class AcpmuxDirectClient {
       ...(Object.keys(changedProgress).length > 0 ? { subagentProgress: changedProgress } : {}),
       subagentStructureVersion: progressSource.structureVersion,
       sessions: this.sessionEntryList(),
+      ...(this.overlaps.size > 0 ? { overlaps: [...this.overlaps.values()] } : {}),
       peers: this.peers,
       peerKinds: this.peerKinds,
       peerConnected: this.peerConnected,

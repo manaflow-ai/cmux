@@ -77,6 +77,24 @@ impl Fixture {
         self.hub.on_update(session, Some(&params), false);
         self.hub.notice_overlaps(session);
     }
+
+    fn diff_call(
+        &self,
+        session: &Arc<Session>,
+        id: &str,
+        path: &std::path::Path,
+        start: u32,
+        text: &str,
+    ) {
+        let path = path.to_str().unwrap();
+        let params = json!({"sessionId": "agent", "update": {
+            "sessionUpdate": "tool_call", "toolCallId": id, "kind": "edit", "status": "completed",
+            "locations": [{"path": path}],
+            "content": [{"type": "diff", "path": path, "newStart": start, "newText": text}],
+        }});
+        self.hub.on_update(session, Some(&params), false);
+        self.hub.notice_overlaps(session);
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -125,6 +143,50 @@ async fn who_else_finds_the_session_that_edits_the_same_file_in_another_worktree
     // B is not someone else to itself.
     let own = json!({"sessionId": b.id, "keys": keyed["keys"]});
     assert_eq!(f.hub.who_else(&own, false, false).await.unwrap()["sessions"], json!([]));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn overlapping_hunks_emit_one_durable_pair_event_and_ignore_other_ranges() {
+    let f = fixture().await;
+    let a = f.session(&f.main).await;
+    let b = f.session(&f.linked).await;
+    let mut events = f.hub.subscribe();
+
+    // Same file, disjoint hunks: the index sees the shared file, but conflict radar stays quiet.
+    f.diff_call(&b, "b-a-1", &f.linked.join("src/a.rs"), 10, "one\ntwo\n");
+    f.diff_call(&a, "a-a-1", &f.main.join("src/a.rs"), 20, "three\n");
+    // A different file is also not an overlap.
+    f.diff_call(&a, "a-b-1", &f.main.join("src/b.rs"), 10, "four\n");
+    while let Ok(event) = events.try_recv() {
+        assert_ne!(event.record.kind, "worktree_overlap", "disjoint edits must stay quiet");
+    }
+
+    // The second edit intersects B's 10..11 hunk. Each session receives one durable record.
+    f.diff_call(&a, "a-a-2", &f.main.join("src/a.rs"), 11, "five\n");
+    let mut overlaps = Vec::new();
+    while let Ok(Ok(event)) = tokio::time::timeout(Duration::from_millis(200), events.recv()).await
+    {
+        if event.record.kind == "worktree_overlap" {
+            overlaps.push(event);
+            if overlaps.len() == 2 {
+                break;
+            }
+        }
+    }
+    assert_eq!(overlaps.len(), 2, "expected one record per side: {overlaps:?}");
+    assert!(overlaps.iter().all(|event| event.record.msg["files"][0]["path"] == "src/a.rs"));
+    assert!(
+        overlaps
+            .iter()
+            .all(|event| event.record.msg["files"][0]["ranges"][0]["mine"]["start"] == 11
+                || event.record.msg["files"][0]["ranges"][0]["theirs"]["start"] == 11)
+    );
+
+    // Further edits in the same pair do not create a stream of duplicate chips.
+    f.diff_call(&a, "a-a-3", &f.main.join("src/a.rs"), 11, "six\n");
+    while let Ok(event) = events.try_recv() {
+        assert_ne!(event.record.kind, "worktree_overlap", "a pair gets one durable event");
+    }
 }
 
 /// Waits until session `id` streams text containing `want`, and answers with that text.

@@ -49,6 +49,8 @@ import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { headerState, useHeaderState } from "./headerState";
 import { PullRequestChip } from "./PullRequestChip";
 import { WorktreePill } from "./WorktreePill";
+import { OverlapChip } from "./OverlapChip";
+import type { AcpmuxOverlap } from "../model";
 import { useWorktree } from "./worktreePillModel";
 import type { MergeResult } from "./PullRequestMerge";
 import {
@@ -114,6 +116,8 @@ function ChatHeaderToolsView({
   statusKey,
   onApplyWorktree,
   onRemoveWorktree,
+  overlaps = [],
+  onTellOverlap,
   sessionInfo,
   inbox,
   inboxRelevant = true,
@@ -169,6 +173,9 @@ function ChatHeaderToolsView({
   onApplyWorktree?: (key: string) => Promise<unknown>;
   /// Remove on the worktree pill (cx-lyqio.5): `git.worktree.remove` for the chat's session.
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
+  /// Durable conflict-radar events for this chat's live worktree.
+  overlaps?: readonly AcpmuxOverlap[];
+  onTellOverlap?: (overlap: AcpmuxOverlap) => Promise<unknown> | void;
   /// Session Info's toggle (Debug Settings `agent.sessionInfo`, session-info/SessionInfo.tsx): with it,
   /// the right-side panel's toggle in the summary's place, the first of the icons.
   sessionInfo?: ReactNode;
@@ -450,6 +457,7 @@ function ChatHeaderToolsView({
     return (
       <div ref={toolsRef} className="acpmux-header-tools" data-header-controls="trio" onPointerEnter={onPointerEnter}>
         {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
+        {overlaps[0] && <OverlapChip overlap={overlaps[0]} additional={Math.max(0, overlaps.length - 1)} onTell={onTellOverlap} />}
         {pullRequest && pullRequestChip !== false && (
           <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
         )}
@@ -473,6 +481,7 @@ function ChatHeaderToolsView({
     >
       {preview && <HeaderToolPreview target={preview} />}
       {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
+      {overlaps[0] && <OverlapChip overlap={overlaps[0]} additional={Math.max(0, overlaps.length - 1)} onTell={onTellOverlap} />}
       {pullRequest && pullRequestChip !== false && (
         <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
       )}

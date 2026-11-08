@@ -11391,6 +11391,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                       readStatus={readFolderStatus}
                       statusKey={snapshot.isWorking}
                       working={snapshot.isWorking === true}
+                      overlaps={snapshot.overlaps}
+                      onTellOverlap={(overlap) =>
+                        directClient.current?.promptSide(
+                          overlap.peerSessionId,
+                          `Conflict radar: I am editing ${overlap.files.map((file) => file.path).join(", ")}; let’s coordinate before changing those lines.`,
+                        )
+                      }
                       // Apply brings a worktree chat's work to its main checkout (cx-lyqio.4); a new chat has none yet.
                       onApplyWorktree={
                         snapshot.sessionId && localCwd
