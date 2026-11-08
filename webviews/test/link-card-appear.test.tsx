@@ -146,8 +146,8 @@ test("while the host reads, placeholder rows hold the card at its full size; the
     // answer fills shares one grid cell with the placeholder it replaces, the row first, the
     // placeholder over it fading out; a row the answer leaves empty (none here) drops its
     // placeholder in the same frame.
-    const slots = [...card.querySelectorAll<HTMLElement>(".acpmux-pr-card__slot")].filter(
-      (slot) => slot.lastElementChild?.hasAttribute("data-placeholder"),
+    const slots = [...card.querySelectorAll<HTMLElement>(".acpmux-pr-card__slot")].filter((slot) =>
+      slot.lastElementChild?.hasAttribute("data-placeholder"),
     );
     expect(slots.map((slot) => slot.lastElementChild?.getAttribute("data-placeholder"))).toEqual([
       "status",
@@ -166,11 +166,9 @@ test("while the host reads, placeholder rows hold the card at its full size; the
         ended.dispatchEvent(new dom.window.Event("animationend", { bubbles: true }));
       });
     await end("who");
-    expect([...card.querySelectorAll<HTMLElement>("[data-placeholder]")].map((row) => row.dataset.placeholder)).toEqual([
-      "status",
-      "changes",
-      "branches",
-    ]);
+    expect([...card.querySelectorAll<HTMLElement>("[data-placeholder]")].map((row) => row.dataset.placeholder)).toEqual(
+      ["status", "changes", "branches"],
+    );
     expect(card.querySelector(".acpmux-pr-card__who:not([data-placeholder])")).toBe(who);
     for (const row of ["status", "changes", "branches"]) await end(row);
     expect(card.querySelector("[data-placeholder]")).toBeNull();
