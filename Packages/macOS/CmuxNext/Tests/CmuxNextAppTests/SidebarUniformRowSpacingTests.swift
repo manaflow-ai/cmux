@@ -281,12 +281,16 @@ struct SidebarUniformRowSpacingTests {
         // An unpinned row's leading slot: its icon, or where its title starts without one.
         let content = h.list.convert(unpinned.icon.frame, from: unpinned)
         let unpinnedFrame = h.inList(unpinned)
-        // The pin's ink starts where an unpinned row's icon column (or its text-only title) starts: the row inset
-        // (Lawrence msg 19643, "left alignment here is bad").
-        #expect(abs(pin.minX - content.minX) < 0.5, "the pin's ink starts at \(pin.minX), an unpinned row's icon column at \(content.minX)")
-        #expect(abs((pin.midY - pinnedFrame.minY) - (content.midY - unpinnedFrame.minY)) < 0.5,
-                "the pin centers \(pin.midY - pinnedFrame.minY) pt into its row, an unpinned row's content \(content.midY - unpinnedFrame.minY) pt")
-        #expect(abs(pinnedFrame.height - unpinnedFrame.height) < 0.01)
+        // The pin's ink centers in the icon column that starts where an unpinned row's icon column (or its text-only
+        // title) starts, the row inset (https://github.com/manaflow-ai/cmux/issues/38061).
+        let columnMid = content.minX + SidebarStyle.iconColumnBox / 2
+        #expect(abs(pin.midX - columnMid) < 0.5, "the pin's ink centers at \(pin.midX), the icon column at \(columnMid)")
+        #expect(abs((pin.midY - pinnedFrame.midY) - (content.midY - unpinnedFrame.midY)) < 0.5,
+                "the pin sits \(pin.midY - pinnedFrame.midY) pt off its row's middle, an unpinned row's content \(content.midY - unpinnedFrame.midY) pt")
+        // A pinned row takes the band's row: an unpinned row's height, except at Expanded, where it is Comfortable's
+        // (Lawrence 2026-11-04, pinned rows were too short; 9353f4addd2).
+        #expect(abs(pinnedFrame.height - SidebarRowTokens.current.band.rowHeight) < 0.01)
+        if density != .expanded { #expect(abs(pinnedFrame.height - unpinnedFrame.height) < 0.01) }
         // The pinned row's title still starts after its pin.
         #expect(h.list.convert(pinned.titleFrame, from: pinned).minX >= pin.maxX)
     }

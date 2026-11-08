@@ -42,6 +42,8 @@ ARTIFACT_SECRETS = {
 
 NIGHTLY_TRACK_ENVIRONMENT = "${{ needs.decide.outputs.environment }}"
 NIGHTLY_TRACK_ENVIRONMENT_RULE = "core.setOutput('environment', isNextRef ? 'release-next' : 'release');"
+# The jobs after the feed run in the dispatched post-publish run too, where decide skips: the same rule by ref.
+NIGHTLY_REF_ENVIRONMENT = "${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}"
 
 RELEASE_JOBS = {
     "release.yml": ["build-sign-notarize"],
@@ -81,6 +83,9 @@ def main():
                 text = open(os.path.join(WORKFLOWS, name), encoding="utf-8").read()
                 _check(NIGHTLY_TRACK_ENVIRONMENT_RULE in text,
                        f"{name} {job} environment is release except release-next for nightly-next")
+                continue
+            if name == "nightly.yml" and environment == NIGHTLY_REF_ENVIRONMENT:
+                _check(True, f"{name} {job} environment is release except release-next for nightly-next (by ref)")
                 continue
             _check(environment == "release", f"{name} {job} runs in the release environment")
     for name, jobs in RELEASE_NEXT_JOBS.items():

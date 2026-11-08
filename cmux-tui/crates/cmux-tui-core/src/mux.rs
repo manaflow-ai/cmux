@@ -668,6 +668,9 @@ pub struct Mux {
     /// never persisted, so a restarted daemon records nothing until asked
     /// again. The rows live in the workspace registry (`terminal_commands`).
     terminal_command_history: AtomicBool,
+    /// Keeps each terminal's newest finished command in memory for a parked
+    /// tab's record: follows `workspaces.freeing.enabled` (`mux/settings.rs`).
+    terminal_last_command: AtomicBool,
     /// The command history worker's bounded queue (`mux/command_history.rs`).
     command_history_worker: Mutex<Option<SyncSender<command_history::CommandHistoryMessage>>>,
     /// Makes the durable commits terminal output asks for, off the output readers.

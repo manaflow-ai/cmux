@@ -97,7 +97,7 @@ pub(crate) fn run<C: ControlPlane>(
             }
             // The owner answer of this link: the connect_info read for it
             // (the info cache drops it when the link goes down or is
-            // revoked, and on sign-out). A failed read is not the owner.
+            // revoked, and on sign-out). A failed read is not the owner, and not a teammate either: unknown.
             let owns = owner_answer(server, &id, &carrier)?;
             Ok(carrier_json(&carrier, owns))
         }
@@ -114,15 +114,20 @@ pub(crate) fn run<C: ControlPlane>(
     }
 }
 
-/// The owner answer of a connect (cmux-platform#89). A cached answer is
-/// usable only for the same link generation and authentication epoch, so a
-/// connect over an up carrier does not synchronously call Cloud. A sign-out,
-/// access loss, or identity change clears the cache and links as needed.
+/// The owner answer of a connect (cmux-platform#89): `Some(true)` the
+/// Worker's `owner`, `Some(false)` its `team`, `None` when no such answer
+/// could be read (an unavailable identity, a transient Cloud error, or a
+/// `vm_kind` absent or not one of the two), which is never cached. A machine
+/// that is gone or out of reach is the connect's typed refusal instead. A
+/// cached answer is usable only for the same link generation and
+/// authentication epoch, so a connect over an up carrier does not
+/// synchronously call Cloud. A sign-out, access loss, or identity change
+/// clears the cache and links as needed.
 fn owner_answer<C: ControlPlane>(
     server: &mut Server<C>,
     machine: &str,
     carrier: &Carrier,
-) -> Result<bool, CloudError> {
+) -> Result<Option<bool>, CloudError> {
     let identity = match server.control_plane_mut().session() {
         Ok(status) if status.signed_in => Some((true, status.team)),
         Ok(_) | Err(RelayError::NotSignedIn) => {
@@ -138,7 +143,7 @@ fn owner_answer<C: ControlPlane>(
         }
     };
     recheck_carrier(server, machine, carrier)?;
-    let Some(identity) = identity else { return Ok(false) };
+    let Some(identity) = identity else { return Ok(None) };
     server.update_auth_identity(identity.0, identity.1);
     let epoch = server.auth_epoch();
     if let Some((generation, cached_epoch, owns)) =
@@ -146,20 +151,31 @@ fn owner_answer<C: ControlPlane>(
         && generation == carrier.generation
         && cached_epoch == epoch
     {
-        return Ok(owns);
+        return Ok(Some(owns));
     }
     match super::info::connect_info(server, machine) {
         Ok(info) => {
             recheck_carrier(server, machine, carrier)?;
-            let owns = info.caller_owns_vm();
+            // The Worker's own word: only an exact `owner` or `team` is known.
+            // An absent (a Worker that predates it) or other value is unknown
+            // and not cached, as a failed read.
+            let owns = match info.vm_kind.as_deref() {
+                Some("owner") => true,
+                Some("team") => false,
+                _ => {
+                    // Nor its record: the next connect reads the owner answer again.
+                    server.attach_mut().infos.forget(machine);
+                    return Ok(None);
+                }
+            };
             server
                 .attach_mut()
                 .owner_answers
                 .insert(machine.to_owned(), (carrier.generation, epoch, owns));
-            Ok(owns)
+            Ok(Some(owns))
         }
         Err(error) if end_links_after(server, machine, &error) => Err(error),
-        Err(error) if transient_owner_error(&error) => Ok(false),
+        Err(error) if transient_owner_error(&error) => Ok(None),
         Err(error) => Err(error),
     }
 }
@@ -219,7 +235,7 @@ fn end_links_after<C: ControlPlane>(
     }
 }
 
-fn carrier_json(carrier: &Carrier, owns: bool) -> Value {
+fn carrier_json(carrier: &Carrier, owns: Option<bool>) -> Value {
     json!({
         "machine": carrier.target,
         "carrier": carrier.id,
@@ -228,7 +244,8 @@ fn carrier_json(carrier: &Carrier, owns: bool) -> Value {
         // TODO(fd passing): the supervisor passes a socketpair fd once the app
         // host can; until then the client dials the link's local socket.
         "socket": carrier.socket.to_string_lossy(),
-        "vm_kind": if owns { "owner" } else { "team" },
+        // `unknown`: no owner answer could be read; it grants nothing, as `team`, but is no teammate's machine.
+        "vm_kind": match owns { Some(true) => "owner", Some(false) => "team", None => "unknown" },
     })
 }
 

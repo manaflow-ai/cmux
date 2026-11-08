@@ -16,13 +16,14 @@ nonisolated enum CloudSessionActionCatalog: ActionCatalogGroup {
         // An agent's run waits for the person's Start on its chat's card, then for the session.
         start.waitsForPerson = true
         // cmuxterm-hq#7086: the relay-first chat. The prompt goes over HTTPS to the platform and down the socket
-        // the machine holds from boot, so the first reply never waits for this Mac's link to the machine.
+        // the machine holds from boot. Since cmux#36846 a machine this Mac has no link to yet first gets that link and its
+        // owner check, then the person's harness login, and only then the send (link, owner check, login, send).
         var relay = ActionDescriptor(
             id: "cloudRelayChat",
             title: String(localized: "action.cloudRelayChat", defaultValue: "Chat on Cloud Machine via the Relay…", table: "CloudSessionActions", bundle: .module),
-            description: "Sends --prompt to --agent (claude, codex, ...) on a Cloud machine (--target machine:<id>) over the machine's relay, with no link to the machine, and answers when the turn ends: session_id (the machine's acpmux session), reply, stop_reason, first_text_ms and total_ms. A turn still running after 35 s answers what came so far with ended: false and goes on in that session while the app runs. delivered: false means the prompt never reached the machine (no machine took it, or the relay refused it). --cwd is the folder there; --prompt-id makes a resend run once.",
+            description: "Sends --prompt to --agent (claude, codex, ...) on a Cloud machine (--target machine:<id>) over the machine's relay and answers when the turn ends. A machine with no link yet gets this Mac's link and its owner check first, then the person's harness login, then the send. The answer carries session_id (the machine's acpmux session), reply, stop_reason, first_text_ms and total_ms. A turn still running after 35 s answers what came so far with ended: false and goes on in that session while the app runs. delivered: false means the prompt never reached the machine (no machine took it, or the relay refused it). --cwd is the folder there; --prompt-id makes a resend run once; --login pass|machine|none is the harness login the machine gets first, as cloud start-session takes it.",
             keywords: ["vm", "cloud", "agent", "chat", "relay", "prompt", "claude", "codex"], category: .cloud, symbol: "bubble.left.and.text.bubble.right",
-            surfaces: [.palette], arguments: [agent, prompt, cwd, promptID], targets: [.machine], cliName: "cloud relay-chat",
+            surfaces: [.palette], arguments: [agent, prompt, cwd, promptID, login], targets: [.machine], cliName: "cloud relay-chat",
             surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .pointerMenuTrim)
         )
         // The CLI waits for the turn's answer (or what came of it within CloudHandlers.answerWithin).

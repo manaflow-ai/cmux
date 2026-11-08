@@ -101,10 +101,66 @@ struct TerminalKeyResizeFrameTests {
         #expect(unsized.isEmpty, "\(unsized.count) frames showed a terminal at a size its pane had not had yet: \(unsized.prefix(8))")
         #expect(stretched.isEmpty, "\(stretched.count) frames showed a terminal's frame stretched: \(stretched.prefix(8))")
         #expect(landed.isEmpty, "after the landing a terminal does not show its pane's size: \(landed)")
-        #expect(resizes.allSatisfy { $0 <= windows }, "a press resized a terminal's program more than once per 25 ms (\(windows) windows): \(resizes)")
+        #expect(resizes.allSatisfy { $0 <= windows }, "a press resized a terminal's program more than once per refresh (\(windows) refreshes): \(resizes)")
         let ends = Self.ptyEndsAtItsViewsGrid(screen)
         #expect(ends.isEmpty, "a PTY does not end at its view's grid: \(ends)")
         #expect(changes.allSatisfy { $0 > 3 }, "a terminal took a new size in only \(changes) of \(steps) spring frames: it did not follow its pane")
+    }
+
+    /// T-KEYS 3 (keys bench 8554d26b, cmux10s, macOS 27.0.1, 120 Hz: in the first frame after a press every terminal
+    /// showed its old size, its new size in flight; every later frame was drawn ahead): the frame that shows a key press
+    /// shows each terminal at its pane's size in it. Chromium's model: the input changes the model in its own turn, and the
+    /// frame that shows the change has its content at that size. The key's turn asks Ghostty for each terminal's size at
+    /// the press's first refresh (render only: no bounds, no grid, no layout, S1B), as each later refresh is drawn ahead,
+    /// so that refresh's pass presents the frame drawn at it with its bounds.
+    ///
+    /// Ctrl-Shift-L, then Ctrl-Shift-H at rest, on p2 of p1 | p2. After the key's turn and its commit the renderer gets the
+    /// time the app gives it before the first refresh (here: until each size drawn ahead is drawn, at most 1 s); then the
+    /// first frame is stepped and its commit read, per terminal: the size drawn ahead in the key's turn, what the presenter
+    /// holds, the size in flight, the layer and its area.
+    @Test func theFirstFrameAfterAKeyPressShowsEachTerminalAtItsPanesSize() async throws {
+        let screen = try await PaneScreen()
+        defer { screen.close() }
+        // Warm-up press: one-time setup is not the press under test.
+        _ = PaneResize.press("p2", .left, model: screen.model, view: screen.root)
+        _ = await Self.step(screen, record: nil)
+        await Self.settle(screen)
+        let presenter = TerminalFramePresenter.forWindow(screen.window)
+        var off: [String] = [], notAhead: [String] = [], resized = 0
+        for direction in [LayoutDirection.right, .left] {
+            let start = screen.sessions.map { $0.surfaceView.frame.size }
+            try #require(PaneResize.press("p2", direction, model: screen.model, view: screen.root), "Ctrl-Shift-\(direction) on p2 moved nothing")
+            await Self.commit() // the key's turn: its presenter pass, then its commit
+            let ahead = screen.sessions.map { $0.surfaceView.frameOwnership.ahead }
+            _ = await Self.commits(screen, seconds: 1) { screen in
+                screen.sessions.allSatisfy { session in
+                    let view = session.surfaceView, state = view.hostFrame(present: false)
+                    return view.frameOwnership.ahead == nil || state == GHOSTTY_HOST_FRAME_READY || state == GHOSTTY_HOST_FRAME_SHOWN
+                }
+            }
+            let first = await Self.stepFrame(screen)
+            try #require(first.moving, "Ctrl-Shift-\(direction) did not spring")
+            for (index, session) in screen.sessions.enumerated() {
+                let view = session.surfaceView, host = session.view
+                let area = host.surfaceSize(forHostSize: host.bounds.size), layer = view.layer?.bounds.size ?? .zero
+                let scale = view.layer?.contentsScale ?? 2
+                let line = "Ctrl-Shift-\(direction) first frame p\(index + 1): drawn ahead in the key's turn "
+                    + "\(ahead[index].map(Self.text) ?? "none"), presenter \(presenter.debugState(of: view)), in flight "
+                    + "\(view.frameOwnership.inFlight.map(Self.text) ?? "none"), layer \(Self.text(layer)), area \(Self.text(area))"
+                print("T-KEYS 3 \(line)")
+                guard area != start[index] else { continue }
+                resized += 1
+                if presenter.isWaiting(view) || abs(layer.width - area.width) * scale > 1 || abs(layer.height - area.height) * scale > 1 {
+                    off.append(line)
+                }
+                if ahead[index] != area { notAhead.append(line) }
+            }
+            _ = await Self.step(screen, record: nil)
+            await Self.settle(screen)
+        }
+        try #require(resized > 0, "no first frame changed a terminal's area: the case under test did not happen")
+        #expect(notAhead.isEmpty, "\(notAhead.count) terminals' first-frame sizes were not drawn ahead in the key's turn: \(notAhead)")
+        #expect(off.isEmpty, "\(off.count) terminals did not show their pane's size in the first frame after the key: \(off)")
     }
 
     /// Review of #35470 (F1): a terminal whose frames wait at the landing (a busy program, or one that holds its frames
@@ -153,7 +209,7 @@ struct TerminalKeyResizeFrameTests {
         let resizes = zip(screen.ios.map { $0.resizes.count }, resizesBefore).map { $0 - $1 }
         let grids = screen.ios[0].resizes.suffix(resizes[0]).map { "\($0.columns)x\($0.rows)" }
         let windows = Self.coalescingWindows(since: pressed)
-        #expect(resizes.allSatisfy { $0 <= windows }, "a press resized a terminal's program more than once per 25 ms (\(windows) windows): \(resizes) (p1: \(grids))")
+        #expect(resizes.allSatisfy { $0 <= windows }, "a press resized a terminal's program more than once per refresh (\(windows) refreshes): \(resizes) (p1: \(grids))")
         let ends = Self.ptyEndsAtItsViewsGrid(screen)
         #expect(ends.isEmpty, "a PTY does not end at its view's grid: \(ends)")
     }
@@ -280,7 +336,7 @@ struct TerminalKeyResizeFrameTests {
         #expect(unshown.isEmpty, "\(unshown.count) frames' sizes never showed their own frames: \(unshown.prefix(6))")
         #expect(rested.isEmpty, "after the landing: \(rested)")
         let windows = Self.coalescingWindows(since: pressed)
-        #expect(resizes.allSatisfy { $0 <= windows }, "the presses resized a terminal's program more than once per 25 ms (\(windows) windows): \(resizes)")
+        #expect(resizes.allSatisfy { $0 <= windows }, "the presses resized a terminal's program more than once per refresh (\(windows) refreshes): \(resizes)")
     }
 
     /// One terminal after a frame's sizes landed: its surface's frame and its area (host points: the host's area under
@@ -464,11 +520,12 @@ struct TerminalKeyResizeFrameTests {
 
     static func text(_ size: CGSize) -> String { "\(size.width)x\(size.height)" }
 
-    /// The most grids one terminal's PTY may get from `start` to now under m18's coalescing: one per 25 ms window
-    /// (``TerminalGridReportCoalescer/defaultInterval``) begun in that time, plus the landing's flush.
+    /// The most grids one terminal's PTY may get from `start` to now under m18's coalescing: one per display refresh
+    /// (RESIZE P0 6: a window ends at the next refresh; 120 Hz, the fastest a fleet display runs, so the bound holds at
+    /// any rate) begun in that time, plus the landing's flush.
     static func coalescingWindows(since start: ContinuousClock.Instant) -> Int {
         let ms = Self.ms(start.duration(to: .now))
-        return Int((ms / 25).rounded(.up)) + 1
+        return Int((ms / (1000.0 / 120)).rounded(.up)) + 1
     }
 
     /// The terminals whose PTY's last grid (as their IO recorded it) is not the grid their view fits now.
@@ -582,12 +639,12 @@ nonisolated final class AnnouncingTerminalIO: TerminalIO {
     }
 
     /// Every grid the view reported, in order, with the main-thread time of the report
-    /// (``resizeOnMain(cols:rows:final:window:)``: the session calls it in the report's turn, before the ordered input
+    /// (``resizeOnMain(cols:rows:window:)``: the session calls it in the report's turn, before the ordered input
     /// stream delivers ``resize(cols:rows:pixelWidth:pixelHeight:)``).
     let reports = Mutex<[Report]>([])
 
     /// Records the report and lets it go on through the ordered input stream (returns false).
-    @MainActor func resizeOnMain(cols: Int, rows: Int, final: Bool, window: NSWindow?) -> Bool {
+    @MainActor func resizeOnMain(cols: Int, rows: Int, window: NSWindow?) -> Bool {
         reports.withLock { $0.append(Report(grid: TerminalGridSize(columns: cols, rows: rows), at: .now)) }
         return false
     }

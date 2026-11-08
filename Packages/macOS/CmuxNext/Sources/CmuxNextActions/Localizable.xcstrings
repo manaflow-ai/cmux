@@ -14021,6 +14021,137 @@
         }
       }
     },
+    "menu.folder.archive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archive"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーカイブ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أرشفة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arhiviraj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arkivér"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archivieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archivar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archiver"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archivia"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទុកក្នុងប័ណ្ណសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보관"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arkiver"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archiwizuj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arquivar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Архивировать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เก็บถาวร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arşivle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Архівувати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lưu trữ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "归档"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "封存"
+          }
+        }
+      }
+    },
     "menu.folder.close": {
       "extractionState": "manual",
       "localizations": {
@@ -31289,6 +31420,33 @@
             "value": "子代理上限…"
           }
         }
+      }
+    },
+    "argument.environment": {
+      "comment": "cloud new-machine argument: the Cloud environment (a saved setup of repository and script) the new machine boots in.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Cloud Environment"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "クラウド環境"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Cloud-Umgebung"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Environnement cloud"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Entorno en la nube"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "بيئة السحابة"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "클라우드 환경"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "云环境"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "雲端環境"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Cloud okruženje"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Cloud-miljø"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Ambiente cloud"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បរិស្ថានពពក"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Skymiljø"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Środowisko w chmurze"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Ambiente na nuvem"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Облачное окружение"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "สภาพแวดล้อมคลาวด์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bulut ortamı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Хмарне середовище"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Môi trường đám mây"}}
       }
     },
     "argument.repo": {

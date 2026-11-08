@@ -88,7 +88,7 @@ nonisolated extension ActionSurfaceCatalog {
         "screenGroup.save", "screenGroup.unsave", "screenGroup.reopenSaved", "screenGroup.deleteSaved",
         "terminal.keep", "clearScreenKeepScrollback", "resetTerminal", "reconnectPane", "resumeCommandSet",
         "agentPaneZoomIn", "agentPaneZoomOut", "agentPaneZoomReset",
-        "resumeCommandClear", "palette.terminalOpenDirectory", "browserReload",
+        "resumeCommandClear", "terminal.runLastCommandAgain", "palette.terminalOpenDirectory", "browserReload",
         "browserHardReload", "browser.openInChromium", "browser.openInWebKit", "browser.resetPinnedTab", "browser.editSource", "file.openAsPage", "splitBrowserRight", "splitBrowserDown",
         "palette.browserOpenDefault", "palette.browserClearHistory", 
         "browserScreenshotPage", "browserTheme", "browserDevice", "browserFitDesktop", "browserFit", "browserFitDesktop1280", 
@@ -117,7 +117,7 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.cloud.handoff", "cloudMove", "cloudBringBack", "cloudSSH", "cloudExec", "cloudSetupGitHub", "cloudEnrollMachine", "cloudApplyMachineConfig", "cloudDeliverSecrets", "cloudFilesList", "cloudFileRead", "cloudFileWrite",
         "cloudFileMkdir", "cloudFileRemove", "cloudFileStat", "cloudPrepareSCP",
         "cloudTunnelAttach", "cloudTunnelDetach", "cloudTunnelRotateKey", "cloudNetworkList",
-        "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete", "cloudNewTerminal", "cloudRenameMachine", "cloudShareMachine", "cloudKillMachine", "cloudResizeMachine",
+        "cloudFirewallList", "cloudFirewallGet", "cloudFirewallCreate", "cloudFirewallDelete", "cloudNewTerminal", "cloudRenameMachine", "cloudKillMachine", "cloudResizeMachine",
         "cloudDiagnostics", "cloudPauseMachine", "cloudResumeMachine", "cloudSetIdlePause", "cloudSetNetworkAccess", "cloudOpenDesktop", "cloudDomainList", "cloudPublicationList", "cloudProvisionAPI", "cloudAPIKeyList", "cloudAPIKeyRevoke", "cloudListMachines", "palette.cloud.deleteSnapshot", "palette.auth.signIn", "palette.auth.signOut", "accounts.show", "palette.mobileConnect", "accounts.refresh",
         "accounts.reauthenticate", "accounts.connect", "accounts.remove", "accounts.githubConnect", "remote.connect", "remote.newGroup", "remote.removeGroup", "machine.reconnect", "remote.newWorkspace",
         "remote.openTerminalHere", "remote.openRemote", "remote.reconnect", "remote.disconnect", "remote.install", "remote.forget",
@@ -199,6 +199,8 @@ nonisolated extension ActionSurfaceCatalog {
             "hints.show", "sidebar.profileMenu", "browser.downloads.showFolder",
             // `cmux live start|stop` is the CLI (cli/app/live.rs); these are its palette and Settings face.
             "liveWeb.start", "liveWeb.stop",
+            // `cmux live start|stop --swift` is the CLI (cli/app/live.rs); the app quits mid-run.
+            "liveSwift.start", "liveSwift.stop",
         ],
         .liveInput: [
             "palette.toggleDictation",

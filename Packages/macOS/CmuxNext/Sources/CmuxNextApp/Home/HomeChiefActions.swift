@@ -1,7 +1,7 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextActions
-import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 
 /// `home.stopChief` and `home.toggleChiefSettings` from anywhere (the palette, a menu, the compose

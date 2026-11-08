@@ -198,11 +198,10 @@ final class AgentPageHibernation: HiddenChatPagesHost {
         let tabID = scopedKey(key, in: tabs).key
         let readWake = wakeState
         let takeSnapshot = snapshot
-        let requiresFrame = !started.forWorkspace && !pages.setting.discardsAutomatically
         let cause = started.cause
         Task { @MainActor [weak self] in
-            let captured = await AgentPaneHibernationCapture(view: view).capture(key: tabID, images: tabs.launchImages,
-                                                           requiresFrame: requiresFrame, wake: readWake, snapshot: takeSnapshot)
+            let captured = await AgentPaneHibernationCapture(view: view).capture(key: tabID, images: tabs.launchImages, requiresFrame: started.requiresFrame,
+                                                           keepsDraft: started.byChatPolicy, wake: readWake, snapshot: takeSnapshot)
             guard let self else { return }
             pages.endRelease(key)
             if let reason = captured.kept {

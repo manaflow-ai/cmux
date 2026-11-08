@@ -109,7 +109,10 @@ function TranscriptType({ signIn, approve = false }: { signIn?: LoginAgent; appr
       <div data-type="tool-output">
         <ToolRow item={tool("Fetch retry log", "fetch", "completed", { output })} />
       </div>
-      <CommandRow item={tool("Run retry tests", "execute", "completed", { command: "bun test", exitCode: 2 })} />
+      {/* A script the verb table does not know (commandActions.ts), so the row draws its line in mono. */}
+      <CommandRow
+        item={tool("Run retry tests", "execute", "completed", { command: "./scripts/retry-check.sh", exitCode: 2 })}
+      />
       <ShellRow
         row={{
           id: "type-shell",

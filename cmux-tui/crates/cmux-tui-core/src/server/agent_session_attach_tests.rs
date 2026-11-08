@@ -278,6 +278,11 @@ fn serve(
                 })
             }
             "_acpmux/permission_respond" | "_acpmux/view" => Some(json!({})),
+            "_acpmux/context" | "_acpmux/context_override" => Some(json!({
+                "sessionId": params["sessionId"],
+                "parts": [{"source": "cmux", "text": "Read early.", "tokens": 3}],
+                "overrides": {"scope": params["scope"], "text": params["text"]},
+            })),
             "session/set_model" | "session/set_mode" => Some(json!({})),
             // A Cloud chat's sign-in: a wrong code is refused with acpmux's reason.
             "_acpmux/agent_login/start" => Some(json!({"loginId": "login_1",
@@ -535,6 +540,31 @@ impl Client {
         }
     }
 
+    /// Whether the daemon ends this connection (end of stream) within `timeout`; any line read
+    /// before it is dropped.
+    pub(super) fn ends_within(&mut self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        let mut line = String::new();
+        while Instant::now() < deadline {
+            line.clear();
+            match self.reader.read_line(&mut line) {
+                Ok(0) => return true,
+                Ok(_) => continue,
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    continue;
+                }
+                // A reset is the connection ending too.
+                Err(_) => return true,
+            }
+        }
+        false
+    }
+
     /// The next `agent-session-*` event (buffered first).
     pub(super) fn event(&mut self, timeout: Duration) -> Option<Value> {
         if let Some(index) = self.events.iter().position(is_agent_event) {
@@ -608,6 +638,7 @@ pub(super) fn assert_code(reply: &Value, code: &str) {
 include!("agent_session_observe_tests.rs");
 include!("agent_session_answers_tests.rs");
 include!("agent_session_children_tests.rs");
+include!("agent_session_context_tests.rs");
 
 // MARK: Capability and trust
 
@@ -663,6 +694,9 @@ fn every_verb(surface: SurfaceId) -> Vec<Value> {
         json!({"id":10,"cmd":"agent-session-set-mode","surface":surface,"mode_id":"plan"}),
         json!({"id":11,"cmd":"agent-session-set-config","surface":surface,
                "config_id":"effort","value":"high"}),
+        json!({"id":13,"cmd":"agent-session-context","surface":surface,"op":"get"}),
+        json!({"id":14,"cmd":"agent-session-context","surface":surface,"op":"set",
+               "scope":"user","text":"Read early."}),
     ]
 }
 

@@ -258,7 +258,7 @@ extension AgentTabStore {
             guard let window = spare?.window else { return }
             NotificationCenter.default.post(name: Notification.Name.browserChildWindowPagesNeedUpdate, object: window)
         }
-        guard spare.adoptSession(session, revealTurn: revealTurn, moved: moved) else {
+        guard spare.adoptSession(session, tab: key, revealTurn: revealTurn, moved: moved) else {
             AgentPaneSpareOutcome.refused.trace(note: spare.model.spareRefusal)
             if let revealTurn { pendingTurns[key] = revealTurn }
             if recycle?(spare) != true { retirer.retire(spare) }
@@ -375,7 +375,7 @@ extension AgentTabStore {
             if newTabPages[scoped] != nil, recycle?(view) == true {
                 standaloneViews.add(view)
             } else {
-                retirer.retire(view)
+                retirer.retire(view, keeping: newTabPages[key] == nil && !view.model.remoteChat && !view.model.neverPooled ? view.model.sessionId : nil)
             }
         }
         notices[scoped] = nil

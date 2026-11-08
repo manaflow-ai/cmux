@@ -4,6 +4,11 @@
 // no composer pickers, sessions, inspector or permission buttons. A pending ask shows who it waits on.
 // An invite (`/i/<id>`, a person invited by account) joins as the signed-in account, with no name
 // field; a `view` invitee watches with no composer.
+// A link (`/g/<id>`) asks the room who is signed in first (`whoami`): a cmux account joins as itself,
+// "Join as <name>" with its picture and an Edit for the name (Leo, 2026-11-07: "they can just use
+// their cmux account, and then they wouldn't have to enter their name that way, although they could
+// customize their name potentially if they wanted to"); anyone else types a name as before. The
+// redeem's `role` decides the composer: `talk` (a signed-in guest on a talk link) may send.
 import "./guest.css";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { VirtualTranscript } from "../acpmux/App";
@@ -11,12 +16,21 @@ import { AcpmuxDirectClient } from "../acpmux/direct";
 import { GuestActionsBoundary } from "../acpmux/conversation/GuestActionsBoundary";
 import { useT } from "../acpmux/i18n";
 import type { AcpmuxSnapshot } from "../acpmux/model";
-import { PresenceStack } from "../acpmux/multiplayer/Faces";
+import { Face, PresenceStack } from "../acpmux/multiplayer/Faces";
 import { displayName, participant, type Participant } from "../acpmux/multiplayer/participants";
 import { GuestComposer, GuestMessages } from "./GuestComposer";
 import { GuestPrompts } from "./guestPrompts";
 import { GuestSendQueue } from "./guestSendQueue";
-import { type Accept, type GuestRole, type JoinedVia, joinName, type Redeem, type RedeemError } from "./redeem";
+import {
+  type Accept,
+  type GuestRole,
+  type JoinedVia,
+  joinName,
+  type Redeem,
+  type RedeemError,
+  type WhoAmI,
+  type WhoAmIFetch,
+} from "./redeem";
 import { TypingSignal } from "./typingSignal";
 import {
   type GuestChat,
@@ -147,7 +161,8 @@ export function JoinPage({
   return (
     <main className="guest-card">
       <h1 className="guest-card__title">{t("guest.join.title")}</h1>
-      <p className="guest-card__detail">{t("guest.join.detail")}</p>
+      {/* A guest who joins by the link alone watches only; sending takes an invited account. */}
+      <p className="guest-card__detail">{t("guest.live.viewOnly")}</p>
       <form className="guest-join" onSubmit={submit}>
         <input
           className="guest-join__name"
@@ -172,6 +187,99 @@ export function JoinPage({
   );
 }
 
+/** The signed-in account a link guest joins as: its name and picture from the room's `whoami`. */
+export type SignedIn = { name: string; avatarUrl?: string };
+
+/**
+ * A link's join for a visitor signed in to cmux: "Join as <name>" with their picture, and a quiet
+ * Edit name that opens the name field, filled with the account's name. Join redeems the link with
+ * the shown (maybe edited) name; the room adds the account from its own sign-in.
+ */
+export function JoinAsPage({
+  account,
+  editing: editingAtStart = false,
+  onJoin,
+}: {
+  account: SignedIn;
+  /** Starts with the name field open (the gallery's edit state). */
+  editing?: boolean;
+  /** Redeems with the name; resolves to the error to show, or undefined once joined. */
+  onJoin: (name: string) => Promise<RedeemError | undefined>;
+}) {
+  const t = useT();
+  const [editing, setEditing] = useState(editingAtStart);
+  const [typed, setTyped] = useState(account.name);
+  const field = useRef<HTMLInputElement>(null);
+  // Edit name asked for the field: the caret goes there (a field open from the start takes none).
+  useEffect(() => {
+    if (editing && !editingAtStart) field.current?.focus();
+  }, [editing, editingAtStart]);
+  const edit = () => setEditing(true);
+  const [joining, setJoining] = useState(false);
+  const [error, setError] = useState<RedeemError>();
+  const name = editing ? joinName(typed) : account.name;
+  const face: Participant = {
+    id: "guest-join-as",
+    name: name ?? account.name,
+    ...(account.avatarUrl ? { avatar: account.avatarUrl } : {}),
+  };
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (!name || joining) return;
+    setJoining(true);
+    setError(undefined);
+    void onJoin(name).then((failed) => {
+      setJoining(false);
+      setError(failed);
+    });
+  };
+  return (
+    <main className="guest-card" data-testid="guest-join-as">
+      <h1 className="guest-card__title">{t("guest.join.title")}</h1>
+      <p className="guest-card__detail">{t("guest.invite.detail")}</p>
+      <form className="guest-join" onSubmit={submit}>
+        {editing ? (
+          <>
+            <span className="guest-join__face">
+              <Face person={face} size={24} />
+            </span>
+            <input
+              className="guest-join__name"
+              aria-label={t("guest.join.name")}
+              placeholder={t("guest.join.name")}
+              value={typed}
+              maxLength={64}
+              autoComplete="name"
+              ref={field}
+              onChange={(event) => setTyped(event.target.value)}
+            />
+            <button className="guest-join__button" type="submit" disabled={!name || joining}>
+              {joining ? t("guest.join.joining") : t("guest.join.button")}
+            </button>
+          </>
+        ) : (
+          <button className="guest-join__button guest-join__as" type="submit" disabled={joining}>
+            <Face person={face} size={20} />
+            <span className="guest-join__as-label">
+              {joining ? t("guest.join.joining") : t("guest.join.as", { name: account.name })}
+            </span>
+          </button>
+        )}
+      </form>
+      {!editing && (
+        <button className="guest-join__edit" type="button" disabled={joining} onClick={edit}>
+          {t("guest.join.editName")}
+        </button>
+      )}
+      {error && (
+        <p className="guest-card__error" role="alert">
+          <JoinError error={error} />
+        </p>
+      )}
+    </main>
+  );
+}
+
 /** Whether a participant is this guest: its own id, or the author id the daemon stamps (`guest:<share>.<guest>`). */
 const isMe = (id: string, guestId: string) => id === guestId || id.endsWith(`.${guestId}`);
 
@@ -184,6 +292,7 @@ const ownerOf = (participants: GuestParticipant[]): Participant | undefined => {
 export function LiveChat({
   guestId,
   name,
+  avatar,
   role,
   prompts,
   socketUrl,
@@ -194,7 +303,9 @@ export function LiveChat({
   guestId: string;
   /** The name this guest joined with, for its chip until presence names it. */
   name?: string;
-  /** An invitee's role: `view` watches only, so there is no composer. */
+  /** The signed-in account's picture this guest joined with, for its own chip. */
+  avatar?: string;
+  /** This guest's role: only `talk` sends (a composer); `view` or none watches. */
   role?: GuestRole;
   /** This guest's own messages (guestPrompts.ts). */
   prompts: GuestPrompts;
@@ -289,10 +400,10 @@ export function LiveChat({
 
   const owner = ownerOf(people);
   const ownerName = owner?.name ?? t("guest.live.owner");
-  const me = participant(guestId, people.find((person) => isMe(person.id, guestId))?.name ?? name) ?? {
-    id: guestId,
-    name: t("guest.you"),
-  };
+  const named = participant(guestId, people.find((person) => isMe(person.id, guestId))?.name ?? name);
+  const me: Participant = named
+    ? { ...named, ...(avatar && !named.avatar ? { avatar } : {}) }
+    : { id: guestId, name: t("guest.you") };
   const send = (text: string) => {
     typing.stop();
     prompts.add(text);
@@ -342,10 +453,11 @@ export function LiveChat({
         )}
         <div className="guest-live__dock">
           <GuestMessages prompts={mine} me={me} owner={ownerName} />
-          {role === "view" ? (
-            <p className="guest-live__view-only">{t("guest.live.viewOnly")}</p>
-          ) : (
+          {/* Only a `talk` guest sends; no role (an answer that named none) or `view` watches. */}
+          {role === "talk" ? (
             <GuestComposer onSend={send} onDraft={(draft) => typing.input(draft)} />
+          ) : (
+            <p className="guest-live__view-only">{t("guest.live.viewOnly")}</p>
           )}
         </div>
       </div>
@@ -378,7 +490,15 @@ export type GuestPageProps = {
   openSocket?: (url: string) => ShareSocketLike;
   /** Starts on the ended page (the gallery's ended states). */
   ended?: GuestEnded;
+  /** The room's `whoami` for a link (redeem.ts whoamiOverFetch); none, or an invite, asks nobody. */
+  whoami?: WhoAmIFetch;
+  /** Starts the signed-in join with the name field open (the gallery's edit state). */
+  editName?: boolean;
 };
+
+/** How long a link's join waits for `whoami` before it shows the name prompt. */
+const WHOAMI_WAIT_MS = 3000;
+const ANONYMOUS: WhoAmI = { signedIn: false };
 
 export function GuestPage({
   shareId,
@@ -395,8 +515,32 @@ export function GuestPage({
   socketUrl,
   openSocket,
   ended: endedAtStart,
+  whoami,
+  editName = false,
 }: GuestPageProps) {
   const [guestId, setGuestId] = useState(joinedAs);
+  // Asked only on a link's join (a secret, no invite, not joined yet); anything else is anonymous.
+  const asks = !!whoami && !invite && !!secret && !joinedAs;
+  const [who, setWho] = useState<WhoAmI | undefined>(asks ? undefined : ANONYMOUS);
+  useEffect(() => {
+    if (!asks || !whoami) return;
+    let live = true;
+    const settle = (answer: WhoAmI) => live && setWho((known) => known ?? answer);
+    // timeout: a room that never answers whoami would hold the join page blank; past the wait it is
+    // the name prompt, and a late answer changes nothing (the page never swaps under the person).
+    const timer = setTimeout(() => settle(ANONYMOUS), WHOAMI_WAIT_MS);
+    void whoami(shareId).then(
+      (answer) => {
+        clearTimeout(timer);
+        settle(answer);
+      },
+      () => settle(ANONYMOUS),
+    );
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [asks, whoami, shareId]);
   const [name, setName] = useState(joinedName);
   const [role, setRole] = useState(joinedRole);
   const prompts = useMemo(() => new GuestPrompts(shareId, storage), [shareId, storage]);
@@ -405,7 +549,11 @@ export function GuestPage({
     if (!secret) return "failed";
     const result = await redeem(shareId, { attempt_id: attempt(), secret, name });
     if (result.ok) {
-      onJoined?.(result.guestId, name, undefined, "link");
+      // The redeem names the role: `talk` for a signed-in account on a talk link; an anonymous
+      // guest watches (the daemon refuses its messages whatever the room says).
+      const joinedAs = result.role ?? "view";
+      onJoined?.(result.guestId, name, joinedAs, "link");
+      setRole(joinedAs);
       setName(name);
       setGuestId(result.guestId);
       return undefined;
@@ -429,11 +577,15 @@ export function GuestPage({
   };
   if (ended) return <EndedPage reason={ended} />;
   if (!guestId && invite) return <InviteJoinPage signIn={`/i/${encodeURIComponent(shareId)}`} onJoin={acceptInvite} />;
+  // Nothing until the room says who this is (at most WHOAMI_WAIT_MS), so the join never swaps.
+  if (!guestId && !who) return <main className="guest-card" aria-busy="true" />;
+  if (!guestId && who?.signedIn) return <JoinAsPage account={who} editing={editName} onJoin={join} />;
   if (!guestId) return <JoinPage hasSecret={!!secret} onJoin={join} />;
   return (
     <LiveChat
       guestId={guestId}
       name={name}
+      avatar={who?.signedIn ? who.avatarUrl : undefined}
       role={role}
       prompts={prompts}
       socketUrl={socketUrl}

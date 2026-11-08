@@ -156,14 +156,14 @@ import Testing
         defer { reset() }
         var shots: [(String, CGImage)] = []
         for density in [Density.compact, .comfortable] {
-            // No `appearance.chromeStyle` (flat with the sidebar line, no rounded card: tabs keep the
+            // No `appearance.chromeStyle` (flat, no rounded card: tabs keep the
             // item radius and the hover card takes it), the curved main pane, and Floating Panes.
             for style in [ChromeStyle?.none, .card, .floating] {
                 load(style, density: density)
                 let scene = Self.scene(tabs: 2, width: 360)
                 defer { scene.window.close() }
                 let image = try Self.render(scene, hoverRadius: try Self.shownCardRadius(scene))
-                shots.append(("\(style?.rawValue ?? "unset (flat-sidebar-line)") \(density)", image))
+                shots.append(("\(style?.rawValue ?? "unset (flat)") \(density)", image))
             }
         }
         let sheet = PaneMoreShotsTests.contactSheet(shots)

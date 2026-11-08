@@ -153,7 +153,7 @@ final class HomeAgentChatView: NSView {
         let sendLabel = String(localized: "home.agentPane.composer.send", defaultValue: "Send", bundle: .module)
         let sendButton = NSButton(image: NSImage(systemSymbolName: "arrow.up.circle.fill", accessibilityDescription: sendLabel) ?? NSImage(),
                                   target: self, action: #selector(send))
-        sendButton.toolTip = sendLabel
+        sendButton.themedToolTip = sendLabel
         sendButton.isBordered = false
         sendButton.contentTintColor = .controlAccentColor
         let row = NSStackView(views: [field, sendButton])

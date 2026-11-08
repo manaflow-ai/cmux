@@ -18698,6 +18698,138 @@
         }
       }
     },
+    "home.chief.welcome.chord": {
+      "comment": "Chief's welcome message: a two-key shortcut in the shortcut list, in Markdown. %1$@ is the first key (⌘J), %2$@ the key pressed after it (S). Keep the ` marks.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@` then `%2$@`"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@` ثم `%2$@`"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@` pa `%2$@`"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@` derefter `%2$@`"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@`, dann `%2$@`"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@` y luego `%2$@`"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@` puis `%2$@`"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@` poi `%2$@`"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@` の後に `%2$@`"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@` បន្ទាប់មក `%2$@`"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@` 다음 `%2$@`"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@` deretter `%2$@`"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@`, potem `%2$@`"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@` e depois `%2$@`"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@`, затем `%2$@`"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@` แล้ว `%2$@`"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@` ardından `%2$@`"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@`, потім `%2$@`"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@` rồi `%2$@`"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@` 然后 `%2$@`"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`%1$@` 然後 `%2$@`"
+          }
+        }
+      }
+    },
     "home.chief.welcome.shortcuts": {
       "comment": "Chief's welcome message: heading over a list of keyboard shortcuts.",
       "extractionState": "manual",

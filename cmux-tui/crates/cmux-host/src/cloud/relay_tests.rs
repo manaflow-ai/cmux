@@ -170,7 +170,7 @@ fn the_backoff_wait_runs_from_the_relay_thread_outside_any_runtime() {
 
 #[test]
 fn a_stop_drops_the_socket_at_once() {
-    struct Socket(std::sync::Arc<std::sync::atomic::AtomicBool>);
+    struct Socket(Arc<AtomicBool>);
     impl Drop for Socket {
         fn drop(&mut self) {
             self.0.store(true, Ordering::SeqCst);
@@ -178,7 +178,7 @@ fn a_stop_drops_the_socket_at_once() {
     }
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     for gone in [false, true] {
-        let dropped = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let dropped = Arc::new(AtomicBool::new(false));
         let socket = Socket(dropped.clone());
         let (tx, mut rx) = watch::channel(false);
         let serving = async move {
@@ -454,7 +454,7 @@ fn a_failed_session_create_keeps_its_exit_and_its_type() {
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     let frames = rt.block_on(async {
         let (tx, mut rx) = up_queue();
-        run_chat(chat, runner, tx).await;
+        run_chat(chat, runner, tx, Arc::default()).await;
         let mut frames = Vec::new();
         while let Ok(f) = rx.try_recv() {
             frames.push(serde_json::from_str::<Value>(&f).unwrap());
@@ -495,4 +495,10 @@ fn a_chat_counts_as_running_until_its_task_ends_or_is_aborted() {
         let _ = aborted.await;
         assert_eq!(COUNT.load(Ordering::SeqCst), 0);
     });
+}
+
+#[test]
+fn the_ping_is_the_exact_frame_the_platform_answers() {
+    // MachineRelay.ts: setWebSocketAutoResponse matches the text exactly, key order included.
+    assert_eq!(PING, r#"{"v":1,"t":"ping"}"#);
 }
