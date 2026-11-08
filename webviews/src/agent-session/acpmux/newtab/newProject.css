@@ -1,0 +1,36 @@
+/* New Project's name in the location strip (NewProjectName.tsx): the strip's own 22 px row and type,
+   so it fits the strip's height and choosing New Project only changes words. The field reads as the
+   folder's name in the person's text color; its hover and focus are the strip's ghost fill. It gives
+   width up before the folder control and keeps 4 characters. */
+.nt-project-name {
+  display: inline-flex;
+  flex: 0 100 auto;
+  align-items: center;
+  min-width: 0;
+  height: 22px;
+  color: var(--agent-muted);
+}
+.nt-project-name__slash { flex: none; padding-inline-end: 2px; }
+.nt-project-name__field {
+  appearance: none;
+  -webkit-appearance: none;
+  min-width: 4ch;
+  max-width: 220px;
+  height: 22px;
+  margin: 0;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--agent-text);
+  font: inherit;
+  font-weight: var(--weight-regular);
+  text-overflow: ellipsis;
+  outline: none;
+}
+.nt-project-name__field::placeholder { color: var(--agent-muted); }
+.nt-project-name__field:hover,
+.nt-project-name__field:focus-visible {
+  background: var(--acpmux-composer-hover);
+}

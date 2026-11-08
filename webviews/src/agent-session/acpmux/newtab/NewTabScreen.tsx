@@ -18,6 +18,8 @@ import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel, sessionMark } from "../sessionList";
 import { leaders } from "../leads";
 import { WorktreeFailure } from "../startFolder";
+import { NewProjectName, NewProjectFailure } from "./NewProjectName";
+import { awaitProjectPreview, newProjectPrompt, projectNameFrom, projectSlug } from "./newProject";
 import { BrowseFailure } from "../BrowseFailure";
 import { browseFailureMessage } from "../browseFailureModel";
 import { type BrowseRequest } from "../AddProjectPanel";
@@ -286,6 +288,9 @@ type Props = NewTabScreenActions & {
   projects?: Project[];
   /// The host's folder panel; resolves with the folder picked, if any.
   onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult>;
+  /// New Project (newProject.ts): acpmux makes folder `name` with an empty git repository; resolves
+  /// with the folder it made.
+  onNewProject?(name: string): Promise<string>;
   /// The new chat's extra folders, in its folder menu (ComposerContext `extraFolders`).
   extraFolders?: ExtraFolderControl;
   chips?: NewTabChips;
@@ -377,6 +382,11 @@ export function NewTabScreen(props: Props) {
   // a carried composer draft is already serialized Markdown, including attachment tokens.
   const untouchedText = useRef((location ?? "").replace(/[!-/:-@[-`{-~]/g, "\\$&").replace(/\r\n?|\n/g, "\\\n"));
   const [text, setText] = useState(carried?.text || untouchedText.current);
+  // New Project is the choice: the send makes the folder first (askInNewProject). `name` is the one
+  // the person typed; until then it is the prompt's (projectNameFrom).
+  const [newProject, setNewProject] = useState<{ name?: string }>();
+  const [newProjectError, setNewProjectError] = useState<string>();
+  const newProjectPending = useRef(false);
   const originalLocation = useRef((location ?? "").replace(/\r\n?/g, "\n"));
   const [commandActive, setCommandActive] = useState(0);
   /// The `/word` the arrows chose a row at: Return picks that row while the word and the list stay.
@@ -740,6 +750,7 @@ export function NewTabScreen(props: Props) {
       return started === true;
     }
     if (environment) return askInEnvironment(environment, agent, sent.text, model, sentAttachments);
+    if (newProject && props.onNewProject) return askInNewProject(agent, sent.text, model, sentAttachments);
     if (machine)
       return requestChat(
         agent,
@@ -1590,9 +1601,22 @@ export function NewTabScreen(props: Props) {
     };
   }, []);
   const [browseError, setBrowseError] = useState<string>();
+  const chooseNewProject = () => {
+    projectChoice.current += 1;
+    setBrowseError(undefined);
+    setNewProjectError(undefined);
+    props.onCloudMachinePicked?.(undefined);
+    saved.pick(undefined);
+    setMachine(undefined);
+    touch();
+    setNone(false);
+    setNewProject((before) => before ?? {});
+    requestAnimationFrame(() => field.current?.focus());
+  };
   const pickProject = (cwd?: string) => {
     projectChoice.current += 1;
     setBrowseError(undefined);
+    setNewProject(undefined);
     // A folder choice starts this draft on this Mac. Drop any account Cloud target selected
     // earlier so the next keystroke cannot wake that stale machine.
     props.onCloudMachinePicked?.(undefined);
@@ -1616,6 +1640,7 @@ export function NewTabScreen(props: Props) {
     // A newer choice than any worktree still on its way (`projectChoice`).
     projectChoice.current += 1;
     setBrowseError(undefined);
+    setNewProject(undefined);
     // Choosing a local or SSH machine replaces an account Cloud target for this draft.
     props.onCloudMachinePicked?.(undefined);
     saved.pick(undefined);
@@ -1670,6 +1695,28 @@ export function NewTabScreen(props: Props) {
       (error: unknown) => {
         unstarted();
         setWorktreeError((error instanceof Error && error.message) || String(error));
+      },
+    );
+  }
+  // New Project's chat: acpmux makes the folder and its repository, then the chat starts there as in
+  // a picked folder, asked to serve what it builds; its first local page opens beside it (App.tsx
+  // useNewProjectPreview). A refusal shows above the card and the prompt stays in the field.
+  function askInNewProject(agent: string, prompt: string, model?: string, sentAttachments?: ComposerAttachment[]) {
+    if (newProjectPending.current || !props.onNewProject) return;
+    newProjectPending.current = true;
+    setNewProjectError(undefined);
+    const extra = sentAttachments?.length ? sentAttachments : undefined;
+    const name = projectSlug(newProject?.name ?? "") || projectNameFrom(prompt);
+    void props.onNewProject(name).then(
+      (folder) => {
+        newProjectPending.current = false;
+        awaitProjectPreview(folder);
+        requestChat(agent, newProjectPrompt(prompt), folder, model, undefined, extra, {});
+      },
+      (error: unknown) => {
+        newProjectPending.current = false;
+        created.current = false;
+        setNewProjectError((error instanceof Error && error.message) || String(error));
       },
     );
   }
@@ -1784,7 +1831,7 @@ export function NewTabScreen(props: Props) {
           sessionId: chipSnapshot.summary?.sessionId ?? "",
           ...(machine
             ? { peer: machine.peer, cwd: machine.folder }
-            : askFolder
+            : askFolder && !newProject
               ? { cwd: askFolder }
               : { cwd: undefined }),
         }}
@@ -1803,7 +1850,21 @@ export function NewTabScreen(props: Props) {
         projectChoices={props.projects ?? []}
         onProject={(cwd, peer) => (peer ? pickMachine({ peer, folder: cwd }) : pickProject(cwd))}
         onNoProject={() => pickProject(undefined)}
-        noProject={none}
+        noProject={none && !newProject}
+        {...(props.onNewProject
+          ? {
+              onNewProject: chooseNewProject,
+              newProject: !!newProject,
+              newProjectName: newProject && (
+                <NewProjectName
+                  {...(newProject.name !== undefined ? { name: newProject.name } : {})}
+                  derived={projectNameFrom(text)}
+                  onName={(name) => setNewProject({ name })}
+                  onDone={() => field.current?.focus()}
+                />
+              ),
+            }
+          : {})}
         {...(browseProject ? { onBrowseProject: browseProject } : {})}
         {...(props.environments ? { environments: true } : {})}
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
@@ -2015,6 +2076,9 @@ export function NewTabScreen(props: Props) {
           </p>
         )}
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
+        {newProjectError && (
+          <NewProjectFailure error={newProjectError} onDismiss={() => setNewProjectError(undefined)} />
+        )}
         {browseError && browseProject && (
           <BrowseFailure error={browseError} onRetry={browseProject} onDismiss={() => setBrowseError(undefined)} />
         )}

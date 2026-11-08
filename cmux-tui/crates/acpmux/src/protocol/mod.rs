@@ -229,6 +229,7 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::ForumRulesParams>(method::MUX_FORUM_RULES, Request),
         keyed::<params::SetToolsParams>(method::MUX_SET_TOOLS, Request),
         untyped(method::MUX_SET_DIRECTORIES, Request),
+        untyped(method::MUX_PROJECT_NEW, Request),
         keyed::<params::McpReconnectParams>(method::MUX_MCP_RECONNECT, Request),
         keyed::<params::SubagentStopParams>(method::MUX_SUBAGENT_STOP, Request),
         keyed::<params::SubagentTranscriptParams>(method::MUX_SUBAGENT_TRANSCRIPT, Request),

@@ -2045,6 +2045,7 @@ pub mod local_app;
 pub(crate) mod machine_health;
 mod models_fanout;
 mod new_worktree;
+mod project_new;
 mod outbound;
 use outbound::{
     OUTBOUND_CONTROL_RESERVE, enqueue_after_controls, enqueue_outbound, enqueue_outbound_locked,

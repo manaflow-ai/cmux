@@ -1,0 +1,164 @@
+//! `_acpmux/project_new {name}`: a new, empty project for a chat to build in.
+//! The New Tab's New project (webviews `newtab/newProject.ts`) asks for one,
+//! then starts its chat there. The folder is made in the person's projects
+//! folder (`~/Projects`, else the first of `~/projects`, `~/Developer`,
+//! `~/code` and `~/src` that exists, else a new `~/Projects`), under `name`,
+//! or `name-2` and on when that is taken; never an existing folder. It gets an
+//! empty git repository (`git init`), and acpmux's record trusts it, as a
+//! Trust click would: the person made it for this chat. The answer is
+//! `{cwd, name, git}`, with `git` false when `git init` failed (the folder is
+//! still made).
+//!
+//! Only over the local unix socket and from the app's agent pane
+//! (`Origin::LocalApp`), as a worktree (`new_worktree.rs`): a Web client or a
+//! peer makes no folder on this machine and records no trust here.
+
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+
+use serde_json::{Value, json};
+
+use super::Origin;
+use crate::hub::Hub;
+use crate::rpc::RpcError;
+
+/// The longest name kept; the web shortens what it derives from a prompt well under this.
+const NAME_MAX: usize = 64;
+/// `name-2` through `name-99`; past that the person picks another name.
+const SUFFIX_MAX: u32 = 99;
+/// The projects folders tried, in order, under the home folder; the first is made when none is there.
+const PROJECT_ROOTS: [&str; 5] = ["Projects", "projects", "Developer", "code", "src"];
+
+pub(super) async fn handle(hub: &Arc<Hub>, origin: Origin, params: &Value) -> Result<Value, RpcError> {
+    if !matches!(origin, Origin::Local | Origin::LocalApp) {
+        return Err(RpcError::invalid_params(
+            "a project folder is made only from the app or the local unix socket",
+        )
+        .with_data(json!({"reason": "project_new.origin_refused"})));
+    }
+    let name = params.get("name").and_then(Value::as_str).unwrap_or_default().to_owned();
+    if !valid_name(&name) {
+        return Err(RpcError::invalid_params(
+            "name must be 1 to 64 letters, digits, '.', '_' or '-', not starting with '.' or '-'",
+        )
+        .with_data(json!({"reason": "project_new.name"})));
+    }
+    let home = dirs::home_dir().ok_or_else(|| RpcError::internal("no home directory"))?;
+    let gate = hub.trust_gate();
+    let made = tokio::task::spawn_blocking(move || -> Result<(PathBuf, bool), String> {
+        let (cwd, git) = make(&projects_root(&home), &name)?;
+        let paths = gate.or_else(crate::trust::Paths::current).ok_or("no home directory")?;
+        crate::trust::set(&paths, &cwd.to_string_lossy(), "trusted").map_err(|failure| match failure {
+            crate::trust::Failure::Invalid(message) | crate::trust::Failure::Record(message) => message,
+        })?;
+        Ok((cwd, git))
+    })
+    .await
+    .map_err(|e| RpcError::internal(e.to_string()))?
+    .map_err(|e| RpcError::invalid_params(format!("no project folder: {e}")))?;
+    // A start waiting on this folder's Trust card goes on (`hub/trust_wait.rs`).
+    hub.trust_changed();
+    let (cwd, git) = made;
+    let name = cwd.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    Ok(json!({"cwd": cwd, "name": name, "git": git}))
+}
+
+/// A folder name that stays one plain path component: no separator, no `..`, no hidden or
+/// option-like first character.
+fn valid_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= NAME_MAX
+        && !name.starts_with(['.', '-'])
+        && name.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'-'))
+}
+
+/// The first projects folder under `home` that exists, else `home/Projects`.
+fn projects_root(home: &Path) -> PathBuf {
+    PROJECT_ROOTS
+        .iter()
+        .map(|root| home.join(root))
+        .find(|root| root.is_dir())
+        .unwrap_or_else(|| home.join(PROJECT_ROOTS[0]))
+}
+
+/// Makes `root/name` (or the first free `name-N`), canonical, with an empty git repository in it;
+/// the bool is whether `git init` worked.
+fn make(root: &Path, name: &str) -> Result<(PathBuf, bool), String> {
+    std::fs::create_dir_all(root).map_err(|e| format!("{}: {e}", root.display()))?;
+    let mut made = None;
+    for n in 1..=SUFFIX_MAX {
+        let folder = if n == 1 { root.join(name) } else { root.join(format!("{name}-{n}")) };
+        // create_dir, not create_dir_all: an existing folder is never taken over.
+        match std::fs::create_dir(&folder) {
+            Ok(()) => {
+                made = Some(folder);
+                break;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("{}: {e}", folder.display())),
+        }
+    }
+    let folder = made.ok_or_else(|| format!("{name} through {name}-{SUFFIX_MAX} are taken"))?;
+    let folder = std::fs::canonicalize(&folder).unwrap_or(folder);
+    let git = std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&folder)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success());
+    Ok((folder, git))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("acpmux-project-new-{tag}-{}-{}", std::process::id(), uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn project_new_names_stay_one_plain_folder() {
+        for good in ["habit-tracker", "a", "Notes_2.0", &"x".repeat(NAME_MAX)] {
+            assert!(valid_name(good), "{good}");
+        }
+        let long = "x".repeat(NAME_MAX + 1);
+        for bad in ["", ".", "..", ".git", "-rf", "a/b", "../up", "a b", "émoji", "a\0b", long.as_str()] {
+            assert!(!valid_name(bad), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn project_new_makes_a_git_repo_and_never_takes_an_existing_folder() {
+        let root = scratch("make");
+        std::fs::create_dir(root.join("habit-tracker")).unwrap();
+        std::fs::write(root.join("habit-tracker").join("keep.txt"), "mine").unwrap();
+        let (cwd, git) = make(&root, "habit-tracker").unwrap();
+        assert_eq!(cwd.file_name().unwrap(), "habit-tracker-2");
+        assert!(cwd.is_dir());
+        if git {
+            assert!(cwd.join(".git").is_dir());
+        }
+        // The taken folder is untouched.
+        assert_eq!(std::fs::read_to_string(root.join("habit-tracker").join("keep.txt")).unwrap(), "mine");
+        let (third, _) = make(&root, "habit-tracker").unwrap();
+        assert_eq!(third.file_name().unwrap(), "habit-tracker-3");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn project_new_root_is_the_first_projects_folder_there() {
+        let home = scratch("root");
+        assert_eq!(projects_root(&home), home.join("Projects"));
+        std::fs::create_dir(home.join("code")).unwrap();
+        assert_eq!(projects_root(&home), home.join("code"));
+        std::fs::create_dir(home.join("Developer")).unwrap();
+        assert_eq!(projects_root(&home), home.join("Developer"));
+        std::fs::remove_dir_all(&home).unwrap();
+    }
+}

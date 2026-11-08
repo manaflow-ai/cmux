@@ -656,6 +656,7 @@ import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
+import { takeProjectPreview } from "./newtab/newProject";
 import { flushHeldModePick, holdModePick } from "./heldModePick";
 import { type MeasurableRenderer, type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
@@ -6033,6 +6034,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The chat's folder on whichever machine runs it: the diff tab reads its repository there (the
   /// session host's git), so Changes opens a tab for a Cloud or remote chat too.
   const chatCwd = summary?.cwd || undefined;
+  // New Project's chat (newtab/newProject.ts) opens the first local page it serves beside it, once,
+  // as the header's Preview would; every other chat waits for the person's click.
+  useEffect(() => {
+    if (!previewUrl || quick || !takeProjectPreview(localCwd)) return;
+    void callNative("pane.action", { id: HEADER_ACTIONS.preview, url: previewUrl, mode: "open" }).catch(() => undefined);
+  }, [previewUrl, localCwd, quick]);
   // Stop reaches acpmux even when pressed while the pane reconnects (stopThroughReconnect.ts).
   const stopThroughReconnect = useStopThroughReconnect(snapshot, cancelTurn);
   const keptStopping = stopThroughReconnect.stopping;
@@ -11112,6 +11119,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     : {})}
                   onConnect={connectMachine}
                   onRefreshMachines={() => void directClient.current?.refreshPeers()}
+                  onNewProject={(name) => {
+                    const client = directClient.current;
+                    return client?.newProjectSupported
+                      ? client.newProject(name)
+                      : Promise.reject(new Error(translate("project.new.unavailable")));
+                  }}
                   onNewWorktree={(cwd) => {
                     let folder: string | undefined;
                     return newWorktree(callNative, cwd, (used) => {

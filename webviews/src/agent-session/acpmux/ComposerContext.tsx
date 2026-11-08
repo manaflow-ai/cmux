@@ -125,6 +125,9 @@ export function ComposerContext({
   machineFolders,
   onBrowseProject,
   onNewWorktree,
+  onNewProject,
+  newProject = false,
+  newProjectName,
   onNoProject,
   noProject = false,
   localName,
@@ -180,6 +183,12 @@ export function ComposerContext({
   onBrowseProject?(request?: BrowseRequest): Promise<BrowseResult> | BrowseResult | void;
   /// New Worktree (cx-lyqio.2): a new chat on this Mac starts in a worktree of its folder.
   onNewWorktree?(cwd: string): void;
+  /// A new chat's New Project (FolderPopover, newtab/newProject.ts); `newProject` while it is the choice:
+  /// the strip reads New Project until the send makes the folder.
+  onNewProject?(): void;
+  newProject?: boolean;
+  /// The new project's name field, after the folder control while `newProject` (newtab/NewProjectName.tsx).
+  newProjectName?: React.ReactNode;
   /// A new chat's No folder (FolderPopover); `noProject` while it is the choice.
   onNoProject?(): void;
   noProject?: boolean;
@@ -858,15 +867,17 @@ export function ComposerContext({
                     )
                   }
                   value={
-                    (currentName
-                      ? currentName
-                      : noProject
-                        ? t(CONTEXT_LABELS.noProject)
-                        : t(CONTEXT_LABELS.chooseFolder)) + extraCount
+                    (newProject
+                      ? t(CONTEXT_LABELS.newProject)
+                      : currentName
+                        ? currentName
+                        : noProject
+                          ? t(CONTEXT_LABELS.noProject)
+                          : t(CONTEXT_LABELS.chooseFolder)) + extraCount
                   }
                   chevron
-                  middle={currentFolder !== undefined}
-                  dim={!currentName && !noProject}
+                  middle={currentFolder !== undefined && !newProject}
+                  dim={!currentName && !noProject && !newProject}
                 />
               }
               folders={folders}
@@ -883,6 +894,7 @@ export function ComposerContext({
               }
               noProject={noProject && !currentFolder}
               onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
+              {...(onNewProject ? { onNewProject } : {})}
               {...(folderNote && !currentFolder ? { note: folderNote } : {})}
               {...(extra ? { extra } : {})}
             />
@@ -922,6 +934,7 @@ export function ComposerContext({
               }}
             />
           )}
+          {newProject && newProjectName}
           {environmentsShown ? (
             layout === "combined" ? (
               <EnvironmentPicker
