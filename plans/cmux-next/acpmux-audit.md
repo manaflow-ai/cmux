@@ -244,3 +244,29 @@ asked for it: workers stuck in Manual were "a huge blocker". What changed in acp
    folders (by place or manifest) in `CLAUDE_CODE_PLUGIN_DIRS` from a daemon started in a
    cmux-tui pane. Other folders and a profile's own value stay; a remote harness base is not
    touched. Before, such an agent loaded the pane's plugin and reported into that pane.
+
+## Notice to PL-acpmux: an old or unproven acpmux CLI is never the person (2026-11-08)
+
+Security item from bench round 4 (tui-parity A5 defect 1, owner W5-S). An agent's Bash ran the
+user's old `~/.local/bin/acpmux` 0.1.0, which sends no caller token, and `owner_terminal`
+(`server/requests.rs`) recorded its send as `origin: {actor: "person", verified: true}`. What
+changed, with no process scanning (`plans/cmux-next/pty-holder.md` section 4):
+- `src/cli_caller.rs` (new): from caller protocol 1 the CLI declares at `initialize`
+  (`_meta.acpmux.callerProtocol`, `callerKind`) whether it runs in an acpmux session's
+  environment (`agent`: `ACPMUX_SESSION_ID` or `ACPMUX_SESSION_TOKEN` set) or not (`terminal`).
+  `Conn::bind_person` keeps the declaration of a first unix `initialize`.
+- `owner_terminal` now needs `Conn::may_be_owner_terminal`: a `terminal` declaration, or a
+  client that is no acpmux CLI and declares nothing (scripts, other tools: the rule before). An
+  `acpmux-cli` with no caller protocol (every older CLI) and an `agent` declaration whose token
+  proved nothing are `unverified`; an old CLI is named in `claimed.client` ("acpmux-cli 0.1.0").
+- `Conn::agent_side` replaces `caller || unproven_caller` at the person-only checks (inbox
+  read/reply of another chat, turn cap, `waitStart`, person presence). An old CLI refused the
+  turn cap gets `caller.old_client` with the daemon's version and which CLI to run.
+- The outbox keeps it (`Delivery::not_terminal`): a kept send replays with an agent
+  declaration, so it is no owner's terminal send either (as `unproven_caller`, #38260 F1).
+- Each session's harness gets `ACPMUX_BIN`, the daemon's own executable (`agent/command.rs`);
+  a profile cannot set it. The guide says to run `"$ACPMUX_BIN"` in a session.
+- Limits: a declaration is a claim of the same user's process. It closes the accident (an agent
+  that runs an old or foreign CLI), not a forgery, as the trust boundary in `owner_terminal`
+  says. A person who runs an old CLI at their terminal is now unverified until they update.
+- Tests: `tests/caller_declared_cli.rs` (real binary and a raw old client; red first).
