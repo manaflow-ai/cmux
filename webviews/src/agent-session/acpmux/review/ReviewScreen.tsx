@@ -68,9 +68,7 @@ export function ReviewScreen({
   /// words reuses the id and acpmux delivers it once even if the first one got through.
   const [comment, setComment] = useState<
     { key: string; text: string; sent?: { text: string; promptId: string } } | undefined
-  >(
-    initialComment ? { key: initialComment, text: "" } : undefined,
-  );
+  >(initialComment ? { key: initialComment, text: "" } : undefined);
   const [failures, setFailures] = useState<ReadonlyMap<string, string>>(() => new Map());
   const list = useRef<HTMLDivElement>(null);
 
