@@ -17,16 +17,7 @@
 // session list knows it (by id, or by `name`, `host/name` or `host:name`); otherwise it is the
 // neutral chip. A shell call that also ran other commands says so ("· and 2 more commands"), its
 // whole command behind Raw: no work is hidden.
-import {
-  Children,
-  type ReactNode,
-  useContext,
-  useEffect,
-  useId,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { Children, type ReactNode, useContext, useEffect, useId, useMemo, useState, useSyncExternalStore } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
