@@ -52,6 +52,8 @@ pub(crate) mod file_uploads;
 mod gemini_plan;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 #[cfg(test)]
+mod agent_messaging_tests;
+#[cfg(test)]
 mod first_work_tests;
 mod fork;
 #[cfg(test)]
@@ -529,6 +531,10 @@ pub struct PromptOptions {
     /// chat's inbox takes it. Every other path that prompts (reports, task cards, a paused pair's
     /// release, a peer's or the mesh relay's forward) keeps the queue.
     pub inbox: bool,
+    /// The sender waits for the reply (`_meta.acpmux.wakeOrFail`): a message the inbox would
+    /// hold in an idle chat that it does not wake is refused at once (`inbox.rs`
+    /// `not_woken`), never left waiting for a turn that does not come.
+    pub wake_or_fail: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -561,6 +567,7 @@ pub struct Hub {
     pub(crate) workflow_runs: crate::workflow_runs::Service,
     pub config: RwLock<Config>,
     pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
+    /// The daemon's store, read through each fork's referenced history (`store/fork_view.rs`).
     pub(super) store: Box<dyn Store>,
     pub(super) mailbox: Mailbox,
     /// The forum log (`forum.rs`, `hub/forum.rs`).
@@ -961,7 +968,7 @@ impl Hub {
             config: RwLock::new(config),
             usage_limits,
             wireguard,
-            store,
+            store: Box::new(crate::store::ForkView::new(store)),
             mailbox,
             forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
