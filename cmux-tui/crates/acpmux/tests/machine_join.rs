@@ -33,11 +33,9 @@ struct AccountConsentRestored {
     _serial: std::sync::MutexGuard<'static, ()>,
 }
 
-static ACCOUNT_CONSENT: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
 impl AccountConsentRestored {
     fn new() -> Self {
-        let serial = ACCOUNT_CONSENT.lock().unwrap_or_else(|error| error.into_inner());
+        let serial = machine_consent_home::SERIAL.lock().unwrap_or_else(|error| error.into_inner());
         let root = machine_consent_home::account_root();
         // Files first, then the directories, deepest first.
         let mut paths: Vec<_> = ["enrolled.json", "refusal.json", "consent.json", "write.lock"]
@@ -47,7 +45,8 @@ impl AccountConsentRestored {
         let parent = root.parent().map(Path::to_owned);
         paths.push(root);
         paths.extend(parent);
-        let absent = paths.into_iter().filter(|path| !path.try_exists().unwrap()).collect();
+        // As the authority itself reads them (`symlink_metadata`): a dangling link is present.
+        let absent = paths.into_iter().filter(|path| path.symlink_metadata().is_err()).collect();
         Self { absent, _serial: serial }
     }
 }

@@ -3,7 +3,8 @@
 //! each guard owns only the previously absent authority directory it creates.
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
-static SERIAL: Mutex<()> = Mutex::new(());
+/// Serializes every test that writes the account's consent authority, in one test binary.
+pub static SERIAL: Mutex<()> = Mutex::new(());
 
 pub struct ConsentHome {
     pub root: PathBuf,
