@@ -105,6 +105,8 @@ impl Hub {
         if let Err(e) = self.store.flush() {
             tracing::warn!("store flush failed: {e}");
         }
+        // The cost ledger's last lines too: its writer drains its queue and ends (`hub/ledger`).
+        self.ledger.close(LEDGER_DRAIN);
     }
 
     async fn shutdown_sessions(&self, preserve_auto_resume: bool) -> usize {
@@ -319,6 +321,9 @@ impl Hub {
         self.peer_snapshots.flush_now();
     }
 }
+
+/// How long the shutdown waits for the cost ledger's writer to drain.
+const LEDGER_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// The refusal of a spawn once the shutdown has begun (`recovery.rs` types it).
 pub const SHUTTING_DOWN: &str = "acpmux is shutting down; no agent starts now";
