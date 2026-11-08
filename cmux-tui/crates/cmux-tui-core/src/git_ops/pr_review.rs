@@ -318,11 +318,12 @@ fn comment(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Res
         };
         return Err(refused(COMMENT, "not_in_diff", message, extra));
     }
-    let revision = match side {
-        Side::Additions => "HEAD",
-        Side::Deletions => base,
+    // The base's text of a renamed file is under its old name.
+    let (revision, path) = match side {
+        Side::Additions => ("HEAD", file.as_str()),
+        Side::Deletions => (base, hunks.old_path.as_deref().unwrap_or(&file)),
     };
-    let line_text = line_text(&repository, revision, &file, end)?;
+    let line_text = line_text(&repository, revision, path, end)?;
     let comment = Map::from_iter([
         ("filePath".into(), json!(file)),
         ("side".into(), json!(side.page_name())),
@@ -371,6 +372,9 @@ fn hunks(
         "diff",
         "--no-color",
         "--no-ext-diff",
+        // A textconv driver can name a script the pull request itself
+        // changes: reading its diff must never run its code.
+        "--no-textconv",
         "-M",
         github::CONTEXT_LINES,
         base,
@@ -382,7 +386,8 @@ fn hunks(
     Ok(github::file_hunks(&String::from_utf8_lossy(&output.stdout)))
 }
 
-/// Line `line` of `file` at `revision`, without its line ending.
+/// Line `line` of `file` at `revision`, without its line ending: the blob
+/// as stored, with no filter or textconv run.
 fn line_text(
     repository: &Repository,
     revision: &str,
@@ -391,7 +396,7 @@ fn line_text(
 ) -> Result<String, ResourceError> {
     let object = format!("{revision}:{file}");
     let output = repository
-        .run(&["show", object.as_str()], MAX_FILE_BYTES)
+        .run(&["cat-file", "blob", object.as_str()], MAX_FILE_BYTES)
         .map_err(|failure| refused(COMMENT, "git_failed", failure.reason(), Value::Null))?;
     let text = String::from_utf8_lossy(&output.stdout);
     let index = usize::try_from(line).unwrap_or(usize::MAX).saturating_sub(1);
@@ -407,7 +412,7 @@ fn post(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resour
     let ids = diff_comments::ids(&request.fields)?;
     let versions = diff_comments::versions(&request.fields)?;
     let store = Store::open(mux, POST)?;
-    diff_comments::mutate(mux, &store, request, root, |file, _| {
+    diff_comments::mutate(mux, &store, request, root, |file, key| {
         let review = file.review.clone().unwrap_or(Value::Null);
         let text =
             |name: &str| review.get(name).and_then(Value::as_str).unwrap_or_default().to_string();
@@ -430,21 +435,30 @@ fn post(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resour
             })
             .collect();
         let repository = open_repository(Path::new(root), POST).map_err(normalized)?;
-        let drafted = github::review(&head, &chosen, &hunks(&repository, &base, POST)?);
+        let marker = github::marker(key);
+        let drafted = github::review(&head, &chosen, &hunks(&repository, &base, POST)?, &marker);
         if drafted.ids.is_empty() {
             let message = "none of the named drafts is still listed unchanged";
             return Err(refused(POST, "nothing_to_post", message, Value::Null));
         }
         let git = UserGit { root: &repository.root, deadline: deadline() };
         let path = format!("repos/{}/pulls/{}/reviews", pull.repository(), pull.number);
-        let input = serde_json::to_vec(&drafted.payload).unwrap_or_default();
-        let arguments = ["api", "--method", "POST", path.as_str(), "--input", "-"];
-        let run = gh(&git, &arguments, Some(input), POST)?;
-        let posted: Value = serde_json::from_slice(&run.stdout).unwrap_or(Value::Null);
-        let url = posted
-            .get("html_url")
-            .and_then(Value::as_str)
-            .map_or_else(|| pull.url(), str::to_string);
+        // A post whose answer was lost may still have reached GitHub: its
+        // retry (the same key) finds the review by the key's marker in its
+        // body before it posts, so the person never gets it twice.
+        let url = match posted_review(&git, &path, &marker)? {
+            Some(url) => url,
+            None => {
+                let input = serde_json::to_vec(&drafted.payload).unwrap_or_default();
+                let arguments = ["api", "--method", "POST", path.as_str(), "--input", "-"];
+                let run = gh(&git, &arguments, Some(input), POST)?;
+                let posted: Value = serde_json::from_slice(&run.stdout).unwrap_or(Value::Null);
+                posted
+                    .get("html_url")
+                    .and_then(Value::as_str)
+                    .map_or_else(|| pull.url(), str::to_string)
+            }
+        };
         // Posted: the drafts leave, except one edited while it was on its way.
         let (deleted, changed) = diff_comments::delete(file, &drafted.ids, &versions);
         let value = json!({
@@ -455,6 +469,19 @@ fn post(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resour
         });
         Ok((value, changed))
     })
+}
+
+/// The link of a review on the pull request whose body carries `marker`.
+fn posted_review(
+    git: &UserGit<'_>,
+    path: &str,
+    marker: &str,
+) -> Result<Option<String>, ResourceError> {
+    let filter = format!(".[] | select((.body // \"\") | contains({})) | .html_url", json!(marker));
+    let arguments = ["api", "--paginate", path, "--jq", filter.as_str()];
+    let run = gh(git, &arguments, None, POST)?;
+    let listed = String::from_utf8_lossy(&run.stdout);
+    Ok(listed.lines().map(str::trim).find(|line| !line.is_empty()).map(str::to_string))
 }
 
 /// Runs the person's `gh`; a run that fails is `gh_failed` with what gh

@@ -94,13 +94,17 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     git(&upstream, &["config", "commit.gpgsign", "false"]);
     let lines: Vec<String> = (1..=20).map(|n| format!("line {n}")).collect();
     fs::write(upstream.join("a.txt"), lines.join("\n") + "\n").unwrap();
-    git(&upstream, &["add", "a.txt"]);
+    fs::write(upstream.join("old name.txt"), "x 1\nx 2\nx 3\nx 4\nx 5\n").unwrap();
+    git(&upstream, &["add", "a.txt", "old name.txt"]);
     git(&upstream, &["commit", "-q", "-m", "first"]);
     let merge_base = git(&upstream, &["rev-parse", "HEAD"]);
     git(&upstream, &["checkout", "-q", "-b", "feature"]);
     let mut changed = lines;
     changed[9] = "line 10, fixed".to_string();
     fs::write(upstream.join("a.txt"), changed.join("\n") + "\n").unwrap();
+    // A renamed file whose name has a space: its base side is under its old name.
+    git(&upstream, &["mv", "old name.txt", "new name.txt"]);
+    fs::write(upstream.join("new name.txt"), "x 1\nx 2\nx 3 changed\nx 4\nx 5\n").unwrap();
     git(&upstream, &["commit", "-q", "-am", "fix line 10"]);
     let head = git(&upstream, &["rev-parse", "HEAD"]);
     git(&upstream, &["update-ref", "refs/pull/7/head", &head]);
@@ -117,7 +121,8 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     let rewrite = format!("url.{}.insteadOf", upstream.display());
     git(&checkout, &["config", &rewrite, "https://github.com/o/r.git"]);
 
-    // gh: `pr view` answers the pull request; `api` keeps what it was sent.
+    // gh: `pr view` answers the pull request; a POST keeps what it was sent and
+    // counts itself; a read of the reviews answers existing.txt, if any.
     let view = serde_json::json!({
         "title": "Fix line 10",
         "headRefOid": head,
@@ -126,10 +131,13 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     });
     fs::write(bin_dir.join("view.json"), view.to_string()).unwrap();
     let posted = bin_dir.join("posted.json");
+    let (posts, existing) = (bin_dir.join("posts.log"), bin_dir.join("existing.txt"));
     let script = format!(
-        "#!/bin/sh\ncase \"$1\" in\n  pr) cat '{}' ;;\n  api) cat > '{}'; printf '%s' '{{\"html_url\":\"https://github.com/o/r/pull/7#pullrequestreview-1\"}}' ;;\n  *) exit 2 ;;\nesac\n",
+        "#!/bin/sh\ncase \"$1 $3\" in\n  pr*) cat '{}' ;;\n  'api POST') cat > '{}'; echo post >> '{}'; printf '%s' '{{\"html_url\":\"https://github.com/o/r/pull/7#pullrequestreview-1\"}}' ;;\n  api*) cat '{}' 2>/dev/null; true ;;\n  *) exit 2 ;;\nesac\n",
         bin_dir.join("view.json").display(),
-        posted.display()
+        posted.display(),
+        posts.display(),
+        existing.display()
     );
     let gh = bin_dir.join("gh");
     fs::write(&gh, script).unwrap();
@@ -187,10 +195,17 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     assert_eq!(comment["filePath"], "a.txt", "{comment}");
     assert_eq!(comment["side"], "additions", "{comment}");
     assert_eq!(comment["lineText"], "line 10, fixed", "{comment}");
+    let renamed = [
+        "review", "comment", "--file", "new name.txt", "--line", "3", "--side", "old", "--message",
+        "Why this change?",
+    ];
+    let renamed = git_cli(&server, &worktree, &renamed);
+    assert_success(&renamed);
+    assert_eq!(json_output(&renamed)["value"]["comment"]["lineText"], "x 3");
 
     // The diff page lists the draft and the pull request it goes to; a
     // comment the person left on a line GitHub does not show goes too.
-    let mut ids = vec![comment["id"].clone()];
+    let mut ids = vec![comment["id"].clone(), json_output(&renamed)["value"]["comment"]["id"].clone()];
     let mine = v2(
         &server,
         "diff.comments.save",
@@ -204,7 +219,7 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     let listed = v2(&server, "diff.comments.list", serde_json::json!({"root": review_root}), None);
     assert_eq!(listed["result"]["review"]["number"], 7, "{listed}");
     assert_eq!(listed["result"]["review"]["base"], merge_base.as_str(), "{listed}");
-    assert_eq!(listed["result"]["comments"].as_array().unwrap().len(), 2, "{listed}");
+    assert_eq!(listed["result"]["comments"].as_array().unwrap().len(), 3, "{listed}");
 
     let post = v2(
         &server,
@@ -216,21 +231,39 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     assert_eq!(result["url"], "https://github.com/o/r/pull/7#pullrequestreview-1", "{post}");
     assert_eq!(
         (result["posted"].clone(), result["in_body"].clone()),
-        (1.into(), 1.into()),
+        (2.into(), 1.into()),
         "{post}"
     );
-    assert_eq!(result["cleared"].as_array().unwrap().len(), 2, "{post}");
+    assert_eq!(result["cleared"].as_array().unwrap().len(), 3, "{post}");
     let sent: serde_json::Value = serde_json::from_slice(&fs::read(&posted).unwrap()).unwrap();
     assert_eq!(sent["commit_id"], head.as_str(), "{sent}");
     assert_eq!(sent["event"], "COMMENT", "{sent}");
     assert_eq!(
         sent["comments"],
-        serde_json::json!([{"path": "a.txt", "body": "Say what was fixed", "line": 10, "side": "RIGHT"}]),
+        serde_json::json!([
+            {"path": "a.txt", "body": "Say what was fixed", "line": 10, "side": "RIGHT"},
+            {"path": "new name.txt", "body": "Why this change?", "line": 3, "side": "LEFT"},
+        ]),
         "{sent}"
     );
     assert!(sent["body"].as_str().unwrap().contains("`a.txt:2`: And here"), "{sent}");
     let listed = v2(&server, "diff.comments.list", serde_json::json!({"root": review_root}), None);
     assert!(listed["result"]["comments"].as_array().unwrap().is_empty(), "{listed}");
+
+    // A post whose answer was lost: GitHub already has its review (found by
+    // the key's marker), so the retry posts nothing and clears the draft.
+    let again = git_cli(&server, &worktree, &draft);
+    assert_success(&again);
+    let id = json_output(&again)["value"]["comment"]["id"].clone();
+    fs::write(&existing, "https://github.com/o/r/pull/7#pullrequestreview-2\n").unwrap();
+    let retried = v2(
+        &server,
+        "git.review.post",
+        serde_json::json!({"root": review_root, "ids": [id]}),
+        Some("post-lost"),
+    );
+    assert_eq!(retried["result"]["value"]["url"], "https://github.com/o/r/pull/7#pullrequestreview-2");
+    assert_eq!(fs::read_to_string(&posts).unwrap().lines().count(), 1, "the retry posted again");
 
     // A comment outside a review worktree is refused.
     let plain = git_cli(&server, &checkout, &draft);

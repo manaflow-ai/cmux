@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 
 /// The lines of context GitHub's pull request diff shows around a change;
 /// a comment can be left on a line it shows.
@@ -102,14 +103,18 @@ impl Side {
     }
 }
 
-/// One file's hunks: each `(old start, old count, new start, new count)`.
+/// One file's hunks: each `(old start, old count, new start, new count)`,
+/// and the file's path on the base side (another for a renamed file).
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub(super) struct Hunks(Vec<[u32; 4]>);
+pub(super) struct Hunks {
+    ranges: Vec<[u32; 4]>,
+    pub old_path: Option<String>,
+}
 
 impl Hunks {
     /// The hunk headers of a unified diff of one file.
     pub(super) fn parse(diff: &str) -> Self {
-        Self(diff.lines().filter_map(hunk_header).collect())
+        Self { ranges: diff.lines().filter_map(hunk_header).collect(), old_path: None }
     }
 
     /// Lines `start..=end` on `side` lie in one hunk.
@@ -132,7 +137,7 @@ impl Hunks {
     }
 
     fn ranges(&self, side: Side) -> impl Iterator<Item = (u32, u32)> + '_ {
-        self.0
+        self.ranges
             .iter()
             .map(move |[old, old_count, new, new_count]| match side {
                 Side::Additions => (*new, *new_count),
@@ -149,17 +154,63 @@ pub(super) fn file_hunks(diff: &str) -> BTreeMap<String, Hunks> {
     for section in diff.split("\ndiff --git ").filter(|section| !section.is_empty()) {
         let (mut old, mut new) = (None, None);
         for line in section.lines().take_while(|line| !line.starts_with("@@ ")) {
-            if let Some(path) = line.strip_prefix("--- a/") {
-                old = Some(path);
-            } else if let Some(path) = line.strip_prefix("+++ b/") {
-                new = Some(path);
+            if let Some(path) = line.strip_prefix("--- ") {
+                old = header_path(path, "a/");
+            } else if let Some(path) = line.strip_prefix("+++ ") {
+                new = header_path(path, "b/");
             }
         }
-        if let Some(path) = new.or(old) {
-            files.insert(path.to_string(), Hunks::parse(section));
+        if let Some(path) = new.clone().or_else(|| old.clone()) {
+            let mut hunks = Hunks::parse(section);
+            hunks.old_path = old;
+            files.insert(path, hunks);
         }
     }
     files
+}
+
+/// The path a `---` or `+++` line names after its `a/` or `b/` prefix: git
+/// ends a name with a space in it with a tab, and C-quotes a name with a
+/// quote, backslash or control character in it. `/dev/null` is none.
+fn header_path(text: &str, prefix: &str) -> Option<String> {
+    let text = text.strip_suffix('\t').unwrap_or(text);
+    let text = match text.strip_prefix('"').and_then(|quoted| quoted.strip_suffix('"')) {
+        Some(quoted) => unquote(quoted)?,
+        None => text.to_string(),
+    };
+    text.strip_prefix(prefix).map(str::to_string)
+}
+
+/// A C-quoted name's bytes: `\\`, `\"`, `\t`, `\n` and octal `\ooo`.
+fn unquote(quoted: &str) -> Option<String> {
+    let mut bytes = Vec::new();
+    let mut rest = quoted.bytes();
+    while let Some(byte) = rest.next() {
+        if byte != b'\\' {
+            bytes.push(byte);
+            continue;
+        }
+        let escaped = match rest.next()? {
+            b'n' => b'\n',
+            b't' => b'\t',
+            b'r' => b'\r',
+            b'a' => 7,
+            b'b' => 8,
+            b'f' => 12,
+            b'v' => 11,
+            digit @ b'0'..=b'7' => {
+                let mut value = u32::from(digit - b'0');
+                for _ in 0..2 {
+                    let digit = rest.next().filter(u8::is_ascii_digit)?;
+                    value = value * 8 + u32::from(digit - b'0');
+                }
+                u8::try_from(value).ok()?
+            }
+            other => other,
+        };
+        bytes.push(escaped);
+    }
+    String::from_utf8(bytes).ok()
 }
 
 /// `@@ -a,b +c,d @@`: a missing count is 1.
@@ -188,10 +239,19 @@ pub(super) struct Review {
     pub in_body: usize,
 }
 
+/// The hidden line a posted review's body carries for its post's key, so a
+/// retry finds the review it may already have posted.
+pub(super) fn marker(key: &str) -> String {
+    let digest = Sha256::digest(key.as_bytes());
+    let id: String = digest.iter().take(12).map(|byte| format!("{byte:02x}")).collect();
+    format!("<!-- cmux-review:{id} -->")
+}
+
 pub(super) fn review(
     head: &str,
     comments: &[&Map<String, Value>],
     hunks: &BTreeMap<String, Hunks>,
+    marker: &str,
 ) -> Review {
     let mut inline = Vec::new();
     let mut outside = Vec::new();
@@ -224,13 +284,12 @@ pub(super) fn review(
         }
     }
     let (inline_count, in_body) = (inline.len(), outside.len());
-    let mut payload = json!({"commit_id": head, "event": "COMMENT", "comments": inline});
-    if !outside.is_empty()
-        && let Some(fields) = payload.as_object_mut()
-    {
-        let body = format!("On lines outside this pull request's diff:\n\n{}", outside.join("\n"));
-        fields.insert("body".into(), Value::String(body));
-    }
+    let body = if outside.is_empty() {
+        marker.to_string()
+    } else {
+        format!("On lines outside this pull request's diff:\n\n{}\n\n{marker}", outside.join("\n"))
+    };
+    let payload = json!({"commit_id": head, "event": "COMMENT", "comments": inline, "body": body});
     Review { payload, ids, inline: inline_count, in_body }
 }
 
@@ -300,6 +359,17 @@ mod tests {
         assert!(files["a.rs"].covers(Side::Additions, 1, 3));
         assert!(files["new.rs"].covers(Side::Deletions, 5, 5));
         assert!(files["gone.rs"].covers(Side::Deletions, 1, 2));
+        assert_eq!(files["new.rs"].old_path.as_deref(), Some("old.rs"));
+        assert_eq!(files["a.rs"].old_path.as_deref(), Some("a.rs"));
+    }
+
+    #[test]
+    fn reads_names_with_spaces_and_quoted_names() {
+        let diff = "diff --git a/has space.txt b/has space.txt\n--- a/has space.txt\t\n+++ b/has space.txt\t\n@@ -1 +1 @@\n-a\n+b\n\
+                    diff --git \"a/q\\\"uote.txt\" \"b/q\\\"uote.txt\"\n--- \"a/q\\\"uote.txt\"\n+++ \"b/q\\\"uote.txt\"\n@@ -1 +1 @@\n-a\n+b\n\
+                    diff --git a/caf\\303\\251 b/caf\\303\\251\n--- \"a/caf\\303\\251\"\n+++ \"b/caf\\303\\251\"\n@@ -1 +1 @@\n-a\n+b\n";
+        let files = file_hunks(diff);
+        assert_eq!(files.keys().collect::<Vec<_>>(), ["caf\u{e9}", "has space.txt", "q\"uote.txt"]);
     }
 
     #[test]
@@ -319,7 +389,7 @@ mod tests {
             "src/x.rs".to_string(),
             Hunks::parse("@@ -10,7 +10,9 @@\n@@ -40 +42,0 @@\n"),
         )]);
-        let review = review("abc", &[&a, &b, &c], &hunks);
+        let review = review("abc", &[&a, &b, &c], &hunks, "<!-- m -->");
         assert_eq!((review.inline, review.in_body), (2, 1));
         assert_eq!(review.ids, ["a", "b", "c"]);
         assert_eq!(review.payload["commit_id"], "abc");
@@ -334,7 +404,7 @@ mod tests {
         );
         assert_eq!(
             review.payload["body"],
-            "On lines outside this pull request's diff:\n\n- `src/y.rs:5`: m c"
+            "On lines outside this pull request's diff:\n\n- `src/y.rs:5`: m c\n\n<!-- m -->"
         );
     }
 }
