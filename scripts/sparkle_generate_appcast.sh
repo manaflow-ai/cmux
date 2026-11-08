@@ -52,9 +52,10 @@ if [[ -n "${SPARKLE_TOOLS_DIR:-}" ]]; then
 elif [[ "$SPARKLE_VERSION" == "2.8.1" ]]; then
   echo "Downloading Sparkle ${SPARKLE_VERSION} tools..."
   tarball="$work_dir/Sparkle-${SPARKLE_VERSION}.tar.xz"
-  # GitHub's release download can answer 504 for a minute or more: three tries
-  # 2 s apart (11 s in all) failed a nightly (run 42462657834). Retry for ~2 min.
-  curl --fail --silent --show-error --location --retry 8 --retry-delay 15 --retry-max-time 180 \
+  # GitHub's release download can answer 504 for a minute or more (nightly runs
+  # 42462657834, 42464844265). Over HTTP/2 that 504 is curl exit 56, which plain
+  # --retry never retries, so the runs failed on their first try: retry every error.
+  curl --fail --silent --show-error --location --retry 8 --retry-delay 15 --retry-max-time 180 --retry-all-errors \
     --connect-timeout 15 --max-time 300 -o "$tarball" \
     "https://github.com/sparkle-project/Sparkle/releases/download/${SPARKLE_VERSION}/Sparkle-${SPARKLE_VERSION}.tar.xz"
   actual_sha="$(shasum -a 256 "$tarball" | awk '{print $1}')"
