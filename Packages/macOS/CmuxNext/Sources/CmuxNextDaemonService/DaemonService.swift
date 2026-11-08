@@ -46,6 +46,9 @@ public final class DaemonService {
     /// Retry Now and Restart cmux-tui while the local daemon cannot be reached (cx-jniyz.1).
     public let recovery = DaemonRecovery()
     public private(set) var connection: DaemonConnection?
+    /// The app's `client-hello` proof, as the control connection sends it: a side connection that
+    /// carries only the person's own actions proves itself with it (`AgentPaneGitLink.userMutate`).
+    public private(set) var clientHello: ClientHelloIdentity?
     public private(set) var windowState: WindowStateStore?
     /// The colors this app paints the daemon's terminals with, sent at every
     /// connect and on every change so the daemon answers OSC 10/11/12 queries
@@ -214,6 +217,7 @@ public final class DaemonService {
         requestLatency.set(latency)
         // An owner the handshake refuses (an older protocol, a missing capability) is handed off to
         // the bundled build like one of another build; only a failed handoff shows the refusal.
+        clientHello = ClientHelloIdentity(installKey: launcher.configuration.installKey)
         let configuration = launcher.handingOffIncompatibleOwners(Self.localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
             installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift, retryWake: retryWake,

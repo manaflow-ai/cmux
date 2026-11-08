@@ -40,6 +40,8 @@ mod worktree_recipe;
 mod worktree_remove;
 mod worktree_setup;
 
+pub(crate) use pr_review::POST as REVIEW_POST_OPERATION;
+
 use std::path::Path;
 use std::sync::Arc;
 

@@ -145,7 +145,9 @@ extension DiffAgentGit: DiffCommentsStoring {
     public func postReview(root: String, ids: [String], versions: [String: JSONValue], key: String) async throws(AgentPaneGitFailure) -> JSONValue {
         var params: [String: JSONValue] = ["root": .string(root), "ids": .array(ids.map(JSONValue.string))]
         if !versions.isEmpty { params["versions"] = .object(versions) }
-        return try await mutate("git.review.post", .object(params), key: key)
+        // Only the person posts: the host refuses it on any connection but the app's own.
+        return try Self.mutationValue(
+            try await link.userMutate("git.review.post", params: Data(JSONValue.object(params).compactText.utf8), idempotencyKey: key))
     }
 
     private func mutate(_ operation: String, _ params: JSONValue, key: String) async throws(AgentPaneGitFailure) -> JSONValue {

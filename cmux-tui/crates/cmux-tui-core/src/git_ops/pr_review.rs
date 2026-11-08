@@ -38,7 +38,7 @@ use crate::resource_router::ParsedResourceRequest;
 
 const START: &str = "git.review.start";
 const COMMENT: &str = "git.review.comment";
-const POST: &str = "git.review.post";
+pub(crate) const POST: &str = "git.review.post";
 
 /// Advertised in identify: the session host owns `git.review.*`.
 pub(crate) const CAPABILITY: &str = "git-review-v1";
