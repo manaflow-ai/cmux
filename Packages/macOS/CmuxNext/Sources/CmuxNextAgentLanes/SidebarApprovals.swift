@@ -1,9 +1,9 @@
-public import CmuxNextAgentActivity
+import CmuxNextAgentActivity
 public import CmuxNextAgentPane
-public import CmuxNextBridge
+import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDesign
-public import CmuxNextSidebar
+import CmuxNextSidebar
 import Foundation
 import Observation
 
@@ -27,7 +27,7 @@ public final class SidebarApprovals {
 
     /// Each waiting chat's one answerable prompt, by acpmux session.
     private(set) var approvals: [String: AgentApproval] = [:]
-    @ObservationIgnored let answerer: (any AgentApprovalAnswering)?
+    let answerer: (any AgentApprovalAnswering)?
     /// The wait each waiting chat's prompt was (or is being) read for.
     @ObservationIgnored private var readFor: [String: Wait] = [:]
 
@@ -38,7 +38,7 @@ public final class SidebarApprovals {
     /// Answers through this Mac's acpmux at `environment` (the app's, resolved at launch); nil
     /// (no acpmux, the showcase) answers nothing and shows no buttons.
     public convenience init(environment: AcpmuxEnvironment?) {
-        self.init(answerer: environment.map { AcpmuxApprovalAnswerer(environment: $0) })
+        self.init(answerer: environment.map { AcpmuxApprovalAnswerer(environment: $0) as any AgentApprovalAnswering })
     }
 
     /// The sessions with buttons now.

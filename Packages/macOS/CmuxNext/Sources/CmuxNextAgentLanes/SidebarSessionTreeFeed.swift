@@ -86,7 +86,7 @@ public final class SidebarSessionTreeFeed {
     /// The workspaces whose agent tab shows one of `sessions` (this Mac's acpmux sessions), with that
     /// session: the Needs You tray's answerable items (``SidebarApprovals``). One pass over the tabs,
     /// and none while `sessions` is empty; nil host (before `start`, no install id) finds none.
-    public func workspaces(showing sessions: Set<String>) -> [SidebarWorkspaceID: String] {
+    func workspaces(showing sessions: Set<String>) -> [SidebarWorkspaceID: String] {
         guard !sessions.isEmpty, let workspaceModels, let localHost else { return [:] }
         return Self.workspaces(showing: sessions, in: Self.chats(workspaceModels()), localHost: localHost)
     }

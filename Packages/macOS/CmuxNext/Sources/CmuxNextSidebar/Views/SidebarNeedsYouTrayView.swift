@@ -22,8 +22,8 @@ final class SidebarNeedsYouTrayView: NSView {
     private let countFill = CALayer()
     /// An opaque sidebar-colored base under the tint: the tray floats over rows, which must not show through.
     private let backing = CALayer(), tintFill = CALayer()
-    private let footnote = TrayLine()
-    let rows = (0..<SidebarNeedsYouTrayView.shownItems).map { _ in TrayLine() }
+    private let footnote = SidebarNeedsYouTrayLine()
+    let rows = (0..<SidebarNeedsYouTrayView.shownItems).map { _ in SidebarNeedsYouTrayLine() }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -162,7 +162,7 @@ final class SidebarNeedsYouTrayView: NSView {
 
 /// One line of the tray: a glyph, the title, why it waits on the right, and a dim second line.
 /// An answerable line shows Allow and Deny where the reason was, and takes the keyboard focus for y and n.
-final class TrayLine: NSView {
+final class SidebarNeedsYouTrayLine: NSView {
     var onClick: (() -> Void)?
     /// Set while the line's session can be answered from here: Allow (true) or Deny.
     var onAnswer: ((Bool) -> Void)? {
