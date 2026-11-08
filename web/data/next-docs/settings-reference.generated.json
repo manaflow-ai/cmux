@@ -2643,7 +2643,7 @@
         },
         {
           "key": "appearance.metrics.chromeFontSize",
-          "title": "Text Size",
+          "title": "Interface Size",
           "help": "Text size of tabs, the sidebar, chat and other controls, over the density's. Terminal text has its own size.",
           "kind": "number",
           "default": null,

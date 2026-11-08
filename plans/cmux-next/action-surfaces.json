@@ -15074,6 +15074,46 @@
     },
     {
       "args" : [
+        {
+          "kind" : "string",
+          "name" : "agent",
+          "required" : true
+        },
+        {
+          "kind" : "string",
+          "name" : "conversation",
+          "required" : false
+        }
+      ],
+      "cli" : "offered",
+      "cli_name" : "home start-agent",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.startQueuedAgent",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Start Queued Agent Now",
+      "title_key" : "action.home.startQueuedAgent",
+      "title_table" : "HomeActions"
+    },
+    {
+      "args" : [
 
       ],
       "cli" : "devOnly",
@@ -15120,13 +15160,6 @@
         {
           "kind" : "bool",
           "name" : "team",
-          "required" : false
-        },
-        {
-          "kind" : "int",
-          "max" : 6,
-          "min" : 0,
-          "name" : "open",
           "required" : false
         },
         {
@@ -27620,43 +27653,6 @@
 
       ],
       "cli" : "guiOnly",
-      "cli_name" : "feed show",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : {
-        "key" : "i",
-        "modifiers" : [
-          "shift",
-          "cmd"
-        ]
-      },
-      "id" : "feed.show",
-      "main_menu" : "window",
-      "mcp" : "guiOnly",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.notifications",
-        "order" : 108,
-        "title" : "Notifications",
-        "title_key" : "category.notifications",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Show Feed",
-      "title_key" : "action.feed.show",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "args" : [
-
-      ],
-      "cli" : "guiOnly",
       "cli_name" : "notification show",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -28944,6 +28940,37 @@
       "palette_suggested" : null,
       "title" : "New Agent Chat on…",
       "title_key" : "action.palette.newAgentChatOn",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "guiOnly",
+      "cli_name" : "action palette-new-cloud-chat",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.newCloudChat",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Cloud Chat",
+      "title_key" : "action.palette.newCloudChat",
       "title_table" : "ActionCatalog"
     },
     {
@@ -34158,9 +34185,7 @@
           "name" : "viewer",
           "required" : false,
           "values" : [
-            "rd",
-            "web",
-            "native"
+            "rd"
           ]
         }
       ],
@@ -34474,46 +34499,6 @@
       "palette_suggested" : null,
       "title" : "Resize Machine…",
       "title_key" : "action.cloudResizeMachine",
-      "title_table" : "ActionCatalog"
-    },
-    {
-      "args" : [
-        {
-          "kind" : "string",
-          "name" : "name",
-          "required" : false
-        },
-        {
-          "kind" : "string",
-          "name" : "sshKey",
-          "required" : false
-        }
-      ],
-      "cli" : "offered",
-      "cli_name" : "cloud enroll-machine",
-      "context_menu" : "offered",
-      "context_menus" : [
-        "cloudMachine"
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "cloudEnrollMachine",
-      "main_menu" : null,
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.cloud",
-        "order" : 110,
-        "title" : "Cloud and Account",
-        "title_key" : "category.cloud",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Enroll Machine as Agent Host",
-      "title_key" : "action.cloudEnrollMachine",
       "title_table" : "ActionCatalog"
     },
     {
@@ -36111,61 +36096,6 @@
       "palette_suggested" : null,
       "title" : "Start Agent Session on Cloud Machine…",
       "title_key" : "action.cloudStartSession",
-      "title_table" : "CloudSessionActions"
-    },
-    {
-      "args" : [
-        {
-          "kind" : "string",
-          "name" : "agent",
-          "required" : true
-        },
-        {
-          "kind" : "string",
-          "name" : "prompt",
-          "required" : true
-        },
-        {
-          "kind" : "string",
-          "name" : "cwd",
-          "required" : false
-        },
-        {
-          "kind" : "string",
-          "name" : "promptId",
-          "required" : false
-        },
-        {
-          "kind" : "string",
-          "name" : "login",
-          "required" : false
-        }
-      ],
-      "cli" : "offered",
-      "cli_name" : "cloud relay-chat",
-      "context_menu" : "pointerMenuTrim",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "cloudRelayChat",
-      "main_menu" : null,
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.cloud",
-        "order" : 110,
-        "title" : "Cloud and Account",
-        "title_key" : "category.cloud",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Chat on Cloud Machine via the Relay…",
-      "title_key" : "action.cloudRelayChat",
       "title_table" : "CloudSessionActions"
     },
     {
@@ -43140,13 +43070,25 @@
             }
           ],
           "when" : "surfaceKind != page && !codeEditorFocused"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "-",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : "surfaceKind != terminal"
         }
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "-",
+        "key" : ",",
         "modifiers" : [
-          "ctrl"
+          "opt",
+          "cmd"
         ]
       },
       "id" : "focusHistoryBack",
@@ -43186,14 +43128,26 @@
             }
           ],
           "when" : "surfaceKind != page && !codeEditorFocused"
+        },
+        {
+          "keys" : [
+            {
+              "key" : "-",
+              "modifiers" : [
+                "ctrl",
+                "shift"
+              ]
+            }
+          ],
+          "when" : "surfaceKind != terminal"
         }
       ],
       "default_chord" : null,
       "default_shortcut" : {
-        "key" : "-",
+        "key" : ".",
         "modifiers" : [
-          "ctrl",
-          "shift"
+          "opt",
+          "cmd"
         ]
       },
       "id" : "focusHistoryForward",
@@ -47196,6 +47150,37 @@
       "palette_suggested" : null,
       "title" : "Show Hidden App…",
       "title_key" : "action.app.unhide",
+      "title_table" : "AppStoreActions"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "offered",
+      "cli_name" : "apps reload",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "app.reloadCustomViews",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Reload Custom Views",
+      "title_key" : "action.app.reloadCustomViews",
       "title_table" : "AppStoreActions"
     },
     {
@@ -52524,7 +52509,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "cloudEnrollMachine",
+              "id" : "cloudApplyMachineConfig",
               "kind" : "action",
               "order" : 15,
               "visible_when" : {
@@ -52537,7 +52522,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "cloudApplyMachineConfig",
+              "id" : "cloudDeliverSecrets",
               "kind" : "action",
               "order" : 16,
               "visible_when" : {
@@ -52550,22 +52535,9 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "cloudDeliverSecrets",
-              "kind" : "action",
-              "order" : 17,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : "cloud",
-                "requires" : [
-                  "cloudWorkspace"
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
               "id" : "cloudProvisionAPI",
               "kind" : "action",
-              "order" : 18,
+              "order" : 17,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -52576,13 +52548,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 19
+              "order" : 18
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.cloud.tools",
               "kind" : "action",
-              "order" : 20,
+              "order" : 19,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
