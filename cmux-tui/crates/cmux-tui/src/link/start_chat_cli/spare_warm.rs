@@ -26,7 +26,7 @@ pub(super) struct Request {
     pub(super) account: String,
 }
 
-/// The last fresh warm, in the start-chat state folder (`spare-warm.json`).
+/// The last fresh warm of one account and team, in the start-chat state folder (`spare-warm.json`, one per pair).
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 struct Record {
     account: String,
@@ -78,9 +78,13 @@ pub(super) fn run(
         return Some(refused("unauthorized", "no session credential on stdin"));
     }
     let path = state.join("spare-warm.json");
-    let last =
-        std::fs::read(&path).ok().and_then(|bytes| serde_json::from_slice::<Record>(&bytes).ok());
-    if let Some(last) = last.filter(|last| {
+    let mut records: Vec<Record> = std::fs::read(&path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default();
+    // A record past its warm is dropped: the file holds at most the pairs warm now.
+    records.retain(|record| record.warm_until > now_ms);
+    if let Some(last) = records.iter().find(|last| {
         last.account == request.account
             && last.team == request.team
             && now_ms < last.at.saturating_add(WARM_GAP_MS)
@@ -106,8 +110,10 @@ pub(super) fn run(
         warm_until,
         at: now_ms,
     };
+    records.retain(|other| other.account != record.account || other.team != record.team);
+    records.push(record);
     // A record that cannot be written only costs a second warm: the platform extends, never doubles.
-    if let Ok(bytes) = serde_json::to_vec(&record) {
+    if let Ok(bytes) = serde_json::to_vec(&records) {
         let _ = std::fs::create_dir_all(state);
         let _ = std::fs::write(&path, bytes);
     }
@@ -153,9 +159,18 @@ mod tests {
         // Within the gap: the record answers, no call, no second copy.
         assert_eq!(warm(1_060_000)["fresh"], json!(false));
         assert_eq!(calls.get(), 1);
+        // Another team's warm keeps this one's record: back within the gap, still no call.
+        let other = r#"{"account":"user_a","team":"team_ffffffffffffffffffff"}"#;
+        assert_eq!(
+            run(&flags(other), dir.path(), 1_070_000, &mut "tok\n".as_bytes(), &transport).unwrap()
+                ["fresh"],
+            json!(true)
+        );
+        assert_eq!(warm(1_080_000)["fresh"], json!(false));
+        assert_eq!(calls.get(), 2);
         // Past the gap: the platform is asked again (it extends the same warm).
         assert_eq!(warm(1_200_000)["fresh"], json!(true));
-        assert_eq!(calls.get(), 2);
+        assert_eq!(calls.get(), 3);
     }
 
     #[test]
