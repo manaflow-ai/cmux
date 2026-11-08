@@ -59,6 +59,7 @@ import Testing
         let page = NSView(frame: host.bounds)
         host.addSubview(page)
         let card = NSView()
+        card.wantsLayer = true
         card.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             card.widthAnchor.constraint(equalToConstant: 300),
@@ -138,5 +139,21 @@ import Testing
         try scene.cover([])
         scene.pagesNeedUpdate()
         #expect(scene.card.window != nil, "the zoom out's page update brings the card back at once")
+    }
+
+    /// Zoom out: the pane in front still covers the left part of the page and of the card. The card
+    /// shows at once, cut the same way as its page, and takes no click over the pane in front.
+    @Test func aPartlyCoveredCardShowsCutLikeItsPage() throws {
+        let scene = try Self.scene()
+        defer { scene.close() }
+        try scene.cover([], shown: CGRect(x: 450, y: 0, width: 350, height: 600))
+        scene.overlays.sync()
+        #expect(scene.card.window != nil, "the card shows with the part of its page that shows")
+        #expect(scene.card.layer?.mask is StripClipMaskLayer, "the card is cut where the pane in front covers its page")
+        #expect(scene.overlays.takesMouse(scene.card) != true, "no click on the card over the pane in front")
+        try scene.cover([])
+        scene.overlays.sync()
+        #expect(scene.card.window != nil)
+        #expect(scene.card.layer?.mask == nil, "a whole card has no cut")
     }
 }
