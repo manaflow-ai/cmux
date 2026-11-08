@@ -1822,7 +1822,7 @@ async fn dispatch_request_with_identity(
                             .then(|| serde_json::to_value(sender).ok())
                             .flatten()
                     });
-            let on_accepted = Some(composer::on_accepted(hub, conn, &s, &params)?);
+            let mut on_accepted = Some(composer::on_accepted(hub, conn, &s, &params)?);
             // A key replaces its sender's queued prompts (`supersede.rs`), which knows agents and
             // the owner only: a person's prompt neither replaces nor is replaced.
             let supersede = crate::hub::supersede_key(&params)?.filter(|_| !person_message);
@@ -1863,12 +1863,16 @@ async fn dispatch_request_with_identity(
             // From here the prompt's own uploads go only if the session refuses it.
             let saved = crate::attach::Saved::with_owned(saved, &s.id, owned.take());
             // Where the send came from, as its harness says and the daemon checked: a record of
-            // its own beside the prompt, never part of who sent it (`sender_harness.rs`). Not from
-            // the app or a Web client, which name no harness.
+            // its own beside the prompt, written once the prompt is kept, never part of who sent
+            // it (`sender_harness.rs`). Not from the app or a Web client, which name no harness.
             if matches!(conn.origin, super::Origin::Local | super::Origin::Peer)
                 && let Some(claim) = crate::sender_harness::recorded(&params, prompt_id.as_deref())
             {
-                hub.append(&s, "mux", crate::sender_harness::RECORD_KIND, claim);
+                let (hub, s) = (hub.clone(), s.clone());
+                let write = move |claim: Value| {
+                    hub.append(&s, "mux", crate::sender_harness::RECORD_KIND, claim);
+                };
+                on_accepted = crate::sender_harness::on_kept(claim, write, on_accepted);
             }
             let cloud_turn: Option<crate::cloud_rewind::CloudTurnEnvelope> =
                 match params.get("cloud_turn") {
@@ -3239,7 +3243,10 @@ pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
 /// says so (`sender_harness.rs`: `senderHarness`; a shell under a terminal or cmux claims none). A relay names what it
 /// carries (`fromRelay`, `via`: the lane-gh broker, the Cloud mobile carrier). A trigger, the
 /// app's own transport (`LocalApp`, whose pane proves the person instead) and every non-unix
-/// transport are no terminal. Any of those stays `unverified`. What is left is a plain unix
+/// transport are no terminal. Any of those stays `unverified`. A send the daemon keeps and delivers
+/// later (`_acpmux/send_queue`) replays on the outbox's own unix connection with its request's
+/// claims and the caller its sender named, proven or not (`Delivery::unproven_caller`), so it is
+/// judged here as the send itself was (#38260 F1). What is left is a plain unix
 /// connection of the user that claims nothing: the person at their terminal. A script of the
 /// same user that strips every label is let through, as it was before #37497; it still never
 /// releases a protected hold (`PromptOptions::unproven_owner`), never counts as an authenticated

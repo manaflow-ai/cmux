@@ -671,6 +671,8 @@ notification clear [--terminal <term_id> | --workspace <ws_id> | --notification 
 notification ack --client <id> <notification-id>...
 attention request --tab <tab_…> --reason <text>
 attention clear --tab <tab_…>
+attention next [--after <tab_…>] [--focus]
+attention list
 git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector>]
 git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch] [--patch]
   [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>] [--after-path <path>]

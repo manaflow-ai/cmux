@@ -291,6 +291,66 @@ async fn the_owners_plain_terminal_send_is_theirs_and_every_claim_keeps_one_off_
     assert_eq!(from_lane.pointer("/_meta/provenance/verified"), Some(&json!(true)), "{from_lane}");
 }
 
+/// A send the daemon keeps and delivers later (`_acpmux/send_queue`, the CLI's `--no-wait` and
+/// retry path) is replayed on the outbox's own fresh unix connection (`server/outbox.rs`
+/// `attempt_once`). What kept the prompt off the owner at send time goes with it: a caller token
+/// the daemon could not prove (an agent's shell holding a stale session's token) stays unproven
+/// on replay, and a harness claim stays in the request (manaflow-ai/cmux#38260 F1). The owner's
+/// own queued send is still theirs.
+#[tokio::test]
+async fn a_queued_send_keeps_what_kept_it_off_the_owner_through_delivery() {
+    let hub = hub();
+    let mut owner = Client::open(&hub);
+    let receiver = owner.new_session(json!({"harness": "fake"})).await;
+    let sender = owner.new_session(json!({"harness": "fake"})).await;
+    let queued = |id: &str, fields: Value| {
+        let mut p = prompt(&receiver, id, "ship it", None);
+        for (key, value) in fields.as_object().unwrap() {
+            p["_meta"]["acpmux"][key] = value.clone();
+        }
+        json!({"request": p})
+    };
+    async fn delivered(c: &mut Client, queued: Value) {
+        let ack = c.call("_acpmux/send_queue", queued).await;
+        let delivery = ack["deliveryId"].as_str().expect("a delivery id").to_owned();
+        let status =
+            c.call("_acpmux/send_status", json!({"deliveryId": delivery, "waitMs": 20000})).await;
+        assert_eq!(status["status"], "delivered", "{status}");
+    }
+    // Delivered means the receiver took the prompt; its turn (and so its user_message) may start a
+    // moment later, behind the one before it.
+    async fn recorded(c: &mut Client, session: &str, id: &str) -> Value {
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            let found = c.records(session, "user_message").await;
+            if let Some(message) = found.into_iter().find(|m| m["promptId"] == id) {
+                return message;
+            }
+            assert!(std::time::Instant::now() < deadline, "{id}: no user_message within 10 s");
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+    let mut stale = Client::open(&hub);
+    let caller = json!({"callerSession": {"sessionId": sender, "token": "not-its-token"}});
+    stale.call("initialize", json!({"protocolVersion": 1, "_meta": {"acpmux": caller}})).await;
+    delivered(&mut stale, queued("p-queued-stale", json!({}))).await;
+    delivered(&mut owner, queued("p-queued-harness", json!({"fromHarness": "codex"}))).await;
+    delivered(&mut owner, queued("p-queued-owner", json!({"cliHost": "my-mac"}))).await;
+
+    for id in ["p-queued-stale", "p-queued-harness"] {
+        let message = recorded(&mut owner, &receiver, id).await;
+        assert_eq!(
+            message.pointer("/_meta/provenance/kind"),
+            Some(&json!("unverified")),
+            "{id}: {message}"
+        );
+        assert_eq!(message.pointer("/_meta/origin"), None, "{id}: {message}");
+    }
+    let mine = recorded(&mut owner, &receiver, "p-queued-owner").await;
+    assert_eq!(mine.pointer("/_meta/provenance"), None, "{mine}");
+    assert_eq!(mine.pointer("/_meta/origin/actor"), Some(&json!("person")), "{mine}");
+}
+
 /// A Web connection is the person's only by a paired device's proof (`pairing.rs` `origin_of`:
 /// the phone's `client` credential): the listener token a dashboard or browser socket holds
 /// proves no person (`hub/person.rs`), so its unnamed prompt is unverified.
