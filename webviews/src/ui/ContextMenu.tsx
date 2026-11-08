@@ -126,7 +126,15 @@ export function ContextMenu({
       }
       if (action && !action.keepOpen) close();
     },
-    onDismiss: () => {
+    onDismiss: (reason) => {
+      // The host never drew the rows (an older app, a stand-in bridge): the page draws its own menu
+      // where the right-click was, as when the legacy native menu is refused.
+      const anchor = reason === "refused" ? nativeAnchor?.getBoundingClientRect() : undefined;
+      if (anchor) {
+        setNativeOpen(false);
+        setPoint({ x: anchor.left, y: anchor.top });
+        return;
+      }
       close();
       native?.onDismiss?.();
     },
