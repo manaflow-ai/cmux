@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42507238510",
+  "recorded_at": "2026-11-08T18:01:17Z",
+  "reason": "cmux-tui fcf8221ebbc2 changes the image's cmux-tui (pinned 94d9f6bbb8ad)",
+  "dry_run": false,
+  "cmux_tui": "fcf8221ebbc25eefc6ae2790e576eb52cf0876b1",
+  "fixes": [
+    {
+      "sha": "fcf8221ebbc25eefc6ae2790e576eb52cf0876b1",
+      "mergedAt": "2026-11-08T09:37:47-08:00",
+      "subject": "Cloud: resize, snapshots, restore and fork go to the app server, not classic /api/vm (#38293)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T18:01:17Z",
+    "snapshot_id": "sh-1a0d26e144ad4598907aa25e85d0e19b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42507238510): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "43219e19909c937d7ff1954e939b8a5e3b8abdc3",
+    "image": "cloud-native-auto-fcf8221e-42507238510-1",
+    "revision": "ci-42507238510-1",
+    "at": "2026-11-08T18:01:17Z"
+  },
+  "rolled_back": false
+}
