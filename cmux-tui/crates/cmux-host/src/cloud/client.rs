@@ -240,6 +240,11 @@ pub fn hold_then_bind(
     daemon_noise_key: Option<&str>,
     now_wall_ms: u64,
 ) -> Option<BindResult> {
+    #[cfg(unix)]
+    if !crate::updater::gate::hold_connects(paths, now_wall_ms) {
+        return None;
+    }
+    #[cfg(not(unix))]
     let _ = paths;
     Some(bind_machine(store, http, key, wg_public_key, daemon, daemon_noise_key, now_wall_ms))
 }
