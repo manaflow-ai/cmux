@@ -10,11 +10,23 @@
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { focusWithRing } from "./focusWithRing";
 
-const TAB_STOPS =
-  'a[href], area[href], button, input, select, textarea, iframe, summary, [tabindex], [contenteditable]:not([contenteditable="false"])';
+/// What the browser tabs to on its own: links, form controls, frames, players with controls, a
+/// details' own summary (its first) and editable boxes. Anything else is a stop by a tabindex of 0 or
+/// more, and these leave by one below 0.
+const NATIVE_STOPS =
+  'a[href], area[href], button, input, select, textarea, iframe, audio[controls], video[controls], details > summary:first-of-type, [contenteditable]:not([contenteditable="false"])';
+const TAB_STOPS = `${NATIVE_STOPS}, [tabindex]`;
+
+/// The element's own tabindex, when it sets a valid one.
+function tabindexOf(element: HTMLElement): number | undefined {
+  const value = element.getAttribute("tabindex")?.trim();
+  return value && /^[+-]?\d+$/.test(value) ? Number.parseInt(value, 10) : undefined;
+}
 
 function isTabStop(element: HTMLElement): boolean {
-  if (element.tabIndex < 0 || element.closest("[inert]")) return false;
+  const order = tabindexOf(element);
+  if (order !== undefined ? order < 0 : !element.matches(NATIVE_STOPS)) return false;
+  if (element.closest("[inert]")) return false;
   // `:disabled`, not `.disabled`: a control inside a disabled fieldset (outside its first legend)
   // is disabled too, and the browser neither tabs to it nor lets it take focus.
   if (element.matches(":disabled")) return false;
