@@ -418,6 +418,8 @@ impl Hub {
         let replaced = std::sync::OnceLock::<Vec<String>>::new();
         // Another agent's message queued as the running turn crosses its cap still gets the
         // turn its notice (`turn_cap.rs`): the timer may have looked at the queue just before.
+        // An FYI asks for none.
+        let fyi = opts.class == Some(crate::prompt_class::PromptClass::Fyi);
         let from_agent =
             super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref()).is_some()
                 && !opts.send_now;
@@ -428,7 +430,7 @@ impl Hub {
                 }
                 let queued = v.get("queued") == Some(&Value::Bool(true));
                 f(v);
-                if queued && from_agent {
+                if queued && from_agent && !fyi {
                     self.turn_cap_recheck(session);
                 }
             }
@@ -444,7 +446,7 @@ impl Hub {
         // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
         let capped = running.is_some()
             && !opts.send_now
-            && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref());
+            && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref(), fyi);
         // Another agent's message goes into the chat's inbox, never a turn or a steer of its own
         // (`inbox.rs`). Boxed, out of this future.
         let route = self.inbox_route(
@@ -1098,7 +1100,8 @@ impl Hub {
         let mut result = super::steer_end::agent_prompt_hook(
             session,
             &child,
-            super::prompt_sender::run_params(&agent_sid, json!(wire), &run),
+            // The effective provenance: a fan-in turn's is its digest's (above), not its head's.
+            super::prompt_sender::run_params(&agent_sid, json!(wire), &run, provenance.as_ref()),
             &turn_id,
             false,
             false,
@@ -1278,7 +1281,13 @@ impl Hub {
                                     super::steer_end::agent_prompt_hook(
                                         session,
                                         &child2,
-                                        json!({"sessionId": sid2, "prompt": wire}),
+                                        // Its sender and marks as on the first write.
+                                        super::prompt_sender::run_params(
+                                            &sid2,
+                                            json!(wire),
+                                            &run,
+                                            provenance.as_ref(),
+                                        ),
                                         &turn_id,
                                         false,
                                         false,

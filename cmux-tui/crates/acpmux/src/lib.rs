@@ -26,6 +26,7 @@ pub mod agent_guidance;
 pub mod agent_host;
 pub mod agent_link;
 pub mod agent_login;
+pub mod agent_text;
 pub mod agent_tools;
 mod artifacts_fs;
 pub mod artifacts_sync;
@@ -89,6 +90,7 @@ pub mod launch_credential;
 pub mod launch_policy;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_sandbox;
+pub mod listener_record;
 pub mod live_models;
 pub mod local_stream;
 pub mod login_env;

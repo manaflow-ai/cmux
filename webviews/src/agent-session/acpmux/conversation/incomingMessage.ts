@@ -37,7 +37,8 @@
 // threads draw as received lines (inboxNotice.ts), its text for the agent never shows.
 import { clipMessagePreview as clip } from "./clipMessagePreview";
 import { inboxNotice, type InboxNotice } from "./inboxNotice";
-import { relayEnvelope, withoutRelayEnvelope } from "./relayEnvelope";
+import { bareSender, provenanceAuthenticated, senderRecord, senderUnverified } from "./senderIdentity";
+import { relayEnvelope, withoutRelayEnvelope, withoutRelayLabelOfMessage } from "./relayEnvelope";
 import {
   legacyNotice,
   noticeBody,
@@ -91,13 +92,14 @@ export type IncomingMessage = {
   /// The sender's harness when the message names it (`fromHarness`: a peer's relayed message, whose
   /// chat is not listed here), for its mark.
   harness?: string;
+  /// acpmux could not verify who sent it (it only named itself, a record from before acpmux said,
+  /// senderIdentity.ts, or provenance kind `unverified`, which names an unverified sender when the
+  /// message names no one): the line draws a subtle marker by the name, never words in it.
+  unverified?: true;
   /// The sender's model and thinking effort when the message names them (`fromModel`,
   /// `fromEffort`), for its line's hover; a listed chat's own come first.
   model?: string;
   effort?: string;
-  /// acpmux could not verify who sent it (provenance kind `unverified`): the line says so, and
-  /// names an unverified sender when the message names no one.
-  unverified?: true;
   /// A person edited it while it waited (acpmux `editedBy`): still the sender's message.
   edited?: true;
   /// What the sender wrote.
@@ -358,10 +360,56 @@ export function incomingPrompt(
   // agent got, label and all, stays the row's `raw` (behind Details). Only a record acpmux keeps
   // as another agent's is read so: anyone can type a label, and the person's own prompt stays theirs.
   const relay = fromAgent(msg) ? relayEnvelope(text) : undefined;
-  if (!relay) return promptOf(text, msg, context);
+  if (!relay) {
+    // A record cut short after the label's whole head: the message without it, the prompt as
+    // written kept as `raw`. A head cut inside itself is a preview's (relayEnvelope.ts); a whole
+    // message that only starts like one keeps its words.
+    const cut = fromAgent(msg) ? withoutRelayLabelOfMessage(text) : text;
+    if (cut === text) return withSender(promptOf(text, msg, context), msg);
+    const inner = promptOf(cut, msg, context);
+    return withSender(
+      inner?.kind === "message" ? { kind: "message", message: { ...inner.message, raw: text } } : inner,
+      msg,
+    );
+  }
+  // The label's sender may carry an older acpmux's unverified suffix: its mark outlives the name.
+  const declared = relay.declared === true;
   const inner = promptOf(relay.body, msg, context);
-  if (inner?.kind === "message") return { kind: "message", message: { ...inner.message, raw: text } };
-  return { kind: "message", message: { name: relay.sender, text: relay.body, raw: text } };
+  if (inner?.kind === "message")
+    return withSender({ kind: "message", message: { ...inner.message, raw: text } }, msg, declared);
+  return withSender({ kind: "message", message: { name: relay.sender, text: relay.body, raw: text } }, msg, declared);
+}
+
+/// An agent's message with its sender as senderIdentity.ts reads it: the name bare of the suffix an
+/// older acpmux wrote into it, the harness its sender record names when nothing else did, and
+/// `unverified` when acpmux could not verify the sender (its record says so, or, with no record, it
+/// only named itself with `--from`, or a broker label's name carried the suffix: `declared`). A tool's
+/// notice and a person's words keep theirs.
+function withSender(
+  prompt: IncomingPrompt | undefined,
+  msg: Parameters<typeof promptOf>[1],
+  declared = false,
+): IncomingPrompt | undefined {
+  if (prompt?.kind !== "message" || prompt.message.notice || prompt.message.fromPerson) return prompt;
+  const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;
+  const record = senderRecord(provenance?.sender ?? (msg as { sender?: unknown } | undefined)?.sender);
+  const sender = bareSender(prompt.message.name);
+  // With no sender record, acpmux's own proof in the provenance (a relay's record, a session it
+  // stamped) verifies the sender, as acpmux's record would have (review of cmux#37653).
+  const unverified =
+    !(record === undefined && provenanceAuthenticated(provenance)) &&
+    senderUnverified(record, sender.declared || declared || provenance?.from === NAMED_SENDER);
+  const harness = prompt.message.harness ?? record?.harness;
+  if (!unverified && !sender.declared && harness === prompt.message.harness) return prompt;
+  return {
+    kind: "message",
+    message: {
+      ...prompt.message,
+      name: sender.name,
+      ...(harness && { harness }),
+      ...(unverified && { unverified: true as const }),
+    },
+  };
 }
 
 function promptOf(

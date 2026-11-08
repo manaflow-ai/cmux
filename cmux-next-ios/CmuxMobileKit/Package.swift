@@ -172,6 +172,8 @@ let package = Package(
                 "CmuxMobileChief", "CmuxMobileModel", "CmuxMobileDesign", "CmuxMobileRealtime",
                 // libwebrtc for live Chief calls: CmuxVNCWebRTC's, the one build the app links.
                 .product(name: "WebRTC", package: "CmuxVNCWebRTC", condition: .when(platforms: [.iOS])),
+                // The process's libwebrtc field trials (WebRTCFieldTrials), set before the call's factory.
+                .product(name: "CmuxVNCWebRTC", package: "CmuxVNCWebRTC", condition: .when(platforms: [.iOS])),
                 .product(name: "CmuxChiefVoiceCore", package: "CmuxChiefVoiceCore"),
                 .product(name: "CmuxConversationCore", package: "CmuxConversation"),
             ],

@@ -103,9 +103,13 @@ function next(socket, accept, timeoutMs) {
   });
 }
 
-async function register(slot) {
+// `onMessage` is attached before Register goes out: the relay sends
+// `Incoming` right after `Registered`, often in the same read, and a handler
+// attached after `registered` resolves would miss it.
+async function register(slot, onMessage) {
   const bearer = ticket("register", "daemon", slot);
   const socket = await open(`/v1/slots/${slot}/control`, bearer);
+  if (onMessage) socket.on("message", (data) => onMessage(socket, JSON.parse(data.toString())));
   const registered = next(socket, (m) => m.type === "registered" || m.type === "error", 10_000);
   send(socket, { type: "register", protocol: PROTOCOL, slot, ticket: bearer });
   const answer = await registered;
@@ -130,16 +134,14 @@ async function join(slot, role, incoming) {
 }
 
 async function freshDaemon(slot, sockets) {
-  const control = await register(slot);
-  sockets.push(control);
-  control.on("message", (data) => {
-    const message = JSON.parse(data.toString());
+  const control = await register(slot, (socket, message) => {
     if (message.type === "incoming") {
-      join(slot, "daemon", message).then(({ socket }) => sockets.push(socket), () => {});
+      join(slot, "daemon", message).then(({ socket: circuit }) => sockets.push(circuit), () => {});
     } else if (message.type === "ping") {
-      send(control, { type: "pong", nonce: message.nonce });
+      send(socket, { type: "pong", nonce: message.nonce });
     }
   });
+  sockets.push(control);
 }
 
 async function trial(index, stale) {
