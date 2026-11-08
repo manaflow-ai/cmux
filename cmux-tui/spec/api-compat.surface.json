@@ -12085,6 +12085,9 @@
       }
     },
     "request:split": {
+      "/before": {
+        "ty": "boolean"
+      },
       "/cols": {
         "ty": "uint16",
         "nullable": true
