@@ -2513,7 +2513,8 @@ function ComposerFrame({
             prompt={typedWords()}
             runRef={runOnButton}
             onRun={(variants) => {
-              const prompt = typedWords().trim();
+              // As Send sends it: the field's markdown escapes what was typed; the agents get the text.
+              const prompt = (field.current?.agentText(typedWords()) ?? typedWords()).trim();
               const session = persistedSession.current;
               const written = field.current?.value() ?? textRef.current;
               return runOnAgents.run(prompt, variants).then(() => {

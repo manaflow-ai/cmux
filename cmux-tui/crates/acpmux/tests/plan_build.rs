@@ -63,6 +63,22 @@ impl Client {
         c
     }
 
+    /// A chat's own agent's connection (its caller token), as `start_session` uses.
+    async fn agent(hub: &Arc<Hub>, session: &str) -> Self {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+        let mut c = Client(in_tx, out_rx, 0);
+        let token = acpmux::hub::person::caller_token(session);
+        c.ok(
+            "initialize",
+            json!({"protocolVersion": 1,
+                   "_meta": {"acpmux": {"callerSession": {"sessionId": session, "token": token}}}}),
+        )
+        .await;
+        c
+    }
+
     async fn send(&mut self, m: &str, params: Value) -> i64 {
         self.2 += 1;
         self.0.send(Message::request(self.2, m, params).to_line()).await.unwrap();
@@ -335,6 +351,14 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
     app.ok("_acpmux/tag", json!({"sessionId": run2, "set": forged_root})).await;
     let earlier = builds[0]["sessionId"].clone();
     app.ok("_acpmux/tag", json!({"sessionId": earlier, "set": {"planBuild": run_id}})).await;
+    // And the chat's agent starts an ordinary sub-session in a worktree, tagged into the runs.
+    let mut agent = Client::agent(&hub, &chat).await;
+    let plain = agent
+        .ok("_acpmux/subsession/start", json!({"prompt": "look around", "worktree": true}))
+        .await;
+    let plain_id = plain["sessionId"].clone();
+    let plain_root = plain["worktree"]["root"].as_str().unwrap().to_owned();
+    agent.ok("_acpmux/tag", json!({"sessionId": plain_id, "set": {"planBuild": run_id}})).await;
     // Keep the second and drop the rest: their chats close and their worktrees go, archived.
     let keep = runs[1]["sessionId"].as_str().unwrap().to_owned();
     let kept = app
@@ -344,10 +368,23 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
         )
         .await;
     assert_eq!(kept["keptSessionId"], json!(keep), "{kept}");
-    // The earlier build tagged in is none of these runs: the daemon never started it as one.
+    // Neither chat tagged in is one of these runs: the daemon never started either as one. Both
+    // stay open, unarchived, with their worktrees.
     assert!(kept["builds"].as_array().unwrap().iter().all(|b| b["sessionId"] != earlier), "{kept}");
     let removed = kept["removed"].as_array().unwrap();
-    assert!(removed.iter().all(|r| r["sessionId"] != earlier), "{kept}");
+    assert!(
+        removed.iter().all(|r| r["sessionId"] != earlier && r["sessionId"] != plain_id),
+        "{kept}"
+    );
+    assert!(
+        kept["builds"].as_array().unwrap().iter().all(|b| b["sessionId"] != plain_id),
+        "{kept}"
+    );
+    assert!(Path::new(&plain_root).is_dir(), "the ordinary sub-session's worktree stays: {kept}");
+    let plain_session = hub.resolve(plain_id.as_str().unwrap()).unwrap();
+    let status = plain_session.meta().status;
+    assert_ne!(status, acpmux::store::SessionStatus::Closed, "the ordinary sub-session stays open");
+    assert!(!plain_session.meta().tags.contains_key("archived"), "and unarchived");
     assert_eq!(removed.len(), 2, "{kept}");
     assert!(removed.iter().all(|r| r["removed"] == json!(true)), "{kept}");
     // Each went through worktree care's archive first; its branch stays to restore it from.
@@ -364,6 +401,24 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
     }
     assert!(!Path::new(&run_roots[0]).exists() && !Path::new(&run_roots[2]).exists(), "{kept}");
     assert!(Path::new(&run_roots[1]).join("NOTICE").is_file(), "the kept run stays");
+    // Keeping it again changes nothing; keeping another run (a second pane's stale choice) is
+    // refused, so it never discards the kept one.
+    let again = app
+        .ok(
+            "_acpmux/plan/keep",
+            json!({"sessionId": chat, "buildId": run_id, "keep": keep, "removeOthers": true}),
+        )
+        .await;
+    assert_eq!(again["keptSessionId"], json!(keep), "{again}");
+    let other = runs[0]["sessionId"].as_str().unwrap();
+    let stale = app
+        .call(
+            "_acpmux/plan/keep",
+            json!({"sessionId": chat, "buildId": run_id, "keep": other, "removeOthers": true}),
+        )
+        .await;
+    assert_eq!(reason(&stale), "plan_build.already_kept", "{stale}");
+    assert!(Path::new(&run_roots[1]).join("NOTICE").is_file(), "the kept run still stays");
     // The plan builds' Keep above, without removeOthers, left its other worktree, and neither
     // forged tag reached it.
     assert!(Path::new(&roots[0]).join("LICENSE").is_file(), "{kept}");

@@ -200,3 +200,36 @@ test("a build whose chat closed stops, and the card reads its diff again", () =>
   expect(build?.builds.map((b) => b.state)).toEqual(["running", "cancelled"]);
   expect(build?.turnsEnded).toBe(1);
 });
+
+test("a kept record read before its started record is replayed when the build's row is made", () => {
+  const rows = new Map<string, AcpmuxRow>();
+  const builds = new PlanBuildRows();
+  builds.reduce(
+    rows,
+    { at: 1 },
+    {
+      event: "kept",
+      buildId: "r9",
+      keptSessionId: "b",
+      archived: ["a"],
+      removed: [{ sessionId: "a", removed: true }],
+    },
+  );
+  expect(rows.get(planBuildRowId("r9"))).toBeUndefined();
+  builds.reduce(
+    rows,
+    { seq: 2, at: 2 },
+    {
+      event: "started",
+      buildId: "r9",
+      target: "prompt",
+      builds: [
+        { sessionId: "a", harness: "claude" },
+        { sessionId: "b", harness: "codex" },
+      ],
+    },
+  );
+  const build = rows.get(planBuildRowId("r9"))!.planBuild!;
+  expect(build.keptSessionId).toBe("b");
+  expect(build.removed).toEqual(["a"]);
+});

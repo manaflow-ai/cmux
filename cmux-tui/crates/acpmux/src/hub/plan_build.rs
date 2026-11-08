@@ -35,6 +35,20 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+/// What a Keep finds: the run kept now and the build's other runs, or the same run kept before.
+pub(crate) enum Kept {
+    Now(Arc<Session>, Vec<Arc<Session>>),
+    Already,
+}
+
+/// One Keep at a time on this daemon, from its check to its last removal: a Keep reads which run
+/// a build kept, so a second one waits for the first to have recorded it.
+pub(crate) async fn keep_one() -> tokio::sync::MutexGuard<'static, ()> {
+    static ONE: std::sync::LazyLock<tokio::sync::Mutex<()>> =
+        std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
+    ONE.lock().await
+}
+
 /// The `mux` record kind on the plan's chat.
 pub const RECORD_KIND: &str = "plan_build";
 /// The tag on each build's session: its build id.
@@ -289,14 +303,11 @@ impl Hub {
             .into_iter()
             .filter_map(|s| {
                 let m = s.meta.lock().unwrap_or_else(|e| e.into_inner());
-                // The daemon's record of the build it started the chat as; the tag only for
-                // builds from before that record (an agent may write tags).
+                // Only the daemon's record of the build it started the chat as, never the tag (an
+                // agent may write tags): no other chat joins a build, so a Keep closes, archives
+                // and removes only the build's own runs.
                 let ours = m.subsession.as_ref().is_some_and(|l| {
-                    l.started_by == parent
-                        && match &l.plan_build {
-                            Some(b) => b == build_id,
-                            None => m.tags.get(BUILD_TAG).is_some_and(|t| t.value == build_id),
-                        }
+                    l.started_by == parent && l.plan_build.as_deref() == Some(build_id)
                 });
                 let created = m.created_at;
                 drop(m);
@@ -409,7 +420,7 @@ impl Hub {
         for s in &builds {
             let m = s.meta();
             let archived = m.tags.contains_key(ARCHIVED_TAG);
-            if m.tags.contains_key(KEPT_TAG) {
+            if m.subsession.as_ref().is_some_and(|l| l.plan_build_kept) {
                 kept = json!(s.id);
             }
             // The daemon's record of the worktree it made first; the tag for builds from before it.
@@ -464,18 +475,36 @@ impl Hub {
         Ok(json!({"buildId": build_id, "keptSessionId": kept, "builds": rows}))
     }
 
-    /// The builds of `build_id` other than `keep`, after checking `keep` is one of them.
+    /// The builds of `build_id` other than `keep`, after checking `keep` is one of them, and marks
+    /// `keep` kept in its lineage (the caller saves it). A build keeps one run: keeping it again
+    /// answers [`Kept::Already`] and changes nothing, and keeping another is refused, so two panes
+    /// that chose different runs never discard each other's. Run under [`keep_one`].
     pub(crate) fn plan_keep_others(
         &self,
         parent: &Session,
         build_id: &str,
         keep: &str,
-    ) -> Result<(Arc<Session>, Vec<Arc<Session>>), RpcError> {
+    ) -> Result<Kept, RpcError> {
         let builds = self.plan_builds(&parent.id, build_id);
         let kept = builds.iter().find(|s| s.id == keep).cloned().ok_or_else(|| {
             RpcError::invalid_params("keep must be one of this plan build's chats")
         })?;
-        Ok((kept, builds.into_iter().filter(|s| s.id != keep).collect()))
+        let was =
+            |s: &Arc<Session>| s.meta().subsession.as_ref().is_some_and(|l| l.plan_build_kept);
+        if let Some(winner) = builds.iter().find(|s| was(s)) {
+            if winner.id == keep {
+                return Ok(Kept::Already);
+            }
+            return Err(refused(
+                "plan_build.already_kept",
+                "another run of this build was already kept",
+            ));
+        }
+        if let Some(link) = kept.meta.lock().unwrap_or_else(|e| e.into_inner()).subsession.as_mut()
+        {
+            link.plan_build_kept = true;
+        }
+        Ok(Kept::Now(kept, builds.into_iter().filter(|s| s.id != keep).collect()))
     }
 
     /// The builds a Keep let go, gone now: each chat closes, then worktree care archives its

@@ -553,6 +553,10 @@ pub struct SubsessionLink {
     /// chat a build.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan_build: Option<String>,
+    /// The person kept this one of its plan build's runs (`_acpmux/plan/keep`), set by the daemon:
+    /// a build has one, and a later Keep of another run is refused.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub plan_build_kept: bool,
 }
 
 /// Limit overrides of one session; `None` inherits its parent's, then the

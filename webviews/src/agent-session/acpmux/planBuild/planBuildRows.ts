@@ -22,10 +22,14 @@ export class PlanBuildRows {
   /// The newest sub-session records of children no build has claimed yet, oldest first: a fast
   /// build's turn can end before its `plan_build` record is written, so the record replays them.
   private readonly early = new Map<string, Fields[]>();
+  /// A build's `kept` record read before its `started` one (a page read out of order), by build
+  /// id: the `started` record replays it.
+  private readonly earlyKept = new Map<string, Fields>();
 
   clear(): void {
     this.children.clear();
     this.early.clear();
+    this.earlyKept.clear();
   }
 
   /// A `plan_build` record: `started` makes the build's row, `kept` marks its kept build.
@@ -42,6 +46,9 @@ export class PlanBuildRows {
           planBuild = planBuildChildEnded(planBuild, record) ?? planBuildChildStarted(planBuild, record) ?? planBuild;
         this.early.delete(child.sessionId);
       }
+      const kept = this.earlyKept.get(build.buildId);
+      this.earlyKept.delete(build.buildId);
+      if (kept) planBuild = planBuildKept(planBuild, kept);
       rows.set(id, {
         id,
         version: (before?.version ?? 0) + 1,
@@ -60,6 +67,14 @@ export class PlanBuildRows {
       const row = rows.get(id);
       if (row?.planBuild)
         rows.set(id, { ...row, version: row.version + 1, planBuild: planBuildKept(row.planBuild, msg) });
+      else {
+        this.earlyKept.delete(msg.buildId);
+        this.earlyKept.set(msg.buildId, msg);
+        for (const oldest of this.earlyKept.keys()) {
+          if (this.earlyKept.size <= EARLY_CHILDREN) break;
+          this.earlyKept.delete(oldest);
+        }
+      }
     }
   }
 

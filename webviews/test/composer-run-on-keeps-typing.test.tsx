@@ -174,3 +174,12 @@ test("words typed while the runs start stay in the composer", async () => {
   await settle();
   expect(prompt()).toBe("Add a NOTICE and a CHANGELOG");
 });
+
+test("the runs get the prompt as typed, not the field's escaped markdown", async () => {
+  const ran: string[] = [];
+  await render(async (text) => void ran.push(text));
+  await type("Rename *old* to snake_case [v2]");
+  await runOnAgents();
+  await until(() => ran.length === 1, "the run");
+  expect(ran).toEqual(["Rename *old* to snake_case [v2]"]);
+});

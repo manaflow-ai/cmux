@@ -336,6 +336,7 @@ impl Hub {
             offered: true,
             worktree: None,
             plan_build: None,
+            plan_build_kept: false,
         }
     }
 
@@ -660,6 +661,7 @@ impl Hub {
             offered: false,
             worktree: worktree.as_ref().map(|kept| kept.made.root.clone()),
             plan_build: None,
+            plan_build_kept: false,
         };
         if req.fork {
             let sub = super::fork::SubsessionFork { link, lineage, checked: &cwd };

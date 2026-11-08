@@ -506,6 +506,7 @@ async fn a_sub_session_retry_is_busy_while_its_parents_run_slots_are_full() {
             offered: false,
             worktree: None,
             plan_build: None,
+            plan_build_kept: false,
         });
     }
     let family = json!({"kind": crate::hub::subsessions::PROVENANCE_KIND, "from": parent.id});

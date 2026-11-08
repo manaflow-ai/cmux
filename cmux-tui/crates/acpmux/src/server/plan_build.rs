@@ -272,8 +272,14 @@ async fn handle(
         method::MUX_PLAN_COMPARE => hub.plan_compare(&session, required(params, "buildId")?).await,
         _ => {
             let build_id = required(params, "buildId")?;
+            // One Keep at a time: a repeated Keep of the kept run changes nothing, and a Keep of
+            // another run is refused, so no Keep discards the run another one kept.
+            let _one = plan_build::keep_one().await;
             let (kept, others) =
-                hub.plan_keep_others(&session, build_id, required(params, "keep")?)?;
+                match hub.plan_keep_others(&session, build_id, required(params, "keep")?)? {
+                    plan_build::Kept::Now(kept, others) => (kept, others),
+                    plan_build::Kept::Already => return hub.plan_compare(&session, build_id).await,
+                };
             let now = crate::store::now_ms().to_string();
             let mut keep = serde_json::Map::new();
             keep.insert(plan_build::KEPT_TAG.into(), Value::String(now.clone()));
