@@ -1,8 +1,8 @@
 // The tray's motion (SubagentTray.tsx), on the same train as the transcript's (Leo 2026-10-26: "Like
 // why is this not animating and, like, following along with the exact same things as everything
-// else?"). Its tokens are the new message's opacity-only entrance (conversation.css
-// `cv-enter-fade`) and `--agent-motion-out` for what leaves; trayMotion.experiment.ts compares two
-// other curves in the gallery.
+// else?"). The card settles in on the house settle (subagents.css `acpmux-tray-settle-in` over
+// `--cmux-motion-settle` and `--cmux-ease-settle`) and leaves quicker on `--agent-motion-out`;
+// trayMotion.experiment.ts compares one other curve in the gallery.
 // - The card eases in when it appears in a chat that already showed without it (the first subagent,
 //   command or chat starting), never when a chat opens with work already running.
 // - It leaves on a kept snapshot: when the last line goes, the card's node is copied in place, over
