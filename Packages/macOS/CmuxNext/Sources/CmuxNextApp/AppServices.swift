@@ -168,7 +168,7 @@ final class AppServices {
         return self.cloud.auth.isSignedIn ? MachineJoinService.app(self) : nil
     }).following(account: { [weak self] in self?.cloud.auth.accountKey })
     /// Signing in enrolls this Mac on the hub; signing out leaves only that join (acpmux does both).
-    private(set) lazy var signInEnroll = CloudSignInEnroll.overAcpmux(auth: cloud.auth, buildTag: environment.tag) { [weak self] in self.flatMap(QuitAgents.environment) }
+    private(set) lazy var signInEnroll = CloudSignInEnroll.overAcpmux(auth: cloud.auth, buildTag: environment.tag, windows: chatsFeed?.windows) { [weak self] in self.flatMap(QuitAgents.environment) }
     /// This Mac's join consent (Settings > Devices' switches, the one-time sheet): all labs.machineJoin still gates.
     private(set) lazy var joinConsent = JoinConsentModel.app(self)
     /// The app's latest key or mouse input and whether it was the person's (HID system), over the app's one
