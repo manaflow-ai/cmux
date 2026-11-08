@@ -165,11 +165,11 @@ impl<H: Http> Shared<H> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn wait(
+    fn wait<'g>(
         &self,
-        state: MutexGuard<'_, State<H>>,
+        state: MutexGuard<'g, State<H>>,
         left: Option<Duration>,
-    ) -> MutexGuard<'_, State<H>> {
+    ) -> MutexGuard<'g, State<H>> {
         match left {
             Some(left) => {
                 self.changed.wait_timeout(state, left).unwrap_or_else(PoisonError::into_inner).0
