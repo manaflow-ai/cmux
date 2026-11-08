@@ -239,10 +239,9 @@ async fn resent(
         f(json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true}));
     }
     let mut answer = answer(prompt_id, turn_of(rx).await, None);
-    if let Ok(Some(meta)) = answer.as_mut().map(|v| v.pointer_mut("/_meta/acpmux")) {
-        if let Some(meta) = meta.as_object_mut() {
-            meta.insert("duplicate".to_owned(), json!(true));
-        }
+    let meta = answer.as_mut().ok().and_then(|v| v.pointer_mut("/_meta/acpmux"));
+    if let Some(meta) = meta.and_then(Value::as_object_mut) {
+        meta.insert("duplicate".to_owned(), json!(true));
     }
     answer
 }
