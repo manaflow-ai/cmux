@@ -1,0 +1,293 @@
+{
+ "title": "Tab bar trailing buttons, long titles and the top-right corner (Lawrence 2026-11-07)",
+ "settings": {
+  "appearance": {
+   "density": "compact"
+  }
+ },
+ "steps": [
+  {
+   "title": "Launch",
+   "wait": 3
+  },
+  {
+   "title": "New workspace",
+   "cmux": [
+    "workspace",
+    "new",
+    "--name",
+    "Tabs"
+   ],
+   "shot": false
+  },
+  {
+   "title": "Show the Tabs workspace",
+   "cmux": [
+    "workspace",
+    "name:Tabs",
+    "focus"
+   ],
+   "shot": false
+  },
+  {
+   "title": "A long terminal title",
+   "daemon": true,
+   "cmux": [
+    "workspace",
+    "name:Tabs",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "write",
+    "--text",
+    "printf '\\033]0;Austin'\\''s Weekly Planning Review (7 days)\\007'; clear\r"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Browser tab",
+   "cmux": [
+    "tab",
+    "new-browser",
+    "--url",
+    "https://example.com"
+   ],
+   "wait": 4,
+   "shot": false
+  },
+  {
+   "title": "Second long title",
+   "cmux": [
+    "action",
+    "run",
+    "newSurface"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Second long title text",
+   "daemon": true,
+   "cmux": [
+    "workspace",
+    "name:Tabs",
+    "screen",
+    "current",
+    "pane",
+    "current",
+    "tab",
+    "current",
+    "terminal",
+    "current",
+    "write",
+    "--text",
+    "printf '\\033]0;Austin'\\''s Weekly Planning Review (7 days)\\007'; clear\r"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Tab bar at rest: long titles, top-right corner",
+   "rpc": {
+    "method": "debug.pointer_hover",
+    "params": {
+     "point": null
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "Hover the pane-type chevron",
+   "rpc": {
+    "method": "debug.pointer_hover",
+    "params": {
+     "identifier": "cmux.tabs.newTabMenu"
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "Hover the pane More",
+   "rpc": {
+    "method": "debug.pointer_hover",
+    "params": {
+     "identifier": "cmux.pane.more"
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "Hover the plus",
+   "rpc": {
+    "method": "debug.pointer_hover",
+    "params": {
+     "identifier": "cmux.tabs.newTab"
+    }
+   },
+   "wait": 1.5
+  },
+  {
+   "title": "Variant: Plates (before)",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "tabs.trailingButtons",
+     "value": "plates"
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "debug.tunables tabs.trailingButtons is new in this change"
+  },
+  {
+   "title": "Variant Plates (before): hover the chevron",
+   "rpc": {
+    "method": "debug.pointer_hover",
+    "params": {
+     "identifier": "cmux.tabs.newTabMenu"
+    }
+   },
+   "wait": 1.5,
+   "optional": "debug.tunables tabs.trailingButtons is new in this change"
+  },
+  {
+   "title": "Variant Plates (before): hover More",
+   "rpc": {
+    "method": "debug.pointer_hover",
+    "params": {
+     "identifier": "cmux.pane.more"
+    }
+   },
+   "wait": 1.5,
+   "optional": "debug.tunables tabs.trailingButtons is new in this change"
+  },
+  {
+   "title": "Variant: Glyphs only (default)",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "tabs.trailingButtons",
+     "value": "glyphs"
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "debug.tunables tabs.trailingButtons is new in this change"
+  },
+  {
+   "title": "Variant Glyphs only (default): hover the chevron",
+   "rpc": {
+    "method": "debug.pointer_hover",
+    "params": {
+     "identifier": "cmux.tabs.newTabMenu"
+    }
+   },
+   "wait": 1.5,
+   "optional": "debug.tunables tabs.trailingButtons is new in this change"
+  },
+  {
+   "title": "Variant Glyphs only (default): hover More",
+   "rpc": {
+    "method": "debug.pointer_hover",
+    "params": {
+     "identifier": "cmux.pane.more"
+    }
+   },
+   "wait": 1.5,
+   "optional": "debug.tunables tabs.trailingButtons is new in this change"
+  },
+  {
+   "title": "Variant: Circles",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "tabs.trailingButtons",
+     "value": "circles"
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "debug.tunables tabs.trailingButtons is new in this change"
+  },
+  {
+   "title": "Variant Circles: hover the chevron",
+   "rpc": {
+    "method": "debug.pointer_hover",
+    "params": {
+     "identifier": "cmux.tabs.newTabMenu"
+    }
+   },
+   "wait": 1.5,
+   "optional": "debug.tunables tabs.trailingButtons is new in this change"
+  },
+  {
+   "title": "Variant Circles: hover More",
+   "rpc": {
+    "method": "debug.pointer_hover",
+    "params": {
+     "identifier": "cmux.pane.more"
+    }
+   },
+   "wait": 1.5,
+   "optional": "debug.tunables tabs.trailingButtons is new in this change"
+  },
+  {
+   "title": "Variant: Plus and More only",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "set",
+     "key": "tabs.trailingButtons",
+     "value": "merged"
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "debug.tunables tabs.trailingButtons is new in this change"
+  },
+  {
+   "title": "Variant Plus and More only: hover the chevron",
+   "rpc": {
+    "method": "debug.pointer_hover",
+    "params": {
+     "identifier": "cmux.tabs.newTab"
+    }
+   },
+   "wait": 1.5,
+   "optional": "debug.tunables tabs.trailingButtons is new in this change"
+  },
+  {
+   "title": "Variant Plus and More only: hover More",
+   "rpc": {
+    "method": "debug.pointer_hover",
+    "params": {
+     "identifier": "cmux.pane.more"
+    }
+   },
+   "wait": 1.5,
+   "optional": "debug.tunables tabs.trailingButtons is new in this change"
+  },
+  {
+   "title": "Back to the default",
+   "rpc": {
+    "method": "debug.tunables",
+    "params": {
+     "action": "reset",
+     "key": "tabs.trailingButtons"
+    }
+   },
+   "wait": 1,
+   "shot": false,
+   "optional": "debug.tunables tabs.trailingButtons is new in this change"
+  }
+ ]
+}
