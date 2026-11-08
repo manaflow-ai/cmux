@@ -348,20 +348,18 @@ export function PromptActions({
       retryPlacement(retryTarget, { canRetry: canResend, readOnly, messages: false }) === "prompt");
   const prompt = row.resend ?? row.text ?? "";
   // An attachment-only prompt (turns.ts offersRetry) retries when all its attachments can go again.
-  const hasAttachment = resendsAttachments(row);
+  const retryProps = { rowId: row.id, prompt, hasAttachment: resendsAttachments(row) };
   const actions = (
     <MessageFooterRow>
       <MessageTime at={row.at} className="cv-user__time" />
       <MessageCopy text={text} />
-      {promptRetry && <PromptRetry rowId={row.id} prompt={prompt} hasAttachment={hasAttachment} />}
+      {promptRetry && <PromptRetry {...retryProps} />}
       <PinButton rowId={row.id} bookmark />
     </MessageFooterRow>
   );
   return (
     <div className="cv-user__actions">
-      {pending
-        ? pending(actions, { retry: promptRetry ? <PromptRetry rowId={row.id} prompt={prompt} hasAttachment={hasAttachment} held /> : null })
-        : actions}
+      {pending ? pending(actions, { retry: promptRetry ? <PromptRetry {...retryProps} held /> : null }) : actions}
     </div>
   );
 }
