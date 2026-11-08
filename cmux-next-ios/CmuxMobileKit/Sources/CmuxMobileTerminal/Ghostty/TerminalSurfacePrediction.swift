@@ -49,6 +49,9 @@ final class TerminalSurfacePrediction {
         UInt64(max(0, CACurrentMediaTime()) * 1_000_000)
     }
 
+    /// What the overlay draws now, nil while hidden (tests and benchmarks).
+    var drawnLayout: PredictionLayout? { overlay.isHidden ? nil : overlay.layout }
+
     /// One write Ghostty encoded for the remote (`io_write_cb`), before it goes out.
     func sent(_ bytes: Data) {
         if engine.prediction.sent(bytes: bytes, nowUs: Self.now()) || !overlay.isHidden { refresh() }
@@ -117,7 +120,7 @@ struct PredictionEngineRef: @unchecked Sendable {
 /// speculative, plain while a confirmation waits for its frame, nothing for a
 /// deleted one), and the caret where typing continues.
 final class TerminalPredictionOverlayView: UIView {
-    private var layout: PredictionLayout?
+    private(set) var layout: PredictionLayout?
     private var fontSize: CGFloat = 0
     private var cellWidth: CGFloat = 0
 

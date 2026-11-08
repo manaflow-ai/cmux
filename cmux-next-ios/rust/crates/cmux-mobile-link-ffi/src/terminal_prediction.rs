@@ -66,7 +66,13 @@ impl TerminalPrediction {
     /// runs on another machine).
     #[uniffi::constructor]
     pub fn new(enabled: bool, remote: bool) -> Self {
-        Self { engine: Mutex::new(TerminalPredictionEngine::new(PredictionConfiguration::default(), enabled, remote)) }
+        Self {
+            engine: Mutex::new(TerminalPredictionEngine::new(
+                PredictionConfiguration::default(),
+                enabled,
+                remote,
+            )),
+        }
     }
 
     /// Sets the setting and remoteness. A change starts over from a fresh
