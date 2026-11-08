@@ -674200,10 +674200,52 @@
             "value": "Session not tracked"
           }
         },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الجلسة غير متتبعة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzung wird nicht verfolgt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesión sin seguimiento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session non suivie"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "セッションが追跡されていません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션이 추적되지 않음"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话未被跟踪"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段未被追蹤"
           }
         }
       }
@@ -674217,10 +674259,52 @@
             "value": "This agent session isn't being recorded by cmux, so this window won't resume after a crash or update. The agent was launched outside cmux's wrapper (a custom launcher, alias, or PATH order can cause this)."
           }
         },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يسجّل cmux جلسة الوكيل هذه، لذلك لن تُستعاد هذه النافذة بعد تعطل أو تحديث. تم تشغيل الوكيل خارج غلاف cmux (قد يتسبب في ذلك مشغّل مخصص أو اسم مستعار أو ترتيب PATH)."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Agent-Sitzung wird von cmux nicht aufgezeichnet, daher wird dieses Fenster nach einem Absturz oder Update nicht wiederhergestellt. Der Agent wurde außerhalb des cmux-Wrappers gestartet (ein eigener Launcher, ein Alias oder die PATH-Reihenfolge kann das verursachen)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux no está registrando esta sesión del agente, por lo que esta ventana no se reanudará tras un fallo o una actualización. El agente se inició fuera del contenedor de cmux (un lanzador personalizado, un alias o el orden de PATH pueden causarlo)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette session d'agent n'est pas enregistrée par cmux, donc cette fenêtre ne reprendra pas après un plantage ou une mise à jour. L'agent a été lancé en dehors du wrapper de cmux (un lanceur personnalisé, un alias ou l'ordre du PATH peut en être la cause)."
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "このエージェントセッションは cmux に記録されていないため、クラッシュやアップデート後にこのウィンドウは復元されません。エージェントが cmux のラッパーの外で起動されました（カスタムランチャー、エイリアス、または PATH の順序が原因の場合があります）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 이 에이전트 세션을 기록하지 않으므로 충돌이나 업데이트 후 이 창은 재개되지 않습니다. 에이전트가 cmux 래퍼 밖에서 실행되었습니다(사용자 지정 런처, 별칭 또는 PATH 순서 때문일 수 있습니다)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 没有记录此代理会话，因此崩溃或更新后此窗口将无法恢复。该代理是在 cmux 包装器之外启动的（自定义启动器、别名或 PATH 顺序都可能导致这种情况）。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 沒有記錄此代理工作階段，因此當機或更新後此視窗將無法恢復。該代理是在 cmux 包裝器之外啟動的（自訂啟動器、別名或 PATH 順序都可能導致這種情況）。"
           }
         }
       }
