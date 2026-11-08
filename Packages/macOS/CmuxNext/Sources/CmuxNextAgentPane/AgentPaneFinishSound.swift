@@ -15,6 +15,15 @@ public final class AgentPaneFinishSound {
         /// A pull request merged.
         case merged
 
+        /// Which sound wins a burst: a merge, then green checks, then a turn's end (the page's ranks).
+        var rank: Int {
+            switch self {
+            case .turn: 0
+            case .ci: 1
+            case .merged: 2
+            }
+        }
+
         /// The built-in system sound (`/System/Library/Sounds`).
         var soundName: NSSound.Name {
             switch self {
@@ -30,8 +39,9 @@ public final class AgentPaneFinishSound {
     /// The volume the sounds play at (0...1), under the system volume.
     static let volume: Float = 0.5
 
-    /// When the last sound started (`ProcessInfo.systemUptime`); nil before the first.
+    /// When the last sound started (`ProcessInfo.systemUptime`) and its kind; nil before the first.
     private var lastPlayed: TimeInterval?
+    private var lastKind: Kind?
     /// Each kind's sound, loaded once: a copy of the shared named sound, so its volume stays ours.
     private var sounds: [Kind: NSSound] = [:]
 
@@ -59,11 +69,14 @@ public final class AgentPaneFinishSound {
     /// stops on its own at its end (a sound under a second; nothing loops).
     func play(_ kind: Kind) {
         let now = ProcessInfo.processInfo.systemUptime
-        guard Self.admits(now: now, last: lastPlayed), Self.systemAllowsUISounds else { return }
+        // A merge right after a turn's end still sounds: a bigger moment outranks the gap.
+        let outranks = lastKind.map { kind.rank > $0.rank } ?? true
+        guard outranks || Self.admits(now: now, last: lastPlayed), Self.systemAllowsUISounds else { return }
         guard let sound = sounds[kind] ?? (NSSound(named: kind.soundName)?.copy() as? NSSound) else { return }
         sounds[kind] = sound
         sound.volume = Self.volume
         lastPlayed = now
+        lastKind = kind
         if sound.isPlaying { sound.stop() }
         sound.play()
     }

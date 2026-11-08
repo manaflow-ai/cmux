@@ -20,4 +20,10 @@ import Testing
         #expect(!AgentPaneFinishSound.admits(now: 11, last: 10))
         #expect(AgentPaneFinishSound.admits(now: 11.5, last: 10))
     }
+
+    /// A merge outranks green checks, which outrank a turn's end: a bigger moment's sound is not held back by a smaller one's gap.
+    @Test func biggerMomentsOutrank() {
+        #expect(AgentPaneFinishSound.Kind.merged.rank > AgentPaneFinishSound.Kind.ci.rank)
+        #expect(AgentPaneFinishSound.Kind.ci.rank > AgentPaneFinishSound.Kind.turn.rank)
+    }
 }

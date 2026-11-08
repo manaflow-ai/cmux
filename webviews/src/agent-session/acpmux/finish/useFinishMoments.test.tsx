@@ -101,6 +101,32 @@ test("a long turn the person stopped ends with no moment and no sound (review F2
   expect(finishMoment()?.kind).toBe("turn");
 });
 
+test("a refused Stop leaves the turn running, and its later end has its moment", () => {
+  setChatDisplay({ [FINISH_SOUND_KEY]: true });
+  const start = Date.now() - 60_000;
+  render({ session: "s", working: true, turnStartedAtMs: start });
+  render({ session: "s", working: true, turnStartedAtMs: start, stopping: true });
+  render({ session: "s", working: true, turnStartedAtMs: start });
+  render({ session: "s", working: false });
+  expect(finishMoment()?.kind).toBe("turn");
+  expect(sounds).toEqual([{ kind: "turn" }]);
+});
+
+test("another chat on the same pull request starts from its own first read", () => {
+  render({ session: "s", working: false, pullRequest: pr("open", "pending") });
+  render({ session: "t", working: false, pullRequest: pr("merged", "passing") });
+  expect(finishMoment()).toBeUndefined();
+});
+
+test("a turn's end under a merge still showing leaves the sound to the merge", () => {
+  setChatDisplay({ [FINISH_SOUND_KEY]: true });
+  render({ session: "s", working: true, turnStartedAtMs: Date.now() - 60_000, pullRequest: pr("open", "pending") });
+  render({ session: "s", working: true, turnStartedAtMs: Date.now() - 60_000, pullRequest: pr("merged", "passing") });
+  render({ session: "s", working: false, pullRequest: pr("merged", "passing") });
+  expect(finishMoment()?.kind).toBe("merged");
+  expect(sounds).toEqual([{ kind: "merged" }]);
+});
+
 test("green checks then a merge each start their moment on the chip's pull request, with their sounds", () => {
   setChatDisplay({ [FINISH_SOUND_KEY]: true });
   render({ session: "s", working: false, pullRequest: pr("open", "pending") });

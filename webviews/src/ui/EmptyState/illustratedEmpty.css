@@ -59,3 +59,9 @@
   align-items: flex-start;
   gap: var(--ds-space-1);
 }
+/* With no art the beside row is the line and its button side by side (the dock's no chats). */
+.ui-illustrated-empty[data-layout="beside"]:not([data-art]) .ui-illustrated-empty-copy {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--ds-space-2);
+}

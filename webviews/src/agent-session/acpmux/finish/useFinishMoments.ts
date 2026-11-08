@@ -38,12 +38,14 @@ export function useFinishMoments({
 }: TurnFinishState & { clockOffsetMs?: number; stopping?: boolean; pullRequest?: HeaderPullRequest }): void {
   const lastTurn = useRef<TurnFinishState>({ session, working, turnStartedAtMs });
   const lastPullRequest = useRef(pullRequest);
-  // The person pressed Stop on the running turn (the snapshot's `stopping`): its end is no success.
+  const lastPullRequestSession = useRef(session);
+  // The person pressed Stop on the running turn (the snapshot's `stopping`, at the last render): its
+  // end is no success. A refused Stop clears it while the turn goes on, and that turn's end counts.
   const stopped = useRef(false);
   useEffect(() => {
     const last = lastTurn.current;
     const wasStopped = stopped.current;
-    stopped.current = working && (stopping === true || (last.working && wasStopped));
+    stopped.current = working && stopping === true;
     // A running turn keeps the start it was first seen with, should a later render leave it out.
     const start = working ? (turnStartedAtMs ?? (last.working ? last.turnStartedAtMs : undefined)) : undefined;
     lastTurn.current = { session, working, turnStartedAtMs: start };
@@ -53,16 +55,19 @@ export function useFinishMoments({
     }
     const started = longTurnEnded(last, { session, working }, Date.now(), clockOffsetMs);
     if (started === undefined || wasStopped || stopping === true) return;
-    startFinishMoment({ kind: "turn", session, turnStartedAt: started });
-    // An ended turn the person is not looking at already has the Agent Finished notification's sound.
-    if (shown()) playFinishSound("turn");
+    // An ended turn the person is not looking at already has the Agent Finished notification's sound,
+    // and one under a bigger moment still showing leaves the sound to it.
+    if (startFinishMoment({ kind: "turn", session, turnStartedAt: started })) playFinishSound("turn");
   }, [session, working, turnStartedAtMs, clockOffsetMs, stopping]);
   useEffect(() => {
-    const kind = pullRequestFinish(lastPullRequest.current, pullRequest);
+    // Another chat's read of the same pull request is that chat's first read, no transition.
+    const last = lastPullRequestSession.current === session ? lastPullRequest.current : undefined;
     lastPullRequest.current = pullRequest;
+    lastPullRequestSession.current = session;
+    const kind = pullRequestFinish(last, pullRequest);
     if (!kind || !pullRequest) return;
-    startFinishMoment({ kind, session, url: pullRequest.url });
-    playFinishSound(kind);
+    // A hidden page shows no moment but still sounds: nothing else says a merge happened.
+    if (startFinishMoment({ kind, session, url: pullRequest.url }) || !shown()) playFinishSound(kind);
   }, [pullRequest, session]);
   // The chat page going away ends a moment it still shows.
   useEffect(() => endFinishMoment, []);

@@ -72,11 +72,13 @@ export function pullRequestFinish(
 /// Whether a "Worked for" row (its `at` is its prompt's and `endAt` its end, in the session's clock) is
 /// the turn a `turn` moment is about: the row whose span holds the ended turn's start. A resumed
 /// turn's row keeps its first prompt, long before its latest start; an older turn's row ended
-/// before this one began. A row with no end yet is matched by its start alone.
+/// before this one began, and a newer turn's row starts after it. A row with no end yet is matched by
+/// its start alone.
 export function isFinishedTurnRow(moment: FinishMoment | undefined, rowAt: number, endAt?: number): boolean {
   if (moment?.kind !== "turn" || moment.turnStartedAt === undefined) return false;
   const start = moment.turnStartedAt;
-  return endAt === undefined ? rowAt >= start - 2_000 : rowAt <= start + 2_000 && endAt >= start - 2_000;
+  // A later prompt's row (a new turn started while the moment shows) starts after this turn's start.
+  return rowAt <= start + 2_000 && (endAt ?? rowAt) >= start - 2_000;
 }
 
 let current: FinishMoment | undefined;

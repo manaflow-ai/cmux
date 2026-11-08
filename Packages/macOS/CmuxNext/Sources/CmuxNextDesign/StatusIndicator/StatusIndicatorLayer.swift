@@ -385,6 +385,8 @@ public final class StatusIndicatorLayer {
     }
 
     private func removeAllAnimations() {
+        // A settle still playing (StatusIndicatorLayer+Settle) must not scale the glyph that replaces it.
+        layer.removeAnimation(forKey: Self.settleScaleKey)
         glyphLayer?.removeAllAnimations()
         markLayer?.removeAllAnimations()
         nativeLayer?.removeAllAnimations()

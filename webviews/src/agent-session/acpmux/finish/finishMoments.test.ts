@@ -81,6 +81,12 @@ test("a resumed turn's row, whose prompt came long before its latest start, stil
   expect(isFinishedTurnRow(moment, 200_000, 290_000)).toBe(false);
 });
 
+test("a new turn's live row, started while the moment shows, does not take the ended turn's check", () => {
+  const moment = { kind: "turn" as const, id: 1, turnStartedAt: 500_000 };
+  expect(isFinishedTurnRow(moment, 560_500)).toBe(false);
+  expect(isFinishedTurnRow(moment, 499_400)).toBe(true);
+});
+
 test("a moment clears itself after its time; a hidden page gets none", () => {
   jest.useFakeTimers();
   expect(startFinishMoment({ kind: "turn", session: "s", turnStartedAt: 1 }, false)).toBe(false);
