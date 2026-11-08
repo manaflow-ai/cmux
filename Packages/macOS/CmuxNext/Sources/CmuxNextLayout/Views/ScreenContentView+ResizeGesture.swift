@@ -37,7 +37,7 @@ extension ScreenContentView {
         // A hidden or parked screen steps no frames, so a drag there could not land; its pages lay out as before.
         guard window != nil, !isHiddenOrHasHiddenAncestor, !isParkedOrHasParkedAncestor else { return }
         if resizeGesture == .idle {
-            resizeGestureNotices.hold(displayedHosts)
+            paneFrameNotices.hold(displayedHosts)
             resizeGestureListeners = displayedHosts.flatMap { $0.content.paneResizeGestureFollowers() }
                 .map { PaneResizeGestureListener(view: $0) }
             for listener in resizeGestureListeners { listener.view?.paneResizeGestureDidChange(active: true) }
@@ -70,7 +70,7 @@ extension ScreenContentView {
     /// A screen going away: its listeners, to hand to the screen their panes moved to
     /// (`LayoutRootView.sync`), without telling them anything.
     func takeResizeGestureListeners() -> [PaneResizeGestureListener] {
-        resizeGestureNotices.release()
+        paneFrameNotices.release()
         guard resizeGesture != .idle else { return [] }
         let listeners = resizeGestureListeners
         resizeGesture = .idle
@@ -92,10 +92,16 @@ extension ScreenContentView {
         context.requestFrames()
     }
 
+    /// Gives the pane views their frame notices back once no resize drag and no zoom moves them (``FrameNoticeHold``).
+    func releasePaneFrameNoticesIfSettled() {
+        guard resizeGesture == .idle, zoomMotion.pane == nil, paneFrameNotices.isHolding else { return }
+        paneFrameNotices.release()
+    }
+
     /// Tells the contents that heard the start that the drag is over, now.
     func finishResizeGesture() {
-        // Each pane view the drag moved posts its one frame notice now.
-        resizeGestureNotices.release()
+        // Each pane view the drag moved posts its one frame notice now (a zoom still on its spring keeps them).
+        defer { releasePaneFrameNoticesIfSettled() }
         guard resizeGesture != .idle else { return }
         resizeGesture = .idle
         let listeners = resizeGestureListeners

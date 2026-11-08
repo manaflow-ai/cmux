@@ -99,7 +99,7 @@ extension LayoutRootView {
         }
         // A page or lens in a dragged pane hears the moves its held ancestors do not post (`FrameNoticeHold`).
         if !moved.isEmpty {
-            for screen in screenViews.values where screen.resizeGestureNotices.isHolding { screen.resizeGestureNotices.noteFrame() }
+            for screen in screenViews.values where screen.paneFrameNotices.isHolding { screen.paneFrameNotices.noteFrame() }
         }
         panesMovedInLastOverlaySync = moved
         reportInteractiveRects()

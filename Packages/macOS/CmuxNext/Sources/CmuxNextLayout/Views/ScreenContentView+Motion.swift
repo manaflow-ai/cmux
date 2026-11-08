@@ -50,6 +50,8 @@ extension ScreenContentView {
         if !moving { holdsContentForKeyResize = false }
         // The motion landed: the hosts a close retired are torn down in this frame, not in its first.
         if !moving { releaseClosing() }
+        // A zoom that left the layout without landing (its pane closed) gives its views their notices back.
+        if !moving { releasePaneFrameNoticesIfSettled() }
         return moving
     }
     /// The key's turn (T-KEYS 3, `LayoutRootView.keyboardResizeDidChange`): the press's first refresh is drawn ahead as
@@ -290,6 +292,8 @@ extension ScreenContentView {
         if zoomMotion.pane != zooming {
             ensureStacking()
             changed = true
+            // Each pane view the zoom moved posts its one frame notice now (`FrameNoticeHold`).
+            releasePaneFrameNoticesIfSettled()
         }
         // Once every frame is placed: a pane is clipped by the panes in front of it, the panes a
         // zoom covers too (they stay where they were, opaque, `zoomMotion.covered`). A host whose

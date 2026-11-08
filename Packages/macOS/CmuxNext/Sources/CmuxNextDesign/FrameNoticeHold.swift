@@ -48,8 +48,8 @@ extension NSView {
     }
 }
 
-/// Keeps a subtree's frame notices for the end of a resize drag: one notice per moved view when it ends,
-/// none on the drag's frames.
+/// Keeps a subtree's frame notices for the end of a resize drag or a zoom's spring: one notice per moved view when it ends,
+/// none on its frames.
 ///
 /// AppKit posts a frame notice for each frame change of a view, and after each post of a view with controls in
 /// the titlebar band, or of one of their ancestors (a pane's tab strip, its pane views), it marks the window's
