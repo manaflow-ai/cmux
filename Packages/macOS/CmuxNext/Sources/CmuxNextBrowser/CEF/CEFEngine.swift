@@ -28,6 +28,8 @@ public final class CEFEngine: BrowserEngine {
     public let signInCallbacks: CEFSignInCallbacks
     let lifecycleTrace: BrowserLifecycleTrace
     let contextMenus: BrowserContextMenuBuilder
+    /// Passkey requests of pages nobody sees and of delegate-mode tabs (fork API 33).
+    let webAuthn = CEFWebAuthnPrompts()
 
     /// The runtime to start, nil while none is available.
     var layout: CEFRuntimeLayout? { runtimeSource.layout }
@@ -241,11 +243,11 @@ public final class CEFEngine: BrowserEngine {
     }
 
     /// Runs once CEF is initialized in this process (process-wide), after the
-    /// person's password settings (`setPasswordPolicy`) and search engine
-    /// (`setDefaultSearch`) reach Chromium.
+    /// person's password settings (`setPasswordPolicy`), search engine
+    /// (`setDefaultSearch`) and the passkey delegate (`CEFWebAuthnPrompts`) reach Chromium.
     public var onReady: (() -> Void)? {
         get { CEFRuntime.shared.onReady }
-        set { CEFRuntime.shared.onReady = { CEFPasswordPolicy.apply(); CEFDefaultSearch.apply(); newValue?() } }
+        set { CEFRuntime.shared.onReady = { [webAuthn] in CEFPasswordPolicy.apply(); CEFDefaultSearch.apply(); webAuthn.install(); newValue?() } }
     }
 
     /// Runs when starting CEF fails in this process (process-wide). A failed
