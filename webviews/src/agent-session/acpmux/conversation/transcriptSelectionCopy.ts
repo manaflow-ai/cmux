@@ -39,7 +39,7 @@ export function transcriptSelectionContents(range: Range): HTMLElement | null {
   if (!supported(scope)) return null;
   const literal = (value: string): HTMLElement => {
     const span = holder.ownerDocument.createElement("span");
-    span.style.whiteSpace = "pre-wrap";
+    span.setAttribute("style", "white-space: pre-wrap;");
     span.textContent = value;
     return span;
   };
