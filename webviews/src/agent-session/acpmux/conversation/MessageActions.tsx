@@ -37,6 +37,9 @@ export function MessageTime({ at, className }: { at: number; className: string }
         language,
       )}
       data-tooltip-side="top"
+      /* The widest age of its first hour, in this language: the prompt row reserves its width in
+         the real font (conversation.css .cv-user__time::before), so the minute's words change in place. */
+      data-age-widest={relativeTime(at, at + 59 * 60_000, language)}
     >
       {relativeTime(at, now, language)}
     </time>

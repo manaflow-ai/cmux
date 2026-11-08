@@ -1105,13 +1105,23 @@
    age's hover box and its tooltip never move (Leo, 2026-11-08: "sometimes the just now and whatever,
    it becomes a bit weird ... Sometimes that one, like, flashes or flickers a bit"). Before, the box
    grew by a word's width when "just now" turned into "1 minute ago", and the tooltip over it jumped.
-   A longer age (another language's) still takes its own width. */
+   The width it keeps is its first hour's widest words ("59 minutes ago", MessageTime's
+   data-age-widest) laid out in the row's own font as a hidden zero-height line, never a guessed
+   em count: a fixed 8em fit one machine's font and was 2.75 short on another's, so the box still
+   grew at "59 minutes ago". A longer age (a day's, another language's) still takes its own width. */
 .cv-user__actions .cv-message-footer-row > .cv-user__time {
-  justify-content: flex-end;
-  min-inline-size: 8em;
+  display: inline-block;
   /* 6 from its words to Copy's glyph, as before Copy's box became the 24 square. */
   padding-inline-end: var(--grid-half-step);
+  line-height: var(--cv-footer-control-slot);
   text-align: end;
+}
+.cv-user__actions .cv-message-footer-row > .cv-user__time::before {
+  display: block;
+  overflow: hidden;
+  height: 0;
+  visibility: hidden;
+  content: attr(data-age-widest);
 }
 /* At the end of another agent's message line its age comes straight before Copy. */
 .cv-received-actions .cv-user__time {
