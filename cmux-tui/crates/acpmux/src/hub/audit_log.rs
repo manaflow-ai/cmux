@@ -49,7 +49,9 @@
 use std::collections::HashSet;
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
+#[cfg(test)]
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, mpsc};
 use std::time::Duration;
 
@@ -121,6 +123,7 @@ pub(crate) struct AuditLog {
     /// The entries of a log kept in memory (no state folder).
     memory: Option<Arc<StdMutex<Vec<Value>>>>,
     /// Tests: every purge fails, after its fence went up.
+    #[cfg(test)]
     fail_purges: Arc<AtomicBool>,
 }
 
@@ -132,8 +135,10 @@ impl AuditLog {
         let path = dir.map(|d| d.join(FILE));
         let memory = path.is_none().then(|| Arc::new(StdMutex::new(Vec::new())));
         let write_errors = Arc::new(AtomicU64::new(0));
+        #[cfg(test)]
         let fail_purges = Arc::new(AtomicBool::new(false));
         let mut writer = Writer {
+            #[cfg(test)]
             fail_purges: fail_purges.clone(),
             purged: HashSet::new(),
             needs_repair: false,
@@ -159,6 +164,7 @@ impl AuditLog {
             write_errors,
             path,
             memory,
+            #[cfg(test)]
             fail_purges,
         }
     }
@@ -237,6 +243,7 @@ impl AuditLog {
 
     /// Removes every entry of session `session_id` from the log, after the entries sent before.
     /// The answer comes once the rewritten file is on disk (None: the writer is gone).
+    #[cfg(test)]
     pub(crate) fn purge(
         &self,
         session_id: &str,
@@ -385,6 +392,7 @@ fn review_key(entry: &Value) -> Option<(String, String)> {
 }
 
 struct Writer {
+    #[cfg(test)]
     fail_purges: Arc<AtomicBool>,
     /// Sessions purged since start: their entries are refused.
     purged: HashSet<String>,
@@ -528,6 +536,7 @@ impl Writer {
     }
 
     fn purge_fenced(&mut self, sid: &str) -> Result<usize, String> {
+        #[cfg(test)]
         if self.fail_purges.load(Ordering::SeqCst) {
             return Err("purges fail in this test".into());
         }

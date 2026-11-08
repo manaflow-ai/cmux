@@ -45,20 +45,32 @@ fn local_only(origin: Origin, m: &str) -> Result<(), RpcError> {
 pub(super) async fn route(
     hub: &Arc<Hub>,
     origin: Origin,
+    auth: super::ConnAuth,
     person: bool,
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
     Some(match m {
-        method::MUX_REVIEW_QUEUE => queue(hub, origin, params).await,
+        method::MUX_REVIEW_QUEUE => queue(hub, origin, auth, params).await,
         method::MUX_REVIEW_VERDICT => verdict(hub, origin, person, params).await,
         method::MUX_AUDIT => audit(hub, origin, params).await,
         _ => return None,
     })
 }
 
-async fn queue(hub: &Arc<Hub>, origin: Origin, params: &Value) -> Result<Value, RpcError> {
-    if origin == Origin::Web {
+/// Whether the queue is served to this caller: never to a Web client, nor to one a peer
+/// forwards for its Web client (`via: web`) or an unauthenticated connection.
+fn queue_served(origin: Origin, auth: super::ConnAuth, params: &Value) -> bool {
+    super::remote_guard::control_of(origin, auth, params) != crate::hub::Control::Web
+}
+
+async fn queue(
+    hub: &Arc<Hub>,
+    origin: Origin,
+    auth: super::ConnAuth,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    if !queue_served(origin, auth, params) {
         return Err(RpcError::method_not_found(method::MUX_REVIEW_QUEUE));
     }
     let limit = match params.get("limit") {
@@ -165,6 +177,19 @@ mod tests {
         assert!(!asks_peers(Origin::Local, &json!({LOCAL_ONLY: true})));
         assert!(!asks_peers(Origin::Peer, &json!({})));
         assert!(!asks_peers(Origin::Web, &json!({})));
+    }
+
+    #[test]
+    fn the_queue_is_never_a_web_clients_even_through_a_peer() {
+        use super::super::ConnAuth;
+        let web = json!({"_meta": {"acpmux": {"via": "web"}}});
+        assert!(!queue_served(Origin::Peer, ConnAuth::PeerToken, &web));
+        assert!(!queue_served(Origin::Peer, ConnAuth::Device, &web));
+        assert!(!queue_served(Origin::Web, ConnAuth::ListenerToken, &json!({})));
+        assert!(!queue_served(Origin::Local, ConnAuth::None, &json!({})));
+        assert!(queue_served(Origin::Peer, ConnAuth::PeerToken, &json!({})));
+        assert!(queue_served(Origin::Local, ConnAuth::LocalSocket, &json!({})));
+        assert!(queue_served(Origin::LocalApp, ConnAuth::LocalApp, &json!({})));
     }
 
     #[test]

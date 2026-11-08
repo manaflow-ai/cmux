@@ -191,6 +191,18 @@ impl Index {
         }
     }
 
+    /// Drops the pull requests of `session` past the window from its list as it is now (one
+    /// noted since a read's snapshot stays), and the session once its list is empty or it is
+    /// `gone`.
+    pub(crate) fn prune_prs(&self, session: &str, now: u64, gone: bool) {
+        let mut inner = self.lock();
+        let Some(list) = inner.prs.get_mut(session) else { return };
+        list.retain(|p| now.saturating_sub(p.at) <= PR_WINDOW_MS);
+        if gone || list.is_empty() {
+            inner.prs.remove(session);
+        }
+    }
+
     /// Sessions the index holds now: (asking, with pull requests).
     #[cfg(test)]
     pub(crate) fn sizes(&self) -> (usize, usize) {
@@ -439,19 +451,7 @@ impl Hub {
             let fresh: Vec<Pr> =
                 prs.into_iter().filter(|p| now.saturating_sub(p.at) <= PR_WINDOW_MS).collect();
             let session = lookup(&id);
-            {
-                let mut inner = self.review_index.lock();
-                match (&session, fresh.is_empty()) {
-                    (None, _) | (_, true) => {
-                        inner.prs.remove(&id);
-                    }
-                    _ => {
-                        if let Some(list) = inner.prs.get_mut(&id) {
-                            list.retain(|p| now.saturating_sub(p.at) <= PR_WINDOW_MS);
-                        }
-                    }
-                }
-            }
+            self.review_index.prune_prs(&id, now, session.is_none());
             let Some(session) = session else { continue };
             if matches!(session.status(), SessionStatus::Running | SessionStatus::Waiting) {
                 continue;
@@ -515,6 +515,21 @@ fn pr_label(url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_prune_keeps_a_pull_request_noted_after_the_snapshot() {
+        let index = Index::default();
+        index.note_pr("s1", "https://github.com/o/r/pull/1", 0);
+        // A read's snapshot saw only the expired one; a new one is noted before its prune.
+        let now = PR_WINDOW_MS + 10;
+        index.note_pr("s1", "https://github.com/o/r/pull/2", now);
+        index.prune_prs("s1", now, false);
+        assert_eq!(index.sizes().1, 1);
+        assert_eq!(index.lock().prs["s1"].len(), 1);
+        assert_eq!(index.lock().prs["s1"][0].url, "https://github.com/o/r/pull/2");
+        index.prune_prs("s1", now + PR_WINDOW_MS + 1, false);
+        assert_eq!(index.sizes().1, 0);
+    }
 
     #[test]
     fn kinds_are_plan_question_or_approval() {

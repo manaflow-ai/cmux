@@ -169,7 +169,7 @@ pub(super) async fn route(
     }
     // The review queue, review verdicts and the approvals audit trail (`review_queue.rs`).
     if let Some(reply) =
-        super::review_queue::route(hub, conn.origin, conn.is_person(), m, &params).await
+        super::review_queue::route(hub, conn.origin, conn.auth, conn.is_person(), m, &params).await
     {
         return reply;
     }
