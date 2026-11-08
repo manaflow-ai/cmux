@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42523512003",
+  "recorded_at": "2026-11-08T21:17:38Z",
+  "reason": "cmux-tui 0173a5201843 changes the image's cmux-tui (pinned d27d3e61464f)",
+  "dry_run": false,
+  "cmux_tui": "0173a5201843c66ba7f4073f051ae8689733e16a",
+  "fixes": [
+    {
+      "sha": "0173a5201843c66ba7f4073f051ae8689733e16a",
+      "mergedAt": "2026-11-08T12:51:27-08:00",
+      "subject": "Home: the queued agent pill's Start now menu row runs a registered action (check-menu-actions base red) (#38595)"
+    },
+    {
+      "sha": "86ad45f50d8213f14e07c8615846c5f97b094839",
+      "mergedAt": "2026-11-08T12:48:04-08:00",
+      "subject": "cloud: the spare warm's team and copy target come from Rust (follow-up to #38389) (#38567)"
+    },
+    {
+      "sha": "ad59857b2ac47f37d81e9e7dfc41b40f4eb3b4fa",
+      "mergedAt": "2026-11-08T12:46:03-08:00",
+      "subject": "carrier: a desktop dial takes a fresh session when the host lost it (#38736)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T21:17:38Z",
+    "snapshot_id": "sh-f6c43f42ffec479795ccf5c37bbbead1",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42523512003): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "69cce7a57c018c8d0f15f2517e4d11f13328fa23",
+    "image": "cloud-native-auto-0173a520-42523512003-1",
+    "revision": "ci-42523512003-1",
+    "at": "2026-11-08T21:17:38Z"
+  },
+  "rolled_back": false
+}
