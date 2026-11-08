@@ -102,8 +102,8 @@ extension AppActions {
         // Edit Chief…, Set Chief Model…, Set Chief Effort… and Make Agent a Chief… (`cmux chief edit|engine|adopt`).
         HomeChiefRegistryActions(connection: { services.home.connection }, conversations: { services.home.homeStore.rows.filter { !services.home.isCloudConversation($0.id) }.map(\.summary) },
                                  deleted: { services.home.directory.deletedLocalChiefs }, openEditor: { chief in
-            guard !services.home.dock.isClassic else { return HomeChiefRegistryStrings.editNeedsChannels }
-            openChannelsRoute("/chief/\(chief)/edit", services) { _ in services.registry.refuse(HomeChiefRegistryStrings.editNeedsChannels) }
+            guard !services.home.dock.isClassic else { return HomeChiefRegistryActions.editNeedsChannels }
+            openChannelsRoute("/chief/\(chief)/edit", services) { _ in services.registry.refuse(HomeChiefRegistryActions.editNeedsChannels) }
             return nil
         }).bind(into: registry)
         // Debug > Save Last 10 Seconds (DEV and NIGHTLY) and, in DEV, Agent Messages Playground; All Themes Playground (HomeDebugActions).

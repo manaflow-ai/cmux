@@ -78,8 +78,8 @@ enum HistoryHandlers {
         })
         // Forget Site…: the History page's Forget This Site, every profile (`cmux history remove-site`).
         registry.bindEffect("history.removeSite", effect: { invocation in
-            guard let host = HistorySite.host(invocation["host"]?.stringValue) else { return .refused(HistorySite.needsSite) }
-            services.history.removePages(host: host)
+            guard let site = HistorySite(invocation["host"]?.stringValue) else { return .refused(HistorySite.needsSite) }
+            services.history.removePages(host: site.host)
             return .done
         })
         bindLayoutUndo(registry, context)

@@ -42,19 +42,19 @@ import Testing
         let gone = Participant(id: ParticipantID("agent_gone"), kind: .agent, displayName: "Gone", agentClass: .chief)
         let coder = Participant(id: ParticipantID("agent_codex_1"), kind: .agent, displayName: "Codex", agentClass: .agent)
         let rows = [row("conv_1", [me, ada, coder]), row("conv_2", [me, muse]), row("conv_3", [me, ada, gone, coder])]
-        #expect(HomeChiefPicks.localChiefs(in: rows, deleted: ["agent_gone"])
+        #expect(HomeChiefPicks(rows).localChiefs(deleted: ["agent_gone"])
             == [ActionEnumCase(value: "agent_mux", title: "Ada"), ActionEnumCase(value: "agent_muse", title: "Muse")])
-        #expect(HomeChiefPicks.adoptableAgents(in: rows) == [ActionEnumCase(value: "agent_codex_1", title: "Codex")])
+        #expect(HomeChiefPicks(rows).adoptableAgents() == [ActionEnumCase(value: "agent_codex_1", title: "Codex")])
     }
 
     @Test func idsAndSitesAreReadTheWayTheOwnerTakesThem() {
         #expect(HomeChiefRegistryActions.id(" agent_muse ") == "agent_muse")
         #expect(HomeChiefRegistryActions.id("agent/../x") == nil)
         #expect(HomeChiefRegistryActions.id("") == nil)
-        #expect(HistorySite.host("Example.com") == "example.com")
-        #expect(HistorySite.host("https://news.example.com/a?b=1") == "news.example.com")
-        #expect(HistorySite.host("not a host") == nil)
-        #expect(HistorySite.host(nil) == nil)
+        #expect(HistorySite("Example.com")?.host == "example.com")
+        #expect(HistorySite("https://news.example.com/a?b=1")?.host == "news.example.com")
+        #expect(HistorySite("not a host")?.host == nil)
+        #expect(HistorySite(nil)?.host == nil)
     }
 
     private func row(_ id: String, _ participants: [Participant]) -> CmuxHomeCore.ConversationSummary {

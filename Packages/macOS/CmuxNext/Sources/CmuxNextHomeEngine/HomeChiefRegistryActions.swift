@@ -34,8 +34,8 @@ public struct HomeChiefRegistryActions {
         let suggestions = registry.argumentSuggestions
         registry.argumentSuggestions = { [conversations, deleted] source in
             switch source {
-            case ActionSuggestions.localChiefs: HomeChiefPicks.localChiefs(in: conversations(), deleted: deleted())
-            case ActionSuggestions.adoptableAgents: HomeChiefPicks.adoptableAgents(in: conversations())
+            case ActionSuggestions.localChiefs: HomeChiefPicks(conversations()).localChiefs(deleted: deleted())
+            case ActionSuggestions.adoptableAgents: HomeChiefPicks(conversations()).adoptableAgents()
             default: suggestions?(source) ?? []
             }
         }
@@ -100,16 +100,19 @@ public struct HomeChiefRegistryActions {
         }
         return id
     }
+
+    /// Edit Chief… where the docked Home has no Channels view to open the editor in.
+    public nonisolated static var editNeedsChannels: String { HomeChiefRegistryStrings.editNeedsChannels }
 }
 
 /// The Chief registry actions' refusals (table Home).
-public nonisolated enum HomeChiefRegistryStrings {
+nonisolated enum HomeChiefRegistryStrings {
     static var needsChief: String { t("home.chiefRegistry.needsChief", "Pick one of this Mac's Chiefs.") }
     static var needsAgent: String { t("home.chiefRegistry.needsAgent", "Pick an agent from your conversations (an agent_… id).") }
     static var needsModel: String { t("home.chiefRegistry.needsModel", "Type the model the Chief should use.") }
     static var needsEffort: String { t("home.chiefRegistry.needsEffort", "Pick the effort the Chief should use.") }
     /// Edit Chief… where the docked Home has no Channels view to open the editor in.
-    public static var editNeedsChannels: String {
+    static var editNeedsChannels: String {
         t("home.chiefRegistry.editNeedsChannels", "Edit Chief… opens in Home's Channels view, which is off.")
     }
 
