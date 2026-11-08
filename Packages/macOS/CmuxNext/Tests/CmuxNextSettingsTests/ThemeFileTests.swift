@@ -152,7 +152,8 @@ import Testing
             #expect(overlay.isLoaded, "\(name)")
             #expect(overlay.diagnostics.isEmpty, "\(name): \(overlay.diagnostics.map(\.message))")
             let root = overlay.applied(to: .object([:]))
-            #expect(CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: []).diagnostics.isEmpty, "\(name)")
+            let parsed = CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities, validMetrics: SettingsApplier.validMetrics)
+            #expect(parsed.diagnostics.isEmpty, "\(name): \(parsed.diagnostics.map(\.message))")
             // A shipped file names no picture of its own: it would resolve in the user's folder.
             let background = root.value(at: BackdropSelectionSetting.configPath)?.stringValue ?? ""
             #expect(!background.hasPrefix("file:") && !background.hasPrefix("folder:"), "\(name)")
