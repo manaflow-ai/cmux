@@ -74,8 +74,6 @@ function press(element: Element) {
     element.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0 }));
 }
 
-/// What the pickers sent (`configId=value`), in order.
-const sent: string[] = [];
 const menus = () => [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-cols")];
 /// Yields to React until `ready()` holds; fails after 10 s with what it waited for.
 async function until(ready: () => boolean, what: string) {
