@@ -100,6 +100,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "session detach",
+        &[
+            (
+                "Stop a session you started from this one from showing its turns here",
+                "acpmux session detach mac-studio-ultras",
+            ),
+            ("The same, and print the result as JSON", "acpmux session detach helper-2 --json"),
+        ],
+    ),
+    (
         "session inbox",
         &[
             (
@@ -123,6 +133,14 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             (
                 "Move every idle chat to the placement's pick",
                 "acpmux session move --all-idle --machine auto",
+            ),
+            (
+                "Move coord from mini-3 to a cloud VM that mini-3 cannot reach",
+                "acpmux session move coord --from mini-3 --machine cloud-vm",
+            ),
+            (
+                "Bring coord back to this machine from the cloud VM",
+                "acpmux session move coord --from cloud-vm --machine local",
             ),
         ],
     ),
@@ -274,6 +292,20 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         &[
             ("List coord's last 20 turns", "acpmux session history coord"),
             ("List the last 5 turns of a review", "acpmux session history review-27310 -n 5"),
+        ],
+    ),
+    (
+        "session search",
+        &[
+            (
+                "Find coord's own replies that named a merge sha",
+                "acpmux session search coord merged sha --role assistant",
+            ),
+            (
+                "Search a peer session's last day",
+                "acpmux session search mini-3/review-27310 base red --since 24h",
+            ),
+            ("The newest 5 hits as JSON", "acpmux --json session search coord broker quota -n 5"),
         ],
     ),
     (

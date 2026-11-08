@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Invite to cmux (the Chief header's trailing button) over the real link.
+"""Invite to cmux (the first row of the Chief header's page menu) over the real link.
 
 Runs ON a cmux mini: the hidden e2e rig Mac (mac.py: its own bundle id, config and
 credentials, launched with `open -g -j`, never activated) and the iOS app in one
@@ -101,7 +101,10 @@ def main():  # noqa: C901 - one live scenario
             trailing = sim.find(ident="conversation.header.trailing")
             c[f"trailing_label_{mode}"] = trailing[0].label if trailing else None
             result["shots"][f"chief-{mode}"] = sim.shot(f"01-chief-{mode}")
+            # The trailing button is Chief's page menu; Invite to cmux is its first row.
             sim.tap_q(ident="conversation.header.trailing")
+            time.sleep(1.2)
+            sim.tap_q(label="Invite to cmux")
             time.sleep(2.5)
             c[f"sheet_up_{mode}"] = sheet_up(sim)
             c[f"sheet_ocr_{mode}"] = [o[4] for o in sim.ocr()]
@@ -113,7 +116,8 @@ def main():  # noqa: C901 - one live scenario
                 c["copied_text"] = pasteboard(udid)
                 c["copy_closes_sheet"] = not sheet_up(sim)
                 log(f"copied: {c['copied_text']!r}")
-                sim.tap_q(ident="conversation.header.trailing"); time.sleep(2.5)
+                sim.tap_q(ident="conversation.header.trailing"); time.sleep(1.2)
+                sim.tap_q(label="Invite to cmux"); time.sleep(2.5)
                 # The simulator has no Messages account, so the sheet offers no Messages.
                 c["sheet_offers_messages"] = "Messages" in " ".join(o[4] for o in sim.ocr() if o[1] < 500)
             if sheet_up(sim):

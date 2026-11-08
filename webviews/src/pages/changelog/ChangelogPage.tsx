@@ -8,8 +8,8 @@ import { DigestPage } from "./DigestPage";
 import { JournalPage } from "./JournalPage";
 import { RailPage } from "./RailPage";
 import { SheetPage } from "./SheetPage";
-import type { ChangelogStore } from "./store";
-import type { ChangelogDesign, NewsLayout, SheetLayout } from "./types";
+import type { ChangelogFocus, ChangelogStore } from "./store";
+import type { ChangelogDesign, NewsLayout, SheetLayout, SheetLinks } from "./types";
 
 export function ChangelogPage({
   store,
@@ -17,12 +17,17 @@ export function ChangelogPage({
   design = "sheet",
   news,
   sheet = "inline",
+  prs = "hover",
+  focus,
 }: {
   store: ChangelogStore;
   strings: Strings;
   design?: ChangelogDesign;
   news?: NewsLayout;
   sheet?: SheetLayout;
+  prs?: SheetLinks;
+  /** The change to scroll to (the route's `area=` and `entry=`); only the sheet reads it. */
+  focus?: ChangelogFocus;
 }) {
   const s = useSyncExternalStore(store.subscribe, store.getSnapshot);
   if (s.loading)
@@ -31,7 +36,8 @@ export function ChangelogPage({
         {strings.t("changelog.page.loading")}
       </div>
     );
-  if (design === "sheet") return <SheetPage store={store} strings={strings} s={s} layout={sheet} />;
+  if (design === "sheet")
+    return <SheetPage store={store} strings={strings} s={s} layout={sheet} links={prs} focus={focus} />;
   if (design === "rail") return <RailPage store={store} strings={strings} s={s} />;
   if (design === "digest") return <DigestPage store={store} strings={strings} s={s} />;
   return <JournalPage store={store} strings={strings} s={s} ledger={design === "ledger"} news={news} />;

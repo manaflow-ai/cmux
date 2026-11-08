@@ -112,8 +112,9 @@ import Testing
             print(release.line("drag-\(name)-release", steps: 1))
             #expect(moves.presentations <= steps, "\(name): \(moves.presentations) presentation passes over \(steps) moves")
             #expect(moves.catcherChanges == 0, "\(name): the catcher areas moved on \(moves.catcherChanges) of \(steps) moves")
-            // A column edge may spring the camera to its anchor; a split divider's drag moves nothing on a spring.
-            if case .split = kind { #expect(moves.ticks == 0, "\(name): \(moves.ticks) frame ticks for \(steps) moves with nothing on a spring") }
+            // A column edge may spring the camera to its anchor; a split divider's drag moves nothing on a spring: it
+            // asks for exactly the one frame each event's pointer is written in (here every move is a frame of its own).
+            if case .split = kind { #expect(moves.ticks == steps, "\(name): \(moves.ticks) frame ticks for \(steps) moves with nothing on a spring") }
             #expect(probe.window.overlayLayer.catcherAreas == probe.window.overlayLayer.dividerAreas,
                     "\(name): at rest the catchers cover the dividers")
         }

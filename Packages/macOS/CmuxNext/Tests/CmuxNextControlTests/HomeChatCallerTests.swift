@@ -57,13 +57,13 @@ import Testing
         #expect(request.target == ControlTargetRef(kind: "tab", id: "tab-right"))
     }
 
-    @Test func withoutHomeChatAnUnknownSessionKeepsTheFocusedPane() async throws {
+    @Test func withoutHomeChatAnUnknownSessionIsRefused() async throws {
         let executor = OpenBrowserExecutor()
         let router = makeRouter(executor)
-        _ = try await run(router, caller: ["agent_session": "turn-on-a-vm"]).get()
-        let request = try #require(executor.all.first)
-        #expect(request.target == nil)
-        #expect(!request.besideCaller)
+        let result = await run(router, caller: ["agent_session": "turn-on-a-vm"])
+        let failure = try #require(result.failure)
+        #expect(failure.code == "caller_unavailable")
+        #expect(executor.all.isEmpty)
     }
 
     @Test func identifyReportsTheHomeChatColumnAsBeside() async throws {

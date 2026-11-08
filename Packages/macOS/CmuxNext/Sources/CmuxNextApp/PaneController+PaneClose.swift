@@ -9,7 +9,8 @@ import CmuxNextLayout
 /// the pane back.
 extension PaneController {
     /// Shows this pane's close now; nil when the layout leaves it to the daemon's tree (the
-    /// screen's last pane, a pane in a column with rows). A column's only pane takes its column.
+    /// screen's last pane, a zoomed screen). A column's only pane takes its column, a row's only
+    /// pane its row.
     ///
     /// The focus coordinator gets the topology without this pane now, focused or not, so it never
     /// holds a pane the window no longer shows. When this pane had the focus, the focus reducer
@@ -30,9 +31,9 @@ extension PaneController {
         if held.contains(pane: paneKey) { workspace.focus.send(.topology(held.removing(pane: paneKey))) }
         // The layout shows the reducer's pick in this frame, with or without the window's applier.
         if focused, let pane = workspace.focus.state.pane, pane != paneKey { workspace.layoutModel.focus(LayoutPaneID(pane), notify: false) }
-        // The store tree has not changed: the view mirrors the hidden pane now, and the daemon's
-        // echo is the close's one apply and topology (the perf gate's split budget).
-        workspace.layoutView.syncWithModel()
+        // The view's springs take the hidden pane now and the next frame tick presents it once (S1B, as a resize key);
+        // the daemon's echo is the close's one apply and topology (the perf gate's split budget).
+        workspace.layoutView.syncWithModelForNextFrame()
         return close
     }
 
@@ -47,4 +48,5 @@ extension PaneController {
             workspace.layoutModel.settlePaneClose(close)
         }
     }
+    func holdsRelease(of key: String, _ release: @escaping @MainActor () -> Void) -> Bool { workspace?.layoutView.afterClosing(layoutPaneID, id: key, release) == true } // a closing pane's release waits for its landing
 }

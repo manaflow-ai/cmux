@@ -177,12 +177,29 @@ const WAITING = [
   message: { name: "grid-lane", sessionId: "s-grid", harness: "claude", text, raw: text },
 }));
 
+/// Three messages from two sessions waiting (Leo's 2026-11-05 capture: "3 messages from 2 sessions
+/// claude-13, gcp-codex-swarm-08/claude").
+const WAITING_TWO = [
+  ...WAITING,
+  {
+    id: "w3",
+    prompt: "Review passed at e34ce27, no findings.",
+    message: {
+      name: "review-box",
+      sessionId: "s-review",
+      harness: "codex",
+      text: "Review passed at e34ce27, no findings.",
+      raw: "Review passed at e34ce27, no findings.",
+    },
+  },
+];
+
 /// Inbox rows among tool rows, as a coordinator's chat draws them: a run of commands, one thread's
 /// line, a delivered group of one sender's threads, one of several senders', and the messages that
 /// wait (Leo, 2026-11-01: "i wanted this to be left aligned with the other tool calls" and "let's
 /// just make this look better"). Every group's head is a tool row (MessageGroupHead.tsx).
 /// inbox-row-icon-column.test.ts measures it.
-function amongTools() {
+function amongTools(queue = WAITING) {
   const run = (minutes: number) =>
     activity(
       [
@@ -211,7 +228,7 @@ function amongTools() {
     {
       title: "polish-coordinator",
       isWorking: true,
-      queue: WAITING,
+      queue,
       sessions: [
         session({ sessionId: SESSION_ID, title: "polish-coordinator", name: "polish-coordinator" }),
         session({ sessionId: "s-log-bloat", title: "ao-log-bloat", name: "ao-log-bloat", harness: "codex" }),
@@ -292,6 +309,15 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".cv-lane-batch__body .cv-received"));
       },
     },
+    "waiting-open-all": {
+      note: 'The waiting digest of three messages from two sessions, opened by a pointer click on its own line: every message shows its words under it, no row left to open one by one (Leo, 2026-11-05: "we don\'t seem to be able to click it at the top level").',
+      snapshot: amongTools(WAITING_TWO),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-pending__toggle"));
+        await ctx.click({ selector: ".cv-pending__toggle" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-pending .cv-received__text").length >= 3);
+      },
+    },
     "before-six": {
       note: "Before: three notices in a row, as acpmux wrote them and the pane drew them: each its text for the agent in the person's bubble.",
       snapshot: snapshot(SIX, true),
@@ -306,7 +332,7 @@ export default agentPaneEntry({
       play: openFirst,
     },
     three: {
-      note: 'Three threads: one line, "4 messages from 3 sessions" and the senders.',
+      note: 'Three threads: one line, "Received N messages", N the messages; the senders are its hover.',
       snapshot: snapshot(THREE),
     },
     "three-open": {
@@ -315,7 +341,7 @@ export default agentPaneEntry({
       play: openFirst,
     },
     six: {
-      note: "Three notices in a row (six threads) fold into one line.",
+      note: 'Three notices in a row (six threads) fold into one line, "Received N messages".',
       snapshot: snapshot(SIX),
     },
     "six-open": {

@@ -11,33 +11,59 @@ use std::time::Duration;
 /// Deadlines of one link. `ACPMUX_PEER_TIMEOUT_SECS` sets the connect
 /// deadline (the handshake gets three times it), `ACPMUX_PEER_PING_SECS`
 /// the keepalive interval, for a host that is slow even when well, and
-/// `ACPMUX_PEER_REQUEST_SECS` how long one request waits for its answer.
+/// `ACPMUX_PEER_REQUEST_SECS` how long one request waits for its answer, and
+/// `ACPMUX_PEER_START_SECS` how long a forwarded `session/new` waits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LinkTimings {
     /// ssh, the tunnel and the WebSocket upgrade; also the remote config read.
+    // timeout: a dead route must fail connection setup so the reconnect loop can choose a new
+    // route; once connected, peer traffic uses the link's liveness path.
     pub connect: Duration,
     /// `initialize` and `_acpmux/watch` once the WebSocket is open.
+    // timeout: a peer that never completes its handshake is not usable; the link retries while
+    // the socket remains open and this is the long hazard bound for a wedged handshake.
     pub handshake: Duration,
-    /// A ping goes out this often; any frame from the peer counts as an answer.
+    /// A ping goes out this often; any byte from the peer counts as an answer.
     pub ping_every: Duration,
-    /// The link is dropped after this many intervals without a frame, and a
-    /// send that cannot go out for as long.
+    /// The link is dropped after this many intervals without a byte from the peer.
     pub ping_misses: u32,
+    /// The link is dropped when one send cannot go out for this long (a peer that stops
+    /// reading). Longer than the silence budget: a large frame on a slow uplink takes a while.
+    // timeout: a peer that never reads would hold every queued write; a dead transport is
+    // detected sooner by the silence budget.
+    pub send: Duration,
     /// A link that stayed ready this long starts its next backoff over.
     pub stable_after: Duration,
     /// How long one request waits for the peer's answer.
+    // timeout: a connected peer that never answers and never closes needs a finite diagnostic
+    // bound; keepalive detects a dead transport earlier.
     pub request: Duration,
+    /// How long a forwarded `session/new` waits for the peer's answer: past the peer's own
+    /// start envelope. `Peer::send_request` takes the larger of this and `request`, so a slow
+    /// live start is not cut off by the old pooled-start budget.
+    // timeout: a remote handler that stays connected but never answers needs a finite forwarding
+    // hazard bound; a dead peer is detected by the transport keepalive.
+    pub start: Duration,
 }
+
+/// The peer's whole `session/new` budget (`hub::SESSION_NEW_BUDGET`), plus room for the link.
+pub const START_DEFAULT: Duration =
+    Duration::from_secs(crate::hub::SESSION_NEW_BUDGET.as_secs() + 15);
 
 impl Default for LinkTimings {
     fn default() -> Self {
         Self {
             connect: Duration::from_secs(30),
             handshake: Duration::from_secs(90),
-            ping_every: Duration::from_secs(20),
-            ping_misses: 4,
+            // A dead link (a dropped network, a computer that slept) is found within 6 to 8 s,
+            // not 80, so its redial starts while the person still waits. A ping is a few bytes
+            // over the tunnel each 2 s, answered by the peer's connection reader.
+            ping_every: Duration::from_secs(2),
+            ping_misses: 3,
+            send: Duration::from_secs(80),
             stable_after: Duration::from_secs(60),
             request: Duration::from_secs(600),
+            start: START_DEFAULT,
         }
     }
 }
@@ -58,11 +84,13 @@ impl LinkTimings {
         if let Some(n) = secs("ACPMUX_PEER_REQUEST_SECS") {
             t.request = Duration::from_secs(n);
         }
+        if let Some(n) = secs("ACPMUX_PEER_START_SECS") {
+            t.start = Duration::from_secs(n);
+        }
         t
     }
 
-    /// How long the peer may stay silent (or refuse a send) before the link
-    /// is dropped.
+    /// How long the peer may stay silent before the link is dropped.
     pub fn silence_budget(&self) -> Duration {
         self.ping_every * self.ping_misses
     }
@@ -104,6 +132,11 @@ impl Backoff {
 
     pub fn reset(&mut self) {
         self.failures = 0;
+    }
+
+    /// Steps drawn since the last `reset`.
+    pub fn failures(&self) -> u32 {
+        self.failures
     }
 }
 
@@ -151,8 +184,11 @@ impl SleepWatch {
 }
 
 /// After a wake, how long an open link has to answer a ping before it is dropped and redialed
-/// (its ssh tunnel and TCP connection often died while the computer slept).
-pub const WAKE_PROBE: Duration = Duration::from_secs(10);
+/// (its ssh tunnel and TCP connection often died while the computer slept). This is only for a
+/// stale post-sleep transport; ordinary busy-peer traffic stays on the link.
+// timeout: a socket that survived sleep but cannot answer this probe is a dead transport, so
+// redialing is safer than holding every queued write indefinitely.
+pub const WAKE_PROBE: Duration = Duration::from_secs(30);
 
 /// When a write that starts at `now` gives up: after the send `budget`, or at a running wake
 /// probe's deadline when that comes first, so a write to a link that died while the computer
@@ -163,6 +199,83 @@ where
 {
     let end = now + budget;
     wake_probe.map_or(end, |probe| probe.min(end))
+}
+
+/// When the transport under a link last read a byte. A link is alive while bytes arrive, also in
+/// the middle of a large frame that takes longer than the silence budget to come in, so the
+/// budget can be short without cutting a slow but working link (`Peer::serve`).
+#[derive(Debug, Clone)]
+pub struct Heard {
+    origin: tokio::time::Instant,
+    at_ms: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl Default for Heard {
+    fn default() -> Self {
+        Self { origin: tokio::time::Instant::now(), at_ms: Default::default() }
+    }
+}
+
+impl Heard {
+    pub fn mark(&self) {
+        let ms = self.origin.elapsed().as_millis() as u64;
+        self.at_ms.fetch_max(ms, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// How long since the last byte (since this was made, before any).
+    pub fn silent(&self) -> Duration {
+        let at = Duration::from_millis(self.at_ms.load(std::sync::atomic::Ordering::Relaxed));
+        self.origin.elapsed().saturating_sub(at)
+    }
+
+    pub fn wrap<S>(&self, inner: S) -> HeardStream<S> {
+        HeardStream { inner, heard: self.clone() }
+    }
+}
+
+/// A stream that marks its `Heard` on each read that returned bytes.
+pub struct HeardStream<S> {
+    inner: S,
+    heard: Heard,
+}
+
+impl<S: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for HeardStream<S> {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let before = buf.filled().len();
+        let polled = std::pin::Pin::new(&mut self.inner).poll_read(cx, buf);
+        if matches!(polled, std::task::Poll::Ready(Ok(()))) && buf.filled().len() > before {
+            self.heard.mark();
+        }
+        polled
+    }
+}
+
+impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for HeardStream<S> {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
 }
 
 /// A fresh jitter in `0.0..1.0` from the OS generator (0.5 if it fails).
@@ -193,17 +306,16 @@ pub enum PeerState {
 }
 
 impl PeerState {
-    /// Its `_acpmux/peer_state_changed` form (`protocol/peer_state.rs`).
-    pub fn wire(self) -> crate::protocol::peer_state::PeerLinkState {
-        use crate::protocol::peer_state::PeerLinkState as W;
+    /// Its `_acpmux/peer_state_changed` `link` (`protocol/peer_state.rs`), unfolded: a restart
+    /// is `restarting` there too. An older app reads `state`, `MachineLink::folded`.
+    pub fn wire(self) -> crate::protocol::peer_state::MachineLink {
+        use crate::protocol::peer_state::MachineLink as W;
         match self {
             Self::Connecting => W::Connecting,
             Self::Connected => W::Connected,
             Self::Degraded => W::Degraded,
             Self::Reconnecting => W::Reconnecting,
-            // Existing typed clients understand reconnecting. The richer restart status is
-            // exposed by `_acpmux/peers` summaries until the UI protocol adds it.
-            Self::Restarting => W::Reconnecting,
+            Self::Restarting => W::Restarting,
             Self::Offline => W::Offline,
         }
     }
@@ -233,6 +345,10 @@ pub struct Link {
     pub down_since: Option<u64>,
     /// A parked peer's next automatic attempt, preserved across daemon updates.
     pub next_retry_at: Option<u64>,
+    /// The next automatic attempt of a link that is down, parked or not (`nextRetryAt` on the
+    /// wire); None while a link is open. Past it, an attempt runs or ran. Only reported, never
+    /// waited on: the run loop keeps its own delay.
+    pub retry_at: Option<u64>,
     /// Failed attempts since the link was last ready.
     pub attempts: u32,
     /// When the link last became ready.
@@ -315,6 +431,7 @@ impl Link {
 
     /// The WebSocket opened; the handshake runs.
     pub fn opened(&mut self, now: u64) {
+        self.retry_at = None;
         self.opened_at = Some(now);
         self.open = true;
         self.ready = false;
@@ -407,13 +524,13 @@ pub fn describe(name: &str, link: &Link, error: Option<&str>, now: u64) -> Strin
 /// request was not sent, so retrying it never runs it twice.
 pub fn unreachable_error(name: &str, link: &Link, error: Option<&str>, now: u64) -> RpcError {
     RpcError::internal(format!(
-        "peer_unreachable: {}; the request was not sent; run `acpmux host ls` and retry after the peer reconnects",
+        "peer_unreachable: {}; the request was not sent; run `acpmux machine ls` and retry after the peer reconnects",
         describe(name, link, error, now)
     )).with_data(
         json!({
             "reason": "peer_unreachable",
             "retryable": true,
-            "try": "acpmux host ls",
+            "try": "acpmux machine ls",
             "detail": "the request was not sent",
             "peer": name,
             "peerState": link.state().as_str(),
@@ -627,11 +744,11 @@ mod tests {
         assert!(
             e.message.contains("huge-blue (reconnecting, last seen 40s ago: connect timed out)")
         );
-        assert!(e.message.contains("acpmux host ls"));
+        assert!(e.message.contains("acpmux machine ls"));
         let data = e.data.unwrap();
         assert_eq!(data["reason"], "peer_unreachable");
         assert_eq!(data["retryable"], true);
-        assert_eq!(data["try"], "acpmux host ls");
+        assert_eq!(data["try"], "acpmux machine ls");
         assert_eq!(data["peerState"], "reconnecting");
         assert_eq!(data["lastSeen"], 0);
         let never = describe("gone", &Link::default(), None, 5);
@@ -651,7 +768,8 @@ mod tests {
     #[test]
     fn env_sets_the_connect_handshake_and_ping_deadlines() {
         let t = LinkTimings::default();
-        assert_eq!(t.silence_budget(), Duration::from_secs(80));
+        assert_eq!(t.silence_budget(), Duration::from_secs(6));
+        assert_eq!(t.send, Duration::from_secs(80));
         assert!(t.connect >= Duration::from_secs(30) && t.handshake >= t.connect);
     }
 }

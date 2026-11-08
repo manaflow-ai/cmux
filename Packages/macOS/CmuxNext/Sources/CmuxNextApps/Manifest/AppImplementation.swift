@@ -5,6 +5,7 @@
 /// reads one model for both.
 public nonisolated struct AppImplementation: Sendable, Hashable, Identifiable {
     public static let section = "cmux.section/1"
+    public static let sessionInfoSection = "cmux.session.info.section/1"
     public static let status = "cmux.status/1"
     public static let pane = "cmux.pane/1"
     public static let paletteScope = "cmux.palette.scope/1"
@@ -35,6 +36,7 @@ public nonisolated struct AppImplementation: Sendable, Hashable, Identifiable {
     }
 
     public var isSection: Bool { interface == Self.section }
+    public var isSessionInfoSection: Bool { interface == Self.sessionInfoSection }
     public var isStatusItem: Bool { interface == Self.status }
     public var isPane: Bool { interface == Self.pane }
     /// Rendered from a scene the app host streams (not a native pane).

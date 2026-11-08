@@ -89,10 +89,12 @@ impl Mux {
             expected_projection_revision,
             projection,
         )?;
-        if !commit.replayed {
+        if commit.recorded {
             // The write added a `projection_mutations` ledger row and
             // publishes no journal event: journal maintenance bounds it.
             self.journal_maintenance_control.note_change();
+        }
+        if !commit.replayed {
             self.emit(MuxEvent::FrontendProjectionChanged {
                 frontend: frontend.to_string(),
                 scope: scope.to_string(),

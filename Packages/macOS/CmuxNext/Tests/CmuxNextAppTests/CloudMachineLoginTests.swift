@@ -10,24 +10,10 @@ struct CloudMachineLoginTests {
     static let token = "sk-ant-oat01-abcdefghijklmnopqrstuvwxyz0123456789"
     static let fresh = "sk-ant-oat01-0123456789zyxwvutsrqponmlkjihgfedcba"
 
-    @Test func onlyAMissingOrRejectedLoginIsReplaced() {
-        #expect(CloudMachineLogin.none.needsLogin)
-        #expect(CloudMachineLogin.rejected.needsLogin)
-        #expect(!CloudMachineLogin.session.needsLogin)
-        #expect(!CloudMachineLogin.cached.needsLogin)
-        #expect(!CloudMachineLogin.working.needsLogin)
-    }
-
-    @Test func theProbesWordIsTheAnswerElseItsExitCode() {
-        for login in CloudMachineLogin.allCases { #expect(CloudMachineLogin.parse(exitCode: 0, stdout: login.rawValue + "\n") == login) }
-        // An old probe's bare exit code, or noise: 0 is a login that stays, as before.
-        #expect(CloudMachineLogin.parse(exitCode: 0, stdout: "") == .working)
-        #expect(CloudMachineLogin.parse(exitCode: 1, stdout: "") == .none)
-        #expect(CloudMachineLogin.parse(exitCode: 127, stdout: "python3: not found") == .none)
-    }
-
-    @Test func theProbeCarriesAFingerprintNeverAToken() {
-        let fingerprint = CloudMachineLogin.fingerprint(Data(Self.token.utf8))
+    /// The fingerprint and the probe word's reading are Rust's (cmux-cloud-start-core `machine_login`);
+    /// the probe's shell text stays here and is run below on a scratch machine.
+    @Test func theProbeCarriesAFingerprintNeverAToken() throws {
+        let fingerprint = try #require(CloudMachineLogin.fingerprint(Data(Self.token.utf8)))
         #expect(fingerprint.count == 64)
         let probe = CloudMachineLogin.probe(cachedFingerprint: fingerprint)
         #expect(probe.contains("cmux_agent_has_own_login claude"))
@@ -65,14 +51,17 @@ struct CloudMachineLoginTests {
         /// `execHome`: the exec's own HOME (the classic route's exec runs as root, HOME /root); the
         /// probe reads `cmux`'s home whatever it is.
         func probe(cached: String?, endpoint: String, execHome: URL? = nil) async throws -> CloudMachineLogin {
-            let command = CloudMachineLogin.probe(cachedFingerprint: cached.map { CloudMachineLogin.fingerprint(Data($0.utf8)) }, endpoint: endpoint)
+            let command = CloudMachineLogin.probe(cachedFingerprint: cached.flatMap { CloudMachineLogin.fingerprint(Data($0.utf8)) }, endpoint: endpoint)
                 .replacingOccurrences(of: "/etc/cmux", with: policy.path)
                 .replacingOccurrences(of: "pwd.getpwnam('cmux').pw_dir", with: CloudCredentialInstaller.quote(home.path))
             let ran = try await ProcessRunner.run(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", command],
                 environment: ["PATH": "/usr/bin:/bin", "HOME": (execHome ?? home).path], timeout: .seconds(20), clock: ContinuousClock())
             let out = String(decoding: ran.stdout, as: UTF8.self)
             #expect(!out.contains("sk-ant"))
-            return CloudMachineLogin.parse(exitCode: Int(ran.status), stdout: out)
+            // Read as the start reads it: the probe's output goes into the one decision call.
+            var decision = CloudHarnessLoginDecision(dogfood: true, setting: nil, harness: nil, signedIn: true)
+            decision.machineProbe = .init(exitCode: Int(ran.status), stdout: out)
+            return try #require(decision.verdict.machineLogin)
         }
     }
 

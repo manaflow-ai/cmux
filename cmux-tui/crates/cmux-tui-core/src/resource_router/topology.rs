@@ -128,7 +128,16 @@ fn list_resources(
     operation: &str,
 ) -> Result<Value, ResourceError> {
     let path = mux.resolve_resource_path(scope, selectors)?;
-    let snapshot = public_session_snapshot(mux)?;
+    // A pane or tab list inside one workspace reads that workspace's rows
+    // only, under the registry lock alone (CLI-1: the whole snapshot held
+    // both global locks for each CLI `tab list`); every other list reads
+    // the session snapshot.
+    let snapshot = match &path.workspace {
+        Some(workspace) if matches!(collection, "panes" | "tabs") => {
+            crate::resource_api::public_workspace_topology(mux, workspace)?
+        }
+        _ => public_session_snapshot(mux)?,
+    };
     let path_index = SnapshotPathIndex::new(&snapshot);
     let values = snapshot[collection]
         .as_array()
@@ -273,9 +282,16 @@ fn create_workspace(
     // `placement` names the new workspace's place in the sidebar order for
     // this create (an agent's workspace on top, #29875); absent: the
     // `workspaces.newPlacement` setting.
-    match create_placement(&request.fields)? {
+    // `created_by` (ask-48544d7525): an agent or script workspace goes
+    // below its creator instead.
+    let created_by = crate::state::created_by::CreatedBy::from_fields(&request.fields);
+    let create = || match create_placement(&request.fields)? {
         Some(placement) => placement.scoped(|| create_workspace_placed(mux, request)),
         None => create_workspace_placed(mux, request),
+    };
+    match created_by {
+        Some(created_by) => created_by.scoped(create),
+        None => create(),
     }
 }
 

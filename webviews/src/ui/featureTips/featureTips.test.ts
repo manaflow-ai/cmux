@@ -17,11 +17,11 @@ const TIPS: FeatureTipEntry[] = [
     body: "One sentence.",
     feature: "browser",
   },
-  { id: "session-info-tip", anchor: "agent.inspector", title: "Session Info", body: "One sentence." },
+  { id: "session-info-tip", anchor: "agent.sessionInfo", title: "Session Info", body: "One sentence." },
 ];
 const ANCHORS: Record<string, TipAnchor> = {
   "agent.browser": { selector: "#browser", side: "bottom", feature: "browser" },
-  "agent.inspector": { selector: "#inspector", side: "bottom" },
+  "agent.sessionInfo": { selector: "#inspector", side: "bottom" },
 };
 
 let dom: JSDOM;
@@ -363,7 +363,7 @@ describe("tips from What's New highlights", () => {
     expect(readFileSync(GENERATED, "utf8")).toBe(generatedTips());
     const tips = JSON.parse(generatedTips()) as FeatureTipEntry[];
     expect(tips.map((tip) => tip.id)).toContain("agents-drive-visible-browser-tabs");
-    const { PANE_TIP_ANCHORS } = await import("../../agent-session/acpmux/featureTips");
+    const { PANE_TIP_ANCHORS } = await import("../../agent-session/acpmux/featureTipsModel");
     for (const tip of tips) expect(Object.keys(PANE_TIP_ANCHORS)).toContain(tip.anchor);
   });
 });

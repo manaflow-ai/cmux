@@ -8,9 +8,18 @@
 // and a preview has them read back from its text. Notices next to each other draw as one group
 // (`mergeInboxNotices`), a thread named in two of them once.
 import type { AcpmuxRow } from "../model";
+import { withoutRelayEnvelope, withoutRelayHead } from "./relayEnvelope";
+import type { SentFrom } from "./sentFromHarness";
+
+/// Who sent a message, as acpmux records it (`sender`, prompt_provenance.rs
+/// `sender_record_with_auth`): the sending chat's id when acpmux proved it, and the name it gave.
+/// A chip opens the sender by these, never by `from`, the line's display text, which may carry a
+/// note such as "(self-declared, unauthenticated)" (Leo, 2026-11-07: clicking a sender "just
+/// fundamentally doesn't load").
+export type SenderRef = { session?: string; label?: string };
 
 /// One message of a thread, as the notice or `_acpmux/inbox_thread` gives it.
-export type InboxMessage = { promptId?: string; from: string; at?: number; text: string };
+export type InboxMessage = { promptId?: string; from: string; sender?: SenderRef; at?: number; text: string };
 
 /// One thread of a notice.
 export type InboxThread = {
@@ -22,6 +31,8 @@ export type InboxThread = {
   from: string[];
   /// The newest message's sender's session, when it is a chat here.
   fromSession?: string;
+  /// The newest message's sender, as acpmux recorded it.
+  sender?: SenderRef;
   /// The newest message's sender's harness family (`claude`, `codex`, ...), when acpmux bound it
   /// (prompt_provenance.rs `fromHarness`; cmux#30247): its line draws that harness's mark.
   fromHarness?: string;
@@ -35,6 +46,9 @@ export type InboxThread = {
   promptIds: string[];
   /// The messages whole, oldest first, when the notice holds them.
   messages?: InboxMessage[];
+  /// Where each message says it came from, by its prompt id (`sender_claim`, sentFromHarness.ts):
+  /// a sender chip under it.
+  sentFrom?: Record<string, SentFrom>;
 };
 
 export type InboxNotice = { threads: InboxThread[] };
@@ -44,6 +58,18 @@ export type InboxNotice = { threads: InboxThread[] };
 export const inboxThreadKey = (rowId: string, threadId: string) => `${rowId}\u0000${threadId}`;
 
 const text = (value: unknown): string => (typeof value === "string" ? value : "");
+const senderRef = (value: unknown): SenderRef | undefined => {
+  const r = value as Record<string, unknown> | null;
+  if (!r || typeof r !== "object") return undefined;
+  const session = text(r.session).trim();
+  const label = text(r.label).trim();
+  return session || label ? { ...(session && { session }), ...(label && { label }) } : undefined;
+};
+
+/// The key a sender's chat is asked for by: its session id, else the name it gave, else `from`.
+export const senderKey = (from: string, sender: SenderRef | undefined): string =>
+  sender?.session ?? sender?.label ?? from.trim();
+
 const strings = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((v): v is string => typeof v === "string" && v.trim() !== "") : [];
 
@@ -85,35 +111,46 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
     if (!threadId) continue;
     const promptIds = strings(p.promptIds);
     const count = typeof p.new === "number" && p.new > 0 ? p.new : Math.max(1, promptIds.length);
-    const messages = Array.isArray(p.messages)
-      ? p.messages.flatMap((m): InboxMessage[] => {
-          const r = m as Record<string, unknown> | null;
-          if (!r || typeof r.text !== "string") return [];
-          return [
-            {
-              from: text(r.from),
-              text: r.text,
-              ...(typeof r.promptId === "string" && { promptId: r.promptId }),
-              ...(typeof r.at === "number" && { at: r.at }),
-            },
-          ];
-        })
-      : undefined;
+    const messages = Array.isArray(p.messages) ? inboxMessages(p.messages) : undefined;
     const newest = messages?.at(-1)?.text;
+    const sender = senderRef(p.sender);
     threads.push({
       threadId,
       label: shownLabel(text(p.label), threadId),
       from: strings(p.from),
       ...(text(p.fromSession) && { fromSession: text(p.fromSession) }),
+      ...(sender && { sender }),
       ...(text(p.fromHarness) && { fromHarness: text(p.fromHarness) }),
       count,
-      preview: text(p.preview).trim() || previewFromText(notice, threadId) || firstLine(newest ?? ""),
+      preview:
+        withoutRelayHead(text(p.preview).trim()) ||
+        withoutRelayHead(previewFromText(notice, threadId)) ||
+        firstLine(newest ?? ""),
       blocker: p.blocker === true || previewLineBlocks(notice, threadId),
       promptIds,
       ...(messages?.length && { messages }),
     });
   }
   return threads.length ? { threads } : undefined;
+}
+
+/// A thread's messages as acpmux records them (a notice's `messages`, `_acpmux/inbox_thread`), each
+/// without the broker label it came in (relayEnvelope.ts): every one is another agent's.
+export function inboxMessages(records: unknown[]): InboxMessage[] {
+  return records.flatMap((m): InboxMessage[] => {
+    const r = m as Record<string, unknown> | null;
+    if (!r || typeof r.text !== "string") return [];
+    const sender = senderRef(r.sender);
+    return [
+      {
+        from: text(r.from),
+        ...(sender && { sender }),
+        text: withoutRelayEnvelope(r.text),
+        ...(typeof r.promptId === "string" && { promptId: r.promptId }),
+        ...(typeof r.at === "number" && { at: r.at }),
+      },
+    ];
+  });
 }
 
 /// Whether the notice's text tags a thread a blocker (one logged before `blocker` was a part).
@@ -162,6 +199,7 @@ export function joinNotices(first: InboxNotice, later: InboxNotice): InboxNotice
       blocker: held.blocker || next.blocker,
       promptIds: [...held.promptIds, ...next.promptIds],
     };
+    if (held.sentFrom || next.sentFrom) joined.sentFrom = { ...held.sentFrom, ...next.sentFrom };
     // Whole only when both notices held their messages whole.
     delete joined.messages;
     if (held.messages && next.messages) joined.messages = [...held.messages, ...next.messages];

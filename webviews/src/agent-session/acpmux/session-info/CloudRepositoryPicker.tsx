@@ -1,22 +1,15 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Popover, type UiAnchor } from "../../../ui/Popover";
+import { useScrollEdges } from "../../../ui/scrollEdges";
 import { postNative } from "../native";
 import { NativeError } from "../nativeError";
 import { useT, type Translate } from "../i18n";
+import { type AttachedCloudRepo } from "./cloudRepositoryPickerModel";
 
 export type CloudRepo = {
   fullName: string;
   private?: boolean;
   source?: "local" | "recent" | "installation";
-};
-
-export type AttachedCloudRepo = { repo: string; folder?: string; head?: string };
-export type PendingCloudRepo = {
-  repo: string;
-  state?: string;
-  phase?: string;
-  progress?: { received_bytes?: number; objects?: number; total_objects?: number };
-  notes?: string[];
 };
 
 type ListReply = { repos?: CloudRepo[]; connect?: { install_url?: string } };
@@ -81,6 +74,7 @@ function errorCode(error: unknown): string | undefined {
 export function CloudRepositoryPicker({
   session,
   anchor,
+  point,
   open,
   onOpenChange,
   onAttached,
@@ -88,6 +82,8 @@ export function CloudRepositoryPicker({
 }: {
   session: string;
   anchor: RefObject<HTMLElement | null>;
+  /// A native Session Info row's box, in the same page coordinates as a web anchor.
+  point?: UiAnchor;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onAttached: (repo: AttachedCloudRepo) => void;
@@ -96,6 +92,7 @@ export function CloudRepositoryPicker({
   const t = useT();
   const [query, setQuery] = useState("");
   const [repos, setRepos] = useState<CloudRepo[]>([]);
+  const listEdges = useScrollEdges();
   const [connectUrl, setConnectUrl] = useState<string>();
   const [loading, setLoading] = useState(false);
   const [attaching, setAttaching] = useState<string>();
@@ -165,7 +162,7 @@ export function CloudRepositoryPicker({
     <Popover
       open={open}
       onOpenChange={onOpenChange}
-      anchor={anchor.current as UiAnchor}
+      anchor={point ?? (anchor.current as UiAnchor)}
       label={t("cloudRepository.add")}
       className="acpmux-cloud-repository-popover"
       initialFocus={search}
@@ -191,12 +188,13 @@ export function CloudRepositoryPicker({
         />
         {loading && <div className="acpmux-cloud-repository-progress">{t("cloudRepository.searching")}</div>}
         {!loading && repos.length > 0 && (
-          <ul className="acpmux-cloud-repository-list">
+          <ul ref={listEdges} className="acpmux-cloud-repository-list ui-scroll-edge-fade">
             {repos.map((repo) => (
               <li key={repo.fullName}>
                 <button
                   type="button"
                   className="acpmux-cloud-repository-option"
+                  data-action="repository-option"
                   disabled={Boolean(attaching)}
                   onClick={() => attach(repo)}
                 >
@@ -224,20 +222,5 @@ export function CloudRepositoryPicker({
         )}
       </div>
     </Popover>
-  );
-}
-
-export function loadAttachedCloudRepos(
-  _session: string,
-): Promise<{ repos: AttachedCloudRepo[]; pending: PendingCloudRepo[] }> {
-  return postNative<{ repos?: AttachedCloudRepo[]; pending?: PendingCloudRepo[] }>("cloud.repo.attached", {}).then(
-    (reply) => ({
-      repos: Array.isArray(reply?.repos)
-        ? reply.repos.filter((repo): repo is AttachedCloudRepo => Boolean(repo) && typeof repo.repo === "string")
-        : [],
-      pending: Array.isArray(reply?.pending)
-        ? reply.pending.filter((repo): repo is PendingCloudRepo => Boolean(repo) && typeof repo.repo === "string")
-        : [],
-    }),
   );
 }

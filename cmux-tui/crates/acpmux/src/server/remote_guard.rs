@@ -101,6 +101,20 @@ pub(super) fn forwards(origin: super::Origin, m: &str) -> bool {
     origin == Local || (origin == LocalApp && m == method::MUX_SUBAGENT_STOP)
 }
 
+/// Who a connection is from its own proof alone: `control_of` with no request marker
+/// (`_meta.acpmux.via`), which a client sets itself. `hub/created_by.rs` reads this.
+pub(super) fn proven_control(origin: super::Origin, auth: super::ConnAuth) -> crate::hub::Control {
+    use crate::hub::Control;
+    if !auth.authenticated() {
+        return Control::Web;
+    }
+    match origin {
+        super::Origin::Local | super::Origin::LocalApp => Control::Local,
+        super::Origin::Web => Control::Web,
+        super::Origin::Peer => Control::Peer,
+    }
+}
+
 /// The rules a control request from `origin` runs under. A proven peer
 /// forwarding for its own Web client marks it `_meta.acpmux.via = "web"`.
 /// `auth` is the proof the connection presented: an unauthenticated one is
@@ -115,6 +129,16 @@ pub(super) fn control_of(
         return Control::Web;
     }
     match origin {
+        super::Origin::Local
+            if params.pointer("/_meta/acpmux/via").and_then(Value::as_str)
+                == Some("cloud-mobile") =>
+        {
+            // The cmux-tui native agent-session adapter stamps this marker
+            // only for its authenticated Cloud mobile carrier prompt. Keep
+            // the prompt under the Web asking policy while retaining the
+            // native transport and attachment/session lock.
+            Control::Web
+        }
         super::Origin::Local | super::Origin::LocalApp => Control::Local,
         super::Origin::Web => Control::Web,
         super::Origin::Peer
@@ -149,17 +173,52 @@ pub(super) fn full_access_device(
 /// this daemon holds to the Web's rules says so, and the peer applies them.
 /// One from the app's pane says `via: app`, so the peer's folder-trust gate
 /// (`trust_gate.rs`) holds it as it holds its own pane's.
+/// A prompt the cmux-tui mobile relay or Cloud mobile carrier stamped as the phone's.
+pub(super) fn cloud_mobile(params: &Value) -> bool {
+    params.pointer("/_meta/acpmux/via").and_then(Value::as_str) == Some("cloud-mobile")
+}
+
+/// A phone's prompt never goes on to a peer: the peer would read the forwarded
+/// `via` as `web` and lose the Cloud mobile floor (`check_dispatch`).
+pub(super) fn refuse_cloud_mobile_forward() -> RpcError {
+    RpcError::invalid_params(
+        "remote.cloud_mobile_peer: a Cloud mobile prompt runs only on this machine",
+    )
+    .with_data(serde_json::json!({"reason": "remote.cloud_mobile_peer"}))
+}
+
+/// `_meta.acpmux.personVerified` on a prompt a peer forwards: the forwarding daemon's connection
+/// proved the person (`hub/person.rs`). Read only from a Peer link (`person_admitted`), as that
+/// peer's word: the receiver records it as come over `peer`. One key with the inbox's proof
+/// (`prompt_provenance::PERSON_VERIFIED`), so either daemon reads the other's.
+pub(super) const PERSON_PROVEN: &str = crate::prompt_provenance::PERSON_VERIFIED;
+
 pub(super) fn mark_forwarded(
     origin: super::Origin,
     auth: super::ConnAuth,
     params: &Value,
     forwarded: &mut Value,
 ) {
+    mark_forwarded_with_person(origin, auth, params, forwarded, false);
+}
+
+pub(super) fn mark_forwarded_with_person(
+    origin: super::Origin,
+    auth: super::ConnAuth,
+    params: &Value,
+    forwarded: &mut Value,
+    person_verified: bool,
+) {
     // A peer takes a prompt's provenance from its own unix socket only (prompt_provenance.rs):
     // the prompt goes there without it. Its `author` goes on as it came (`author.rs`): the peer
-    // takes it from this link and stamps the provenance itself.
+    // takes it from this link and stamps the provenance itself. A client's own `personVerified`
+    // is never passed on: only this daemon says it, of a connection that proved the person.
     if let Some(mux) = forwarded.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
         mux.remove("provenance");
+        mux.remove(PERSON_PROVEN);
+    }
+    if person_verified {
+        crate::hub::merge_mux_meta(forwarded, serde_json::json!({PERSON_PROVEN: true}));
     }
     let control = control_of(origin, auth, params);
     if control == crate::hub::Control::Web {
@@ -171,6 +230,14 @@ pub(super) fn mark_forwarded(
         // owner's at the peer's VM boundary (`hub/vm_boundary.rs`).
         let via = crate::hub::vm_boundary::VIA_DEVICE;
         crate::hub::merge_mux_meta(forwarded, serde_json::json!({"via": via}));
+    }
+}
+
+/// Says on a request forwarded to a peer ([`mark_forwarded`] first) that this daemon's connection
+/// proved the person (`hub/person.rs`), so the peer admits its prompt as theirs.
+pub(super) fn attest_person(forwarded: &mut Value, person: bool) {
+    if person {
+        crate::hub::merge_mux_meta(forwarded, serde_json::json!({PERSON_PROVEN: true}));
     }
 }
 
@@ -208,6 +275,15 @@ async fn check_inner(
             && control_of(origin, auth, params) == crate::hub::Control::Peer)
     {
         return Err(crate::author::origin_refused());
+    }
+    // So is a tool's notice (`prompt_provenance::notice_of`): no remote text passes as a fire.
+    if matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE)
+        && (crate::prompt_provenance::notice_present(params)
+            || params.get("request").is_some_and(crate::prompt_provenance::notice_present))
+        && !(origin == super::Origin::Peer
+            && control_of(origin, auth, params) == crate::hub::Control::Peer)
+    {
+        return Err(crate::prompt_provenance::notice_origin_refused());
     }
     // What the Mac's mobile host refuses a phone by its own rule (cmux-mobile-host
     // `acpmux_policy.rs`: a mode that does not ask, a chat in one) it sends marked when the
@@ -267,7 +343,7 @@ async fn check_inner(
         return Err(crate::hub::Hub::inbox_digest_origin_refused());
     }
     // A paused agent pair is the person's to resume, on this machine (`hub/agent_pairs.rs`).
-    if m == method::MUX_AGENT_PAIR_RESUME && origin.web_class() {
+    if (m == method::MUX_AGENT_PAIR_RESUME || m == method::MUX_AGENT_HOLD) && origin.web_class() {
         return Err(RpcError::invalid_params(
             "resuming agent pairs is accepted only from this machine's app or unix socket",
         ));
@@ -338,9 +414,15 @@ async fn check_inner(
         }
     }
     // The pane's Trust for a chat on a peer names a folder on that peer, which this machine
-    // may not have: the set is forwarded whole (`peer_forward.rs`), and the peer, which serves
-    // it as Peer, checks the folder on its own disk. Only its spelling is checked here.
-    let peers_folder = m == method::ACP_TRUST_SET && names_a_peers_session(hub, params);
+    // may not have. A new chat can name the peer before it has a session. Forwarding strips
+    // that selector, so the peer's own guard checks the folder on its disk. An unknown peer
+    // is refused by the forwarder, never handled as a local folder.
+    // So do the folders the app gives a peer's chat (`_acpmux/set_directories`); a Web
+    // caller's are still checked here, against this machine's roots, whatever chat they name.
+    let named_peer = super::peer_forward::trust_peer(m, params)?.is_some();
+    let peers_folder = (m == method::ACP_TRUST_SET
+        && (named_peer || names_a_peers_session(hub, params)))
+        || (m == method::MUX_SET_DIRECTORIES && !web && names_a_peers_session(hub, params));
     if peers_folder
         && let Some(cwd) = params.get("cwd").filter(|v| !v.is_null())
         && !cwd.as_str().is_some_and(|c| Path::new(c).is_absolute())
@@ -355,6 +437,7 @@ async fn check_inner(
                 | method::SESSION_LOAD
                 | method::SESSION_RESUME
                 | method::ACP_TRUST_SET
+                | method::MUX_SET_DIRECTORIES
         );
     if folders {
         // A Web folder must also sit inside a root (`web_roots`); LocalApp
@@ -451,6 +534,7 @@ async fn check_inner(
             | method::MUX_FILE_PUT_FINISH
             | method::MUX_FILE_PUT_CANCEL
             | method::MUX_FILE_PUT_STATUS
+            | method::MUX_UPLOADS_KEEP
     ) && control_of(origin, auth, params) == crate::hub::Control::Web
         && !crate::hub::file_uploads::web::request_shape(m, params)
     {
@@ -560,7 +644,20 @@ fn family_of(m: &crate::store::SessionMeta) -> String {
 }
 
 /// Whether a session's mode asks: none reported, or listed for its family.
-async fn mode_asks(hub: &std::sync::Arc<crate::hub::Hub>, m: &crate::store::SessionMeta) -> bool {
+fn is_cloud_mobile(params: &Value) -> bool {
+    params.pointer("/_meta/acpmux/via").and_then(Value::as_str) == Some("cloud-mobile")
+}
+
+/// Whether a session's mode asks. Cloud-mobile prompts use the narrow phone
+/// mode set even though an authenticated Codex Web client normally gets the bridge's any-mode exception.
+async fn mode_asks(
+    hub: &std::sync::Arc<crate::hub::Hub>,
+    m: &crate::store::SessionMeta,
+    cloud_mobile: bool,
+) -> bool {
+    if cloud_mobile {
+        return hub.cloud_mobile_mode_asks(m);
+    }
     hub.any_mode_for_web(m) || hub.web_modes().session_asks(m)
 }
 
@@ -603,6 +700,7 @@ pub(super) async fn settle_web_session_mode(
     hub: &std::sync::Arc<crate::hub::Hub>,
     s: &std::sync::Arc<crate::hub::Session>,
     peer: bool,
+    cloud_mobile: bool,
 ) -> Result<(), RpcError> {
     // The Codex bridge takes any mode from an authenticated Web connection
     // (`any_mode_for_web`), but a session the Web STARTS begins in a mode
@@ -611,7 +709,7 @@ pub(super) async fn settle_web_session_mode(
     // one an enrolled peer starts under deny-all, in the policy's `read-only`
     // (`hub/policy_mode.rs` `bridge_settle_modes`), whose sandbox refuses
     // every write.
-    if hub.any_mode_for_web(&s.meta()) {
+    if !cloud_mobile && hub.any_mode_for_web(&s.meta()) {
         let settled = hub.bridge_settle_modes(s, peer).await;
         let asks = |m: &crate::store::SessionMeta| {
             crate::web_modes::mode_of(m).is_some_and(|mode| settled.contains(&mode))
@@ -630,14 +728,14 @@ pub(super) async fn settle_web_session_mode(
         hub.restore_web_control(s);
         return Ok(());
     }
-    if mode_asks(hub, &s.meta()).await {
+    if mode_asks(hub, &s.meta(), cloud_mobile).await {
         return Ok(());
     }
     let Some(default) = asking_modes(hub, &family_of(&s.meta())).await.into_iter().next() else {
         let _ = hub.kill(s, true).await;
         return Err(no_reviewed_asking_mode());
     };
-    if hub.set_mode(s, &default).await.is_err() || !mode_asks(hub, &s.meta()).await {
+    if hub.set_mode(s, &default).await.is_err() || !mode_asks(hub, &s.meta(), cloud_mobile).await {
         let _ = hub.kill(s, true).await;
         return Err(no_reviewed_asking_mode());
     }
@@ -766,6 +864,7 @@ async fn web_starts_asking(
 ) -> Result<(), RpcError> {
     // A remote chain never resumes a local harness session (REMOTE-FLOOR v3).
     let web = control == crate::hub::Control::Web;
+    let cloud_mobile = web && is_cloud_mobile(params);
     // A session whose caller asked for the VM boundary this machine takes
     // (`hub/vm_boundary.rs`): the owner's peer daemon's session with no policy
     // stays without one, and `requests.rs` starts it approve-all.
@@ -856,11 +955,11 @@ async fn web_starts_asking(
             if !(draft && not_asking) {
                 return Err(e);
             }
-            settle_web_session_mode(hub, &t, false).await?;
-        } else if draft && hub.any_mode_for_web(&t.meta()) {
+            settle_web_session_mode(hub, &t, false, cloud_mobile).await?;
+        } else if draft && !cloud_mobile && hub.any_mode_for_web(&t.meta()) {
             // A new Codex bridge target starts asking too (a Web connection
             // may switch it later, as any bridge session).
-            settle_web_session_mode(hub, &t, false).await?;
+            settle_web_session_mode(hub, &t, false, cloud_mobile).await?;
         }
         return hub.web_control_check(&t, control);
     }
@@ -947,7 +1046,7 @@ async fn web_starts_asking(
     }
     let default = hub.config.read().await.permission_policy;
     let policy = meta.permission_policy.as_deref().and_then(|p| p.parse().ok()).unwrap_or(default);
-    if !asking_policy(policy) || !mode_asks(hub, &meta).await {
+    if !asking_policy(policy) || !mode_asks(hub, &meta, cloud_mobile).await {
         return Err(RpcError::invalid_params(format!(
             "{m} from a remote WebSocket connection is refused: the session's policy or mode does not ask"
         )));

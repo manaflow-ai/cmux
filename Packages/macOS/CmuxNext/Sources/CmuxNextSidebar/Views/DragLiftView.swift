@@ -2,12 +2,14 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// The row or group being dragged: a live row view on the one overlay glass
-/// (`OverlaySurfaceView`: clear, untinted Liquid Glass on macOS 26+, the
-/// frosted material before, opaque under Reduce Transparency) with a shadow.
-/// The glass is clear so a picked-up row stays as see-through as it was in
-/// the list (Leo 2026-10-23: "they don't need to be solid when you pick them
-/// up"). It keeps its size and place: no lift scale (Lawrence 2026-10-20, u5506).
+/// The row or group being dragged: a live row view with a shadow. In a
+/// translucent window it draws no material of its own and stands on the
+/// window's (`OverlaySurfaceView.standsOnWindow`), so a picked-up row stays as
+/// see-through as it was in the list in every sidebar style (Leo 2026-10-23:
+/// "they don't need to be solid when you pick them up"); clear Liquid Glass
+/// still frosted it. An opaque window keeps the overlay surface (clear Liquid
+/// Glass on macOS 26+, the frosted material before), Reduce Transparency the
+/// solid one. It keeps its size and place: no lift scale (Lawrence 2026-10-20, u5506).
 /// Multi-item drags show stacked cards behind it, peeking out below it only,
 /// and a count badge.
 final class DragLiftView: NSView {
@@ -130,6 +132,7 @@ final class DragLiftView: NSView {
     }
 
     private func updateColors() {
+        background.standsOnWindow = WindowBackdrop.dragPreview(themeScope).dragsOnGlass
         performWithTheme {
             layer?.shadowColor = Palette.shadow.cgColor
             for back in stack {

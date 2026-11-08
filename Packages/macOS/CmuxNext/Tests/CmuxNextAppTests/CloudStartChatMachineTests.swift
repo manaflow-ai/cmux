@@ -1,6 +1,8 @@
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextCloudUI
+@testable import CmuxNextDaemon
 import Foundation
 import Observation
 import Testing
@@ -13,18 +15,43 @@ import Testing
 struct CloudStartChatMachineTests {
     private static let me = "user-leo"
 
-    /// Router review at 2a315af: a team switch keeps the user signed in and the previous team's
-    /// machines in the store until the new list lands. A send is kept under the account it was sent
-    /// in, and copies nothing while the account changed or its list is not current.
-    @Test func aSendIsKeptUnderTheAccountItBeganInAndChecksItAtEveryStep() throws {
+    @Test func aRetryUsesTheDurablePaneAfterReorderingAndHandleReuse() throws {
+        let store = DaemonStore()
+        func tree(_ reordered: Bool) -> DaemonTree {
+            let target = PaneSnapshot(id: PaneID(rawValue: reordered ? 9 : 1), resourceID: ResourceID(rawValue: "pane_target"))
+            let other = PaneSnapshot(id: 1, resourceID: ResourceID(rawValue: "pane_other"))
+            let screen = ScreenSnapshot(id: 1, layout: .leaf(target.id), panes: reordered ? [other, target] : [target])
+            return DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: WorkspaceKey(rawValue: "ws-key"), name: "chat", screens: [screen])])
+        }
+        store.apply(snapshot: tree(false))
+        #expect(CloudMachineWorkspace.targetAnchor("pane_target", in: store)?.pane.handle == PaneID(rawValue: 1))
+        store.apply(snapshot: tree(true))
+        #expect(CloudMachineWorkspace.targetAnchor("pane_target", in: store)?.pane.handle == PaneID(rawValue: 9))
+        #expect(CloudMachineWorkspace.targetAnchor("pane_missing", in: store) == nil)
+        #expect(CloudMachineWorkspace.targetAnchor("pane:1", in: store) == nil)
+    }
+
+    /// The start's checks are Rust's (cmux-cloud-start-core `start`, with their cases): the refusal, the
+    /// account a send began in and its list, and the folder it may copy. This checks only that the app
+    /// reaches them and throws or answers in its own terms.
+    @Test func theStartsChecksComeFromTheRustRules() throws {
         let teamA: [String?] = [Self.me, "team-a"], teamB: [String?] = [Self.me, "team-b"]
-        #expect(CloudStartChat.accountText(teamA) == "user-leo/team-a")
-        #expect(CloudStartChat.accountText(teamA) != CloudStartChat.accountText(teamB))
-        #expect(CloudStartChat.accountText([Self.me, nil]) == "user-leo/")
+        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: true) == nil)
+        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: false) == "not_signed_in")
+        #expect(CloudStartChat.refusal(cloudDisabled: true, signedIn: true) == "cloud_disabled")
+        #expect(CloudStartCore().accountText([Self.me, nil]) == "user-leo/")
         try CloudStartChat.checkAccount(teamA, now: teamA, listCurrent: true)
         #expect(throws: CloudMove.Failure.self) { try CloudStartChat.checkAccount(teamA, now: teamB, listCurrent: true) }
         #expect(throws: CloudMove.Failure.self) { try CloudStartChat.checkAccount(teamA, now: teamA, listCurrent: false) }
-        #expect(throws: CloudMove.Failure.self) { try CloudStartChat.checkAccount(teamA, now: [nil, nil], listCurrent: true) }
+        let folder = try #require(CloudMoveFolder(chat: "/Users/me/src/paint"))
+        var start = try #require(AgentPaneCloudStart(params: ["task": "t", "cwd": "/Users/me/src/paint", "key": UUID().uuidString]))
+        #expect(!start.uploads(folder))
+        start.uploadRoot = folder.root
+        #expect(start.uploads(folder))
+        let tabs = try #require(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString]))
+        #expect(!tabs.uploads(try #require(CloudMoveFolder(chat: "/Users")), home: "/Users/me"))
+        #expect(try #require(CloudMoveFolder(chat: "/")).isTooBroad)
+        #expect(try #require(CloudMoveFolder(chat: NSHomeDirectory())).isTooBroad)
     }
 
     /// Proof run on a fresh staging machine (2026-11-01): its image's older cmux-tui refused the
@@ -119,60 +146,14 @@ struct CloudStartChatMachineTests {
         #expect(away["connected"] as? Bool == false && away["chats"] == nil && away["slug"] == nil && away["pause_reason"] == nil)
     }
 
-    @Test func thePlanRequestCarriesTheSendItsAccountWorkspaceAndTheListedMachines() throws {
-        let text = CloudStartChat.planRequest(key: "K", account: [Self.me, "team-a"], workspace: "ws-1", user: Self.me, machines: [],
-                                              stored: ["vm-new"])
-        let object = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
-        #expect(object["key"] as? String == "K")
-        #expect(object["account"] as? String == "user-leo/team-a")
-        #expect(object["workspace"] as? String == "ws-1")
-        #expect(object["user"] as? String == Self.me)
-        #expect(object["loaded"] as? Bool == true)
-        #expect((object["machines"] as? [Any])?.isEmpty == true)
-        #expect(object["stored"] as? [String] == ["vm-new"])
-        let signedOut = CloudStartChat.planRequest(key: "K", account: [nil, nil], workspace: nil, user: nil, machines: [], stored: [])
-        let unsigned = try #require(try JSONSerialization.jsonObject(with: Data(signedOut.utf8)) as? [String: Any])
-        #expect(unsigned["user"] == nil)
-        #expect(unsigned["workspace"] == nil)
-        #expect(unsigned["credential_on_stdin"] as? Bool == false)
-        // Zero-setup hot start: the folder, the chosen environment and that the token is on stdin.
-        let hot = CloudStartChat.planRequest(key: "K", account: [Self.me, nil], workspace: nil, user: Self.me, machines: [],
-                                             local: "/Users/me/src/paint", stored: [], environment: "env_0123456789abcdef01234567", access: true)
-        let ensure = try #require(try JSONSerialization.jsonObject(with: Data(hot.utf8)) as? [String: Any])
-        #expect(ensure["local"] as? String == "/Users/me/src/paint")
-        #expect(ensure["environment"] as? String == "env_0123456789abcdef01234567")
-        #expect(ensure["credential_on_stdin"] as? Bool == true)
-    }
-
-    /// A folder the page named is copied only as the pane checked it.
-    @Test func aPageNamedFolderIsCopiedOnlyAsItsCheckedUploadRoot() throws {
-        let folder = try #require(CloudMoveFolder(chat: "/Users/me/src/paint"))
-        var start = try #require(AgentPaneCloudStart(params: ["task": "t", "cwd": "/Users/me/src/paint", "key": UUID().uuidString]))
-        #expect(!start.uploads(folder))
-        start.uploadRoot = folder.root
-        #expect(start.uploads(folder))
-        start.uploadRoot = "/Users/me/src/paint/sub"
-        #expect(!start.uploads(folder))
-        // The tab's own folder (no `cwd`): only that folder itself, never a working copy above it.
-        let tabs = try #require(AgentPaneCloudStart(params: ["task": "t", "key": UUID().uuidString]))
-        #expect(tabs.uploads(folder))
-        let repo = FileManager.default.temporaryDirectory.appendingPathComponent("cn-start-\(UUID().uuidString.prefix(8))")
-        defer { try? FileManager.default.removeItem(at: repo) }
-        let project = repo.appendingPathComponent("project")
-        try FileManager.default.createDirectory(at: repo.appendingPathComponent(".git"), withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
-        let inRepo = try #require(CloudMoveFolder(chat: project.path))
-        #expect(!inRepo.subpath.isEmpty)
-        #expect(!tabs.uploads(inRepo))
-        let atRoot = try #require(CloudMoveFolder(chat: repo.path))
-        #expect(tabs.uploads(atRoot))
-        // Never the home folder or a folder above it (a tab in /Users), whatever `isTooBroad` says.
-        let users = try #require(CloudMoveFolder(chat: "/Users"))
-        #expect(!tabs.uploads(users, home: "/Users/me"))
-        let home = try #require(CloudMoveFolder(chat: "/Users/me"))
-        #expect(!tabs.uploads(home, home: "/Users/me"))
-        #expect(!tabs.uploads(try #require(CloudMoveFolder(chat: "/")), home: "/Users/me"))
-        #expect(tabs.uploads(atRoot, home: "/Users/me"))
+    /// Leo, 2026-11-06: the default flow, with no environment step, keeps a project's dependencies warm on
+    /// production too: a personal send there asks the platform it signed in to, never the CLI's development default.
+    @Test func aPersonalSendGetsTheSetUpProjectMachineOnProductionWhenItsPlatformIsKnown() {
+        let production = URL(string: "https://cmux-platform.debussy.workers.dev")
+        #expect(CloudStartCore().ensuresProject(account: [Self.me, nil], platform: production, production: true))
+        #expect(!CloudStartCore().ensuresProject(account: [Self.me, nil], platform: nil, production: true))
+        #expect(CloudStartCore().ensuresProject(account: [Self.me, nil], platform: nil, production: false))
+        #expect(!CloudStartCore().ensuresProject(account: [Self.me, "team-a"], platform: production, production: true))
     }
 
     /// Router review at 6beb0f2: with no `cwd` the tab's own folder is copied, and its `.git` file
@@ -200,42 +181,16 @@ struct CloudStartChatMachineTests {
     /// and its team is the send's, fixed for every try, so a team switch during a slow create never
     /// makes the machine in the other team (router review at 2208632).
     @Test func aNewMachineIsCreatedUnderThePlansKeyInTheSendsTeam() async throws {
-        let request = CloudStartChat.createRequest(key: "cloud-start-chat-k", sizedFor: nil, team: "team-a")
+        let request = CloudMachineRequest(startChatKey: "cloud-start-chat-k", sizedFor: nil, team: "team-a")
         #expect(request.idempotencyKey == "cloud-start-chat-k")
         #expect(request.team == "team-a")
         #expect(!request.wasSent)
-        // The classic create sends to that team, not the app's team now; a sent try keeps its own.
-        #expect(await CloudService.createTeam(sent: nil, requested: request.team) { "team-b" } == "team-a")
-        #expect(await CloudService.createTeam(sent: nil, requested: nil) { "team-b" } == "team-b")
-        #expect(await CloudService.createTeam(sent: .some("team-c"), requested: request.team) { "team-b" } == "team-c")
     }
 
-    /// Not behind Labs (Leo, 2026-10-30: "that seems dumb. i dont like putting so much stuff in
-    /// labs"): only Cloud off by policy and a signed-out account refuse.
-    @Test func aCloudStartIsRefusedOnlyWhenCloudIsOffOrNobodyIsSignedIn() {
-        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: true) == nil)
-        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: false) == "not_signed_in")
-        #expect(CloudStartChat.refusal(cloudDisabled: true, signedIn: true) == "cloud_disabled")
-        #expect(CloudStartChat.refusal(cloudDisabled: true, signedIn: false) == "cloud_disabled")
-        // The Cloud app server's link takes no folder copy: refused before a machine is created.
-        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: true, appServerLink: true) == "unavailable")
-        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: false, appServerLink: true) == "not_signed_in")
-    }
-
-    /// A repick finds the picked machine by its id, else by the name acpmux lists it under (title or
-    /// slug, any case), and never guesses between two of the same name.
-    @Test func aRepickFindsThePickedMachineByIdOrByName() {
-        let machines: [(id: String, title: String, slug: String?)] = [
-            (id: "m_sr2", title: "sr2-tunnel-probe", slug: nil),
-            (id: "m_zesty", title: "Zesty Indigo Lemur", slug: "zesty-indigo-lemur"),
-            (id: "m_a", title: "twin", slug: nil), (id: "m_b", title: "twin", slug: nil),
-        ]
-        #expect(CloudStartChat.machineID(for: .init(machine: "m_zesty", name: nil), in: machines) == "m_zesty")
-        #expect(CloudStartChat.machineID(for: .init(machine: "m_gone", name: nil), in: machines) == nil)
-        #expect(CloudStartChat.machineID(for: .init(machine: nil, name: "zesty-indigo-lemur"), in: machines) == "m_zesty")
-        #expect(CloudStartChat.machineID(for: .init(machine: nil, name: "SR2-tunnel-probe"), in: machines) == "m_sr2")
-        #expect(CloudStartChat.machineID(for: .init(machine: nil, name: "twin"), in: machines) == nil)
-        #expect(CloudStartChat.machineID(for: .init(machine: nil, name: "nobody"), in: machines) == nil)
+    /// A signed-out first send keeps its stable refusal code for callers, but the
+    /// card must tell the person how to sign in instead of displaying `not_signed_in`.
+    @Test func aSignedOutFirstSendCarriesActionableRecoveryCopy() {
+        #expect(CloudStartChat.refusalMessage("not_signed_in") == CloudStrings.signInFirst)
+        #expect(CloudStartChat.refusalMessage("cloud_disabled") == "cloud_disabled")
     }
 }
-

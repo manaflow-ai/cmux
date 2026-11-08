@@ -57,7 +57,7 @@ jobs:
     # The Blacksmith label overflow uses, never the variable's failover:
     # while overflow is off LINUX_RUNNER names GitHub-hosted, so the record
     # keeps the label to probe (cloud_overflow_switch.probe_label()).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'workflow_dispatch' && inputs.probe_label != '' && inputs.probe_label || startsWith(fromJSON(vars.CI_CLOUD_OVERFLOW_SAVED || '{"probe":""}').probe, 'blacksmith-') && fromJSON(vars.CI_CLOUD_OVERFLOW_SAVED).probe || startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'workflow_dispatch' && inputs.probe_label != '' && inputs.probe_label || startsWith(fromJSON(vars.CI_CLOUD_OVERFLOW_SAVED || '{"probe":""}').probe, 'blacksmith-') && fromJSON(vars.CI_CLOUD_OVERFLOW_SAVED).probe || startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 2
     permissions: {}
     steps:

@@ -3,10 +3,8 @@
 //! to paired peers only, no relay.
 
 mod access_cli;
+mod acpmux;
 mod agent_cli;
-mod cloud;
-#[cfg(target_os = "linux")]
-mod cloud_broker;
 mod cloud_fs;
 mod control;
 mod daemon_entry;
@@ -15,16 +13,6 @@ mod dial;
 mod dial_cli;
 mod enrollment;
 mod ensure;
-// `cmux link seed plan`; `cmux link seed push|clone|pull` is [`seed_cli`].
-#[cfg_attr(not(test), allow(dead_code))]
-mod seed;
-mod seed_cli;
-mod start_chat_cli;
-mod sync_cli;
-// Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
-// map and a token format); tested now.
-#[cfg_attr(not(test), allow(dead_code))]
-mod host_inbound;
 mod inbound;
 #[cfg(target_os = "macos")]
 mod launchd;
@@ -33,18 +21,18 @@ pub(crate) mod machine_gate;
 mod machine_pin;
 pub(crate) mod machine_update;
 mod mesh;
-mod mesh_cloud;
-#[cfg(target_os = "linux")]
-mod native_process;
-#[cfg_attr(not(test), allow(dead_code))]
-mod native_receiver;
-#[cfg(target_os = "linux")]
-mod native_supervision;
 mod paired_streams;
 mod process_exit;
-mod receiver_deadline;
+// `cmux link seed plan`; `cmux link seed push|clone|pull` is [`seed_cli`].
+#[cfg_attr(not(test), allow(dead_code))]
+mod seed;
+mod seed_cli;
+mod start_chat_cli;
 mod state;
+mod sync_cli;
 
+#[cfg(test)]
+mod acpmux_tests;
 #[cfg(test)]
 mod e2e_tests;
 #[cfg(test)]
@@ -71,6 +59,7 @@ use cmux_wg::{InterfaceAddress, WgMesh, WgMeshConfig};
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+use self::acpmux::AcpmuxTarget;
 use self::control::{Peers, serve_local, serve_overlay};
 use self::dial::Overlay as _;
 use self::mesh::MeshOverlay;
@@ -78,8 +67,7 @@ use self::state::{LINK_MTU, LinkConfig, LinkState};
 use crate::localization::catalog;
 
 /// The data behind `mutex`, also after a panic in another holder. The link's
-/// maps (peers, Cloud records, gateways) are consistent after every single
-/// step, so a poisoned lock is safe to keep using; the link never panics on it.
+/// peer map is consistent after every single step, so a poisoned lock is safe to keep using; the link never panics on it.
 fn locked<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
@@ -181,8 +169,6 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
     let Some(action) = args.first().map(String::as_str) else { return Err(help()) };
     let rest = &args[1..];
     match action {
-        #[cfg(target_os = "linux")]
-        "__receive-vm" => native_process::run(&flags(rest, &["--session-socket"])?),
         "init" => {
             run_init(&flags(rest, &["--state-dir", "--install", "--port", "--server-identity"])?)
         }
@@ -190,13 +176,7 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
         "peer" => run_peer(rest),
         "serve" => run_serve(&flags(
             rest,
-            &[
-                "--state-dir",
-                "--session-socket",
-                "--server-config",
-                "--credential-socket",
-                "--ready-fd",
-            ],
+            &["--state-dir", "--session-socket", "--server-config", "--ready-fd"],
         )?),
         "ensure" => {
             // `--handoff` is the one flag without a value.
@@ -206,14 +186,7 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
             ensure::run_ensure(
                 &flags(
                     &rest,
-                    &[
-                        "--state-dir",
-                        "--install",
-                        "--port",
-                        "--session-socket",
-                        "--server-config",
-                        "--credential-socket",
-                    ],
+                    &["--state-dir", "--install", "--port", "--session-socket", "--server-config"],
                 )?,
                 handoff,
             )
@@ -415,7 +388,6 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     let watch: Option<AgentWatch> = None;
     let state = state(flags)?;
     let session_socket = flags.get("--session-socket").map(PathBuf::from);
-    let credential_socket = flags.get("--credential-socket").map(PathBuf::from);
     // `server.json` is read once: the owner session is parsed from, and
     // `link.status` hashes, the same bytes.
     let config_path = server_config_path(flags);
@@ -429,15 +401,7 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     // UDP bind: a second `serve` of the same state directory stops here.
     let _lock = serve_lock(&state)?;
     let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
-    tokio_runtime()?.block_on(serve(
-        state,
-        session_socket,
-        credential_socket,
-        owner,
-        ready,
-        served,
-        watch,
-    ))
+    tokio_runtime()?.block_on(serve(state, session_socket, owner, ready, served, watch))
 }
 
 /// `<state>/link.lock`, held by a running `serve` (never blocks).
@@ -502,7 +466,6 @@ fn owner_session(
 async fn serve(
     state: LinkState,
     session_socket: Option<PathBuf>,
-    credential_socket: Option<PathBuf>,
     owner: Option<Arc<OwnerSession>>,
     ready: Option<ensure::ReadyPipe>,
     served: ensure::Served,
@@ -518,18 +481,13 @@ async fn serve(
     let own = overlay_address(&config.install);
     let mesh = WgMesh::start(
         WgMeshConfig {
-            private_key: private_key.clone(),
+            private_key,
             addresses: vec![InterfaceAddress { address: IpAddr::V6(own), prefix: 128 }],
             mtu: LINK_MTU,
         },
         socket,
     )?;
-    let overlay = Arc::new(MeshOverlay::new(mesh, private_key));
-    // Cloud host ids resolve through the private credential relay owned by
-    // the signed-in app. A missing relay fails closed as unavailable.
-    let resolver = Arc::new(cloud::CloudResolver::new(
-        credential_socket.map_or_else(cloud::RelaySource::unavailable, cloud::RelaySource::socket),
-    ));
+    let overlay = Arc::new(MeshOverlay::new(mesh));
     let peers = Arc::new(Peers::load(state.peers_path())?);
     overlay.sync_peers(&peers.snapshot()).await?;
     let listener = overlay.listen(LINK_PORT).await?;
@@ -554,9 +512,11 @@ async fn serve(
     if let Some(ready) = ready {
         ready.send(&ready_line);
     }
+    // A paired peer's `acpmux` stream goes to this user's acpmux listener.
+    let acpmux = AcpmuxTarget::from_acpmux_home();
     let result = tokio::select! {
-        served = serve_local(local, overlay.clone(), peers.clone(), resolver, status) => served.map_err(anyhow::Error::from),
-        () = serve_overlay(listener, peers.clone(), session_socket, owner) => Ok(()),
+        served = serve_local(local, overlay.clone(), peers.clone(), status) => served.map_err(anyhow::Error::from),
+        () = serve_overlay(listener, peers.clone(), session_socket, owner, acpmux) => Ok(()),
         signal = shutdown_signal() => signal,
         outcome = launchd_agent_outcome(watch) => outcome,
     };
@@ -568,11 +528,10 @@ async fn serve(
 /// Bind the local socket at mode 0600 in a 0700 directory, replacing a
 /// stale socket but never a live one.
 fn bind_local(path: &Path) -> anyhow::Result<tokio::net::UnixListener> {
-    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    use std::os::unix::fs::PermissionsExt;
     if let Some(parent) = path.parent() {
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
         // Never bind in a folder another user or a symlink put there.
-        state::check_socket_dir(parent)?;
+        state::ensure_socket_dir(parent)?;
     }
     if path.exists() {
         if std::os::unix::net::UnixStream::connect(path).is_ok() {

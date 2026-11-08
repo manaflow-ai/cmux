@@ -25,13 +25,13 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
-from blacksmith_linux_sizes import blacksmith_route  # noqa: E402
 WORKFLOW = ROOT / ".github/workflows/machine-join-e2e.yml"
 SCRIPT = ROOT / "scripts/cmux-next/machine-join-e2e.ts"
 DEV = "https://cmux-platform-development.debussy.workers.dev"
 RUNS_ON = (
     "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-    + blacksmith_route("machine-join-e2e.yml", "e2e") + " }}"
+    "vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || "
+    "fromJSON(vars.RUNNER_POOLS).linux_8 }}"
 )
 
 
@@ -52,7 +52,10 @@ def step(name: str) -> dict:
 class MachineJoinE2EWorkflow(unittest.TestCase):
     def test_manual_dispatch_only(self) -> None:
         self.assertEqual(list(load()["on"].keys()), ["workflow_dispatch"])
-        self.assertEqual(sorted(load()["on"]["workflow_dispatch"]["inputs"]), ["acpmux_ref", "name"])
+        self.assertEqual(sorted(load()["on"]["workflow_dispatch"]["inputs"]), ["acpmux_ref", "bench", "name"])
+        bench = load()["on"]["workflow_dispatch"]["inputs"]["bench"]
+        self.assertEqual(bench["default"], "none")
+        self.assertEqual(bench["options"], ["none", "deps", "deps-slow"])
 
     def test_feat_cmux_next_only(self) -> None:
         job = load()["jobs"]["e2e"]
@@ -166,6 +169,26 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         # acpmux's output is printed only made plain, never raw: no line of it can start a workflow command.
         self.assertIn("sed -e 's/::/: :/g' -e 's/##\\[/## [/g' -- \"$out\"", run)
         self.assertNotRegex(run, r'(?m)^\s*cat\b')
+
+    def test_bench_is_opt_in_and_secret_free(self) -> None:
+        # The bench's files are laid out with no secret in reach, only for bench=deps, and the bench
+        # script itself is root-owned beside acpmux, so the disposable user cannot change what runs.
+        prep = step("Prepare the dependency bench")
+        self.assertEqual(prep["if"], "startsWith(inputs.bench, 'deps')")
+        self.assertNotIn("secrets", str(prep))
+        self.assertIn('sudo install -o root -g root -m 0755 scripts/cmux-next/deps-bench.sh "$JOIN_BASE/bin/deps-bench.sh"', prep["run"])
+        self.assertIn('sudo chown -R root:root "$JOIN_BASE/toolchain"', prep["run"])
+        names = [s.get("name") for s in steps()]
+        self.assertLess(names.index("Prepare the dependency bench"), names.index("Mint, join, verify and revoke"))
+        mint = step("Mint, join, verify and revoke")
+        self.assertEqual(mint["env"]["BENCH"], "${{ inputs.bench }}")
+        self.assertIn('bench=(--bench "$JOIN_BASE/bin/deps-bench.sh")', mint["run"])
+        self.assertIn("deps | deps-slow)", mint["run"])
+        # Every cache the bench fills is under the base, never in the home the harness scans.
+        script = (ROOT / "scripts/cmux-next/deps-bench.sh").read_text(encoding="utf-8")
+        for var in ("CARGO_HOME", "BUN_INSTALL", "BUN_INSTALL_CACHE_DIR", "XDG_CACHE_HOME", "TMPDIR"):
+            self.assertRegex(script, rf'export {var}="\$bench/')
+        self.assertNotIn("$HOME", script)
 
     def test_only_the_evidence_is_uploaded(self) -> None:
         uploads = [s for s in steps() if "upload-artifact" in s.get("uses", "")]

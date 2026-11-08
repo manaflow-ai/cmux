@@ -59,7 +59,8 @@ afterAll(() => {
 async function renderHeader(installed: boolean) {
   const { createRoot } = await import("react-dom/client");
   const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
-  const { NeedsYouButton, needsYouMode } = await import("../src/agent-session/acpmux/needsYou/NeedsYou");
+  const { NeedsYouButton } = await import("../src/agent-session/acpmux/needsYou/NeedsYou");
+  const { needsYouMode } = await import("../src/agent-session/acpmux/needsYou/needsYouModel");
   const document = scope.document as Document;
   if (!installed) document.documentElement.dataset.needsYou = "off";
   const noop = () => {};
@@ -119,7 +120,7 @@ test("not installed: nothing opens the hidden list; installed, a link opens it",
 
 test("a reply's needs-you link is a chip while installed and its plain text while not", async () => {
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { renderInline } = await import("../src/agent-session/acpmux/conversation/Markdown");
+  const { renderInline } = await import("../src/agent-session/acpmux/conversation/inlineMarkdown");
   const draw = () => renderToStaticMarkup(<>{renderInline("see [the deploy ask](cmux://needs-you/abc)")}</>);
   expect(draw()).toContain("is-needs-you");
   (scope.document as Document).documentElement.dataset.needsYou = "off";

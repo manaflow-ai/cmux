@@ -4,10 +4,14 @@
 pub(super) const WORKSPACE_HELP: &str = "\
 USAGE
   cmux workspace list [--order session|personal]
+  cmux --machine <cloud machine> workspace list
   cmux workspace create [--name <value>] [--empty] [--ephemeral] [--focus] [--top] [--correlation-key <value>]
     [--expected-revision <revision>] [--cwd <path>] [--shell <script> | -- <argv...>]
+  cmux workspace create --worktree <name> [--repo <path>] [--base <revision>] [--name <value>] [--focus]
+    [--shell <script> | -- <argv...>]
   cmux workspace <selector> show|focus|close
   cmux workspace <selector> close [--report-closed-ids]
+  cmux workspace <selector> close --remove-worktree [--discard]
   cmux workspace <selector> close --others|--to-right|--to-left|--all [--end-terminals]
   cmux workspace <selector> rename <name>|--name <name>
   cmux workspace <selector> rename --release-to-auto
@@ -36,7 +40,7 @@ USAGE
   cmux workspace [<selector>] checklist remove <item>
   cmux workspace placement list
   cmux workspace group list [--room <room>]
-  cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse]
+  cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse] [--reuse]
   cmux workspace group create --remote <host> [--name <value>]
   cmux workspace group create --parent <group> --name <value>
   cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color]
@@ -47,6 +51,13 @@ USAGE
   cmux workspace group <group> add --workspace <selector> [--index <n>]
   cmux workspace group remove --workspace <selector>
 
+create --worktree <name> makes a git worktree of the repository --repo is in
+(default: the current folder) on a new branch cmux/<name>, in
+~/.cmux/worktrees/<project>/<name>, and a workspace named <name> whose
+terminal starts there; --json has the workspace ids and the worktree as
+worktree (root is its folder). close --remove-worktree removes that worktree
+and its branch (refused with uncommitted or unpushed work unless --discard),
+then closes the workspace.
 close with --others, --to-right, --to-left or --all closes the selected
 workspace's siblings (the session's workspaces, the home one never) as one
 closed group: one `cmux closed reopen` restores them all. The same flags on
@@ -74,7 +85,11 @@ order to every caller when the session has the sidebar document; without
 the document it gives the sidebar order in the app's context (an app
 terminal or Chief addressing the app's own daemon), else the session
 order. The app's
-snapshot.get windows[].workspaces lists the order each window shows. --top-index
+snapshot.get windows[].workspaces lists the order each window shows. In the
+cmux app's session, list also gives each connected Cloud machine's
+workspaces after this Mac's, marked origin cloud with machine_id (the vm-…
+id cloud new-workspace answers), machine_name and target machine:<id>;
+--machine <vm-…|machine:vm-…|name> lists one Cloud machine's. --top-index
 puts a group right before the workspace at that placement index;
 --clear-top-index puts it after every loose workspace. --icon sets a group's
 icon (one emoji, an SF Symbol name, or a stored image:sha256-<hex> or
@@ -165,8 +180,8 @@ USAGE
 
 Zoom is a browser page zoom or a terminal font scale. Pinned tabs sort first
 and leave their group. A group or saved group is named by its id or exact
-name. Group colors: grey, blue, red, yellow, green, pink, purple, cyan, orange,
-or a custom #RRGGBB. A group icon is one emoji, an SF Symbol name, or a stored
+name. A group has no color until one is given: grey, blue, red, yellow, green,
+pink, purple, cyan, orange, a custom #RRGGBB, or none. A group icon is one emoji, an SF Symbol name, or a stored
 image:sha256-<hex> or svg:sha256-<hex> asset; --clear-icon removes it.
 
 SELECTORS
@@ -189,24 +204,30 @@ USAGE
   cmux terminal <selector> keys <key...>
   cmux terminal <selector> mouse <kind> [OPTIONS]
   cmux terminal <selector> focus <in|out>
-  cmux terminal <selector> screen read
-  cmux terminal <selector> screen wait --pattern <regex> [--timeout-ms <n>]
+  cmux terminal <selector> screen read [--unwrap] [--lines <n>]
+  cmux terminal <selector> screen wait --pattern <regex> [--new] [--timeout-ms <n>]
   cmux terminal <selector> state read
   cmux terminal <selector> history read|clear
   cmux terminal <selector> output read [--after <offset>] [--max-bytes <n>]
-  cmux terminal <selector> copy|process show [OPTIONS]
+  cmux terminal <selector> copy [--mode screen|selection|scrollback] [--unwrap]
+  cmux terminal <selector> process show
   cmux terminal <selector> process wait [--timeout-ms <n>]
   cmux terminal <selector> wait --until idle|prompt [--timeout <500ms|30s|5m>]
   cmux terminal <selector> send --text <message|-> [--wait idle|prompt|none]
-    [--timeout <5m>] [--settle <3s>] [--force]
+    [--pattern <regex>] [--timeout <5m>] [--settle <3s>] [--force] [--exit-with-status]
+  cmux terminal <selector> run [--pattern <regex>] [--timeout <5m>] [--force] -- <command...>
   cmux terminal <selector> viewport scroll --delta-rows <n>
   cmux terminal <selector> move|project --workspace <selector> --screen <selector>
     --pane <selector> --index <n>
   cmux terminal <selector> attach|close [OPTIONS]
   cmux terminal <term_id> keep on|off
 
-screen wait prints its result either way and exits 1 when the timeout
-passes without a match. keep on stops the owner from ending the terminal
+screen read --unwrap joins rows the terminal soft-wrapped into the lines the
+program printed; --lines <n> reads the last n lines of scrollback and screen
+(logical lines with --unwrap). copy --unwrap does the same for screen and
+scrollback. screen wait prints its result either way and exits 1 when the
+timeout passes without a match; --new matches only output printed below the
+cursor's line after the call, never a typed command's echo or older output. keep on stops the owner from ending the terminal
 when it has no tab; keep off lets it end after the reap grace period.
 status prints the program status records (OSC 7501) the terminal's
 programs reported: state, progress, kind, app, title and msg per record id.
@@ -215,13 +236,26 @@ when no command runs and no program reports work. Both need OSC 133 shell
 integration to see commands, and print the terminal record; a passed
 --timeout exits 124.
 list --agents lists the terminals that run a coding agent (Claude Code,
-Codex, or a program reporting OSC 7501 status): harness, state (busy, idle,
-waiting-for-input, ended), age, workspace and title.
+Codex, or a program reporting OSC 7501 status): harness, state (blocked,
+done, working, idle, unknown, ended), age, workspace and title. done is a
+finished turn nobody has viewed yet; viewing the tab makes it idle. The JSON
+rows carry that word as status and the older word (busy, idle,
+waiting-for-input, ended) as state.
 send types the message as one bracketed paste, presses Enter, waits until
 the agent is idle (no fresh working report, screen still for --settle) or
 the shell shows its prompt, and prints only what the terminal printed after
-the message. A passed --timeout exits 124 with the output so far. An agent
-that waits on a dialog is refused unless --force.
+the message (soft wraps joined). With --wait prompt and OSC 133 shell
+integration it returns as soon as the command finishes, and --json has the
+command's exit_status (absent when the shell reports none, never guessed).
+--pattern also ends the wait when output after the message's echo matches
+(the echo never does) and when the command finishes without a match (exit 1).
+--exit-with-status exits with the command's status (125: unknown). A passed
+--timeout exits 124 with the output so far. An agent that waits on a dialog
+is refused unless --force.
+run types a command into the terminal's shell, waits for it to finish and
+exits with its status: send --wait prompt --exit-with-status. status also
+names the last command's exit status (terminal show --json:
+extra.last_command).
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), caller, current, or an

@@ -1,6 +1,8 @@
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextSidebar
 import Foundation
 import Observation
 
@@ -37,11 +39,12 @@ extension WindowManager {
         guard !visible.isEmpty else {
             // Nothing to show there yet: the window enters the profile with
             // a new workspace (no empty window, REWRITE.md round 1). It is
-            // claimed before the create command, so the switch shows it as
-            // soon as the daemon mirrors it.
+            // claimed in this turn, so the window waits there for it (#31502)
+            // and the switch shows it as soon as the daemon mirrors it.
             state.enterProfile(profile)
             recordSaver.stateDidChange(state)
-            Task { [services] in await createWorkspace(into: state.id); withExtendedLifetime(services) {} }
+            let create = startWorkspace(WorkspaceSpawn(), into: state.id)
+            Task { _ = try? await create() } // a failure releases the claim (`createFailed`)
             return
         }
         let remembered = state.profileWorkspaces[profile].flatMap { visible.contains($0) ? $0 : nil }
@@ -167,7 +170,7 @@ extension WindowManager {
     private func refuseClosingCreating(_ windows: [String]) throws {
         for window in windows { let rows = PendingWorkspaceRows.shared.rows, held = Set(registry.value.window(window)?.workspaceIDs ?? [])
             WorkspaceLanes.shared.prune(window) { self.services.workspace(id: $0) != nil }
-            if pendingClaims.contains(where: { $0.value == window && !held.contains($0.key) }) || pendingPlacements.values.contains(where: { $0.window == window })
+            if claims.pending.contains(where: { $0.value == window && !held.contains($0.key) }) || pendingPlacements.values.contains(where: { $0.window == window })
                 || WorkspaceLanes.shared.outstandingCreates(in: window) > 0 || rows.contains(where: { $0.window == window }) {
                 throw ActionFailure.invalidTarget(RefusalStrings.gatherWhileCreating)
             }
@@ -181,4 +184,33 @@ extension WindowManager {
         let remembered = ([state] + others).compactMap { $0.profileWorkspaces[profile] }
         return showing + remembered
     }
+}
+
+// The switcher's window marks (design/spaces.md "The switcher (PR 3)"): a window's spaces strip reads every other
+// window's space through these, and its Go to Window / Move Here run here (`SpaceWindowMarks.install`).
+extension WindowManager: SpaceWindowSource {
+    func spaceWindowsShowing() -> [SpaceWindowShowing] {
+        let value = registry.value
+        let order = Dictionary(value.recency.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        return value.openWindows.sorted { order[$0.id, default: .max] < order[$1.id, default: .max] }.compactMap { window in
+            states[window.id].map {
+                SpaceWindowShowing(windowID: window.id, space: SidebarProfileKey($0.profileID.rawValue),
+                                   incognito: value.isIncognito(window.id) || incognitoSpaces[window.id] != nil)
+            }
+        }
+    }
+
+    func spaceWindowIsIncognito(_ windowID: String) -> Bool { isIncognito(window: windowID) }
+
+    func spaceWindowBringToFront(_ windowID: String) {
+        if let controller = controller(for: windowID) { bringToFront(controller) }
+    }
+
+    func spaceWindowBringHere(_ space: SidebarProfileKey, window windowID: String) {
+        var invocation = ActionInvocation(target: ActionTargetRef(kind: .profile, id: space.rawValue), origin: .user)
+        invocation.arguments["window"] = .target(ActionTargetRef(kind: .window, id: windowID))
+        services.registry.perform("space.bringHere", invocation: invocation)
+    }
+
+    func spaceWindowNewIncognitoSpace() { services.registry.perform("space.newIncognito", invocation: ActionInvocation()) }
 }

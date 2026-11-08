@@ -105,6 +105,20 @@ type Meta = { names: SlashNames };
 type TokenState = { names: SlashNames; set: DecorationSet; lead: number | undefined };
 const key = new PluginKey<TokenState>("acpmuxSlashTokens");
 
+/// A command word's attributes: the blue, and for a skill with a description, that description as
+/// the app's tooltip above it (ui/titleTooltips.ts reads `data-tooltip`) and for assistive tech.
+function tokenAttrs(name: string, names: SlashNames): Record<string, string> {
+  const description = names.descriptions?.get(name);
+  return description
+    ? {
+        class: SLASH_TOKEN_CLASS,
+        "data-tooltip": description,
+        "data-tooltip-side": "top",
+        "aria-description": description,
+      }
+    : { class: SLASH_TOKEN_CLASS };
+}
+
 /// Tells the plugin the command names changed: every command word is read again (rare: a chat's
 /// list arriving or changing).
 export function setSlashNames(tr: Transaction, names: SlashNames): Transaction {
@@ -144,7 +158,7 @@ function redecorate(
   return next.add(
     doc,
     found.tokens.map(([tokenFrom, tokenTo]) =>
-      Decoration.inline(lo + tokenFrom, lo + tokenTo, { class: SLASH_TOKEN_CLASS }),
+      Decoration.inline(lo + tokenFrom, lo + tokenTo, tokenAttrs(text.slice(tokenFrom + 1, tokenTo), names)),
     ),
   );
 }

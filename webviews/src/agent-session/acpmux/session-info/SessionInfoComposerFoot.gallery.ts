@@ -26,12 +26,16 @@ const snapshot = chat(
     ),
   ]).flat(),
 );
-/// The app offers Session Info (Debug Settings `agent.inspector`, on by default).
+/// The app offers Session Info (Debug Settings `agent.sessionInfo`, on by default).
 const native = { "pane.tabState": { inspector: true } };
 
 const panel = (ctx: PlayContext) => ctx.document.querySelector(".acpmux-session-info[data-presence=shown]");
 
 const opened: Play = async (ctx) => {
+  // A short pane's popover opens only from the person's toggle, never from the saved open state.
+  const closed = '.acpmux-session-info-toggle[aria-pressed="false"]';
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-session-info-toggle"), { capMs: 3000 });
+  if (ctx.document.querySelector(closed)) await ctx.click({ selector: closed });
   await ctx.waitFor(() => panel(ctx), { capMs: 3000 });
 };
 
@@ -71,7 +75,7 @@ export default agentPaneEntry({
   area: "Agent pane",
   height: 640,
   widths: { narrow: 560, normal: 700, wide: 900 },
-  covers: ["agent-session/acpmux/session-info/SessionInfo.tsx#sessionInfoPopover"],
+  covers: ["agent-session/acpmux/session-info/SessionInfo.tsx#SessionInfoPanel"],
   variants: {
     animated: {
       note: "Shipped (tall pane): a five-line draft; the panel's foot follows the composer's top with an animation, never a jump.",

@@ -1049,9 +1049,6 @@ enum RowBuilder {
     /// recording, macOS 26: "Today 12:06 PM" over "hello world" 21 min after the message above) (cx-3cb row-gap).
     static var separatorGap: TimeInterval { ComposeMetrics.macOS26 ? 15 * 60 : 60 * 60 }
     /// cmux: the typing row's gap under a bubble: its bubble top 14 pt under the bubble above (user, "maybe even more padding").
-    /// cmux: the gap above a message that stands alone (Message.cmuxStandsAlone) under the same sender's bubble: the
-    /// typing bubble's 14 pt (``typingGapUnderBubble``), so the bubble lands where Chief's dots were, with no jump.
-    static let standAloneGap: CGFloat = 14
     static var typingGapUnderBubble: CGFloat { 14 - (RowDraw.typingBubble.minY - RowDraw.margin) }
 
     /// `previousRow`: the kind of the row just above `range` (gaps depend on it).
@@ -1154,7 +1151,12 @@ enum RowBuilder {
                 // incoming side only (outgoing-thread-reply-take4: my reply under the preview of my root
                 // has no stub, and Instinct's replies take the line on the left). The mirrored arc ran
                 // from the root's centre through my root's text (hq-6d, cmux Home, 2026-10-11).
-                if !threadMode, !(outgoing && p.senderId == me) { connector = "part:\(r.messageId):\(r.partIndex)" }
+                // cmux (user 2026-11-05, msg 23140: "stray arcs" over the Chief's replies): the line runs in the leading
+                // column, so it joins only a reply and a root that are both there. A reply on one side of a root on the
+                // other drew an arc in the leading column that pointed at nothing in any pane wider than about 200 pt
+                // (my bubbles end 20 pt from the right edge, the arc's arm 63 pt from the left). The Chief's agent asides
+                // (its pills) hang under its words, not as a reply of their own: no arc either.
+                if !threadMode, !outgoing, p.senderId != me, m.cmuxAside != true { connector = "part:\(r.messageId):\(r.partIndex)" }
             } else if case .replies = rows.last?.kind ?? previousRow {
                 // Under a root's "N Replies" label the next bubble sits 8 pt under the label's text (3 pt under
                 // our 22 pt label row), with or without a sender change, also when the thread ends there; another
@@ -1166,10 +1168,6 @@ enum RowBuilder {
                 // A change of thread, for either sender: 32 pt (macOS 27, AX walk of the real transcript
                 // 2026-10-14, cx-3cb row-gap: 32.0 to 32.5 in 35 of 35 pairs across a thread boundary).
                 gap = 32
-            } else if m.cmuxStandsAlone == true, let p = prev, p.senderId == m.senderId {
-                // cmux: a message the host sets apart (Message.cmuxStandsAlone) starts its own group, with its own
-                // tail, 14 pt under the bubble above (where its typing dots sat), so each reads as its own arrival.
-                gap = standAloneGap
             } else if let p = prev, p.senderId == m.senderId, m.date.timeIntervalSince(p.date) < groupGap {
                 gap = 3      // measured 3 between parts of a group (text and media alike)
             } else if let p = prev, p.senderId == m.senderId, thread(m, at: idx) != nil {
@@ -1193,7 +1191,13 @@ enum RowBuilder {
             if case .receipt = rows.last?.kind ?? previousRow, gap > 4 { gap = 4 }
             // A reply whose root is not directly above (and that does not
             // continue the same thread) gets a preview of the root.
-            if let r = m.replyTo, !threadMode, connector == nil, let p = prev, p.id != r.messageId, p.replyTo != r {
+            // cmux (user 2026-11-05, msg 23140: quotes of my messages repeated beside the Chief's replies): no quote when
+            // its root is one of the few messages right above (asides not counted), where it is in view with the reply.
+            let rootNearby = m.replyTo.map { r in
+                messages.prefix(idx).reversed().lazy.filter { $0.deletedAt == nil && $0.cmuxAside != true }
+                    .prefix(ThreadQuoteNearby.messages).contains { $0.id == r.messageId }
+            } ?? false
+            if let r = m.replyTo, !threadMode, connector == nil, !rootNearby, m.cmuxAside != true, let p = prev, p.id != r.messageId, p.replyTo != r {
                 let root = rootMessage(r.messageId)
                 let part = root.flatMap { r.partIndex < $0.parts.count ? $0.parts[r.partIndex] : nil }
                 var pv = ThreadPreview.make(root: r, part: part, count: replyCount[r.messageId] ?? 0, outgoing: root?.senderId == me, width: width)
@@ -1209,9 +1213,8 @@ enum RowBuilder {
                 groupQuote = pv.cmuxGroup ? rows.count : nil
                 rows.append(RowSpec(key: "preview:\(m.id)", kind: .threadPreview(pv), gap: pvGap, height: pv.height(scale: scale)))
                 gap = ThreadPreview.replyGap
-                // cmux (2026-10-28, macOS 27 Messages reference): the Chief's reply under the quote of my root hangs from the
-                // quote on the grey arc, as a reply right under its root does (incoming side only, as there).
-                if pv.outgoing, !outgoing { connector = "preview:\(m.id)" }
+                // cmux (user 2026-11-05, msg 23140): no arc from my quote at the right edge to the Chief's reply on the
+                // left (it hung over nothing in a wide pane); the quote right above the reply says what it answers.
             }
 
             if m.retractedAt != nil {
@@ -1219,7 +1222,8 @@ enum RowBuilder {
             } else {
                 // no force unwrap 
                 let lastOfGroup = next.map { next in next.senderId != m.senderId || next.date.timeIntervalSince(m.date) >= groupGap
-                    || next.cmuxStandsAlone == true || next.retractedAt != nil || next.replyTo != m.replyTo
+                    || next.retractedAt != nil || next.replyTo != m.replyTo
+                    || (next.cmuxAside == true) != (m.cmuxAside == true)
                     || thread(next, at: idx + 1) != thread(m, at: idx) } ?? true
                 // cmux: a group chat's run of another person's messages (the rule of lastOfGroup, seen from the
                 // message above): its first bubble gets the sender's name, its last their avatar, and every
@@ -1228,9 +1232,13 @@ enum RowBuilder {
                 let inGroup = group && !outgoing
                 let sender = inGroup ? s.conversation.participants.first { $0.id == m.senderId } : nil
                 let startsRun = prev.map { p in p.senderId != m.senderId || m.date.timeIntervalSince(p.date) >= groupGap
-                    || m.cmuxStandsAlone == true || p.retractedAt != nil || m.replyTo != p.replyTo
+                    || p.retractedAt != nil || m.replyTo != p.replyTo
+                    || (p.cmuxAside == true) != (m.cmuxAside == true)
                     || thread(m, at: idx) != thread(p, at: prevIndex) } ?? true
-                if let name = sender?.displayName, !name.isEmpty, startsRun, connector == nil {
+                // cmux: an aside (the Chief's agent messages, Message.cmuxAside) has no name and no avatar: they stay
+                // with the sender's own bubbles, so rows that come, fold and open under them never move the avatar.
+                let aside = m.cmuxAside == true
+                if let name = sender?.displayName, !name.isEmpty, startsRun, connector == nil, !aside {
                     // cmux: under a group quote the name sits so that the bubble's top is 35 pt under the quote (Messages).
                     if let q = groupQuote, let row = rows[checked: q], case let .threadPreview(pv) = row.kind {
                         gap = max(0, ThreadPreview.cmuxReplyTopUnderQuote - (row.height - pv.box.height) - 14 - 1)
@@ -1265,7 +1273,8 @@ enum RowBuilder {
                                       myReaction: reactions.firstIndex { $0.senderId == me }, failed: failed,
                                       size: size, text: tl, connectorRoot: pi == 0 ? connector : nil, markdown: measured.markdown,
                                       markdownFormat: m.isMarkdown,
-                                      cmuxAvatar: inGroup && lastOfGroup && pi == m.parts.count - 1 && !isCustom(part) ? SenderAvatar(sender?.avatar) : nil,
+                                      cmuxAvatar: inGroup && lastOfGroup && !aside && pi == m.parts.count - 1 && !isCustom(part)
+                                          ? SenderAvatar(sender?.avatar) : nil,
                                       cmuxIndent: inGroup && !isCustom(part) ? SenderAvatar.bubbleInset : 0)
                     rows.append(RowSpec(key: "part:\(m.id):\(pi)", kind: .part(row), gap: g, height: size.height,
                                         width: width, estimated: measured.estimated))

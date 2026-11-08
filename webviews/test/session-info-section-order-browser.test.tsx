@@ -11,6 +11,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Browser, Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { gridLength } from "../src/agent-session/acpmux/transcriptGrid";
 
 await requireBrowserLane("session-info-section-order-browser.test.tsx", async () => {
   setDefaultTimeout(60_000);
@@ -81,6 +82,12 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
   ]
     .map((file) => readFileSync(path.join(src, file), "utf8").replace(/^@import[^;]*;$/gm, ""))
     .join("\n");
+  // The grid's --grid-* lengths, as the app's pane has them from pages/shared/desktop.css (generated
+  // from schemas/layout-grid/layout-grid.json). Since #27570 the section list's gaps are those tokens.
+  const gridTokens = readFileSync(path.join(src, "pages/shared/desktop.css"), "utf8")
+    .split("\n")
+    .filter((line) => /^\s*--grid-[\w-]+\s*:/.test(line))
+    .join("\n");
 
   let browser: Browser;
   beforeAll(async () => {
@@ -91,9 +98,9 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
   });
 
   // Away from the panel, so no section starts hovered.
-  const show = async (page: Page) => {
+  const show = async (page: Page, { grid = false } = {}) => {
     await page.setContent(
-      `<style>${css} body { margin: 0 }</style>` +
+      `<style>${grid ? `:root {\n${gridTokens}\n}\n` : ""}${css} body { margin: 0 }</style>` +
         `<div style="position: absolute; left: 40px; top: 40px; width: 320px">${markup}</div>`,
     );
     await page.mouse.move(2, 2);
@@ -107,12 +114,14 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
     );
 
   describe("Session Info's six-dot handles", () => {
-    test("every section has one", () => {
+    test("every section but the pinned Environment has one", () => {
       // Counted against the sections the full gallery draws, so a new section (Sources, #25208)
-      // needs no edit here.
+      // needs no edit here. Environment heads the panel and never moves, so it has no grip (Lucas,
+      // 2026-11-06: "the re order icon feels a bit weird here"; sectionOrder.ts PINNED_TOP).
       const sections = markup.match(/<section class="acpmux-session-info-section"/g)?.length ?? 0;
-      expect(sections).toBeGreaterThanOrEqual(8);
-      expect(markup.match(/acpmux-session-info-section__handle/g)?.length).toBe(sections);
+      const pinned = markup.includes('data-section="environment"') ? 1 : 0;
+      expect(sections).toBeGreaterThanOrEqual(6);
+      expect(markup.match(/acpmux-session-info-section__handle/g)?.length).toBe(sections - pinned);
     });
 
     test("before any hover the panel's pixels are the panel's without them", async () => {
@@ -136,46 +145,40 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
       }
     });
 
-    test("the default order draws the three blocks: 6px inside a block, none where it runs, 8px, a hairline, 8px between", async () => {
+    // Since #27570 the section list owns the spacing (sessionInfo.css). The lean panel (Lucas, 2026-11-05,
+    // Session Info lab) has no blocks and no hairlines: one grid gap between every two items of the list,
+    // the Show more line included.
+    test("the default order draws one grid gap between every two sections, and no hairline", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
-        await show(page);
+        await show(page, { grid: true });
         const geometry = await page.evaluate(() => {
-          const box = (id: string) => document.querySelector(`[data-slot="${id}"]`)!.getBoundingClientRect();
-          const rule = (id: string) => {
-            const before = getComputedStyle(document.querySelector(`[data-slot="${id}"]`)!, "::before");
-            return before.content !== "none";
-          };
-          const ruled = ["environment", "context", "usage", "connectors", "changes", "sources", "subagents", "tasks"];
+          const slots = [...document.querySelectorAll(".acpmux-session-info-sections > [data-slot]")];
           return {
-            // Usage sits after Context in the top block (#28773).
-            about: [
-              box("context").top - box("environment").bottom,
-              box("usage").top - box("context").bottom,
-              box("connectors").top - box("usage").bottom,
-            ],
-            made: box("sources").top - box("changes").bottom,
-            between: [box("changes").top - box("connectors").bottom, box("subagents").top - box("outputs").bottom],
-            rules: ruled.map(rule),
+            count: slots.length,
+            gaps: slots
+              .slice(1)
+              .map((slot, index) => slot.getBoundingClientRect().top - slots[index]!.getBoundingClientRect().bottom),
+            rules: slots.filter((slot) => getComputedStyle(slot, "::before").content !== "none").length,
           };
         });
-        expect(geometry.about).toEqual([0, 0, 0]);
-        expect(geometry.made).toBeCloseTo(6, 1);
-        // This page has no desktop.css, so the hairline is its 0.5px fallback.
-        for (const gap of geometry.between) expect(gap).toBeCloseTo(16.5, 1);
-        // The hairline over the first section of each block but the first, and nowhere else.
-        expect(geometry.rules).toEqual([false, false, false, false, true, false, true, false]);
+        expect(geometry.count).toBeGreaterThanOrEqual(5);
+        for (const gap of geometry.gaps) expect(gap).toBeCloseTo(gridLength("gap"), 1);
+        expect(geometry.rules).toBe(0);
       } finally {
         await page.close();
       }
     });
 
-    // Leo, 2026-10-31: "ok we can click and drag but my screenshots were literally claude code having
-    // it on the fucking right".
-    test("hovering a section shows its handle in the right padding, right of its title, and nothing moves", async () => {
+    // Leo, 2026-11-06: "if you look at the spacing of claude code, they have theirs at the right". The grip
+    // went left on 2026-11-03 only because it sat by the scrollbar's thumb; the body draws none since.
+    // Leo, 2026-11-07: "the grip and the lef tside aren't flush". The grip shows at its head's right end in
+    // the count's place, its dots on the rows' right text edge, and the count fades out under it.
+    test("hovering a section shows its faint handle at its head's right end, in the count's place, and nothing moves", async () => {
       const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
       try {
-        await show(page);
+        // The handle's width and the body's insets are grid tokens since #27570.
+        await show(page, { grid: true });
         const before = await boxes(page);
         const opacity = () =>
           page.evaluate(
@@ -186,7 +189,15 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
           );
         expect(await opacity()).toBe("0");
         await page.hover('section[data-section="outputs"] .ui-disclosure-trigger');
-        expect(await opacity()).toBe("1");
+        // Faint on its head's hover, as the reference's; full only on the grip itself. It fades in over the
+        // quick step.
+        await page.waitForFunction(
+          () =>
+            getComputedStyle(
+              document.querySelector('section[data-section="outputs"] > .acpmux-session-info-section__handle')!,
+            ).opacity === "0.7",
+        );
+        expect(await opacity()).toBe("0.7");
         expect(await boxes(page)).toEqual(before);
         const inside = await page.evaluate(() => {
           const handle = document
@@ -201,21 +212,77 @@ await requireBrowserLane("session-info-section-order-browser.test.tsx", async ()
             .querySelector('section[data-section="outputs"] .acpmux-session-info-section__title')!
             .getBoundingClientRect();
           return {
-            inBody: handle.right <= body.right + 0.5,
-            // Leo, 2026-11-01: "the dragger is a bit too close to the thumb".
-            clearOfScrollbar: scrollport - handle.right >= 3.5,
-            afterSection: handle.left >= section.right - 0.5,
-            rightOfTitle: handle.left > title.right,
-            titleAtTextColumn: Math.round(title.left - section.left),
+            inBody: handle.left >= body.left - 0.5 && handle.right <= body.right + 0.5,
+            // Clear of the panel's edge.
+            clearOfEdge: scrollport - handle.right >= 3.5,
+            // Its dots end on the rows' right text edge: the head's trailing padding, one grid gap, in.
+            dotsOnTextEdge: Math.round(
+              section.right -
+                document
+                  .querySelector('section[data-section="outputs"] > .acpmux-session-info-section__handle svg')!
+                  .getBoundingClientRect().right,
+            ),
+            titleAtIconColumn: Math.round(title.left - section.left),
           };
         });
         expect(inside).toEqual({
           inBody: true,
-          clearOfScrollbar: true,
-          afterSection: true,
-          rightOfTitle: true,
-          titleAtTextColumn: 8,
+          clearOfEdge: true,
+          dotsOnTextEdge: 8,
+          // The heads have no icon, and the title starts on the rows' icon column: the head's leading
+          // padding, one grid gap (Lucas, 2026-11-05, Session Info lab).
+          titleAtIconColumn: 8,
         });
+      } finally {
+        await page.close();
+      }
+    });
+
+    // Leo, 2026-11-06: "I do not like the layout and proportion of the dragger." On every head the dots,
+    // two columns of three at the reference's size, end on the rows' right text edge in the count's place
+    // (the count fades out under them; 2026-11-07: "the grip and the lef tside aren't flush"), on the
+    // head's middle line, and the head draws no fill.
+    test("a head's grip takes its count's place on the rows' right text edge, on its middle line", async () => {
+      const page = await browser.newPage({ viewport: { width: 400, height: 1400 } });
+      try {
+        await show(page, { grid: true });
+        for (const id of ["subagents", "context", "outputs"]) {
+          const head = `section[data-section="${id}"] > .acpmux-session-info-section__disclosure > .ui-disclosure-trigger`;
+          await page.hover(head);
+          await page.waitForFunction((head) => {
+            const section = document.querySelector(head)!.closest("section")!;
+            const meta = section.querySelector(".acpmux-session-info-section__meta");
+            const handle = section.querySelector(":scope > .acpmux-session-info-section__handle")!;
+            return getComputedStyle(handle).opacity === "0.7" && (!meta || getComputedStyle(meta).opacity === "0");
+          }, head);
+          const fit = await page.evaluate((head) => {
+            const trigger = document.querySelector(head)!;
+            const pill = trigger.getBoundingClientRect();
+            const dots = trigger
+              .closest("section")!
+              .querySelector(":scope > .acpmux-session-info-section__handle svg")!
+              .getBoundingClientRect();
+            const meta = trigger.querySelector(".acpmux-session-info-section__meta");
+            const gap = Number.parseFloat(getComputedStyle(trigger).paddingRight);
+            return {
+              onTextEdge: Math.abs(dots.right - (pill.right - gap)) <= 1,
+              countGivesWay: !meta || getComputedStyle(meta).opacity === "0",
+              noFill: getComputedStyle(trigger).backgroundColor === "rgba(0, 0, 0, 0)",
+              onMiddleLine: Math.abs(dots.top + dots.height / 2 - (pill.top + pill.height / 2)) <= 0.5,
+              tall: dots.height > dots.width,
+              small: dots.width <= 6 && dots.height <= 10,
+            };
+          }, head);
+          expect({ id, ...fit }).toEqual({
+            id,
+            onTextEdge: true,
+            countGivesWay: true,
+            noFill: true,
+            onMiddleLine: true,
+            tall: true,
+            small: true,
+          });
+        }
       } finally {
         await page.close();
       }

@@ -22,14 +22,17 @@ import {
 } from "../subagents/subsessions";
 import { retryLabel, sessionRetry } from "../subagents/retryState";
 import { useFindReveal } from "./chatFind";
-import { Spinner } from "./icons";
+import { useStartedName } from "./startedNames";
+import { ToolGroup } from "./icons";
 import { Markdown } from "./Markdown";
 import { McpCallDetails } from "./McpCallRows";
 import { mcpCall, mcpRawName } from "./mcpCalls";
 import { CardCopy } from "./CardCopy";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { RawToggle, SentMessageLine } from "./SentMessageLine";
 import type { SubsessionCall, SubsessionDelivery, SubsessionReply } from "./subsessionCalls";
 import "./SubsessionCallCard.css";
+import { sessionLine } from "./subsessionCallCardModel";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const toolActivity = (tool: Tool): AcpmuxActivity => ({ kind: "tool", text: tool.title, tool });
@@ -101,14 +104,7 @@ function StartedGroup({ entries }: { entries: readonly StartedGroupEntry[] }) {
         />
       }
       label={t("subsession.startedGroup", { n: entries.length, names: names.join(", ") })}
-      status={
-        status ? (
-          <>
-            {working && <Spinner size={12} loading />}
-            {status}
-          </>
-        ) : undefined
-      }
+      status={status || undefined}
     >
       {entries.map(({ call, tool }, index) => (
         <StartedCard key={tool.id || index} call={call} tool={tool} />
@@ -117,54 +113,15 @@ function StartedGroup({ entries }: { entries: readonly StartedGroupEntry[] }) {
   );
 }
 
-/// A call still running: one line with the working spinner.
+/// A call still running: one line, its tool glyph at rest (Leo: no spinners on tool calls).
 function RunningLine({ children }: { children: ReactNode }) {
   return (
     <div className="cv-tool cv-subsession is-live">
       <span className="cv-tool__icon">
-        <Spinner size={16} loading />
+        <ToolGroup />
       </span>
       <span className="cv-tool__text">{children}</span>
     </div>
-  );
-}
-
-/// The card's line for a session not waiting: what it does now, or, failed, why. Only a `doing` line
-/// that repeats the prompt shown under the card is left out; an error always stays, even one that
-/// starts like the prompt (Codex review of #27240), and stands in for a `doing` line left out.
-export function sessionLine(
-  doing: string | undefined,
-  error: string | undefined,
-  failed: boolean,
-  shown?: string,
-): string | undefined {
-  const step = doing && !(shown && repeatsPrompt(doing, shown)) ? doing : undefined;
-  return step ?? (failed ? error : undefined);
-}
-
-/// Whether a session's `doing` line only repeats the start of the prompt shown under it: acpmux
-/// names a new session from its prompt, so its first line is that prompt's opening words, often cut
-/// with an ellipsis. Compared on words, ignoring whitespace, case and a trailing ellipsis.
-export function repeatsPrompt(line: string, prompt: string): boolean {
-  // The line as it came first: a prompt may itself start with "Working on:". Then without acpmux's
-  // own prefix for a session with no step yet, "Working on: <prompt, cut>" (hub/subsession_send.rs).
-  const bare = line.replace(/^\s*Working on:\s*/iu, "");
-  return startsPrompt(line, prompt) || (bare !== line && startsPrompt(bare, prompt));
-}
-
-/// Whether `line` is the start of `prompt`, word for word, ignoring case and whitespace. Only a line
-/// that says it is cut (it ends in an ellipsis) may stop mid-word, so a real step ("Fix bug") never
-/// hides behind its prompt ("Fix bugs ...").
-function startsPrompt(line: string, prompt: string): boolean {
-  const ellipsis = /(?:\.\.\.|\u2026)\s*$/u;
-  const cut = ellipsis.test(line);
-  const words = (text: string) => text.replace(ellipsis, "").toLowerCase().split(/\s+/u).filter(Boolean);
-  const head = words(line);
-  if (head.length === 0) return false;
-  const body = words(prompt).slice(0, head.length);
-  if (body.length < head.length) return false;
-  return head.every((word, index) =>
-    cut && index === head.length - 1 ? body[index]!.startsWith(word) : body[index] === word,
   );
 }
 
@@ -261,9 +218,10 @@ function StartedCard({ call, tool }: { call: Extract<SubsessionCall, { tool: "st
 /// Markdown cut to its first three lines, with a toggle to show the rest when there is more (a
 /// prompt's "Show prompt"). Whether there is more is measured: the pane's width decides the wrap,
 /// so a resize can bring the toggle in or take it away (one observer per cut, gone with it).
-export function Cut({ text, prompt }: { text: string; prompt?: boolean }) {
+/// Keep the reader's choice when the card closes or the transcript virtualizes this result.
+export function Cut({ text, prompt, disclosureKey }: { text: string; prompt?: boolean; disclosureKey: string }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey);
   const [long, setLong] = useState(false);
   useFindReveal(
     useMemo((): AcpmuxActivity[] => [{ kind: "note", text }], [text]),
@@ -364,11 +322,15 @@ function deliveryText(t: Translate, delivery: SubsessionDelivery): string {
 function SentLine({ call, tool }: { call: Extract<SubsessionCall, { tool: "send" }>; tool: Tool }) {
   const t = useT();
   const live = useSubsessionInfo(call.sessionId);
+  // Its name from the session list, else from the call that started it (a chat that left the list
+  // keeps the name its start gave it); the bare id only when neither names it. The row's tooltip
+  // and its link keep the id (SentMessageLine.tsx `targetSession`).
+  const started = useStartedName(call.sessionId);
   return (
     <SentMessageLine
       tool={tool}
       state={call.running ? "sending" : "sent"}
-      target={live?.name ?? shortId(call.sessionId)}
+      target={live?.name ?? started ?? shortId(call.sessionId)}
       text={call.text}
       detail={call.delivery && deliveryText(t, call.delivery)}
       disclosureKey={`send:${tool.id}`}
@@ -406,7 +368,9 @@ function SessionCards({ call, tool }: { call: Extract<SubsessionCall, { tool: "w
           disclosureKey={`subsession-result:${tool.id}:${session.sessionId}`}
         >
           {session.reply && session.state !== "working" && <CardCopy text={session.reply} />}
-          {session.reply && session.state !== "working" && <Cut text={session.reply} />}
+          {session.reply && session.state !== "working" && (
+            <Cut text={session.reply} disclosureKey={`subsession-reply:${tool.id}:${session.sessionId}`} />
+          )}
         </SessionCard>
       ))}
       <Raw tool={tool} />

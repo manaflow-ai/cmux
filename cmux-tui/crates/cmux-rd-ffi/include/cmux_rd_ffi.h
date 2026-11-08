@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 /* Version of this ABI; bumped on every incompatible change. */
-#define CMUX_RD_FFI_ABI_VERSION 4u
+#define CMUX_RD_FFI_ABI_VERSION 5u
 
 /* Carriers. */
 #define CMUX_RD_CARRIER_DATAGRAM 0u
@@ -391,6 +391,60 @@ void cmux_rb_client_free(CmuxRbClient *client);
    CMUX_RD_ERR_INVALID when json is not a client input (state unchanged). */
 int32_t cmux_rb_client_apply(CmuxRbClient *client, const uint8_t *json, size_t json_len,
                              const uint8_t **outcome, size_t *outcome_len);
+
+/* ---- App line reader (cmux rd serve|connect stdout, ABI 5) ----
+   The JSON lines `cmux rd serve` and `cmux rd connect` print for the app
+   (cmux_rd_proto::app_line::AppLine, the type the host prints; golden vectors
+   in cmux-rd-proto/tests/vectors/app_lines.json). Push stdout bytes, take
+   typed lines. A line that is not an app line (not JSON, or a field of another
+   type) is dropped; a line with only unknown fields is an empty line.
+   One reader per process; not thread-safe. Text fields are UTF-8, not
+   NUL-terminated; every pointer in a CmuxRdLine stays valid only until the
+   next call on the same reader. No I/O, no threads; a panic poisons the reader. */
+typedef struct CmuxRdLineReader CmuxRdLineReader;
+
+/* Bits of CmuxRdLine.fields: which fields the line holds. */
+#define CMUX_RD_LINE_KEY 1u
+#define CMUX_RD_LINE_CANDIDATE 2u
+#define CMUX_RD_LINE_CANDIDATES_DONE 4u
+#define CMUX_RD_LINE_CONNECTED 8u
+#define CMUX_RD_LINE_LISTENING 16u
+#define CMUX_RD_LINE_ENDED 32u
+#define CMUX_RD_LINE_PATH 64u
+#define CMUX_RD_LINE_PATH_KIND 128u
+#define CMUX_RD_LINE_PATH_RTT 256u
+#define CMUX_RD_LINE_DISPLAYS 512u
+#define CMUX_RD_LINE_CURRENT 1024u
+#define CMUX_RD_LINE_ERROR 2048u
+
+typedef struct CmuxRdLine {
+    uint32_t fields;               /* CMUX_RD_LINE_* bits */
+    const uint8_t *key;            /* this side's session key (64 hex) */
+    size_t key_len;
+    const uint8_t *candidate;      /* one link candidate, wire text */
+    size_t candidate_len;
+    const uint8_t *ended;          /* why the session ended (last line) */
+    size_t ended_len;
+    const uint8_t *error;          /* why the displays could not be read */
+    size_t error_len;
+    const uint8_t *path_kind;      /* the path kind's wire name */
+    size_t path_kind_len;
+    double path_rtt_ms;            /* with CMUX_RD_LINE_PATH_RTT */
+    const uint32_t *displays;      /* display_count pairs: width, height, ... (pixels) */
+    size_t display_count;
+    uint64_t current;              /* index in displays of the display shown first */
+} CmuxRdLine;
+
+/* NULL only when allocation fails. */
+CmuxRdLineReader *cmux_rd_line_reader_new(void);
+/* NULL is ignored. */
+void cmux_rd_line_reader_free(CmuxRdLineReader *reader);
+/* Adds stdout bytes; queues each app line they complete. Returns the number
+   of lines ready (>= 0), or CMUX_RD_ERR_NULL / CMUX_RD_ERR_PANIC. */
+int32_t cmux_rd_line_reader_push(CmuxRdLineReader *reader, const uint8_t *bytes, size_t len);
+/* Takes the next ready line into *out: 1 when it wrote one, CMUX_RD_OK (0)
+   when none is ready. */
+int32_t cmux_rd_line_reader_next(CmuxRdLineReader *reader, CmuxRdLine *out);
 
 #ifdef __cplusplus
 }

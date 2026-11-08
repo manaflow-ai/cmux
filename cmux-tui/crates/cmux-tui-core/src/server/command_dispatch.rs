@@ -28,7 +28,11 @@ pub(super) fn handle_command_with_cancellation(
             | Command::MoveTerminal { .. }
     );
     let claim = if moves { incognito_orphans::begin_move(mux, false) } else { None };
-    let result = dispatch_command(mux, client, cmd, writer, cancellation);
+    let mut result = dispatch_command(mux, client, cmd, writer, cancellation);
+    // A remote device's lists leave incognito workspaces out (#31210).
+    if let Ok(reply) = &mut result {
+        incognito_remote::prune_reply(mux, client, reply);
+    }
     if let Some(claim) = claim
         && result.is_ok()
     {
@@ -64,6 +68,10 @@ fn dispatch_command(
         Command::ChiefInspect(_) => {
             anyhow::bail!("chief-inspect requires the asynchronous request path")
         }
+        Command::ChiefWork { chief } => {
+            drop(chief);
+            anyhow::bail!("chief-work requires the asynchronous request path")
+        }
         Command::PasteImage {
             surface,
             terminal_id,
@@ -92,10 +100,22 @@ fn dispatch_command(
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
+        Command::RemoteHostStatus => remote_host_command::status(mux, client),
+        Command::RemoteHostCall { method, params } => {
+            remote_host_command::call(mux, client, &method, params)
+        }
+        Command::RemoteHostConfig { computer_use, screen_sharing, headless } => {
+            remote_host_command::config(
+                mux,
+                client,
+                json!({"computer_use": computer_use, "screen_sharing": screen_sharing, "headless": headless}),
+            )
+        }
+        Command::RemoteHostApp => remote_host_command::app(mux, client),
         Command::Identify { machine_metadata, revisions } => {
             cmd_server::identify(mux, machine_metadata, revisions)
         }
-        Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout } => {
+        Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout, restart } => {
             cmd_server::shutdown_daemon(
                 mux,
                 client,
@@ -104,6 +124,7 @@ fn dispatch_command(
                 force,
                 end_terminals,
                 keep_layout,
+                restart,
             )
         }
         Command::Ping => cmd_server::ping(),
@@ -202,7 +223,7 @@ fn dispatch_command(
         Command::ReloadConfig => cmd_server::reload_config(mux),
         Command::SetWindowTitle { title } => cmd_server::set_window_title(mux, title),
         Command::ClearWindowTitle => cmd_server::clear_window_title(mux),
-        Command::ListWorkspaces => cmd_workspaces::list_workspaces(mux),
+        Command::ListWorkspaces => cmd_workspaces::list_workspaces(mux, writer.lines_written()),
         Command::GetFrontendProjection { frontend, scope, subject_key } => {
             cmd_frontend::get_frontend_projection(mux, frontend, scope, subject_key)
         }
@@ -264,7 +285,9 @@ fn dispatch_command(
         Command::CreateSurfaceWithReceipt(request) => {
             cmd_frontend::create_surface_with_receipt_command(mux, client, request)
         }
-        Command::SendKey { surface, keys } => cmd_terminal_io::send_key(mux, client, surface, keys),
+        Command::SendKey { surface, keys } => {
+            cmd_terminal_io::send_key(mux, client, writer, surface, keys)
+        }
         Command::Copy { surface, mode } => cmd_terminal_io::copy(mux, surface, mode),
         Command::Ids { kind } => cmd_frontend::ids(mux, kind),
         Command::Notify { title, body, level, surface, source } => {
@@ -294,6 +317,9 @@ fn dispatch_command(
         }
         Command::SetTerminalKeep { surface, terminal_id, keep } => {
             cmd_terminals::set_terminal_keep(mux, surface, terminal_id, keep)
+        }
+        Command::TerminalLastCommand { surface, terminal_id } => {
+            cmd_terminals::terminal_last_command(mux, surface, terminal_id)
         }
         Command::TerminalResumeCommand { surface, terminal_id, command } => {
             cmd_terminals::terminal_resume_command(mux, surface, terminal_id, command)
@@ -445,6 +471,9 @@ fn dispatch_command(
         }
         Command::SetViewportPaneWidth { pane, width, transaction } => {
             cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction)
+        }
+        Command::SetLayoutSizes { values, transaction } => {
+            cmd_panes::set_layout_sizes(mux, client, actor, values, transaction)
         }
         Command::SetColumnDock { pane, dock, edge, mode, role, permanent, pinned, transaction } => {
             cmd_panes::set_column_dock(
@@ -925,6 +954,9 @@ fn dispatch_command(
         }
         Command::ClientFocus { client_id } => cmd_server::client_focus(mux, client_id),
         Command::SnapshotRequest(params) => cmd_terminal_io::snapshot_request(mux, client, params),
+        Command::SetAttachVisibility(params) => {
+            terminal_snapshot::set_visibility(mux, client, params)
+        }
         Command::TerminalHistory(params) => cmd_terminals::terminal_history(mux, params),
         Command::TerminalReadRange(params) => cmd_terminals::terminal_read_range(mux, params),
         Command::ScrollSurface { surface, delta } => {
@@ -940,6 +972,7 @@ fn dispatch_command(
             rows,
             expected_generation,
             expected_terminal_id,
+            replay_history_rows,
             snapshot,
         } => {
             // A sized attach is a size report: it starts (or renews) the
@@ -957,6 +990,7 @@ fn dispatch_command(
                 rows,
                 expected_generation,
                 expected_terminal_id,
+                replay_history_rows,
                 snapshot,
             )
         }

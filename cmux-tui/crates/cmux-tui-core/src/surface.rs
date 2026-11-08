@@ -61,8 +61,12 @@ use scrolling::{
 };
 #[cfg(any(unix, windows))]
 mod hosted_stager;
+/// The terminal's own input port (R-DAEMON-STATE stage S1 step 6).
+#[cfg(any(unix, windows))]
+pub(crate) mod input_port;
 #[cfg(any(unix, windows))]
 use hosted_stager::{HostedFrameStager, HostedTransition};
+pub(crate) use input_port::{InputReply, input_may_be_written};
 #[cfg(test)]
 use options::child_term_for;
 use options::configure_agent_browser_session;
@@ -226,6 +230,20 @@ pub(crate) struct TerminalScreenSnapshot {
     pub(crate) osc_progress: String,
 }
 
+/// Which text a [`TerminalScreenSnapshot`] carries (`terminal.screen.read`
+/// fields `unwrap` and `lines`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum ScreenText {
+    /// The live screen, one line per row (the default).
+    #[default]
+    Rows,
+    /// The live screen with soft wraps joined into logical lines.
+    Unwrapped,
+    /// The last `count` lines of scrollback and screen together; logical
+    /// lines when `unwrap`, else rows.
+    LastLines { count: usize, unwrap: bool },
+}
+
 /// Nonblocking probe for the terminal mouse protocol and reporting mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointerSemanticProbe {
@@ -277,6 +295,9 @@ pub struct AttachStream {
     /// parser boundary; write this after it and after the colors, right
     /// before the live stream that completes it.
     pub pending_sequence: Arc<[u8]>,
+    /// Rows of history older than the replay's first row, left out by a
+    /// tail replay (`replay_history_rows`); `None` for a whole replay.
+    pub history_rows_omitted: Option<u64>,
     pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
 }
@@ -621,6 +642,26 @@ impl Surface {
         })))
     }
 
+    /// Where this terminal's sizing publishes the view a key may skip its sizing note for (R-DAEMON-STATE stage S1);
+    /// every view of the terminal shares it. `None` for a browser surface.
+    pub(crate) fn sizing_fast_path_slot(
+        &self,
+    ) -> Option<crate::mux::sizing_fast_path::SizingFastPathSlot> {
+        self.as_pty().map(|pty| pty.terminal.sizing_fast_path.clone())
+    }
+
+    /// Whether a key from `client` into this view may skip its sizing note: the terminal's sizing published this
+    /// view as its settled newest. One atomic load, no lock.
+    pub(crate) fn skips_sizing_note(&self, client: u64) -> bool {
+        self.as_pty().is_some_and(|pty| {
+            pty.terminal
+                .sizing_fast_path
+                .load()
+                .as_deref()
+                .is_some_and(|fast| fast.client == client && fast.placement == self.id)
+        })
+    }
+
     pub(crate) fn shares_terminal_runtime(&self, other: &Surface) -> bool {
         match (self, other) {
             (Surface::Pty(left), Surface::Pty(right)) => {
@@ -755,6 +796,9 @@ impl Surface {
         let frame_requests = frame_producer::FrameRequests::new();
         #[cfg(test)]
         let frame_producer_before_upgrade = Arc::new(Mutex::new(None));
+        // The attachment's other frames go after the keys the port took (S1.6b).
+        let port = input_port::InputPort::default();
+        attachment.set_input_order(port.order());
         let surface = Arc::new(Surface::Pty(PtySurface {
             meta: SurfaceMeta {
                 id,
@@ -788,6 +832,10 @@ impl Surface {
                     "pty.mouse_encoders",
                     Box::new(mouse_encoders),
                 ),
+                input_route: arc_swap::ArcSwapOption::new(Some(Arc::new(
+                    input_port::InputRoute::Hosted(attachment.input_route()),
+                ))),
+                input_port: port,
                 runtime: RankedMutex::new(
                     LockRank::Runtime,
                     "pty.runtime",
@@ -849,6 +897,7 @@ impl Surface {
                 taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", Vec::new()),
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
+                sizing_fast_path: Default::default(),
                 snapshot_position: Default::default(),
                 last_attach_colors: RankedMutex::new(
                     LockRank::Leaf,

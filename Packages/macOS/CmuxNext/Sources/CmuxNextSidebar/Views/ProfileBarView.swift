@@ -9,10 +9,12 @@ import CmuxNextDesign
 /// show better"): the strip is centered on the sidebar, each space shows its
 /// icon, emoji or initial in its color, the current space sits on a
 /// selection-fill chip that slides to the new space on a switch, and the "+"
-/// (on hover) sits right after the last space, in a slot the strip always
-/// leaves free, so it never moves the strip (Lawrence 2026-10-21).
+/// always sits right after the last space, in a slot the strip always leaves
+/// free, so it never moves the strip (Lawrence 2026-10-21; Leo 2026-11-03: at
+/// rest too, never a dot that turns into a "+" on hover).
 /// Too many spaces narrow the slots, then turn compact (small dots, the
-/// current one full). Layers, back to front: the hover chip (this view),
+/// current one full), then scroll to keep the current one in view with the
+/// "+" pinned on the trailing edge. Layers, back to front: the hover chip (this view),
 /// the current-space chip (`indicator`), the marks (`marks`).
 final class ProfileBarView: NSView {
     let model: SidebarModel
@@ -43,11 +45,21 @@ final class ProfileBarView: NSView {
     /// A mouse wheel notch over the bar, either axis: -1 or +1.
     var onWheelPage: ((Int) -> Void)?
 
-    /// Gallery toggles for comparing Leo's two open choices. The shipped
-    /// choice is the first pair: dot at rest, + on hover. Tests use the
-    /// toggles to render the alternatives without changing persisted state.
-    var showsDotsWhenIdle = true
-    var showsPlusWhenIdle = false
+    /// Gallery toggle: on a scrolled strip the "+" rides the end of the dots
+    /// instead of staying pinned on the trailing edge (the shipped choice).
+    var plusRidesContent = false { didSet { if plusRidesContent != oldValue { relayout() } } }
+    /// `sidebar.spaceSwitcher` for galleries and tests; nil reads the Debug Settings tunable.
+    var switcherStyleOverride: SpaceSwitcherStyle? { didSet { relayout() } }
+    /// Shows a switcher menu at a mark (tests capture it); nil pops it up under the pointer's mark.
+    var presentMenu: ((NSMenu, NSRect) -> Void)?
+    /// A switcher menu opened (true) or closed: the sidebar keeps its hover chrome revealed meanwhile.
+    var onMenuOpenChange: ((Bool) -> Void)?
+    /// The mark whose switcher menu is open: it stays lit until the menu closes.
+    var menuOpenIndex: Int?
+    /// Which spaces other windows show (the App's windows fill it, `SpaceWindowMarks.install`) and how its choices run.
+    let windowMarks = SpaceWindowMarks()
+    /// Redraws the window marks when another window switches space or the tunable changes.
+    var markObservation: Task<Void, Never>?
 
     init(model: SidebarModel) {
         self.model = model
@@ -65,6 +77,14 @@ final class ProfileBarView: NSView {
         addSubview(marks)
     }
 
+    /// The window marks observe only while the bar is in a window: leaving it stops the observation.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        markObservation?.cancel()
+        markObservation = window == nil ? nil : observeWindowMarks()
+        windowMarks.isActive = window != nil
+    }
+
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
@@ -77,17 +97,9 @@ final class ProfileBarView: NSView {
     // MARK: Geometry
 
     private var slot: CGFloat { Metrics.roomDotSlot }
-    /// The pointer is over the bar: the "+" shows (Lawrence: only on hover,
-    /// and the dots stay in place without it).
-    private(set) var isPointerInside = false {
-        didSet {
-            guard isPointerInside != oldValue else { return }
-            needsDisplay = true
-            marks.needsDisplay = true
-            placeIndicator(animated: false)
-            rebuildToolTips()
-        }
-    }
+    /// The pointer is over the bar. Nothing changes for it alone: only the
+    /// slot directly under the pointer shows a hover chip (Leo 2026-11-03).
+    private(set) var isPointerInside = false
 
     /// The strip never starts before this x (nil: the sidebar's horizontal
     /// inset). In the footer row the bar itself starts after the profile
@@ -103,8 +115,9 @@ final class ProfileBarView: NSView {
         ProfileBarLogic.strip(count: model.profiles.count, active: activeIndex, width: Double(bounds.width),
                               center: Double(centerX ?? bounds.width / 2),
                               minLeading: Double(leadingInset ?? SidebarStyle.horizontalInset),
-                              slot: Double(slot), plus: Double(model.profiles.count == 1 ? 0 : slot),
-                              fullMinimum: Double(Metrics.roomDotSlot * 0.75), compactMinimum: Double(Metrics.roomDotDiameter + Metrics.space1))
+                              slot: Double(slot), plus: Double(slot),
+                              fullMinimum: Double(Metrics.roomDotSlot * 0.75), compactMinimum: Double(Metrics.roomDotDiameter + Metrics.space1),
+                              plusRidesContent: plusRidesContent)
     }
 
     private var activeIndex: Int? { model.profiles.firstIndex { $0.id == model.activeProfileID } }
@@ -195,6 +208,7 @@ final class ProfileBarView: NSView {
                 let active = profile.id == model.activeProfileID
                 draw(profile: profile, in: rects[offset], active: active, hovered: hovered == offset,
                      compact: strip.compact && !active)
+                drawWindowMark(for: profile, in: rects[offset], compact: strip.compact && !active)
             }
             if plusIsDrawn { drawPlus(in: rects[model.profiles.count]) }
         }
@@ -226,7 +240,8 @@ final class ProfileBarView: NSView {
         let rects = slotRects()
         var regions: [(rect: NSRect, text: String)] = drawnDotIndices.map { offset in
             let profile = model.profiles[offset]
-            return (rects[offset], profile.iconIsEmoji ? [profile.icon, profile.name].compactMap(\.self).joined(separator: " ") : profile.name)
+            let name = profile.iconIsEmoji ? [profile.icon, profile.name].compactMap(\.self).joined(separator: " ") : profile.name
+            return (rects[offset], windowMarkLabel(name, for: profile))
         }
         if plusIsDrawn { regions.append((rects[model.profiles.count], Strings.newProfile)) }
         setThemedToolTipRegions(regions)
@@ -252,6 +267,8 @@ final class ProfileBarView: NSView {
     func setPointerInside(_ inside: Bool) { isPointerInside = inside }
 
     func setHovered(_ value: Int?) {
+        // A mark whose menu is open stays lit until it closes (rulebook: hover-revealed controls stay lit).
+        let value = menuOpenIndex ?? value
         guard hovered != value else { return }
         hovered = value
         needsDisplay = true
@@ -295,7 +312,7 @@ final class ProfileBarView: NSView {
         // A dragged dot drops (over the footer band it moves its space); the release is no click.
         if dropDot() { return }
         guard let pressed, pressed == interactionIndex(at: convert(event.locationInWindow, from: nil)) else { return }
-        activate(pressed)
+        activate(pressed, option: event.modifierFlags.contains(.option))
     }
 
     /// The bar is the pager's dots: a trackpad pages over it like over the
@@ -334,18 +351,17 @@ final class ProfileBarView: NSView {
         return nil
     }
 
-    private func activate(_ index: Int) {
-        if index == Self.plusIndex {
-            model.send(.newProfile)
-        } else if model.profiles.indices.contains(index), model.profiles[index].id != model.activeProfileID {
-            model.send(.switchProfile(model.profiles[index].id))
-        }
+    /// A click on a mark: the "+" makes a space; a space switches here, or, when another window shows it,
+    /// offers Go to Window / Move Here (`SpaceSwitcherLogic.click`, `ProfileBarView+Windows`).
+    func activate(_ index: Int, option: Bool = false) {
+        if index == Self.plusIndex { return model.send(.newProfile) }
+        guard model.profiles.indices.contains(index) else { return }
+        click(index, option: option)
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        // Right-click still edits the space underneath a shared + slot.
-        let point = convert(event.locationInWindow, from: nil)
-        guard let index = slotRects().dropLast().firstIndex(where: { $0.contains(point) }) else { return nil }
+        // The + has no menu; a space's dot opens its space's.
+        guard let index = interactionIndex(at: convert(event.locationInWindow, from: nil)), index >= 0 else { return nil }
         return contextMenuProvider?(.profile(model.profiles[index].id))
     }
 
@@ -355,7 +371,7 @@ final class ProfileBarView: NSView {
         let rects = slotRects()
         var children: [NSAccessibilityElement] = model.profiles.enumerated().map { offset, profile in
             let active = profile.id == model.activeProfileID
-            let element = ProfileDotElement(label: active ? Strings.profileCurrent(profile.name) : profile.name,
+            let element = ProfileDotElement(label: windowMarkLabel(active ? Strings.profileCurrent(profile.name) : profile.name, for: profile),
                                             frame: rects[offset], parent: self) { [weak self] in self?.activate(offset) }
             element.setAccessibilityIdentifier("cmux.sidebar.space.\(profile.id.rawValue)")
             element.setAccessibilitySelected(active)

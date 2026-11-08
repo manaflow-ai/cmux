@@ -66,7 +66,7 @@ if [ "$NIGHTLY_TRACK" = nightly-next ] && [ -n "$PUBLISHED_SHA" ] && [ "$PUBLISH
   gate_dir="$(mktemp -d)"
   python3 scripts/cmux-next/release-notes.py build --build "$NIGHTLY_BUILD" \
     --short "1.0.0-nightly.$NIGHTLY_BUILD" --date "$(date -u +%Y-%m-%d)" \
-    --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" --out "$gate_dir" >/dev/null
+    --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" --out "$gate_dir" --pr-descriptions >/dev/null
   python3 scripts/cmux-next/release-notes.py check --notes "$gate_dir/$NIGHTLY_BUILD.json"
   rm -rf "$gate_dir"
   python3 scripts/cmux-next/release-notes.py appcast --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" \
@@ -75,4 +75,13 @@ if [ "$NIGHTLY_TRACK" = nightly-next ] && [ -n "$PUBLISHED_SHA" ] && [ "$PUBLISH
   # metadata steps below append it), so a nightly names what it contains.
   python3 scripts/cmux-next/release-notes.py prs --head "$NOTES_HEAD" --since "$PUBLISHED_SHA" \
     --repo "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/nightly-prs.md"
+  # Next.js-style credits: a "Thank you" section naming each outside contributor whose PR is in the
+  # span, and their profile's company. It prints nothing with no outside contributor, and a GitHub
+  # error leaves the credits out with a warning instead of failing the publish.
+  if thanks="$(python3 scripts/ci/release_thanks.py --repo "$GITHUB_REPOSITORY" \
+      --head "$NOTES_HEAD" --since "$PUBLISHED_SHA")"; then
+    if [ -n "$thanks" ]; then printf '\n%s\n' "$thanks" >> "$RUNNER_TEMP/nightly-prs.md"; fi
+  else
+    echo "::warning::release_thanks.py failed; this build's notes have no Thank you section"
+  fi
 fi

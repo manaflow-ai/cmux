@@ -75,25 +75,6 @@ struct SpareSessionAdoptionTests {
         #expect(spare.model.userTouched, "starting dictation is the person's touch")
     }
 
-    /// HQ#5914 finding 1, review of #27759: a spare whose client is still connecting is not taken
-    /// for an existing chat (the open would wait behind its chat list), nor in Low Power Mode or
-    /// at serious thermal state (each open would make another page).
-    @Test func whichSpareServesAChat() {
-        func serves(handshake: Bool = true, painted: Bool = true, clientReady: Bool = true, lowPower: Bool = false,
-                    thermal: ProcessInfo.ThermalState = .nominal) -> Bool {
-            NewTabSparePool.servesChat(handshake: handshake, painted: painted, clientReady: clientReady,
-                                       lowPower: lowPower, thermal: thermal)
-        }
-        #expect(serves())
-        #expect(serves(thermal: .fair))
-        #expect(!serves(handshake: false))
-        #expect(!serves(painted: false))
-        #expect(!serves(clientReady: false))
-        #expect(!serves(lowPower: true))
-        #expect(!serves(thermal: .serious))
-        #expect(!serves(thermal: .critical))
-    }
-
     @Test func anExistingChatOpensOnTheConnectedSpare() async throws {
         let tabs = Self.run(records: ["tab_chat": Self.chat("s-chat")])
         let spare = try await Self.connectedSpare(of: tabs)
@@ -135,6 +116,30 @@ struct SpareSessionAdoptionTests {
         #expect(view.loadingView.leftFading == false, "a chat drawn from a kept tail faded in")
     }
 
+    /// A sidebar hover read the hovered chat ahead only through the agent chat on screen: from a
+    /// terminal or a browser page nothing read it, and the click's adopted spare waited on the host
+    /// and on acpmux's attach. With no agent chat on screen the spare, which that click adopts, reads it
+    /// (SidebarBridge's `onHoverTab`, through ``AgentPaneView/hoverReader(shown:spare:)``).
+    @Test func aHoverWithNoChatOnScreenIsReadByTheSpare() async throws {
+        let tabs = Self.run(records: ["tab_shown": Self.chat("s-shown")])
+        let spare = try await Self.connectedSpare(of: tabs)
+        var spareScripts: [String] = []
+        spare.evaluateScript = { spareScripts.append($0) }
+        func prefetches(_ scripts: [String]) -> [String] { scripts.filter { $0.contains("chat.prefetch") } }
+
+        // A terminal is on screen (its tab has no agent page): the spare reads the hovered chat.
+        let reader = try #require(AgentPaneView.hoverReader(shown: tabs.existingView("tab_terminal"), spare: spare))
+        #expect(reader === spare)
+        reader.forwardHover("s-chat")
+        let read = try #require(prefetches(spareScripts).last, "the spare was not asked: \(spareScripts)")
+        #expect(read.contains("\"sessionId\":\"s-chat\"") && read.contains("\"hover\":true"), "\(read)")
+
+        // An agent chat is on screen: it reads the hover, as before, and the spare is not asked.
+        let shown = try #require(tabs.view(for: "tab_shown"))
+        #expect(AgentPaneView.hoverReader(shown: tabs.existingView("tab_shown"), spare: spare) === shown)
+        #expect(AgentPaneView.hoverReader(shown: nil, spare: nil) == nil)
+    }
+
     /// Each exclusion keeps the tab's own page, and the spare stays in the pool.
     @Test func chatsWhoseOpenNeedsTheirOwnHandshakeKeepTheirOwnPage() async throws {
         let tabs = Self.run(records: ["tab_wake": Self.chat("s-wake"), "tab_chief": Self.chat("s-chief")])
@@ -170,22 +175,5 @@ struct SpareSessionAdoptionTests {
         #expect(view.model.sessionId == "s-chat")
         #expect(recycled.count == 1 && recycled.first === spare)
         #expect(spare.model.sessionId == nil && spare.model.newTab != nil)
-    }
-
-    @Test func theDecision() {
-        func adopts(local: Bool = true, kind: AgentPaneHostKind = .local, session: String? = "s", newTabPage: Bool = false,
-                    seeded: Bool = false, wake: Bool = false, chief: Bool = false) -> String? {
-            SpareSessionAdoption.session(local: local, kind: kind, session: session, newTabPage: newTabPage, seeded: seeded,
-                                         wake: wake, chiefKeeps: { _ in chief })
-        }
-        #expect(adopts() == "s")
-        #expect(adopts(local: false, kind: .remote) == nil)
-        #expect(adopts(kind: .chief) == nil)
-        #expect(adopts(session: nil) == nil)
-        #expect(adopts(session: "") == nil)
-        #expect(adopts(newTabPage: true) == nil)
-        #expect(adopts(seeded: true) == nil)
-        #expect(adopts(wake: true) == nil)
-        #expect(adopts(chief: true) == nil)
     }
 }

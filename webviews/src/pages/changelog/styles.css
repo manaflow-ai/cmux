@@ -91,22 +91,22 @@ html[data-cmux-page="changelog"] body {
   border-radius: 10px;
   box-shadow: 0 0 0 1px var(--page-separator);
 }
-.cl-actions { display: flex; align-items: center; gap: 14px; margin: 4px 0 8px; }
+.cl-actions { display: flex; align-items: center; gap: var(--ds-space-3); margin: var(--ds-space-1) 0 var(--ds-space-2); }
 .cl-button {
-  height: 26px;
-  padding: 0 12px;
-  border-radius: 7px;
+  height: var(--ds-control-compact);
+  padding-inline: var(--ds-space-3);
+  border-radius: var(--ds-radius-md);
   border: 1px solid var(--page-separator);
   background: var(--page-hover);
   font-size: var(--text-control);
-  font-weight: 500;
-  cursor: default;
+  font-weight: var(--weight-regular);
   letter-spacing: var(--text-control--letter-spacing);
 }
 .cl-button:hover { background: var(--page-selection); }
+.cl-action-button { flex: none; }
 .cl-link { color: var(--page-text-2); text-decoration: none; font-size: var(--text-body); letter-spacing: var(--text-body--letter-spacing); }
 .cl-link:hover { color: var(--page-text); text-decoration: underline; text-underline-offset: 3px; }
-:is(.cl-button, .cl-link, .cl-row-action, .cl-row-link, .cl-changes summary, .clr-version, .cl-pr, .cl-change-link, .cl-more):focus-visible {
+:is(.cl-button, .cl-link, .cl-row-action, .cl-row-link, .cl-changes summary, .clr-version, .cl-pr, .cl-change-link, .cl-more, .cls-row-link):focus-visible {
   outline: 2px solid var(--cmux-accent, currentColor);
   outline-offset: 2px;
 }
@@ -137,16 +137,18 @@ html[data-cmux-page="changelog"] body {
 .cl-row-summary { color: var(--page-text-2); }
 /* In a one-line row, Try it and Learn more show on hover or keyboard focus, beside the paragraph.
    Layouts that stack a change in a column (Digest, Reader) show them under the summary. */
-.cl-row-actions { display: flex; align-items: baseline; gap: 10px; flex: none; margin-left: auto; opacity: 0; }
+.cl-row-actions { display: flex; align-items: baseline; gap: 10px; flex: none; margin-left: auto; opacity: 0; transition: var(--cmux-hover-reveal-out-transition); }
 .cl-group li:hover .cl-row-actions,
-.cl-row-actions:focus-within { opacity: 1; }
+.cl-row-actions:focus-within { opacity: 1; transition: var(--cmux-hover-reveal-in-transition); }
+/* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
+.cl-group li .cl-row-actions:has(:focus-visible),
+.cl-row-actions:has(:focus-visible) { transition: none; }
 .cl-row-action {
   border: 0;
   background: transparent;
   padding: 0 2px;
   color: var(--page-text-3);
   font-size: var(--text-detail);
-  cursor: default;
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .cl-row-action:hover { color: var(--page-text); }
@@ -214,19 +216,13 @@ html[data-cmux-page="changelog"] {
   --agent-status-success: var(--agent-ansi-10, var(--agent-ansi-2, light-dark(#1a7f37, #3fb950)));
   --agent-status-failure: var(--agent-ansi-9, var(--agent-ansi-1, light-dark(#b42318, #ff7b72)));
   --agent-status-warning: var(--agent-ansi-11, var(--agent-ansi-3, light-dark(#8a5a00, #e3b341)));
-  --agent-status-merged: var(--agent-ansi-13, var(--agent-ansi-5, light-dark(#8250df, #d2a8ff)));
+  --agent-status-merged: light-dark(#8250df, #a371f7); /* theme-fixed: GitHub's merged purple in every theme (Leo 2026-11-02) */
   --agent-diff-add: var(--agent-status-success);
   --agent-diff-del: var(--agent-status-failure);
 }
 .cl-more {
-  margin-top: 6px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--page-text-2);
+  margin-top: var(--ds-space-1);
   font-size: var(--text-detail);
-  cursor: default;
-  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cl-more:hover { color: var(--page-text); }
 .cl-builds {
@@ -585,19 +581,22 @@ html[data-cmux-page="changelog"] {
 
 /* ---------- The What's New sheet (default; SheetPage.tsx, 2026-10-31) ----------
    An Apple app's What's New sheet: a centered bold title, then each release day, newest first,
-   under a small date heading; each change a row of an accent glyph, a bold title and one muted
-   line. Wide and dense (Leo 2026-11-01: "this is way too narrow and not info dense enough"): the
-   column takes the pane up to 920px with the page margins, rows sit 4px apart on a 20px line,
-   and the layout (`.cls-inline` default, `.cls-stack`, `.cls-grid`; the route's `sheet=`) sets a
-   row's title and line. No rules between days, no motion. */
+   under a small date heading. A day's changes sit under their app area (Leo 2026-11-02: "why is
+   the what's new the 0 information density one"): the area's accent glyph, its name and count,
+   then one line per change, its title and what its description adds, wrapped rather than cut with
+   "…" (Leo 2026-11-07: "i just still think it might be a bit too narrow in the full screen").
+   Wide (Leo 2026-11-01: "this is way too narrow and not info dense enough"): the column takes the
+   whole pane up to 920px, then 84% of it up to 1560px, so it grows with the window and a
+   full-screen window's rows fit on their line; it follows a resize continuously. The layout (`.cls-inline` default, `.cls-stack`,
+   `.cls-grid`; the route's `sheet=`) sets a row's title and line. No rules between days, no motion. */
 .cls {
-  --cls-column: 920px;
+  --cls-column: clamp(920px, 84%, 1560px);
   --cls-line: 20px;
   padding-block: var(--ds-space-6) calc(var(--ds-space-6) * 2);
   padding-inline: max(var(--ds-space-6), calc((100% - var(--cls-column)) / 2));
 }
 .cls-title {
-  margin: 0 0 20px;
+  margin: 0 0 16px;
   font-size: 1.6em; /* the page's one large text, relative to the body step */
   line-height: 1.2;
   font-weight: 700;
@@ -605,39 +604,155 @@ html[data-cmux-page="changelog"] {
   text-align: center;
   text-wrap: balance;
 }
-.cls .cls-day { padding-bottom: 0; margin-bottom: 20px; border-bottom: 0; }
+.cls .cls-day { padding-bottom: 0; margin-bottom: 16px; border-bottom: 0; }
 .cls-date {
   display: flex;
   align-items: baseline;
   gap: 8px;
-  margin: 0 0 6px;
+  margin: 0 0 4px;
   color: var(--page-text-2);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   font-weight: 600;
   letter-spacing: var(--text-detail--letter-spacing);
 }
-.cls-rows { display: grid; gap: var(--ds-space-1); margin: 0; padding: 0; list-style: none; }
-/* A day still loading holds about the three rows a day has, so the days under it barely move
-   when its rows arrive (gallery shift baselines many-builds and nightly-history). */
-.cls .clj-placeholder { height: calc(3 * var(--cls-line) + 2 * var(--ds-space-1)); }
-.cls-row { display: grid; grid-template-columns: var(--cls-line) minmax(0, 1fr); gap: var(--ds-space-3); align-items: start; }
+/* "Versions" (SheetPage SheetBuilds) sits at the header's end at the header's own line height, so
+   a day's header is as tall with it as without it and nothing under it moves. */
+.cls-date .cls-versions-toggle {
+  display: inline-flex;
+  gap: var(--ds-space-1);
+  height: auto;
+  margin-inline-start: auto;
+  padding-block: 0;
+  color: var(--page-text-3);
+  font-weight: 400;
+  line-height: inherit;
+}
+.cls-versions-toggle[aria-expanded="true"] { color: var(--page-text-2); }
+.cls-builds {
+  display: grid;
+  gap: 0;
+  margin: 0 0 var(--ds-space-2);
+  padding: 0;
+  padding-inline-start: calc(var(--cls-line) + var(--ds-space-2));
+  list-style: none;
+}
+/* One line per build: version, commit, changes, then its action in a fixed end column, so a row
+   whose button changes (Install, Restart into it, Checking…) moves nothing beside it. */
+.cls-build {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) auto auto 1fr;
+  align-items: center;
+  column-gap: var(--ds-space-3);
+  min-height: var(--cls-line);
+  font-variant-numeric: tabular-nums;
+}
+.cls-build-version { overflow: hidden; color: var(--page-text); text-overflow: ellipsis; white-space: nowrap; }
+.cls-build-link { color: var(--page-text-2); font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--text-caption); }
+.cls-build-link:hover { color: var(--cmux-accent, var(--page-text)); }
+.cls-build-action { display: flex; justify-content: flex-end; grid-column: 4; }
+.cls-build-failed { grid-column: 1 / -1; color: var(--page-text-2); font-size: var(--text-caption); }
+.cls-area { margin-top: var(--ds-space-2); }
+.cls-area-head {
+  display: grid;
+  grid-template-columns: var(--cls-line) auto auto;
+  justify-content: start;
+  align-items: center;
+  gap: var(--ds-space-2);
+  margin: 0;
+  color: var(--page-text);
+  font-size: inherit;
+  line-height: var(--cls-line);
+  font-weight: 600;
+}
+.cls-area-head .cl-count { color: var(--page-text-3); font-weight: 400; }
+.cls-rows { display: grid; gap: 0; margin: 0; padding: 0; padding-inline-start: calc(var(--cls-line) + var(--ds-space-2)); list-style: none; }
+/* A day still loading holds about the rows it will have (SheetPage placeholderRows, `--cls-rows`)
+   and the area headers they will sit under (placeholderAreas, `--cls-areas`; each a .cls-area's
+   margin and its .cls-area-head line), so the days under it barely move when its rows arrive. */
+.cls .clj-placeholder {
+  height: calc(var(--cls-rows, 3) * var(--cls-line) + var(--cls-areas, 1) * (var(--cls-line) + var(--ds-space-2)));
+}
+.cls-row {
+  min-width: 0;
+  line-height: var(--cls-line);
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
 .cls-icon { display: grid; place-items: center; width: var(--cls-line); height: var(--cls-line); color: var(--cmux-accent, var(--page-text)); }
 .cls-icon svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
-.cls-row-text { min-width: 0; line-height: var(--cls-line); }
-.cls-row-title { color: var(--page-text); font-weight: 600; }
+/* A row's kind (SheetPage KIND_GLYPHS) sits in the gutter under its area's glyph, out of the row's
+   flow so it moves nothing: positioned on the list, at its row's first line. */
+.cls-rows { position: relative; }
+.cls-kind {
+  position: absolute;
+  margin-inline-start: calc(-1 * (var(--cls-line) + var(--ds-space-2)));
+  color: var(--page-text-3);
+}
+.cls-kind svg { stroke-width: 1.8; }
+/* Grid rows sit in two columns; only the first has a gutter. */
+.cls-grid .cls-kind { display: none; }
+/* The change a click on the sidebar Updated card's list opened the page at (SheetPage
+   useFocusScroll): marked for a moment in the accent at low alpha, then faded back. The fade is
+   the only motion, so the page's motion gate turns it off only when motion is off. */
+.cls-row[data-focus],
+.cls-area[data-focus] {
+  background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 14%, transparent);
+  border-radius: var(--ds-radius-sm, 6px);
+}
+.cls-row[data-focus] { margin-inline: calc(-1 * var(--ds-space-1, 4px)); padding-inline: var(--ds-space-1, 4px); }
+:root:not([data-cmux-motion="off"]) :is(.cls-row, .cls-area) {
+  transition: background-color var(--cmux-motion-large) var(--cmux-ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.cls-row, .cls-area) { transition: none; }
+}
+.cls-row-title { color: var(--page-text); }
 .cls-row-line { color: var(--page-text-2); }
-/* Inline (default): the muted line follows the title on its line and wraps under it when long. */
-.cls-inline .cls-row-title,
-.cls-inline .cls-row-line { display: inline; }
-.cls-inline .cls-row-line { margin-inline-start: 0.6em; }
-/* Stack: the line tight under the title, one step smaller. */
-.cls-stack .cls-rows { gap: var(--ds-space-2); }
+.cls-row-line { margin-inline-start: 0.6em; }
+/* A public pull request's row (SheetPage, `prs=`): the title links it in the text's own colour,
+   the accent and an underline on hover; its number, muted and small, sits at the row's end. Hover
+   (default) keeps the number's place and shows it on the row's hover or focus, so nothing moves;
+   End always shows it; Row makes the whole row the link, with the page's hover fill. */
+.cls-row-link { color: inherit; text-decoration: none; cursor: default; }
+.cls-row-link:hover { color: var(--cmux-accent, var(--page-text)); text-decoration: underline; text-underline-offset: 3px; }
+.cls-row-pr {
+  margin-inline-start: 0.6em;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cls-prs-hover .cls-row-pr { visibility: hidden; }
+.cls-prs-hover .cls-row:hover .cls-row-pr,
+.cls-prs-hover .cls-row:has([data-popup-open]) .cls-row-pr,
+.cls-prs-hover .cls-row:focus-within .cls-row-pr { visibility: visible; }
+.cls-prs-row .cls-row { position: relative; border-radius: var(--ds-radius-sm); }
+.cls-prs-row .cls-row:has(.cls-row-link):hover { background: var(--page-hover); }
+.cls-prs-row .cls-row-link::after { content: ""; position: absolute; inset: 0; }
+.cls-prs-row .cls-row-link:hover { color: inherit; text-decoration: none; }
+.cls-prs-row .cls-row:hover .cls-row-link { color: var(--cmux-accent, var(--page-text)); }
+.cls-more {
+  display: inline-flex;
+  gap: var(--ds-space-1);
+  align-items: baseline;
+  margin-inline-start: calc(var(--cls-line) + var(--ds-space-2));
+}
+/* Stack: the line under the title, one step smaller; a row may wrap. */
+/* The number has no line of its own there: the title still links it. */
+.cls-stack .cls-row-pr,
+.cls-grid .cls-row-pr { display: none; }
+.cls-stack .cls-row-title,
+.cls-stack .cls-row-line,
+.cls-grid .cls-row-title,
+.cls-grid .cls-row-line { display: block; margin-inline-start: 0; overflow: hidden; text-overflow: ellipsis; }
+.cls-stack .cls-rows,
+.cls-grid .cls-rows { row-gap: var(--ds-space-1); }
 .cls-stack .cls-row-line,
 .cls-grid .cls-row-line {
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   letter-spacing: var(--text-detail--letter-spacing);
 }
-/* Grid: stacked rows in two columns once each can be 360px wide. */
-.cls-grid .cls-rows { grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); column-gap: var(--ds-space-5); row-gap: var(--ds-space-2); }
+/* Grid: an area's rows in two columns once each can be 360px wide. */
+.cls-grid .cls-rows { grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); column-gap: var(--ds-space-5); }

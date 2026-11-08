@@ -34,10 +34,17 @@ concurrency:
   group: cmux-next-cua-helper-identity-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
 jobs:
   helper-identity:
     name: cmux-next Computer Use helper identity
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    # An owned mini first: a same-repository run takes the side label on attempt 1, and
+    # main's rescue (owned_pool_rescue.py SIDE_WORKFLOW_PATHS) moves a stuck or refused job
+    # to Blacksmith macOS, the last resort a fork or a re-run takes directly.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 10
     permissions:
       contents: read

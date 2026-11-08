@@ -23,6 +23,35 @@ describe("cloud client transport", () => {
     expect(JSON.parse(String(seen[0]!.init.body))).toMatchObject({ op: "install.rename", idempotency_key: "k1", origin: "user" })
   })
 
+  it("omits idempotency keys for catalog no-key mutations", async () => {
+    const seen: Array<{ url: string; init: RequestInit }> = []
+    const client = createCloudClient({
+      baseUrl: "https://api.test",
+      token: () => "tok",
+      fetch: fakeFetch(200, { ok: true, value: { delivered: true, replayed: false }, revision: "", transaction: "tx", replayed: false, idempotency_key: "", stream: "team:t", sequence: 1 }, seen)
+    })
+    await client.mutate("cloud.vm.attention.emit", {
+      machine: "vm_00000000000000000000",
+      event_id: "evt-1",
+      kind: "done",
+      session: "session-1",
+      title: "Finished",
+      occurred_at: 1
+    }, { idempotencyKey: "must-not-be-sent", expectedRevision: "9" })
+    expect(JSON.parse(String(seen[0]!.init.body))).toEqual({
+      op: "cloud.vm.attention.emit",
+      params: {
+        machine: "vm_00000000000000000000",
+        event_id: "evt-1",
+        kind: "done",
+        session: "session-1",
+        title: "Finished",
+        occurred_at: 1
+      },
+      origin: "user"
+    })
+  })
+
   it("names the selected team with x-cmux-team, and sends no header without one", async () => {
     const seen: Array<{ url: string; init: RequestInit }> = []
     const reply = { op: "team_vm.status", value: {}, stream: "team_vm:team_x", revision: "1" }

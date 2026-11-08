@@ -70,7 +70,8 @@ const settledRow = (items: AcpmuxActivity[]): AcpmuxRow => ({
 async function render(row: AcpmuxRow) {
   const { createRoot } = await import("react-dom/client");
   const { ToolRows } = await import("../src/agent-session/acpmux/conversation/TurnRows");
-  const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
+  const { resetTranscriptDisclosure } =
+    await import("../src/agent-session/acpmux/conversation/transcriptDisclosureModel");
   resetTranscriptDisclosure();
   act(() => root?.unmount());
   root = createRoot(host);
@@ -113,9 +114,11 @@ test("an MCP call reads as what it did, with its raw id in the opened call", asy
 test("a running MCP call's line names its server and action, never the raw id", async () => {
   const { toolLabel } = await import("../src/agent-session/acpmux/toolPaths");
   const { mcpTitleName } = await import("../src/agent-session/acpmux/conversation/mcpCalls");
-  const { turnView, WORKING } = await import("../src/agent-session/acpmux/conversation/turns");
+  const { THINKING, turnView } = await import("../src/agent-session/acpmux/conversation/turns");
   const call = startSession("in_progress");
-  expect(toolLabel(call.tool!, call.text, (line) => line)).toBe("cmux-subsessions · start session sidebar-drag-bugs");
+  expect(toolLabel(call.tool!, call.text, (line) => line)).toBe(
+    "Using cmux-subsessions: start session sidebar-drag-bugs",
+  );
   expect(mcpTitleName("mcp__cmux__list_workspaces")).toBe("cmux · list workspaces");
   expect(mcpTitleName("Read config.ts")).toBeUndefined();
   // Two calls to one tool share a closed line, so the working line is what names the running one.
@@ -130,10 +133,9 @@ test("a running MCP call's line names its server and action, never the raw id", 
     { id: "a1", version: 1, at: 1, kind: "activity", items },
   ];
   const doing = (items: AcpmuxActivity[]) =>
-    turnView(run(items), new Set(), { working: true }).find((row) => row.kind === WORKING)?.doing;
-  expect(doing([listing("list-0", "completed"), listing("list-1", "in_progress")])).toBe("cmux · list workspaces");
-  // A running sub-session start draws its own card (subsessionCalls.ts), which names it: the line
-  // does not say it again.
+    turnView(run(items), new Set(), { working: true }).find((row) => row.kind === THINKING)?.doing;
+  expect(doing([listing("list-0", "completed"), listing("list-1", "in_progress")])).toBe("Using cmux: list workspaces");
+  // A running sub-session start leaves its run for the live line, which names it by its session.
   const earlier = { ...startSession(), tool: { ...startSession().tool!, id: "start-0" } };
-  expect(doing([earlier, call])).toBeUndefined();
+  expect(doing([earlier, call])).toBe("Using cmux-subsessions: start session sidebar-drag-bugs");
 });

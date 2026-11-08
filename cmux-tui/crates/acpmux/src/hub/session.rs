@@ -63,6 +63,7 @@ pub struct Session {
     /// Held while a child is spawned and initialized, so concurrent
     /// requests for a stopped session start one agent, not several.
     pub(super) spawn_lock: Mutex<()>,
+    pub(super) fork_lock: Mutex<()>,
     /// Serializes close/purge with transfer retirement before an ID can be reused.
     pub(super) close_lock: Mutex<()>,
     /// Held shared by a request that reaches the harness outside a turn (a start, a mode
@@ -93,8 +94,10 @@ pub struct Session {
     /// next agent's load begins. None is ever dropped unended: only such an abandoned start
     /// (one past the agent start budget) leaves one behind, a few bytes for the session's life.
     pub(super) replaying: StdMutex<Vec<u64>>,
-    /// The log's records past the saved `lastSeq` are counted (`Hub::catch_up`).
-    /// False from a deferred daemon start until the first append or the log load.
+    /// The log's records past the saved `lastSeq` are counted (`Hub::catch_up`): set only
+    /// once the count is done, under `append_lock`. False from a deferred daemon start until the
+    /// first append, the first replay or the log load. `Hub::scan_events` reads it without the
+    /// lock: true means its `last_seq` already counts the tail.
     pub(super) caught_up: AtomicBool,
     /// Whether its log is read after a deferred daemon start (`log_load.rs`): once, by the
     /// background pass or the first request for it, under this lock. `log_loaded` mirrors it
@@ -126,6 +129,8 @@ pub struct Session {
     /// that cancel is handed to the child prevents the next turn's prompt from overtaking it.
     pub(super) input_handoff: std::sync::Arc<Mutex<()>>,
     pub(super) turn: StdMutex<Option<TurnInfo>>,
+    /// When the person left it and the recap made meanwhile (`away_recap.rs`).
+    pub(super) away: StdMutex<super::away_recap::Away>,
     /// The turn `finish_turn` took and has not ended yet: a shutdown settles it if its end does
     /// not land within the grace (`shutdown.rs` `settle_ends`).
     pub(super) ending: StdMutex<Option<TurnInfo>>,
@@ -147,6 +152,12 @@ pub struct Session {
     /// Being moved to another daemon (`transfer_out.rs`): the transfer id. It takes no prompt
     /// and starts nothing queued until the move commits (it closes) or aborts.
     pub(super) moving: StdMutex<Option<String>>,
+    /// Fencing epoch for the daemon that owns this session. A move increments it; transfer
+    /// requests carry the value so a delayed writer from the previous owner cannot mutate state.
+    pub(super) ownership_epoch: AtomicU64,
+    /// Cleared when durable transfer history cannot be read; ownership must fail closed until
+    /// the daemon can establish the fencing floor.
+    pub(super) ownership_epoch_valid: AtomicBool,
     /// Latest durable transfer event (sequence, blocked), rebuilt once from the log.
     /// None until a restored log has been read successfully.
     pub(super) transfer_authority: StdMutex<Option<(u64, bool)>>,
@@ -175,6 +186,9 @@ pub struct Session {
     /// background subagent, a working sub-session), in ms; 0 while none does
     /// (`work_below.rs`).
     pub(super) work_below_since: StdMutex<u64>,
+    /// How many open sub-sessions below it wait on the person, and since when in ms; (0, 0)
+    /// while none does (`asks_below.rs`).
+    pub(super) asks_below: StdMutex<(u32, u64)>,
     /// A turn ended unseen while that work still ran: the chat turns unread when the work ends
     /// (manaflow-ai/cmux#25563, `work_below.rs`).
     pub(super) unread_after_work: AtomicBool,
@@ -220,6 +234,11 @@ pub struct Session {
     /// its agent start has no deadline while its harness works on it, and says it is still
     /// starting (`lifecycle.rs` `person_start`). Never set by an agent's or a lane's request.
     pub(super) person: AtomicBool,
+    /// Its creator asked its agent start to wait on the harness rather than a wall clock
+    /// (`NewRequest::wait_start`; the Chief, whose turn answers a person's message): the start
+    /// ends when the harness stops working (`lifecycle.rs` `StartWatch`), and says it is still
+    /// starting. Unlike `person` it proves nothing about who asks and opens nothing else.
+    pub(super) wait_start: AtomicBool,
     /// Steers into the running turn by prompt id (`steer_end.rs`): Send now stops the agent's
     /// step for one that waits (`queue_edit.rs`).
     pub(super) steer_now: StdMutex<SteerNow>,
@@ -249,9 +268,22 @@ pub struct Session {
     /// How many times its turn was stopped (`cancel.rs`): a prompt whose model-sized copies were
     /// made meanwhile is not written (`turns.rs`).
     pub(super) cancels: AtomicU64,
+    /// Woken by a Stop of its turn and a stop of the chat: a prompt whose agent start waits to be
+    /// tried again (`start_retry.rs`) ends that wait at once.
+    pub(super) start_retry_wake: Notify,
+    /// A prompt's agent start waits to be tried again (`start_retry.rs`): the row reads `starting`.
+    pub(super) start_retry_waits: AtomicBool,
+    /// The turn's Stop count while a retry's agent start runs (`start_retry.rs`, `NO_RETRY`
+    /// otherwise): a Stop since ends that start.
+    pub(super) start_retry_cancels: AtomicU64,
     /// The turn id whose forced cancellation was already published. A second
     /// Stop for the same turn must not publish another forced answer.
     pub(super) cancel_forced_turn: StdMutex<Option<String>>,
+    /// The turn whose own prompt is not handed to its agent yet, and whether a Stop fenced it
+    /// meanwhile (`cancel.rs`). A fenced prompt is never written (`steer_end.rs`), so its Stop
+    /// sends the agent no `session/cancel`: with no prompt of the turn to stop, a harness could
+    /// keep that cancel and end the next turn with it.
+    pub(super) unwritten_prompt: StdMutex<Option<(String, bool)>>,
     /// The forced `turn_result` already written for a turn, if any. This is
     /// separate from `cancel_forced_turn`: several prompt waiters can observe
     /// the same forced answer, but only one may append the result.
@@ -344,6 +376,9 @@ pub struct Session {
     /// Bumps on every sign of the model and every new or held count (`stalled_turn.rs`): a
     /// stalled end decided at one value is not carried out at another.
     pub(super) stalled_gen: AtomicU64,
+    /// The turn a refused sign-in's end is scheduled for (`turn_retry.rs`): its later retries
+    /// schedule no second end.
+    pub(super) sign_in_refused_turn: StdMutex<Option<String>>,
     /// Unix ms of the agent's last sign of its model at work (as `heard`); 0: none since load.
     /// A running turn quiet since then, with no tool call in flight, stalls (`views.rs`).
     pub(super) last_model_at: AtomicU64,
@@ -383,6 +418,10 @@ pub struct Session {
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end
     /// (`pull_requests.rs`).
     pub(super) pr_creates: StdMutex<std::collections::HashMap<String, Option<String>>>,
+    /// Files its tool calls just edited, for the who-else notice (`touched.rs`).
+    pub(super) touch_queue: StdMutex<Vec<(String, String)>>,
+    /// The sessions it was told share its files, once each (`touched.rs`).
+    pub(super) overlaps_told: StdMutex<std::collections::HashSet<String>>,
     /// Its agent's `start_session` tool calls that run, with their input (`lineage.rs`).
     pub(super) start_calls: StdMutex<std::collections::HashMap<String, Value>>,
     /// The places typing into it, and who sent its prompts (`composers.rs`).
@@ -390,6 +429,29 @@ pub struct Session {
 }
 
 impl Session {
+    /// The fencing epoch currently held by this session owner.
+    pub(crate) fn ownership_epoch(&self) -> u64 {
+        self.ownership_epoch.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn ownership_epoch_is_valid(&self) -> bool {
+        self.ownership_epoch_valid.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn invalidate_ownership_epoch(&self) {
+        self.ownership_epoch_valid.store(false, Ordering::SeqCst);
+    }
+
+    /// Transfer ownership to a new daemon incarnation. Epoch zero is the legacy value; every
+    /// move gets a strictly larger value, including a move retried after an abort.
+    pub(super) fn bump_ownership_epoch(&self) -> u64 {
+        self.ownership_epoch.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// Restore an epoch observed in the durable transfer log without ever moving it backwards.
+    pub(super) fn restore_ownership_epoch(&self, epoch: u64) {
+        self.ownership_epoch.fetch_max(epoch, Ordering::SeqCst);
+    }
     /// The person wrote to this chat (`Session::person`): its next agent start waits as long as
     /// its harness works on it.
     pub(crate) fn person_wrote(&self) {
@@ -697,9 +759,13 @@ impl Session {
     pub fn moving(&self) -> Option<String> {
         self.moving.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
-    /// A failed turn holds the prompts that waited behind it (`queue.rs` `pause_queue`).
+    /// A prompt a hold keeps waits for the person's Resume (`queue.rs` `pause_queue`,
+    /// `QueuedPrompt::waits_for_resume`). What a failed turn held goes in again by itself after
+    /// its wait, so that pauses nothing.
     pub fn queue_paused(&self) -> bool {
-        self.queue.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|q| q.held)
+        let stop_held = self.stop_hold.load(Ordering::SeqCst) != 0;
+        let queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
+        queue.iter().any(|q| q.held && q.waits_for_resume(stop_held))
     }
     pub fn pending_permissions(&self) -> Vec<(String, Value)> {
         self.permissions
@@ -709,6 +775,10 @@ impl Session {
             .iter()
             .map(|(k, v)| (k.clone(), v.request.clone()))
             .collect()
+    }
+    /// An open sub-session below it waits on the person (`asks_below.rs`).
+    pub(crate) fn waits_below(&self) -> bool {
+        self.asks_below.lock().unwrap_or_else(|e| e.into_inner()).0 > 0
     }
     pub(crate) fn has_pending_permissions(&self) -> bool {
         !self.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty()
@@ -850,5 +920,30 @@ impl SessionStderr {
             self.open.insert(source, stream);
         }
         clean
+    }
+}
+
+/// A held `spawn_lock` that a list sees: taking it and letting it go each count as a change
+/// (`list_guard::Events::changed`), so a cached session list never shows a start that began or
+/// ended since it was built. A row's `starting` reads the lease; an update waits on it.
+pub(super) struct SpawnLease<'a> {
+    guard: Option<tokio::sync::MutexGuard<'a, ()>>,
+    events: &'a super::list_guard::Events,
+}
+
+impl Drop for SpawnLease<'_> {
+    fn drop(&mut self) {
+        // Released first, then counted: a list built after the count reads it free.
+        drop(self.guard.take());
+        self.events.changed();
+    }
+}
+
+impl Hub {
+    /// `session.spawn_lock`, held as a [`SpawnLease`].
+    pub(super) async fn spawn_lease<'a>(&'a self, session: &'a Session) -> SpawnLease<'a> {
+        let guard = session.spawn_lock.lock().await;
+        self.events.changed();
+        SpawnLease { guard: Some(guard), events: &self.events }
     }
 }

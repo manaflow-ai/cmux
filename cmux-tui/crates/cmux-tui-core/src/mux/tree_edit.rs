@@ -403,7 +403,7 @@ pub(super) fn layout_undo_confirmation_details(
     }
     let confirmation_token =
         hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect::<String>();
-    let revision = registry.resource_topology_snapshot()?.revision;
+    let revision = registry.resource_revision()?;
     Ok(serde_json::json!({
         "revision":revision.to_string(),
         "confirmation_token":confirmation_token,
@@ -492,11 +492,17 @@ pub(super) fn remove_surface(
     };
     let pane = state.panes.get_mut(&pane_id).expect("pane_of returned live id");
     let idx = pane.tabs.iter().position(|id| *id == target).expect("tab in pane");
+    let selected = pane.active_surface();
+    let old_order = pane.tabs.clone();
     pane.tabs.remove(idx);
     if !pane.tabs.is_empty() {
-        if pane.active_tab >= idx && pane.active_tab > 0 {
-            pane.active_tab -= 1;
-        }
+        // The app's rule, from the one place it lives: the tab before the
+        // closed one, else the one after it; an unselected close keeps it.
+        let shown: HashSet<SurfaceId> = pane.tabs.iter().copied().collect();
+        let pick =
+            cmux_focus_core::close_focus::tab(selected.as_ref(), &old_order, &pane.tabs, &shown);
+        pane.active_tab =
+            pick.and_then(|pick| pane.tabs.iter().position(|id| *id == pick)).unwrap_or(0);
         fence_layout_undo_for_tab_membership(state, &[pane_id]);
         return (removed, false);
     }

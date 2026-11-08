@@ -86,8 +86,9 @@ public final class UpdaterService {
     @ObservationIgnored var releasePushRetry: DemandTimer
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
-    /// Opens the changelog page for the releases after `from` up to `to` (set by the App).
-    @ObservationIgnored public var openChangelogSpan: ((_ from: String, _ to: String) -> Bool)?
+    /// Opens the changelog page for the releases after `from` up to `to`, scrolled to `focus`
+    /// when given (set by the App).
+    @ObservationIgnored public var openChangelogSpan: ((_ from: String, _ to: String, _ focus: ChangelogFocus?) -> Bool)?
     /// Opens a web release notes page in a browser tab (set by the App;
     /// "See all changes" when the staged build has no signed notes).
     @ObservationIgnored public var openReleaseNotesURL: ((URL) -> Bool)?
@@ -203,6 +204,9 @@ public final class UpdaterService {
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
     @ObservationIgnored let now: () -> Date
+    /// The running download's speed and time left (``syncFlowPhase()`` records each byte count). Read
+    /// only when the card's phase changes, so it needs no observation of its own.
+    @ObservationIgnored var transferRate = UpdateTransferRate()
     #if DEBUG || CMUX_BENCH_HOOKS
     /// The card kind last written to the update harness's timeline.
     @ObservationIgnored var markedCardKind: String?
@@ -256,7 +260,8 @@ public final class UpdaterService {
     /// - Parameter enableSparkle: false builds no Sparkle driver even for a
     ///   release identity (tests, demos).
     /// - Parameter recordsUpdates: false neither writes nor reads the update
-    ///   record What's New shows after an update (tests, demos).
+    ///   record What's New shows after an update, nor the updater's log file
+    ///   (tests, demos).
     public init(identity: UpdateBuildIdentity = .main(),
                 policy: ManagedUpdatePolicy = .live(),
                 prober: UpdateProber = UpdateProber(),
@@ -285,8 +290,14 @@ public final class UpdaterService {
         self.lastUpdates = lastUpdates
         whatsNew = WhatsNewCenter(currentVersion: identity.shortVersion, currentBuild: identity.build, defaults: defaults,
                                   sources: Self.whatsNewSources(identity: identity), lastUpdates: lastUpdates)
-        let log = UpdateLogBuffer()
+        // On disk too (``UpdateLogFile``): unified logging kept none of a nightly's updater lines.
+        let file = recordsUpdates ? identity.bundleIdentifier.flatMap { UpdateLogFile.app(bundleIdentifier: $0, work: work) } : nil
+        let log = UpdateLogBuffer(file: file)
         self.log = log
+        // Which build this launch runs, and whether an automatic install reopened it behind the
+        // person's app: with the lines before the quit, the file says what relaunched cmux.
+        log.append("launch \(identity.shortVersion) build \(identity.build) (\(identity.track)), pid \(ProcessInfo.processInfo.processIdentifier)"
+            + (CommandLine.arguments.contains(UpdateRelaunchFocus.reopenArgument) ? ", reopened behind by an automatic install" : ""))
         relaunchMomentHold = UpdateRelaunchMomentHold(clock: clock, log: { [log] in log.append($0) })
         releasePush = ReleasePushListener(runningBuild: identity.build, clock: clock, log: { [log] in log.append($0) })
         // The managed policy is re-read by the driver on every start and check,
@@ -510,7 +521,7 @@ public final class UpdaterService {
             // flow (a fresh check that installs the newest at once). The
             // user asked, so its progress and result show on the notice
             // card (up to date, downloading, the failure), as for a check.
-            send(.checkRequested)
+            send(.attemptRequested)
             controller.attemptUpdate()
         }
     }

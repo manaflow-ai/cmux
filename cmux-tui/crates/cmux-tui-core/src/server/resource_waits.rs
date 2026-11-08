@@ -109,12 +109,10 @@ fn run_terminal_resource_wait(
             })
         })
         .transpose()?;
-    let check = || -> Result<String, ResourceError> {
-        surface
-            .try_with_terminal(|terminal| terminal.viewport_text())
-            .map_err(resource_wait_runtime_error)?
-            .map_err(resource_wait_runtime_error)
-    };
+    // `new` (`terminal-wait-new-v1`): only text printed below the cursor's
+    // line as the wait starts can match, never a typed command's echo.
+    let text = crate::resource_router::WaitText::start(&surface, &request.fields)?;
+    let check = || text.read();
     loop {
         if resource_wait_stopped(canceled, writer) {
             return Ok(None);

@@ -17,9 +17,14 @@ public struct WarmSetBudget: Hashable, Sendable {
         self.terminalCapacity = max(0, terminalCapacity)
     }
 
-    /// Measured cost of one hidden terminal surface in the app's footprint
-    /// (triple-buffered IOSurfaces at a 1100x720 point window on a 2x
-    /// display, grid, atlas share): about 48 MB.
+    /// Cost of one warm hidden terminal surface in the app's footprint, with a
+    /// margin. Measured 2026-11-02 on a 2x display (3024x1964 px), bench build,
+    /// plain shells: about 32 MB per warm hidden terminal with the window at the
+    /// full visible frame (1512x879 pt), about 18 MB at 70% (1058x615 pt); an
+    /// evicted one keeps only its volatile last frame. 48 MB is the larger
+    /// measurement plus 50%. A warm hidden terminal that prints also costs app
+    /// CPU while hidden (about 1% each at 20 lines/s), so a larger warm set is
+    /// not free in CPU either (SWITCH FRAMES SF-2, SF-5).
     public static let terminalCostBytes: UInt64 = 48 << 20
 
     /// 1/64 of physical memory for hidden terminal surfaces (8 to 24: the

@@ -515,7 +515,7 @@ class Decide(unittest.TestCase):
                                    GITHUB_OUTPUT=str(output)))
             lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
             self.assertEqual(lines["owned_jobs"], " cmux-scheme-compile ")
-            bot.runners.assert_called_once_with()
+            bot.runners.assert_called_once_with(include_repository=False)
 
     def test_timeout_publishes_default_route_instead_of_hanging(self):
         with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
@@ -972,6 +972,25 @@ class GatewayRoute(unittest.TestCase):
         self.assertIn("no idle runner left for fast-tier-fleet", dropped.why)
         self.assertIs(placement.fleet_gateway(self.fleet_placed(), values, one, LIGHT_SIDE).fleet_jobs, ())
 
+    def test_a_kept_fleet_job_leaves_its_blacksmith_label_and_a_dropped_one_keeps_it(self):
+        # next_macos_cascade.place() lists a job a Blacksmith macOS label took (cmux#38130: a cold 6 vCPU
+        # build ran out the fast tier's 20 minutes); it leaves that label only for an idle gateway runner.
+        small = placement.cascade.SMALL
+        placed = placement.cascade.Placement({placement.cascade.LARGE: (), small: ("fast-tier", "generated-files")},
+                                             "", "placed", fleet_jobs=("fast-tier",))
+        values = {"GATEWAY_LABEL": LIGHT_SIDE, "GATEWAY_JOBS": "swift-canary-fleet"}
+        kept = placement.fleet_gateway(placed, values, self.light(False, False), LIGHT_SIDE)
+        self.assertEqual((kept.fleet_jobs, kept.jobs[small]), (("fast-tier",), ("generated-files",)))
+        dropped = placement.fleet_gateway(placed, values, self.light(False, True), LIGHT_SIDE)
+        self.assertEqual((dropped.fleet_jobs, dropped.jobs[small]), ((), ("fast-tier", "generated-files")))
+        rerun = placement.fleet_gateway(placed, values, self.light(False, False), "")
+        self.assertEqual((rerun.fleet_jobs, rerun.jobs[small]), ((), ("fast-tier", "generated-files")))
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            placement.cascade.write(kept, {"GITHUB_OUTPUT": str(out)})
+            lines = dict(line.split("=", 1) for line in out.read_text().splitlines())
+            self.assertEqual((lines["blacksmith_6_jobs"], lines["fleet_jobs"]), (" generated-files ", " fast-tier "))
+
     def test_main_lists_a_fleet_job_only_with_a_gateway_runner_for_its_client(self):
         values = {"GATEWAY_LABEL": LIGHT_SIDE, "GATEWAY_JOBS": "swift-canary-fleet", "CASCADE_RUNS": ""}
         for runners, listed in ((self.light(False, False), " fast-tier "), (self.light(False, True), "")):
@@ -980,6 +999,31 @@ class GatewayRoute(unittest.TestCase):
                 lines = self.run_main(runners, **values)
                 self.assertEqual(lines["gateway_runner"], LIGHT_SIDE)
                 self.assertEqual(lines["fleet_jobs"], listed)
+
+    def test_a_persons_rerun_places_the_fast_tier_on_an_idle_gateway(self):
+        # #38130 (run 42434830670): attempt 2, a person's re-run of failed jobs, carried attempt 1's placement,
+        # so the fast tier took Blacksmith 6 vCPU's cold build again and ran out its 20 minutes. The re-run's
+        # own placement reads the gateway now and lists the tier for its build-fleet client.
+        rerun = {"PLACEMENT": "rerun-fleet", "GITHUB_RUN_ATTEMPT": "2", "GITHUB_TRIGGERING_ACTOR": "someone",
+                 "FAST_TIER_STATUS": "queued", "GATEWAY_LABEL": LIGHT_SIDE}
+        lines = self.run_main(self.light(True, False), **rerun)
+        self.assertEqual((lines["fleet_jobs"], lines["gateway_runner"], lines["gateway_attempt"]),
+                         (" fast-tier ", LIGHT_SIDE, "2"))
+        # A busy light gateway spills to an idle std side runner, as gateway_route() does.
+        self.assertEqual(placement.rerun_fleet({**rerun, "GITHUB_RUN_ATTEMPT": "3"},
+                                               self.light(True) + self.std(False))[0], SIDE)
+        for why, values, runners in (
+                ("no idle gateway runner", rerun, self.light(True, True)),
+                ("runners unread", rerun, None),
+                ("the tier's earlier result is carried", {**rerun, "FAST_TIER_STATUS": "completed"}, self.light(False)),
+                ("the tier's status is unread", {**rerun, "FAST_TIER_STATUS": ""}, self.light(False)),
+                ("attempt 1", {**rerun, "GITHUB_RUN_ATTEMPT": "1"}, self.light(False)),
+                ("the rescue's re-run", {**rerun, "GITHUB_TRIGGERING_ACTOR": "github-actions[bot]"}, self.light(False)),
+                ("no gateway variable", {**rerun, "GATEWAY_LABEL": ""}, self.light(False))):
+            with self.subTest(why=why):
+                self.assertEqual(placement.rerun_fleet(values, runners)[0], "")
+        lines = self.run_main(self.light(True, True), **rerun)
+        self.assertEqual((lines["fleet_jobs"], lines["gateway_runner"], lines["gateway_attempt"]), ("", "", ""))
 
     def test_a_rerun_lists_no_fleet_job(self):
         self.assertEqual(placement.fleet_gateway(self.fleet_placed("fast-tier"), {}, self.light(False, False), "")
@@ -1657,6 +1701,32 @@ class FeedReplyFullText(unittest.TestCase):
     def test_verify_stays_hosted(self):
         # verify waits up to 30 min on another run and drives a GUI app; it keeps Blacksmith.
         self.assertEqual(evaluate(self.runs_on("verify"), self.context()), FALLBACK)
+
+
+class SmallMacChecks(unittest.TestCase):
+    """The zsh HEAD watcher and Computer Use helper checks hold no secrets and change no session, so a
+    same-repository run takes the owned side label on attempt 1; Blacksmith macOS is the last resort."""
+
+    JOBS = (("cmux-next-shell-integration.yml", "zsh-head-watch"),
+            ("cmux-next-cua-helper-identity.yml", "helper-identity"))
+
+    def context(self, event: str = "pull_request", attempt: str = "1", owned: str = "1",
+                head: str = "manaflow-ai/cmux", owner: str = "manaflow-ai") -> dict:
+        context = github_context(event, CI_PR_POOL_OWNED=owned, CI_SIDE_LANE_RUNNER=SIDE)
+        context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, repository_owner=owner,
+                                 event={"pull_request": {"head": {"repo": {"full_name": head}}}})
+        return context
+
+    def test_attempt_1_takes_the_side_lane_and_everything_else_blacksmith(self):
+        for name, job in self.JOBS:
+            runs_on = yaml.safe_load((WORKFLOWS / name).read_text(encoding="utf-8"))["jobs"][job]["runs-on"]
+            with self.subTest(workflow=name):
+                for event in ("pull_request", "push", "workflow_dispatch"):
+                    self.assertEqual(evaluate(runs_on, self.context(event=event)), SIDE, event)
+                self.assertEqual(evaluate(runs_on, self.context(attempt="2")), FALLBACK)
+                self.assertEqual(evaluate(runs_on, self.context(owned="0")), FALLBACK)
+                self.assertEqual(evaluate(runs_on, self.context(head="someone/cmux")), FALLBACK)
+                self.assertEqual(evaluate(runs_on, self.context(owner="someone")), "macos-26")
 
 
 class SingleHostRoute(unittest.TestCase):

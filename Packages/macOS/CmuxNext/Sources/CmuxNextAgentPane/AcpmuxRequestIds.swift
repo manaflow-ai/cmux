@@ -120,14 +120,19 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         let methodScan = Self.topLevelMethod(text)
         var method = methodScan.value
         var notificationObject: [String: Any]?
+        /// The escape check's parse of a frame without a method (a reply), kept for the reply path.
+        var replyObject: [String: Any]?
         // JSON method names are normally plain ASCII. If an escaped key or value appears, use
         // Foundation once to decode that rare spelling before deciding whether host observers
         // need the object; plain stream notifications never take this path.
         if method?.contains("\\") == true || (!methodScan.found && text.contains("\\")) {
-            if let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
-               let decoded = object["method"] as? String {
-                method = decoded
-                notificationObject = object
+            if let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] {
+                if let decoded = object["method"] as? String {
+                    method = decoded
+                    notificationObject = object
+                } else {
+                    replyObject = object
+                }
             }
         }
         if let method, Self.observedNotificationMethods.contains(method) {
@@ -149,7 +154,7 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         if methodScan.found {
             return .page(text, object: nil, replyTo: nil)
         }
-        guard var object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return .drop }
+        guard var object = replyObject ?? (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] else { return .drop }
         guard let relayID = object["id"].flatMap(AcpmuxPaneMethods.rawID).flatMap({ Int($0) }) else { return .drop }
         state.withLock { $0.answered.removeValue(forKey: relayID) }?(object["error"] == nil && object["result"] != nil)
         guard let entry = state.withLock({ state -> Entry? in

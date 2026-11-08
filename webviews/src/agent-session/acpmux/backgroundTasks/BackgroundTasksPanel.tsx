@@ -22,10 +22,15 @@
 // page lands, then the agent's rows; its progress refreshes it while it is open, and closing it
 // disposes the reader. Workflow agents open only where the app reads workflows (Labs), as elsewhere.
 //
-// What runs turns the shared spinner, never a pulsing dot. Its one clock ticks each second only
-// while something runs and the pane shows (SubagentGroup.tsx `useNow`), and stops with the panel.
+// What runs draws no running symbol (no spinner, no pulsing dot), only its ticking time and its
+// filled square Stop, as Claude Desktop's panel reads (Leo, 2026-11-03: "do we really need a
+// running symbol vs just having the time and a square stop button?"). Its one clock ticks each
+// second only while something runs and the pane shows (SubagentGroup.tsx `useNow`), and stops
+// with the panel.
+import { Button } from "../../../ui/Button";
 import {
   createContext,
+  Fragment,
   useCallback,
   useContext,
   useLayoutEffect,
@@ -35,11 +40,11 @@ import {
   type ReactNode,
 } from "react";
 import { formatDuration } from "../conversation/turns";
-import { ChevronLeft, Close, Expand, Spinner } from "../conversation/icons";
+import { ChevronLeft, Close, Expand } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
-import { useNow } from "../subagents/SubagentGroup";
+import { useNow } from "../subagents/subagentGroupModel";
 import type { WorkflowAgent } from "../summary/workflow";
 import type { TranscriptRead } from "../summary/workflowTranscript";
 import { useWorkflowTranscript } from "../summary/useWorkflowTranscript";
@@ -51,8 +56,12 @@ import {
   type BackgroundTask,
   type StopTarget,
 } from "./backgroundTasks";
-import { NestedAgents, SubagentTranscript } from "./SubagentTranscript";
+import { BackgroundTaskCard } from "./BackgroundTaskCard";
+import { FOCUS_FRESH_MS } from "./openBackgroundTasks";
+import { SubagentTranscript } from "./SubagentTranscript";
+import { NestedAgents } from "./subagentTranscriptModel";
 import "./backgroundTasks.css";
+import { FINISHED_PAGE, type PanelSection, panelSections } from "./backgroundTasksPanelModel";
 
 /// Whether this chat's subagents stop on their own (Claude Code's do; App.tsx `stopsSubagents`): a
 /// subagent's row shows no stop button where it would do nothing (never a dead click).
@@ -63,8 +72,9 @@ const StopsAgents = createContext(true);
 export type WorkflowReads = { sessionId?: string; chat: string; connection: string; read: TranscriptRead };
 const Workflows = createContext<WorkflowReads | undefined>(undefined);
 
-/// How many finished tasks a group lists before Show more, and how many more each press adds.
-export const FINISHED_PAGE = 8;
+/// Whether the host reads a command's output (a chat on this Mac, App.tsx `canReadTail`); without it
+/// a command's card shows its command alone, never a "No output yet" that would never change.
+const ReadsOutput = createContext(true);
 
 /// The gallery's arms (BackgroundTasksPanel.gallery.tsx). `nested` is Claude Desktop's shape and
 /// the one that ships; `flat` lists the running tasks under each agent with no counts line to open;
@@ -80,7 +90,9 @@ export function BackgroundTasksPanel({
   look = "nested",
   expanded = false,
   initialDrill,
+  focus,
   stopsAgents = true,
+  readsOutput = true,
   workflow,
   onStop,
   onClearFinished,
@@ -97,13 +109,21 @@ export function BackgroundTasksPanel({
   expanded?: boolean;
   /// A gallery or a test opens on a transcript.
   initialDrill?: Drill;
+  /// The latest request to open on one of the chat's own commands (openBackgroundTasks.ts, Session
+  /// Info's row): each new one steps back to the list, opens the command's heading and card, and
+  /// brings the card into view. One already old when the panel first draws is history.
+  focus?: { toolCallId: string; at: number };
   stopsAgents?: boolean;
+  /// The host reads a command's output (BackgroundTaskOutputContext); off, its card shows the command.
+  readsOutput?: boolean;
   /// Reads a workflow agent's transcript; unset (Labs off), a workflow's agents open nothing.
   workflow?: WorkflowReads;
   onStop?(target: StopTarget): Promise<unknown>;
   onClearFinished(ids: string[]): void;
-  onExpand(): void;
-  onClose(): void;
+  /// Unset (the panel is a tab of its own, backgroundPane.ts), no Expand button.
+  onExpand?(): void;
+  /// Unset (its own tab, which the tab's own close closes), no Close button and Escape closes nothing.
+  onClose?(): void;
   /// A started chat's row opens that chat; unset leaves it plain text.
   onOpenSession?(sessionId: string): void;
   /// A command's row opens its terminal; unset leaves it plain text.
@@ -118,6 +138,14 @@ export function BackgroundTasksPanel({
   // Workflows turned off (Labs) while a workflow agent's transcript shows: there is nothing to read
   // it with, so the panel steps back out of it rather than show a blank pane.
   if (!workflow && stack.some((entry) => entry.workflow)) setStack(stack.filter((entry) => !entry.workflow));
+  // The request the panel acts on, and the latest one it has seen.
+  const [target, setTarget] = useState(() => (focus && Date.now() - focus.at < FOCUS_FRESH_MS ? focus : undefined));
+  const [seenFocus, setSeenFocus] = useState(focus?.at);
+  if (focus && focus.at !== seenFocus) {
+    setSeenFocus(focus.at);
+    setTarget(focus);
+    if (stack.length > 0) setStack([]);
+  }
   const drill = stack.at(-1);
   const list = useRef<HTMLDivElement>(null);
   const listScroll = useRef(0);
@@ -138,66 +166,133 @@ export function BackgroundTasksPanel({
     ),
   };
   const finished = useMemo(() => finishedGroupIds(groups), [groups]);
+  const sections = useMemo(() => panelSections(groups), [groups]);
   const drilled = drill && agentOf(groups, drill.agentId);
   return (
     <StopsAgents.Provider value={stopsAgents}>
-      <Workflows.Provider value={workflow}>
-        <PanelFrame
-          title={drill ? (drilled?.name ?? drill.agentId) : t("backgroundTasks.title")}
-          back={drill ? back : undefined}
-          backLabel={t("backgroundTasks.back")}
-          clear={!drill && finished.length > 0 ? () => onClearFinished(finished) : undefined}
-          expanded={expanded}
-          onExpand={onExpand}
-          onClose={onClose}
-        >
-          <div ref={list} className="acpmux-bg__list" data-look={look} hidden={drill !== undefined}>
-            {groups.length === 0 ? (
-              <p className="acpmux-bg__empty">{t("backgroundTasks.empty")}</p>
-            ) : (
-              groups.map((group, index) => (
-                <GroupBlock
-                  key={group.id}
-                  group={group}
-                  look={look}
-                  now={now}
-                  startsOpen={index === 0 && isLive(group)}
-                  onDrill={open}
-                  onStop={onStop}
-                  onOpenSession={onOpenSession}
-                  onOpenCommand={onOpenCommand}
+      <ReadsOutput.Provider value={readsOutput}>
+        <Workflows.Provider value={workflow}>
+          <PanelFrame
+            title={drill ? (drilled?.name ?? drill.agentId) : t("backgroundTasks.title")}
+            back={drill ? back : undefined}
+            backLabel={t("backgroundTasks.back")}
+            clear={!drill && finished.length > 0 ? () => onClearFinished(finished) : undefined}
+            expanded={expanded}
+            onExpand={onExpand}
+            onClose={onClose}
+          >
+            <div ref={list} className="acpmux-bg__list" data-look={look} hidden={drill !== undefined}>
+              {groups.length === 0 ? (
+                <p className="acpmux-bg__empty">{t("backgroundTasks.empty")}</p>
+              ) : (
+                sections.map((section) => (
+                  <Section
+                    key={section.id}
+                    id={section.id}
+                    count={section.groups.length + section.commands.length}
+                    openAt={focusedIn(section.commands, target)}
+                  >
+                    {section.commands.map((task) => (
+                      <TaskRow
+                        key={task.id}
+                        task={task}
+                        openAt={focusedIn([task], target)}
+                        now={now}
+                        onDrill={open}
+                        onStop={onStop}
+                        onOpenCommand={onOpenCommand}
+                      />
+                    ))}
+                    {section.groups.map((group, index) => (
+                      <GroupBlock
+                        key={group.id}
+                        group={group}
+                        look={look}
+                        now={now}
+                        startsOpen={section.id === "running" && index === 0}
+                        onDrill={open}
+                        onStop={onStop}
+                        onOpenSession={onOpenSession}
+                        onOpenCommand={onOpenCommand}
+                      />
+                    ))}
+                  </Section>
+                ))
+              )}
+            </div>
+            {drill?.workflow && workflow && (
+              // Workflow transcripts list no nested agents today (summary/workflowTranscript.ts reads
+              // them with no subagents); should one, it opens and stops as anywhere else in the panel.
+              <NestedAgents.Provider value={nested}>
+                <WorkflowAgentTranscript
+                  key={`${stack.length}:${drill.agentId}`}
+                  pane={drill.agentId}
+                  agent={drilled?.workflow}
+                  running={drilled?.state === "running"}
+                  reads={workflow}
                 />
-              ))
+              </NestedAgents.Provider>
             )}
-          </div>
-          {drill?.workflow && workflow && (
-            // Workflow transcripts list no nested agents today (summary/workflowTranscript.ts reads
-            // them with no subagents); should one, it opens and stops as anywhere else in the panel.
-            <NestedAgents.Provider value={nested}>
-              <WorkflowAgentTranscript
-                key={`${stack.length}:${drill.agentId}`}
-                pane={drill.agentId}
-                agent={drilled?.workflow}
-                running={drilled?.state === "running"}
-                reads={workflow}
-              />
-            </NestedAgents.Provider>
-          )}
-          {drill && !drill.workflow && (
-            <NestedAgents.Provider value={nested}>
-              <SubagentTranscript
-                key={`${stack.length}:${drill.agentId}`}
-                rows={views?.[drill.agentId] ?? []}
-                running={drilled?.state === "running"}
-                anchor={drill.rowId}
-              />
-            </NestedAgents.Provider>
-          )}
-        </PanelFrame>
-      </Workflows.Provider>
+            {drill && !drill.workflow && (
+              <NestedAgents.Provider value={nested}>
+                <SubagentTranscript
+                  key={`${stack.length}:${drill.agentId}`}
+                  rows={views?.[drill.agentId] ?? []}
+                  running={drilled?.state === "running"}
+                  anchor={drill.rowId}
+                />
+              </NestedAgents.Provider>
+            )}
+          </PanelFrame>
+        </Workflows.Provider>
+      </ReadsOutput.Provider>
     </StopsAgents.Provider>
   );
 }
+
+/// A heading that folds its groups: Running open at first, Finished folded, as Claude Desktop's panel
+/// opens (Leo, 2026-11-07); its fold is the panel's own state, so Back from a transcript finds it as
+/// it was.
+function Section({
+  id,
+  count,
+  openAt,
+  children,
+}: {
+  id: PanelSection["id"];
+  count: number;
+  /// A request to open on a command under it (`focus`): each new one opens the heading.
+  openAt?: number;
+  children: ReactNode;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(id === "running" || openAt !== undefined);
+  const [openedAt, setOpenedAt] = useState(openAt);
+  if (openAt !== undefined && openAt !== openedAt) {
+    setOpenedAt(openAt);
+    setOpen(true);
+  }
+  return (
+    <div className="acpmux-bg__section" data-section={id}>
+      <Button
+        variant="ghost"
+        type="button"
+        className="acpmux-bg__fold acpmux-bg__section-head"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <Disclosure open={open} />
+        <span>{t(id === "running" ? "backgroundTasks.section.running" : "backgroundTasks.section.finished")}</span>
+        <span className="acpmux-bg__section-count">{count}</span>
+      </Button>
+      {open && children}
+    </div>
+  );
+}
+
+/// The time of the request (`focus`) that names one of `tasks`, if one does.
+const focusedIn = (tasks: readonly BackgroundTask[], focus: { toolCallId: string; at: number } | undefined) =>
+  focus && tasks.some((task) => task.toolCallId === focus.toolCallId) ? focus.at : undefined;
 
 /// The group a subagent is, or the one it is a task of.
 function agentOf(groups: readonly BackgroundGroup[], agentId: string) {
@@ -272,8 +367,10 @@ function PanelFrame({
   backLabel?: string;
   clear?: () => void;
   expanded: boolean;
-  onExpand(): void;
-  onClose(): void;
+  /// Unset (the panel is a tab of its own, backgroundPane.ts), no Expand button.
+  onExpand?(): void;
+  /// Unset (its own tab, which the tab's own close closes), no Close button and Escape closes nothing.
+  onClose?(): void;
   children: ReactNode;
 }) {
   const t = useT();
@@ -286,50 +383,71 @@ function PanelFrame({
       data-expanded={expanded || undefined}
       // ui-allow: Escape steps back out of a transcript, else closes the panel
       onKeyDown={(event) => {
-        if (event.key !== "Escape" || event.defaultPrevented) return;
+        if (event.key !== "Escape" || event.defaultPrevented || !(back || onClose)) return;
         event.preventDefault();
         if (back) back();
-        else onClose();
+        else onClose?.();
       }}
     >
       <header className="acpmux-bg__head">
         {back && (
-          <button type="button" className="cv-iconbtn cv-iconbtn--compact" aria-label={backLabel} onClick={back}>
+          <Button
+            variant="ghost"
+            type="button"
+            className="acpmux-bg__icon"
+            size="sm"
+            icon
+            aria-label={backLabel}
+            onClick={back}
+          >
             <ChevronLeft size={14} />
-          </button>
+          </Button>
         )}
         <h2 className="acpmux-bg__title">{title}</h2>
         <span className="acpmux-bg__tools">
           {clear && (
-            <button
+            <Button
+              variant="ghost"
               type="button"
-              className="cv-iconbtn cv-iconbtn--compact"
+              className="acpmux-bg__icon"
+              size="sm"
+              icon
               aria-label={t("backgroundTasks.clearFinished")}
               title={t("backgroundTasks.clearFinished")}
               onClick={clear}
             >
               <Icon name="action.delete" size={14} />
-            </button>
+            </Button>
           )}
-          <button
-            type="button"
-            className="cv-iconbtn cv-iconbtn--compact"
-            aria-label={expandLabel}
-            title={expandLabel}
-            aria-pressed={expanded}
-            onClick={onExpand}
-          >
-            <Expand size={14} />
-          </button>
-          <button
-            type="button"
-            className="cv-iconbtn cv-iconbtn--compact"
-            aria-label={t("backgroundTasks.close")}
-            title={t("backgroundTasks.close")}
-            onClick={onClose}
-          >
-            <Close size={14} />
-          </button>
+          {onExpand && (
+            <Button
+              variant="ghost"
+              type="button"
+              className="acpmux-bg__icon"
+              size="sm"
+              icon
+              aria-label={expandLabel}
+              title={expandLabel}
+              aria-pressed={expanded}
+              onClick={onExpand}
+            >
+              <Expand size={14} />
+            </Button>
+          )}
+          {onClose && (
+            <Button
+              variant="ghost"
+              type="button"
+              className="acpmux-bg__icon"
+              size="sm"
+              icon
+              aria-label={t("backgroundTasks.close")}
+              title={t("backgroundTasks.close")}
+              onClick={onClose}
+            >
+              <Close size={14} />
+            </Button>
+          )}
         </span>
       </header>
       {children}
@@ -363,6 +481,7 @@ function GroupBlock({
   onOpenSession?(sessionId: string): void;
   onOpenCommand?(task: BackgroundTask): void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(startsOpen || look === "flat");
   const agentId = group.agentId;
   const sessionId = group.sessionId;
@@ -377,28 +496,43 @@ function GroupBlock({
   return (
     <div className="acpmux-bg__group" data-state={live ? "running" : group.state} data-group={group.id}>
       <div className="acpmux-bg__agent">
-        <button type="button" className="acpmux-bg__name" disabled={!opens} onClick={opens}>
-          {live && <Spinner size={12} loading />}
+        <Button variant="ghost" type="button" className="acpmux-bg__name" disabled={!opens} onClick={opens}>
           <span className="acpmux-bg__label">{group.name}</span>
           {opens && (
             <span className="acpmux-bg__chevron" aria-hidden="true">
               <Icon name="disclosure.collapsed" size={12} row />
             </span>
           )}
-        </button>
+        </Button>
         {look === "compact" && group.total > 0 && (
-          <button type="button" className="acpmux-bg__counts" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <Button
+            variant="ghost"
+            type="button"
+            className="acpmux-bg__counts"
+            aria-expanded={open}
+            onClick={() => setOpen(!open)}
+          >
             {counts}
-          </button>
+          </Button>
         )}
-        <span className="acpmux-bg__time">{time(group.startedAt, group.endedAt, now, live)}</span>
+        {!live && group.state === "failed" ? (
+          <span className="acpmux-bg__time acpmux-bg__failed">{t("subagents.state.failed")}</span>
+        ) : (
+          <span className="acpmux-bg__time">{time(group.startedAt, group.endedAt, now, live)}</span>
+        )}
         <StopSlot target={group.stop} name={group.name} onStop={onStop} />
       </div>
       {look === "nested" && group.total > 0 && (
-        <button type="button" className="acpmux-bg__fold" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <Button
+          variant="ghost"
+          type="button"
+          className="acpmux-bg__fold"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
           <Disclosure open={open} />
           {counts}
-        </button>
+        </Button>
       )}
       {open && group.total > 0 && (
         <TaskList
@@ -451,15 +585,36 @@ function TaskList({
   const t = useT();
   const [finishedOpen, setFinishedOpen] = useState(!nested);
   const [shown, setShown] = useState(FINISHED_PAGE);
-  const row = (task: BackgroundTask) => (
+  // A command a workflow's agent started sits under that agent while the agent runs.
+  const live = new Set(group.running.map((task) => task.id));
+  const nestedUnder = (task: BackgroundTask) =>
+    task.parent !== undefined && live.has(task.parent) ? task.parent : undefined;
+  const kids = new Map<string, BackgroundTask[]>();
+  for (const task of [...group.running, ...group.finished]) {
+    const parent = nestedUnder(task);
+    if (parent !== undefined) kids.set(parent, [...(kids.get(parent) ?? []), task]);
+  }
+  const taskRow = (task: BackgroundTask) => (
     <TaskRow key={task.id} task={task} now={now} onDrill={onDrill} onStop={onStop} onOpenCommand={onOpenCommand} />
   );
-  const finished = group.finished;
+  const row = (task: BackgroundTask) => {
+    const under = kids.get(task.id);
+    if (!under) return taskRow(task);
+    return (
+      <Fragment key={task.id}>
+        {taskRow(task)}
+        <div className="acpmux-bg__nested">{under.map(taskRow)}</div>
+      </Fragment>
+    );
+  };
+  const running = group.running.filter((task) => nestedUnder(task) === undefined);
+  const finished = group.finished.filter((task) => nestedUnder(task) === undefined);
   return (
     <div className="acpmux-bg__tasks">
-      {group.running.map(row)}
+      {running.map(row)}
       {finished.length > 0 && nested && (
-        <button
+        <Button
+          variant="ghost"
           type="button"
           className="acpmux-bg__fold acpmux-bg__fold--finished"
           aria-expanded={finishedOpen}
@@ -467,15 +622,20 @@ function TaskList({
         >
           <Disclosure open={finishedOpen} />
           <span>{t("backgroundTasks.finished", { n: finished.length })}</span>
-        </button>
+        </Button>
       )}
       {finishedOpen && (
         <div className={nested ? "acpmux-bg__finished" : undefined}>
           {finished.slice(0, shown).map(row)}
           {finished.length > shown && (
-            <button type="button" className="acpmux-bg__more" onClick={() => setShown(shown + FINISHED_PAGE * 3)}>
+            <Button
+              variant="ghost"
+              type="button"
+              className="acpmux-bg__more"
+              onClick={() => setShown(shown + FINISHED_PAGE * 3)}
+            >
               {t("backgroundTasks.showMore")}
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -485,12 +645,15 @@ function TaskList({
 
 function TaskRow({
   task,
+  openAt,
   now,
   onDrill,
   onStop,
   onOpenCommand,
 }: {
   task: BackgroundTask;
+  /// A request to open on this command (`focus`): its card opens and comes into view.
+  openAt?: number;
   now: number;
   onDrill(drill: Drill): void;
   onStop?(target: StopTarget): Promise<unknown>;
@@ -498,6 +661,25 @@ function TaskRow({
 }) {
   const agentId = task.agentId;
   const pane = useContext(Workflows) ? task.workflow?.pane : undefined;
+  const readsOutput = useContext(ReadsOutput);
+  // A command opens in place as a rendered card (its command, its output streaming), not a bare
+  // terminal tab; Open in terminal stays inside it as the secondary action (Leo, 2026-11-07: "only
+  // showing the terminal thing, I don't think is very useful").
+  if (task.kind === "command" && task.command !== undefined && !agentId && !pane)
+    return (
+      <BackgroundTaskCard
+        title={task.title}
+        command={task.command}
+        toolCallId={task.toolCallId}
+        processId={task.processId}
+        state={task.state}
+        time={time(task.startedAt, task.endedAt, now, task.state === "running")}
+        stop={<StopSlot target={task.stop} name={task.title} onStop={onStop} />}
+        readOutput={readsOutput}
+        openAt={openAt}
+        onOpenTerminal={onOpenCommand && task.toolCallId ? () => onOpenCommand(task) : undefined}
+      />
+    );
   const opens = agentId
     ? () => onDrill({ agentId, rowId: task.kind === "agent" ? undefined : task.rowId })
     : pane
@@ -507,16 +689,13 @@ function TaskRow({
         : undefined;
   return (
     <div className="acpmux-bg__task" data-state={task.state}>
-      <button type="button" className="acpmux-bg__task-open" disabled={!opens} onClick={opens}>
-        {task.state === "running" ? (
-          <Spinner size={12} loading />
-        ) : (
-          <span className="acpmux-bg__disclosure" aria-hidden="true">
-            <Icon name="disclosure.collapsed" size={12} row />
-          </span>
-        )}
+      <Button variant="ghost" type="button" className="acpmux-bg__task-open" disabled={!opens} onClick={opens}>
+        {/* A running task's time and Stop say it runs: it leads with the same mark as one that ended. */}
+        <span className="acpmux-bg__disclosure" aria-hidden="true">
+          <Icon name="disclosure.collapsed" size={12} row />
+        </span>
         <span className="acpmux-bg__label">{task.title}</span>
-      </button>
+      </Button>
       <span className="acpmux-bg__time">{time(task.startedAt, task.endedAt, now, task.state === "running")}</span>
       <StopSlot target={task.stop} name={task.title} onStop={onStop} />
     </div>
@@ -543,9 +722,12 @@ function StopSlot({
   const label = t(state === "failed" ? "backgroundTasks.stopFailed" : "backgroundTasks.stop", { name });
   return (
     <span className="acpmux-bg__stop-slot">
-      <button
+      <Button
+        variant="ghost"
         type="button"
         className="acpmux-bg__stop"
+        size="sm"
+        icon
         data-state={state}
         disabled={state === "stopping"}
         aria-label={label}
@@ -555,8 +737,8 @@ function StopSlot({
           onStop(target).catch(() => setState("failed"));
         }}
       >
-        <Icon name="action.stop" size={12} />
-      </button>
+        <Icon name="action.stop" size={12} selected />
+      </Button>
     </span>
   );
 }

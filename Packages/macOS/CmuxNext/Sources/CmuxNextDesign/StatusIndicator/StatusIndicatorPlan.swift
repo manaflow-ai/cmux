@@ -80,11 +80,11 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
 
     public static let hidden = StatusIndicatorPlan(glyph: .none, animation: nil, tint: .loading)
 
-    /// The agent working-state mark's glyph: the settled thin arc (`6388291c7c3`, 2026-10-02, and
-    /// #20410's Codex-like default), turning smoothly on the shared clock. Never the macOS activity
-    /// indicator's segmented spokes: #29903 swapped them in and Leo answered "why the f*** did you
-    /// make the spinner into this????" (2026-11-01). The spokes stay only as the explicit
-    /// "macOS Spinner" loading style.
+    /// The agent working-state mark's glyph: the original thin 3/4 arc (`StatusIndicatorConfig.arcLength`
+    /// of the circle at the indicator's thickness, no track), turning smoothly once per spinner period
+    /// on the shared clock, as at e2e596e4b69a~1 (Lawrence msg 19638: "we need it to be reverted back
+    /// to original state"). #29903's spokes, #31455's sweep and #32730's heavier ring are taken back;
+    /// changing it needs Lawrence's ask. The spokes stay only as the explicit "macOS Spinner" style.
     public static let workingGlyph: Glyph = .arc
 
     /// Agent work's spinner (the agent working-state mark), turning on the shared clock so every
@@ -152,7 +152,8 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
             }
             switch style {
             case .none: return .hidden
-            case .arc: return StatusIndicatorPlan(glyph: .arc, animation: .spin, tint: .loading)
+            // The working mark's arc, so a check or a page loading turns the one spinner (webviews/test/one-spinner.test.ts).
+            case .arc: return StatusIndicatorPlan(glyph: workingGlyph, animation: .spin, tint: .loading)
             case .native: return StatusIndicatorPlan(glyph: .native, animation: .step, tint: .loading)
             case .dot: return StatusIndicatorPlan(glyph: .dot, animation: .pulse, tint: .loading)
             case .braille: return StatusIndicatorPlan(glyph: .braille, animation: .frames, tint: .loading)

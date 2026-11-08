@@ -34,6 +34,7 @@ import {
   type Write,
 } from "./queries";
 import { rowsByKey } from "./schema";
+import { HARNESS_PLACEMENT_KEY, harnessPlacement, resolveHarnessPlacement } from "../../ui/harnessPlacement";
 import { t } from "./strings";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
 import {
@@ -43,9 +44,12 @@ import {
   type AccountsState,
   type AgentsRun,
   type AgentsState,
+  type AppUpdateAction,
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type SharesState,
+  type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
   type DevicesState,
@@ -125,12 +129,24 @@ const emptyDomains: Domains = { themes: [], font_families: [], sounds: [], recen
 /** The page's state from the cache and the UI state (one function for hooks and getSnapshot). */
 export function composeState(ui: UiState, cache: CacheView): SettingsState {
   const scope = cache.scope;
+  let rows = scope?.rows ?? new Map<string, ListRow>();
+  const placement = rows.get(HARNESS_PLACEMENT_KEY);
+  if (placement) {
+    const legacy = cache.host?.harness_placement;
+    const managed = placement.managed ?? scope?.managed.get(HARNESS_PLACEMENT_KEY);
+    const value = resolveHarnessPlacement(placement.stored, legacy, managed ? placement.value : undefined);
+    // A saved override is resettable even when it currently matches the inherited choice.
+    const customized = harnessPlacement(placement.stored) !== null;
+    if (value !== placement.value || customized !== placement.customized) {
+      rows = new Map(rows).set(HARNESS_PLACEMENT_KEY, { ...placement, value, customized });
+    }
+  }
   return {
     loaded: cache.scopeSettled,
     readable: (scope?.rows.size ?? 0) > 0,
     connected: ui.connected,
     revision: scope?.revision ?? 0,
-    rows: scope?.rows ?? new Map(),
+    rows,
     diagnostics: scope?.diagnostics ?? new Map(),
     problems: scope?.problems ?? [],
     managed: scope?.managed ?? new Map(),
@@ -358,8 +374,10 @@ export class SettingsStore {
     return reply.ok && reply.value.accepts;
   }
 
-  /** The section's action buttons; empty when the host has none. */
-  async sectionActions(section: string): Promise<Array<{ id: string; title: string; enabled: boolean }>> {
+  /** The section's action buttons; empty when the host has none. `hint` says what one does. */
+  async sectionActions(
+    section: string,
+  ): Promise<Array<{ id: string; title: string; enabled: boolean; hint?: string | null }>> {
     const reply = await this.request("cmux.settings.section.actions", { section });
     return reply.ok ? reply.value : [];
   }
@@ -554,6 +572,13 @@ export class SettingsStore {
     await this.refreshHost();
   }
 
+  /** Updates > App Update: one of its buttons, then re-read the host lists; false when the host refused. */
+  async runAppUpdate(action: AppUpdateAction): Promise<boolean> {
+    const reply = await this.request("cmux.settings.app_update.run", { action });
+    await this.refreshHost();
+    return reply.ok;
+  }
+
   /** Updates > Web UI: Check Now or Roll Back, then re-read the host lists; false when the host refused. */
   async runWebUpdates(action: "check" | "rollback"): Promise<boolean> {
     const reply = await this.request(`cmux.settings.web_updates.${action}` as const, {});
@@ -677,6 +702,32 @@ export class SettingsStore {
     const state = await this.environments();
     if (!reply.ok) return { state, error: reply.error.message };
     return { state, error: reply.value?.error ?? null };
+  }
+
+  /** Settings > Privacy and Security > Shared Links: this Mac's chat shares; null when the host has
+   * no shares part or the read failed. */
+  async shares(): Promise<SharesState | null> {
+    const reply = await this.request("cmux.settings.shares.list", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Settings > Server > This Mac on Your Tailnet: one `_acpmux/tailnet/<verb>` the app relays; the node's
+   * snapshot, or null when acpmux has no tailnet, did not take the person's proof, or the host refused. */
+  async tailnet(verb: "state" | "start" | "login" | "logout"): Promise<TailnetState | null> {
+    const reply = await this.request(`cmux.settings.tailnet.${verb}`, {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Revokes each share in `ids` in turn (one for Revoke, every live one for Revoke All); the first
+   * refusal's text, else null. Every id is tried even after a refusal, so one stuck share never
+   * keeps the rest open. */
+  async revokeShares(ids: readonly string[]): Promise<string | null> {
+    let error: string | null = null;
+    for (const id of ids) {
+      const reply = await this.request("cmux.settings.shares.revoke", { share_id: id });
+      if (!reply.ok) error ??= reply.error.message;
+    }
+    return error;
   }
 
   /** One Devices gesture, then a fresh read of the part; answers the host's result (a refusal

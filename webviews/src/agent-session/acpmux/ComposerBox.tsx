@@ -1,16 +1,13 @@
 import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject } from "react";
-import { type ComposerAttachment, inlineCopyId, inlineTokenIds } from "./attachments";
+import { type ComposerAttachment, type DroppedKind, inlineCopyId } from "./attachments";
 import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
 import { useInlineAttachments } from "./composer/inlineAttachments";
-import {
-  AttachmentStrip,
-  backspacedAttachment,
-  type MadeFile,
-  type PendingAttachment,
-} from "./composer/attachmentIntake";
+import { AttachmentStrip } from "./composer/attachmentIntake";
+import { backspacedAttachment, type MadeFile, type PendingAttachment } from "./composer/attachmentIntakeModel";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
+import { useComposerLook } from "./composerLook";
 import { useRowFit } from "./composerRowFit";
 import { MarkdownField, type MarkdownFieldHandle, type MarkdownFieldProps } from "./MarkdownField";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
@@ -26,9 +23,12 @@ const CARD_OWN_PRESS =
 export type ComposerBoxHandle = {
   /// Paste as Plain Text is starting (the prompt's menu): its paste goes in as text, never a chip.
   plainPaste(): void;
-  place(chips: readonly PendingAttachment[]): void;
+  place(chips: readonly PendingAttachment[], kind?: DroppedKind): void;
   /// Attachments `ids` went with a prompt: gone from the text for good (composer/inlineAttachments.tsx).
+  /// The draft's remembered pastes went with it too.
   sent(ids: Iterable<string>): void;
+  /// The pastes that went into the draft as text, newest last (composer/pasteMarks.ts).
+  pastes(): readonly string[];
 };
 
 export type ComposerBoxProps = {
@@ -78,8 +78,8 @@ export type ComposerBoxProps = {
   onCardPress?(): void;
   /// The button row's leading control (+) and anything before it.
   leading?: React.ReactNode;
-  /// The agent's mode, model and effort chips, in the quiet row under the box (ComposerFoot), in
-  /// both looks. The model picker owns any inline Fast toggle.
+  /// The agent's mode, model and effort chips, in the quiet row (ComposerFoot): under the box in
+  /// Claude's look, inside it under the prompt in Codex's. The model picker owns any inline Fast toggle.
   chips?: React.ReactNode;
   /// What ends the quiet row (the context ring).
   ring?: React.ReactNode;
@@ -140,13 +140,19 @@ export function ComposerBox({
   inert = false,
 }: ComposerBoxProps) {
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css). Both
-  // looks lay the buttons out as Claude's (composerLook.ts): +, the prompt, the mic and Send in the
-  // box's grid, the mode, model, effort and ring in the quiet row under it.
+  // looks use the same controls and prompt. Codex's gives the prompt its own full-width line,
+  // with + and the trailing actions on the lower row (composerLook.css).
+  // The mode, model, effort and ring are the quiet row: under the box in Claude's look, inside it
+  // under the prompt in Codex's (Leo 2026-10-30: "the bypass/context/model picker stuff should
+  // literally be inside the composer box"; 2026-11-02: "switching to the codex view in the middle of
+  // an agent chat doesn't do anything right now"). The row moves on a look switch while the prompt
+  // stays mounted, so the draft and caret stay.
   const { plainFooter, attachmentView } = useComposerSettings();
-  // The footer look can change from Settings while this component stays mounted: the fit key has it,
-  // so the live row is measured again before the new form paints.
+  const rowInBox = useComposerLook() === "codex";
+  // The footer look and the row's place can change while this component stays mounted: the fit key
+  // has both, so the live row is measured again before the new form paints.
   const bar = useRef<HTMLDivElement>(null);
-  useRowFit(bar, `${plainFooter}`);
+  useRowFit(bar, `${plainFooter}:${rowInBox}`);
   const prompt = useRef<MarkdownFieldHandle>(null);
   const setPrompt = useCallback(
     (next: MarkdownFieldHandle | null) => {
@@ -157,8 +163,24 @@ export function ComposerBox({
   );
   const ownAttachments = useRef(attachments);
   if (!attachmentsRef) ownAttachments.current = attachments;
+  /// Set while a file that stays in the strip is attached: its intake places it synchronously
+  /// (attachmentIntake.tsx), so `place` reads this in the same call.
+  const toStrip = useRef(false);
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
-  const pastedChips = usePastedChips(attachmentsRef ?? ownAttachments, setAttachments, prompt, onPasteFile);
+  const pastedChips = usePastedChips(
+    attachmentsRef ?? ownAttachments,
+    setAttachments,
+    prompt,
+    onPasteFile &&
+      ((file, inText = true) => {
+        toStrip.current = !inText;
+        try {
+          onPasteFile(file);
+        } finally {
+          toStrip.current = false;
+        }
+      }),
+  );
   const plainPaste = useRef(pastedChips.plainPaste);
   plainPaste.current = pastedChips.plainPaste;
   const inline = useInlineAttachments({
@@ -176,6 +198,7 @@ export function ComposerBox({
       pastedChips.expand(id);
       prompt.current?.removeInline(id);
     },
+    ...(pastedChips.keepAsFile ? { keepFile: pastedChips.keepAsFile } : {}),
     placing: () => !fieldOverlay,
     codex,
     ...(originalFailures ? { originalFailures } : {}),
@@ -185,13 +208,20 @@ export function ComposerBox({
   useImperativeHandle(
     handle,
     () => ({
-      plainPaste: () => plainPaste.current(),
-      place: (chips) => inline.place(chips, "paste"),
-      sent: (ids) => inline.sent(ids),
+      plainPaste: () => {
+        plainPaste.current();
+        prompt.current?.plainPaste();
+      },
+      place: (chips, kind) => inline.place(chips, kind, toStrip.current),
+      sent: (ids) => {
+        inline.sent(ids);
+        pastedChips.pastes.current = [];
+      },
+      pastes: () => pastedChips.pastes.current,
     }),
-    [inline],
+    [inline, pastedChips.pastes],
   );
-  const placed = new Set(inlineTokenIds(field.value, inline.known));
+  const placed = inline.inText(field.value);
   const { onBeforeInput, onKeyDown } = field;
   // Select All selects the attachments with the text (Leo, 2026-11-01: "i wanna be able to select
   // all in composer which also selects all the attachments as the copy as well"): those placed in
@@ -229,6 +259,14 @@ export function ComposerBox({
     else prompt.current?.focus();
   };
   const shownChips = chips;
+  const quietRow = (
+    <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
+      <ComposerFoot ref={bar} plain={plainFooter}>
+        {shownChips}
+        {ring}
+      </ComposerFoot>
+    </ChromeArea>
+  );
   // The box the `/` and `@` lists in `top` float above, drawn outside its glass (backdropLayer.tsx).
   const [boxElement, setBoxElement] = useState<HTMLDivElement | null>(null);
   const attachBox = useCallback(
@@ -244,7 +282,7 @@ export function ComposerBox({
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
       <div
         ref={attachBox}
-        className="ui-glass ui-glass-floats acpmux-composer-box"
+        className="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box"
         // The compact grid (composerLocation.css): a state attribute, not a :has() on the box.
         data-composer-grid=""
         data-attachment-view={attachmentView}
@@ -273,6 +311,7 @@ export function ComposerBox({
           {...(originalFailures ? { originalFailures } : {})}
           onReorder={onReorderAttachment ?? inline.reorder}
           onExpand={inline.expand}
+          {...(pastedChips.keepAsFile ? { onKeepFile: inline.keepFile } : {})}
         />
         {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}
         <ContextMenu className="acpmux-composer-field-menu" items={fieldMenu} selection="menu" onOpen={onFieldMenuOpen}>
@@ -306,9 +345,10 @@ export function ComposerBox({
                 if ("text" in part) prompt.current?.insertText(part.text);
                 // An attachment the prompt still has comes back as a copy of it; one cut from it, as itself.
                 else if ("id" in part)
-                  prompt.current?.insertInline([
-                    staged().some((each) => each.id === part.id) ? inlineCopyId(part.id) : part.id,
-                  ]);
+                  prompt.current?.insertInline(
+                    [staged().some((each) => each.id === part.id) ? inlineCopyId(part.id) : part.id],
+                    true,
+                  );
                 else onPasteFiles?.([part.file]);
               }
               return true;
@@ -362,8 +402,8 @@ export function ComposerBox({
         </ContextMenu>
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
-          {/* The compact box grid for +, the prompt, the mic and Send, with the model group in
-              ComposerFoot, in both looks. The granted-permission status gets no slot of its own
+          {/* The box grid for +, the prompt, the mic and Send, with the model group in
+              ComposerFoot. The granted-permission status gets no slot of its own
               (hq#1957 item 15 compact row): grants are revoked from the chat menu (header/grantsMenu.ts). */}
           <div
             className="acpmux-composer-bar acpmux-composer-inner"
@@ -382,13 +422,9 @@ export function ComposerBox({
             </span>
           </div>
         </ChromeArea>
+        {rowInBox && quietRow}
       </div>
-      <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
-        <ComposerFoot ref={bar} plain={plainFooter}>
-          {shownChips}
-          {ring}
-        </ComposerFoot>
-      </ChromeArea>
+      {!rowInBox && quietRow}
       {/* One stable host for both looks, so a look switched from the dots by keys keeps the same
           radios and focus: they draw over the quiet row's empty middle (composerLook.css). */}
       {bottom && <div className="acpmux-composer-under">{bottom}</div>}

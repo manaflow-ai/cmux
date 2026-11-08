@@ -54,8 +54,10 @@ describe("acpmux in the Cloud image", () => {
     expect(command).toContain(source.acpmuxUrl!);
   });
 
-  test("a source without acpmux installs no acpmux step", () => {
+  test("a source without a separate acpmux artifact links the combined daemon", () => {
     const command = cmuxTuiInstallCommand(parseCmuxTuiManifest(MANIFEST, { commit: COMMIT, binaries }));
-    expect(command).not.toContain("acpmux");
+    expect(command).toContain('ln -sfn "$CMUX_TUI_BIN" "$CMUX_TUI_HOME/.local/bin/acpmux"');
+    expect(command).not.toContain('CMUX_TUI_ACPMUX_BIN=');
+    expect(command).not.toContain('"$CMUX_TUI_ACPMUX_BIN" --version');
   });
 });

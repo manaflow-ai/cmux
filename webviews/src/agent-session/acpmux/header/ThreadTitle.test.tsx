@@ -4,14 +4,14 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { ChatMenu } from "./ChatHeaderTools";
 import {
-  ChatMenu,
   guardedChatMenu,
   menuGroups,
   menuItemForShortcut,
   menuKeycap,
   type ChatMenuItem,
-} from "./ChatHeaderTools";
+} from "./chatHeaderToolsModel";
 import { ThreadTitle } from "./ThreadTitle";
 
 let dom: JSDOM | undefined;
@@ -115,6 +115,17 @@ test("the title draws no fill in any state (header.css)", () => {
   }
   // No title trigger, chevron or hover/open state is styled any more.
   expect(css).not.toMatch(/thread-title-(?:trigger|chevron)/);
+});
+
+// Leo (2026-11-01), on the title beside the tools in the pane's tab row: "why did you all keep this".
+// The pane's own tab names the chat there; the header's title shows only in the header's own row.
+test("the tab row shows no chat title (App.tsx)", () => {
+  const app = readFileSync(join(import.meta.dir, "..", "App.tsx"), "utf8");
+  const titles = [...app.matchAll(/\{([^{}]*)<ThreadTitle\b/g)].map((match) => match[1]!.replace(/\s+/g, " ").trim());
+  expect(titles.length).toBeGreaterThan(0);
+  // Every title is inside one of those guarded expressions; none sits in the JSX unguarded.
+  expect(titles.length).toBe(app.match(/<ThreadTitle\b/g)!.length);
+  for (const guard of titles) expect(guard).toMatch(/!inTabRow\b/);
 });
 
 test("resolves explicit title-menu shortcut letters", () => {

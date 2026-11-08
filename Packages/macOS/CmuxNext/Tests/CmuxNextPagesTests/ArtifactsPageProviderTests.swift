@@ -18,12 +18,19 @@ struct ArtifactsPageProviderTests {
     static let context = PageCallContext(page: PageDescriptor.artifacts.id)
     nonisolated static let tree = #"{"ref":"main","sha":"abc","entries":[{"name":"notes","path":"notes","type":"tree"}]}"#
 
-    private static func provider(_ log: ReadLog, allowed: Bool = true,
+    private static func provider(_ log: ReadLog,
                                  answer: @escaping @Sendable (ArtifactsRead) throws -> ArtifactsReply) -> ArtifactsPageProvider {
-        ArtifactsPageProvider(allowed: { allowed }) { read in
+        ArtifactsPageProvider { read in
             await log.add(read)
             return try answer(read)
         }
+    }
+
+    /// Signed out, the page's Sign In button runs the app's Sign In (msg 3790); the page may run no
+    /// other action.
+    @Test func signedOutPageMayRunSignInOnly() {
+        #expect(PageDescriptor.artifacts.nativeOps.contains(PageNativeOp.actionRun))
+        #expect(PageDescriptor.artifacts.actions == ["palette.auth.signIn"])
     }
 
     @Test func opsBecomeTheExactReads() async throws {
@@ -121,17 +128,6 @@ struct ArtifactsPageProviderTests {
         #expect(await log.reads.isEmpty)
     }
 
-    @Test func previewFeaturesOffReadsNothing() async throws {
-        let log = ReadLog()
-        let provider = Self.provider(log, allowed: false) { _ in ArtifactsReply(status: 200, body: Data(Self.tree.utf8)) }
-        let error = await #expect(throws: PageError.self) {
-            try await provider.call("cmux.artifacts.tree", params: [:], context: Self.context)
-        }
-        #expect(error?.code == "cmux.artifacts.unavailable")
-        #expect(error?.message == ArtifactsPageProvider.previewRefusal)
-        #expect(await log.reads.isEmpty)
-    }
-
     nonisolated static let refusals: [(Int, String)] = [
         (401, "cmux.artifacts.signed_out"),
         (403, "cmux.artifacts.signed_out"),
@@ -168,6 +164,20 @@ struct ArtifactsPageProviderTests {
             try await provider.call("cmux.artifacts.tree", params: [:], context: Self.context)
         }
         #expect(error?.code == "cmux.artifacts.failed")
+    }
+
+    @Test func routerAdmitsTheAccountChangeStream() async throws {
+        let provider = ArtifactsPageProvider(fetch: { _ in ArtifactsReply(status: 200, body: Data(Self.tree.utf8)) }, authChanges: { onEvent in
+            onEvent(["changed": .bool(true)])
+            return PageSubscription {}
+        })
+        let router = PageRouter(descriptor: .artifacts, routes: [PageRoute(prefix: "cmux.artifacts.", provider: provider), PageRoute(prefix: "cmux.cloud.", provider: provider)])
+        var seen = false
+        router.send = { message in seen = message["data"]?["changed"]?.boolValue == true }
+        let reply = await router.handle(["t": "sub", "id": 1, "stream": "cmux.cloud.auth.watch"])
+        #expect(reply["t"]?.stringValue == "ok")
+        for _ in 0..<100 where !seen { await Task.yield() }
+        #expect(seen)
     }
 }
 

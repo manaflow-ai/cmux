@@ -6,6 +6,12 @@ export const ChangelogOps = {
   list: "cmux.changelog.list",
   get: "cmux.changelog.get",
   reel: "cmux.changelog.reel",
+  /** `{ installs }`: whether this app can restart into another listed build (a release build
+      that follows a feed). */
+  installable: "cmux.changelog.installable",
+  /** Restarts into a listed build (`build`): downloaded, its signature checked, kept, swapped. The
+      host takes it only from the person's own click and answers a refusal as an error. */
+  install: "cmux.changelog.install",
 } as const;
 /** Runs a highlight's "Try it" (the host admits only allow-listed actions). */
 export const ACTION_RUN = "cmux.app.action.run";
@@ -72,6 +78,8 @@ export interface WhatsNewDocument {
 export interface SummaryLine {
   group: string;
   title: string;
+  /** One plain-language sentence extracted from the PR body at release time. */
+  description?: string;
 }
 
 /** One change of a build: its title, author and pull request (the provider fills these from the
@@ -80,6 +88,8 @@ export interface ChangeItem {
   title: string;
   author?: string;
   pr?: number;
+  /** One plain-language sentence extracted from the PR body at release time. */
+  description?: string;
   /** Every file the commit touches is CI or tooling (release-notes.py tooling_only): internal
       whatever its subject says. Absent in notes published before the flag. */
   internal?: boolean;
@@ -89,6 +99,8 @@ export interface ReleaseNotes {
   build: string;
   shortVersion: string;
   date: string;
+  /** The commit the build was cut from; older notes lack it. */
+  head?: string;
   highlights: Highlight[];
   changes: string[];
   items?: ChangeItem[];
@@ -114,3 +126,8 @@ export type NewsLayout = "alternate" | "stack" | "grid" | "lead";
     enough"): a row's title and its muted line on one line where they fit (default); the line
     tight under the title; or two columns of rows on a wide pane. */
 export type SheetLayout = "inline" | "stack" | "grid";
+/** How a sheet row from a public pull request shows it (SheetPage.tsx; the route's `prs=`, for the
+    gallery), quiet either way (Leo 2026-11-07: "this could maybe still be better with linking to
+    prs..."): the title links it and its `#N` shows at the row's end on hover (default); the `#N`
+    always shows, muted; or the whole row is the link, with a hover fill. */
+export type SheetLinks = "hover" | "end" | "row";

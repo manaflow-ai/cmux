@@ -8,6 +8,8 @@
 /// cmux's custom forwarding and error text.
 pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "ack",
+    // `cloud kill-machine --confirm`: without this it would swallow a following `--json`.
+    "confirm",
     // `setup trust --dry-run`: plan only; without this it would swallow a following `--json`.
     "dry-run",
     // `workspace create --no-focus`: accepted and ignored (creation does not
@@ -21,6 +23,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "approve",
     "decline",
     "collapse",
+    // `workspace group create --reuse`: the room's group of that name when it has one.
+    "reuse",
     "patch",
     "candidates",
     "catalog",
@@ -94,6 +98,10 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "release-to-auto",
     // `run --sandboxed <task>` (cli/sandbox_run.rs): without it a following `--json` would be eaten.
     "sandboxed",
+    // `terminal screen read|copy --unwrap`: soft wraps joined into logical lines.
+    "unwrap",
+    // `terminal screen wait --new`: only output printed from now on matches.
+    "new",
 ];
 
 /// `--name` ends the command without a value: it needs one, or it is no

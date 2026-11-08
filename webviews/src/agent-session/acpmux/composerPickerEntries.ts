@@ -1,6 +1,6 @@
 import type { AcpmuxSnapshot } from "./model";
 import type { PickerCatalog } from "./modelCatalogData";
-import { pickerFaceHarness } from "./ModelPicker";
+import { pickerFaceHarness } from "./modelPickerModel";
 import type { ModelPickerProps } from "./modelPickerLayout";
 
 /** The composer's existing catalog projection, shared with its pre-send health notice. */
@@ -23,6 +23,8 @@ export function composerPickerEntries(
             ...(entry.family ? { family: entry.family } : {}),
             ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
             pickable: entry.pickable && entry.acpmuxHarness !== null,
+            // The picker lists it anyway, with its Install… row (Leo 2026-10-26: "show all harnesses").
+            ...(!entry.installed && entry.pickable ? { notInstalled: true as const } : {}),
             ...(entry.topModels ? { top: entry.topModels } : {}),
           })),
         // The chat folder's own profiles are acpmux's alone; the model catalog never lists them.

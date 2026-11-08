@@ -38,15 +38,37 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
         try {
           const trace = await page.evaluate(async (engine) => {
             const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            // The glide runs on the clock, so a loaded runner painting a frame every ~76 ms fit the
+            // ~190 ms move into two frames (#27710's base replay). A 1 s move spans several painted
+            // frames however slowly they come; a jump still lands in one.
+            node.style.setProperty("--agent-motion-move", "1s");
             const values = [node.scrollTop];
             const times = [performance.now()];
             const prevented: boolean[] = [];
+            let sawMotion = false;
             node.addEventListener("wheel", (event) => prevented.push(event.defaultPrevented));
+            node.addEventListener("acpmux-motion-scroll", () => {
+              sawMotion = true;
+            });
             (window as any).__wheelTrace = { values, times, prevented };
+            (window as any).__wheelSettled = false;
+            let steady = 0;
+            let previous = node.scrollTop;
             window.cmuxAfterPaint(() => {
-              values.push(node.scrollTop);
+              const current = node.scrollTop;
+              values.push(current);
               times.push(performance.now());
-              return values.length < 35;
+              // The eased tail writes whole pixels and may rest a few frames short of the notch, so
+              // the glide has settled only once it has also covered the notch's 100 px.
+              const arrived = Math.abs(current - values[0]!) >= 99.5;
+              if (sawMotion && arrived && Math.abs(current - previous) <= 0.5) steady += 1;
+              else steady = 0;
+              previous = current;
+              if (steady >= 3) {
+                (window as any).__wheelSettled = true;
+                return false;
+              }
+              return true;
             });
             if (engine === "webkit") {
               // macOS WebKit's non-precise wheel: accelerated lines use 16.16 fixed point.
@@ -61,7 +83,7 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
             await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
             await page.mouse.wheel(0, -100);
           }
-          await page.waitForFunction(() => (window as any).__wheelTrace.values.length === 35);
+          await page.waitForFunction(() => (window as any).__wheelSettled === true, undefined, { timeout: 5_000 });
           const result = await page.evaluate(
             () =>
               (window as any).__wheelTrace as {
@@ -91,7 +113,8 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
           expect(result.values.slice(1).every((top, index) => top <= result.values[index]!)).toBe(true);
           expect(Math.abs(result.values.at(-1)! - result.values[0]!)).toBeCloseTo(100, 0);
           expect(moved.length).toBeGreaterThanOrEqual(3);
-          expect(Math.max(...steps)).toBeLessThan(60);
+          const distance = Math.abs(result.values.at(-1)! - result.values[0]!);
+          expect(Math.max(...steps)).toBeLessThan(distance);
         } finally {
           await page.close();
           if (process.env.CMUX_WHEEL_TRACE_DIR && page.video())
@@ -106,15 +129,22 @@ await requireBrowserLane("agent-pane-wheel-glide.test.ts", async () => {
             node.style.setProperty("--agent-motion-move", "1s");
             node.dispatchEvent(new WheelEvent("wheel", { deltaY: -20, deltaMode: 1, cancelable: true }));
             await window.cmuxPaintFrame();
+            // The wheel glide read its 1s step at the wheel; the send's ride reads the standard step.
+            node.style.setProperty("--agent-motion-move", "180ms");
             await window.cmuxAcpmuxActions!["chat.send"]!({ text: "Wheel ownership" });
             const gaps: number[] = [];
-            for (let i = 0; i < 30; i++) {
+            for (let i = 0; i < 60; i++) {
               await window.cmuxPaintFrame();
               gaps.push(node.scrollHeight - node.clientHeight - node.scrollTop);
             }
             return gaps;
           });
-          expect(Math.max(...gaps.slice(3))).toBeLessThanOrEqual(1);
+          // The send rides the view down to the latest message (Jump to latest's ride): the wheel's
+          // unfinished glide never pulls it back up, and it rests at the end.
+          for (let i = 4; i < gaps.length; i++) expect(gaps[i]!).toBeLessThanOrEqual(gaps[i - 1]! + 1);
+          // A ride, not a cut: the view is still on its way to the end over several painted frames.
+          expect(gaps.filter((gap) => gap > 1).length).toBeGreaterThanOrEqual(3);
+          expect(Math.max(...gaps.slice(-10))).toBeLessThanOrEqual(1);
         } finally {
           await page.close();
         }

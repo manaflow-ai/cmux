@@ -6,12 +6,21 @@
 //! - host: every non-loopback address of this machine's interfaces with the
 //!   socket's port, which includes the tailnet's addresses;
 //! - server-reflexive: the address a STUN server (from the hub ticket) sees,
-//!   the public mapping the peer can punch through to.
+//!   the public mapping the peer can punch through to;
+//! - relay: the relayed address of an allocation on each TURN server of the
+//!   hub ticket (RFC 8656 over UDP, [`crate::turn`]).
 //!
-//! STUN answers and link packets share the socket; the RFC 7983 ranges tell
-//! them apart. Relays (TURN) are a later carrier behind the same endpoint.
+//! For every remote candidate the driver also adds a path through each of
+//! its own allocations (`Route::Relay`), so a session works when no direct
+//! path does; the selector still prefers any live direct path. A remote
+//! `relay` candidate is a plain UDP destination: their allocation forwards it.
+//! Relays only see sealed packets.
+//!
+//! STUN and TURN messages, ChannelData and link packets share the socket; the
+//! RFC 7983 ranges and the sender's address tell them apart.
 
-use crate::endpoint::{Endpoint, EndpointEvent, Route};
+use crate::endpoint::{Endpoint, EndpointEvent, MAX_PATHS, Route};
+use crate::turn::{TurnClient, TurnEvent, TurnReceive};
 use crate::{KeyPair, LinkError, Role};
 use cmux_transport::PathKind;
 use cmux_transport::stun::{TransactionId, binding_request, parse_binding_success};
@@ -27,6 +36,10 @@ const STUN_RETRY_US: u64 = 300_000;
 const STUN_ATTEMPTS: u32 = 5;
 /// Largest UDP payload read.
 const MAX_PACKET: usize = 65_535;
+/// How long `CandidatesDone` waits for TURN allocations.
+const RELAY_GATHER_US: u64 = 3_000_000;
+/// Most TURN servers used.
+pub const MAX_TURN_SERVERS: usize = 8;
 
 /// A route this side offers, in the signaling form `"<kind> <addr>"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,6 +52,8 @@ pub struct Candidate {
 pub enum CandidateKind {
     Host,
     ServerReflexive,
+    /// A TURN allocation's relayed address (wire form `relay`).
+    Relay,
 }
 
 impl Candidate {
@@ -46,6 +61,7 @@ impl Candidate {
         let kind = match self.kind {
             CandidateKind::Host => "host",
             CandidateKind::ServerReflexive => "srflx",
+            CandidateKind::Relay => "relay",
         };
         format!("{kind} {}", self.addr)
     }
@@ -55,12 +71,16 @@ impl Candidate {
         let kind = match kind {
             "host" => CandidateKind::Host,
             "srflx" => CandidateKind::ServerReflexive,
+            "relay" => CandidateKind::Relay,
             _ => return None,
         };
         Some(Self { kind, addr: addr.parse().ok()? })
     }
 
     fn path_kind(&self) -> PathKind {
+        if self.kind == CandidateKind::Relay {
+            return PathKind::TurnRelay;
+        }
         let local = match self.addr.ip() {
             IpAddr::V4(v4) => v4.is_private() || v4.is_link_local() || v4.is_loopback(),
             IpAddr::V6(v6) => (v6.segments()[0] & 0xfe00) == 0xfc00 || v6.is_loopback(),
@@ -84,6 +104,31 @@ pub struct NetConfig {
     pub stun: Vec<SocketAddr>,
     /// Where to bind; port 0 picks one.
     pub bind: SocketAddr,
+    /// TURN servers (from the hub ticket's relay list), for the relay
+    /// candidate and the relayed paths. At most [`MAX_TURN_SERVERS`] are used.
+    pub turn: Vec<TurnServer>,
+    /// Reach the peer only through this side's TURN allocations: no host or
+    /// reflexive candidate is gathered or sent, no direct path is opened, and a
+    /// packet from anywhere but a TURN server is dropped, so the peer never
+    /// learns this side's addresses. Without a TURN server nothing connects.
+    pub relay_only: bool,
+}
+
+/// A TURN server with long-term credentials (RFC 8656 over UDP).
+#[derive(Clone, PartialEq, Eq)]
+pub struct TurnServer {
+    pub addr: SocketAddr,
+    pub username: String,
+    pub password: String,
+}
+
+impl std::fmt::Debug for TurnServer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TurnServer")
+            .field("addr", &self.addr)
+            .field("username", &self.username)
+            .finish_non_exhaustive()
+    }
 }
 
 /// What the driver reports.
@@ -94,6 +139,12 @@ pub enum NetEvent {
     /// Every candidate this side will find was reported.
     CandidatesDone,
     Endpoint(EndpointEvent),
+    /// A TURN server gave no allocation, or the allocation ended; the session
+    /// goes on over the other paths.
+    RelayFailed {
+        server: SocketAddr,
+        reason: String,
+    },
     /// The link failed (handshake timeout, wrong peer, socket error); the driver stopped.
     Failed(String),
 }
@@ -218,8 +269,7 @@ impl Net {
             command_fd: command_wake.read,
             events: event_tx,
             event_fd: event_wake.write,
-            stun: config
-                .stun
+            stun: (if config.relay_only { &[][..] } else { &config.stun[..] })
                 .iter()
                 .enumerate()
                 .map(|(i, server)| StunQuery {
@@ -230,16 +280,30 @@ impl Net {
                     done: false,
                 })
                 .collect(),
+            relays: config
+                .turn
+                .iter()
+                .take(MAX_TURN_SERVERS)
+                .map(|server| Relay {
+                    server: server.addr,
+                    client: TurnClient::new(&server.username, &server.password, seed()),
+                    settled: false,
+                })
+                .collect(),
+            remote: Vec::new(),
+            relay_only: config.relay_only,
+            candidates_done: false,
             start: Instant::now(),
         };
         // Host candidates are known at once.
-        for ip in interface_addresses() {
+        for ip in interface_addresses().into_iter().filter(|_| !config.relay_only) {
             driver.emit(NetEvent::Candidate(Candidate {
                 kind: CandidateKind::Host,
                 addr: SocketAddr::new(ip, local_addr.port()),
             }));
         }
-        if driver.stun.is_empty() {
+        if driver.stun.is_empty() && driver.relays.is_empty() {
+            driver.candidates_done = true;
             driver.emit(NetEvent::CandidatesDone);
         }
         let thread = thread::Builder::new()
@@ -314,6 +378,27 @@ fn transaction(index: usize) -> TransactionId {
     id
 }
 
+/// 32 random bytes (a fresh 25519 public key), for TURN transaction ids.
+fn seed() -> [u8; 32] {
+    KeyPair::generate().map(|k| k.public).unwrap_or_else(|_| {
+        let mut fallback = [0u8; 32];
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default();
+        fallback[..16].copy_from_slice(&nanos.to_be_bytes());
+        fallback
+    })
+}
+
+/// One TURN server's allocation.
+struct Relay {
+    server: SocketAddr,
+    client: TurnClient,
+    /// Allocated or failed: `CandidatesDone` no longer waits for it.
+    settled: bool,
+}
+
 struct StunQuery {
     server: SocketAddr,
     transaction: TransactionId,
@@ -330,6 +415,12 @@ struct Driver {
     events: mpsc::Sender<NetEvent>,
     event_fd: RawFd,
     stun: Vec<StunQuery>,
+    relays: Vec<Relay>,
+    /// The peer's candidates, for the relayed paths of allocations that finish later.
+    remote: Vec<Candidate>,
+    /// `NetConfig::relay_only`.
+    relay_only: bool,
+    candidates_done: bool,
     start: Instant,
 }
 
@@ -342,15 +433,23 @@ impl Driver {
         }
     }
 
-    fn send(&self, route: Route, packet: &[u8]) {
-        if let Route::Udp(addr) = route {
-            let _ = self.socket.send_to(packet, addr);
+    fn send(&mut self, route: Route, packet: &[u8], now: u64) {
+        match route {
+            Route::Udp(addr) => {
+                let _ = self.socket.send_to(packet, addr);
+            }
+            Route::Relay { relay, peer } => {
+                let Some(r) = self.relays.get_mut(usize::from(relay)) else { return };
+                if let Some(wrapped) = r.client.send(peer, packet, now) {
+                    let _ = self.socket.send_to(&wrapped, r.server);
+                }
+            }
         }
     }
 
     fn flush(&mut self, now: u64) -> Result<(), LinkError> {
         for t in self.endpoint.poll_transmit(now)? {
-            self.send(t.route, &t.packet);
+            self.send(t.route, &t.packet, now);
         }
         for event in self.endpoint.take_events() {
             self.emit(NetEvent::Endpoint(event));
@@ -359,20 +458,97 @@ impl Driver {
     }
 
     fn stun_tick(&mut self, now: u64) {
-        let mut finished = false;
         for q in self.stun.iter_mut().filter(|q| !q.done && q.next_us <= now) {
             if q.attempts >= STUN_ATTEMPTS {
                 q.done = true;
-                finished = true;
                 continue;
             }
             q.attempts += 1;
             q.next_us = now + STUN_RETRY_US;
             let _ = self.socket.send_to(&binding_request(q.transaction), q.server);
         }
-        if finished && self.stun.iter().all(|q| q.done) {
+        self.maybe_done(now);
+    }
+
+    /// `CandidatesDone` once every STUN query ended and every TURN allocation
+    /// settled, or the relay gathering time ran out.
+    fn maybe_done(&mut self, now: u64) {
+        if !self.candidates_done
+            && self.stun.iter().all(|q| q.done)
+            && (self.relays.iter().all(|r| r.settled) || now >= RELAY_GATHER_US)
+        {
+            self.candidates_done = true;
             self.emit(NetEvent::CandidatesDone);
         }
+    }
+
+    fn turn_tick(&mut self, now: u64) {
+        for r in &mut self.relays {
+            for packet in r.client.poll_transmit(now) {
+                let _ = self.socket.send_to(&packet, r.server);
+            }
+        }
+        self.turn_events(now);
+    }
+
+    fn turn_events(&mut self, now: u64) {
+        for index in 0..self.relays.len() {
+            for event in self.relays[index].client.take_events() {
+                self.relays[index].settled = true;
+                match event {
+                    TurnEvent::Allocated { relayed, .. } => {
+                        self.emit(NetEvent::Candidate(Candidate {
+                            kind: CandidateKind::Relay,
+                            addr: relayed,
+                        }));
+                        let peers: Vec<SocketAddr> = self.remote.iter().map(|c| c.addr).collect();
+                        for peer in peers {
+                            self.relay_path(index, peer, now);
+                        }
+                    }
+                    TurnEvent::Failed(error) => {
+                        let server = self.relays[index].server;
+                        self.emit(NetEvent::RelayFailed { server, reason: error.to_string() });
+                    }
+                }
+            }
+        }
+        self.maybe_done(now);
+    }
+
+    /// A path to `peer` through allocation `index` (permission and channel included).
+    fn relay_path(&mut self, index: usize, peer: SocketAddr, now: u64) {
+        let (Ok(relay), Some(r)) = (u16::try_from(index), self.relays.get_mut(index)) else {
+            return;
+        };
+        if r.client.relayed().is_some() && r.client.add_peer(peer, now) {
+            self.endpoint.add_path(Route::Relay { relay, peer }, PathKind::TurnRelay, now);
+        }
+    }
+
+    fn on_remote_candidate(&mut self, c: Candidate, now: u64) {
+        if !self.relay_only {
+            self.endpoint.add_path(Route::Udp(c.addr), c.path_kind(), now);
+        }
+        if self.remote.contains(&c) || self.remote.len() >= MAX_PATHS {
+            return;
+        }
+        self.remote.push(c);
+        for index in 0..self.relays.len() {
+            self.relay_path(index, c.addr, now);
+        }
+    }
+
+    /// Feeds one link packet to the endpoint. True when the peer closed the session.
+    fn deliver(&mut self, route: Route, packet: &[u8], now: u64) -> Result<bool, LinkError> {
+        for event in self.endpoint.on_packet(route, packet, now)? {
+            let closed = matches!(event, EndpointEvent::Link(crate::Event::Closed));
+            self.emit(NetEvent::Endpoint(event));
+            if closed {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn on_stun(&mut self, packet: &[u8]) {
@@ -388,15 +564,15 @@ impl Driver {
                 kind: CandidateKind::ServerReflexive,
                 addr,
             }));
-            if self.stun.iter().all(|q| q.done) {
-                self.emit(NetEvent::CandidatesDone);
-            }
         }
+        self.maybe_done(now_us(self.start));
     }
 
     fn deadline_ms(&self, now: u64) -> i32 {
         let stun = self.stun.iter().filter(|q| !q.done).map(|q| q.next_us).min();
-        match [self.endpoint.next_deadline_us(), stun].into_iter().flatten().min() {
+        let turn = self.relays.iter().filter_map(|r| r.client.next_deadline_us()).min();
+        let gather = (!self.candidates_done && now < RELAY_GATHER_US).then_some(RELAY_GATHER_US);
+        match [self.endpoint.next_deadline_us(), stun, turn, gather].into_iter().flatten().min() {
             Some(at) => i32::try_from(at.saturating_sub(now).div_ceil(1000)).unwrap_or(i32::MAX),
             None => 1000,
         }
@@ -413,6 +589,7 @@ impl Driver {
         loop {
             let now = now_us(self.start);
             self.stun_tick(now);
+            self.turn_tick(now);
             self.flush(now)?;
             let mut fds = [
                 libc::pollfd { fd: self.socket.as_raw_fd(), events: libc::POLLIN, revents: 0 },
@@ -429,13 +606,11 @@ impl Driver {
             let now = now_us(self.start);
             while let Ok(command) = self.commands.try_recv() {
                 match command {
-                    Command::RemoteCandidate(c) => {
-                        self.endpoint.add_path(Route::Udp(c.addr), c.path_kind(), now);
-                    }
+                    Command::RemoteCandidate(c) => self.on_remote_candidate(c, now),
                     Command::Datagram(d) => {
                         if self.endpoint.link().is_established() {
                             for t in self.endpoint.send_datagram(&d)? {
-                                self.send(t.route, &t.packet);
+                                self.send(t.route, &t.packet, now);
                             }
                         }
                     }
@@ -444,7 +619,12 @@ impl Driver {
                     Command::Close => {
                         if self.endpoint.link().is_established() {
                             for t in self.endpoint.close()? {
-                                self.send(t.route, &t.packet);
+                                self.send(t.route, &t.packet, now);
+                            }
+                        }
+                        for r in &mut self.relays {
+                            for packet in r.client.close() {
+                                let _ = self.socket.send_to(&packet, r.server);
                             }
                         }
                         return Ok(());
@@ -455,16 +635,33 @@ impl Driver {
                 match self.socket.recv_from(&mut buf) {
                     Ok((n, from)) => {
                         let packet = &buf[..n];
+                        if let Some(index) = self.relays.iter().position(|r| r.server == from) {
+                            match self.relays[index].client.on_packet(packet, now) {
+                                TurnReceive::Data { peer, payload } => {
+                                    let relay = u16::try_from(index).unwrap_or(u16::MAX);
+                                    if self.deliver(Route::Relay { relay, peer }, payload, now)? {
+                                        return Ok(());
+                                    }
+                                    continue;
+                                }
+                                TurnReceive::Handled => {
+                                    self.turn_events(now);
+                                    continue;
+                                }
+                                // A STUN binding answer from the same server, say.
+                                TurnReceive::Ignored => {}
+                            }
+                        }
+                        // Relay only: nothing but the TURN servers may reach this side.
+                        if self.relay_only {
+                            continue;
+                        }
                         if packet.first().is_some_and(|b| *b < 4) {
                             self.on_stun(packet);
                             continue;
                         }
-                        for event in self.endpoint.on_packet(Route::Udp(from), packet, now)? {
-                            let closed = matches!(event, EndpointEvent::Link(crate::Event::Closed));
-                            self.emit(NetEvent::Endpoint(event));
-                            if closed {
-                                return Ok(());
-                            }
+                        if self.deliver(Route::Udp(from), packet, now)? {
+                            return Ok(());
                         }
                     }
                     Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,

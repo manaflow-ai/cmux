@@ -4,28 +4,28 @@ use std::sync::{Arc, Mutex, mpsc};
 
 use super::*;
 
-const CREDENTIAL: &str = "cmux-access-credential-0123456789";
-const TOKEN: &str = "cmj_AbCdEfGh0123456789_-xyz";
+pub(super) const CREDENTIAL: &str = "cmux-access-credential-0123456789";
+pub(super) const TOKEN: &str = "cmj_AbCdEfGh0123456789_-xyz";
 const MACHINE_CREDENTIAL: &str = "cmm_secret-machine-credential-0123";
 
-fn strings(words: &[&str]) -> Vec<String> {
+pub(super) fn strings(words: &[&str]) -> Vec<String> {
     words.iter().map(|w| (*w).to_owned()).collect()
 }
 
-fn parsed(words: &[&str]) -> Option<Result<Command, UsageError>> {
+pub(super) fn parsed(words: &[&str]) -> Option<Result<Command, UsageError>> {
     parse(&strings(words))
 }
 
-fn command(words: &[&str]) -> Command {
+pub(super) fn command(words: &[&str]) -> Command {
     parsed(words).expect("ours").expect("parses")
 }
 
 /// One answer per request; the handler sees the request line plus headers and body.
-type Handler = Arc<dyn Fn(&str) -> (u16, String) + Send + Sync>;
+pub(super) type Handler = Arc<dyn Fn(&str) -> (u16, String) + Send + Sync>;
 
 /// A fake cmux platform on a loopback port: every request goes to `handler`
 /// and is recorded, raw, on the returned channel.
-fn fake(handler: Handler) -> (String, mpsc::Receiver<String>) {
+pub(super) fn fake(handler: Handler) -> (String, mpsc::Receiver<String>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
     let (sender, requests) = mpsc::channel();
@@ -70,11 +70,11 @@ fn fake(handler: Handler) -> (String, mpsc::Receiver<String>) {
     (origin, requests)
 }
 
-fn platform(origin: &str) -> Platform {
+pub(super) fn platform(origin: &str) -> Platform {
     Platform::new(origin.to_owned(), CREDENTIAL.to_owned(), Duration::from_secs(5)).unwrap()
 }
 
-fn mint_answer(expires_at_ms: u64) -> String {
+pub(super) fn mint_answer(expires_at_ms: u64) -> String {
     json!({
         "token": TOKEN,
         "joinTokenId": "jt_1",
@@ -85,7 +85,7 @@ fn mint_answer(expires_at_ms: u64) -> String {
     .to_string()
 }
 
-fn entry(join_token_id: &str) -> Value {
+pub(super) fn entry(join_token_id: &str) -> Value {
     json!({
         "machineId": "m_1",
         "label": "lane-vm-3",
@@ -117,13 +117,13 @@ fn joining(listed: Vec<Value>, expires_at_ms: u64) -> Handler {
     })
 }
 
-struct Ran {
-    code: Result<i32, Failure>,
-    out: String,
-    asked: Vec<String>,
+pub(super) struct Ran {
+    pub code: Result<i32, Failure>,
+    pub out: String,
+    pub asked: Vec<String>,
 }
 
-fn run_with(
+pub(super) fn run_with(
     words: &[&str],
     origin: &str,
     output: OutputMode,
@@ -139,35 +139,69 @@ fn run_with(
         asked.push(question.to_owned());
         answer
     };
+    let mut read_value = |_: &str| -> Result<zeroize::Zeroizing<String>, String> {
+        Err("no value in this test".into())
+    };
+    let mut ssh =
+        |_: &bootstrap::SshPlan| -> std::io::Result<i32> { panic!("no ssh in this test") };
+    let mut hooks = Hooks { confirm: &mut confirm, read_value: &mut read_value, ssh: &mut ssh };
     let options = RunOptions { interactive, every: Duration::from_millis(20) };
-    let code = run(&command, &platform, output, options, &mut out, &mut confirm, interrupt);
+    let code = run(&command, &platform, output, options, &mut out, &mut hooks, interrupt);
     Ran { code, out: String::from_utf8(out).unwrap(), asked }
 }
 
-fn never() -> impl Future<Output = ()> {
+pub(super) fn never() -> impl Future<Output = ()> {
     std::future::pending::<()>()
 }
 
-fn far() -> u64 {
+pub(super) fn far() -> u64 {
     now_ms() + 600_000
 }
 
-fn no_secret(text: &str) {
+pub(super) fn no_secret(text: &str) {
     for secret in [TOKEN, CREDENTIAL, MACHINE_CREDENTIAL, "cmj_", "cmm_"] {
         assert!(!text.contains(secret), "{secret} leaked in {text:?}");
     }
 }
 
 #[test]
+fn selected_team_uses_the_platform_team_header() {
+    let (origin, requests) = fake(Arc::new(|_| (200, "[]".into())));
+    let platform = platform(&origin).with_team(Some("team_0123456789abcdef0123".into()));
+    platform.post("/v1/machines/credentials", json!({})).unwrap();
+    let request = requests.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(
+        request
+            .lines()
+            .any(|line| line.eq_ignore_ascii_case("x-cmux-team: team_0123456789abcdef0123"))
+    );
+    assert!(
+        !request
+            .lines()
+            .any(|line| line.eq_ignore_ascii_case("x-cmux-team-id: team_0123456789abcdef0123"))
+    );
+}
+
+#[test]
 fn add_without_a_host_is_ours_and_with_one_is_the_apps_card() {
-    assert_eq!(command(&["machine", "add"]).verb, Verb::Add { name: None, ttl: None, wait: None });
+    assert_eq!(command(&["machine", "add"]).verb, Verb::Add(AddArgs::default()));
     assert_eq!(
         command(&["machine", "add", "--name", "lane-vm-3", "--ttl", "5m", "--no-wait"]).verb,
-        Verb::Add { name: Some("lane-vm-3".into()), ttl: Some(300), wait: Some(false) }
+        Verb::Add(AddArgs {
+            name: Some("lane-vm-3".into()),
+            ttl: Some(300),
+            wait: Some(false),
+            ..AddArgs::default()
+        })
     );
     assert_eq!(
         command(&["machine", "add", "--name=a", "--ttl=600", "--wait"]).verb,
-        Verb::Add { name: Some("a".into()), ttl: Some(600), wait: Some(true) }
+        Verb::Add(AddArgs {
+            name: Some("a".into()),
+            ttl: Some(600),
+            wait: Some(true),
+            ..AddArgs::default()
+        })
     );
     for host in [
         vec!["machine", "add", "mini-7"],
@@ -235,9 +269,10 @@ fn the_credential_comes_from_stdin_a_file_or_the_env_and_errors_name_neither() {
 }
 
 #[test]
-fn the_platform_is_https_and_defaults_to_development() {
+fn the_platform_is_https_and_defaults_to_production() {
     let none = |_: &str| -> Option<String> { None };
-    assert_eq!(platform_origin(None, &none).unwrap(), DEV_ORIGIN);
+    assert_eq!(platform_origin(None, &none).unwrap(), DEFAULT_ORIGIN);
+    assert_eq!(DEFAULT_ORIGIN, "https://cmux-platform-production.debussy.workers.dev");
     let env = |key: &str| -> Option<String> {
         (key == PLATFORM_ENV).then(|| "https://platform.example/".to_owned())
     };
@@ -605,6 +640,26 @@ fn a_name_on_two_machines_needs_its_id() {
     assert_eq!(failure.message, "that name fits 2 machines; use its id: m_1, m_2");
     assert_eq!(find(&entries, "m_2").unwrap().machine_id, "m_2");
     assert_eq!(find(&entries, "lane-vm-3.internal").unwrap_err().code, "machine.ambiguous");
+}
+
+#[test]
+fn joined_online_follows_the_platform_and_falls_back_to_the_heartbeat() {
+    let now = now_ms();
+    // The platform's `online` wins over the local clock either way: it follows the hub's row TTL.
+    let fresh_but_down =
+        joined(&json!({"machineId": "m_1", "lastHeartbeat": now, "online": false})).unwrap();
+    assert_eq!(fresh_but_down.state(now), "offline");
+    let old_but_up =
+        joined(&json!({"machineId": "m_2", "lastHeartbeat": now - 600_000, "online": true}))
+            .unwrap();
+    assert_eq!(old_but_up.state(now), "online");
+    let revoked = joined(&json!({"machineId": "m_3", "online": true, "revoked": true})).unwrap();
+    assert_eq!(revoked.state(now), "revoked");
+    // A platform without the field: the heartbeat within the legacy window.
+    let legacy =
+        |ago: u64| joined(&json!({"machineId": "m_4", "lastHeartbeat": now - ago})).unwrap();
+    assert_eq!(legacy(LEGACY_ONLINE_WITHIN_MS - 1_000).state(now), "online");
+    assert_eq!(legacy(LEGACY_ONLINE_WITHIN_MS + 1_000).state(now), "offline");
 }
 
 #[test]

@@ -53,6 +53,15 @@ public final class DebugCloseReadHold {
         return resumed.count
     }
 
+    /// Lets only the newest waiting read go on and keeps the hold armed (a test orders two closes' answers); false when
+    /// none waits.
+    @discardableResult
+    public func releaseNewest() -> Bool {
+        guard !waiting.isEmpty else { return false }
+        waiting.removeLast().resume()
+        return true
+    }
+
     /// `debug.close.hold` and `debug.close.release`.
     public var methods: [ControlMethod] {
         [

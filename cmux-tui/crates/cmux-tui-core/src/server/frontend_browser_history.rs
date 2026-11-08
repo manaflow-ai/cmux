@@ -1,7 +1,9 @@
 //! Raw protocol handlers for frontend-rendered browser tabs:
+//! `new-frontend-browser-tab` (with `split`: `frontend-browser-tab-split-v1`),
 //! `update-frontend-browser-tab` (`frontend-browser-tabs-v1`) and the opaque
 //! per-tab session history (`frontend-browser-history-v1`).
 
+use super::conversation_tabs_wire::ConversationTabSplitParams;
 use super::*;
 use crate::Actor;
 
@@ -15,6 +17,13 @@ pub const FRONTEND_BROWSER_HISTORY_CAPABILITY: &str = "frontend-browser-history-
 /// id and position. The hosting app re-creates the page in the new
 /// profile's store (cookies, storage, cache), which reloads it.
 pub const FRONTEND_BROWSER_TAB_PROFILE_CAPABILITY: &str = "frontend-browser-tab-profile-v1";
+
+/// `new-frontend-browser-tab {pane, split}`: the tab is created in a new pane
+/// on one side of `pane`, in one `pane.split` commit whose one `pane-added`
+/// delta holds the pane with the tab, as `conversation-tab-split-v1` does for
+/// a conversation tab. The source pane never lists the tab, so opening a
+/// link to the right no longer shows it in the source pane first.
+pub(crate) const FRONTEND_BROWSER_TAB_SPLIT_CAPABILITY: &str = "frontend-browser-tab-split-v1";
 
 /// `new-frontend-browser-tab`: a browser tab whose page the frontend renders
 /// (WebKit or CEF); the daemon persists its location and never attaches a CDP
@@ -49,6 +58,11 @@ pub(super) struct NewTabParams {
     /// instead of at the end. Ignored when that tab is not in the pane.
     #[serde(default)]
     after: Option<SurfaceId>,
+    /// `frontend-browser-tab-split-v1`: with `pane`, the tab goes in a new
+    /// pane split from it (`{direction, pane_id?, split_id?}`). The new pane
+    /// holds only the tab, so `activate` has no effect and `after` is refused.
+    #[serde(default)]
+    split: Option<ConversationTabSplitParams>,
 }
 
 const fn activate_by_default() -> bool {
@@ -69,7 +83,13 @@ pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyho
         rows,
         activate,
         after,
+        split,
     } = params;
+    let split = split.map(|split| split.tab_split(pane)).transpose()?;
+    anyhow::ensure!(
+        split.is_none() || after.is_none(),
+        "bad request: after does not apply with split (the new pane holds only the tab)"
+    );
     let profile_id = profile_id
         .map(|profile| {
             mux.workspace_registry
@@ -87,28 +107,25 @@ pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyho
         owner,
     };
     let size = paired_surface_size("new-frontend-browser-tab", cols, rows)?;
-    let (surface, replayed) = match idempotency_key {
-        Some(key) => {
-            let outcome = mux.new_frontend_browser_tab_keyed_as(
-                &origin_gate::connection_actor(mux, client),
-                pane,
-                record,
-                size,
-                &key,
-                crate::mux::FrontendTabPlacement { activate, after, index: None },
-            )?;
+    let actor = origin_gate::connection_actor(mux, client);
+    let placement = crate::mux::FrontendTabPlacement { activate, after, index: None };
+    let (surface, replayed) = match (idempotency_key, split) {
+        (Some(key), None) => {
+            let outcome =
+                mux.new_frontend_browser_tab_keyed_as(&actor, pane, record, size, &key, placement)?;
             (outcome.surface, outcome.replayed)
         }
-        None => (
-            mux.new_frontend_browser_tab_placed_as(
-                &origin_gate::connection_actor(mux, client),
-                pane,
-                record,
-                size,
-                crate::mux::FrontendTabPlacement { activate, after, index: None },
-            )?,
-            false,
-        ),
+        (Some(key), Some(split)) => {
+            let outcome =
+                mux.new_frontend_browser_tab_split_keyed_as(&actor, split, record, size, &key)?;
+            (outcome.surface, outcome.replayed)
+        }
+        (None, None) => {
+            (mux.new_frontend_browser_tab_placed_as(&actor, pane, record, size, placement)?, false)
+        }
+        (None, Some(split)) => {
+            (mux.new_frontend_browser_tab_split_as(&actor, split, record, size)?, false)
+        }
     };
     let identity = surface.resource_identity();
     Ok(json!({
@@ -310,3 +327,7 @@ mod activate_tests;
 #[cfg(test)]
 #[path = "frontend_browser_insert_tests.rs"]
 mod insert_tests;
+
+#[cfg(test)]
+#[path = "frontend_browser_split_tests.rs"]
+mod split_tests;

@@ -130,9 +130,6 @@ public final class DesignSettings {
     /// `ui.paneAnimations`: pane layout changes spring when true (see
     /// `Motion.animatesPaneLayout`); on by default.
     public var paneAnimations = true
-    /// `labs.classicHome`: Home is the classic top page instead of the home workspace with its
-    /// left dock (cx-ebm.59.5); off by default, kept one release. Read when Home opens.
-    public var classicHome = false
     /// `home.channelsEnabled`: the sidebar shows the Channels entry after Home (cx-frn2y); off by default.
     public var homeChannelsEnabled = false
     /// `home.chiefBubbleStyle` is `theme`: the Chief chat's bubbles take the theme's colours; false (the
@@ -152,10 +149,25 @@ public final class DesignSettings {
     public var centerFocusedColumn: CenterFocusedColumn = .never
     /// `tabs.overflow`: crowded tab strips shrink their tabs (default) or scroll sooner.
     public var tabOverflow: TabOverflow = .shrink
+    /// `tabs.verticalTabs`: every workspace shows its tabs as a vertical list unless it turned them off.
+    public var verticalTabs = false
+    /// `tabs.verticalTabsExpandOnHover`: a collapsed vertical tab list widens while the pointer is over it.
+    public var verticalTabsExpandOnHover = true
+    /// `tabs.hideLoneChatTab`: a chat alone in its pane hides its one tab, so the page takes the tab row (off by default).
+    public var hideLoneChatTab = false
     /// `layout.stripScrollbar`: the column strip's scrollbar.
     public var stripScrollbar: StripScrollbarMode = .system
     /// `sidebar.*`: section look and pinned band caps.
-    public var sidebarSections = SidebarSectionsPreferences.defaults
+    public var sidebarSections = SidebarSectionsPreferences.defaults {
+        didSet {
+            // The Wallpaper and Pictorial group palettes need the desktop picture (`DesktopWallpaperWatch.samplesForGroups`).
+            let follows = sidebarSections.groupPalette.followsWallpaper
+            if follows != oldValue.groupPalette.followsWallpaper { BackdropImageStore.shared.desktop.samplesForGroups = follows }
+        }
+    }
+    /// The desktop picture's color (and its bands) while the Wallpaper or Pictorial group palette is chosen; nil under
+    /// any other palette or until the first sample lands. Observed, so the sidebar's groups repaint when the picture changes.
+    public var groupWallpaperTint: WallpaperTint?
     /// `sidebar.hoverCards.enabled`: off, no hover card opens on hover (sidebar rows, tabs, and a
     /// user's custom card). A change posts `hoverCardsDidChange` so a shown card goes at once.
     public var hoverCardsEnabled = true {

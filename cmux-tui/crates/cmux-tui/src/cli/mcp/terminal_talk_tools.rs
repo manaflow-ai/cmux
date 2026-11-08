@@ -22,10 +22,13 @@ const DEFAULT_SEND_SECONDS: f64 = 300.0;
 
 const LIST_DESCRIPTION: &str = "The terminals in cmux that run a coding agent (Claude Code, \
     Codex, or any program that reports OSC 7501 status), as `cmux terminal list --agents`: \
-    {items: [{terminal, harness, state, title, workspace_id, workspace, cwd, updated_at_ms, \
-    age_ms, source}]}. state is busy, idle, waiting-for-input (a permission dialog or a \
-    question waits) or ended. Waiting first, then busy, idle, ended; newest first. A shell \
-    without an agent is not listed. Changes nothing.";
+    {items: [{terminal, harness, status, state, title, workspace_id, workspace, cwd, \
+    updated_at_ms, age_ms, source}]}. status is blocked (a permission dialog, a question or an \
+    error waits), done (a turn finished and nobody has viewed the terminal yet), working, idle \
+    or unknown, and null for an ended session. state keeps the older words: busy, idle, \
+    waiting-for-input or ended. Blocked first, then done, working, idle, unknown, ended; \
+    newest first. A shell without an agent is not listed. Changes nothing: reading does not \
+    clear done.";
 
 const SEND_DESCRIPTION: &str = "Send a message to the agent (or shell) in a cmux terminal and \
     get its answer, as `cmux terminal <t> send`: types text as one bracketed paste (a \
@@ -40,7 +43,8 @@ const SEND_DESCRIPTION: &str = "Send a message to the agent (or shell) in a cmux
     the text would answer the dialog. target is a term_ id (or unique prefix), a tab_ id or \
     an exact terminal title; agents_terminal_list names them. Optional idempotency_key \
     identifies the complete paste-and-Enter send: a lost reply reports its \
-    phase and the same key for a safe retry.";
+    phase, the resolved terminal id and the same key. When passing a key, target \
+    must be the full term_ id so a renamed title or moved tab cannot retarget a replay.";
 
 pub(super) fn descriptors() -> [Value; 2] {
     [
@@ -86,7 +90,7 @@ fn send_schema() -> Value {
             "force": {"type": "boolean", "default": false,
                       "description": "Type even when the agent waits on a dialog."},
             "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 128,
-                      "description": "Stable send identity for retries; reuse after an uncertain result."},
+                      "description": "Stable send identity for retries. With this key, target must be the full term_ ID; reuse the original terminal ID and key after an uncertain result."},
             "session": session_schema(),
         },
         "required": ["target", "text"],

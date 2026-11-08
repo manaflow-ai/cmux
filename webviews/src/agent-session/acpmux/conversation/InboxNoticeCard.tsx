@@ -16,17 +16,27 @@
 import { useContext, useEffect, useId, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import { DisclosureRow } from "../subagents/DisclosureRow";
+import { useMessageLineLook } from "./messageLineLook";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { mentionedRepository } from "../../../githubReferences";
 import { CardCopy } from "./CardCopy";
 import { FindReveal, foldFind } from "./chatFind";
 import { SenderName } from "./IncomingMessageCard";
-import { groupSender, MessageGroupHead } from "./MessageGroupHead";
-import { messageOpened, setMessageOpened } from "./incomingOpened";
+import { MessageGroupHead } from "./MessageGroupHead";
+import { groupSender } from "./messageGroupHeadModel";
+import { messageOpened, setDigestOpened, setMessageOpened } from "./incomingOpened";
 import type { IncomingMessage } from "./incomingMessage";
-import { inboxCounts, inboxThreadKey, type InboxMessage, type InboxNotice, type InboxThread } from "./inboxNotice";
+import {
+  inboxCounts,
+  inboxThreadKey,
+  senderKey,
+  type InboxMessage,
+  type InboxNotice,
+  type InboxThread,
+} from "./inboxNotice";
 import { foldsThreads, useInboxNoticeLook } from "./inboxNoticeLook";
 import { Markdown } from "./Markdown";
+import { SentFromLine } from "./SentFromLine";
 import "./InboxNoticeCard.css";
 
 /// Reads a thread's messages, oldest first (App.tsx `readInboxThread`, `chat.inbox.thread`).
@@ -35,6 +45,13 @@ export type ReadInboxThread = (threadId: string) => Promise<InboxMessage[]>;
 /// The sender a thread's line names: the newest message's.
 function newestSender(thread: InboxThread): string {
   return thread.messages?.at(-1)?.from || thread.from.at(-1) || "";
+}
+
+/// The key the newest sender's chat is asked for by (`senderKey`), when acpmux recorded who sent it.
+function newestLookup(thread: InboxThread): string | undefined {
+  const newest = thread.messages?.at(-1);
+  const sender = newest ? newest.sender : thread.sender;
+  return sender && senderKey(newestSender(thread), sender);
 }
 
 /// One thread's received line, and its messages under it once opened.
@@ -91,15 +108,17 @@ function InboxThreadLine({
     };
   }, [open, own, fetched, readFor, readThread, thread]);
   const name = newestSender(thread);
+  const lookup = newestLookup(thread);
   const sender = useMemo<IncomingMessage>(
     () => ({
       name,
+      ...(lookup && { lookup }),
       text: "",
       raw: "",
       ...(thread.fromSession && { sessionId: thread.fromSession }),
       ...(thread.fromHarness && { harness: thread.fromHarness }),
     }),
-    [name, thread.fromSession, thread.fromHarness],
+    [name, lookup, thread.fromSession, thread.fromHarness],
   );
   const whole = messages?.map((m) => m.text).join("\n\n") ?? thread.preview;
   const repository = githubRepository ?? mentionedRepository(whole);
@@ -115,6 +134,10 @@ function InboxThreadLine({
   }, [holds, reveal]);
   // Several messages each say who sent them; one alone is under its sender's line already.
   const heads = (messages?.length ?? 0) > 1;
+  // Single (the default, messageLineLook.ts): the preview on the line after the sender; stacked (a
+  // gallery version), on its own line under it.
+  const lineLook = useMessageLineLook();
+  const preview = thread.preview || t("message.noText");
   return (
     <DisclosureRow
       className="cv-received cv-inbox__thread"
@@ -127,12 +150,15 @@ function InboxThreadLine({
       label={
         <>
           {thread.label && <span className="cv-inbox__label">{thread.label}</span>}
-          <span className="cv-received__preview" data-find-skip="">
-            {thread.preview || t("message.noText")}
-          </span>
+          {lineLook === "single" && (
+            <span className="cv-received__preview" data-find-skip="">
+              {preview}
+            </span>
+          )}
           {thread.count > 1 && <span className="cv-inbox__more">{t("tools.more", { n: thread.count - 1 })}</span>}
         </>
       }
+      below={lineLook === "stacked" && !open ? preview : undefined}
     >
       <CardCopy text={whole} />
       <div className="cv-received__text selectable">
@@ -147,12 +173,20 @@ function InboxThreadLine({
               <Markdown githubRepository={repository} commits="quiet" messageAt={message.at ?? messageAt}>
                 {message.text}
               </Markdown>
+              {message.promptId && thread.sentFrom?.[message.promptId] && (
+                <SentFromLine from={thread.sentFrom[message.promptId]!} />
+              )}
             </section>
           ))
         ) : (
-          <Markdown githubRepository={repository} commits="quiet" messageAt={messageAt}>
-            {thread.preview || t("message.noText")}
-          </Markdown>
+          <>
+            <Markdown githubRepository={repository} commits="quiet" messageAt={messageAt}>
+              {thread.preview || t("message.noText")}
+            </Markdown>
+            {thread.promptIds.length === 1 && thread.sentFrom?.[thread.promptIds[0]!] && (
+              <SentFromLine from={thread.sentFrom[thread.promptIds[0]!]!} />
+            )}
+          </>
         )}
       </div>
     </DisclosureRow>
@@ -225,6 +259,7 @@ export function InboxNoticeCard({
       ? groupSender(
           notice.threads.map((thread) => ({
             name: newestSender(thread) || senders[0]!,
+            ...(newestLookup(thread) && { lookup: newestLookup(thread) }),
             text: "",
             raw: "",
             ...(thread.fromSession && { sessionId: thread.fromSession }),
@@ -241,7 +276,16 @@ export function InboxNoticeCard({
         senders={senders.join(", ")}
         open={open}
         bodyId={bodyId}
-        onToggle={() => show(!open)}
+        onToggle={() => {
+          // The head opens the group with every thread's messages open (incomingOpened.ts).
+          setDigestOpened(
+            session,
+            rowId,
+            notice.threads.map((thread) => inboxThreadKey(rowId, thread.threadId)),
+            !open,
+          );
+          setOpen(!open);
+        }}
         className="cv-inbox__head"
       />
       {open && (

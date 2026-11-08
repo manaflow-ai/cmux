@@ -1,6 +1,6 @@
 import { cliOnlyCommand } from "./cliOnlyCommands";
 import type { StringKey } from "./i18n";
-import type { SlashCommand } from "./slashCommands";
+import { goesAsText, type SlashCommand } from "./slashCommands";
 
 /** Commands owned by cmux and available in every harness chat. Their description is a pane string. */
 export type CmuxCommand = SlashCommand & {
@@ -104,6 +104,7 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     name: "side",
     description: "",
     descriptionKey: "composer.slashSide",
+    hint: "<prompt>",
     source: "cmux",
     action: "side",
   },
@@ -160,7 +161,9 @@ const PASS_THROUGH_FALLBACKS: readonly CmuxCommand[] = [
   },
 ];
 
-/** cmux commands come first, while a harness keeps the order it advertised. */
+/** cmux commands come first, while a harness keeps the order it advertised. A command of the
+ *  harness's own with a cmux name gives way to cmux's; a skill or prompt with one stays: mid-prompt
+ *  it is the only meaning (slashCommands.ts goesAsText), and at the start cmux's still runs. */
 export function mergedCommands(
   agent: readonly SlashCommand[] | undefined,
   enabledCmuxActions: ReadonlySet<CmuxCommand["action"]> = new Set(CMUX_COMMANDS.map((command) => command.action)),
@@ -171,13 +174,14 @@ export function mergedCommands(
     ...(agent ?? []),
   ].filter((command) => {
     const name = command.name.trim().toLowerCase();
-    if (!name || seen.has(name)) return false;
-    seen.add(name);
+    const key = `${goesAsText(command) ? "text" : "run"}:${name}`;
+    if (!name || seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
   for (const fallback of PASS_THROUGH_FALLBACKS) {
-    if (!seen.has(fallback.name)) {
-      seen.add(fallback.name);
+    if (!seen.has(`run:${fallback.name}`)) {
+      seen.add(`run:${fallback.name}`);
       merged.push(fallback);
     }
   }
@@ -253,6 +257,9 @@ export function cmuxCommandRefusal(
   state: {
     summary: boolean;
     forkable: boolean;
+    /// Why `/side` cannot fork the chat now (`forkRefusal`), undefined when it can: unlike `/fork`,
+    /// a working chat forks as it is now and its own turn goes on (#38042).
+    sideFork?: "unavailable" | "nothingYet";
     sideAvailable: boolean;
     canContinue: boolean;
     sideSessions: boolean;
@@ -281,7 +288,10 @@ export function cmuxCommandRefusal(
       if (state.newTab) return "composer.cmuxCdNewTab";
       return !args?.trim() || cdFolder(args, state.cwd) ? undefined : "composer.cmuxCdPath";
     case "side":
-      return !args?.trim() && state.forkable && state.sideAvailable ? undefined : "composer.cmuxSideUnavailable";
+      // `/side <prompt>` sends the prompt to the side chat; the chat itself gets nothing.
+      if (!state.sideAvailable) return "composer.cmuxSideUnavailable";
+      if (state.sideFork === "nothingYet") return "notice.forkNothingYet";
+      return state.sideFork ? "composer.cmuxForkBusy" : undefined;
     case "fork":
       if (args?.trim()) return "composer.cmuxForkArgs";
       return state.forkable ? undefined : "composer.cmuxForkBusy";
