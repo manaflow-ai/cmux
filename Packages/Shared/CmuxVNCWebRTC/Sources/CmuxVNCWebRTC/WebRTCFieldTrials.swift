@@ -5,7 +5,8 @@ import WebRTC
 /// peer connection factory in the app calls ``prepare()`` before it is made (the screen
 /// stream's here, the iPhone's Chief call link): the first call sets them, later calls do
 /// nothing, and whichever factory comes first already sees them.
-public enum WebRTCFieldTrials {
+public struct WebRTCFieldTrials {
+    public init() {}
     /// Playout delay 0 on both ends: a decoded video frame is shown at once instead of being
     /// held in the jitter buffer for smooth playback. A screen is not a film: the newest pixels
     /// matter, not an even cadence. The receive trial covers this build's viewer whatever the
