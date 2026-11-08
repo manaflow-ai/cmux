@@ -228,7 +228,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
         case kind.op("runBlock") where kind == .markdown, kind.op("runAll") where kind == .markdown:
             let shown = file, requested = try path(params["path"])
             let run = try RunbookRun(target: op == kind.op("runAll") ? .chat : .terminal, params: params,
-                                     userGesture: context.userGesture, isPageFile: shown != nil && Self.canonical(requested) == shown)
+                                     userGesture: context.userGesture, isPageFile: shown != nil && canonical(requested) == shown)
             let cwd = await run.folder(for: shown ?? requested)
             guard !isClosed, file == shown else { throw PageError.closed }
             host.run(run, cwd: cwd)
