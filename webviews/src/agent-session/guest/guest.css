@@ -22,6 +22,10 @@
 .guest-join__edit{align-self:center;padding:0;border:0;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 .guest-join__edit:hover{color:var(--agent-text);text-decoration:underline}
 .guest-join__edit:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
+/* Open in cmux (OpenInApp.tsx): the app link as the primary button, the browser as a quiet second choice. */
+.guest-app__open{display:inline-flex;align-items:center;box-sizing:border-box;text-decoration:none}
+.guest-app__browser{flex:none;height:32px;padding:0 12px;border:1px solid var(--agent-border);border-radius:8px;background:transparent;color:var(--agent-text);font:inherit}
+.guest-app__browser:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 /* The transcript's column: 760px wide, 16px from the edges on a phone. */
 .guest-live{--guest-inset:max(16px, calc((100% - 760px) / 2));height:100%;display:flex;flex-direction:column}
 .guest-live__header{flex:none;display:flex;align-items:center;gap:8px;padding:8px var(--guest-inset);border-bottom:1px solid var(--agent-border)}
