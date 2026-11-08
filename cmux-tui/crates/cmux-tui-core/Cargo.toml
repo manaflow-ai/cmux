@@ -54,8 +54,10 @@ cmux-terminal-iface.workspace = true
 cmux-terminal-sizing.workspace = true
 serde.workspace = true
 subsecond = { workspace = true, optional = true }
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
 toml.workspace = true
+# Settings > Skills edits a person's Codex config.toml keeping its comments (skills_catalog.rs).
+toml_edit.workspace = true
 anyhow.workspace = true
 base64.workspace = true
 libc.workspace = true

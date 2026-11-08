@@ -45,6 +45,9 @@ final class SettingsPageProvider: PageProvider {
     /// Settings > Privacy > Shared Links (``SettingsSharedLinks``): this Mac's chat shares, and Revoke.
     var sharesList: (@MainActor () async throws -> JSONValue)?
     var sharesRevoke: (@MainActor (String) async throws -> JSONValue)?
+    /// Settings > Skills (``SettingsSkills``): every skill the harnesses load, and one gesture.
+    var skillsList: (@MainActor () async throws -> JSONValue)?
+    var skillsRun: (@MainActor (JSONValue) async throws -> JSONValue)?
     var devicesWatching: (@MainActor (Bool) -> Void)?
     /// Settings > Agents > Agent integrations (`SettingsAgentIntegrations`): the coding-agent
     /// hooks `cmux agent hook` installs; nil in tests without an app.
@@ -226,6 +229,13 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.shares.revoke":
             guard let id = params["share_id"]?.stringValue, !id.isEmpty else { throw PageError.invalidParams("share_id") }
             return try await Self.host(sharesRevoke, "shares")(id)
+        case "cmux.settings.skills.list": return try await Self.host(skillsList, "skills")()
+        case "cmux.settings.skills.run":
+            // Turning a skill on or off, making one and opening its file are a person's clicks; Show in Finder is not a write.
+            if params["action"]?.stringValue != "reveal", Self.writer(context) != .user {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+            }
+            return try await Self.host(skillsRun, "skills")(params)
         case "cmux.settings.devices.run": return try await Self.host(devicesRun, "devices")(params)
         case "cmux.settings.theme.set":
             guard let setTheme else { throw PageError(code: "cmux.page.unavailable", message: "no theme host") }

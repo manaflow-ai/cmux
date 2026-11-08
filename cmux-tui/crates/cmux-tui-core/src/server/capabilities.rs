@@ -137,6 +137,8 @@ fn always_identified() -> Vec<&'static str> {
     #[cfg(unix)]
     capabilities.push(agent_cli_intents::CAPABILITY);
     #[cfg(unix)]
+    capabilities.push(skills_wire::CAPABILITY);
+    #[cfg(unix)]
     capabilities.push(mobile_chat::CLOUD_CHAT_RELAY_CAPABILITY);
     capabilities.push(activity::CAPABILITY);
     capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);

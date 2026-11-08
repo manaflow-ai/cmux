@@ -228,6 +228,8 @@ struct PageFactory {
         }
         provider.sharesList = { [weak services] in try await SettingsSharedLinks.list(services) }
         provider.sharesRevoke = { [weak services] id in try await SettingsSharedLinks.revoke(services, shareID: id) }
+        provider.skillsList = { [weak services] in try await SettingsSkills.list(services) }
+        provider.skillsRun = { [weak services] params in try await SettingsSkills.run(services, params) }
         provider.devicesWatching = { on in if on { devices.beginWatching() } else { devices.endWatching() } }
         provider.integrations = SettingsAgentIntegrations(cli: { [bundled = services.bundledCLI] in await bundled.resolve() })
         provider.setTheme = { [weak services] level, spec in try services?.settingsWindow.setPageTheme(level: level, spec: spec) }

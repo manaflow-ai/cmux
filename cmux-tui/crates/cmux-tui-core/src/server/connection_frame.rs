@@ -115,6 +115,10 @@ pub(super) fn handle_connection_frame(
         return keep_open;
     }
     #[cfg(unix)]
+    if let Some(keep_open) = skills_wire::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
+    #[cfg(unix)]
     if let Some(keep_open) = fs_wire::try_handle(mux, client, message, writer) {
         return keep_open;
     }

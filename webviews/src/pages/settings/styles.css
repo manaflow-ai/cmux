@@ -2194,3 +2194,328 @@ button.menu-disclosure {
   border-color: transparent;
   background: var(--accent-soft);
 }
+
+/* Settings > Skills (SkillsCard): borderless, flat tonal fills on the page's tokens. Folds (a row's
+   details, New Skill) settle on the house curve: --cmux-ease-settle over --cmux-motion-settle, no
+   overshoot, and only their own height and opacity move. Off-screen rows skip layout and paint
+   (content-visibility), so a long list costs what the visible rows cost. */
+.skills-help {
+  margin: 0 0 var(--ds-space-3);
+  white-space: normal;
+}
+
+.skills-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2);
+  margin-bottom: var(--ds-space-3);
+}
+
+.skills-search {
+  display: flex;
+  flex: 1 1 12rem;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-md);
+  background: var(--input-bg);
+  color: var(--muted-text);
+}
+
+.skills-search .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.skills-chips {
+  display: inline-flex;
+  gap: var(--ds-space-1);
+}
+
+.skills-chip {
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-md);
+  background: transparent;
+  color: var(--muted-text);
+  font: inherit;
+  font-size: var(--text-detail);
+  transition: background var(--motion-hover);
+}
+
+.skills-chip:hover:not(:disabled) {
+  background: var(--input-bg);
+}
+
+.skills-chip[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.skills-chip:focus-visible {
+  outline: 2px solid var(--border-strong);
+  outline-offset: -2px;
+}
+
+.skills-card .skills-fold {
+  transition-duration: var(--cmux-motion-settle);
+  transition-timing-function: var(--cmux-ease-settle);
+}
+
+.skills-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  margin-bottom: var(--ds-space-3);
+  padding: var(--ds-space-3);
+  border-radius: var(--ds-radius-xl);
+  background: var(--input-bg);
+}
+
+.skills-rule {
+  white-space: normal;
+}
+
+.skills-harness {
+  margin-bottom: var(--ds-space-4);
+}
+
+.skills-harness-title {
+  margin: 0 0 var(--ds-space-2);
+  font-size: var(--text-detail);
+  font-weight: 600;
+}
+
+.skills-group {
+  margin-bottom: var(--ds-space-3);
+}
+
+.skills-group-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  margin: 0 0 var(--ds-space-1);
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+}
+
+.skills-group-path {
+  min-width: 0;
+}
+
+.skills-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--row-min);
+}
+
+.skills-row[data-enabled="false"] .row-title,
+.skills-tile[data-enabled="false"] .row-title,
+.skills-split-item[data-enabled="false"] .row-title {
+  color: var(--muted-text);
+}
+
+.skills-name {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.skills-name:focus-visible {
+  outline: 2px solid var(--border-strong);
+  outline-offset: 2px;
+  border-radius: var(--ds-radius-sm);
+}
+
+/* A long description ends in a fade, never a hard cut (#32836). */
+.skills-description,
+.skills-tags {
+  max-width: 100%;
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--ds-space-6)), transparent);
+}
+
+.skills-description {
+  text-overflow: clip;
+}
+
+.skills-tags {
+  display: inline-flex;
+  flex: 0 1 auto;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.skills-tag {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-1);
+  padding: 0 var(--ds-space-2);
+  border-radius: var(--ds-radius-sm);
+  background: var(--input-bg);
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  white-space: nowrap;
+}
+
+.skills-tag .icon {
+  width: var(--ds-icon-12);
+  height: var(--ds-icon-12);
+}
+
+.skills-tag[data-skills-problem] {
+  color: var(--warning);
+}
+
+.skills-tag[data-skills-shadowed] {
+  background: transparent;
+  color: var(--soft-text);
+}
+
+.skills-icon-button .icon {
+  width: var(--ds-icon-14);
+  height: var(--ds-icon-14);
+}
+
+.skills-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  padding-top: var(--ds-space-2);
+}
+
+.skills-detail-text {
+  color: var(--muted-text);
+  font-size: var(--text-detail);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.skills-detail .row-key {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.skills-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: var(--ds-space-2);
+}
+
+.skills-tile,
+.skills-split-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  padding: var(--ds-space-3);
+  border-radius: var(--ds-radius-xl);
+  background: var(--input-bg);
+}
+
+.skills-tile {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 112px;
+}
+
+.skills-tile-head,
+.skills-tile-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+
+.skills-tile-description {
+  display: -webkit-box;
+  white-space: normal;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.skills-tile-buttons {
+  display: inline-flex;
+  flex: none;
+  gap: var(--ds-space-1);
+}
+
+.skills-split {
+  display: grid;
+  grid-template-columns: minmax(12rem, 2fr) minmax(0, 3fr);
+  gap: var(--ds-space-3);
+  align-items: start;
+}
+
+.skills-split-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  max-height: 28rem;
+  overflow-y: auto;
+}
+
+.skills-split-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  padding: var(--ds-space-2);
+  border: 0;
+  border-radius: var(--ds-radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 40px;
+  transition: background var(--motion-hover);
+}
+
+.skills-split-item:hover {
+  background: var(--input-bg);
+}
+
+.skills-split-item[aria-pressed="true"] {
+  background: var(--accent-soft);
+}
+
+.skills-split-item > * {
+  max-width: 100%;
+}
+
+.skills-skeleton {
+  gap: var(--ds-space-1);
+  align-items: flex-start;
+}
+
+.skills-skeleton-line {
+  display: block;
+  width: 32%;
+  height: var(--ds-space-2);
+  border-radius: var(--ds-radius-sm);
+  background: var(--input-bg);
+}
+
+.skills-skeleton-line.wide {
+  width: 64%;
+}
+
+/* The skeleton breathes on the shared clock (desktop.css), and holds still under Reduce Motion or
+   Settings > Static status indicators. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-status-indicators="static"]) .skills-skeleton-line {
+    animation: cmux-breathe var(--cmux-breath-period, 2.4s) var(--cmux-ease-out) infinite;
+  }
+}

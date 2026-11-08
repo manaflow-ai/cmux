@@ -7,7 +7,7 @@ extension SettingsPageLayout {
         SidebarSection(id: "app", title: nil, categories: [generalCategory, updatesCategory]),
         SidebarSection(id: "look", title: SettingsText.keyed("settings.sidebarSection.lookAndFeel", "Look and Feel"), categories: [themeCategory, appearanceCategory]),
         SidebarSection(id: "tools", title: SettingsText.keyed("settings.sidebarSection.tools", "Tools"), categories: [terminalCategory, editorCategory, browserCategory]),
-        SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [agentsCategory, chiefCategory]),
+        SidebarSection(id: "ai", title: SettingsText.keyed("settings.sidebarSection.ai", "AI"), categories: [agentsCategory, skillsCategory, chiefCategory]),
         SidebarSection(id: "interaction", title: SettingsText.keyed("settings.sidebarSection.interaction", "Interaction"), categories: [notificationsCategory, keyboardCategory, menusCategory]),
         SidebarSection(id: "devices", title: SettingsText.keyed("settings.sidebarSection.devices", "Accounts and Devices"), categories: [accountsCategory, mobileCategory, devicesCategory, serverCategory]),
         SidebarSection(id: "system", title: SettingsText.keyed("settings.sidebarSection.system", "Data and System"), categories: [importCategory, privacyCategory, advancedCategory, experimentalCategory, developmentCategory]),
@@ -167,6 +167,13 @@ extension SettingsPageLayout {
             GroupSpec(group: "settings.group.folderTrust"),
         ],
         trail: [.computerUse, .harnesses, .agentHarnesses, .agentIntegrations]
+    )
+
+    /// Every skill Claude Code and Codex load on this Mac, by harness and scope: turn one (or its plugin) on or off, open its SKILL.md, show it in Finder, or make a new one (Leo 2026-11-08).
+    private static let skillsCategory = CategorySpec(
+        id: "skills", title: SettingsText.keyed("settings.category.skills", "Skills"), symbol: "wand.and.stars",
+        groups: [],
+        lead: [.skills]
     )
 
     /// Every Chief setting on one page (Leo 2026-10-20: the name pill's popover is the quick version; its All Chief Settings link opens this): Chiefs lists every Chief, each opening its editor (name, picture, backend; u2586); the Chief Pet card (ChatGPT's Mini & Pets) draws the preview, Show/Hide and the characters from its group's two rows; then the chat's look. Voice input (the message box's mic) shows only in builds with Debug Settings. Notices last: a row that opens Notifications (the Chief's notices are the app's notifications; their rows keep their one home there).

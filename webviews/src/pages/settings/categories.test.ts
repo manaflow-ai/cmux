@@ -37,6 +37,8 @@ test("the categories are the approved ones, in order", () => {
     "editor",
     "browser",
     "agents",
+    // Settings > Skills: every skill the harnesses load (Leo 2026-11-08).
+    "skills",
     "chief",
     "notifications",
     "keyboard",

@@ -52,6 +52,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case cloudEnvironments
         /// Settings > Privacy and Security > Shared Links: every chat this Mac shared by link or invite, with Revoke and Revoke All (design chat-multiplayer.md 2); `cmux.settings.shares.*`. Deep link: #/settings/privacy?focus=card.sharedLinks.
         case sharedLinks
+        /// Settings > Skills: every agent skill this Mac's harnesses load (personal, project, plugin, admin, system), with enable switches, Open in Editor, Show in Finder and New Skill; `cmux.settings.skills.*` forwards to the daemon's `skills-*` commands (capability skills-v1).
+        case skills
     }
 
     /// A group card as the layout states it: rows claimed by key to lead it, the rows

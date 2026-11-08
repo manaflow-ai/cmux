@@ -98,6 +98,7 @@ mod shell_integration;
 pub mod startup_timings;
 use cmux_tui_util::short_id;
 mod sidebar_resource;
+mod skills_catalog;
 pub mod sizing_policy;
 mod state;
 pub mod store_schemas;
