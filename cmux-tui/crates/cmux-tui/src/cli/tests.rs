@@ -623,14 +623,54 @@ fn cmux_refuses_cmux_tui_only_scopes_by_name_in_every_spelling() {
             assert!(failure.error.0.contains("is not part of cmux"), "{args:?}: {}", failure.error);
         }
     }
-    // `cmux` has no session scope, so its `ls` shorthand lists workspaces.
+    // `cmux ls` lists workspaces (a session holds one person's workspaces).
     assert!(matches!(parse(&strings(&["ls"]), Surface::Cmux), Ok(ParsedCommand::Command { .. })));
     assert!(!catalog.local_server.cmux_root_help.contains("raw"));
     // A typo suggests only a scope cmux shows.
-    let Err(failure) = parse(&strings(&["sesion", "list"]), Surface::Cmux) else {
+    let Err(failure) = parse(&strings(&["projecton", "show"]), Surface::Cmux) else {
         panic!("accepted a typo");
     };
-    assert!(!failure.error.0.contains("session"), "{}", failure.error);
+    assert!(!failure.error.0.contains("projection"), "{}", failure.error);
+}
+
+/// Round 1 of the agent benchmark (T1, T11): the `cmux` on a cmux-tui pane's
+/// PATH had no `session` scope, so `cmux session current snapshot` (the whole
+/// topology) and `cmux session current stop` worked only as `cmux-tui`.
+#[test]
+fn cmux_accepts_the_session_and_client_scopes_like_cmux_tui() {
+    for args in [
+        vec!["session", "current", "snapshot"],
+        vec!["session", "current", "show"],
+        vec!["session", "current"],
+        vec!["session", "list"],
+        vec!["session", "current", "stop"],
+        vec!["session", "current", "journal", "read"],
+        vec!["client", "list"],
+    ] {
+        for surface in [Surface::Cmux, Surface::CmuxTui] {
+            assert!(
+                matches!(parse(&strings(&args), surface), Ok(ParsedCommand::Command { .. })),
+                "{surface:?} refused {args:?}"
+            );
+        }
+    }
+    let ParsedCommand::Command { plan: CommandPlan::Protocol(request), .. } =
+        parse(&strings(&["session", "current"]), Surface::Cmux).unwrap()
+    else {
+        panic!("session current is not a request")
+    };
+    assert_eq!(request.operation.name().unwrap(), "session.get");
+    for help in [vec!["session", "--help"], vec!["help", "session"], vec!["client", "--help"]] {
+        assert!(
+            matches!(parse(&strings(&help), Surface::Cmux), Ok(ParsedCommand::Help(Some(_)))),
+            "{help:?}"
+        );
+    }
+    for locale in ["en_US.UTF-8", "ja_JP.UTF-8"] {
+        let help = crate::localization::catalog_for_locale(locale).local_server.cmux_root_help;
+        assert!(help.lines().any(|line| line.starts_with("  session ")), "{locale}");
+        assert!(help.lines().any(|line| line.starts_with("  client ")), "{locale}");
+    }
 }
 
 #[test]

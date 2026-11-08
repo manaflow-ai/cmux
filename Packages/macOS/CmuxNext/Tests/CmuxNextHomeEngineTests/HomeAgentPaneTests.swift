@@ -22,6 +22,9 @@ import Testing
         var nextRead: [HomeAgentSessionRef] = []
         var reads: [[String]] = []
         func agentSession(_ peer: String, in conversation: ConversationID) -> HomeAgentSessionRef? { sessions[peer] }
+        /// The agents waiting for a slot, in start order.
+        var queued: [String] = []
+        func queuedAgents(in conversation: ConversationID) -> [String] { queued }
         func followAgentSessions(_ peers: [String], in conversation: ConversationID) async -> Bool {
             reads.append(peers)
             var moved = false
@@ -58,6 +61,18 @@ import Testing
         #expect(pane.tabs == ["a2"] && pane.selected == "a2")
         pane.close("a2")
         #expect(!pane.isShown && pane.selected == nil)
+    }
+
+    /// Closing the selected agent tab selects the tab before it, as every tab close does
+    /// (`FocusAfterClose.tab`, Lawrence 2026-11-08); the first tab's close selects the one after it.
+    @Test func closingTheSelectedAgentTabSelectsTheTabBefore() {
+        let pane = HomeAgentPane(conversation: ConversationID("c"), threads: Threads())
+        for peer in ["a1", "a2", "a3"] { pane.open(peer) }
+        pane.open("a2")
+        pane.close("a2")
+        #expect(pane.tabs == ["a1", "a3"] && pane.selected == "a1")
+        pane.close("a3") // not selected: the selection stays
+        #expect(pane.tabs == ["a1"] && pane.selected == "a1")
     }
 
     @Test func theChatStartsWithTheTaskSentViaChiefThenHowLongItWorked() {

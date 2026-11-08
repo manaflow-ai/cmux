@@ -14,6 +14,7 @@ mod browser;
 mod cli_connection;
 mod coderouter;
 mod config;
+mod copy_mode;
 mod foreign_viewport;
 mod graphics;
 mod host_share;
@@ -23,6 +24,7 @@ mod local_server;
 mod machine_agent;
 mod menu;
 mod pairing;
+mod pane_cli;
 mod remote;
 mod remote_client;
 mod runtime;
@@ -51,6 +53,7 @@ pub(crate) use browser::BrowserMessages;
 pub(crate) use cli_connection::CliConnectionMessages;
 pub(crate) use coderouter::CodeRouterMessages;
 pub(crate) use config::ConfigMessages;
+pub(crate) use copy_mode::CopyModeMessages;
 pub(crate) use foreign_viewport::ForeignViewportMessages;
 pub(crate) use graphics::GraphicsMessages;
 pub(crate) use layout::LayoutMessages;
@@ -59,6 +62,7 @@ pub(crate) use local_server::LocalServerMessages;
 pub(crate) use machine_agent::MachineAgentMessages;
 pub(crate) use menu::MenuMessages;
 pub(crate) use pairing::PairingMessages;
+pub(crate) use pane_cli::PaneCliMessages;
 pub(crate) use remote::RemoteMessages;
 pub(crate) use remote_client::RemoteClientMessages;
 pub(crate) use runtime::RuntimeMessages;
@@ -141,6 +145,7 @@ pub(crate) struct Catalog {
     pub skew: SkewMessages,
     pub terminal_input: TerminalInputMessages,
     pub pairing: PairingMessages,
+    pub pane_cli: PaneCliMessages,
     pub foreign_viewport: ForeignViewportMessages,
     pub graphics: GraphicsMessages,
     pub terminal: TerminalMessages,
@@ -149,6 +154,7 @@ pub(crate) struct Catalog {
     pub machine_agent: MachineAgentMessages,
     pub menu: MenuMessages,
     pub shortcuts: ShortcutMessages,
+    pub copy_mode: CopyModeMessages,
     pub browser: BrowserMessages,
     pub layout: LayoutMessages,
     pub runtime: RuntimeMessages,
@@ -202,6 +208,7 @@ static ENGLISH: Catalog = Catalog {
     local_server: local_server::ENGLISH,
     skew: skew::ENGLISH,
     pairing: pairing::ENGLISH,
+    pane_cli: pane_cli::ENGLISH,
     foreign_viewport: foreign_viewport::ENGLISH,
     graphics: graphics::ENGLISH,
     terminal: terminal::ENGLISH,
@@ -210,6 +217,7 @@ static ENGLISH: Catalog = Catalog {
     machine_agent: machine_agent::ENGLISH,
     menu: menu::ENGLISH,
     shortcuts: shortcuts::ENGLISH,
+    copy_mode: copy_mode::ENGLISH,
     browser: browser::ENGLISH,
     layout: layout::ENGLISH,
     runtime: runtime::ENGLISH,
@@ -240,6 +248,7 @@ static JAPANESE: Catalog = Catalog {
     local_server: local_server::JAPANESE,
     skew: skew::JAPANESE,
     pairing: pairing::JAPANESE,
+    pane_cli: pane_cli::JAPANESE,
     foreign_viewport: foreign_viewport::JAPANESE,
     graphics: graphics::JAPANESE,
     terminal: terminal::JAPANESE,
@@ -248,6 +257,7 @@ static JAPANESE: Catalog = Catalog {
     machine_agent: machine_agent::JAPANESE,
     menu: menu::JAPANESE,
     shortcuts: shortcuts::JAPANESE,
+    copy_mode: copy_mode::JAPANESE,
     browser: browser::JAPANESE,
     layout: layout::JAPANESE,
     runtime: runtime::JAPANESE,

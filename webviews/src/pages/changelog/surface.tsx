@@ -18,13 +18,15 @@ import { ChangelogStore, compareVersions, type UpdateSpan } from "./store";
 import type { ReleaseNotes } from "./types";
 import type { UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
 import { UpdatedCard, UpdateReadyHighlights } from "./UpdateSurfaces";
+import { UpdatedNotes } from "./UpdatedNotes";
 import { rememberRow, type CardDragHost, type CardPlace, type CardRow } from "./updatedCardDrag";
 import "../shared/pageBase.css";
 import "../../ui/glass/composerMaterial.css";
 import "./updateSurfaces.css";
 import "./surface.css";
 
-export type SurfaceKind = "ready" | "updated";
+/** `updated-notes`: the Updated card's changes in a popover beside the sidebar (UpdatedNotes.tsx). */
+export type SurfaceKind = "ready" | "updated" | "updated-notes";
 
 export const SurfaceOps = {
   get: "cmux.changelog.surface.get",
@@ -51,7 +53,7 @@ function isCardPlace(value: unknown): value is CardPlace {
 
 /** `#/surface/ready` -> "ready"; null for any other route. */
 export function parseSurface(hash: string): SurfaceKind | null {
-  const match = /^#\/surface\/(ready|updated)\b/.exec(hash);
+  const match = /^#\/surface\/(ready|updated-notes|updated)\b/.exec(hash);
   return match ? (match[1] as SurfaceKind) : null;
 }
 
@@ -82,8 +84,8 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
     });
   }
   const react = createRoot(root);
-  // Both surfaces read the notes of every build the update spans: the card sums them up, the
-  // popover lists every change (Leo 2026-11-05: "i can't even scroll through the changes").
+  // Every surface reads the notes of every build the update spans: the card sums them up, the
+  // popovers list every change (Leo 2026-11-05: "i can't even scroll through the changes").
   const spans = client ? new SpanNotes(client, () => render(latest)) : null;
   let latest: UpdateHighlights | null = null;
   // The Updated card's hover preview: where the host says the pointer is, and the room the open
@@ -126,6 +128,8 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
               strings={strings}
               actions={actions}
             />
+          ) : kind === "updated-notes" ? (
+            <UpdatedNotes data={data} span={spans?.notes(data.changelog)} strings={strings} actions={actions} />
           ) : (
             <UpdatedCard
               data={data}

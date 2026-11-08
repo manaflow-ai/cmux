@@ -71,8 +71,9 @@ const ALIASES: &[Alias] = &[
     },
 ];
 
-/// `cmux` has no session scope; its top level is the workspace, so the
-/// session-list shorthands list workspaces there.
+/// `cmux`'s top level is the workspace (a session holds one person's
+/// workspaces), so the tmux session-list shorthands list workspaces there;
+/// `cmux session list` lists the session itself.
 fn alias_path(alias: &Alias, surface: Surface) -> &'static [&'static str] {
     match (surface, alias.path) {
         (Surface::Cmux, ["session", "list"]) => &["workspace", "list"],
