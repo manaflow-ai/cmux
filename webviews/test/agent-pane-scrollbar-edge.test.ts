@@ -46,7 +46,9 @@ await requireBrowserLane("agent-pane-scrollbar-edge.test.ts", async () => {
             const pane = rect(".acpmux-main");
             const scroll = rect(".acpmux-scroll");
             const row = rect(".acpmux-row");
-            const composer = rect(".acpmux-composer");
+            // The composer's card: its wrapper keeps the chat's whole width and pads the column's
+            // insets, which differ left and right while Session Info moves the column aside.
+            const composer = rect(".acpmux-composer-box");
             const scrollNode = document.querySelector<HTMLElement>(".acpmux-scroll")!;
             const thumb = getComputedStyle(scrollNode, "::-webkit-scrollbar-thumb");
             return {

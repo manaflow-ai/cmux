@@ -1779,6 +1779,32 @@ class RatchetTests(Repo):
         self.assertTrue(any(n.startswith("arch-ratchet: stateful_singletons -1 ") for n in notes), notes)
         self.assertFalse(any(ratchet.UPDATE_HINT in n for n in notes), notes)
 
+    def test_pre_push_stdin_judges_the_pushed_ref_in_a_clone_without_the_hook(self):
+        # The fallback entry the fleet's global pre-push hook runs where cmux's hook is not installed (a lane VM's
+        # wt mirror): #35294 pushed +26 App lines from one, and a lane had to move them out (#35386).
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", self.base)
+        self.git("checkout", "--quiet", "-b", "topic")
+        self.write(f"{SRC}/CmuxNextApp/Big.swift", "let a = 1\n" * 26)
+        head = self.commit("app lines")
+        line = [f"refs/heads/topic {head} refs/heads/lane/topic {'0' * 40}"]
+
+        def pre_push(lines):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+                code = ratchet.pre_push(self.repo, "origin", lines)
+            return code, out.getvalue()
+
+        code, out = pre_push(line)
+        self.assertEqual(code, 1, out)
+        self.assertIn("[app_lines] CmuxNextApp Swift lines: +26", out)
+        # A deletion and a line that is not a pushed ref push no code: nothing to judge, and the push goes on.
+        self.assertEqual(pre_push([f"(delete) {'0' * 40} refs/heads/lane/topic {head}", "garbage"])[0], 0)
+        self.remove(f"{SRC}/CmuxNextApp/Big.swift")
+        self.write(f"{SRC}/CmuxNextDomain/Big.swift", "let a = 1\n" * 26)
+        head = self.commit("the lines go to their own target")
+        code, out = pre_push([f"refs/heads/topic {head} refs/heads/lane/topic {'0' * 40}"])
+        self.assertEqual(code, 0, out)
+
     def test_app_lines_ratchet(self):
         # Report only until the reward-hacking audit of 2026-10-30: the row rose 143,610 -> 164,014 unrefused.
         self.write(f"{SRC}/CmuxNextApp/Big.swift", "let a = 1\n" * 50)

@@ -11,8 +11,7 @@ import CmuxNextDesign
 /// nothing happens.
 ///
 /// It runs only while the system's "Swipe between pages" is on
-/// (`NSEvent.isSwipeTrackingFromScrollEventsEnabled`) and Debug Settings
-/// `browser.swipeNavigation` is on (the default). A gesture the layout took (Command + scroll
+/// (`NSEvent.isSwipeTrackingFromScrollEventsEnabled`). A gesture the layout took (Command + scroll
 /// moves the columns and rows, decided once at the gesture's first event) is never a swipe: the
 /// page's host view asks the layout around it (`isScrollGestureTakenByEnclosingView`, the one
 /// owner decision) instead of testing the modifier keys here. A gesture the layout passes to the
@@ -50,7 +49,7 @@ final class CEFSwipeNavigation {
         // Momentum after a gesture never starts a swipe; a mouse wheel has no phases.
         guard event.momentumPhase.isEmpty, let phase = Self.scrollPhase(event.phase) else { return event }
         if phase == .began {
-            guard NavigationTunables.swipeNavigation.value, NSEvent.isSwipeTrackingFromScrollEventsEnabled,
+            guard NSEvent.isSwipeTrackingFromScrollEventsEnabled,
                   let target = target(of: event) else {
                 gesture.cancel()
                 tab = nil

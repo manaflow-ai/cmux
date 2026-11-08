@@ -45,11 +45,27 @@ const characters = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const encoder = new TextEncoder();
 
 /// Match AgentPaneTabRowTools.swift: non-empty, at most 64 graphemes and 256 UTF-8 bytes.
+/// The pane builds the native row's menus on every render (a tool call's output update too), from
+/// the same labels each time: each answer is kept, in a bounded cache.
+const boundedTexts = new Map<string, string>();
+
 export function boundedNativeText(value: string, fallback = "…"): string {
-  const parts = Array.from(characters.segment(String(value).trim()), (part) => part.segment).slice(
-    0,
-    NATIVE_MAX_TEXT_GRAPHEMES,
-  );
+  const key = `${fallback}\u0000${value}`;
+  const kept = boundedTexts.get(key);
+  if (kept !== undefined) return kept;
+  const result = boundTextNow(String(value), fallback);
+  if (boundedTexts.size >= 2048) boundedTexts.clear();
+  boundedTexts.set(key, result);
+  return result;
+}
+
+function boundTextNow(value: string, fallback: string): string {
+  // Only the first graphemes are read: a long label (a prompt) is not segmented whole.
+  const parts: string[] = [];
+  for (const part of characters.segment(value.trim())) {
+    if (parts.length >= NATIVE_MAX_TEXT_GRAPHEMES) break;
+    parts.push(part.segment);
+  }
   let result = parts.join("");
   while (result && encoder.encode(result).byteLength > NATIVE_MAX_TEXT_BYTES) {
     parts.pop();
@@ -114,7 +130,9 @@ export function nativeRowToolBindings(quick: readonly HeaderQuickTool[], panel?:
           {
             tool: {
               id: panel.id,
-              symbol: HEADER_SYMBOLS["view.list"]!,
+              // The pack's two-row list, as the web header draws it (Leo 2026-11-04: "make our session
+              // info button 2 rows too"). No SF Symbol has two rows, so PaneToolbarView draws pack names.
+              symbol: "view.list.short",
               label: panel.label,
               enabled: !!panel.run,
               toggled: panel.toggled,

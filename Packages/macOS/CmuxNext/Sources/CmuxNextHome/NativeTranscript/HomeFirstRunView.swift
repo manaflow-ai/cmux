@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextHomeModel
 import CmuxNextIcons
 
 /// What a first-run row asks the app to do (`HomeNativeTranscriptView.onFirstRunAction`).
@@ -29,7 +30,7 @@ final class HomeFirstRunView: NSView {
     /// "Bring your memory from Claude Code and ChatGPT": in the panel only while the host offers it (`setMemoryOffer`).
     let memory = HomeFirstRunRow(title: "", icon: .actionDownload)
     private(set) var memoryOffer: String?
-    /// The Chief's face and what it does; out of the layout when the tunable hides it or it does not fit.
+    /// The Chief's face and what it does; out of the layout when it does not fit.
     let hero = HomeFirstRunHero()
     /// The Chief's first-open message, above the hero (`setIntro`); out of the layout until it has text and fits.
     let intro = HomeFirstRunIntro()
@@ -42,8 +43,6 @@ final class HomeFirstRunView: NSView {
     private lazy var startersWidth = starters.widthAnchor.constraint(equalToConstant: Self.maxWidth)
     private lazy var heroHeight = hero.heightAnchor.constraint(equalToConstant: 0)
     private lazy var heroWidth = hero.widthAnchor.constraint(equalToConstant: Self.maxWidth)
-    /// `HomeTunables.firstRunHero`: false keeps the rows-only panel.
-    var showsHero = true { didSet { if showsHero != oldValue { needsLayout = true } } }
     /// "Your agents", over the agent rows; out of the stack with no agents.
     let agentsHeader = ChromeLabel(labelWithString: HomeStrings.firstRunAgentsHeader)
     /// One row per listed agent (`setAgents`), the status word at the trailing edge.
@@ -179,7 +178,7 @@ final class HomeFirstRunView: NSView {
         if intro.isHidden != !introFits { intro.isHidden = !introFits }
         let introSpace = introFits ? introPart : 0
         let heroPart = heroHeight.constant + Self.heroGap * scale
-        let heroFits = showsHero && actionsFit && cardFits == wantsCard && actions + card + introSpace + heroPart <= bounds.height
+        let heroFits = actionsFit && cardFits == wantsCard && actions + card + introSpace + heroPart <= bounds.height
         if hero.isHidden != !heroFits { hero.isHidden = !heroFits }
         let starterPart = starters.prompts.isEmpty ? 0 : startersHeight.constant + group
         let startersFit = !starters.prompts.isEmpty && actionsFit
@@ -188,7 +187,7 @@ final class HomeFirstRunView: NSView {
         let base = actions + card + introSpace + (heroFits ? heroPart : 0) + (startersFit ? starterPart : 0)
         let header = group + ceil(agentsHeader.intrinsicContentSize.height)
         // Agent rows go first: none while the intro, the hero or the card it wants has gone.
-        var shown = heroFits == showsHero && cardFits == wantsCard && introFits == (introText != nil) ? agentRows.count : 0
+        var shown = heroFits && cardFits == wantsCard && introFits == (introText != nil) ? agentRows.count : 0
         while shown > 0, base + header + CGFloat(shown) * (gap + row) > bounds.height { shown -= 1 }
         for (index, view) in agentRows.enumerated() where view.isHidden != (index >= shown) { view.isHidden = index >= shown }
         if agentsHeader.isHidden != (shown == 0) { agentsHeader.isHidden = shown == 0 }
@@ -357,7 +356,7 @@ final class HomeFirstRunRow: NSView {
     }
 
     static let height: CGFloat = 28
-    static let cornerRadius: CGFloat = 8
+    static var cornerRadius: CGFloat { Metrics.controlCornerRadius }
     private var scale: CGFloat = 1
     private var fill = NSColor.clear
     private var hoverFill = NSColor.clear

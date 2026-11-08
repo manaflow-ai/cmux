@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 90d0605d1f55a8b89b86ace2127f57445382f7e804efff5ba385ae75bddc84dd. */
+/* cmux-tui mux protocol 12, IR b1e4b36789fe19a6f7c3aca80a20320fa7f0c8ed0f1bc9ecd237196bf9d6c91c. */
 
 
 import type * as T from "./types.js";
@@ -65,6 +65,7 @@ export interface AttachSurfaceRequest extends CmuxRequestBase {
   "expected_generation"?: (string) | null;
   "expected_terminal_id"?: (string) | null;
   "mode"?: ("bytes" | "render") | null;
+  "replay_history_rows"?: (number) | null;
   "rows"?: (number) | null;
   "snapshot"?: (string) | null;
   "snapshot_images"?: boolean;
@@ -2067,6 +2068,34 @@ export type ReloadConfigResult = {
   "reloaded": true;
 };
 
+/** Protocol v12; authority: local-admin. */
+export interface RemoteHostAppRequest extends CmuxRequestBase {
+  cmd: "remote-host-app";
+}
+
+/** Protocol v12; authority: local-admin. */
+export interface RemoteHostCallRequest extends CmuxRequestBase {
+  cmd: "remote-host-call";
+  "method": string;
+  "params"?: (T.JsonValue) | null;
+}
+export type RemoteHostCallResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface RemoteHostConfigRequest extends CmuxRequestBase {
+  cmd: "remote-host-config";
+  "computer_use"?: (boolean) | null;
+  "headless"?: (boolean) | null;
+  "screen_sharing"?: (boolean) | null;
+}
+export type RemoteHostConfigResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface RemoteHostStatusRequest extends CmuxRequestBase {
+  cmd: "remote-host-status";
+}
+export type RemoteHostStatusResult = T.JsonValue;
+
 /** Protocol v12; authority: control. */
 export interface RemoteTerminalSnapshotRequest extends CmuxRequestBase {
   cmd: "remote-terminal-snapshot";
@@ -2400,6 +2429,14 @@ export interface SetHostSizePolicyRequest extends CmuxRequestBase {
 }
 
 /** Protocol v12; authority: control. */
+export interface SetLayoutSizesRequest extends CmuxRequestBase {
+  cmd: "set-layout-sizes";
+  "transaction": bigint;
+  "values": Array<T.LayoutSizeValue>;
+}
+export type SetLayoutSizesResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
 export interface SetPersonalTerminalRequest extends CmuxRequestBase {
   cmd: "set-personal-terminal";
   "session_id": string;
@@ -2665,6 +2702,13 @@ export interface TerminalHistoryRequest extends CmuxRequestBase {
   "surface": T.Id;
 }
 export type TerminalHistoryResult = T.TerminalHistoryPagesResult;
+
+/** Protocol v12; authority: control. */
+export interface TerminalLastCommandRequest extends CmuxRequestBase {
+  cmd: "terminal-last-command";
+  "surface"?: (T.Id) | null;
+  "terminal_id"?: (string) | null;
+}
 
 /** Protocol v12; authority: control. */
 export interface TerminalPortsRequest extends CmuxRequestBase {
@@ -3122,6 +3166,10 @@ export type CmuxRequest =
   | ReleaseAttachedViewSizeRequest
   | ReleaseSurfaceSizeRequest
   | ReloadConfigRequest
+  | RemoteHostAppRequest
+  | RemoteHostCallRequest
+  | RemoteHostConfigRequest
+  | RemoteHostStatusRequest
   | RemoteTerminalSnapshotRequest
   | RemoveScreensFromScreenGroupRequest
   | RemoveTabsFromTabGroupRequest
@@ -3156,6 +3204,7 @@ export type CmuxRequest =
   | SetDefaultColorsRequest
   | SetFrontendBrowserHistoryRequest
   | SetHostSizePolicyRequest
+  | SetLayoutSizesRequest
   | SetPersonalTerminalRequest
   | SetPersonalWorkspaceRequest
   | SetProfileFollowsRequest
@@ -3185,6 +3234,7 @@ export type CmuxRequest =
   | TerminalClipboardSubscribeRequest
   | TerminalEventsRequest
   | TerminalHistoryRequest
+  | TerminalLastCommandRequest
   | TerminalPortsRequest
   | TerminalReadRangeRequest
   | TerminalResourcesRequest
@@ -4800,6 +4850,38 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "remote-host-app": {
+    request: RemoteHostAppRequest;
+    result: T.RemoteHostAppResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "remote-host-v1";
+    stream: null;
+  };
+  "remote-host-call": {
+    request: RemoteHostCallRequest;
+    result: RemoteHostCallResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "remote-host-v1";
+    stream: null;
+  };
+  "remote-host-config": {
+    request: RemoteHostConfigRequest;
+    result: RemoteHostConfigResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "remote-host-v1";
+    stream: null;
+  };
+  "remote-host-status": {
+    request: RemoteHostStatusRequest;
+    result: RemoteHostStatusResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "remote-host-v1";
+    stream: null;
+  };
   "remote-terminal-snapshot": {
     request: RemoteTerminalSnapshotRequest;
     result: RemoteTerminalSnapshotResult;
@@ -5072,6 +5154,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "host-size-policy-v1";
     stream: null;
   };
+  "set-layout-sizes": {
+    request: SetLayoutSizesRequest;
+    result: SetLayoutSizesResult;
+    authority: "control";
+    since: 12;
+    capability: "layout-sizes-batch-v1";
+    stream: null;
+  };
   "set-personal-terminal": {
     request: SetPersonalTerminalRequest;
     result: SetPersonalTerminalResult;
@@ -5302,6 +5392,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "terminal-snapshot-v1";
+    stream: null;
+  };
+  "terminal-last-command": {
+    request: TerminalLastCommandRequest;
+    result: T.TerminalLastCommandResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-last-command-v1";
     stream: null;
   };
   "terminal-ports": {

@@ -63,7 +63,7 @@ Settings are the `editor` section of the settings store, with Monaco's and VS Co
 | `editor.toolbar`, `editor.statusBar`                                        | `true`, `true`                                                                  |                                                                                      |
 | `editor.languages.<id>`                                                     | built-in: tabs for `make`, `go`; wrap for `markdown`; ruler 72 for `git-commit` | `tabSize`, `insertSpaces`, `detectIndentation`, `wordWrap`, `rulers`, `formatOnSave` |
 
-Every key except `keybindings` and `languages` is a row in Settings > Code Editor (`EditorSettingsSchema.swift`), so the toolbar's Word Wrap and Minimap toggles and Opt-Z write through the settings store (a key the schema does not list is refused).
+Every key except `keybindings` and `languages` is a row in Settings > Code Editor (`schemas/settings/source/editor.json`), so the toolbar's Word Wrap and Minimap toggles and Opt-Z write through the settings store (a key the schema does not list is refused).
 
 ### Defaults from VS Code or Zed
 

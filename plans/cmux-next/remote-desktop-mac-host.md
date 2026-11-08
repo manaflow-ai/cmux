@@ -127,9 +127,21 @@ network layer follows five rules, so that no transport product is a design decis
 The first carriers are those cmux already has: direct UDP with hole punching, the tailnet,
 and the TURN servers in the hub ticket. Candidates travel over the ticket's signaling socket.
 
+**Relay only** (`relay_only` in `cmux rd serve` and `connect`; the viewer's Relay Only setting)
+hides a side's addresses: it gathers no host or reflexive candidate, opens no direct path, and
+drops every packet that does not come from one of its TURN servers. With no TURN server in the
+ticket, nothing connects, and the card says so.
+
+**In the app.** The app runs its bundled `cmux rd serve` (Share This Mac) and `cmux rd connect`
+(a Mac Screen tab). It is their responsible process, so they inherit its Screen Recording and
+Accessibility grants. The viewer's offer picks the protocol: a `cmux.rd/1` document runs the
+rd host, and any other offer (the iPhone's Screen Sharing viewer, a Mac from before cmux.rd/1)
+is served by the WebRTC host. The phone keeps WebRTC until the link ships as a library there.
+
 ## 8. Not done
 
 - Display switching inside a session (the host streams the display it started with).
 - Audio, clipboard, cursor shape channel, HEVC negotiation.
-- A signed helper with a stable TCC identity, and the app's Share This Mac switch to this engine.
+- The phone on cmux.rd/1 (iOS starts no helper process: the link has to be a library there).
+- Frames in flight follow the round trip at stream start only, not during the session.
 - Content filters that hide password and authentication windows.

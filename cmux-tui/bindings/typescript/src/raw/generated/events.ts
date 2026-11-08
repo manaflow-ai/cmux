@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 90d0605d1f55a8b89b86ace2127f57445382f7e804efff5ba385ae75bddc84dd. */
+/* cmux-tui mux protocol 12, IR b1e4b36789fe19a6f7c3aca80a20320fa7f0c8ed0f1bc9ecd237196bf9d6c91c. */
 
 
 import type * as T from "./types.js";
@@ -524,6 +524,11 @@ export type SizeStateEvent = { event: "size-state" } & {
   "surface": T.Id;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type StashChangedEvent = { event: "stash-changed" } & {
+  "revision": bigint;
+};
+
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type StatusEvent = { event: "status" } & {
   "message": string;
@@ -654,6 +659,7 @@ export type VtStateEvent = { event: "vt-state" } & {
   "colors"?: T.TerminalColors;
   "cols": number;
   "data": T.Base64;
+  "history_rows_omitted"?: bigint;
   "kitty_graphics_state"?: T.KittyGraphicsState;
   "kitty_image_aliases"?: Array<T.KittyImageAlias>;
   "rows": number;
@@ -802,6 +808,7 @@ export type KnownCmuxEvent =
   | SelectionChangedEvent
   | SettingsChangedEvent
   | SizeStateEvent
+  | StashChangedEvent
   | StatusEvent
   | SurfaceExitedEvent
   | SurfaceOutputEvent
@@ -886,6 +893,7 @@ export type KnownSubscribeEvent =
   | SelectionChangedEvent
   | SettingsChangedEvent
   | SizeStateEvent
+  | StashChangedEvent
   | StatusEvent
   | SurfaceExitedEvent
   | SurfaceOutputEvent

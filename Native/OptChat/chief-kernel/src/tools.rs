@@ -8,9 +8,9 @@ use crate::prompt::{
     CLOUD_WORKSPACE_DESCRIPTION, CONTROL_DESCRIPTION, DATE_DESCRIPTION, ESCALATE_AUTH_DESCRIPTION,
     PEER_TELL_DESCRIPTION, PEERS_DESCRIPTION, REACT_DESCRIPTION, REMEMBER_DESCRIPTION,
     REPLY_DESCRIPTION, SEND_DESCRIPTION, SLEEP_DESCRIPTION, SPAWN_CWD_DESCRIPTION,
-    SPAWN_DESCRIPTION, SPAWN_HARNESS_DESCRIPTION, SPAWN_MODEL_DESCRIPTION, STOP_DESCRIPTION,
-    TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION, VERSION_DESCRIPTION, WATCH_DESCRIPTION,
-    ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
+    SPAWN_DESCRIPTION, SPAWN_HARNESS_DESCRIPTION, SPAWN_MODEL_DESCRIPTION,
+    SPAWN_SIDEBAR_DESCRIPTION, STOP_DESCRIPTION, TELL_DESCRIPTION, TRANSCRIPT_DESCRIPTION,
+    VERSION_DESCRIPTION, WATCH_DESCRIPTION, ZOOM_AGENT_DESCRIPTION, ZOOM_DESCRIPTION,
 };
 
 /// Shortest `sleep` (a turn costs more than a shorter wait saves).
@@ -95,13 +95,13 @@ pub fn chiefs_tool() -> Value {
         .unwrap_or_else(|| json!({"name": "chiefs"}))
 }
 
-pub const MOVE_DESCRIPTION: &str = "Teleport: move yourself (memory, conversations, settings, subagent transcripts, grants) to another machine. When the person says teleport, move or come back, call this yourself; never ask them for a token or a step. action move (default): to = cloud (the hosted Cloud Chief; the app's sign-in is used), ssh:HOST[:DIR] (a Mac mini or Linux VM over SSH, the host name as the person says it), local:DIR, or home (the Mac you came from). Run dry_run true first; fix any blocker you can (a missing optchat-chief is installed by the move itself) and tell the person only a sign-in or a key you cannot reach. Then the real move: it starts when this turn ends and keeps this copy for rollback, so say goodbye in this turn; your next answer comes from the new place with nothing lost. status: the last move's report. reach: after a move, which SSH hosts, tailnet, fleet and model route answer from here. rollback: the old copy answers again.";
+pub const MOVE_DESCRIPTION: &str = "Teleport: move yourself (memory, conversations, settings, subagent transcripts, grants) to another machine. When the person says teleport, move or come back, call this yourself; never ask them for a token or a step. action move (default): to = cloud (the hosted Cloud Chief; the app's sign-in is used), ssh:HOST[:DIR] (a Mac mini or Linux VM over SSH, the host name as the person says it), local:DIR, or home (the Mac you came from). Run dry_run true first; fix any blocker you can (a missing optchat-chief is installed by the move itself) and tell the person only a sign-in or a key you cannot reach. Then the real move: it starts when this turn ends and keeps this copy for rollback, so say goodbye in this turn; your next answer comes from the new place with nothing lost. status: the last move's report. reach: after a move, which SSH hosts, tailnet, fleet and model route answer from here. rollback: the old copy answers again. fork (to = cloud): copy yourself (memory, conversations, the person's profile) into a new Cloud Chief while you keep answering here; nothing here stops or moves. Use it first when the person wants to try the cloud without losing you; then talk to the fork with tell(id: \"chief:fork\") (its reply comes back as a note) and move for real only after it checks out. fork_status: the fork's record.";
 
 /// The move tool's schema.
 pub fn move_tool() -> Value {
     json!({"name": "move", "description": MOVE_DESCRIPTION,
      "inputSchema": {"type": "object", "properties": {
-        "action": {"type": "string", "enum": ["move", "status", "reach", "rollback"]},
+        "action": {"type": "string", "enum": ["move", "status", "reach", "rollback", "fork", "fork_status"]},
         "to": {"type": "string", "minLength": 1},
         "dry_run": {"type": "boolean"},
         "without_transcripts": {"type": "boolean", "description": "Leave subagent transcripts behind (smaller move)."},
@@ -142,7 +142,7 @@ pub fn tool_list(subagent: bool, allows: &dyn Fn(&str) -> bool) -> Value {
     }
     if !subagent && allows("spawn") {
         list.push(json!({"name": "spawn", "description": SPAWN_DESCRIPTION,
-         "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": EFFORTS, "description": "How hard they think; by default, as hard as you."}, "place": {"type": "string", "minLength": 1, "description": "Override automatic placement with here/local/mac (this Mac), cloud (also cloud:small|medium|large), or a paired machine name."}, "harness": {"type": "string", "minLength": 1, "description": SPAWN_HARNESS_DESCRIPTION}, "model": {"type": "string", "minLength": 1, "description": SPAWN_MODEL_DESCRIPTION}}, "required": ["tasks"], "additionalProperties": false}}));
+         "inputSchema": {"type": "object", "properties": {"tasks": {"type": "array", "items": text, "minItems": 1}, "cwd": {"type": "string", "minLength": 1, "description": SPAWN_CWD_DESCRIPTION}, "effort": {"type": "string", "enum": EFFORTS, "description": "How hard they think; by default, as hard as you."}, "place": {"type": "string", "minLength": 1, "description": "Override automatic placement with here/local/mac (this Mac), cloud (also cloud:small|medium|large), or a paired machine name."}, "harness": {"type": "string", "minLength": 1, "description": SPAWN_HARNESS_DESCRIPTION}, "model": {"type": "string", "minLength": 1, "description": SPAWN_MODEL_DESCRIPTION}, "sidebar": {"type": "string", "enum": ["auto", "shown", "hidden"], "description": SPAWN_SIDEBAR_DESCRIPTION}}, "required": ["tasks"], "additionalProperties": false}}));
     }
     if !subagent && allows("tell") {
         list.push(json!({"name": "tell", "description": TELL_DESCRIPTION,
