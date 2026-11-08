@@ -35,32 +35,29 @@ impl Detected {
 }
 
 /// A header naming its sender on a line of its own start: `From Codex:`, `Reply from lane-a:`.
-static HEADER: LazyLock<Regex> = LazyLock::new(|| {
+/// Each pattern is None only if it did not compile, which `every_pattern_compiles` would show.
+static HEADER: LazyLock<Option<Regex>> = LazyLock::new(|| {
     Regex::new(
         r"(?i)^\s*(?:\*\*)?(?:from|message from|reply from|handoff from|report from|update from)\s+([A-Za-z][\w .@/()-]{0,47}?)(?:\*\*)?\s*:(?:\*\*)?(?:\s|$)",
     )
-    .expect("header regex")
+    .ok()
 });
-static TRACE_ID: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)^\s*trace-id:\s*\S+").expect("trace regex"));
-static GENERATED: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)generated (?:with|by) \[?([A-Za-z][\w .-]{0,31}?)\]?(?:\(|\s*$)")
-        .expect("generated regex")
+static TRACE_ID: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r"(?i)^\s*trace-id:\s*\S+").ok());
+static GENERATED: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    Regex::new(r"(?i)generated (?:with|by) \[?([A-Za-z][\w .-]{0,31}?)\]?(?:\(|\s*$)").ok()
 });
-static CO_AUTHOR: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)^\s*co-authored-by:\s*\S").expect("co-author regex"));
-static SESSION_LINE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)^\s*(?:agent session|author-agent|agent-id):\s*\S").expect("session regex")
+static CO_AUTHOR: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r"(?i)^\s*co-authored-by:\s*\S").ok());
+static SESSION_LINE: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r"(?i)^\s*(?:agent session|author-agent|agent-id):\s*\S").ok());
+static RECEIPT: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    Regex::new(r"(?i)^\s*(?:review \([^)]{1,80}\)|verdict)\s*:\s*(?:ship|block)\b").ok()
 });
-static RECEIPT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)^\s*(?:review \([^)]{1,80}\)|verdict)\s*:\s*(?:ship|block)\b")
-        .expect("receipt regex")
-});
-static BATCH_LINE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^\s*\[message \d+ of \d+\] from (\S.{0,63})$").expect("batch regex")
-});
-static HANDOFF: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)^\s*#{1,4}\s*handoff\b").expect("handoff regex"));
+static BATCH_LINE: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r"^\s*\[message \d+ of \d+\] from (\S.{0,63})$").ok());
+static HANDOFF: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r"(?i)^\s*#{1,4}\s*handoff\b").ok());
 
 /// First words of a `From X:` line a person writes, not a sender's name.
 const NOT_NAMES: &[&str] = &[
@@ -119,10 +116,10 @@ fn window(text: &str) -> (&str, Option<&str>) {
         tail += 1;
     }
     // A line cut in part at the tail's start is dropped; one that starts there is whole.
-    let whole = text.as_bytes()[tail - 1] == b'\n';
-    let tail = &text[tail..];
+    let whole = text.as_bytes().get(tail.wrapping_sub(1)) == Some(&b'\n');
+    let tail = text.get(tail..).unwrap_or_default();
     let tail = if whole { tail } else { tail.split_once('\n').map_or("", |(_, rest)| rest) };
-    (&text[..head], Some(tail))
+    (text.get(..head).unwrap_or(text), Some(tail))
 }
 
 fn scan(line: &str, found: &mut Detected) {
@@ -131,7 +128,7 @@ fn scan(line: &str, found: &mut Detected) {
             found.signals.push(signal);
         }
     };
-    if let Some(name) = HEADER.captures(line).and_then(|c| c.get(1)) {
+    if let Some(name) = HEADER.as_ref().and_then(|re| re.captures(line)).and_then(|c| c.get(1)) {
         let name = name.as_str().trim();
         let lower = name.to_lowercase();
         let first = lower.split_whitespace().next().unwrap_or_default();
@@ -140,27 +137,28 @@ fn scan(line: &str, found: &mut Detected) {
             found.from.get_or_insert_with(|| name.to_owned());
         }
     }
-    if TRACE_ID.is_match(line) {
+    if TRACE_ID.as_ref().is_some_and(|re| re.is_match(line)) {
         add("a Trace-ID line");
     }
-    if let Some(name) = GENERATED.captures(line).and_then(|c| c.get(1)) {
+    if let Some(name) = GENERATED.as_ref().and_then(|re| re.captures(line)).and_then(|c| c.get(1)) {
         add("a generated-with footer");
         found.from.get_or_insert_with(|| name.as_str().trim().to_owned());
     }
-    if CO_AUTHOR.is_match(line) {
+    if CO_AUTHOR.as_ref().is_some_and(|re| re.is_match(line)) {
         add("a co-author line");
     }
-    if SESSION_LINE.is_match(line) {
+    if SESSION_LINE.as_ref().is_some_and(|re| re.is_match(line)) {
         add("an agent session line");
     }
-    if RECEIPT.is_match(line) {
+    if RECEIPT.as_ref().is_some_and(|re| re.is_match(line)) {
         add("a review receipt");
     }
-    if let Some(name) = BATCH_LINE.captures(line).and_then(|c| c.get(1)) {
+    if let Some(name) = BATCH_LINE.as_ref().and_then(|re| re.captures(line)).and_then(|c| c.get(1))
+    {
         add("a relayed message line");
         found.from.get_or_insert_with(|| name.as_str().trim().to_owned());
     }
-    if HANDOFF.is_match(line) {
+    if HANDOFF.as_ref().is_some_and(|re| re.is_match(line)) {
         add("a handoff heading");
     }
 }
@@ -168,6 +166,22 @@ fn scan(line: &str, found: &mut Detected) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_pattern_compiles() {
+        for re in [
+            &HEADER,
+            &TRACE_ID,
+            &GENERATED,
+            &CO_AUTHOR,
+            &SESSION_LINE,
+            &RECEIPT,
+            &BATCH_LINE,
+            &HANDOFF,
+        ] {
+            assert!(re.is_some());
+        }
+    }
 
     #[test]
     fn a_codex_handoff_reads_as_an_agents() {
