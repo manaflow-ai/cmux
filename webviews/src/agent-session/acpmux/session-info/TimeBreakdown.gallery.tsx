@@ -36,9 +36,9 @@ export default componentEntry<{ look: TimeBreakdownLook }>({
     "agent-session/acpmux/session-info/TimeBreakdown.css",
     "agent-session/acpmux/session-info/UsageSection.tsx",
   ],
-  load: async () => () => (
+  load: async () => ({ look }: { look: TimeBreakdownLook }) => (
     <div className="acpmux-shell" style={{ padding: 16 }}>
-      <TimeBreakdown breakdown={breakdown} onShowTurn={(turnId) => console.info("reveal", turnId)} />
+      <TimeBreakdown breakdown={breakdown} look={look} onShowTurn={(turnId) => console.info("reveal", turnId)} />
     </div>
   ),
   variants: {

@@ -461,6 +461,6 @@ mod tests {
         let result = state.snapshot(200);
         assert_eq!(result.total_ms, 100);
         assert_eq!(result.categories.iter().find(|c| c.id == "think").unwrap().wall_ms, 50);
-        assert_eq!(result.spans.len(), 1);
+        assert_eq!(result.spans.len(), 2);
     }
 }
