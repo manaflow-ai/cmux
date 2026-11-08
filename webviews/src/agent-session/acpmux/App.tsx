@@ -656,7 +656,7 @@ import { callNative } from "./callNative";
 import { flushHeldModePick, holdModePick } from "./heldModePick";
 import { type MeasurableRenderer, type NativeRegistry, type OpenDiff } from "./rows/rowProps";
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
-import { PermissionAsk } from "./rows/PermissionAsk";
+import { PermissionAsk, PlanAsk } from "./rows/PermissionAsk";
 import { HatQuestions, type HatQuestionActions } from "./question/HatQuestions";
 import { hatQuestions, hatShows, sameHatQuestions, type HatQuestion } from "./question/hatModel";
 import { declineReply, isPending, reply as questionReply, replyParams, selection } from "./question/model";
@@ -9844,6 +9844,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         answers={answersTrust}
       />
     ) : undefined;
+  const permissionAsk = (permission: AcpmuxPermission, leaving = false) => (
+    <PermissionAsk
+      key={permission.permissionId}
+      permission={permission}
+      shortcuts={!leaving && cardTakesShortcuts(snapshot.permissionGroups)}
+      waiting={snapshot.permissionsWaiting}
+      harness={snapshot.summary?.harness}
+      fullAccessMode={fullAccessModeName(snapshot.summary)}
+      focusComposer={() => composerHandle.current?.focus()}
+      shownChat={shownChat}
+      alwaysAtSource={chatOnPeer(snapshot)}
+      onDraft={(open) => setDraftAsk(open ? permission : undefined)}
+    />
+  );
   const asks = bottomStack.shows ? (
     <div className="acpmux-permission acpmux-asks-stack">
       {pinnedAsks.length > 0 && (
@@ -9895,6 +9909,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           }}
         />
       )}
+      {/* Outside the block below: an answered plan stays drawn while it shrinks out. */}
+      <PlanAsk permission={individualPermission?.plan ? individualPermission : undefined}>
+        {(permission, leaving) => permissionAsk(permission, leaving)}
+      </PlanAsk>
       {(individualPermission || secret || toolCards.length > 0) && (
         <>
           <ToolCards
@@ -9906,20 +9924,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               ).catch(() => undefined)
             }
           />
-          {individualPermission && (
-            <PermissionAsk
-              key={individualPermission.permissionId}
-              permission={individualPermission}
-              shortcuts={cardTakesShortcuts(snapshot.permissionGroups)}
-              waiting={snapshot.permissionsWaiting}
-              harness={snapshot.summary?.harness}
-              fullAccessMode={fullAccessModeName(snapshot.summary)}
-              focusComposer={() => composerHandle.current?.focus()}
-              shownChat={shownChat}
-              alwaysAtSource={chatOnPeer(snapshot)}
-              onDraft={(open) => setDraftAsk(open ? individualPermission : undefined)}
-            />
-          )}
+          {individualPermission && !individualPermission.plan && permissionAsk(individualPermission)}
           {secret?.elevation && (
             <ElevationCard
               key={secret.secretId}
