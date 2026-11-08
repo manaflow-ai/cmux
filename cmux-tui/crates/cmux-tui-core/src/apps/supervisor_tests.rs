@@ -45,6 +45,12 @@ fn scripted_app_host() {
     for line in BufReader::new(stream).lines() {
         let Ok(line) = line else { break };
         match serde_json::from_str::<ToHost>(&line).expect("protocol") {
+            // A script that names THROW_AT_INIT fails to load, as a syntax error does.
+            ToHost::Init { main, .. } if main.contains("THROW_AT_INIT") => {
+                send(FromHost::InitFailed {
+                    error: "SyntaxError: expecting ';' at main.js:2:12".into(),
+                })
+            }
             ToHost::Init { .. } => send(FromHost::Ready { runtime: "scripted".into() }),
             ToHost::Mount { mount, export, .. } => {
                 if export == "renderFail" {
