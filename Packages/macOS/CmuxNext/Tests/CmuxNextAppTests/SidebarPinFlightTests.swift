@@ -431,6 +431,12 @@ struct SidebarPinFlightTests {
         defer { window.close() }
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
+        // The window draws once before the pin, as the app's sidebar has: the gap between the two updates is the client's
+        // (20 ms here), not a new window's first display pass on the test host (about 150 ms on the fleet's display workers,
+        // which the render server spent closing the row before the blocks came).
+        window.displayIfNeeded()
+        CATransaction.flush()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         var pinnedNow = false
         list.model.workspacePin = (isPinned: { pinnedNow && $0 == Self.moved }, toggle: { _ in })
         let (sections, blocks) = Self.state([Self.moved])
