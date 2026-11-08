@@ -38,7 +38,14 @@ normal_names="$tmp/cmux-tui-focused-normal.txt"
 grep -E ': test$' "$tmp/cmux-tui-focused-tests.txt" | sort > "$normal_names" || true
 ignored_names="$tmp/cmux-tui-focused-ignored.txt"
 ignored_listing="$tmp/cmux-tui-focused-ignored-list.txt"
-list_tests --ignored > "$ignored_listing"
+# The ignored pass goes to a file, so a hang or a cargo failure there prints what it captured
+# (the watchdog's error, the binary it named and its stack) before failing.
+status=0
+list_tests --ignored > "$ignored_listing" || status=$?
+if (( status != 0 )); then
+  cat "$ignored_listing"
+  exit "$status"
+fi
 grep -E ': test$' "$ignored_listing" | sort > "$ignored_names" || [[ "$?" -eq 1 ]]
 runnable_names="$tmp/cmux-tui-focused-runnable.txt"
 comm -23 "$normal_names" "$ignored_names" > "$runnable_names" || true
