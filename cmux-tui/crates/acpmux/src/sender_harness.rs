@@ -103,16 +103,19 @@ pub fn of_this_send(named: Option<String>) -> (Option<String>, Option<Value>) {
 }
 
 /// What an `acpmux send` names: its sender (`cli::sender::implicit` when `named` is none) and the
-/// claim it carries.
+/// claim it carries. A sender named on purpose (`--from`, `ACPMUX_FROM`, a notice, a relay) speaks
+/// for itself and carries none; one the harness shell named carries its harness's claim, so the
+/// receiver can say where it came from and whether acpmux confirmed it.
 pub fn of_send(
     named: Option<String>,
     env: &impl Fn(&str) -> Option<String>,
     host: impl FnOnce() -> String,
     walk: impl FnOnce() -> Chain,
 ) -> (Option<String>, Option<Value>) {
-    let from = named.or_else(|| crate::cli::sender::implicit(env, host));
-    let claim = if from.is_none() { detect(env, walk) } else { None };
-    (from, claim)
+    let on_purpose =
+        named.is_some() || env(crate::cli::sender::FROM_ENV).is_some_and(|v| !v.trim().is_empty());
+    let claim = if on_purpose { None } else { detect(env, walk) };
+    (named.or_else(|| crate::cli::sender::implicit(env, host)), claim)
 }
 
 /// [`of_this_process`] over `env`, with `walk` read only when needed.

@@ -108,6 +108,7 @@ export const MessageRow = memo(
             }
             githubRepository={githubRepository}
           />
+          {row.sentFrom && <SentFromLine from={row.sentFrom} />}
         </div>
       );
     if (row.kind === "user" && row.incoming?.kind === "hidden") return null;
