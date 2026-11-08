@@ -5,6 +5,7 @@ import { useRef, useState, useSyncExternalStore, type KeyboardEvent, type MouseE
 import { PageMenu, type PageMenuItem } from "../shared/PageMenu";
 import type { Strings } from "../shared/i18n";
 import { useLasting } from "../../ui/lasting";
+import { CookieBackupsPanel } from "./CookieBackups";
 import { KindIcon } from "./KindIcon";
 import {
   BadgeLabel,
@@ -144,6 +145,9 @@ export function HistoryPage({
             >
               {t("page.groupBy")}
             </button>
+            <button type="button" className="history-menu-button" onClick={() => void store.showCookieBackups()}>
+              {t("page.cookieBackups")}
+            </button>
             <button
               type="button"
               className="history-menu-button"
@@ -218,6 +222,7 @@ export function HistoryPage({
           ))}
         </div>
       )}
+      {snap.cookieBackups.open && <CookieBackupsPanel store={store} state={snap.cookieBackups} strings={strings} />}
       {menu && (
         <PageMenu
           key={menu.session}
