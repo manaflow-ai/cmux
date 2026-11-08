@@ -505,7 +505,7 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
     let shown_before = (request.wait == Wait::Idle)
         .then(|| reads.screen(backend, session, &id, &[]).ok())
         .flatten()
-        .map(|screen| reply::lines(screen["text"].as_str().unwrap_or_default()));
+        .map(|screen| reply::lines(screen.get("text").and_then(Value::as_str).unwrap_or_default()));
     let sent_ms = super::now_ms();
     write(&typed, "paste")?;
     std::thread::sleep(request.enter_delay);
@@ -531,7 +531,8 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         &reads,
     )?;
     let lines = reply_lines(backend, session, &id, &waited.screen, &request.text, &reads);
-    let screen = reply::lines(waited.screen["text"].as_str().unwrap_or_default());
+    let screen =
+        reply::lines(waited.screen.get("text").and_then(Value::as_str).unwrap_or_default());
     let Reply { text, anchored } =
         reply::reply_since(&lines, &request.text, shown_before.as_deref(), &screen);
     let (state, timed_out) = match waited.verdict {

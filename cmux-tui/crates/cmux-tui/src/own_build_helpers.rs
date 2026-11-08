@@ -26,7 +26,7 @@ const HOOK_HELPER: &str = "cmux-tui-hook";
 /// This build's folder under cmux-tui's data home.
 fn build_dir(executable: &Path) -> Option<PathBuf> {
     let digest = Sha256::digest(executable.as_os_str().as_encoded_bytes());
-    let key: String = digest[..8].iter().map(|byte| format!("{byte:02x}")).collect();
+    let key: String = digest.iter().take(8).map(|byte| format!("{byte:02x}")).collect();
     Some(agent_hook_install::runtime_cmux_tui_data_home()?.join("builds").join(key))
 }
 

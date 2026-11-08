@@ -179,7 +179,9 @@ pub(in crate::cli) fn reply_since(
     }
     let body = match before {
         None => lines,
-        Some(before) => after_before(lines, before).map_or(screen, |start| &lines[start..]),
+        Some(before) => {
+            after_before(lines, before).and_then(|start| lines.get(start..)).unwrap_or(screen)
+        }
     };
     Reply { text: tidy(without_footer(body)), anchored: false }
 }

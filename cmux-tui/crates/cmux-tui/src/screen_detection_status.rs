@@ -35,7 +35,7 @@ pub(crate) enum ScreenDetection {
 pub(crate) fn of_daemon(identity: &Value) -> Value {
     crate::agent_plugin_config::screen_detection_status(
         crate::config::load_raw_agents(),
-        identity["cli_path"].as_str().map(std::path::Path::new),
+        identity.get("cli_path").and_then(Value::as_str).map(std::path::Path::new),
     )
     .wire()
 }
