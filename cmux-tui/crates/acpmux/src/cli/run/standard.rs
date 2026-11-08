@@ -402,7 +402,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // and runs the whole find-or-create again, so it finds that session and
             // never makes a second one; a handover can happen twice in a row
             // (systemd's daemon taking over one the CLI started), hence two tries.
-            // Without a name to find it by, a retry could make a duplicate: no retry.
+            // Without a name to find it by, a retry could make a duplicate: no retry,
+            // except after the daemon's shutdown refused the create before making
+            // anything (`refused_before_create`): a self-update's restart, or one on a
+            // failing disk, then never fails a new session.
             let mut reconnects = 0;
             let (v, reused, lost_race) = loop {
                 match find_or_create(
@@ -416,10 +419,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 .await
                 {
                     Err(error)
-                        if launch.reuse
-                            && key.is_some()
-                            && reconnects < NEW_RECONNECTS
-                            && daemon_closed_error(&error) =>
+                        if reconnects < NEW_RECONNECTS
+                            && ((launch.reuse && key.is_some() && daemon_closed_error(&error))
+                                || refused_before_create(&error)) =>
                     {
                         reconnects += 1;
                         client =

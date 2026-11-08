@@ -329,6 +329,8 @@
   font-weight: 600;
 }
 .acpmux-cols-group:first-child { padding-top: var(--ds-space-1); }
+/* A heading's "Not installed" / "Signed out": a pick of its models sets the harness up first. */
+.acpmux-cols-group-note { margin-inline-start: auto; font-weight: 400; }
 /* A hairline between the effort levels and Fast: inset as the rows' text, 4px above and below. */
 .acpmux-cols-gap {
   margin: 4px var(--acpmux-cols-inline);
@@ -422,6 +424,27 @@
   cursor: default;
 }
 .acpmux-cols-update-action:hover { background: color-mix(in srgb, var(--agent-text) 16%, transparent); }
+/* A picked model's harness being set up: the same strip as the auth one, its text in the body
+   color while it works, and the installer's last line under it in the muted one. */
+.acpmux-cols-setup {
+  contain: inline-size;
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-control-row);
+  padding: var(--ds-space-1) var(--ds-space-2) var(--ds-space-1) var(--ds-space-3);
+  color: var(--agent-text);
+  font-size: var(--text-caption);
+}
+.acpmux-cols-setup-spinner { flex: none; color: var(--agent-muted); }
+.acpmux-cols-setup-text { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
+.acpmux-cols-setup-detail {
+  overflow: hidden;
+  color: var(--agent-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-cols-setup > button { flex: none; }
 
 /* A column that scrolls fades the edge with more rows past it: 32px at the bottom, 24px at the top
    (QuickModelColumns.tsx markFades). */

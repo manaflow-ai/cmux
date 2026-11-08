@@ -1388,7 +1388,7 @@ interface CmuxGlobal {
   }
   screen: {
     /** `screen.create` (mutation, scope `workspace:write`) */
-    create: CmuxOp<{ machine?: string; session?: string; workspace?: string; correlation_key?: string; name?: string; argv?: Array<string>; shell?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
+    create: CmuxOp<{ machine?: string; session?: string; workspace?: string; correlation_key?: string; name?: string; argv?: Array<string>; shell?: string; focus?: boolean; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `screen.focus` (mutation, scope `workspace:write`) */
     focus: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen: string; expected_revision?: string }, Cmux.MutationResult<Cmux.ScreenSnapshot>>
     /** `screen.get` (read, scope `workspace:read`) */
