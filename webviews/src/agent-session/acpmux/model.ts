@@ -1192,6 +1192,9 @@ export type AcpmuxSnapshot = {
     /// and its `limits` records); unset from an acpmux without the limit.
     subsessionLimits?: SubsessionLimits;
     status?: string;
+    /** Existing daemon silence signal; no client-side threshold or timer. */
+    stalledSince?: number;
+    loopEpisode?: { episodeId: number; since: number; count: number; diagnosis: string; hint: string };
     enforcement?: Enforcement;
     modes?: {
       availableModes: { id: string; name?: string; description?: string }[];
