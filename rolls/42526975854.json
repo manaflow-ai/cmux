@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42526975854",
+  "recorded_at": "2026-11-08T21:55:21Z",
+  "reason": "cmux-tui 5cd7679c9976 changes the image's cmux-tui (pinned 3f4554a4c08b)",
+  "dry_run": false,
+  "cmux_tui": "5cd7679c9976ebc369248bdce3aeb79b46a19dd0",
+  "fixes": [
+    {
+      "sha": "5cd7679c9976ebc369248bdce3aeb79b46a19dd0",
+      "mergedAt": "2026-11-08T13:31:36-08:00",
+      "subject": "cmux-wg: rs gives every group at least two parities; rs is rs:4:4 (#38861)"
+    },
+    {
+      "sha": "0449b3641e51b00c83c52518148d42020946f046",
+      "mergedAt": "2026-11-08T21:28:11Z",
+      "subject": "relay: a suppressed resumed Ping hands over on the first current Ping (#38725)"
+    },
+    {
+      "sha": "b7e69eb20fd5668c06b7eacaf37fa3f9029b1781",
+      "mergedAt": "2026-11-08T21:23:53Z",
+      "subject": "chore(next): base autofix at 3725c1bf35bc"
+    },
+    {
+      "sha": "3725c1bf35bc207e04c295313282b28f899e9f51",
+      "mergedAt": "2026-11-08T13:20:24-08:00",
+      "subject": "acpmux: cross-vendor review queue and hash-chained approvals audit trail (#38521)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T21:55:21Z",
+    "snapshot_id": "sh-0aedb9d440944c1b89d44840e8bac561",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42526975854): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "38dbc6d3915f76093e928e35bbaa5da723881ade",
+    "image": "cloud-native-auto-5cd7679c-42526975854-1",
+    "revision": "ci-42526975854-1",
+    "at": "2026-11-08T21:55:21Z"
+  },
+  "rolled_back": false
+}
