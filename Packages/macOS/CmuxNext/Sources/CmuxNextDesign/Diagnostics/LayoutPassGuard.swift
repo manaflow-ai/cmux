@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextWakeups
 import CoreFoundation
 import ObjectiveC
 import os
@@ -111,6 +112,8 @@ public final class LayoutPassGuard {
         var depth = 0
         /// `viewLayoutCalls` when the outermost pass began.
         var viewCallsAtStart = 0
+        /// DIAG: when the outermost pass began (WakeupLedger+TurnTrace).
+        var startedNanos: UInt64 = 0
         var counts: [ObjectIdentifier: (view: Weak, count: Int)] = [:]
         var limit: Int?
     }
@@ -188,13 +191,20 @@ public final class LayoutPassGuard {
     fileprivate func windowLayoutWillBegin(_ window: NSWindow) {
         let id = ObjectIdentifier(window)
         windowLayouts[id, default: WindowLayout()].depth += 1
-        if windowLayouts[id]?.depth == 1 { windowLayouts[id]?.viewCallsAtStart = viewLayoutCalls }
+        if windowLayouts[id]?.depth == 1 {
+            windowLayouts[id]?.viewCallsAtStart = viewLayoutCalls
+            windowLayouts[id]?.startedNanos = WakeupLedger.turnNow()
+        }
     }
 
     fileprivate func windowLayoutDidEnd(_ window: NSWindow) {
         let id = ObjectIdentifier(window)
         guard var layout = windowLayouts[id] else { return }
         layout.depth -= 1
+        if layout.depth == 0 {
+            let views = viewLayoutCalls &- layout.viewCallsAtStart
+            WakeupLedger.shared.turnAdd(views > 0 ? "window.layout" : "window.layout.empty", nanos: WakeupLedger.turnNow() &- layout.startedNanos)
+        }
         if layout.depth == 0, viewLayoutCalls != layout.viewCallsAtStart {
             windowLayoutPasses &+= 1
             #if DEBUG || CMUX_BENCH_HOOKS

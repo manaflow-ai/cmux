@@ -258,7 +258,11 @@ final class TerminalFramePresenter {
             passObserver = nil
             return
         }
-        defer { applyAheads() }
+        let traceStart = WakeupLedger.turnNow()
+        defer {
+            applyAheads()
+            WakeupLedger.shared.turnAdd("presenter.pass", nanos: WakeupLedger.turnNow() &- traceStart)
+        }
         let started = ContinuousClock.now
         stats.passes += 1
         // A group (the requests of one refresh) waits for its slowest member while it is younger than `groupTicks`.
@@ -279,6 +283,7 @@ final class TerminalFramePresenter {
             // stay (as for a frame not drawn yet), never the program's last picture clipped or padded at the new size.
             if request.holdsForProgram(state, at: epoch) {
                 stats.programHolds += 1
+                WakeupLedger.shared.turnMark("presenter.hold")
                 continue
             }
             if waitingGroups.contains(request.epoch), age < Self.groupTicks {
@@ -299,6 +304,7 @@ final class TerminalFramePresenter {
             CATransaction.unlock()
             if presented {
                 stats.presented += 1
+                WakeupLedger.shared.turnMark(state == GHOSTTY_HOST_FRAME_READY_PROGRAM ? "presenter.present.program" : "presenter.present")
                 if shown == GHOSTTY_HOST_FRAME_PRESENTED, request.holdTicks > 0 { countHold(state) }
                 #if DEBUG || CMUX_BENCH_HOOKS
                 presentedHook?(view)
@@ -313,6 +319,7 @@ final class TerminalFramePresenter {
             default:
                 // Kept: its bounds and its frame stay as they are (never the bounds alone: that stretches the frame).
                 stats.keeps += 1
+                WakeupLedger.shared.turnMark("presenter.keep")
                 if age > Self.longKeepTicks { stats.longKeeps += 1 }
             }
         }
