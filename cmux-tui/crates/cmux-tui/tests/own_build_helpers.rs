@@ -119,6 +119,23 @@ impl Daemon {
         response["data"].clone()
     }
 
+    /// Waits until the server answers lifecycle commands (`server status`):
+    /// its socket accepts before that, and status then says "still starting".
+    /// The server's own `lifecycle_ready` flag is the signal, as in cli.rs.
+    fn wait_for_lifecycle_ready(&self) {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while self.request(serde_json::json!({"id": 3, "cmd": "identify"}))["lifecycle_ready"]
+            != true
+        {
+            assert!(
+                Instant::now() < deadline,
+                "{} never became lifecycle-ready",
+                self.exe.display()
+            );
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+
     /// Runs `script` (sh) in a new terminal named `name`, with `OB_TAG` set
     /// to `name` for the fake `claude`; returns `name`.
     fn run(&mut self, name: &str, script: &str) -> String {
@@ -301,19 +318,13 @@ fn own_build_status_says_where_it_looked_for_screen_detection() {
             .env("HOME", &home)
             .env("XDG_DATA_HOME", &data)
             .env("CMUX_TUI_CONFIG", root.join("daemon-ob-s/config.json"))
-            // The daemon's own state root (`use_private_state`): ensure
-            // refuses an owner that serves another state directory.
-            .env("CMUX_TUI_STATE_DIR", root.join("daemon-ob-s/cmux-tui/sessions"))
             .env("LC_ALL", "C")
             .env_remove("CMUX_TUI_SOCKET")
             .env_remove("CMUX_MUX_SOCKET")
             .output()
             .unwrap()
     };
-    // The socket accepts before the server has finished starting; ensure
-    // returns once it serves lifecycle commands.
-    let ready = cli(&exe, "ensure");
-    assert!(ready.status.success(), "{}", String::from_utf8_lossy(&ready.stderr));
+    daemon.wait_for_lifecycle_ready();
     let status = |build: &Path| -> serde_json::Value {
         let output = cli(build, "status");
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
