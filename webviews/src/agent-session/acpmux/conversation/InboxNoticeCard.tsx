@@ -165,6 +165,7 @@ function InboxThreadLine({
   return (
     <AgentMessageRow
       direction="received"
+      keepsPreviewOpen
       className="cv-received cv-inbox__thread"
       // Find counts the thread's messages, never the line that sums them up (IncomingMessageCard.tsx).
       lineAttributes={{ "data-find-skip": "" }}

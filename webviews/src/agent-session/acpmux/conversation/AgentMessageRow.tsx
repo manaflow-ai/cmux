@@ -55,6 +55,7 @@ export function AgentMessageRow({
   lineAttributes,
   previewClassName,
   belowClassName,
+  keepsPreviewOpen = false,
 }: {
   direction: "sent" | "received" | "report";
   /// The row's glyph, in the tool rows' icon column: the envelope for a send, the sender
@@ -106,6 +107,10 @@ export function AgentMessageRow({
   /// The first line's own class, next to `cv-agentmsg__preview`, and the stacked line's under the row.
   previewClassName?: string;
   belowClassName?: string;
+  /// Opened, the line keeps its first line, as the disclosure line a received message and an inbox
+  /// thread drew before did: the chevron after the words stays on its pixel instead of jumping back
+  /// to the chip (gallery health's layout-shift row for agent-pane.inbox-notice#one-open is 0).
+  keepsPreviewOpen?: boolean;
 }) {
   const bodyId = useId();
   const [before = "", after = ""] = sentence.split("\u0000");
@@ -128,8 +133,9 @@ export function AgentMessageRow({
   // Single (the default, messageLineLook.ts): the first line on the row, after the name; the
   // stacked gallery version puts it under the row, on its own line.
   const look = useMessageLineLook();
-  const inline = look === "single" && !open ? preview : "";
-  const below = look === "stacked" && !open ? preview : "";
+  const shown = !open || keepsPreviewOpen;
+  const inline = look === "single" && shown ? preview : "";
+  const below = look === "stacked" && shown ? preview : "";
   return (
     <div
       className={`cv-agentmsg${failed ? " is-failed" : ""}${className ? ` ${className}` : ""}`}
@@ -193,7 +199,8 @@ export function AgentMessageRow({
             aria-label={label}
             onClick={collapse.toggle}
           >
-            {/* Open, the message is under the line: its first line here would say it twice. */}
+            {/* Open, the message is under the line: its first line here would say it twice, unless
+                the row keeps its line as it was (`keepsPreviewOpen`). */}
             {/* A copy of the card's first line: Find counts the card's words, not this. */}
             <span
               className={`cv-agentmsg__preview${previewClassName && inline ? ` ${previewClassName}` : ""}`}

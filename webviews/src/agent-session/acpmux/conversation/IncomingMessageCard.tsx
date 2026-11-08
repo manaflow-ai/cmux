@@ -633,6 +633,7 @@ export function IncomingMessageLine({
     return (
       <AgentMessageRow
         direction="received"
+        keepsPreviewOpen
         className="cv-received"
         // Find counts the message's text (chatFind.ts rowText), never the line that sums it up: the
         // sender's chip and machine and the first line add no matches, as DisclosureRow's line added
