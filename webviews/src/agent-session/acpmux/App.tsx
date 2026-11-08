@@ -4214,8 +4214,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// A pick of Cloud by any path (the hint, the Where menu, New Cloud Chat) is its use.
   const cloudHint = useCloudChatHint(paneTipHost);
   const featureTipsOn = useFeatureTipsOn();
-  /// New Cloud Chat (the palette's `pickCloud` command), counted: the New Tab page or this composer
-  /// picks Cloud once Cloud is offered here.
+  /// New Cloud Chat (the handshake's `pickCloud`), counted: the New Tab page or this composer picks
+  /// Cloud once Cloud is offered here.
   const [cloudPickRequest, setCloudPickRequest] = useState(0);
   const [cloudPicksDone, setCloudPicksDone] = useState(0);
   const sandboxModeRows = {
@@ -6502,8 +6502,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         // A chat that just opened from a fork (the app's Fork Conversation): the composer takes the
         // keyboard, so the next words go to the fork.
         if (name === "focusComposer") composerHandle.current?.focus();
-        // New Cloud Chat (the palette): this new chat picks Cloud, as the Where menu's Cloud row does.
-        if (name === "pickCloud") setCloudPickRequest((count) => count + 1);
         // Archive Chat (Ctrl-Cmd-A), as in the Codex app: the chat menu's row, so it does nothing where
         // the menu has none or the chat is archived.
         if (name === "archiveChat") archiveChatRef.current?.();
@@ -6789,6 +6787,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           cloudRepositoryAvailable?: unknown;
           githubRepository?: unknown;
           harnesses?: unknown;
+          /// New Cloud Chat opened this tab (AgentPaneHandshake `pickCloud`): it picks Cloud once offered.
+          pickCloud?: unknown;
           model?: unknown;
           sandboxState?: unknown;
           /// The tab this page is (AgentPaneHandshake `tab`); an older app sends none.
@@ -6913,6 +6913,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         if (seeded) setDraft(seeded);
         // Integrate a Harness… from the palette or the menu opened this tab (cx-uj5g8).
         if (host.harnesses === true) setHarnessesOpen(true);
+        // New Cloud Chat from the palette opened this tab: it picks Cloud, as the Where menu's Cloud row does.
+        if (host.pickCloud === true) setCloudPickRequest((count) => count + 1);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
         pendingAttachments = host.promptAttachments ?? pendingAttachments;
         // A prompt a person's action seeded has a single-use host ticket bound to its promptId

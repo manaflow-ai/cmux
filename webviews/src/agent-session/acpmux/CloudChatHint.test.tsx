@@ -111,6 +111,18 @@ test("a Cloud pick keeps `used`; an install that already answered never sees the
   expect(answered.current().record).toBe("done");
 });
 
+test("another pane's answer reaches this one when its window takes focus", async () => {
+  const shared = memoryTipHost();
+  const hint = await mountHint(shared);
+  expect(hint.current().record).toBe("open");
+  await shared.write(CLOUD_CHAT_HINT_ID, "closed");
+  await act(async () => {
+    dom!.window.dispatchEvent(new dom!.window.Event("focus"));
+  });
+  await act(async () => undefined);
+  expect(hint.current().record).toBe("done");
+});
+
 test("an older app that refuses `tips.state` shows no hint", async () => {
   const refusing: TipHost = {
     read: () => Promise.reject(new Error("unsupported")),
