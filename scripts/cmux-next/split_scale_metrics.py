@@ -43,6 +43,9 @@ RETARGET_RATIO = 1.5
 # The window places each edge on the pixel grid (whole points at scale 1), so a step between two shown edges is off its
 # spring's by up to one point: a re-acceleration counts only when the step is more than this over the slowest one.
 RETARGET_SLACK = 1.0
+# The slack compares steps in points, not speeds times intervals: the trace keeps its ticks to 0.01 ms (8.33 and 8.34 ms
+# apart), which would add a thousandth of a point to it (#38984 review F1). This covers the values' own 0.01 rounding.
+TIME_SLACK = 0.02
 # The pane frame's width in a trace pane row (one_motion_series PANE_FRAME: fx, fy, fwidth, fheight).
 PANE_FRAME_WIDTH = PANE_FRAME.start + 2
 
@@ -113,10 +116,10 @@ def retargets(points):
         return turned
     width = len(points[0][1])
     for axis in range(width):
-        sign, slowest = 0, None
+        sign, slowest, least = 0, None, None
         for (t0, v0), (t1, v1) in zip(points, points[1:]):
             if len(v0) != width or len(v1) != width or t1 <= t0:
-                sign, slowest = 0, None
+                sign, slowest, least = 0, None, None
                 continue
             delta = v1[axis] - v0[axis]
             if abs(delta) <= EPS:
@@ -125,13 +128,14 @@ def retargets(points):
             step = 1 if delta > 0 else -1
             if sign and step != sign:
                 turned.add(t1)
-                slowest = None
+                slowest = least = None
             elif (slowest is not None and speed > RETARGET_MIN_SPEED and speed > slowest * RETARGET_RATIO
-                  and abs(delta) - slowest * (t1 - t0) > RETARGET_SLACK + 1e-6):
+                  and abs(delta) - least > RETARGET_SLACK + TIME_SLACK):
                 turned.add(t1)
-                slowest = None
+                slowest = least = None
             elif sign:
                 slowest = speed if slowest is None else min(slowest, speed)
+                least = abs(delta) if least is None else min(least, abs(delta))
             sign = step
     return turned
 
