@@ -24,6 +24,9 @@ struct RowMotion {
     /// to fade faster ... you still see like overlapping text sometimes"): they fade out on the short `fadeOut`, not over
     /// the whole `.move` spring, so their text is gone before the slot closes over it and the rows below rise into it.
     var folding: [SidebarRowView] = []
+    /// The pins and unpins this move flies (`SidebarPinFlight`): each arriving view starts where the leaving one was drawn
+    /// and moves on the rows' spring from the rows' begin time, so it and the rows it passes share one progress.
+    var flights: [SidebarPinFlight] = []
 
     func run(in list: SidebarListView, from old: SidebarLayout, to layout: SidebarLayout, animated: Bool) {
         let moves = {
@@ -74,8 +77,9 @@ struct RowMotion {
         let generations = leaving.map(\.0.reuseGeneration)
         list.rowMoves &+= 1
         let move = list.rowMoves
-        let ended = RowMotionEnd { [weak list, appearing, opens, leaving, generations, leavingLines = lines.leaving] in
+        let ended = RowMotionEnd { [weak list, appearing, opens, leaving, generations, leavingLines = lines.leaving, flights] in
             leavingLines.forEach { $0.removeFromSuperview() }
+            SidebarListView.landFlights(flights)
             guard let list else { return }
             // A row reopened since keeps clipping until its own open ends.
             for ((view, _), open) in zip(appearing, opens) where view.opens == open {
@@ -92,7 +96,7 @@ struct RowMotion {
         Self.animate(frames: targets + appearing + leaving, companions: lines.springs + companions,
                      fades: Self.fades(targets: targets, appearing: appearing, leaving: leaving.filter { !folds.contains(ObjectIdentifier($0.0)) }),
                      lines: lines.changes, in: list, ended: ended,
-                     insert: insert, travel: travel)
+                     insert: insert, travel: travel, flights: flights)
         Self.fadeOut(folding)
     }
 
@@ -143,7 +147,7 @@ struct RowMotion {
     /// the rows travel (`travel`). Snap first takes off the springs an earlier move left, so nothing slides at all.
     private static func animate(frames: [(SidebarRowView, NSRect)], companions: [(NSView, NSRect)], fades: [(NSView, CGFloat)],
                                 lines: () -> Void, in list: SidebarListView, ended: RowMotionEnd, insert: SidebarInsertMotion? = nil,
-                                travel: CGFloat? = nil) {
+                                travel: CGFloat? = nil, flights: [SidebarPinFlight] = []) {
         let token = insert?.token ?? .move
         if travel == 0 { SidebarDragSpring.stop(frames.map { $0.0 as NSView } + companions.map(\.0)) }
         let settle = Self.settle(list)
@@ -165,7 +169,13 @@ struct RowMotion {
         CATransaction.begin()
         // Runs once every spring added in this transaction has ended or was removed (a reused view, a snap).
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { springsEnded() } } // main-proof: CATransaction.h: the completion block is called on the main thread
-        SidebarDragSpring.move(frames.map { ($0.0 as NSView, $0.1) } + companions, in: list, token, travel: travel)
+        // A pin's or an unpin's move begins on the first frame that can show it, and every view in it (the flight,
+        // the rows it passes) is read and starts at that one instant: no step off the leaving view, one progress.
+        let begin = flights.isEmpty ? nil : SidebarPinFlight.begin(in: list)
+        SidebarDragSpring.move(frames.map { ($0.0 as NSView, $0.1) } + companions, in: list, token, travel: travel, begin: begin)
+        if let begin, SidebarDragSpring.animates(in: list) {
+            for flight in flights { flight.start(token, now: begin) }
+        }
         // The opening, closing and still-fading rows' opacity springs on the render server too, in this transaction, so
         // it starts on the frame the slot changes and no main-thread frame drives it (m23 F4: through AppKit's animator
         // the fade began on the next display-link tick, NSAnimationManager writing it per frame, so a new row stayed

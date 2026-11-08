@@ -799,6 +799,7 @@ A workspace close removes only the workspace. The daemon close path and remote-c
 | Status colors | One color per meaning in every row kind (Home, band items, workspace rows, group headers, nested): blue `systemBlue` unread or new, orange `systemOrange` needs attention (a permission prompt, a question, waiting on you), red `systemRed` an error. Tokens `Palette.statusUnread/statusAttention/statusError`; sidebar indicators opt in with `StatusIndicatorView.usesStatusColors`. A row shows one: red, else orange, else blue, else its spinner. A group header, open or collapsed, rolls up its subtree the same way; a collapsed header with none of those keeps its loading spinner. | Lawrence 11983 ("make sure sidebar has blue, orange/yellow for needs attention, and red for errors"); takes back 10-18's "an error is Ready (blue)" and 10-20's "All we care about is the loading" for headers |
 | Status dots: one diameter | Every status dot (blue unread, orange needs attention, any other dot) paints one diameter, `SidebarStyle.statusDotSize` (8 pt at compact, the 8 pt step at each density and text size), centered on the trailing column, in every row kind: Home and band items, pinned rows, selected and unselected workspace rows, group header roll-ups (open and collapsed), nested rows, icon and tile corners and Priority rows. A dot drawn by the status indicator reads it through `StatusIndicatorView.dotDiameter`; the unread badge and the row badge read the token; no view sizes a dot itself. The spinner and the non-dot marks (the red info mark, the shield) keep their 14 pt box. Color swatches and machine dots are not status dots (`SidebarStyle.dotSize`). | Lawrence 19696 ("dots are different size now which is very bad"); Leo 2026-10-31 ("INCREASE THE SIZE OF THESE BLUE DOTS ON THE SIDEBAR") sets the size |
 | Drag and reorder | The lifted row follows the pointer and a gap opens where it drops. No stray blue line during the drag, and nothing stays after a drop or a cancel. | Lawrence 11405 |
+| Pin and unpin motion | A pin or an unpin moves the workspace's own row from its exact on-screen place to its new slot on one no-overshoot spring (Motion.sidebar): one visible copy at every frame, the first moved frame is the old frame (the move begins on the first frame that can show it), the rows between slide one slot on the same curve, the pin glyph fades in on the same curve and progress, and the flying row is opaque (the resting row ground) and draws above the rows it passes. The pin reaches the list in one apply (rows and blocks together), so nothing waits or holds. A retarget starts from the drawn frame. The first pin, which creates the Pinned block, still translates: the block shows at once and its header fades in on the move. Animation off: the final state in one frame. Regression: SidebarPinOneApplyTests, SidebarPinFlightTests, MotionPathValuesTests. Draft PR #38267 (no merge before the pick). | Lawrence 2026-11-08 (cmux-ad m70): "animation when i pin stuff and unpin stuff is not very good. like it needs to translate properly from its original position to new position" |
 | Nesting | Groups nest deeply (16 levels). The indent stops growing at 6 steps so a label keeps room. | Lawrence 11240 |
 | Pinned section | Rows with a leading pin, never tiles (a702, 9a2fceefbbb). | a702 |
 | Leading columns | Home, the band's rows, pinned rows (workspaces and groups) and workspace rows share one icon column: one `SidebarStyle.iconColumnBox` slot that starts at the row inset plus the pill inset (where a text-only row's title starts). Home's glyph, a band row's glyph and a pinned row's pin center their ink in that slot (`SidebarStyle.bandGlyphX`, at every look), so they line up under one another whatever their ink widths; a workspace row's icon takes `SidebarStyle.iconColumnGlyphX`: its ink starts at the slot's leading edge (see Leading edge). Every leading glyph centers on its row's center line. A title after a leading glyph (Home's label, a pinned title after its pin, a workspace title after its icon) starts at one text column, `SidebarStyle.leadingTextX`. No per-row offsets. Debug `sidebar.leadingColumn`: `inset` (default), `slotted` (an empty slot on text-only rows; takes back 11405, comparison only), `centered` (the ink centered on `iconColumnCenterX`, the look before msg 19643). | Lawrence 2026-10-28 ("home and pinned are not aligned"); Leo 2026-10-28 ("the alignment", "i feel like this is misaligned checkmark :( can we all audit the checkmarks and whatnot"); Lawrence msg 19643 ("left alignment here is bad") moved the glyphs from the column's center to its leading edge; [#38061](https://github.com/manaflow-ai/cmux/issues/38061) ("the pin icon on pinned workspace rows is not aligned with the Home row's house icon") centered Home's glyph and the pins again, taking back that part of 483e06be02f |
@@ -1697,6 +1698,27 @@ An empty group now keeps only its header at rest. The header's existing + appear
 - The +'s top snaps to the device pixel grid, not whole points (the line can sit on a half point).
 - The sidebar re-lays out its top row when the card's reach changes: gutter, pane padding, floating panes, strip tokens.
 
+## A pin or an unpin moves the workspace to its new slot (2026-11-08, task pin-motion, DRAFT)
+
+- Lawrence 2026-11-08 (cmux-ad m70): "animation when i pin stuff and unpin stuff is not very good. like it needs to
+  translate properly from its original position to new position".
+- Before: a pin closed the list row in place (a fade) and grew the Pinned item out of an empty frame at the block's
+  corner; an unpin dropped the item and faded a new row in at its slot.
+- Now (`SidebarListView+PinFlight`): the arriving view (Pinned item or list row) starts on the frame the leaving view
+  is drawn on, the leaving view goes in the same transaction (one copy each frame), and it, its title and the rows
+  between the two slots move on the rows' one `.move` spring (critically damped, no overshoot) from rest. Motion off
+  or Reduce Motion: the final state in one frame. Regression: `SidebarPinFlightTests`.
+- An unpin's row is not a new workspace: it never takes the create's splice or the `newWorkspace` animation switch.
+- The app's pin reaches the list in two updates (the rows, then the blocks a frame or two later): the leaving row
+  stays where it is drawn until the block's item takes over its frame (at most 250 ms, then it goes at once).
+- In the app the document's pin state comes with the blocks, so at the rows' update the row closes as usual (no wait
+  at the key); when the block comes, its item flies from where the closing row is drawn and the row goes.
+- The app can also send an unpin's rows first while the block still lists the item: the row moves from the item and
+  the item hides until the blocks' update takes it out (it shows again after 250 ms if none comes).
+- An unpin reaches it the other way (the blocks, then the rows): the block's item stays where it is drawn
+  (`SidebarRegionView.heldWorkspaces`) until the row takes over its frame (at most 250 ms, then it goes at once).
+- Gap: the first pin, which creates the Pinned block, still opens that block with its own fade.
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:
@@ -1715,3 +1737,9 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   `Metrics.dividerThickness` straight, so it stayed under borders none; it now goes through `Metrics.lineWidth`, and
   the glass specular rim (`GlassRimView`) through `Borders.width`. Look change only under borders none: no group
   header edge and no glass rim. Sidebar-Look: Leo 2026-11-07, "the blocky without border kinda vibe".
+
+- 2026-11-08 (pin-motion/v1, for a590): the pin and unpin motion (the "Pin and unpin motion" row above). `SidebarView` applies
+  the blocks with the rows in one apply; the pin flight begins on the first frame that can show it (`SidebarPinFlight.begin`);
+  the bounded pin holds and their asyncAfter fallbacks are removed; the flying row gets an opaque ground and the pin glyph an
+  opacity spring on the move's curve. `MotionPath` honors backwards fill. Sidebar-Look: Lawrence m70 (above). Draft PR #38267.
+  Then the first pin's new Pinned block no longer fades its flying item in (`revealOpeningBlock`).

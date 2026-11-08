@@ -38,11 +38,14 @@ import QuartzCore
     /// the rows below it by the nudge, not a row height; 0 moves nothing (the frames land at once). The cap holds for
     /// what is drawn, not for each spring: the offset this batch's springs still carry (an insert 30 ms before) counts
     /// toward it, and those springs give way to one that starts there, so two quick inserts never stack two nudges.
-    static func move<View: NSView>(_ moves: [(View, NSRect)], in host: NSView, _ token: MotionSpring = .move, travel: CGFloat? = nil) {
+    /// `begin`: the media time the springs begin at, and where what they carry is read (a pin's flights,
+    /// `SidebarPinFlight.begin`); nil: now, after the frame update.
+    static func move<View: NSView>(_ moves: [(View, NSRect)], in host: NSView, _ token: MotionSpring = .move, travel: CGFloat? = nil,
+                                   begin: CFTimeInterval? = nil) {
         // Out of a window nothing draws a spring (and none would end), and with movement off nothing moves: the
         // frames land at once, and a spring an earlier move left on any of these views ends with them (it would
         // keep carrying its offset over the frame, and keep the next snap from showing).
-        guard Motion.sidebar.animatesMovement, host.window != nil, Motion.canAnimate(in: host) else {
+        guard animates(in: host) else {
             stop(moves.map(\.0))
             let moving = moves.filter { $0.0.frame != $0.1 }
             if !moving.isEmpty { Motion.withoutAnimation { for (view, frame) in moving { view.animator().frame = frame } } }
@@ -51,7 +54,7 @@ import QuartzCore
         let moving = moves.filter { $0.0.frame != $0.1 }
         guard !moving.isEmpty else { return }
         // Where each view is drawn now: its model geometry, plus (under a cap) what this batch's springs still carry.
-        let sampled = CACurrentMediaTime()
+        let sampled = begin ?? CACurrentMediaTime()
         let starts = moving.map { view, _ in
             view.layer.map { layer in
                 let start = start(of: layer)
@@ -63,7 +66,7 @@ import QuartzCore
         }
         Motion.withoutAnimation { for (view, frame) in moving { view.animator().frame = frame } }
         // The springs start after the frame update, which can take a while at many rows, so none begins already advanced.
-        let now = CACurrentMediaTime()
+        let now = begin ?? CACurrentMediaTime()
         for ((view, _), start) in zip(moving, starts) {
             guard let layer = view.layer, var start else { continue }
             if let travel {
@@ -73,6 +76,11 @@ import QuartzCore
             }
             addDelta(to: layer, position: start.0, size: start.1, now: now, key: batchKey, token)
         }
+    }
+
+    /// Whether a move in `host` runs on springs (in a window, with movement on); else its frames land at once.
+    static func animates(in host: NSView) -> Bool {
+        Motion.sidebar.animatesMovement && host.window != nil && Motion.canAnimate(in: host)
     }
 
     /// Takes the springs `move(_:in:)` added off these views, so each shows its model frame now: a change
@@ -176,6 +184,47 @@ import QuartzCore
             animation.fillMode = .backwards
             layer.add(animation, forKey: "\(key).size.\(serial)")
         }
+    }
+
+    /// Starts `view` at `start` (a frame in its superview's coordinates) and carries it to its model frame on `token`'s
+    /// spring, from rest: a pin's flight (`SidebarPinFlight`). Every spring an earlier move left on it comes off first,
+    /// so a retarget starts from `start` (the frame on screen) with no velocity carried over (m68: no overshoot).
+    /// `now`: the move's one begin time, so the flight and the rows around it are on the same progress every frame.
+    static func fly(_ view: NSView, from start: NSRect, _ token: MotionSpring = .move, now: CFTimeInterval) {
+        guard let layer = view.layer else { return }
+        stop([view])
+        layer.removeAnimation(forKey: "position")
+        layer.removeAnimation(forKey: "bounds")
+        layer.removeAnimation(forKey: "bounds.size")
+        let target = view.frame
+        guard start != target else { return }
+        let from = layerPosition(of: start, for: view), to = layerPosition(of: target, for: view)
+        addDelta(to: layer, position: CGPoint(x: layer.position.x + from.x - to.x, y: layer.position.y + from.y - to.y),
+                 size: start.size, now: now, key: batchKey, token)
+    }
+
+    /// Carries `view` (a row's title) from `offset` (in its superview's coordinates) back to its model place on `token`'s
+    /// spring from `now`: the title moves on the flight's curve from where the leaving view drew it.
+    static func offset(_ view: NSView, by offset: CGPoint, _ token: MotionSpring = .move, now: CFTimeInterval) {
+        guard let layer = view.layer, offset != .zero else { return }
+        addDelta(to: layer, position: CGPoint(x: layer.position.x + offset.x, y: layer.position.y + offset.y),
+                 size: layer.bounds.size, now: now, key: batchKey, token)
+    }
+
+    /// Shows `layer` (a pinned item's pin glyph) from transparent on `token`'s spring from `now`: the same curve and
+    /// begin as the move it comes with, so it is as visible as the move is far along.
+    static func appear(_ layer: CALayer, _ token: MotionSpring = .move, now: CFTimeInterval) {
+        let animation = Motion.sidebar.springAnimation(token, "opacity", from: NSNumber(value: 0), to: NSNumber(value: layer.opacity))
+        animation.beginTime = layer.convertTime(now, from: nil)
+        animation.fillMode = .backwards
+        layer.add(animation, forKey: "\(batchKey).appear")
+    }
+
+    /// The layer position `frame` (in `view`'s superview) gives `view`'s layer: AppKit keeps a view's sublayers in its
+    /// own coordinates (it flips their geometry for a flipped view).
+    private static func layerPosition(of frame: NSRect, for view: NSView) -> CGPoint {
+        let anchor = view.layer?.anchorPoint ?? .zero
+        return CGPoint(x: frame.minX + anchor.x * frame.width, y: frame.minY + anchor.y * frame.height)
     }
 
     /// Fades `view` to `alpha` (a placeholder row a drag shows or hides).

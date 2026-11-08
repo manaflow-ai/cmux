@@ -103,6 +103,12 @@ final class SidebarRegionView: NSView {
         }
     }
     private(set) var itemViews: [LayoutItemID: SidebarItemRowView] = [:]
+    /// The workspaces a pin flies in this apply (`SidebarListView.pinFlights`): a new item for one of them is placed
+    /// in its slot at once, never grown from an empty frame; the list's flight moves it from where the row was.
+    var flyingWorkspaces: Set<WorkspaceID> = []
+    /// Workspaces whose list row flew from their item while this region still lists it (the rows reached the list
+    /// before the blocks): the item stays hidden, one copy on screen (`SidebarListView.hideFlownItems`).
+    var flownOut: Set<WorkspaceID> = []
     private(set) var headerViews: [LayoutSectionID: SidebarSectionHeaderView] = [:]
     /// The drag in progress (R77) and the order the region shows while it
     /// runs and until its card has landed.
@@ -282,7 +288,14 @@ final class SidebarRegionView: NSView {
                 view.setAccessibilityIdentifier("cmux.sidebar.item.\(id.rawValue)")
                 view.activatesOnPress = item.ref.activatesOnPress
                 view.isMovable = item.isMovable // Home's press never drags (`LayoutItem.isMovable`)
-                place(view, row.frame, new: new)
+                if new, let workspace = info.workspace, flyingWorkspaces.contains(workspace) {
+                    Motion.withoutAnimation {
+                        view.frame = row.frame
+                        view.layoutSubtreeIfNeeded()
+                    }
+                } else {
+                    place(view, row.frame, new: new)
+                }
                 if id == SidebarListBlocks.gapID { view.alphaValue = 0 } // a drag's gap: the slot the others make way for
                 edit(view, id)
             }
@@ -299,6 +312,8 @@ final class SidebarRegionView: NSView {
             view.removeFromSuperview()
             itemViews[id] = nil
         }
+        // A hidden flown-out item the blocks took out is gone: nothing to show again.
+        if !flownOut.isEmpty { flownOut = flownOut.filter { id in itemViews.values.contains { $0.info.workspace == id } } }
         for (id, view) in appViews where !liveApps.contains(id) {
             view.removeFromSuperview()
             appViews[id] = nil
@@ -440,6 +455,11 @@ final class SidebarRegionView: NSView {
 
     /// The item view for `id` (tests, hover cards).
     func itemView(_ id: LayoutItemID) -> SidebarItemRowView? { itemViews[id] }
+
+    /// The item that draws workspace `id`, if this region draws it now.
+    func itemView(workspace id: WorkspaceID) -> SidebarItemRowView? {
+        itemViews.values.first { $0.info.workspace == id && $0.superview != nil }
+    }
 
     /// Up and Down from a focused item walk the whole sidebar (`SidebarArrowWalk`).
     override func keyDown(with event: NSEvent) {
