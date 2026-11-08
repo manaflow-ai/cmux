@@ -25,6 +25,13 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
         }
     }
 
+    /// Which Chief an Archive, Make Primary or Delete acts on: its id from the CLI, a pick of the
+    /// user's Chiefs in the palette.
+    private static var chiefArgument: ActionArgument {
+        ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string,
+                       suggestions: ActionSuggestions(source: ActionSuggestions.homeChiefs, pinned: []))
+    }
+
     private static var all: [ActionDescriptor] {
         [
             ActionDescriptor(
@@ -231,27 +238,27 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 id: "home.archiveChief", title: t("action.home.archiveChief", "Archive Chief"),
                 keywords: ["home", "chief", "archive", "remove", "agent"],
                 category: .window, symbol: "archivebox", surfaces: [.keyboard],
-                arguments: [ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string)],
+                arguments: [chiefArgument],
                 cliName: "home archive-chief",
-                surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
             // The primary Chief: texts to the cmux line go to it (`chief.update {is_default}`); `cmux chief primary` runs it.
             ActionDescriptor(
                 id: "home.setPrimaryChief", title: t("action.home.setPrimaryChief", "Make Primary Chief"),
                 keywords: ["home", "chief", "primary", "default", "text", "imessage", "sms"],
                 category: .window, symbol: "star", surfaces: [.keyboard],
-                arguments: [ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string)],
+                arguments: [chiefArgument],
                 cliName: "home primary-chief",
-                surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
             // Deleting cannot be undone (Archive Chief can): it asks first.
             ActionDescriptor(
                 id: "home.deleteChief", title: t("action.home.deleteChief", "Delete Chief…"),
                 keywords: ["home", "chief", "delete", "remove", "agent"],
                 category: .window, symbol: "trash", surfaces: [.keyboard],
-                arguments: [ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string)],
+                arguments: [chiefArgument],
                 cliName: "home delete-chief", destructive: true,
-                surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
             // On Home the tab keys move through the chat list (Lawrence 2026-10-21): Ctrl-Tab /
             // Ctrl-Shift-Tab, Cmd-Shift-] / [ and Ctrl-1…9, scoped to the Home page and the docked Home
