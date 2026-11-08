@@ -96,7 +96,10 @@ def step_pm_xctrace_pins(j, step):
         result["error"] = f"export exit {done.returncode}: {(done.stderr or done.stdout)[-300:]}"
     else:
         replies = [{} for _ in presses]
-        result.update(C.xctrace_press_profiles(xml, j.app.pid, replies, float(step.get("window_ms", 150)), int(step.get("top", 50))))
+        profiles = C.xctrace_press_profiles(xml, j.app.pid, replies, float(step.get("window_ms", 150)), int(step.get("top", 50)))
+        # Its "presses" is a count: keep the per-press frame list under its own name.
+        profiles["presses_profiled"] = profiles.pop("presses", None)
+        result.update(profiles)
         # Over every press: the heaviest inclusive frames of ours in the window (what to cut first).
         total = {}
         for row in result.get("rows") or []:
