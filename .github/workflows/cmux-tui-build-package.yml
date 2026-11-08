@@ -345,6 +345,9 @@ jobs:
       # packages failed a macOS build (run 37401272899); fetch them first, retried.
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
+        # cmux-tui.yml calls this on a dispatch: save then, as on a push (not on an owned mini).
+        with:
+          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -823,6 +826,9 @@ jobs:
       # packages failed a macOS build (run 37401272899); fetch them first, retried.
       - name: Fetch the ghostty-next Zig packages (cached, deadlined, retried)
         uses: ./.github/actions/ghostty-zig-packages
+        # cmux-tui.yml calls this on a dispatch: save then, as on a push (not on an owned mini).
+        with:
+          save-on-dispatch: ${{ !contains(runner.name, '-glaeda') }}
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust

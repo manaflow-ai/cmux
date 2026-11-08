@@ -4,9 +4,11 @@ import CmuxNextDesign
 /// One scene node drawn in AppKit (``AppSceneNativeView``). The reconciler keeps one view per node
 /// id and calls ``configure(_:)`` with each new value of the node, so an `update` op reconfigures the
 /// view in place rather than rebuilding the section. Subclasses draw their node type; this base
-/// applies the props every node accepts (padding, help, opacity, disabled), a tap for a node with an
-/// `onTap` handler, and its context `menu`. Layout is manual: a parent asks ``height(width:)`` and
-/// ``naturalWidth`` and sets the frame.
+/// applies the props every node accepts (padding, help, opacity, disabled, and the decorations:
+/// `frame`, `background`, `borderColor`, `cornerRadius`, `hoverBackground`, `rotation`), a tap for a
+/// node with an `onTap` handler, and its context `menu`. Layout is manual: a parent asks
+/// ``height(width:)`` and ``naturalWidth`` and sets the frame. Colors are painted in ``paint()``,
+/// inside the view's theme scope, on each draw.
 class AppSceneNodeNSView: NSView {
     let nodeID: String
     private(set) var node: AppSceneNode
@@ -14,7 +16,13 @@ class AppSceneNodeNSView: NSView {
     weak var model: AppSceneModel?
     /// A container's laid-out children, in order (set by the reconciler).
     private(set) var childViews: [AppSceneNodeNSView] = []
+    /// The app bundle's folder (an `Image` node's `src` is inside it), set by the reconciler.
+    var bundleDirectory: URL?
     private var isPressed = false
+    /// Tracks the pointer while the node has a `hoverBackground` (a local wash, no script round trip).
+    var decorationHover: PointerHover?
+    /// Whether the pointer is over a node with a `hoverBackground`.
+    var isDecorationHovered = false
 
     init(id: String, node: AppSceneNode) {
         nodeID = id
@@ -34,9 +42,21 @@ class AppSceneNodeNSView: NSView {
         self.node = node
         toolTip = node.string("help").flatMap { $0.isEmpty ? nil : $0 }
         alphaValue = node.number("opacity").map { CGFloat(min(max($0, 0), 1)) } ?? 1
+        configureDecorations()
         needsLayout = true
         needsDisplay = true
     }
+
+    /// The decorations, then the subclass's own colors, in the view's theme scope.
+    final override func updateLayer() {
+        performWithTheme {
+            paintDecorations()
+            paint()
+        }
+    }
+
+    /// Paints the node's own colors (text, tints, fills); runs inside the theme scope on each draw.
+    func paint() {}
 
     /// Replaces the container's children, keeping views that stay (no flicker, no lost hover).
     func setChildren(_ views: [AppSceneNodeNSView]) {
@@ -70,15 +90,21 @@ class AppSceneNodeNSView: NSView {
 
     /// The node's height when laid out `width` points wide, padding included.
     final func height(width: CGFloat) -> CGFloat {
+        if let fixed = frameDimension("height"), fixed.isFinite { return fixed }
+        // A frame's width (or its maxWidth) is the width the content lays out in, as in the parent's frame.
+        var width = width
+        if let fixed = frameDimension("width"), fixed.isFinite { width = min(width, fixed) }
+        if let high = frameDimension("maxWidth"), high.isFinite { width = min(width, high) }
         let p = padding
-        return contentHeight(width: max(0, width - p.left - p.right)) + p.top + p.bottom
+        return clampedHeight(contentHeight(width: max(0, width - p.left - p.right)) + p.top + p.bottom)
     }
 
     /// The node's own width when it does not fill its parent (text, an icon, a badge), padding
     /// included; nil when it fills (rows, stacks, panels).
     final var naturalWidth: CGFloat? {
+        if let fixed = frameDimension("width"), fixed.isFinite { return fixed }
         let p = padding
-        return contentNaturalWidth.map { $0 + p.left + p.right }
+        return clampedNaturalWidth(contentNaturalWidth.map { $0 + p.left + p.right })
     }
 
     /// A Spacer: takes the room a horizontal stack has left.
@@ -97,6 +123,7 @@ class AppSceneNodeNSView: NSView {
 
     override func layout() {
         super.layout()
+        layoutDecorations()
         let p = padding
         layoutContent(in: CGRect(x: p.left, y: p.top, width: max(0, bounds.width - p.left - p.right),
                                  height: max(0, bounds.height - p.top - p.bottom)))

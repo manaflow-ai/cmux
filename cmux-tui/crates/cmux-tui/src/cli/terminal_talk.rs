@@ -2,8 +2,9 @@
 //! terminal), for the Chief and scripts:
 //!
 //! - `cmux terminal list --agents`: the terminals that run an agent, with
-//!   harness, state (busy, idle, waiting-for-input, ended), age, workspace
-//!   and title (roster.rs).
+//!   harness, status (blocked, done, working, idle, unknown; `state` keeps
+//!   the older busy, idle, waiting-for-input, ended), age, workspace and
+//!   title (roster.rs).
 //! - `cmux terminal <t> send --text <msg> [--wait idle|prompt|none]
 //!   [--timeout 5m] [--settle 3s] [--force]`: type the message, press
 //!   Enter, wait, and print only what the terminal printed after the
