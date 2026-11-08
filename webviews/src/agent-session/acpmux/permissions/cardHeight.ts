@@ -31,6 +31,11 @@ export function cardFont(): string {
   return chatUiMeasureStack(chatDisplay().uiFont);
 }
 
+/// The letter-spacing the card's text at `size` px is drawn with, in px.
+export function cardLetterSpacing(_size: number): number {
+  return 0;
+}
+
 // The same line breaker as prose estimates, using the card's UI font rather than chat text size.
 function textHeight(text: string, width: number, size: number, line: number, mono = false, weight = 400): number {
   const room = Math.max(1, width);
