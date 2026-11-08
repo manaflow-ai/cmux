@@ -827,7 +827,7 @@ test("a lone GitHub issue URL offers an explicit fix worktree action", async () 
   await act(async () => {
     root!.render(
       <NewTabScreen
-        snapshot={noChat()}
+        snapshot={noChat([], { summary: { sessionId: "seed", harness: "claude" } })}
         onAsk={(...args) => asks.push(args)}
         onOpen={() => {}}
         onSearch={() => {}}
@@ -836,6 +836,7 @@ test("a lone GitHub issue URL offers an explicit fix worktree action", async () 
         onOpenSession={() => {}}
         onShowAll={() => {}}
         onFixFromLink={(url) => fixes.push(url)}
+        lastAgent="claude"
         location="https://github.com/manaflow-ai/cmux/issues/123"
       />,
     );
