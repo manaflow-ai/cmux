@@ -185,7 +185,7 @@ const openTurn: Play = async (ctx) => {
 /// Opens the turn, then its first sent row.
 const openFirst: Play = async (ctx) => {
   await openTurn(ctx);
-  await ctx.click({ selector: ".cv-sent-msg .cv-disclosure__toggle" });
+  await ctx.click({ selector: ".cv-sent-msg .cv-agentmsg__toggle" });
   await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg .cv-received__text .cv-md"));
 };
 
@@ -221,7 +221,7 @@ export default agentPaneEntry({
       snapshot: recordedFile(),
       play: async (ctx) => {
         await openTurn(ctx);
-        await ctx.click({ selector: ".cv-sent-msg .cv-disclosure__toggle" });
+        await ctx.click({ selector: ".cv-sent-msg .cv-agentmsg__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg .cv-received__text .cv-md h2"));
       },
     },
@@ -257,7 +257,7 @@ export default agentPaneEntry({
       snapshot: writtenFile(),
       play: async (ctx) => {
         await openTurn(ctx);
-        await ctx.click({ selector: ".cv-sent-msg .cv-disclosure__toggle" });
+        await ctx.click({ selector: ".cv-sent-msg .cv-agentmsg__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg .cv-received__text .cv-md h2"));
       },
     },

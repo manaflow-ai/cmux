@@ -77,7 +77,7 @@ struct LaunchPolishVisibilityTests {
         updater.whatsNew.lastUpdate = lastUpdate
         var spans: [[String]] = [], plain = 0
         updater.openChangelog = { plain += 1; return true }
-        updater.openChangelogSpan = { from, to in spans.append([from, to]); return true }
+        updater.openChangelogSpan = { from, to, _ in spans.append([from, to]); return true }
         return { (spans, plain) }
     }
 
@@ -117,6 +117,6 @@ struct LaunchPolishVisibilityTests {
 
     /// The span the opener gets becomes the changelog tab's route (`#/?from=&to=`).
     @Test func theUpdatesSpanIsTheChangelogTabsRoute() {
-        #expect(ChangelogPageTab.route(from: "0.9.0", to: "1.0.0") == "#/?from=0.9.0&to=1.0.0")
+        #expect(WhatsNewDesign.sheet.changelogRoute(from: "0.9.0", to: "1.0.0") == "#/?from=0.9.0&to=1.0.0")
     }
 }

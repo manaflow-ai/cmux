@@ -187,7 +187,7 @@ final class PaneToolbar {
         // (Lawrence 2026-10-20: "i dont like the down arrow"); it is a row of "…"'s menu.
         let kinds = kind.map { paneKinds.union([$0]) } ?? paneKinds
         let reservedPins = kinds.map { kind in pinned.count(where: { Self.actions(kind).contains(ActionID(rawValue: $0)) }) }.max() ?? 0
-        // The zoom indicator is on the selected tab (`TabStripModel.zoomsSelected`), not a button here:
+        // The zoom indicator is at the pane's top-right (`PaneZoomIndicatorView`), not a button here:
         // a zoom keeps this room, so the strip's width and every tab stay put.
         let buttons = shownButtons()
         // The new-terminal and new-browser buttons are not shown: the + and the "…" menu offer them (Lawrence 2026-10-27: too many buttons).

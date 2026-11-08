@@ -17,8 +17,8 @@ use super::{GlobalArgs, OutputMode};
 pub(super) struct Recipe {
     /// The request in the person's words.
     pub ask: &'static str,
-    /// Commands, in order. `<term>`, `<pane>` and `<tab>` stand for ids an
-    /// earlier command printed.
+    /// Commands, in order. `<term>`, `<pane>`, `<tab>` and `<ws>` stand for
+    /// ids an earlier command printed.
     pub commands: &'static [&'static str],
     /// What to read from the output, and what it means.
     pub read: &'static str,
@@ -48,8 +48,17 @@ pub(super) const RECIPES: &[Recipe] = &[
         read: "split prints the new `value.pane_id` and `value.terminal_id` and keeps the \
                person's focus. send types the line, presses Enter, waits for the next \
                prompt and prints only the new `output`; `timed_out: true` (exit 124) means \
-               it still runs. The shell does not report `$?` here: for the exit status use \
-               the next recipe.",
+               it still runs. `exit_status` is the command's `$?` (OSC 133, which cmux \
+               shells have); it is absent when the shell reports none, never guessed.",
+    },
+    Recipe {
+        ask: "Run this in my shell and give me its exit code.",
+        commands: &["cmux --json terminal <term> run --timeout 10m -- npm test"],
+        read: "run types the command into the terminal's shell, waits for its next prompt, \
+               prints the new `output` and `exit_status`, and exits with that status (124 \
+               when the time passed, 125 when the shell reported no status). The words after \
+               `--` reach the shell as the same words (`run -- sh -c 'exit 7'` exits 7); one \
+               quoted word is a shell line (`run -- 'make && make test'`).",
     },
     Recipe {
         ask: "Run this command and give me its exit code.",
@@ -67,12 +76,14 @@ pub(super) const RECIPES: &[Recipe] = &[
         ask: "Start the dev server and wait until it is ready.",
         commands: &[
             "cmux --json pane current split --down",
-            "cmux --json terminal <term> send --text 'npm run dev' --wait none",
-            "cmux --json terminal <term> screen wait --pattern 'ready|listening' --timeout-ms 60000",
+            "cmux --json terminal <term> send --text 'npm run dev' --pattern 'ready|listening' --timeout 60s",
         ],
-        read: "screen wait waits in the daemon (no polling) until the regex matches the \
-               screen: `matched: true` and the screen `text`; exit 1 when the time passes \
-               without a match.",
+        read: "send types the line and waits until output printed after it matches the \
+               regex: `matched: true` (the typed line and older output never match); \
+               `matched: false` (exit 1) when the command ended first, `timed_out: true` \
+               (exit 124) when the time passed. For a command already running, `screen wait \
+               --pattern RE --new` waits in the daemon for output printed after the wait \
+               starts.",
     },
     Recipe {
         ask: "What does the pane on the right show?",
@@ -83,8 +94,9 @@ pub(super) const RECIPES: &[Recipe] = &[
         ],
         read: "neighbor prints `pane.id` (`pane: null` when there is none); each tab's \
                `content_id` is its terminal. screen read prints the visible `text`; \
-               `history read` has the rows that scrolled off, `output read --after <offset>` \
-               the raw output since an offset.",
+               `--unwrap` joins the lines the pane wrapped and `--lines N` reads the last N \
+               lines of scrollback and screen; `history read` has the rows that scrolled off, \
+               `output read --after <offset>` the raw output since an offset.",
     },
     Recipe {
         ask: "Start Claude (or Codex) in a new pane and give it a task.",
@@ -130,6 +142,18 @@ pub(super) const RECIPES: &[Recipe] = &[
                screen does not move the person's view.",
     },
     Recipe {
+        ask: "Move that pane to its own screen. / Put it next to my editor pane.",
+        commands: &[
+            "cmux --json pane <pane> move --new-screen --name logs",
+            "cmux --json pane <pane> move --to-pane <other-pane> --split right",
+            "cmux --json pane <pane> move --to-workspace <ws>",
+        ],
+        read: "move takes every tab of the pane, in order, and the emptied pane closes: \
+               `moved_tabs`, `destination.pane` (where they are now), `created` (the new \
+               screen or pane, else null). --to-tab <tab> puts them after that tab. The \
+               focus stays unless --focus.",
+    },
+    Recipe {
         ask: "Tell me when you need me.",
         commands: &[
             "cmux attention request --tab <tab> --reason 'Approve the migration'",
@@ -138,6 +162,18 @@ pub(super) const RECIPES: &[Recipe] = &[
         ],
         read: "attention marks the tab and its workspace in every cmux client without \
                moving focus; notify posts a notification for your terminal.",
+    },
+    Recipe {
+        ask: "Make a worktree for feature-x with a workspace in it; remove both when done.",
+        commands: &[
+            "cmux --json workspace create --worktree feature-x --repo .",
+            "cmux --json workspace <ws> close --remove-worktree",
+        ],
+        read: "create makes the branch cmux/feature-x in a new git worktree and a workspace \
+               whose terminal starts there: `value.workspace_id`, `value.terminal_id` and \
+               `worktree.root` (its folder). close removes that worktree and its branch, \
+               then closes the workspace; it refuses (closing nothing) while the worktree has \
+               uncommitted or unpushed work, unless `--discard`.",
     },
     Recipe {
         ask: "Clean up what you opened.",
@@ -302,12 +338,17 @@ const WAITS_AND_ERRORS: &str = "
 | `terminal <term> send --text T --wait prompt` | the shell shows its next prompt | `--timeout 5m`, exit 124 |
 | `terminal <term> send --text T --wait idle` | the agent or program is idle (screen still for `--settle`) | `--timeout`, exit 124 |
 | `terminal <term> send --text T --wait none` | at once, after typing T and Enter | - |
+| `terminal <term> run -- CMD` | the shell's next prompt; exits with CMD's `exit_status` | `--timeout 5m`, exit 124 (125: no status) |
+| `terminal <term> send --text T --pattern RE` | output after T matches RE (or T ends: exit 1) | `--timeout`, exit 124 |
 | `terminal <term> screen wait --pattern RE` | RE matches the screen | `--timeout-ms N`, exit 1 |
+| `terminal <term> screen wait --pattern RE --new` | RE matches output printed after the wait starts | `--timeout-ms N`, exit 1 |
 | `terminal <term> wait --until prompt\\|idle` | the terminal is at a prompt / idle | `--timeout 30s`, exit 124 |
 | `terminal <term> process wait` | the terminal's process exits (`outcome.code`) | `--timeout-ms N` |
 
 `--wait prompt` and `wait --until` need shell integration (OSC 133), which cmux shells have.
 A timeout does not stop the command; read the screen before you send more.
+A `--pattern` RE is matched line by line: `^` and `$` match at the start and end of each line \
+(`--pattern '^BENCH_OK$'`), as in grep. Start it with `(?-m)` to match the whole text.
 
 ## Errors and exit codes
 

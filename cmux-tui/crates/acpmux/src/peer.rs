@@ -6,7 +6,8 @@
 
 use crate::no_panic::LockExt;
 use crate::peer_link::{
-    Backoff, Link, LinkTimings, PeerState, SleepWatch, WAKE_PROBE, write_deadline,
+    Backoff, Heard, Link, LinkTimings, PeerState, SilenceBudget, SleepWatch, WAKE_PROBE,
+    write_deadline,
 };
 use crate::rpc::{Message, RpcError, method};
 use cmux_json::JsonSet as _;
@@ -19,6 +20,8 @@ use std::time::Duration;
 use tokio::sync::{Mutex, Notify, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
+#[path = "peer_carrier.rs"]
+mod carrier;
 #[path = "peer_features.rs"]
 mod features;
 #[path = "peer_health.rs"]
@@ -161,6 +164,8 @@ pub struct Peer {
     /// while it is open and not `connected`.
     open: AtomicBool,
     pub last_error: StdMutex<Option<String>>,
+    /// The carrier, a token refusal and when the state began (`peer_carrier.rs`).
+    facts: StdMutex<carrier::LinkFacts>,
     /// Version and build the peer reported at handshake.
     pub remote_version: StdMutex<Option<(String, String)>>,
     /// The build of this peer whose watch list the last handshake read in pages of rows
@@ -271,6 +276,9 @@ pub struct Peer {
     /// Where each change of `state()` goes once the hub runs the peer (`report_states`).
     states: StdMutex<Option<Arc<crate::peer_states::PeerStates>>>,
     timings: LinkTimings,
+    /// How long this peer's links may stay silent: longer for one that answers late. Made from
+    /// `timings` at the first link, so a test can set them first.
+    silence: StdMutex<Option<SilenceBudget>>,
     /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
     pub(crate) cache_saved_at: AtomicU64,
     /// The last successful cache write still records an outage that Connected must clear.
@@ -368,6 +376,7 @@ impl Peer {
             rows_ready: AtomicBool::new(false),
             open: AtomicBool::new(false),
             last_error: StdMutex::new(None),
+            facts: StdMutex::new(carrier::LinkFacts::default()),
             remote_version: StdMutex::new(None),
             row_pages_for: StdMutex::new(None),
             served_as: StdMutex::new(None),
@@ -411,6 +420,7 @@ impl Peer {
             link: StdMutex::new(Link::default()),
             states: StdMutex::new(None),
             timings: LinkTimings::from_env(),
+            silence: StdMutex::new(None),
             cache_saved_at: AtomicU64::new(0),
             cache_saved_outage: AtomicBool::new(false),
             cache_write_pending: AtomicBool::new(false),
@@ -447,6 +457,11 @@ impl Peer {
         self.link.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    fn with_silence<T>(&self, f: impl FnOnce(&mut SilenceBudget) -> T) -> T {
+        let mut budget = self.silence.lock().unwrap_or_else(|e| e.into_inner());
+        f(budget.get_or_insert_with(|| SilenceBudget::new(&self.timings)))
+    }
+
     /// Every change of the link's state goes through here, so each one sends its note
     /// (`report_states`) from the code that made it: no timer, no polling, no repeats.
     fn with_link<T>(&self, f: impl FnOnce(&mut Link) -> T) -> T {
@@ -477,11 +492,32 @@ impl Peer {
     }
 
     fn observed(&self, link: &Link) -> crate::peer_states::Observed {
+        let error = self.last_error.lock_or_recover().clone();
+        let state = link.state();
+        let mut facts = self.facts.lock_or_recover();
+        let (whole, since) = facts.observe(state, crate::store::now_ms());
         crate::peer_states::Observed {
-            state: link.state().wire(),
+            link: whole,
+            carrier: facts.live_carrier(state),
+            cause: carrier::cause(whole, error.as_deref()),
+            since,
+            next_retry_at: link.retry_at.filter(|_| !link.is_ready()),
             last_seen: link.last_seen,
-            error: self.last_error.lock_or_recover().clone(),
+            error,
         }
+    }
+
+    /// The carrier this attempt runs over (`carrier` while its link is open).
+    fn carried_by(&self, by: crate::protocol::peer_state::Carrier) {
+        let mut facts = self.facts.lock_or_recover();
+        facts.carrier = Some(by);
+        // The upgrade went through, so the token was taken.
+        facts.refused = false;
+    }
+
+    /// The peer refused this attempt's token: the link is `authFailed` until one is taken.
+    fn token_refused(&self) {
+        self.facts.lock_or_recover().refused = true;
     }
 
     pub fn state(&self) -> PeerState {
@@ -940,6 +976,7 @@ impl Peer {
 
     pub fn summary(&self) -> Value {
         let link = self.link();
+        let observed = self.observed(&link);
         let (health, health_at) = self.health_summary();
         json!({
             "name": self.name,
@@ -955,6 +992,11 @@ impl Peer {
             "canonicalEndpoint": canonical_endpoint(&self.url),
             "outdated": self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b != crate::hub::build()).unwrap_or(false),
             "state": link.state().as_str(),
+            "link": observed.link,
+            "carrier": observed.carrier,
+            "cause": observed.cause,
+            "since": observed.since,
+            "nextRetryAt": observed.next_retry_at,
             "lastSeen": link.last_seen,
             "downSince": link.down_since,
             "attempts": link.attempts,
@@ -1290,11 +1332,12 @@ impl Peer {
             // cache while handling it, so a daemon restart mid-wait keeps the parked deadline.
             let delay = (!restarting).then(|| {
                 self.with_link(|l| {
-                    l.schedule_retry(
-                        &mut backoff,
-                        crate::store::now_ms(),
-                        crate::peer_link::jitter(),
-                    )
+                    let now = crate::store::now_ms();
+                    let delay = l.schedule_retry(&mut backoff, now, crate::peer_link::jitter());
+                    // Reported only (`nextRetryAt`): the wait below keeps its own delay.
+                    let waits = if redial_now { Duration::ZERO } else { delay };
+                    l.retry_at = Some(now.saturating_add(waits.as_millis() as u64));
+                    delay
                 })
             });
             if let Some(notice) = notice {
@@ -1415,6 +1458,7 @@ impl Peer {
         self: &Arc<Self>,
         out_rx: &mut mpsc::Receiver<Outbound>,
     ) -> Result<LinkEnd, String> {
+        self.facts.lock_or_recover().refused = false;
         // An SSH peer may source this launch's application credentials over
         // SSH. Resolve them before WG too, or a remote-origin handshake can
         // reread a newer peer token and reconnect forever with the old one.
@@ -1454,6 +1498,7 @@ impl Peer {
             if let Ok(Ok((ws, _))) = opened {
                 *self.presented.lock().unwrap_or_else(|e| e.into_inner()) =
                     peer_token.map(str::to_owned);
+                self.carried_by(crate::protocol::peer_state::Carrier::Direct);
                 return self.serve_heard(ws, out_rx, Some(heard)).await;
             }
             tracing::debug!(peer = %self.name, "WireGuard unavailable; trying the configured peer route");
@@ -1528,6 +1573,7 @@ impl Peer {
                         refused = tokens::refused(&e);
                         e.to_string()
                     })?;
+                self.carried_by(crate::protocol::peer_state::Carrier::Ssh);
                 self.serve_heard(ws, out_rx, Some(heard.clone())).await
             }
             .await;
@@ -1542,6 +1588,7 @@ impl Peer {
                 continue;
             }
             if refused {
+                self.token_refused();
                 self.read_tokens.forget();
                 // Kept tokens the remote no longer takes: read them again and retry once, now.
                 if kept && !self.stop.load(Ordering::SeqCst) {
@@ -1588,11 +1635,17 @@ impl Peer {
                 None,
             )
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| {
+                if tokens::refused(&e) {
+                    self.token_refused();
+                }
+                e.to_string()
+            })
         };
         let (ws, _) = tokio::time::timeout(self.timings.connect, connect)
             .await
             .map_err(|_| connect_timed_out(self.timings.connect))??;
+        self.carried_by(crate::protocol::peer_state::Carrier::Direct);
         self.serve_heard(ws, out_rx, Some(heard)).await
     }
 
@@ -1947,11 +2000,24 @@ impl Peer {
         });
 
         // Keepalive: a ping each interval; any byte is an answer. A peer
-        // silent for the whole silence budget, or one that stops reading so a
-        // send cannot go out within the send budget, is dropped and
-        // reconnected; one interval of silence only marks it degraded.
+        // silent for the whole silence budget (`SilenceBudget`: longer for one
+        // that answers late), or one that stops reading so a send cannot go
+        // out within the send budget, is dropped and reconnected; one interval
+        // of silence only marks it degraded.
         let timings = self.timings;
-        let silence = timings.silence_budget();
+        let (was, silence) = self.with_silence(|b| {
+            let was = b.current();
+            b.opened(tokio::time::Instant::now());
+            (was, b.current())
+        });
+        if silence != was {
+            tracing::info!(peer = %self.name, "silence budget {}s (was {}s; a link dropped for silence opened again: the peer is slow, not gone)", silence.as_secs(), was.as_secs());
+        }
+        // The first read's gap is the connect, not an answer.
+        if let Some(heard) = &heard {
+            heard.take_gap();
+        }
+        let mut frame_gap = Duration::ZERO;
         let budget = timings.send;
         let mut ping = tokio::time::interval_at(
             tokio::time::Instant::now() + timings.ping_every,
@@ -2039,8 +2105,20 @@ impl Peer {
                     break Err(timed_out(handshake_started));
                 }
                 _ = ping.tick() => {
+                    let now = tokio::time::Instant::now();
+                    let gap = heard.as_ref().map_or_else(|| std::mem::take(&mut frame_gap), Heard::take_gap);
+                    let (was, silence) = self.with_silence(|b| {
+                        let was = b.current();
+                        b.answered_after(gap, now);
+                        b.settle(now);
+                        (was, b.current())
+                    });
+                    if silence != was {
+                        tracing::info!(peer = %self.name, "silence budget {}s (was {}s; longest wait for an answer {}ms)", silence.as_secs(), was.as_secs(), gap.as_millis());
+                    }
                     let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed()));
                     if silent >= silence {
+                        self.with_silence(|b| b.dropped(now));
                         break Err(format!("peer stopped answering ({}s without a frame)", silent.as_secs()));
                     }
                     if silent >= timings.ping_every {
@@ -2066,6 +2144,7 @@ impl Peer {
                     if !self.link().is_ready() && handshake_deadline.is_elapsed() {
                         break Err(timed_out(handshake_started));
                     }
+                    frame_gap = frame_gap.max(last_frame.elapsed());
                     last_frame = tokio::time::Instant::now();
                     wake_probe = None;
                     self.with_link(|l| l.heard(crate::store::now_ms()));
