@@ -166,7 +166,12 @@ fn a_refused_ticket_names_the_ticket_step() {
     assert!(reply["error_detail"].as_str().unwrap().contains("auth.forbidden"), "{reply}");
     let route = line(&mut stderr);
     assert!(route.contains("phase=connect outcome=ticket"), "{route}");
+    // The platform's status is the detail code, after ms, on stderr and in
+    // the connect log alike.
+    assert!(route.trim_end().ends_with(" detail=http_403"), "{route}");
     assert_eq!(wait(&mut child, Duration::from_secs(20)), Some(2));
+    let log = world.dir.path().join(".local/state/cmux-tui/sessions/carrier/connect.log");
+    assert_eq!(std::fs::read_to_string(&log).unwrap(), route);
 }
 
 #[test]

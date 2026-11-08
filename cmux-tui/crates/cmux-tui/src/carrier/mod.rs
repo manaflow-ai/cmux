@@ -20,7 +20,9 @@
 //!   client bridges to its local socket). The process exits 0 when it ends.
 //! - Every connect attempt, and every resume attempt of the session after it,
 //!   writes one route line on stderr after the reply line:
-//!   `cloud.connect route=carrier machine=<vm_id> phase=<connect|reconnect|resume> outcome=<ok|error_code> ms=<n>`.
+//!   `cloud.connect route=carrier machine=<vm_id> phase=<connect|reconnect|resume> outcome=<ok|error_code> ms=<n>`,
+//!   and for a failed attempt ` detail=<code>` after `ms` (a short
+//!   `[a-z0-9_]` code, [`contract::detail_code`]).
 //!   The same line is appended to `<workspace state dir>/carrier/connect.log`
 //!   (macOS `~/Library/Application Support/cmux-tui/sessions/carrier/connect.log`,
 //!   `CMUX_TUI_STATE_DIR` overrides the state dir), a file only the dial

@@ -10,8 +10,8 @@ use super::answer::{Prefetched, TicketCache, grant_vmk, key_text, parse_answer, 
 use super::client::{classify, pinned_daemon, resume_outcome};
 use super::contract::{
     Backoff, Failure, INITIAL_BACKOFF, MAX_BACKOFF, Phase, StdinLine, Step, Vmk, answer_line,
-    connected_line, failure_line, parse_deadline, route_line, served_line, serving_line,
-    stdin_line,
+    connected_line, detail_code, failure_line, parse_deadline, route_line, served_line,
+    serving_line, stdin_line,
 };
 use super::{
     DialArgs, DialService, ServeArgs, parse, parse_key, parse_serve, public_key_line, with_team_env,
@@ -70,20 +70,90 @@ fn each_step_has_its_own_code_and_exit() {
 #[test]
 fn the_route_line_is_pinned() {
     assert_eq!(
-        route_line(VM, Phase::Connect, None, Duration::from_millis(1234)),
+        route_line(VM, Phase::Connect, None, None, Duration::from_millis(1234)),
         format!("cloud.connect route=carrier machine={VM} phase=connect outcome=ok ms=1234\n")
     );
     assert_eq!(
-        route_line(VM, Phase::of_attempt(2), Some(Step::Parked), Duration::from_millis(7)),
+        route_line(VM, Phase::of_attempt(2), Some(Step::Parked), None, Duration::from_millis(7)),
         format!(
             "cloud.connect route=carrier machine={VM} phase=reconnect outcome=parked_timeout ms=7\n"
         )
     );
     assert_eq!(
-        route_line(VM, Phase::Resume, Some(Step::Handshake), Duration::ZERO),
+        route_line(VM, Phase::Resume, Some(Step::Handshake), None, Duration::ZERO),
         format!("cloud.connect route=carrier machine={VM} phase=resume outcome=handshake ms=0\n")
     );
     assert_eq!(Phase::of_attempt(1), Phase::Connect);
+}
+
+/// A failed attempt's route line ends in ` detail=<code>` after `ms`, so a
+/// parser of `outcome=(\S+) ms=(\d+)` still reads it; an ok one has none.
+#[test]
+fn a_failed_route_line_names_its_detail_code_after_ms() {
+    let closed = "link transport failed: relay WebSocket closed (close 1013)";
+    assert_eq!(
+        route_line(
+            VM,
+            Phase::of_attempt(2),
+            Some(Step::Relay),
+            Some(closed),
+            Duration::from_millis(541)
+        ),
+        format!(
+            "cloud.connect route=carrier machine={VM} phase=reconnect outcome=relay ms=541 detail=1013\n"
+        )
+    );
+    assert_eq!(
+        route_line(VM, Phase::Connect, None, Some(closed), Duration::from_millis(9)),
+        format!("cloud.connect route=carrier machine={VM} phase=connect outcome=ok ms=9\n")
+    );
+    // No text, no detail field at all.
+    assert_eq!(
+        route_line(VM, Phase::Resume, Some(Step::Relay), Some("  "), Duration::ZERO),
+        format!("cloud.connect route=carrier machine={VM} phase=resume outcome=relay ms=0\n")
+    );
+}
+
+/// Each detail is one short `[a-z0-9_]` code, and none carries the failure
+/// text (a ticket or grant in it stays out).
+#[test]
+fn detail_codes_are_short_tokens_and_never_the_text() {
+    let cases = [
+        ("link transport failed: relay WebSocket closed (close 1013)", "1013"),
+        ("relay WebSocket closed (close 4003)", "4003"),
+        (
+            "link transport failed: relay WebSocket connection failed: HTTP status 409 Conflict",
+            "http_409",
+        ),
+        ("cmux-platform answered 503 carrier.unavailable: no route", "http_503"),
+        ("relay allocation is temporarily unavailable (relay code slot-busy)", "slot_busy"),
+        ("relay circuit is temporarily unavailable (relay code other)", "other"),
+        ("relay allocation is temporarily unavailable (relay code Bad.Code)", "other"),
+        (
+            "relay WebSocket connection failed: I/O error: Connection refused (os error 111)",
+            "connect_refused",
+        ),
+        ("relay WebSocket connection failed: TLS error: invalid peer certificate", "tls"),
+        ("link transport failed: relay allocation timed out", "timeout"),
+        ("relay circuit join timed out", "timeout"),
+        ("the deadline passed", "deadline"),
+        ("link transport failed: relay WebSocket closed", "closed"),
+        ("relay WebSocket read failed", "closed"),
+        ("relay WebSocket authentication was rejected", "rejected"),
+        ("the machine has no daemon key", "daemon_key"),
+        ("unexpected Bearer eyJhbGciOi.secret-ticket", "other"),
+    ];
+    let token = |code: &str| {
+        (1..=24).contains(&code.len())
+            && code.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+    };
+    for (text, want) in cases {
+        let code = detail_code(text).unwrap_or_else(|| panic!("no code for {text:?}"));
+        assert_eq!(code, want, "{text:?}");
+        assert!(token(&code), "{code:?} is not ^[a-z0-9_]{{1,24}}$");
+    }
+    assert_eq!(detail_code(""), None);
+    assert_eq!(detail_code(" \n"), None);
 }
 
 #[test]

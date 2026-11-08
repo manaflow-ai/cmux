@@ -382,7 +382,8 @@ pub(super) struct Resume {
 impl ResumeHooks for Resume {
     fn attempt_ended(&self, result: Result<(), &ConnectionError>, elapsed: Duration) {
         let outcome = result.err().map(resume_outcome);
-        (self.log)(route_line(&self.machine, Phase::Resume, outcome, elapsed));
+        let detail = result.err().map(ToString::to_string);
+        (self.log)(route_line(&self.machine, Phase::Resume, outcome, detail.as_deref(), elapsed));
     }
 }
 
@@ -409,6 +410,7 @@ pub(super) async fn dial(
             &plan.machine,
             phase,
             result.as_ref().err().map(|f| f.step),
+            result.as_ref().err().map(|f| f.detail.as_str()),
             started.elapsed(),
         ));
         let failure = match result {
