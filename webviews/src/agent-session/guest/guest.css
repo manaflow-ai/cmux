@@ -24,7 +24,7 @@
 /* Connecting floats at the top of the transcript's area: it comes and goes without moving a row. */
 .guest-live__notice{position:absolute;top:0;left:0;right:0;margin:0;padding:8px var(--guest-inset);color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);text-align:center;background:var(--agent-page-bg);pointer-events:none}
 .guest-live__notice--failed{color:var(--agent-text);pointer-events:auto}
-.guest-live__retry{padding:0;border:0;background:none;color:inherit;font:inherit;text-decoration:underline;cursor:pointer}
+.guest-live__retry{padding:0;border:0;background:none;color:inherit;font:inherit;text-decoration:underline}
 .guest-live__retry:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 .guest-live__ask{display:flex;flex-direction:column;gap:4px;flex:none;margin:0;padding:8px var(--guest-inset);border-top:1px solid var(--agent-border);color:var(--agent-text);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 .guest-live__ask-title{color:var(--agent-muted);font-family:var(--font-mono);overflow-wrap:anywhere}
