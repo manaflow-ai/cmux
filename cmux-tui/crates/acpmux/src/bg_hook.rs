@@ -219,16 +219,22 @@ as asked."
     }}))
 }
 
-/// The hook's mark on an `acpmux` command a Claude Code subagent runs, or None: the same call
-/// with `export ACPMUX_CALLER_SUBAGENT=TYPE:ID` on a line before it
+/// The hook's mark on a command a Claude Code subagent runs that may run the acpmux CLI, or
+/// None: the same call with `export ACPMUX_CALLER_SUBAGENT=TYPE:ID` on a line before it
 /// (`cli::sender::SUBAGENT_ENV`), so the send says which subagent of the session sent it.
 ///
 /// A subagent runs in its lead's process with the lead's whole environment, the caller token
 /// too, so without the mark its every `acpmux send` was the lead's: the receiver answered the
 /// lead's chat instead of the subagent that asked (round-2 orchestration eval, 2026-11-08). Claude
 /// Code names the subagent only in the hook's input (`agent_id`, `agent_type`; absent for the
-/// lead's own calls). Only a command that names acpmux is changed, and it carries no permission
-/// decision: the call is allowed or asked as before.
+/// lead's own calls), and a hook can change only the call's input, not its environment.
+///
+/// Which command may run the CLI is not a match of its text: a wrapper script, an alias, a
+/// variable (`$A send`) or a path under another name runs it too. Every command is marked but
+/// one made only of [`PLAIN_TOOLS`], which never start another program by a name the subagent
+/// chose ([`may_run_acpmux`]); so the read-only commands a harness runs without asking stay as
+/// they were. The mark carries no permission decision: the call is allowed or asked as before,
+/// and acpmux's own read-only judgment reads the command without it ([`without_subagent_mark`]).
 pub fn subagent_mark(input: &Value) -> Option<Value> {
     if input.get("tool_name").and_then(Value::as_str) != Some("Bash") {
         return None;
@@ -244,7 +250,7 @@ pub fn subagent_mark(input: &Value) -> Option<Value> {
     }
     let command = input.pointer("/tool_input/command")?.as_str()?;
     let env = crate::cli::sender::SUBAGENT_ENV;
-    if !command.contains("acpmux") || command.contains(env) {
+    if !may_run_acpmux(command) || command.contains(env) {
         return None;
     }
     let mut tool_input = input.get("tool_input").filter(|t| t.is_object())?.clone();
@@ -253,6 +259,126 @@ pub fn subagent_mark(input: &Value) -> Option<Value> {
         "hookEventName": "PreToolUse",
         "updatedInput": tool_input,
     }}))
+}
+
+/// Programs that run nothing but themselves, whatever their arguments a subagent passes in a
+/// Bash call (`find -exec` and git's own commands aside, [`plain_command`]): a command made only
+/// of these cannot reach the acpmux CLI, so the hook leaves it unmarked ([`subagent_mark`]).
+/// Every program `hub/shell_readonly.rs` passes as a read is here.
+const PLAIN_TOOLS: &[&str] = &[
+    "pwd", "ls", "cat", "head", "tail", "wc", "echo", "printf", "true", "false", "which", "type",
+    "stat", "du", "df", "basename", "dirname", "realpath", "readlink", "cut", "tr", "nl", "cmp",
+    "comm", "grep", "egrep", "fgrep", "rg", "column", "whoami", "id", "uname", "jq", "test", "[",
+    "diff", "uniq", "date", "hostname", "sort", "sed", "cd", "mkdir", "touch", "cp", "mv", "rm",
+    "ln", "chmod", "file", "find", "git",
+];
+
+/// git's own commands: `git NAME` for any other NAME may run a `git-NAME` program or an alias.
+const GIT_COMMANDS: &[&str] = &[
+    "status",
+    "diff",
+    "log",
+    "show",
+    "add",
+    "commit",
+    "push",
+    "pull",
+    "fetch",
+    "checkout",
+    "switch",
+    "restore",
+    "branch",
+    "merge",
+    "rebase",
+    "reset",
+    "stash",
+    "rev-parse",
+    "worktree",
+    "tag",
+    "remote",
+    "config",
+    "clone",
+    "init",
+    "grep",
+    "blame",
+    "describe",
+    "shortlog",
+    "rev-list",
+    "show-ref",
+    "for-each-ref",
+    "ls-files",
+    "ls-tree",
+    "cat-file",
+    "cherry-pick",
+    "revert",
+    "apply",
+    "mv",
+    "rm",
+    "clean",
+    "submodule",
+    "reflog",
+    "merge-base",
+    "name-rev",
+    "count-objects",
+    "range-diff",
+    "diff-tree",
+    "version",
+];
+
+/// Whether a subagent's Bash `command` may run the acpmux CLI: it names acpmux, or one of its
+/// commands runs a program not known to run nothing else ([`PLAIN_TOOLS`]). The commands are
+/// the shell's (`host_load::for_each_command`: `$(...)`, `sh -c`, `eval` and wrappers included).
+pub fn may_run_acpmux(command: &str) -> bool {
+    if command.contains("acpmux") {
+        return true;
+    }
+    let mut other = false;
+    crate::host_load::for_each_command(command, &mut |argv: &[&str]| {
+        other |= !plain_command(argv);
+    });
+    other
+}
+
+/// Whether one simple command runs only a [`PLAIN_TOOLS`] program: named plainly (no
+/// substitution or variable), git with one of its own commands, find with no `-exec`.
+fn plain_command(argv: &[&str]) -> bool {
+    let Some(first) = argv.first() else { return true };
+    if first.contains(['$', '`']) {
+        return false;
+    }
+    let program = first.rsplit('/').next().unwrap_or(first);
+    if !PLAIN_TOOLS.contains(&program) {
+        return false;
+    }
+    let rest = argv.get(1..).unwrap_or_default();
+    match program {
+        "find" => !rest.iter().any(|a| a.starts_with("-exec") || a.starts_with("-ok")),
+        "git" => {
+            let mut words = rest.iter();
+            while let Some(w) = words.next() {
+                if matches!(*w, "-C" | "-c") {
+                    words.next();
+                } else if !w.starts_with('-') {
+                    return GIT_COMMANDS.contains(w);
+                }
+            }
+            true
+        }
+        _ => true,
+    }
+}
+
+/// `command` without the hook's mark line ([`subagent_mark`]) when it starts with one, else as
+/// it is. The mark only sets `ACPMUX_CALLER_SUBAGENT` to two plain words: it runs nothing.
+pub fn without_subagent_mark(command: &str) -> &str {
+    let prefix = format!("export {}=", crate::cli::sender::SUBAGENT_ENV);
+    let Some((line, rest)) = command.split_once('\n') else { return command };
+    let marked = line.strip_prefix(&prefix).and_then(|value| value.split_once(':')).is_some_and(
+        |(kind, id)| {
+            crate::cli::sender::subagent_word(kind) && crate::cli::sender::subagent_word(id)
+        },
+    );
+    if marked { rest } else { command }
 }
 
 /// The hook process: reads the call on stdin, prints a deny, a subagent's mark

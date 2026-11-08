@@ -219,6 +219,9 @@ pub(crate) fn request_is_read_only(request: &Value, session_cwd: &Path, env: &En
         },
         _ => return false,
     };
+    // A subagent's command carries acpmux's own mark line, which sets one variable and runs
+    // nothing (`bg_hook.rs` `subagent_mark`): what it reads is the rest.
+    let script = crate::bg_hook::without_subagent_mark(script);
     if !env_runs_nothing(env) || !path_is_absolute(env) || !shells_are_system(env) {
         return false;
     }

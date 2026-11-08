@@ -21,8 +21,9 @@
 /// Names the sender of every `acpmux send` run with it set and no `--from`.
 pub const FROM_ENV: &str = "ACPMUX_FROM";
 
-/// Set by acpmux's Bash hook (`bg_hook.rs` [`crate::bg_hook::subagent_mark`]) on an `acpmux`
-/// command a Claude Code subagent runs: `TYPE:ID`, from the hook input's `agent_type` and
+/// Set by acpmux's Bash hook (`bg_hook.rs` [`crate::bg_hook::subagent_mark`]) on a command a
+/// Claude Code subagent runs that may run the acpmux CLI (`bg_hook::may_run_acpmux`: not only one
+/// that names acpmux; a wrapper, an alias or another path too): `TYPE:ID`, from the hook input's `agent_type` and
 /// `agent_id`. A subagent runs in its lead's process and inherits the lead's whole environment
 /// (`ACPMUX_SESSION_*`, `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_CHILD_SESSION` too: read on a real
 /// Claude Code 2.1.319, 2026-11-08), so nothing else tells its send from its lead's. A label
