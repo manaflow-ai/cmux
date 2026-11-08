@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42527575933",
+  "recorded_at": "2026-11-08T22:02:17Z",
+  "reason": "cmux-tui 2cfc50085eb2 changes the image's cmux-tui (pinned 5cd7679c9976)",
+  "dry_run": false,
+  "cmux_tui": "2cfc50085eb2c7d0c26ca6167dbef8b3bc076362",
+  "fixes": [
+    {
+      "sha": "966b392dc2be448a8bfb8a82b5fb78b6de0174f1",
+      "mergedAt": "2026-11-08T13:37:48-08:00",
+      "subject": "remote: a network change shortens a blocked probe; every failed redial is the reason (#38850 F1/F2) (#38879)"
+    },
+    {
+      "sha": "61aec1d6aebf7c41fd484ad85c279105d1bde40a",
+      "mergedAt": "2026-11-08T13:36:34-08:00",
+      "subject": "[D7] Fix remote terminal image and file paste (#38433)"
+    },
+    {
+      "sha": "fd265c73e398f4dcf54f50e717013ab0b5421c06",
+      "mergedAt": "2026-11-08T13:34:07-08:00",
+      "subject": "iOS predictive echo: review follow-ups (reset leaves the alternate screen, only typed input, only what was sent) (#38832)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T22:02:17Z",
+    "snapshot_id": "sh-e9034567f5f9486b81f6821830f2ab09",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42527575933): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1c466a743301fb3581152435b9964903d2d83def",
+    "image": "cloud-native-auto-2cfc5008-42527575933-1",
+    "revision": "ci-42527575933-1",
+    "at": "2026-11-08T22:02:17Z"
+  },
+  "rolled_back": false
+}
