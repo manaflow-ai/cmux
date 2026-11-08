@@ -43,10 +43,10 @@ await requireBrowserLane("agent-pane-steer-queue.test.ts", async () => {
     await vite?.close();
   });
 
-  const still = async (page: Page, name: string, scheme: "light" | "dark" = "light") => {
+  // The mock pane draws the host's theme, whatever the media's colour scheme: one still per step.
+  const still = async (page: Page, name: string) => {
     if (!out) return;
-    await page.emulateMedia({ colorScheme: scheme });
-    await page.screenshot({ path: path.join(out, `steer-queue-${name}-${scheme}.png`) });
+    await page.screenshot({ path: path.join(out, `steer-queue-${name}.png`) });
   };
   const rows = (page: Page) =>
     page.$$eval(".acpmux-steer-row", (items) =>
@@ -96,7 +96,7 @@ await requireBrowserLane("agent-pane-steer-queue.test.ts", async () => {
       return row ? { reason: row.getAttribute("data-reason"), step: row.getAttribute("data-step") } : undefined;
     }, title);
 
-  test("ranked: the ask first, then the quiet turn, then the unread finish", async () => {
+  test("ranked by reason: asks, failures, quiet turns, unread finishes, then running", async () => {
     const page = await open(true);
     const ranked = await openQueue(page);
     console.log(`STEER-QUEUE-RANKED ${JSON.stringify(ranked)}`);
@@ -104,13 +104,17 @@ await requireBrowserLane("agent-pane-steer-queue.test.ts", async () => {
     const ask = order.indexOf("Review the terminal tab strip");
     const quiet = order.indexOf(QUIET);
     const unread = order.indexOf("Localize the changes view");
-    expect(ask).toBe(0);
+    // The mock seeds more chats than these three; every row ranks by its reason, in this order.
+    const RANK = ["ask", "failed", "stalled", "review", "running"];
+    const ranks = ranked.map((row) => RANK.indexOf(row.reason ?? ""));
+    expect(ranks.every((rank) => rank >= 0)).toBe(true);
+    expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
+    expect(ask).toBeGreaterThanOrEqual(0);
     expect(ranked[quiet]?.reason).toMatch(/^(stalled|running)$/);
     expect(quiet).toBeGreaterThan(ask);
     expect(unread).toBeGreaterThan(quiet);
     expect(ranked[0]?.selected).toBe(true);
     await still(page, "open");
-    await still(page, "open", "dark");
     await page.close();
   });
 
@@ -142,7 +146,6 @@ await requireBrowserLane("agent-pane-steer-queue.test.ts", async () => {
       expect(steered.selected).toBe(false);
     }
     await still(page, "steered");
-    await still(page, "steered", "dark");
     await page.close();
   });
 
