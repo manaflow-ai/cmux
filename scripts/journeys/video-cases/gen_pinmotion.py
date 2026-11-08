@@ -132,10 +132,11 @@ def prof_journey(jid, runs):
     steps += pin_now("p0") + pin_now("w1")
     steps += [G.settle(0.6), X.focus("w5"), G.settle(1.0),
               {"do": "pm_xctrace_pins", "runs": runs, "gap": 1.0, "rest": 0.6, "window_ms": 150, "key": WS_KEY,
+               "start_timeout": 40, "cap_seconds": 60, "save_timeout": 50, "export_timeout": 60,
                "title": f"{runs} pin/unpin keys of w5 under one time profile"}]
     return {"id": jid, "priority": "P1", "title": f"PIN MOTION profile: {runs} sidebar pin/unpin keys under xctrace",
             "why": "pin-motion-4 step 3: name the work behind 1-2 missed refreshes per pin at 120 Hz.",
-            "source": "pin-motion task kit (video-cases/gen_pinmotion.py --prof)", "budget_seconds": 400,
+            "source": "pin-motion task kit (video-cases/gen_pinmotion.py --prof)", "budget_seconds": 255,
             "recordings": [], "options": {"key_path": "real"}, "steps": steps, "finally": [UNBIND, X.settings_back()]}
 
 

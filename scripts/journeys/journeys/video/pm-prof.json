@@ -4,7 +4,7 @@
  "title": "PIN MOTION profile: 20 sidebar pin/unpin keys under xctrace",
  "why": "pin-motion-4 step 3: name the work behind 1-2 missed refreshes per pin at 120 Hz.",
  "source": "pin-motion task kit (video-cases/gen_pinmotion.py --prof)",
- "budget_seconds": 400,
+ "budget_seconds": 255,
  "recordings": [],
  "options": {
   "key_path": "real"
@@ -311,6 +311,10 @@
      "cmd"
     ]
    },
+   "start_timeout": 40,
+   "cap_seconds": 60,
+   "save_timeout": 50,
+   "export_timeout": 60,
    "title": "20 pin/unpin keys of w5 under one time profile"
   }
  ],
