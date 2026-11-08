@@ -73,11 +73,21 @@ export type InboxNotice = { threads: InboxThread[] };
 export const inboxThreadKey = (rowId: string, threadId: string) => `${rowId}\u0000${threadId}`;
 
 const text = (value: unknown): string => (typeof value === "string" ? value : "");
-/// The session and label of acpmux's sender record (senderIdentity.ts `senderRecord`).
-const senderRef = (record: SenderRecord | undefined): SenderRef | undefined =>
-  record?.session || record?.label
-    ? { ...(record.session && { session: record.session }), ...(record.label && { label: record.label }) }
+/// A relayed sender's address (`MACHINE/SESSION`, the relay's `--relayed-from`): the chat its chip
+/// asks for. The record's label is then only the name the sender declared (`--from`), which a
+/// local namesake may hold too (cmux#38642 review).
+const relayAddress = (record: SenderRecord): string | undefined =>
+  record.relay?.machine && record.relay.session ? `${record.relay.machine}/${record.relay.session}` : undefined;
+
+/// The session and lookup label of acpmux's sender record (senderIdentity.ts `senderRecord`): a
+/// relayed sender's label is its relay address.
+const senderRef = (record: SenderRecord | undefined): SenderRef | undefined => {
+  if (!record) return undefined;
+  const label = relayAddress(record) ?? record.label;
+  return record.session || label
+    ? { ...(record.session && { session: record.session }), ...(label && { label }) }
     : undefined;
+};
 
 /// The key a sender's chat is asked for by: its session id, else the name it gave, else `from`.
 export const senderKey = (from: string, sender: SenderRef | undefined): string =>
