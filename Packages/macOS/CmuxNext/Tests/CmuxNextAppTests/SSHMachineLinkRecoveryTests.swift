@@ -10,9 +10,9 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// HQ #4877 G4 and G5: an SSH machine whose later reconnect spent its retries reads Offline with
-/// a Reconnect that starts a fresh connect, never Connecting forever; and reconnect on use never
-/// takes over a session another cmux daemon holds, which only a person's Reconnect may.
+/// HQ #4877 G4 and G5: an SSH machine's later drop reads as its link says, with a Reconnect that
+/// retries the daemon over the same link (cmuxterm-hq#7766); and reconnect on use never takes over
+/// a session another cmux daemon holds, which only a person's Reconnect may.
 @MainActor @Suite(.serialized) struct SSHMachineLinkRecoveryTests {
     private static func session() throws -> SSHMachineSession {
         let host = try SSHHost(destination: SSHDestination(parsing: "nohost.invalid"))
@@ -34,60 +34,33 @@ import Testing
 
     // MARK: G4
 
-    @Test func aSpentReconnectReadsOfflineNotConnecting() {
-        for link: SSHConnectionMachine.Status in [.connecting, .connected, .reconnecting] {
-            #expect(link.sidebarStatus(startupFailed: false, daemonConnected: false, compatibility: nil,
-                                            retriesSpent: true) == .offline, "\(link)")
-            #expect(link.sidebarStatus(startupFailed: false, daemonConnected: true, compatibility: nil,
-                                            retriesSpent: true) == (link == .reconnecting ? .reconnecting : .connected))
-        }
+    /// The link is the only layer that redials (cmuxterm-hq#7766): a later drop reads as the link
+    /// says, and Reconnect retries the daemon connection over the same link client instead of
+    /// killing and restarting it.
+    @Test func aLaterDropReadsAsTheLinkSays() {
+        #expect(SSHConnectionMachine.Status.reconnecting.sidebarStatus(startupFailed: false, daemonConnected: false, compatibility: nil) == .reconnecting)
         #expect(SSHConnectionMachine.Status.connecting.sidebarStatus(startupFailed: false, daemonConnected: false, compatibility: nil) == .connecting)
-        #expect(SSHConnectionMachine.Status.connected.sidebarStatus(startupFailed: true, daemonConnected: false, compatibility: nil,
-                                        retriesSpent: true) == .failed, "A startup failure keeps its own word")
+        #expect(SSHConnectionMachine.Status.connected.sidebarStatus(startupFailed: true, daemonConnected: false, compatibility: nil) == .failed,
+                "A startup failure keeps its own word")
         #expect(MachineLinkState.reconnectsOnUse(.offline), "Using the machine reconnects it")
     }
 
-    @Test func reconnectAfterSpentRetriesIsAFreshConnect() {
-        for link: SSHConnectionMachine.Status in [.connecting, .connected, .reconnecting] {
-            #expect(link.reconnectStep(daemonConnected: true, daemonFailed: false, retriesSpent: true) == .restart)
-        }
-        #expect(SSHConnectionMachine.Status.offline.reconnectStep(daemonConnected: true, daemonFailed: false, retriesSpent: true) == .connect)
+    @Test func reconnectOnADroppedDaemonRetriesItOverTheSameLink() {
+        #expect(SSHConnectionMachine.Status.connected.reconnectStep(daemonConnected: true, daemonFailed: false, daemonDown: true) == .reconnectDaemon)
         #expect(SSHConnectionMachine.Status.connected.reconnectStep(daemonConnected: true, daemonFailed: false) == .nothing)
+        #expect(SSHConnectionMachine.Status.reconnecting.reconnectStep(daemonConnected: true, daemonFailed: false, daemonDown: true) == .wake)
+        #expect(SSHConnectionMachine.Status.offline.reconnectStep(daemonConnected: true, daemonFailed: false, daemonDown: true) == .connect)
     }
 
-    @Test func theStoreMarksSpentRetriesUntilTheNextConnect() throws {
-        let store = DaemonStore()
-        store.connectionState = .disconnected("link lost")
-        store.noteRetriesSpent(true)
-        #expect(store.retriesSpent)
-        _ = DaemonConnectionChange.connected(try Self.identity(), nil).apply(to: store)
-        #expect(!store.retriesSpent, "A reconnect clears it")
-        store.noteRetriesSpent(true)
-        #expect(!store.retriesSpent, "A hop that lands after the link came back changes nothing")
-    }
-
-    @Test func reconnectOnASpentSessionStartsANewAttemptAndClearsTheMark() throws {
+    @Test func reconnectOnADroppedDaemonStartsANewAttemptOnTheLiveLink() throws {
         let session = try Self.session()
         session.linkStatus = .connected
         session.daemon.store.connectionState = .disconnected("link lost")
-        session.daemon.store.noteRetriesSpent(true)
-        #expect(SidebarBridge.sshStatus(session, compatibility: nil) == .offline)
+        #expect(SidebarBridge.sshStatus(session, compatibility: nil) == .connecting)
         Self.service().reconnect(session)
         #expect(session.connectionAttemptID == 1)
-        #expect(!session.retriesSpent)
-        #expect(session.linkStatus == .connecting)
+        #expect(session.linkStatus == .connected, "the running link client is kept")
         session.close()
-    }
-
-    @Test func aRestartedSessionThatClosesNeverConnectsAgain() async throws {
-        let session = try Self.session()
-        session.linkStatus = .connected
-        session.daemon.store.noteRetriesSpent(true)
-        Self.service().reconnect(session)
-        session.close()
-        for _ in 0..<40 { await Task.yield() }
-        #expect(session.linkStatus == .offline, "The restart's connect was cancelled by close()")
-        #expect(session.connectionAttemptID == 1)
     }
 
     // MARK: G5

@@ -25,7 +25,9 @@ import os
 /// unless `retry.keepsTrying` (the app's local daemon, whose start can fail
 /// for a cause that ends with no event: one attempt per backoff cap).
 /// After `retry.socketRetries` failures that a new socket woke (a daemon
-/// that dies on connect) only `retryWake` does.
+/// that dies on connect) only `retryWake` does. A remote machine whose link
+/// redials by itself (``RetryPolicy/linkReconnect``) gets one attempt per drop
+/// and then waits for an event: the link is the only layer that redials.
 public actor DaemonConnection {
     public typealias EndpointProvider = @Sendable () async throws -> DaemonEndpoint
 
@@ -76,8 +78,6 @@ public actor DaemonConnection {
     var handoffHoldTimer: DemandTimer?
     /// Shows a request refused because it names a pane still opening (``PaneNotReady``); see ``observePaneNotReady(_:)``.
     private var paneNotReadyObserver: (@Sendable (PaneNotReady) -> Void)?
-    /// Told each time a reconnect fails with the timed retries spent; see ``observeRetriesSpent(_:)``.
-    private var retriesSpentObserver: (@Sendable () -> Void)?
     /// The launch's first snapshot, fetched right after the handshake (``prefetchSnapshot()``).
     var prefetchedSnapshot: (serial: UInt64, fetch: Task<(tree: DaemonTree, barrier: UInt64), any Error>)?
 
@@ -242,13 +242,6 @@ public actor DaemonConnection {
     /// scope answers it; `DaemonService` sets it on each connection it makes. Runs on this connection's executor.
     public func observePaneNotReady(_ observer: (@Sendable (PaneNotReady) -> Void)?) {
         paneNotReadyObserver = observer
-    }
-
-    /// Sets what is told when the reconnect loop's timed retries are spent and it waits for an
-    /// event only (a remote machine's header then reads offline, not connecting, HQ #4877 G4).
-    /// Runs on this connection's executor, after each failed attempt past the budget.
-    public func observeRetriesSpent(_ observer: (@Sendable () -> Void)?) {
-        retriesSpentObserver = observer
     }
 
     /// The event sequence this connection has routed so far, or nil when
@@ -434,10 +427,8 @@ public actor DaemonConnection {
             } catch {
                 logger.info("cmux-tui reconnect attempt \(self.pacer.failures) failed: \(String(describing: error), privacy: .public)")
             }
-            if pacer.isExhausted {
+            if pacer.waitsForEventOnly {
                 logger.info("cmux-tui reconnect: timed retries spent; waiting for the daemon socket or another event")
-                // A busy daemon keeps its timed retry: still reconnecting, not offline.
-                if pacer.waitsForEventOnly, !Task.isCancelled, !isClosedPhase { retriesSpentObserver?() }
             }
         }
         reconnectTask = nil

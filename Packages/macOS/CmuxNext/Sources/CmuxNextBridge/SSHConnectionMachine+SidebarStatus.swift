@@ -6,13 +6,14 @@ extension SSHConnectionMachine.Status {
     /// An SSH machine header's status from its link status and its daemon.
     /// `startupFailed`: the daemon gave up after SSH reached the machine
     /// (`SSHMachineSession.daemonFailure`): Failed to start, not Connecting (cx-zdh8).
-    /// `retriesSpent`: a later reconnect gave up: Offline, not Connecting forever (HQ #4877 G4).
+    /// A later drop reads as the link says (connecting, reconnecting): the link is the layer that
+    /// redials (cmuxterm-hq#7766).
     public func sidebarStatus(startupFailed: Bool, daemonConnected: Bool,
-                              compatibility: DaemonCompatibility?, retriesSpent: Bool = false) -> SidebarMachine.Status {
+                              compatibility: DaemonCompatibility?) -> SidebarMachine.Status {
         switch self {
         case .offline: return .offline
         case .installing: return .installing
-        case .reconnecting: return daemonConnected || !retriesSpent ? .reconnecting : .offline
+        case .reconnecting: return .reconnecting
         case .authFailed, .hostKeyUntrusted: return .authFailed
         case .unreachable: return .unreachable
         case .needsInstall(.protocolMismatch), .needsInstall(.refused(.protocolOlder)): return .updateRequired
@@ -22,7 +23,7 @@ extension SSHConnectionMachine.Status {
         case .connecting, .connected:
             guard daemonConnected else {
                 if let compatibility, compatibility.level == .incompatible, startupFailed { return .updateRequired }
-                return startupFailed ? .failed : retriesSpent ? .offline : .connecting
+                return startupFailed ? .failed : .connecting
             }
             if compatibility?.level == .limited { return .updateAvailable }
             return .connected

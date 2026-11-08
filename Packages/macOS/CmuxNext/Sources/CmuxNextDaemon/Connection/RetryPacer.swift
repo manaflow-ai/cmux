@@ -46,6 +46,14 @@ public struct RetryPolicy: Sendable {
     public static let localReconnect = RetryPolicy(initial: .milliseconds(50), maximum: .seconds(30), timedRetries: 10, keepsTrying: true)
     /// The app's first connect to its local daemon: as ``firstConnect``, then one attempt every 30 s.
     public static let localFirstConnect = RetryPolicy(initial: .milliseconds(250), maximum: .seconds(30), timedRetries: 10, keepsTrying: true)
+    /// A remote machine's first connect over a link whose own state machine redials (`cmux-tui remote
+    /// connect`, cmuxterm-hq#7766): one attempt, then events only (the link reporting connected again,
+    /// its process exiting, its socket replaced, app activation, a person's Reconnect). No timer: the
+    /// link spends its own budget and deadlines, so a timed retry here would only stack dials on it.
+    public static let linkFirstConnect = RetryPolicy(initial: .milliseconds(1), maximum: .milliseconds(1), timedRetries: 0)
+    /// ``linkFirstConnect`` for a connection that dropped: one attempt at once (the link's local socket
+    /// stays up while its carrier redials), then events only.
+    public static let linkReconnect = RetryPolicy(initial: .milliseconds(1), maximum: .milliseconds(1), timedRetries: 1)
     /// A failing store snapshot while connected: 100 ms growing to 10 s, 8 attempts.
     public static let resync = RetryPolicy(initial: .milliseconds(100), maximum: .seconds(10), timedRetries: 8)
 }

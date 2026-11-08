@@ -310,16 +310,21 @@ public final class DaemonService {
         }
     }
 
-    /// Connects to a remote daemon through `endpoint` (a Cloud machine's link
-    /// socket). The first connect is retried with capped backoff
-    /// (`DaemonStartup`); afterwards the connection reconnects by itself,
-    /// re-asking `endpoint` (which restarts a dead link). A connection that
-    /// ends for good is replaced the same way, spaced by one backoff across
-    /// such ends. Retries past their budget wait for a network path change,
-    /// app activation or the link socket changing, never a fixed period.
-    /// An incompatible daemon (`compatibility` says so) is retried only on
-    /// such an event: the machine's daemon can be updated in place behind
-    /// the same link, and the next event then connects to the new build.
+    /// Connects to a remote daemon through `endpoint` (a machine's link
+    /// socket). The connection reconnects by itself, re-asking `endpoint`
+    /// (which restarts a link whose process exited). A connection that ends
+    /// for good (an incompatible daemon) is tried again only on an event:
+    /// the machine's daemon can be updated in place behind the same link, and
+    /// the next event then connects to the new build.
+    /// `followsLink`: the link redials by itself (`cmux-tui remote connect`,
+    /// cmuxterm-hq#7766), so this side makes no timed attempts: one attempt
+    /// per drop (``RetryPolicy/linkReconnect``), then it waits for the link's
+    /// state (its owner fires ``retryWake`` when the link reports connected or
+    /// its process exits), app activation or a person's Reconnect. The link
+    /// watches the network itself, so no path monitor runs. Otherwise the
+    /// first connect and each reconnect are retried with capped backoff
+    /// (`DaemonStartup`), and past their budget wait for a network path
+    /// change, app activation or the link socket changing.
     /// `admit` checks each handshake's identity before use; when it throws,
     /// the connection closes, the service stops and the store shows why.
     /// `bridge`: each connection runs this child instead of connecting to the
@@ -331,7 +336,7 @@ public final class DaemonService {
     public func start(remote endpoint: @escaping @Sendable () async throws -> String, bridge: DaemonBridge? = nil,
                requiredCapabilities: [String] = DaemonCapability.required,
                admit: (@MainActor (DaemonIdentity) throws -> Void)? = nil, onEnd: (@MainActor () -> Void)? = nil,
-               stream: (@Sendable () async throws -> String)? = nil, handshake: Duration? = nil) {
+               stream: (@Sendable () async throws -> String)? = nil, handshake: Duration? = nil, followsLink: Bool = false) {
         guard runTask == nil, !policyBlock.isBlocked else { return }
         if let handshake { startupDeadline = max(startupDeadline, handshake) }
         let streamEndpoint = stream ?? endpoint
@@ -342,23 +347,26 @@ public final class DaemonService {
         armStartupDeadline()
         observeRetryEvents()
         let wake = retryWake
-        let monitor = NWPathMonitor()
-        monitor.pathUpdateHandler = { path in
-            if path.status == .satisfied { wake.fire() }
+        if !followsLink {
+            let monitor = NWPathMonitor()
+            monitor.pathUpdateHandler = { path in
+                if path.status == .satisfied { wake.fire() }
+            }
+            monitor.start(queue: DispatchQueue(label: "com.cmuxterm.next.daemon.path.\(machineID)"))
+            pathMonitor = monitor
         }
-        monitor.start(queue: DispatchQueue(label: "com.cmuxterm.next.daemon.path.\(machineID)"))
-        pathMonitor = monitor
         let clock = startupClock
+        let firstConnect: RetryPolicy = followsLink ? .linkFirstConnect : .firstConnect
         var configuration = DaemonConnection.Configuration(requiredCapabilities: requiredCapabilities,
+                                                           retry: followsLink ? .linkReconnect : .reconnect,
                                                            retryWake: wake, terminalEnvironment: nil, sessionEvents: true)
         configuration.echoesPlacementShift = echoesPlacementShift
         configuration.handshakeTimeout = handshake
         runTask = Task { [weak self, drainScheduler, logger, configuration] in
             weak let weakSelf = self
-            var ends = RetryPacer(.firstConnect)
-            // wakeup-allow: each iteration runs a connection to its end, then waits in RetryPacer
+            // wakeup-allow: each iteration runs a connection to its end, then waits for an event only
             while !Task.isCancelled {
-                let connected = await DaemonStartup.shared.connect(wake: wake, clock: clock) {
+                let connected = await DaemonStartup.shared.connect(policy: firstConnect, wake: wake, clock: clock) {
                     DaemonConnection(configuration: configuration) {
                         DaemonEndpoint(socketPath: try await endpoint(), bridge: bridge)
                     }
@@ -394,13 +402,15 @@ public final class DaemonService {
                     await connection.closeAndWait()
                     return
                 }
-                await self.observeRemote(connection)
+                await connection.observePaneNotReady(self.paneNotReadyReporter)
                 self.didConnect(connection, identity: identity)
                 logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
                 await store.run(connection: connection, scheduler: drainScheduler)
                 await connection.closeAndWait()
                 if Task.isCancelled { return }
-                guard await ends.waitAfterFailure(wake: wake, clock: clock) else { return }
+                // Ended for good (an incompatible daemon): only an event can change that.
+                wake.rebaseline()
+                guard await wake.awaitWake(delay: nil, clock: clock) != .cancelled else { return }
             }
         }
     }

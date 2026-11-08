@@ -303,9 +303,9 @@ public actor SSHMachineLink {
         }
     }
 
-    /// A link that exits (the network is gone past its own retries, the
-    /// machine rebooted) reports it; the daemon connection's reconnect then
-    /// calls ``socketPath()``, which probes again.
+    /// A link that exits (it crashed, or its session is gone) reports it; the
+    /// daemon connection's next attempt then calls ``socketPath()``, which
+    /// probes and starts it again: the only restart of a link client.
     private func watchExit(_ child: ChildProcess) {
         Task { [weak self] in
             _ = await child.waitForExit()
