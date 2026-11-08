@@ -455,7 +455,9 @@ pub fn chain(lookup: impl Fn(u32) -> Option<Proc>, pid: u32) -> Chain {
         let Some(p) = lookup(at) else { break };
         let name = p.exe.rsplit('/').next().unwrap_or(p.exe.as_str());
         // acpmux itself may be the copy an app ships (cmux.app's): that bundle is not the sender.
-        if found.app.is_none() && name != "acpmux" {
+        // The first process is acpmux by construction, whatever the kernel names its file
+        // (cmux.app's bin/acpmux resolves to bin/cmux).
+        if found.app.is_none() && p.pid != pid && name != "acpmux" {
             found.app = app_bundle(&p.exe);
         }
         if found.harness.is_none() {
