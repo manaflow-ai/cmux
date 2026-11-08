@@ -105,15 +105,20 @@ fn local_candidates(socket: SocketAddr, networks: &[LocalNetwork]) -> Vec<Socket
 }
 
 /// The overlay addresses probes and candidate lists travel between: this
-/// side's address and, in the same family, the base address of the peer's
-/// first allowed network. The receiver intercepts both by port before
-/// routing.
+/// side's address and, in the same family, the peer's first single-address
+/// allowed network (a cmux endpoint's `/128` or `/32`). A peer that owns
+/// only wider ranges (a gateway into a network) gets neither. The receiver
+/// intercepts both by port before routing.
 fn probe_route(
     addresses: &[InterfaceAddress],
     allowed: &[IpNetwork],
 ) -> Option<(IpAddr, IpAddr)> {
     allowed.iter().find_map(|network| {
         let remote = network.network_address();
+        let host = if remote.is_ipv4() { 32 } else { 128 };
+        if network.netmask() != host {
+            return None;
+        }
         let local = addresses.iter().find(|entry| entry.address.is_ipv4() == remote.is_ipv4())?;
         Some((local.address, remote))
     })
