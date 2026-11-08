@@ -7,6 +7,7 @@ import React, {
   Activity,
   useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useReducer,
@@ -505,6 +506,7 @@ import {
   registerChatDisplayHost,
   useChatDisplay,
   useChatPinnedPlan,
+  useFeatureTipsOn,
   useTrayHandle,
   useTrayTucked,
 } from "./chatDisplay";
@@ -662,6 +664,9 @@ import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type RunMode } from "./sandboxRun";
 import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
+import { paneTipHost } from "./featureTipsModel";
+import { CloudChatHint } from "./CloudChatHint";
+import { cloudChatHintShown, useCloudChatHint } from "./cloudChatHintModel";
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
 import { flushHeldModePick, holdModePick } from "./heldModePick";
@@ -4235,6 +4240,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const runHereSend = useRef(false);
   /// Counts the Cloud starts that ended, so the folder default looks again once one has.
   const [cloudStartsEnded, setCloudStartsEnded] = useState(0);
+  /// The one-time Cloud hint over a new chat's composer (cloudChatHintModel.ts): its record is the app's.
+  /// A pick of Cloud by any path (the hint, the Where menu, New Cloud Chat) is its use.
+  const cloudHint = useCloudChatHint(paneTipHost, newTabGeneration);
+  const featureTipsOn = useFeatureTipsOn();
+  /// New Cloud Chat (the handshake's `pickCloud`), counted: the New Tab page or this composer picks
+  /// Cloud once Cloud is offered here.
+  const [cloudPickRequest, setCloudPickRequest] = useState(0);
+  const [cloudPicksDone, setCloudPicksDone] = useState(0);
   /// This new chat's Cloud environment (the Environment chip, CLOUD_ENVIRONMENTS_ENABLED): Auto until
   /// picked, and Auto again once its Cloud send goes, a chat starts here or another new chat shows.
   const cloudEnvironment = useChatCloudEnvironment(`${snapshot.sessionId ?? ""}:${newTabGeneration}`);
@@ -4242,6 +4255,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     mode: sandbox.mode,
     environment: cloudEnvironment.pick,
     onMode: (mode: RunMode) => {
+      if (mode === "cloud") cloudHint.used();
       // Run mode is a new destination (including a brand-new Cloud machine); an account-machine
       // picker target must not survive that choice and wake the old machine on the next edit.
       cloudDraftMachineID.current = null;
@@ -6857,6 +6871,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           cloudRepositoryAvailable?: unknown;
           githubRepository?: unknown;
           harnesses?: unknown;
+          /// New Cloud Chat opened this tab (AgentPaneHandshake `pickCloud`): it picks Cloud once offered.
+          pickCloud?: unknown;
           model?: unknown;
           sandboxState?: unknown;
           /// The tab this page is (AgentPaneHandshake `tab`); an older app sends none.
@@ -6981,6 +6997,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         if (seeded) setDraft(seeded);
         // Integrate a Harness… from the palette or the menu opened this tab (cx-uj5g8).
         if (host.harnesses === true) setHarnessesOpen(true);
+        // New Cloud Chat from the palette opened this tab: it picks Cloud, as the Where menu's Cloud row does.
+        if (host.pickCloud === true) setCloudPickRequest((count) => count + 1);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
         pendingAttachments = host.promptAttachments ?? pendingAttachments;
         // A prompt a person's action seeded has a single-use host ticket bound to its promptId
@@ -9229,6 +9247,46 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ((sessionSelection?.state === "pending" || !snapshot.sessionId) && snapshot.rows.length === 0)) &&
     (handshaken || hostError === undefined);
   if (newTab !== undefined && !handshaken && hostError !== undefined) composerStoodIn.current = true;
+  /// The one-time Cloud hint shows on a new chat this Mac starts while Cloud is offered and is not
+  /// its mode (cloudChatHintModel.ts); never in a quick chat or a chat on another machine.
+  const cloudHintShown =
+    !quick &&
+    !onOtherMachine &&
+    cloudChatHintShown({
+      record: cloudHint.record,
+      tipsOn: featureTipsOn,
+      cloudOffered: sandboxOffered,
+      cloudPicked: sandbox.mode === "cloud",
+      started: Boolean(snapshot.sessionId),
+    });
+  /// New Cloud Chat, pending until taken: the New Tab page takes it (`cloudPick`) or this composer
+  /// picks Cloud once it is offered; a chat that already started drops it.
+  const cloudPickPending = cloudPickRequest > cloudPicksDone;
+  const takeCloudPick = useCallback(() => setCloudPicksDone(cloudPickRequest), [cloudPickRequest]);
+  const pickCloudInComposer = useEffectEvent(() => {
+    if (sandbox.mode !== "cloud") composerModeRows.onMode("cloud");
+  });
+  /// The classic page has no Where menu: New Cloud Chat leaves it for the chat composer (as a Cloud
+  /// send from a page does, `cloudLeftPage`), which then picks Cloud below.
+  const newTabWithoutCloud = showNewTab && !newTab.history && shownTemplate(newTab) === "classic";
+  useEffect(() => {
+    if (!cloudPickPending) return;
+    if (newTabWithoutCloud && sandboxOffered && !onOtherMachine) return setCloudLeftPage(newTabGeneration);
+    if (showNewTab) return;
+    if (snapshot.sessionId) return takeCloudPick();
+    if (!sandboxOffered || onOtherMachine) return;
+    takeCloudPick();
+    pickCloudInComposer();
+  }, [
+    cloudPickPending,
+    newTabWithoutCloud,
+    newTabGeneration,
+    showNewTab,
+    snapshot.sessionId,
+    sandboxOffered,
+    onOtherMachine,
+    takeCloudPick,
+  ]);
   // The handshake is done: the page that came back in that render took the draft (`takeDraft`
   // runs as it mounts, before this effect); an existing chat's recovery has no page to give it to.
   useEffect(() => {
@@ -9530,9 +9588,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     },
     [cloudChatIdentity, cloudTypingPrewarm, handshaken],
   );
-  const onCloudMachinePicked = useCallback((machine: CloudMachine | undefined) => {
-    cloudDraftMachineID.current = machine?.id ?? null;
-  }, []);
+  const cloudHintUsed = cloudHint.used;
+  const onCloudMachinePicked = useCallback(
+    (machine: CloudMachine | undefined) => {
+      cloudDraftMachineID.current = machine?.id ?? null;
+      // A Cloud machine picked is a pick of Cloud: the hint is done.
+      if (machine) cloudHintUsed();
+    },
+    [cloudHintUsed],
+  );
   const newTabSnapshot = useMemo(
     () =>
       newTabSessions === composerSnapshot.sessions
@@ -10161,6 +10225,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         <PaneNotices onAction={(id) => void callNative("pane.noticeAction", { id }).catch(() => undefined)} />
         <Notice id="dictation" tier="error" when={dictation.notice?.message}>
           <DictationNotice dictation={dictation} />
+        </Notice>
+        <Notice id="cloud-hint" tier="hint" when={cloudHintShown && !showNewTab}>
+          <CloudChatHint onUse={() => composerModeRows.onMode("cloud")} onClose={cloudHint.close} />
         </Notice>
         <Notice id="import-error" tier="error" when={importError}>
           <p className="acpmux-composer-remote-note" role="alert">
@@ -11172,6 +11239,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   environments
                   onLeaveDraft={leaveNewTabDraft}
                   takeDraft={takeNewTabDraft}
+                  {...(cloudPickPending ? { cloudPick: takeCloudPick } : {})}
+                  {...(cloudHintShown ? { cloudHint: { onClose: cloudHint.close } } : {})}
                   {...(sandboxOffered || sandboxPickedNotOffered || cloudPickedNotOffered
                     ? {
                         runMode: sandboxModeRows,
