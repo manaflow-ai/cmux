@@ -6,7 +6,7 @@ The pane motion of bonsplit and columns (split, close, New Column, zoom, divider
 pane-perf-terminal.py's (a421). This bench covers every other animation, and one split/column pass in a small
 layout so a single table compares builds:
 
-  tab-new / tab-close           newTab (the New Tab page) and closeTab, in a pane with 3 tabs
+  tab-new / tab-close           newTab.default (Cmd-T, the New Tab page) and closeTab, in a pane with 3 tabs
   tab-move / tab-move-back      moveSurfaceRight (Left at the strip's edge) and back (the tab strip reorder)
   tab-to-pane / tab-back        moveSurfaceToPaneRight / moveSurfaceToPaneLeft (a tab moves between two panes)
   split-right / split-down      splitRight / splitDown, each closed again (split-close)
@@ -126,12 +126,14 @@ def row(check, expected, observed, ok):
 
 
 # -- setup: a workspace A of one pane with 3 tabs, a workspace B of 4 panes, a sidebar group of 3 workspaces --
+# A tab is TAB (New Terminal Tab); `newTab` is New Workspace (Cmd-N), which made each "tab" a workspace of its own.
+TAB = "newSurface"
 
 def make_a():
     action("workspace.newAtBottom", settle=1.5)
     action("terminal.sendText", {"text": "seq 1 3000\r"})
     for _ in range(2):
-        action("newTab", settle=0.8)
+        action(TAB, settle=0.8)
     state["a"] = shown_workspace()
 
 
@@ -177,7 +179,7 @@ def at_a(panes=1):
         action("focusLeft", settle=0.2)
     first = (panes_of(state["a"]) or [(None, 0)])[0]
     for _ in range(max(0, 3 - first[1])):
-        action("newTab", settle=0.8)
+        action(TAB, settle=0.8)
 
 
 class Owner:
@@ -274,11 +276,11 @@ def undo(key):
 def anims():
     run = lambda verb: (lambda: error_of(action(verb)))  # noqa: E731
     return [
-        ("tab-new", lambda: at_a(1), run("newTab")),
+        ("tab-new", lambda: at_a(1), run("newTab.default")),
         ("tab-close", None, run("closeTab")),
-        ("tab-move", lambda: action("newTab", settle=0.8), lambda: either("moveSurfaceRight", "moveSurfaceLeft", "tab-move")),
+        ("tab-move", lambda: action(TAB, settle=0.8), lambda: either("moveSurfaceRight", "moveSurfaceLeft", "tab-move")),
         ("tab-move-back", None, lambda: undo("tab-move")),
-        ("tab-to-pane", lambda: (at_a(2), action("newTab", settle=0.8)),
+        ("tab-to-pane", lambda: (at_a(2), action(TAB, settle=0.8)),
          lambda: either("moveSurfaceToPaneRight", "moveSurfaceToPaneLeft", "tab-to-pane")),
         ("tab-back", None, lambda: undo("tab-to-pane")),
         ("split-right", lambda: at_a(1), run("splitRight")),
