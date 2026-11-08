@@ -118,3 +118,26 @@ test("a send its harness shell named (fromAgent) draws its sender_claim on the i
     io.close();
   }
 });
+
+test("a sender_claim that comes after its prompt's row still draws on it", async () => {
+  const io = await connect([prompt("p-late"), claim("p-late")]);
+  try {
+    await settle(() => row(io.snapshot(), "p-late")?.sentFrom !== undefined);
+    expect(row(io.snapshot(), "p-late")?.sentFrom?.label).toBe("Claude desktop");
+  } finally {
+    io.close();
+  }
+});
+
+test("a live sender_claim after its prompt's row draws on it", async () => {
+  const io = await connect([]);
+  try {
+    io.feed.emit(io.target, prompt("p-after"));
+    await settle(() => row(io.snapshot(), "p-after") !== undefined);
+    io.feed.emit(io.target, claim("p-after"));
+    await settle(() => row(io.snapshot(), "p-after")?.sentFrom !== undefined);
+    expect(row(io.snapshot(), "p-after")?.sentFrom?.label).toBe("Claude desktop");
+  } finally {
+    io.close();
+  }
+});

@@ -53,3 +53,18 @@ test("a record with no prompt id, no harness or odd fields draws nothing it cann
   const odd = sentFrom({ promptId: "p", claimed: { harness: "codex", sessionId: "a\u0007b" }, checked: { app: 3 } });
   expect(odd).toEqual({ promptId: "p", harness: "codex", label: "Codex", confirmed: false });
 });
+
+test("a claim naming Claude.app is confirmed only when the daemon found Claude.app", () => {
+  // From the process chain, not an entrypoint: the claim names the app it says it ran under.
+  const byApp = { harness: "claude-code", app: "Claude.app", selfReported: true };
+  const underTerminal = sentFrom({
+    promptId: "p",
+    claimed: byApp,
+    checked: { harness: "claude-code", app: "Terminal.app" },
+  });
+  expect(underTerminal?.label).toBe("Claude desktop");
+  expect(underTerminal?.confirmed).toBe(false);
+  expect(
+    sentFrom({ promptId: "p", claimed: byApp, checked: { harness: "claude-code", app: "Claude.app" } })?.confirmed,
+  ).toBe(true);
+});

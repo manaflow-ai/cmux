@@ -235,12 +235,21 @@ pub fn note_mcp_client(params: &Value) {
 /// The claim an MCP tool's send makes: the environment's, else the MCP client's.
 pub fn of_this_mcp_server() -> Option<Value> {
     let env = |key: &str| std::env::var(key).ok();
+    of_mcp(&env, || chain(lookup, std::process::id()), MCP_CLIENT.get())
+}
+
+/// [`of_this_mcp_server`] over `env`, with `walk` read only when needed.
+pub fn of_mcp(
+    env: &impl Fn(&str) -> Option<String>,
+    _walk: impl FnOnce() -> Chain,
+    client: Option<&Value>,
+) -> Option<Value> {
     if env("ACPMUX_SESSION_ID").is_some_and(|v| !v.trim().is_empty())
         && env(crate::hub::person::CALLER_TOKEN_ENV).is_some_and(|v| !v.trim().is_empty())
     {
         return None;
     }
-    claude_code(&env).or_else(|| codex(&env)).or_else(|| MCP_CLIENT.get().and_then(from_mcp_client))
+    claude_code(env).or_else(|| codex(env)).or_else(|| client.and_then(from_mcp_client))
 }
 
 /// A claim as the daemon keeps it: the known fields, each one line of at most
@@ -318,6 +327,16 @@ pub fn record(prompt_id: &str, claimed: Option<Value>, checked: Option<Value>) -
         put(&mut record, "checked", checked);
     }
     Some(record)
+}
+
+/// A prompt's acceptance callback that also writes its `sender_claim` with `write`.
+pub fn on_kept(
+    claim: Value,
+    write: impl FnOnce(Value) + Send + 'static,
+    next: Option<Box<dyn FnOnce(Value) + Send>>,
+) -> Option<Box<dyn FnOnce(Value) + Send>> {
+    write(claim);
+    Some(next.unwrap_or_else(|| Box::new(|_| {})))
 }
 
 /// What the daemon knows of a connection's other end, for [`check_trust`].
