@@ -35,6 +35,9 @@ pub(crate) struct LocalServerMessages {
     pub replaced: &'static str,
     /// `server restart` stopped the owner and started this binary's.
     pub restarted: &'static str,
+    /// A restart whose new owner did not run every kept terminal again in
+    /// time: `{count}` terminals, `{terminals}` their ids.
+    pub restart_terminals_not_running: &'static str,
     pub replace_refused: &'static str,
     pub registry_compacted: &'static str,
     pub registry_compact_owner_running: &'static str,
@@ -178,6 +181,7 @@ pub(super) const ENGLISH: LocalServerMessages = LocalServerMessages {
     owner_restoring: "cmux: the session owner is restoring its terminals; waiting for it (up to 2 minutes)",
     replaced: "the unresponsive session owner was stopped and a new local server started",
     restarted: "the local server was replaced by this build; every terminal was kept",
+    restart_terminals_not_running: "the local server was replaced by this build, but {count} kept terminals are not running again yet: {terminals}; `cmux daemon status` and the terminal list show them",
     replace_refused: "cannot replace the unresponsive session owner; inspect the client log under the session state directory and retry",
     registry_compacted: "the session registry was compacted",
     registry_compact_owner_running: "the session is running; stop it (cmux-tui server stop) and retry the compaction",
@@ -257,6 +261,7 @@ pub(super) const JAPANESE: LocalServerMessages = LocalServerMessages {
     owner_restoring: "cmux: セッション所有者がターミナルを復元しています。完了を待っています (最大 2 分)",
     replaced: "応答しないセッション所有者を停止し、新しいローカルサーバーを起動しました",
     restarted: "ローカルサーバーをこのビルドに置き換えました。すべてのターミナルを保持しました",
+    restart_terminals_not_running: "ローカルサーバーをこのビルドに置き換えましたが、保持した {count} 個のターミナルがまだ再開していません: {terminals}。`cmux daemon status` とターミナル一覧で確認できます",
     replace_refused: "応答しないセッション所有者を置き換えられません。セッション状態ディレクトリのクライアントログを確認して再試行してください",
     registry_compacted: "セッションレジストリを圧縮しました",
     registry_compact_owner_running: "セッションが実行中です。停止してから (cmux-tui server stop) 圧縮を再試行してください",
