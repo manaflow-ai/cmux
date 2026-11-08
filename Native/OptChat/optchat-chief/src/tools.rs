@@ -45,7 +45,7 @@ impl Memory for OptChat {
 
 /// The Chief tools a turn another person started may call only with
 /// some arguments (`approval::CHIEF_TOOLS`, by their socket names).
-const TURN_GATED: [&str; 12] = [
+const TURN_GATED: [&str; 13] = [
     "send",
     "reply",
     "react",
@@ -58,6 +58,7 @@ const TURN_GATED: [&str; 12] = [
     "profile",
     "remember",
     "cloud_workspace",
+    "mcp",
 ];
 
 /// Section 9's subagent tools, answered by the host (subagents.rs).
@@ -828,6 +829,8 @@ pub enum Call {
     /// `cloud_workspace` (cloud_workspace.rs): a Cloud machine and its
     /// workspace for a task.
     CloudWorkspace(crate::cloud_workspace::Request),
+    /// `mcp` (mcp_hub): one action of the MCP hub, its arguments as given.
+    Mcp(Value),
     /// `escalate_auth` (a subagent's only write tool): the Chief drives a
     /// sign-in for it. `agent` is the caller's own id as it claims it; the
     /// host prefers the id its session binding gives (turn_caller.rs).
@@ -1029,6 +1032,13 @@ impl Call {
             "stop" => Ok(Call::Stop),
             "sleep" => SleepCall::parse(args).map(Call::Sleep),
             "watch" => WatchCall::parse(args).map(Call::Watch),
+            "mcp" => {
+                let mut a = args.as_object().cloned().unwrap_or_default();
+                for k in ["tool", "from", "turn_key"] {
+                    a.remove(k);
+                }
+                Ok(Call::Mcp(Value::Object(a)))
+            }
             "remember" => {
                 let text = args.get("text").and_then(Value::as_str).unwrap_or_default();
                 crate::remember::clean(text).map(|text| Call::Remember { text })
@@ -1129,8 +1139,9 @@ impl Call {
             | Call::ZoomAgent { .. }
             | Call::EscalateAuth { .. }
             | Call::Profile { .. }
+            | Call::Mcp(_)
             | Call::Chiefs { .. } => {
-                "spawn, tell, peers, profile, chiefs and a subagent's zoom are served by the Chief host"
+                "spawn, tell, peers, profile, chiefs, mcp and a subagent's zoom are served by the Chief host"
                     .to_owned()
             }
         }
@@ -1200,6 +1211,11 @@ impl Call {
             Call::Stop => json!({"tool": "stop", "end_turn": true}),
             Call::Sleep(c) => c.to_json(),
             Call::Watch(c) => c.to_json(),
+            Call::Mcp(args) => {
+                let mut v = args.clone();
+                v["tool"] = json!("mcp");
+                v
+            }
             Call::Remember { text } => json!({"tool": "remember", "text": text}),
             Call::Control(c) => c.to_json(),
             Call::CloudWorkspace(r) => {
@@ -1309,6 +1325,9 @@ pub struct Served {
     /// This Chief's fork in the cloud (migrate_fork.rs): `tell("chief:fork")`
     /// reaches it and its reply comes back as a note. None: off.
     pub fork: Option<Arc<crate::migrate_fork::ForkPeer>>,
+    /// The MCP hub (mcp_hub): the servers the Chief added, for it and its
+    /// subagents. None: no `mcp` tool on this host.
+    pub mcp: Option<crate::mcp_hub::McpHub>,
 }
 
 /// Serves the tools on `path` until the process ends. The host holds the
@@ -1334,6 +1353,7 @@ pub fn serve_with(
             turn: None,
             peers: None,
             fork: None,
+            mcp: None,
         },
     )
 }
@@ -1756,6 +1776,19 @@ fn connection(conn: UnixStream, served: &Served) {
                     Ok(Call::Watch(call)) => match &served.orchestrator {
                         Some(o) => o.watch(call),
                         None => Err("this Chief host runs no turns".to_owned()),
+                    },
+                    // The Chief and its subagents use the hub's servers; only
+                    // the Chief adds or removes one (mcp_hub::McpHub::handle).
+                    Ok(Call::Mcp(args)) => match &served.mcp {
+                        Some(hub) => {
+                            let who = if subagent {
+                                crate::mcp_hub::Caller::Subagent(caller().unwrap_or_else(|| "a subagent".to_owned()))
+                            } else {
+                                crate::mcp_hub::Caller::Chief
+                            };
+                            hub.handle(&args, &who)
+                        }
+                        None => Err("mcp: this Chief host has no MCP hub".to_owned()),
                     },
                     Ok(Call::Remember { text }) => match &served.orchestrator {
                         Some(o) => o.remember(&text),
