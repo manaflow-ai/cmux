@@ -47,6 +47,11 @@ struct SidebarPinFlight {
         if let layer = glyph?.layer { SidebarDragSpring.appear(layer, token, now: now) }
         if let leavingGlyph { SidebarDragSpring.attach(leavingGlyph) }
         if let layer = leavingGlyph?.layer { SidebarDragSpring.disappear(layer, token, now: now) }
+        // The pin glyph and the title are one line of content: the glyph rides the title's offset on the same spring, so
+        // the title never slides onto it (PIN7 films: at an unpin's start the title ran onto the fading pin).
+        if let title {
+            for glyph in [glyph, leavingGlyph].compactMap(\.self) { SidebarDragSpring.offset(glyph, by: title.offset, token, now: now) }
+        }
         revealed.forEach(SidebarDragSpring.attach)
         for layer in revealed.compactMap(\.layer) { SidebarDragSpring.appear(layer, token, now: now) }
     }
@@ -80,6 +85,8 @@ struct SidebarPinFlightSource {
     var pen: CGPoint?
     /// The pin glyph the view draws (a pinned item), its frame in the view (flipped, as both a row and an item are).
     var glyph: (image: NSImage, frame: NSRect, tint: NSColor?)?
+    /// How far the view's fill is inset from its sides (`SidebarItemRowView.fillInset`; a row's bounds are its fill).
+    var inset: CGFloat = 0
 
     /// The frame drawn at media time `time`.
     func frame(at time: CFTimeInterval) -> NSRect {
@@ -188,6 +195,7 @@ extension SidebarListViewComponents {
     private func source(of view: NSView) -> SidebarPinFlightSource {
         var source = drawnPath(of: view)
         source.pen = (view as? any SidebarRenameTitle)?.titlePenOrigin?.pointValue
+        source.inset = Self.fillInset(of: view)
         if let pin = (view as? SidebarItemRowView)?.pinGlyph as? NSImageView, let image = pin.image {
             source.glyph = (image, view.convert(pin.frame, from: pin.superview), pin.contentTintColor)
         }
@@ -259,10 +267,12 @@ extension SidebarListViewComponents {
                   let item = block.region.itemView(workspace: id), let container = item.superview else { continue }
             // The block moves on the same spring from where it is drawn at the begin (its move is added first): the
             // item's start is the source less that, both at the begin.
+            // Fill to fill: the item's pill starts on the row's fill, so its bounds start wider by its inset.
+            let widen = source.inset - item.fillInset
             let start: @MainActor (CFTimeInterval) -> NSRect = { [weak self] time in
-                guard let self else { return source.frame(at: time) }
+                guard let self else { return source.frame(at: time).insetBy(dx: widen, dy: 0) }
                 let blockShown = drawnFrame(of: block, now: time)
-                let inBlock = source.frame(at: time).offsetBy(dx: -blockShown.minX, dy: -blockShown.minY)
+                let inBlock = source.frame(at: time).insetBy(dx: widen, dy: 0).offsetBy(dx: -blockShown.minX, dy: -blockShown.minY)
                 return container.convert(inBlock, from: block)
             }
             block.clipsToBounds = false
@@ -297,17 +307,23 @@ extension SidebarListViewComponents {
             view.layoutSubtreeIfNeeded()
         }
         raiseForFlight(view)
+        // Fill to fill: the row (its bounds are its fill) starts on the item's pill, not on the item's wider bounds
+        // (PIN7 films: for the unpin's first frames the row was wider than the column).
         let start: @MainActor (CFTimeInterval) -> NSRect = { [weak self] time in
-            self?.convert(source.frame(at: time), to: view.superview) ?? source.frame(at: time)
+            let pill = source.frame(at: time).insetBy(dx: source.inset, dy: 0)
+            return self?.convert(pill, to: view.superview) ?? pill
         }
-        return SidebarPinFlight(view: view, start: start, title: titleOffset(of: view, from: source),
-                                leavingGlyph: leavingGlyph(on: view, from: source))
+        let title = titleOffset(of: view, from: source)
+        return SidebarPinFlight(view: view, start: start, title: title,
+                                leavingGlyph: leavingGlyph(on: view, from: source, riding: title?.offset ?? .zero))
     }
 
-    /// The item's pin on the arriving row (both flipped, the row starting on the item's frame): where the item drew it.
-    private func leavingGlyph(on view: NSView, from source: SidebarPinFlightSource) -> NSView? {
+    /// The item's pin on the arriving row (both flipped, the row starting on the item's pill): where the item drew it at
+    /// the start, less `riding`, the title's start offset it rides back on (`SidebarPinFlight.start`).
+    private func leavingGlyph(on view: NSView, from source: SidebarPinFlightSource, riding: CGPoint) -> NSView? {
         guard let glyph = source.glyph else { return nil }
-        let copy = DecorativeImageView(frame: glyph.frame)
+        let shift = source.inset - Self.fillInset(of: view)
+        let copy = DecorativeImageView(frame: glyph.frame.offsetBy(dx: -shift - riding.x, dy: -riding.y))
         copy.image = glyph.image
         copy.contentTintColor = glyph.tint
         copy.wantsLayer = true
@@ -321,11 +337,16 @@ extension SidebarListViewComponents {
     private func titleOffset(of view: NSView, from source: SidebarPinFlightSource) -> (view: NSView, offset: CGPoint)? {
         guard let sourcePen = source.pen, let titled = view as? any SidebarRenameTitle, let pen = titled.titlePenOrigin?.pointValue,
               let title = Self.flightTitle(of: view) else { return nil }
-        // Both pens sit on the same start frame, so the offset is the difference of their places in their views.
-        let offset = CGPoint(x: sourcePen.x - pen.x, y: sourcePen.y - pen.y)
+        // The view starts on the source's frame moved by the fills' inset difference (fill to fill), so the offset is the
+        // difference of the pens' places in their views less that move.
+        let shift = source.inset - Self.fillInset(of: view)
+        let offset = CGPoint(x: sourcePen.x - pen.x - shift, y: sourcePen.y - pen.y)
         guard abs(offset.x) > 0.25 || abs(offset.y) > 0.25 else { return nil }
         return (title, offset)
     }
+
+    /// How far `view`'s fill is inset from its sides: a pinned item's pill; a list row's bounds are its fill.
+    static func fillInset(of view: NSView) -> CGFloat { (view as? SidebarItemRowView)?.fillInset ?? 0 }
 
     /// The label a row or a pinned item draws its title in.
     static func flightTitle(of view: NSView) -> NSView? {
