@@ -1078,7 +1078,7 @@ while True:
         # write a file at OUTSIDE, connect to 127.0.0.1:PORT, write in its cwd.
         # "keychain-probe": whether this process can retrieve a synthetic
         # generic-password item from the test's temporary keychain.
-        if said.strip() == "keychain-probe":
+        if asked.strip() == "keychain-probe":
             import subprocess
             rc = subprocess.run(
                 [
