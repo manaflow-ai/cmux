@@ -8,6 +8,7 @@ use super::*;
 use cmux_json::JsonSet as _;
 
 /// How long a purge waits for the audit log's rewrite.
+// timeout: a stuck writer fails the purge, so the chat is not reported deleted.
 const AUDIT_PURGE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// What an answer decided: `allow`, `deny`, `answer` (a question's allow with answers) or
