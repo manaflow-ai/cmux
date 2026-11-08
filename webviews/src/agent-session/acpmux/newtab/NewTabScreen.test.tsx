@@ -771,6 +771,7 @@ test("a lone GitHub issue URL offers an explicit fix worktree action", async () 
   const chip = container.querySelector<HTMLButtonElement>(".nt-fix-chip");
   expect(chip?.textContent).toContain("Fix in a new worktree");
   await act(async () => chip!.click());
+  await act(async () => chip!.click());
   expect(fixes).toEqual(["https://github.com/manaflow-ai/cmux/issues/123"]);
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   expect((asks[0] as unknown[])[1]).toBe("https://github.com/manaflow-ai/cmux/issues/123");

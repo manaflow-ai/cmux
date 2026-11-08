@@ -409,6 +409,9 @@ export function NewTabScreen(props: Props) {
   // No folder (Leo 2026-10-18): no project, no start folder, until a folder pick.
   const [none, setNone] = useState(false);
   const [fixing, setFixing] = useState(false);
+  useEffect(() => {
+    if (props.fixError) setFixing(false);
+  }, [props.fixError]);
   // Another machine acpmux lists, picked in the location row's machine list: the chat starts there
   // (screenActions onAsk with its `peer`), in a folder on it once one is picked.
   const [machine, setMachine] = useState<{ peer: string; folder?: string }>();
