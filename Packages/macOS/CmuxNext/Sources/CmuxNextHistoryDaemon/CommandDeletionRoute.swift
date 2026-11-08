@@ -17,34 +17,15 @@ public enum CommandDeletionRoute: Sendable {
         return .direct { _ = try await connection.request(DeleteTerminalCommandsRequest($0)) }
     }
 
-    /// Deletes the commands started from `since` (nil: all) to `until` (the click; the direct path has no end).
-    public func clear(since: Date?, until: Date, key: String) async throws {
+    /// Deletes the commands started from `since` (nil: all) to `until` (the click). A clear that cannot carry `until` (the
+    /// direct path, or a history module without `history-clear-until-v1`) goes only as `gate` allows (``HistoryClearGate``).
+    public func clear(since: Date?, until: Date, gate: HistoryClearGate, key: String) async throws {
         switch self {
-        case .history(let client): try await client.clear(kinds: [.command], since: since, until: until, key: key)
-        case .direct(let delete): try await delete(since.map { .startedSince($0) } ?? .all)
+        case .history(let client): try await client.clear(kinds: [.command], since: since, until: until, gate: gate, key: key)
+        case .direct(let delete):
+            guard gate.allows(bounded: false, "delete-terminal-commands") else { return }
+            try await delete(since.map { .startedSince($0) } ?? .all)
         case .none: break
-        }
-    }
-
-    /// Like ``clear(since:until:key:)``, but the direct path (no end) goes only while `gate` is open: false when it was not
-    /// sent, so a clear never deletes commands started after its click.
-    public func clear(since: Date?, until: Date, key: String, gate: DirectClearGate) async throws -> Bool {
-        if case .direct = self, !gate.take() { return false }
-        try await clear(since: since, until: until, key: key)
-        return true
-    }
-
-    /// Whether a clear may still go as an older daemon's direct delete: only when that daemon was connected at the click, and
-    /// only on the first attempt (a retry after a dropped link may land after newer commands), as before the write queue.
-    public final class DirectClearGate {
-        private var open: Bool
-
-        public init(open: Bool) { self.open = open }
-
-        /// Whether the direct delete may go now; closes the gate.
-        public func take() -> Bool {
-            defer { open = false }
-            return open
         }
     }
 

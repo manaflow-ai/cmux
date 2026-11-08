@@ -427,6 +427,58 @@ import Testing
         #expect(deletes.selections.isEmpty, "a clear without an end went to the remote after the click")
     }
 
+    /// Queues one `history.clear` as the client sends it to a daemon that takes `until_ms` (`bounded`) or not.
+    static func enqueueClear(_ queue: HistoryWriteQueue<Daemon>, bounded: Bool, gate: HistoryClearGate, sentParams: Params? = nil) {
+        queue.enqueue { client, key in
+            try await DaemonHistoryClient.sendClear(kinds: [.page, .agent], since: nil, until: Date(timeIntervalSince1970: 1_700_000_000), profile: nil,
+                                                    bounded: bounded, gate: gate) { params in
+                await sentParams?.record(params)
+                try await client.send(key: key) { $0.append("clear") }
+            }
+        }
+    }
+
+    @MainActor final class Params {
+        var sent: [[String: JSONValue]] = []
+        func record(_ params: [String: JSONValue]) { sent.append(params) }
+    }
+
+    /// cmux#38186 review (F3): a daemon with `history-v1` but without `history-clear-until-v1` clears until its own now. A clear
+    /// queued while it was away is therefore not sent when it reconnects (it would delete visits and agent activity made
+    /// after the click); it is dropped, and the writes behind it still go.
+    @Test func anOfflineClearOnADaemonWithoutClearUntilIsNotSentAfterTheReconnect() async {
+        let daemon = Daemon()
+        let queue = Self.queue(daemon)
+        Self.enqueueClear(queue, bounded: false, gate: HistoryClearGate(open: false))
+        daemon.reconnect()
+        await Self.sent(queue) { client, key in try await client.send(key: key) { $0.append("after") } }
+        #expect(daemon.stored == ["after"], "a clear with no click-time end went to the daemon after it reconnected")
+        #expect(queue.count == 0)
+    }
+
+    /// The same daemon connected at the click gets the clear once, as before the queue: a retry after a lost reply is
+    /// dropped (it might land after newer activity). A daemon that takes `until_ms` gets the clear with it, even after
+    /// being away at the click.
+    @Test func anUnboundedClearGoesOnceOnTheLinkUpAtTheClickAndABoundedOneAlwaysGoes() async {
+        let daemon = Daemon()
+        daemon.up = true
+        daemon.lostReplies = 1
+        let queue = Self.queue(daemon)
+        Self.enqueueClear(queue, bounded: false, gate: HistoryClearGate(open: true))
+        await Self.sent(queue) { client, key in try await client.send(key: key) { $0.append("after") } }
+        #expect(daemon.stored == ["clear", "after"])
+        #expect(daemon.attempts == 2, "an unbounded clear was sent again after a lost reply")
+
+        let bounded = Daemon()
+        let params = Params()
+        let boundedQueue = Self.queue(bounded)
+        Self.enqueueClear(boundedQueue, bounded: true, gate: HistoryClearGate(open: false), sentParams: params)
+        bounded.reconnect()
+        await Self.sent(boundedQueue) { client, key in try await client.send(key: key) { $0.append("after") } }
+        #expect(bounded.stored == ["clear", "after"])
+        #expect(params.sent.first?["until_ms"] == .string("1700000000000"))
+    }
+
     static func location(_ tab: String, incognito: Bool = false) -> HistoryLocation {
         HistoryLocation(key: .init(machine: "local", tab: tab), window: "w", workspace: "ws", pane: "p", content: .other, title: tab,
                         isIncognito: incognito)

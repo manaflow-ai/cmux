@@ -63,12 +63,22 @@ public struct DaemonHistoryClient: Sendable {
     /// Clears `kinds` (empty: all) from `since` (nil: all time) until `until`; a profile narrows the clear to
     /// its page visits. Both are taken when the person clicked, so a clear the queue delivers later still
     /// covers that span, never one counted from the delivery (activity after the click stays). A daemon
-    /// without ``clearUntilCapability`` clears until its own now.
-    public func clear(kinds: Set<HistoryEntry.Kind>, since: Date?, until: Date, profile: String? = nil,
+    /// without ``clearUntilCapability`` clears until its own now, so there the clear goes only as `gate` allows
+    /// (``HistoryClearGate``: connected at the click, first attempt), else it is dropped.
+    public func clear(kinds: Set<HistoryEntry.Kind>, since: Date?, until: Date, profile: String? = nil, gate: HistoryClearGate,
                       key: String = DaemonHistoryClient.key()) async throws {
         let bounded = await connection.identity?.supports(Self.clearUntilCapability) == true
-        let params = Self.clearParams(kinds: kinds, since: since, until: bounded ? until : nil, profile: profile)
-        _ = try await relay.send(operation: "history.clear", params: params, idempotencyKey: key)
+        try await Self.sendClear(kinds: kinds, since: since, until: until, profile: profile, bounded: bounded, gate: gate) {
+            _ = try await relay.send(operation: "history.clear", params: $0, idempotencyKey: key)
+        }
+    }
+
+    /// Sends `history.clear`'s params with `send`: with `until_ms` when the daemon takes it (`bounded`), else only as
+    /// `gate` allows. The one place every history clear passes.
+    public static func sendClear(kinds: Set<HistoryEntry.Kind>, since: Date?, until: Date, profile: String?, bounded: Bool,
+                                 gate: HistoryClearGate, _ send: ([String: JSONValue]) async throws -> Void) async throws {
+        guard gate.allows(bounded: bounded, "history.clear") else { return }
+        try await send(clearParams(kinds: kinds, since: since, until: bounded ? until : nil, profile: profile))
     }
 
     /// `history.clear`'s params for an absolute start: range `today` starts at the given

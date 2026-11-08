@@ -84,6 +84,11 @@ extension HistoryService {
         writes.enqueue(body) { [weak self] in self?.onChange?() }
     }
 
+    /// Queues a clear from `since` to the click (`until`), gated by whether the local daemon is up now (``HistoryClearGate``).
+    func daemonClear(kinds: Set<HistoryEntry.Kind>, since: Date?, until: Date, profile: String? = nil) {
+        daemonMutation { [gate = HistoryClearGate(open: daemonHistory != nil)] in try await $0.clear(kinds: kinds, since: since, until: until, profile: profile, gate: gate, key: $1) }
+    }
+
     /// Seeds a profile's omnibox from the daemon's visit summaries, after the daemon imported its older build's log (queued in
     /// ``writes`` ahead of every waiting write, so a clear made while the daemon was away still clears it). The read waits in
     /// ``writes`` behind every pending clear and remove, and reads again past one queued while it ran, so no cleared page comes back.

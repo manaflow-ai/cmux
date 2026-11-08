@@ -183,7 +183,7 @@ final class HistoryService {
         // commands are deleted as rows in each connected daemon. The app's Back/Forward steps drop too.
         let appOwned: Set<HistoryEntry.Kind> = [.command]
         let owned = kinds.isEmpty ? Set(HistoryEntry.Kind.allCases).subtracting(appOwned) : kinds.subtracting(appOwned)
-        if !owned.isEmpty { daemonMutation { try await $0.clear(kinds: owned, since: since, until: now, key: $1) } }
+        if !owned.isEmpty { daemonClear(kinds: owned, since: since, until: now) }
         if owned.contains(.agent) { hidden.hideLocally { $0.hide(since: since, now: now, kind: "agent") } }
         if wants(.command) { commands.delete(since: since, until: now) }
         if wants(.page) {
@@ -200,7 +200,7 @@ final class HistoryService {
         let now = Date(), since = range.start(now: now)
         let wireID = BrowserProfileRecord.wireID(for: profile)
         Task { [sync = services.onboarding.historySync] in await sync.forget(profile: wireID, since: since) }  // task-owner: imported pages too
-        daemonMutation { try await $0.clear(kinds: [.page], since: since, until: now, profile: wireID, key: $1) }
+        daemonClear(kinds: [.page], since: since, until: now, profile: wireID)
         services.cache.history(for: profile).forget(since: since)
         onChange?()
     }
@@ -238,7 +238,7 @@ final class HistoryService {
     /// A deleted browser profile: its page history goes too, on the daemon.
     func forget(profile: BrowserProfileID) {
         let wireID = BrowserProfileRecord.wireID(for: profile), now = Date()
-        daemonMutation { try await $0.clear(kinds: [.page], since: nil, until: now, profile: wireID, key: $1) }
+        daemonClear(kinds: [.page], since: nil, until: now, profile: wireID)
         routes[profile] = nil
     }
 }
