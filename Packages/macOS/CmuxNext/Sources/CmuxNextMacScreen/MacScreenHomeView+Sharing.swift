@@ -68,7 +68,7 @@ extension MacScreenHomeView {
             add(MacScreenFill.divider(), to: content, inset: Self.rowInsets.left)
             add(padded(permissionSummary(sharing)), to: content)
             add(MacScreenFill.divider(), to: content, inset: Self.rowInsets.left)
-            add(padded(statusRow(sharing)), to: content)
+            add(padded(statusRow(sharing, glyphColumn: false)), to: content)
         }
         if let error = sharing.lastError { add(padded(errorRow(error)), to: content) }
         return MacScreenHomeParts.section(L.t("devices.section.this", "This Mac"), content: content)
@@ -109,7 +109,10 @@ extension MacScreenHomeView {
         if sharing.isSharing {
             let row = MacScreenStack.make(.horizontal, spacing: 10, alignment: .centerY, [glyphCell(MacScreenFill.dot(sharing.statusInk, side: 8)), toggle])
             add(padded(row), to: content)
-            if let session = sharing.session { add(padded(sessionButtons(session)), to: content, inset: Self.glyphColumn + 10) }
+            if let session = sharing.session {
+                let buttons = MacScreenStack.make(.horizontal, spacing: 0, alignment: .centerY, [MacScreenSpacer(), sessionButtons(session)])
+                add(padded(buttons), to: content)
+            }
             for row in permissionRows(sharing) {
                 add(MacScreenFill.divider(), to: content, inset: Self.rowInsets.left)
                 add(padded(row), to: content)
@@ -203,14 +206,16 @@ extension MacScreenHomeView {
     }
 
     /// The status row: the dot in the glyph column, the status, and the session's buttons.
-    private func statusRow(_ sharing: MacScreenHomeSnapshot.Sharing) -> NSView {
+    /// `glyphColumn`: the dot sits in the list's glyph column; else at the row's leading edge (the summary).
+    private func statusRow(_ sharing: MacScreenHomeSnapshot.Sharing, glyphColumn: Bool = true) -> NSView {
         let status = MacScreenText(sharing.statusText, font: MacScreenType.body, wraps: true)
         status.setAccessibilityIdentifier("macScreen.home.hubStatus")
         status.setContentHuggingPriority(.init(1), for: .horizontal)
         status.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        var views: [NSView] = [glyphCell(MacScreenFill.dot(sharing.statusInk, side: 8)), status]
+        let dot = MacScreenFill.dot(sharing.statusInk, side: 8)
+        var views: [NSView] = [glyphColumn ? glyphCell(dot) : dot, status]
         if let session = sharing.session { views.append(sessionButtons(session)) }
-        return MacScreenStack.make(.horizontal, spacing: 10, alignment: .centerY, views)
+        return MacScreenStack.make(.horizontal, spacing: glyphColumn ? 10 : 6, alignment: .centerY, views)
     }
 
     /// Revoke This Device and Stop Sharing This Mac, while a device is connected or connecting.
