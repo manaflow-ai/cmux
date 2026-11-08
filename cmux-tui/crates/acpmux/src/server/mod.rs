@@ -1664,6 +1664,9 @@ async fn serve_connection_from(
                     }
                 }
                 conn.bind_person(&hub, &m, &mut params);
+                if m == method::INITIALIZE {
+                    requests::note_initialize(&conn, params.as_ref().unwrap_or(&Value::Null));
+                }
                 // Before its reply is built: the reply says whether large messages go compressed.
                 if m == method::INITIALIZE
                     && let Some(wire) = &conn.wire
