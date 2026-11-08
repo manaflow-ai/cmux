@@ -819,7 +819,7 @@ mod model {
     use serde_json::{Value, json};
 
     use super::super::MAX_REFRESHES;
-    use super::super::state::{Asked, Core, Done, Hands, Job, Task, Warm};
+    use super::super::state::{Asked, Back, Core, Done, Hands, Job, Task, Warm};
 
     const SEEDS: u64 = 3000;
     const STEPS: usize = 250;
@@ -993,20 +993,12 @@ mod model {
         }
 
         /// `Fetcher::done`.
-        fn done(
-            &mut self,
-            seed: u64,
-            rng: &mut Rng,
-            client: u64,
-            current: bool,
-            generation: u64,
-            resume: bool,
-        ) {
-            self.hands.returned(client, current, resume);
-            if !current {
+        fn done(&mut self, seed: u64, rng: &mut Rng, client: u64, back: Back, generation: u64) {
+            self.hands.returned(client, back);
+            if !back.current {
                 self.stale_replies += 1;
             }
-            if resume {
+            if back.resume {
                 self.waited_resumes += 1;
                 self.resume(seed, rng, generation);
             }
@@ -1041,8 +1033,8 @@ mod model {
                         self.start(seed, rng, Task::ticket("refreshed", false), generation);
                     }
                 }
-                Job::Done(done, current, generation, resume) => {
-                    self.done(seed, rng, done.client, current, generation, resume);
+                Job::Done(done, back, generation) => {
+                    self.done(seed, rng, done.client, back, generation);
                 }
                 Job::Wait(_) | Job::Stop => {}
             }

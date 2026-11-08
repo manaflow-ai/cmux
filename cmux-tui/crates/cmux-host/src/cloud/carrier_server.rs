@@ -72,7 +72,7 @@ use super::github_minter::{Stop, connected};
 #[path = "carrier_state.rs"]
 mod state;
 
-use state::{Asked, Core, Done, Hands, Job, Task, Warm};
+use state::{Asked, Back, Core, Done, Hands, Job, Task, Warm};
 
 /// The socket the ticket command asks first (root and group cmux, 0660,
 /// beside the agent socket). An older cmux-host has none, and the command
@@ -329,9 +329,7 @@ impl<H: Http + Send + 'static> Fetcher<H> {
                     self.hands.refreshes += 1;
                     self.start(Task::ticket("refreshed", false), generation);
                 }
-                Job::Done(done, current, generation, resume) => {
-                    self.done(*done, current, generation, resume);
-                }
+                Job::Done(done, back, generation) => self.done(*done, back, generation),
             }
         }
         for request in self.requests.drain(..) {
@@ -387,9 +385,10 @@ impl<H: Http + Send + 'static> Fetcher<H> {
     /// A request came back. One from an earlier generation is dropped; its
     /// client is used again only when there is no other or a resume of this
     /// generation waits for it (`resume`).
-    fn done(&mut self, done: Done<CloudClient<H>>, current: bool, generation: u64, resume: bool) {
+    fn done(&mut self, done: Done<CloudClient<H>>, back: Back, generation: u64) {
         let Done { client, task, reply, took, .. } = done;
-        self.hands.returned(client, current, resume);
+        self.hands.returned(client, back);
+        let Back { current, resume, .. } = back;
         let took = took.as_millis();
         if !current && task.ticket.is_some() && reply.is_some() {
             (self.hooks.log)(&format!(
