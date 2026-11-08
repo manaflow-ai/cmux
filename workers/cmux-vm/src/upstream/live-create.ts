@@ -61,7 +61,7 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
     const customer = CUSTOMER_ID.test(caller.value.tenantId) ? { ...body, customer: { customerId: caller.value.tenantId } } : body;
     // The vault's VM tenant key (vault-tenant.ts) is outside the digests and the receipt check for the same reason: a
     // create journaled before it existed still matches, and a recovered VM without it is still this creation's.
-    const vault = vaultTenantMetadata(config.environment, caller.value);
+    const vault = vaultTenantMetadata(spec.environment, caller.value);
     const sent = vault === null ? customer : { ...customer, metadata: { ...metadata, [vault[0]]: vault[1] } };
     if (journal.context !== null && journal.context !== context) return yield* Effect.fail(new UpstreamError({ operation: "createVmContext", status: null }));
     yield* journal.beforeSend(context, {

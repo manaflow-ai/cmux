@@ -109,6 +109,7 @@ describe("createVm", () => {
   it("tags a Stack team's VM with the vault's production tenant key, outside the create digest", async () => {
     const team = "0b6f3a52-6c1e-4f43-9a1e-2d7c5e8f9a10";
     const t = await harness({ environment: "production" });
+    t.setBilling(team, true);
     const key = await t.addKey(team, ["vm:write"]);
 
     expect((await createVm(t, key)).status).toBe(201);
