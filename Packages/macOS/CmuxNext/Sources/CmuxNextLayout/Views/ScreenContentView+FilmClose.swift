@@ -123,7 +123,65 @@ struct FilmCurveRun {
     let dividers: [DividerHandleView.Kind: (from: CGRect, to: CGRect)]
 }
 
+/// A V6 close's picture (cmux-ad m67; never ships): the closed pane's last picture in place above every pane, its opacity
+/// 1 - the curve's progress at the time it has run (the same frame clock and curve as the frames' ``FilmCurveRun``, so
+/// one value drives both), clamped to 0...1 where a spring passes its rest. Each closed pane's picture keeps its own
+/// progress: a later close does not restart or drop it.
+struct FilmFade {
+    let layer: CALayer
+    var elapsed: Double = 0
+    let shape: FilmCloseVariant.Shape
+    let end: Double
+}
+
 extension ScreenContentView {
+    /// V6: each closed pane's last picture goes above the panes, at its place, fully opaque (`reconcile`, in the close's
+    /// turn, before the closed panes go to `closingPanes`).
+    func addFilmFades(_ panes: [PaneID]) {
+        guard let shape = DesignSettings.shared.filmClose.frameCurve, Motion.panes.animatesMovement, let root = layer else { return }
+        for pane in panes {
+            guard let host = context.hosts[pane], host.superview === self, let source = host.layer else { continue }
+            let frame = host.frame
+            guard frame.width >= 1, frame.height >= 1 else { continue }
+            let clip = CALayer()
+            clip.frame = frame
+            clip.masksToBounds = true
+            clip.zPosition = 10_000
+            clip.name = "film-close-fade"
+            clip.actions = ["opacity": NSNull(), kCAOnOrderOut: NSNull(), kCAOnOrderIn: NSNull()]
+            let picture = Self.filmCopy(source)
+            picture.anchorPoint = .zero
+            picture.position = .zero
+            picture.transform = CATransform3DIdentity
+            clip.addSublayer(picture)
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            root.addSublayer(clip)
+            CATransaction.commit()
+            let travel = Double(max(frame.width, frame.height) * scale)
+            filmFades.append(FilmFade(layer: clip, shape: shape, end: shape.endSeconds(travel: travel)))
+            FilmCloseVariant.count("fades")
+        }
+    }
+
+    /// One frame of every V6 picture's fade; true while one still shows.
+    func advanceFilmFades(_ dt: Double) -> Bool {
+        guard !filmFades.isEmpty else { return false }
+        // Plain property sets (the clip has no implicit actions): no transaction begins here, in the frame step.
+        var kept: [FilmFade] = []
+        for var fade in filmFades {
+            fade.elapsed += dt
+            if fade.elapsed >= fade.end {
+                fade.layer.removeFromSuperlayer()
+                continue
+            }
+            fade.layer.opacity = Float(min(1, max(0, 1 - fade.shape.progress(fade.elapsed))))
+            kept.append(fade)
+        }
+        filmFades = kept
+        return !kept.isEmpty
+    }
+
     /// A close's frames start moving (`reconcile`): on the selected curve, if one is named; a run already going to the same
     /// targets keeps going (the close's later passes, its daemon echo, retarget nothing).
     func startFilmCurve() {

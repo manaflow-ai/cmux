@@ -72,6 +72,9 @@ public final class TerminalSurfaceView: NSView {
     /// unless the owner already has it.
     func reportFinalGrid(_ grid: TerminalGridSize) {
         defer { updateReflowPreview() }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        frameOwnership.filmSnapGrid = nil
+        #endif
         guard surface != nil, let report = geometry.finalSized(grid) else { return }
         gridReports.now(report)
     }
@@ -87,15 +90,15 @@ public final class TerminalSurfaceView: NSView {
               let report = geometry.viewSized(TerminalGridSize(columns: Int(columns), rows: Int(rows))) else { return }
         FilmCloseVariant.count("grid_sent")
         frameOwnership.filmSnapGrid = report
-        frameOwnership.filmSnapUntil = CACurrentMediaTime() + 0.1
         gridReports.now(report)
     }
 
-    /// A film snap's grid went in the close's turn: until its size lands (at most 100 ms), the old bounds' grid is held, not
-    /// sent back to the PTY. The size landing at that grid, or the bound, ends it.
+    /// A film snap's grid went in the close's turn: the close owns the PTY's grid until the view lands at it, and a
+    /// layout pass at the old bounds sends nothing. The landing at that grid ends it and sends nothing either (the policy
+    /// already has it as reported).
     func filmSnapHolds(_ desired: TerminalGridSize) -> Bool {
         guard let sent = frameOwnership.filmSnapGrid else { return false }
-        guard desired != sent, CACurrentMediaTime() < frameOwnership.filmSnapUntil else {
+        guard desired != sent else {
             frameOwnership.filmSnapGrid = nil
             return false
         }

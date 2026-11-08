@@ -27,6 +27,9 @@ public struct FilmCloseVariant: Sendable, Equatable {
         case v4 = "V4"
         /// V3 and V4 together.
         case v5 = "V5"
+        /// Grow + fade (cmux-ad m67): the survivors grow on the curve and the closed pane's last picture, above them in
+        /// place, fades out on the same progress (one value, one curve; a spring's opacity clamped to 0...1).
+        case v6 = "V6"
     }
 
     public enum Curve: String, Sendable {
@@ -53,6 +56,8 @@ public struct FilmCloseVariant: Sendable, Equatable {
             "K8": .spring(response: 0.2, damping: 0.8),
             "K9": .spring(response: 0.25, damping: 0.7),
             "K10": .bezier(x1: 0, y1: 0, x2: 1, y2: 1, seconds: 0.1),
+            // The current close spring (PaneMotionVariant.standard.closeSpring, `.split`), for V6 on the current curve.
+            "CUR": .spring(response: 0.23, damping: 0.95),
         ]
 
         /// The fraction of the travel done `t` seconds in (a spring may pass 1 and come back).
@@ -122,12 +127,17 @@ public struct FilmCloseVariant: Sendable, Equatable {
     /// surface is held at its final size, clipped by its growing frame) with a CURVE SET curve: the pane and divider
     /// frames move on that curve instead of the split spring. Nil with no curve named (the build's own close).
     public var frameCurve: Shape? {
+        if kind == .v6 { return named.flatMap { Shape.named[$0] } ?? Shape.named["CUR"] }
         guard let named, let shape = Shape.named[named] else { return nil }
         switch kind {
         case .v0, .v2, .v2b: return shape
-        case .v1, .v3, .v4, .v5: return nil
+        case .v1, .v3, .v4, .v5, .v6: return nil
         }
     }
+
+    /// V6: the frames move on ``frameCurve`` (the current close's path, nothing snaps) and the closed pane's last picture
+    /// fades out above them on the same progress.
+    public var growsAndFades: Bool { kind == .v6 }
 
     /// Film diagnostics (``select(_:)`` answers them): how often each film grid path ran since the last read. Kept on the
     /// app's design settings (``DesignSettings/filmCounters``), not in a static.
@@ -157,7 +167,7 @@ public struct FilmCloseVariant: Sendable, Equatable {
     /// The selection a close plays, nil for the current close (V0, and V2 and V2b, which are not built yet).
     public var active: FilmCloseVariant? {
         switch kind {
-        case .v0, .v2, .v2b: nil
+        case .v0, .v2, .v2b, .v6: nil
         case .v1, .v3, .v4, .v5: self
         }
     }
