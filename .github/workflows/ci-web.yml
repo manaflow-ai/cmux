@@ -1042,7 +1042,10 @@ jobs:
           pattern: webviews-test-history-shard*
           path: ${{ runner.temp }}/history-results
 
+      # A history it cannot read (a missing one is fine) fails this step, and the push saves none: saving its own run
+      # alone would replace the whole accumulated history with one run.
       - name: Restore the history
+        id: history-restore
         if: ${{ steps.history-download.outcome == 'success' }}
         continue-on-error: true
         timeout-minutes: 2
@@ -1051,11 +1054,11 @@ jobs:
           BRANCH: ${{ github.ref_name }}
         run: |
           python3 scripts/ci/webviews_test_history.py fetch "$RUNNER_TEMP/webviews-test-history/history.json" \
-            --repo "$GITHUB_REPOSITORY" --branch "$BRANCH"
+            --repo "$GITHUB_REPOSITORY" --branch "$BRANCH" --need-read
 
       - name: Add this push to the history
         id: history-record
-        if: ${{ steps.history-download.outcome == 'success' }}
+        if: ${{ steps.history-restore.outcome == 'success' }}
         continue-on-error: true
         run: |
           shards=("$RUNNER_TEMP"/history-results/webviews-test-history-shard*/webviews-head-results.json)
