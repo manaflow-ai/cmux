@@ -255,11 +255,33 @@ OPPOSITE = {"moveSurfaceRight": "moveSurfaceLeft", "moveSurfaceLeft": "moveSurfa
             "moveSurfaceToPaneRight": "moveSurfaceToPaneLeft", "moveSurfaceToPaneLeft": "moveSurfaceToPaneRight"}
 
 
+def diag(key, when):
+    """DIAG (bench-base-reds, not for landing): what the move acts on."""
+    topo = topology()
+    print(f"DIAG {key} {when} focus={json.dumps(topo.get('focus'))[:600]}", flush=True)
+    for w in topo.get("workspaces") or []:
+        if w.get("id") in (state.get("a"), (topo.get("focus") or {}).get("workspace")):
+            print(f"DIAG {key} ws {w.get('id')} keys={sorted(w.keys())}", flush=True)
+            for s in w.get("screens") or []:
+                for p in s.get("panes") or []:
+                    tabs = p.get("tabs") or p.get("surfaces") or []
+                    print(f"DIAG {key}   pane {json.dumps({k: v for k, v in p.items() if k not in ('tabs', 'surfaces')})[:400]}", flush=True)
+                    for t in tabs:
+                        print(f"DIAG {key}     tab {json.dumps(t)[:300]}", flush=True)
+    wl = rpc("debug.window_list")
+    print(f"DIAG {key} windows {json.dumps(wl)[:1500]}", flush=True)
+    for m in ("debug.focus", "debug.tab_strip", "debug.home"):
+        r = rpc(m)
+        print(f"DIAG {key} {m} {json.dumps(r)[:1500]}", flush=True)
+
+
 def either(first, second, key):
     """Runs `first`; when the app refuses it (the tab is at that edge), `second`. Remembers which ran for `undo`.
     A refusal runs no motion and costs no frame, so the timed gesture is the move that ran."""
+    diag(key, "before " + first)
     reply = action(first)
     if error_of(reply):
+        diag(key, "refused " + first)
         state[key] = second
         return error_of(action(second))
     state[key] = first
