@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42427976402",
+  "recorded_at": "2026-11-08T00:10:10Z",
+  "reason": "cmux-tui 22f3376540dc changes the image's cmux-tui (pinned 1f1004c11c7a)",
+  "dry_run": false,
+  "cmux_tui": "22f3376540dcd2bf12b6756af782b3ee5ee538dc",
+  "fixes": [
+    {
+      "sha": "22f3376540dcd2bf12b6756af782b3ee5ee538dc",
+      "mergedAt": "2026-11-07T15:48:59-08:00",
+      "subject": "palette: one ranker (Rust); delete the TypeScript ranker's bundle, eval and tests (#37259)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T00:10:10Z",
+    "snapshot_id": "sh-1e9368454cc44ff687305bd1086ab575",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe --native-receiver (CI run 42427976402): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "7b1400191eb49032153a045743dab34ddfeed693",
+    "image": "cloud-native-auto-22f33765-42427976402-1",
+    "revision": "ci-42427976402-1",
+    "at": "2026-11-08T00:10:10Z"
+  },
+  "rolled_back": false
+}
