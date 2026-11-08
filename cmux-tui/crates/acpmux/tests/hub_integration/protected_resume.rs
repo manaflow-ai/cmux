@@ -199,7 +199,7 @@ async fn a_hidden_attach_keeps_the_hold_and_a_persons_prompt_lifts_it() {
     );
 
     // A unix client proves no person: even the owner's own terminal send, recorded as theirs,
-    // lifts nothing (only the proven person's prompt does, `human_authenticated`).
+    // lifts nothing (`PromptOptions::unproven_owner`): only the proven person's prompt does.
     c.send("session/prompt", prompt(&held, "p-unproven", "from a shell")).await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert!(

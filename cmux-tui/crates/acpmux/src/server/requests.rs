@@ -1741,12 +1741,15 @@ async fn dispatch_request_with_identity(
             // (`prompt_provenance.rs` `verified`, `transport`, `claimed`): the proven person's
             // prompt carries none; one no proof attributes is `unverified`, never the person's.
             let transport = transport_of(conn);
+            // The owner's own terminal send, claiming no agent, harness or relay: the person's
+            // prompt again, though it proves no person (`owner_terminal`, the trust boundary).
+            let unproven_owner = provenance.is_none()
+                && !person_admitted(conn, &params)
+                && declared.is_none()
+                && owner_terminal(conn, &params);
             let provenance = match provenance {
                 Some(p) => Some(crate::prompt_provenance::observed(p, transport)),
-                None if person_admitted(conn, &params) => None,
-                // The owner's own terminal send, claiming no agent, harness or relay: the
-                // person's prompt again (`owner_terminal`, the trust boundary it keeps).
-                None if declared.is_none() && owner_terminal(conn, &params) => None,
+                None if unproven_owner || person_admitted(conn, &params) => None,
                 // A proven session's note to itself: that session's, as the daemon knows.
                 None if conn.caller() == Some(s.id.as_str()) => {
                     let name = hub.session_name(&s.id);
@@ -1896,6 +1899,7 @@ async fn dispatch_request_with_identity(
                 human_authenticated: person_message
                     && (conn.is_person()
                         || (conn.origin == super::Origin::Peer && person_admitted(conn, &params))),
+                unproven_owner,
                 agent,
                 class,
                 after_turn: None,
@@ -3213,8 +3217,9 @@ pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
 /// transport are no terminal. Any of those stays `unverified`. What is left is a plain unix
 /// connection of the user that claims nothing: the person at their terminal. A script of the
 /// same user that strips every label is let through, as it was before #37497; it still never
-/// releases a protected hold (`human_authenticated` needs the proven person) and is never
-/// forwarded to a peer as the person's (`attest_person` reads `person_admitted` only).
+/// releases a protected hold (`PromptOptions::unproven_owner`), never counts as an authenticated
+/// person (`human_authenticated` needs the proven person) and is never forwarded to a peer as
+/// the person's (`attest_person` reads `person_admitted` only).
 fn owner_terminal(conn: &Conn, params: &Value) -> bool {
     let claims = params.pointer("/_meta/acpmux").and_then(Value::as_object).is_some_and(|mux| {
         ["fromAgent", crate::prompt_provenance::FROM_HARNESS, "fromRelay", "via"]

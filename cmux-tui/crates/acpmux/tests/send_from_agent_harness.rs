@@ -114,7 +114,8 @@ fn a_plain_send_from_a_codex_shell_is_that_agents_message_and_an_unnamed_one_is_
     assert_eq!(provenance["kind"], "agent_message", "{provenance}");
     assert_eq!(provenance["from"], "fromAgent", "{provenance}");
     assert!(
-        provenance["fromName"].as_str().is_some_and(|name| name.starts_with("codex@")),
+        // `<harness> on <host> · <session>` since #38055 (`cli/sender.rs` `harness_name`).
+        provenance["fromName"].as_str().is_some_and(|name| name.starts_with("Codex on ")),
         "{provenance}"
     );
     // Its harness is only its claim: a label for its card, beside who the daemon knows sent it.

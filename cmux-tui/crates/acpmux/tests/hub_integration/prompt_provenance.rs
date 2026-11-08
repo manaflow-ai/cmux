@@ -600,8 +600,10 @@ async fn a_steer_records_its_provenance() {
     let steered = c.user_message(&session, "p-steer").await;
     assert_eq!(steered["steer"], true, "{steered}");
     assert_eq!(steered.pointer("/_meta/provenance"), Some(&seen(p.clone(), "unix")), "{steered}");
+    // The turn it steered into is the owner's own terminal send: the person's prompt.
     let own = c.user_message(&session, "p-turn").await;
-    assert_eq!(own.pointer("/_meta/provenance/kind"), Some(&json!("unverified")), "{own}");
+    assert_eq!(own.pointer("/_meta/provenance"), None, "{own}");
+    assert_eq!(own.pointer("/_meta/origin/actor"), Some(&json!("person")), "{own}");
 }
 
 /// A connection that proved it runs inside session `id` with the caller token acpmux put in that
