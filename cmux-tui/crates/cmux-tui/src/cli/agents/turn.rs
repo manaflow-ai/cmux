@@ -98,8 +98,11 @@ pub(in crate::cli) fn last_turn(items: &[Value], baseline: u64) -> Option<Ended>
     let prompt = items[..end]
         .iter()
         .rposition(|item| role(item) == "user" && item.get("steer") != Some(&json!(true)));
-    let prompt_seq = prompt.and_then(|index| items[index].get("id")).and_then(Value::as_u64);
-    if baseline > 0 && prompt_seq.is_none_or(|prompt| prompt <= baseline) {
+    // A send's turn has a message of the turn after the send: the prompt that started it, or the
+    // send steered into a running turn.
+    let newest_message = items[..end].iter().rev().find(|item| role(item) == "user");
+    let message_seq = newest_message.and_then(|item| item.get("id")).and_then(Value::as_u64);
+    if baseline > 0 && message_seq.is_none_or(|message| message <= baseline) {
         return None;
     }
     let start = prompt.map_or(0, |index| index + 1);
@@ -111,11 +114,13 @@ pub(in crate::cli) fn last_turn(items: &[Value], baseline: u64) -> Option<Ended>
     })
 }
 
-/// The seq of the newest prompt (`user_message`) among `events`, any order.
+/// The seq of the newest prompt (`user_message`) among `events`, any order. A steer is a message
+/// inside a running turn, not the start of one.
 pub(in crate::cli) fn newest_prompt(events: &[Value]) -> Option<u64> {
     events
         .iter()
         .filter(|event| event["dir"] == "mux" && event["kind"] == "user_message")
+        .filter(|event| event["msg"]["steer"] != true)
         .filter_map(|event| event["seq"].as_u64())
         .max()
 }
@@ -206,14 +211,30 @@ pub(in crate::cli) fn run_turn(port: &mut dyn Port, begin: &Begin, timeout: Dura
                 "message_id": receipt.pointer("/result/message_id").cloned().unwrap_or(Value::Null),
                 "follow_up": follow_ups(&chat),
             });
-            if text(&receipt, "/result/state") == Some("failed") {
-                answer.set("sent", json!(false));
-                return failed(
-                    "chat.send_failed",
-                    "the prompt was stored but not handed to the chat",
-                    json!({"answer": answer, "receipt": receipt}),
-                    1,
-                );
+            match text(&receipt, "/result/state") {
+                Some("failed") => {
+                    answer.set("sent", json!(false));
+                    return failed(
+                        "chat.send_failed",
+                        "the prompt was stored but not handed to the chat",
+                        json!({"answer": answer, "receipt": receipt}),
+                        1,
+                    );
+                }
+                // Held for an approval: no turn starts until someone lets it through.
+                Some("held") => {
+                    answer.set("sent", json!(false));
+                    return failed(
+                        "chat.permission_waiting",
+                        format!(
+                            "the prompt is held for approval: approve it in the cmux app, then: \
+                             cmux chat wait {chat}"
+                        ),
+                        json!({"answer": answer, "receipt": receipt}),
+                        2,
+                    );
+                }
+                _ => {}
             }
             answer.set("sent", json!(true));
             (chat, answer, Some(baseline))

@@ -282,7 +282,8 @@ fn the_reply_is_the_last_answer_of_the_last_turn() {
     // A turn that ended at or before the baseline is not the one waited on, and neither is one
     // whose prompt came before it (the prompt sent was still held when that turn ended).
     assert_eq!(last_turn(&items, 8), None);
-    assert_eq!(last_turn(&items, 5), None, "its prompt (4) came before the send");
+    assert_eq!(last_turn(&items, 5).map(|ended| ended.seq), Some(8), "the send steered (6)");
+    assert_eq!(last_turn(&items, 6), None, "its prompt (4) and steer (6) came before the send");
     assert_eq!(last_turn(&items, 3).map(|ended| ended.seq), Some(8));
     // A turn with no answer (only tools) has no reply.
     let silent = [item(1, "user", "go"), end(2, "completed")];
@@ -299,5 +300,45 @@ fn the_newest_prompt_is_found_in_a_page_read_back() {
         json!({"seq": 4, "dir": "mux", "kind": "user_message"}),
     ];
     assert_eq!(newest_prompt(&events), Some(11));
+    let steered = [
+        json!({"seq": 14, "dir": "mux", "kind": "user_message", "msg": {"steer": true}}),
+        json!({"seq": 11, "dir": "mux", "kind": "user_message"}),
+    ];
+    assert_eq!(newest_prompt(&steered), Some(11), "a steer is inside the turn at 11");
     assert_eq!(newest_prompt(&events[..1]), None);
+}
+
+/// Review of this change (F1): a send that steers into a running turn reads that turn from its
+/// prompt, before the send, and answers with its reply.
+#[test]
+fn a_send_steered_into_a_running_turn_answers_with_that_turns_reply() {
+    let receipt = json!({"action": "chat.send", "result": {"chat": CHAT, "message_id": "m9",
+                                                          "state": "delivered"}});
+    let mut fake = Fake::new(receipt);
+    fake.last_seq = 40;
+    fake.waits = VecDeque::from([idle()]);
+    fake.turn_start = 30;
+    fake.reads = VecDeque::from([vec![
+        item(30, "user", "old"),
+        json!({"id": 41, "role": "user", "text": "next", "steer": true}),
+        item(42, "assistant", "steered reply"),
+        end(43, "completed"),
+    ]]);
+    let begin = Begin::Send { session: CHAT.into(), text: "next".into() };
+    let outcome = run_turn(&mut fake, &begin, Duration::from_secs(60));
+    assert_eq!(answer(&outcome)["reply"], "steered reply");
+    assert_eq!(fake.read_after, vec![29]);
+}
+
+/// Review of this change (F2): a send held for approval starts no turn, so it answers at once as
+/// a permission wait, not a timeout.
+#[test]
+fn a_send_held_for_approval_answers_permission_waiting_at_once() {
+    let receipt = json!({"action": "chat.send", "result": {"chat": CHAT, "message_id": "m9",
+                                                          "state": "held"}});
+    let mut fake = Fake::new(receipt);
+    let begin = Begin::Send { session: CHAT.into(), text: "next".into() };
+    let outcome = run_turn(&mut fake, &begin, Duration::from_secs(60));
+    assert_eq!(error(&outcome), ("chat.permission_waiting", 2));
+    assert!(fake.slices.is_empty(), "it does not wait");
 }
