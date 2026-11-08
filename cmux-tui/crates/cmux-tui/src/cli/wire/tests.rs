@@ -475,3 +475,46 @@ fn closed_list_summarizes_members_in_the_human_table() {
     // JSON output is the daemon's result unchanged (human_view is human-only).
     assert_eq!(*human_view(&plan(ResourceOperation::WorkspaceList), &result), result);
 }
+
+/// W3-H: `--session` (or `--socket`) that names the caller's own session
+/// keeps `caller`; one that names another session does not.
+#[cfg(unix)]
+#[test]
+fn w3h_session_routes_to_the_caller_only_when_it_names_the_callers_socket() {
+    use std::ffi::OsString;
+    use std::path::PathBuf;
+    let own = cmux_tui_core::server::try_default_socket_path("w3h-own").expect("socket path");
+    let env = |name: &str| (name == "CMUX_TUI_SOCKET").then(|| OsString::from(own.clone()));
+    let no_env = |_: &str| None::<OsString>;
+    let global = |socket: Option<PathBuf>, session: Option<&str>| GlobalArgs {
+        socket,
+        session: session.map(str::to_owned),
+        ..GlobalArgs::default()
+    };
+    assert!(routes_to_caller_session_with(&global(None, None), env));
+    assert!(routes_to_caller_session_with(&global(None, Some("w3h-own")), env));
+    assert!(routes_to_caller_session_with(&global(Some(own.clone()), None), env));
+    assert!(!routes_to_caller_session_with(&global(None, Some("w3h-other")), env));
+    assert!(!routes_to_caller_session_with(&global(Some(PathBuf::from("/tmp/x.sock")), None), env));
+    // Outside a cmux-tui terminal no session is the caller's.
+    assert!(!routes_to_caller_session_with(&global(None, Some("w3h-own")), no_env));
+}
+
+/// W3-H: `terminal <t> screen read` prints the screen text unless
+/// `--details` asks for the record.
+#[test]
+fn w3h_screen_read_shows_text_unless_details_is_asked() {
+    use super::super::command::{CommandPlan, ResponseView};
+    let parse = |words: &[&str]| {
+        let words: Vec<String> = words.iter().map(|word| (*word).to_owned()).collect();
+        match super::super::command::parse(&words, super::super::Surface::CmuxTui) {
+            Ok(CommandPlan::Protocol(plan)) => plan.view,
+            Ok(_) => panic!("{words:?} is not a daemon request"),
+            Err(error) => panic!("{words:?}: {error:?}"),
+        }
+    };
+    let id = "term_a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1";
+    assert_eq!(parse(&["terminal", id, "screen", "read"]), ResponseView::ScreenText);
+    assert_eq!(parse(&["terminal", id, "read"]), ResponseView::ScreenText);
+    assert_eq!(parse(&["terminal", id, "screen", "read", "--details"]), ResponseView::Full);
+}

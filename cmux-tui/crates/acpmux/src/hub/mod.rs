@@ -15,6 +15,7 @@ mod adoption;
 pub(crate) mod agent_hold;
 mod agent_pairs;
 mod away_recap;
+mod memory_inbox;
 mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
@@ -59,6 +60,8 @@ mod first_work_tests;
 mod fork;
 #[cfg(test)]
 mod host_notice_tests;
+#[cfg(test)]
+mod ledger_hub_tests;
 #[cfg(test)]
 mod peer_notice_cost_tests;
 #[cfg(test)]
@@ -134,19 +137,36 @@ mod new_request;
 pub use model_options::{
     current_effort, current_model, current_option, resolve_config_id, web_url, web_url_for_session,
 };
+pub mod ledger;
 mod model_hint;
 mod models_view;
 mod paging;
 mod personal_stats;
+mod policy_gate;
 mod policy_mode;
 mod policy_source;
 mod pool;
 pub(crate) use pool::SESSION_NEW_BUDGET;
+mod prompt_attribution;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
 mod prompt_line;
 #[cfg(test)]
 mod prompt_line_tests;
+/// Whether a prompt block is acpmux's lead mark of who wrote it (`prompt_attribution.rs`).
+pub fn prompt_attribution_lead(block: &Value) -> bool {
+    prompt_attribution::is_lead(block)
+}
+/// Adds acpmux's marks of who wrote a prompt to `params` (`prompt_attribution.rs`), for tests
+/// of the readers that pick its blocks.
+#[cfg(test)]
+pub(crate) fn prompt_attribution_mark(
+    params: &mut Value,
+    sender: Option<&str>,
+    provenance: Option<&Value>,
+) {
+    prompt_attribution::mark(params, sender, provenance);
+}
 mod prompt_sender;
 mod protected_hold;
 mod queue;
@@ -169,6 +189,7 @@ mod elevation;
 mod git_watch;
 mod github_owner;
 mod lane_report_reads;
+mod lane_report_subagents;
 mod lane_report_text;
 mod lane_reports;
 mod loop_goal;
@@ -192,10 +213,11 @@ mod start_retry;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
-mod shell_readonly;
+pub(crate) mod shell_readonly;
 mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
 pub(crate) use shutdown::{CREATED as REFUSED_CREATED, shutting_down_before_create};
+mod caller_registry;
 pub(crate) mod inbox;
 mod spawn;
 mod start_defaults;
@@ -258,6 +280,7 @@ pub use vm_boundary::vm_boundary_peer_approves;
 mod start_gate;
 pub mod vm_host;
 pub(crate) use start_gate::host_label;
+pub mod races;
 mod subsession_answer;
 mod subsession_guard;
 mod subsession_results;
@@ -441,6 +464,11 @@ pub struct TurnInfo {
 /// Options for `Hub::prompt_with`.
 #[derive(Default)]
 pub struct PromptOptions {
+    /// Internal guard checked after asynchronous prompt setup and immediately before acceptance.
+    /// Public only so callers outside the crate can build options with `..Default::default()`;
+    /// it can only refuse a prompt, never admit one.
+    #[doc(hidden)]
+    pub race_guard: Option<Arc<dyn Fn() -> Result<(), RpcError> + Send + Sync>>,
     /// Native-prepared Cloud turn capability; held in memory until claim/finish only.
     pub cloud_turn: Option<crate::cloud_rewind::CloudTurnEnvelope>,
     /// Client-chosen id (`_meta.acpmux.promptId`); generated when absent.
@@ -605,6 +633,8 @@ pub struct Hub {
     pub(crate) list_guard: list_guard::ListGuard,
     /// Each chat's spend and context as its harness recorded them (`usage_view.rs`).
     pub(crate) usage_stats: usage_view::UsageCache,
+    /// What every turn here cost, indexed by day and session (`hub/ledger`, `_acpmux/ledger`).
+    pub(crate) ledger: ledger::Ledger,
     /// `_acpmux/models` replies now asking peers for theirs
     /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
     /// daemon's own catalog, so mutual peers cannot ping-pong.
@@ -772,6 +802,8 @@ pub struct Hub {
     pub(super) recap_wake: Arc<Notify>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
+    /// The caller tokens earlier daemon runs gave out, by session (`caller_registry.rs`).
+    pub(super) caller_registry: caller_registry::CallerRegistry,
     /// Held by each `sessions.allowFullAccess` push through its teardown (`apply_full_access_push`).
     pub(super) full_access_pushes: tokio::sync::Mutex<()>,
     /// Held (read) by a family message or an ancestor's answer from its last check until it is
@@ -858,6 +890,7 @@ pub struct Hub {
     lane_report_reads: lane_report_reads::LaneReportReads,
     /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
     pub(super) subsessions: subsessions::Index,
+    pub(super) races_running: StdMutex<std::collections::HashSet<String>>,
     /// Creates admitted and still starting (`admission.rs`).
     pub(super) admitting: admission::Admitting,
     /// Run slots of each session's sub-sessions (`subsession_runs.rs`).
@@ -973,9 +1006,15 @@ impl Hub {
         // after a restart, before the app pushes again (`start_mode_state.rs`).
         let start_mode_state =
             start_mode_state::StartModeCell::load(start_mode_state::state_file(&config).as_deref());
+        // Loaded before the socket serves, so an agent that outlived the previous daemon is
+        // known by its caller token from the first request (`caller_registry.rs`).
+        let caller_registry =
+            caller_registry::CallerRegistry::load(caller_registry::state_file(&config));
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
         let peer_paths = Arc::new(crate::peer_last_good::LastGood::open(home.as_deref()));
+        // Beside the session store in its home; a memory store keeps it in memory only.
+        let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
@@ -1002,6 +1041,7 @@ impl Hub {
             events,
             list_guard: Default::default(),
             usage_stats: Default::default(),
+            ledger,
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             shutdown: Notify::new(),
             ws_shutdown: Default::default(),
@@ -1086,6 +1126,7 @@ impl Hub {
             recap_due: StdMutex::new(HashMap::new()),
             recap_wake: Arc::new(Notify::new()),
             start_mode_state,
+            caller_registry,
             full_access_pushes: tokio::sync::Mutex::new(()),
             family_gate: Arc::new(tokio::sync::RwLock::new(())),
             family_cut: tokio::sync::watch::channel(0).0,
@@ -1135,6 +1176,7 @@ impl Hub {
             lane_reports: Default::default(),
             lane_report_reads: Default::default(),
             subsessions: Default::default(),
+            races_running: Default::default(),
             admitting: Default::default(),
             subsession_runs: Default::default(),
             open_waits: Default::default(),
@@ -1274,6 +1316,13 @@ impl Hub {
         // An older daemon's approve-all that could be vmHost's asks now (`policy_source.rs`).
         self.settle_legacy_grants(&mut metas);
         self.store_load.total.store(metas.len(), Ordering::SeqCst);
+        // A first start with no ledger file: each session's running totals (`hub/ledger`).
+        if self.ledger.wants_seed() {
+            // Forks' own turns are read first, so the ledger's lock waits on no log read.
+            let seeds: Vec<_> =
+                metas.iter().map(|m| ledger::Seed::of(m, self.fork_own_turns(m))).collect();
+            self.ledger.seed(seeds);
+        }
         for meta in metas {
             let hosted = hosted.contains(&meta.id);
             self.install_stored_session(meta, deferred, hosted);
@@ -1285,6 +1334,7 @@ impl Hub {
         if deferred {
             self.logs_ready.send_replace(false);
         }
+        self.resume_races();
     }
 
     pub(super) fn install_stored_session(&self, meta: SessionMeta, deferred: bool, hosted: bool) {
@@ -2157,6 +2207,8 @@ impl Hub {
                 m.harness_failures.observe(&record.msg, record.seq, record.at);
             }
         }
+        // The cost ledger's index: O(1), no IO (its writer thread writes the file).
+        self.ledger.observe(session, &record);
         if matches!(
             kind,
             "status"

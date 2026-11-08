@@ -104,7 +104,7 @@ not restarted. If the daemon predates this command, install the new binary and r
 when you can safely do so; after that, use reload for configuration changes.
 
 Explicit flags always win: `-m`, `-e low|medium|high|xhigh|max`,
-`--policy ask|approve-reads|approve-edits|approve-all|deny-all`, `--cwd DIR`,
+`--policy ask|approve-reads|approve-edits|approve-all|deny-all|review`, `--cwd DIR`,
 `--machine MACHINE`. A model the harness rejects fails the creation with the ids it
 knows; the session is not created.
 
@@ -167,8 +167,22 @@ the person's prompt. What the receiver gets depends on who you are to it:
   `send.not_woken`: nothing was delivered. `send --status` says `held in its
   inbox` for such a `--no-wait` message.
 - Every agent send prints `sending as NAME` on stderr. A Claude Code subagent
-  sends as its lead's session, named `LEAD's TYPE subagent ID`: only the reply
-  to its own `send --wait` reaches it, and `acpmux send LEAD` reaches the lead.
+  sends as its lead's session, named `LEAD's TYPE subagent ID`, and so do its
+  `acpmux run` and `acpmux new` with a prompt. The reply to its own `run` or
+  `send --wait` reaches only it: the lead gets no lane report of that turn. The
+  report of a turn it asked for without waiting comes to it after its next Bash
+  command (acpmux's PostToolUse hook); once it has ended, the report goes to
+  the lead, saying `This report is for your TYPE subagent ID`. The receiver
+  reads `From another agent (LEAD's TYPE subagent ID)` and ends its turn with
+  its answer; it does not send it to the lead. `acpmux send LEAD` reaches the
+  lead. A subagent's call through the cmux MCP tools (`acpmux_bg_start`,
+  `cmux_exec`) carries no subagent mark, so its reports go to the lead.
+  A Codex subagent is named `LEAD's codex subagent THREAD` (its own
+  `CODEX_THREAD_ID`); when acpmux does not know the lead's thread, the line
+  says `LEAD (subagent identity not available for codex)`.
+- An agent keeps its proven identity across a daemon restart or update: the
+  daemon keeps digests of its caller tokens, so `no proven session` after a
+  restart is a bug, not a step to fix by hand.
 - An inbox notice ends with how to reply. Answer in your turn, with
   `inbox_reply`, or with `acpmux send NAME`; never with your harness's own
   SendMessage, which reaches no acpmux session.
@@ -265,7 +279,13 @@ size on click. Two images in one paragraph, such as
 `hq#N`, commit SHAs and `path/to/file.ts:42` become links.
 
 `--policy ask` sends every request to a human or to you; the other policies
-answer locally. Rules sit above the policy and match tool kind, title, and
+answer locally. For a reviewer, use `--policy review`: reads, searches and
+read-only shell commands (`git log`, `git diff`, `git show`, `grep`, `rg`,
+`ls`, `cat`, `sed -n '1,40p'`) run without asking, and every write or other
+command is denied at once, so the reviewer never waits for a person:
+`acpmux run -m claude --cwd ~/proj --policy review "review the diff of HEAD~1"`.
+A build or test run writes, so review cannot compile: give the reviewer the
+build output, or run it in a lane with `approve-edits`. Rules sit above the policy and match tool kind, title, and
 name, case-insensitively. File writes a harness delegates to acpmux (ACP
 `fs/write_text_file`) are gated the same way and show as `Write PATH [edit]`.
 

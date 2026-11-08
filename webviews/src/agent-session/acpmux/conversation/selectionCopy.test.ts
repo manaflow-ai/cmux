@@ -49,7 +49,7 @@ test("a selection in one reply copies as clean HTML and Markdown", () => {
   expect(htmlMarkdown(html)).toBe("## Plan\n\n- **ship** it\n- then [check](https://example.com/) run needs you");
 });
 
-test("a selection across replies is the page's own copy", () => {
+test("a selection across replies containing an image keeps browser copy", () => {
   const range = doc.createRange();
   range.setStartBefore(doc.getElementById("heading")!);
   range.setEndAfter(doc.getElementById("other")!);

@@ -372,7 +372,9 @@ async fn a_vm_boundary_lease_forwards_the_boundary_for_the_persons_own_clients_o
         let server = tokio::spawn(async move {
             let (tcp, _) = listener.accept().await.unwrap();
             let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
-            while let Some(Ok(Ws::Text(text))) = ws.next().await {
+            // Non-text frames (the client's pings, #38015) are not requests: skip them.
+            while let Some(Ok(frame)) = ws.next().await {
+                let Ws::Text(text) = frame else { continue };
                 let Ok(Message::Request { id, method: m, params }) = Message::parse(&text) else {
                     continue;
                 };
