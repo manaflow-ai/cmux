@@ -50,7 +50,9 @@ export function HistoryScreen({
   const shown: HistoryTab = (tab === "queue" && !queue) || (tab === "ledger" && !ledger) ? "history" : tab;
   return (
     <div className="nt-history" data-tab={shown}>
-      {tabbed ? (
+      {/* The page's title stays on every tab, with the tabs under it, so switching moves nothing above. */}
+      <h1 className="nt-history-title">{nt("history")}</h1>
+      {tabbed && (
         <Tabs
           variant="pill"
           value={shown}
@@ -63,8 +65,6 @@ export function HistoryScreen({
             {ledger && <TabsTrigger value="ledger">{t("ledger.title")}</TabsTrigger>}
           </TabsList>
         </Tabs>
-      ) : (
-        <h1 className="nt-history-title">{nt("history")}</h1>
       )}
       {shown === "queue" && queue ? (
         <QueueScreen {...queue} {...(now !== undefined ? { now } : {})} />

@@ -19,7 +19,7 @@ import { queueAnswers, queueCommand, queueReasons, type QueueItem, type QueueRea
 import { useQueue } from "./useQueue";
 import "./queue.css";
 
-/// How a row reads (gallery `agent-pane.waiting-on-you`): `inbox` two lines with the answers on the
+/// How a row reads (gallery `agent-pane.review-queue`): `inbox` two lines with the answers on the
 /// selected row (shipped), `cards` every row a card with its answers and detail showing, `compact`
 /// one line each.
 export type QueueLook = "inbox" | "cards" | "compact";

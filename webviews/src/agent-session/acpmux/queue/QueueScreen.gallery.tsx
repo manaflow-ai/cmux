@@ -118,7 +118,7 @@ const many = Array.from({ length: 300 }, (_, index) => ({
 }));
 
 export default componentEntry<Props>({
-  id: "agent-pane.waiting-on-you",
+  id: "agent-pane.review-queue",
   title: "Waiting on you",
   area: "Agent pane",
   covers: ["agent-session/acpmux/queue/QueueScreen.tsx#QueueScreen"],
