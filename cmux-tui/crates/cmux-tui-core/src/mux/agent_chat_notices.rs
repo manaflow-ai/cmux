@@ -1521,6 +1521,21 @@ mod tests {
     }
 
     #[test]
+    fn work_that_outlives_its_turn_into_a_newer_turn_posts_only_the_newer_finish() {
+        // T1 ends with work below it, T2 starts, that work ends while T2 runs, then T2 ends: the
+        // person hears T2 finish once, not T1 "finished" while the chat works again.
+        let changes = [
+            summary("working", 8, true, None, false),
+            summary("done", 9, true, Some(("t1", "completed")), true),
+            summary("working", 10, true, Some(("t1", "completed")), true),
+            summary("working", 11, true, Some(("t1", "completed")), false),
+            summary("done", 12, true, Some(("t2", "completed")), false),
+        ];
+        let keys: Vec<_> = posted(&changes).into_iter().map(|notice| notice.key).collect();
+        assert_eq!(keys, ["done-t2"]);
+    }
+
+    #[test]
     fn a_failed_turn_says_why_it_failed() {
         let notices = posted(&[
             summary("working", 8, false, None, false),
