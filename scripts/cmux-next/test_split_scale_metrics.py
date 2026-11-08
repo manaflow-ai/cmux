@@ -71,6 +71,13 @@ class SideWayTests(unittest.TestCase):
         self.assertIsNone(ssm.side_way({"pane_width_change": None}))
         self.assertIsNone(ssm.trace_stats({"samples": []})["pane_width_change"])
 
+    def test_panes_that_came_back_go_by_their_peak(self):
+        stats = ssm.trace_stats(self.two_panes([450, 520, 600, 520, 450]))
+        self.assertEqual((stats["pane_width_change"], stats["pane_width_peak"]), (0.0, 300.0))
+        self.assertEqual(ssm.side_way(stats), "closed")
+        self.assertTrue(ssm.side_returned(stats))
+        self.assertFalse(ssm.side_returned(ssm.trace_stats(self.two_panes([450, 600]))))
+
     def test_a_pane_that_came_or_went_is_left_out(self):
         samples = [{"t": 0, "panes": [pane("pane_aaaaaa", 0, 600)]},
                    {"t": 8.33, "panes": [pane("pane_aaaaaa", 0, 450), pane("pane_cccccc", 450, 450)]}]

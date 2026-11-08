@@ -420,6 +420,9 @@ def side_toggle(run, label, want, static):
         row = record(run, OPT_CMD_B, label if not attempt else f"{label}-again", content="none", static=static)
         way = ssm.side_way(row)
         if way == want:
+            if ssm.side_returned(row):
+                problem = f"Option-Cmd-B {way} the right sidebar and the panes went back to their width"
+                row["error"] = f"{row['error']}; {problem}" if row.get("error") else problem
             return row
         if way is None:
             problem = "Option-Cmd-B moved no pane (the right sidebar neither opened nor closed)"
@@ -482,11 +485,13 @@ def run_cell(run, workspace, columns, results, cell, content):
         if "divider_drag" in WANTED and len(pane_ids(run, workspace)) > 1:
             stress.focus_pane(top_left)
             time.sleep(opts.settle)  # test script: the last gesture's motion ends
+            # Diagonal: "first" is the divider area lowest in the window, a column's row divider as often as a column
+            # divider, and a drag along a divider moves nothing; this moves either kind.
             add("divider_drag", record(run, {"gesture": "mouse", "mouse": {"action": "drag", "divider": "first",
-                                                                            "by_x": -120, "steps": 30}},
+                                                                            "by_x": -120, "by_y": -60, "steps": 30}},
                                        f"{cell}-divider_drag-{rnd}", static=static))
             time.sleep(opts.settle)  # test script: the last gesture's motion ends
-            run.rpc("debug.mouse", {"action": "drag", "divider": "first", "by_x": 120, "steps": 30})  # untimed: back
+            run.rpc("debug.mouse", {"action": "drag", "divider": "first", "by_x": 120, "by_y": 60, "steps": 30})  # untimed: back
             time.sleep(opts.settle)  # test script: the last gesture's motion ends
         if "side_open" in WANTED or "side_close" in WANTED:
             stress.focus_pane(top_left)

@@ -152,32 +152,54 @@ def trace_stats(trace, sent_host_s=None):
         out["layout_first_ms"] = round(first - sent, 1) if first is not None else None
         out["layout_settled_ms"] = round(last - sent, 1) if last is not None else None
     out["pane_width_change"] = pane_width_change(samples)
+    out["pane_width_peak"] = pane_width_peak(samples)
     return out
+
+
+def _pane_widths(sample):
+    return {str(row[0]): float(row[PANE_FRAME_WIDTH]) for row in sample.get("panes") or []
+            if isinstance(row, list) and len(row) > PANE_FRAME_WIDTH and _number(row[PANE_FRAME_WIDTH])}
+
+
+def _width_change(start, sample):
+    end = _pane_widths(sample)
+    both = start.keys() & end.keys()
+    return round(sum(end[p] - start[p] for p in both), 1) if both else None
 
 
 def pane_width_change(samples):
     """The panes' summed frame width at the trace's last tick minus at its first, over the panes in both (points):
     negative when the panes narrowed (a right sidebar opened beside them), positive when they widened (it closed),
     None without a pane in both. The side pane's toggle is one key for both ways, so this says which way it went."""
-    def widths(sample):
-        return {str(row[0]): float(row[PANE_FRAME_WIDTH]) for row in sample.get("panes") or []
-                if isinstance(row, list) and len(row) > PANE_FRAME_WIDTH and _number(row[PANE_FRAME_WIDTH])}
+    return _width_change(_pane_widths(samples[0]), samples[-1]) if samples else None
+
+
+def pane_width_peak(samples):
+    """The same change at the tick where it was largest (signed): a toggle whose panes moved and came back (net change
+    0) still shows which way they went. None without a pane in any tick and the first."""
     if not samples:
         return None
-    start, end = widths(samples[0]), widths(samples[-1])
-    both = start.keys() & end.keys()
-    if not both:
-        return None
-    return round(sum(end[p] - start[p] for p in both), 1)
+    start = _pane_widths(samples[0])
+    changes = [c for c in (_width_change(start, s) for s in samples[1:]) if c is not None]
+    return max(changes, key=abs) if changes else None
 
 
 def side_way(row):
     """Which way a side pane toggle went in `row` (a transition record): "opened" (the panes narrowed), "closed"
-    (they widened), or None (they kept their width, or the trace had none)."""
+    (they widened), or None (they kept their width, or the trace had none). The net change decides; a toggle whose
+    panes came back to their width goes by its peak (side_toggle records that as the round's error)."""
     change = (row or {}).get("pane_width_change")
+    if not _number(change) or abs(change) <= EPS:
+        change = (row or {}).get("pane_width_peak")
     if not _number(change) or abs(change) <= EPS:
         return None
     return "opened" if change < 0 else "closed"
+
+
+def side_returned(row):
+    """True when the panes moved (a peak) but ended at the width they started at: the toggle undid itself."""
+    change, peak = (row or {}).get("pane_width_change"), (row or {}).get("pane_width_peak")
+    return _number(peak) and abs(peak) > EPS and _number(change) and abs(change) <= EPS
 
 
 def strip_stats(strip, tolerance=TOLERANCE, settle_frames=6):
