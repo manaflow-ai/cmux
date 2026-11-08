@@ -333,18 +333,25 @@ fn client_config(session: SessionId, expected: [u8; 32]) -> Result<ClientConnect
     })
 }
 
-/// The app: one session after another until every prompt's turn is in, each attaching after the
-/// last event it has and resending the prompts whose turn it has not seen start.
-async fn app(
+/// When a fault's cause ends, what ends it, its kind, and whether its recovery is timed from then.
+type Heal = (Instant, Box<dyn FnOnce(&mut Machine) + Send>, String, bool);
+
+/// What the app runs with.
+struct App {
     group: Arc<SimGroup>,
     expected: [u8; 32],
     plan: Plan,
     seen: Arc<Mutex<Seen>>,
     connected: watch::Sender<bool>,
     done: watch::Receiver<bool>,
-    mut rng: Rng,
+    rng: Rng,
     trace: Arc<Mutex<Vec<String>>>,
-) -> Result<(), String> {
+}
+
+/// The app: one session after another until every prompt's turn is in, each attaching after the
+/// last event it has and resending the prompts whose turn it has not seen start.
+async fn app(app: App) -> Result<(), String> {
+    let App { group, expected, plan, seen, connected, done, mut rng, trace } = app;
     let start = Instant::now();
     // The prompts the app has been asked to send so far: they go out at their plan times.
     let asked: watch::Sender<u32> = watch::channel(0).0;
@@ -578,23 +585,23 @@ async fn run_world(seed: u64, faults: bool) -> Outcome {
     // Every prompt's turn has its result and the app has the whole log.
     let done = watch::channel(false).0;
     let start = Instant::now();
-    let mut app_task = tokio::spawn(app(
+    let mut app_task = tokio::spawn(app(App {
         group,
         expected,
-        plan.clone(),
-        seen.clone(),
-        connected.clone(),
-        done.subscribe(),
-        rng.split(5),
-        trace.clone(),
-    ));
+        plan: plan.clone(),
+        seen: seen.clone(),
+        connected: connected.clone(),
+        done: done.subscribe(),
+        rng: rng.split(5),
+        trace: trace.clone(),
+    }));
 
     // The fault driver, then the wait for the app to finish, sampling for recoveries.
     let mut pending: Vec<(String, Instant, u64)> = Vec::new();
     let mut steps = plan.faults.iter().peekable();
     // When each fault's cause ends, what ends it, and whether its recovery is timed from then
     // (a swap's is timed from its start: the other relay is there at once).
-    let mut heals: Vec<(Instant, Box<dyn FnOnce(&mut Machine) + Send>, String, bool)> = Vec::new();
+    let mut heals: Vec<Heal> = Vec::new();
     let deadline = start
         + plan.faults.last().map_or(Duration::ZERO, |s| s.at + s.fault.lasts())
         + plan.prompts.last().map_or(Duration::ZERO, |p| p.at)
@@ -628,7 +635,7 @@ async fn run_world(seed: u64, faults: bool) -> Outcome {
                                 c.down = false;
                                 c.frozen_up = false;
                                 c.frozen_down = false;
-                            })
+                            });
                         }),
                         kind.clone(),
                         true,
@@ -659,7 +666,7 @@ async fn run_world(seed: u64, faults: bool) -> Outcome {
                             old.set(|c| {
                                 c.frozen_up = false;
                                 c.frozen_down = false;
-                            })
+                            });
                         }),
                         kind.clone(),
                         false,

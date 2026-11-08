@@ -23,11 +23,6 @@ impl Rng {
         lo + self.next_u64() % (hi - lo + 1)
     }
 
-    /// True `percent` times in 100.
-    pub fn chance(&mut self, percent: u64) -> bool {
-        self.next_u64() % 100 < percent
-    }
-
     /// An independent stream for one part of the run (`salt` names the part).
     pub fn split(&mut self, salt: u64) -> Rng {
         Rng::new(self.next_u64() ^ salt.wrapping_mul(0xD6E8_FEB8_6659_FD93))
