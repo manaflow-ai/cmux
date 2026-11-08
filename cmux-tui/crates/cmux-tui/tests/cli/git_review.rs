@@ -129,6 +129,10 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     let hook = checkout.join(".git/hooks/post-checkout");
     fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\n", hook_ran.display())).unwrap();
     fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+    // A hook the fetch would run when it writes the pull request's refs.
+    let transaction = checkout.join(".git/hooks/reference-transaction");
+    fs::write(&transaction, format!("#!/bin/sh\ntouch '{}'\n", hook_ran.display())).unwrap();
+    fs::set_permissions(&transaction, fs::Permissions::from_mode(0o755)).unwrap();
     git(&checkout, &["config", "diff.noprefix", "true"]);
     // A filter driver the person set up that runs a script from the checkout:
     // the pull request could change that script.

@@ -240,7 +240,7 @@ pub(super) fn create(
 /// code: no hook, no fsmonitor command, and every filter driver `root`'s
 /// configuration names blanked. Set through `GIT_CONFIG_COUNT`, which keeps a
 /// driver's name whole and wins over every configuration file.
-fn untrusted(root: &Path) -> Result<Vec<(String, String)>, ResourceError> {
+pub(super) fn untrusted(root: &Path) -> Result<Vec<(String, String)>, ResourceError> {
     let mut settings = vec![
         ("core.hooksPath".to_string(), "/dev/null".to_string()),
         ("core.fsmonitor".to_string(), "false".to_string()),
@@ -256,7 +256,7 @@ fn untrusted(root: &Path) -> Result<Vec<(String, String)>, ResourceError> {
     Ok(environment)
 }
 
-fn borrowed(environment: &[(String, String)]) -> Vec<(&str, &str)> {
+pub(super) fn borrowed(environment: &[(String, String)]) -> Vec<(&str, &str)> {
     environment.iter().map(|(name, value)| (name.as_str(), value.as_str())).collect()
 }
 

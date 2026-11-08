@@ -104,7 +104,13 @@ fn start(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resou
         let pulled = format!("refs/pull/{}/head", pull.number);
         let base_branch = format!("refs/heads/{}", view.base_branch);
         let arguments = ["fetch", "--no-tags", "--quiet", &remote, &pulled, &base_branch];
-        let run = git.run(&arguments).map_err(|failure| run_failed(START, &failure))?;
+        // Untrusted, like the checkout: the fetch writes refs, and a hook
+        // (`reference-transaction`) of a checkout made from a pull request
+        // would run that pull request's code.
+        let untrusted = worktree::untrusted(&repository.root)?;
+        let run = git
+            .run_with(&arguments, &worktree::borrowed(&untrusted))
+            .map_err(|failure| run_failed(START, &failure))?;
         if !run.success {
             let message = format!("git fetch {remote} {pulled} failed");
             return Err(refused(START, "fetch_failed", message, output_extra(&run.output())));
