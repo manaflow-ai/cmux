@@ -42,9 +42,10 @@ WEB_GATE = re.compile(r"prefers-reduced-motion|isAgentMotionOff|cmuxMotion|agent
 IOS_DIRS = ("cmux-next-ios", "Packages/iOS")
 IOS_SITE = re.compile(r"UIView\.animate|UIView\.transition|UIViewPropertyAnimator|withAnimation|CABasicAnimation|"
                       r"CASpringAnimation|CAKeyframeAnimation|\.animation\((?!forKey)")
-# HomeMotion (ios CmuxiOSDesign) is the iOS home's gate.
+# HomeMotion (ios CmuxiOSDesign) is the iOS home's gate; CmuxTabsKit's is `theme.motion.resolve(_:)`, a crossfade
+# under Reduce Motion.
 IOS_GATE = re.compile(r"isReduceMotionEnabled|accessibilityReduceMotion|reduceMotion|reducesMotion|MotionPolicy|"
-                      r"HomeMotion\.", re.I)
+                      r"HomeMotion\.|\bmotion\.resolve\(", re.I)
 SKIP = re.compile(r"(^|/)(tests?|Tests|UITests|__tests__|fixtures?)(/|$)|\.test\.|\.gallery\.|\.spec\.|Tests?\.swift$")
 ALLOW = re.compile(r"motion:? ?-?allow\b")
 FINDING = re.compile(r"^\s+(\S+?):(\d+): (.+)$")

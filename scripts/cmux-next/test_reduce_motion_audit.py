@@ -43,6 +43,7 @@ class Audit(unittest.TestCase):
             "Packages/iOS/Kit/Tests/RowTests.swift": "UIView.animate(withDuration: 0.2) {}\n",
             "Packages/iOS/Kit/Sources/Shape.swift": "let a = layer.animation(forKey: \"path\")\n",
             "cmux-next-ios/Kit/Sources/List.swift": "HomeMotion.animate { v.alpha = 0 }\n",
+            "Packages/iOS/Tabs/Sources/Bar.swift": "withAnimation(theme.motion.resolve(theme.motion.collapse)) {}\n",
         })
         got = audit.ungated(root, audit.IOS_DIRS, (".swift",), audit.IOS_SITE, audit.IOS_GATE)
         self.assertEqual([w["file"] for w in got["where"]], ["cmux-next-ios/Kit/Sources/Home.swift"])
