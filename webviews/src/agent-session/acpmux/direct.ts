@@ -10234,6 +10234,14 @@ export class AcpmuxDirectClient {
       throw error;
     }
   }
+  /// Starts a GitHub issue fix in a local worktree and returns the created chat.
+  async fixFromLink(url: string, cwd?: string): Promise<string | undefined> {
+    const result = await this.request("chat.fix_from_link", { url, ...(cwd ? { cwd } : {}) }, 70_000);
+    const sessionId = typeof result?.sessionId === "string" ? result.sessionId : undefined;
+    if (!sessionId) throw new Error("fix-from-link did not return a session");
+    return sessionId;
+  }
+
   /// A new session, in `cwd` when given; otherwise in the inherited cwd, then where acpmux defaults.
   /// `noProject` starts it in no project: the host's agent-home folder, never the inherited cwd.
   /// `model`: the model to start on (a chat on another machine starts on the one the page showed).
