@@ -73,6 +73,8 @@ import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { PresentationContext } from "./presentationContextModel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { useTurnWaterfall } from "./useTurnWaterfall";
+import { FinishCheck } from "../finish/FinishCheck";
+import { useFinishedTurn } from "../finish/finishMoments";
 import { groupDisclosureKey, runDisclosureKey, thoughtIds } from "./turnRowsModel";
 
 /// "Worked for 15s" with its time in the line's quieter color (workedLabel's words otherwise).
@@ -111,10 +113,13 @@ export function WorkedFor({
   controls?: string;
   onToggle: () => void;
 }) {
+  // A long turn that just ended shows its short done state here (finish/finishMoments.ts).
+  const finished = useFinishedTurn(row.at);
   return (
     <button
       type="button"
       className="cv-worked has-divider is-toggle"
+      data-finish={finished ? "turn" : undefined}
       aria-expanded={expanded}
       aria-controls={expanded ? controls : undefined}
       onClick={onToggle}
@@ -123,6 +128,7 @@ export function WorkedFor({
         <WorkedLabel row={row} />
       </span>
       <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
+      {finished && <FinishCheck />}
     </button>
   );
 }

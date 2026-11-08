@@ -1,0 +1,88 @@
+/* The finish moments gallery's stage and the looks the shipped ones were chosen over (FinishMoments.gallery.tsx). */
+.acpmux-finish-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  color: var(--agent-text);
+}
+.acpmux-finish-stage__row {
+  width: 360px;
+}
+.acpmux-finish-stage__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+}
+.acpmux-finish-stage__title {
+  font-size: var(--text-detail);
+}
+.acpmux-finish-stage__replay {
+  align-self: flex-start;
+}
+
+/* Turn: the label alone, or a sweep, with no check. */
+[data-finish-look="tint"] .cv-finish-check,
+[data-finish-look="shine"] .cv-finish-check {
+  display: none;
+}
+[data-finish-look="tint"] .cv-worked[data-finish] > .cv-worked__chevron,
+[data-finish-look="shine"] .cv-worked[data-finish] > .cv-worked__chevron {
+  opacity: 1;
+  animation: none;
+}
+[data-finish-look="shine"] .cv-worked[data-finish] > .cv-worked__label {
+  color: inherit;
+  animation: none;
+}
+[data-finish-look="shine"] .cv-worked[data-finish] {
+  background: linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--agent-status-success) 18%, transparent) 50%, transparent 70%) no-repeat;
+  background-size: 200% 100%;
+  animation: finish-gallery-shine 700ms ease-out both; /* motion-allow: gallery-only comparison look */
+}
+@keyframes finish-gallery-shine {
+  from { background-position: 150% 0; }
+  to { background-position: -50% 0; }
+}
+
+/* Green checks: text tint alone, or the dot growing into a check. */
+[data-finish-look="tint"] .acpmux-header-pr[data-finish="ci"]::after {
+  animation: none;
+  box-shadow: none;
+}
+[data-finish-look="tint"] .acpmux-header-pr[data-finish="ci"] {
+  color: var(--agent-status-success);
+}
+[data-finish-look="dot-check"] .acpmux-header-pr[data-finish="ci"]::after {
+  content: "✓";
+  width: auto;
+  height: auto;
+  background: none;
+  box-shadow: none;
+  color: var(--agent-status-success);
+  font-size: 11px;
+  line-height: 1;
+  animation: finish-gallery-pop 400ms ease-out both; /* motion-allow: gallery-only comparison look */
+}
+@keyframes finish-gallery-pop {
+  from { transform: scale(0.4); }
+  to { transform: scale(1); }
+}
+
+/* Merge: a glow, or a stamp, with no dots. */
+[data-finish-look="glow"] .acpmux-finish-burst,
+[data-finish-look="stamp"] .acpmux-finish-burst {
+  display: none;
+}
+[data-finish-look="glow"] .acpmux-header-pr[data-finish="merged"] {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--agent-status-merged) 40%, transparent), 0 0 12px color-mix(in srgb, var(--agent-status-merged) 35%, transparent);
+  border-radius: 6px;
+}
+[data-finish-look="stamp"] .acpmux-header-pr[data-finish="merged"] {
+  animation: finish-gallery-stamp 500ms ease-out both; /* motion-allow: gallery-only comparison look */
+}
+@keyframes finish-gallery-stamp {
+  from { transform: scale(1.3); opacity: 0.4; }
+  to { transform: scale(1); opacity: 1; }
+}

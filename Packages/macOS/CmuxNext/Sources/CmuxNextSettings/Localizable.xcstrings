@@ -165344,6 +165344,270 @@
         }
       }
     },
+    "settings.agentPane.display.finishSound": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Play Sound When Work Finishes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تشغيل صوت عند انتهاء العمل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pusti zvuk kad se posao završi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afspil lyd, når arbejdet er færdigt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ton abspielen, wenn Arbeit fertig ist"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproducir un sonido al terminar el trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jouer un son à la fin du travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riproduci un suono al termine del lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作業が終わったらサウンドを再生"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចាក់សំឡេងពេលការងាររួចរាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작업이 끝나면 소리 재생"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spill av lyd når arbeidet er ferdig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odtwórz dźwięk po zakończeniu pracy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tocar som quando o trabalho terminar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звук по завершении работы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เล่นเสียงเมื่องานเสร็จ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İş bitince ses çal"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Звук після завершення роботи"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phát âm thanh khi công việc xong"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作完成时播放声音"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作完成時播放聲音"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.finishSound.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A soft sound when a long turn in the chat you're looking at ends, its checks pass or its pull request merges. Follows the Mac's Play user interface sound effects setting."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صوت هادئ عند انتهاء دور طويل في الدردشة التي تنظر إليها، أو نجاح فحوصاتها، أو دمج طلب السحب الخاص بها. يتبع إعداد تشغيل المؤثرات الصوتية لواجهة المستخدم في جهاز Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tihi zvuk kad se završi dug potez u razgovoru koji gledate, kad njegove provjere prođu ili kad se njegov pull request spoji. Prati Mac postavku za zvučne efekte korisničkog interfejsa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En blød lyd, når en lang tur i den chat, du ser på, slutter, dens tjek består, eller dens pull request bliver flettet. Følger Mac'ens indstilling for lydeffekter i brugerfladen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein leiser Ton, wenn ein langer Durchgang im angezeigten Chat endet, seine Checks bestehen oder sein Pull Request gemergt wird. Folgt der Mac-Einstellung für Toneffekte der Benutzeroberfläche."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un sonido suave cuando termina un turno largo en el chat que estás viendo, pasan sus comprobaciones o se fusiona su pull request. Sigue el ajuste de efectos de sonido de la interfaz del Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un son discret quand un long tour se termine dans la discussion affichée, que ses vérifications réussissent ou que sa pull request est fusionnée. Suit le réglage des effets sonores de l'interface du Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un suono leggero quando finisce un turno lungo nella chat che stai guardando, i suoi controlli passano o la sua pull request viene unita. Segue l'impostazione degli effetti sonori dell'interfaccia del Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示中のチャットで長いターンが終わったとき、チェックが通ったとき、プルリクエストがマージされたときに控えめな音を鳴らします。Mac のユーザインターフェイスのサウンドエフェクト設定に従います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សំឡេងស្រាលពេលវេនវែងក្នុងការជជែកដែលអ្នកកំពុងមើលបញ្ចប់ ការត្រួតពិនិត្យរបស់វាឆ្លងកាត់ ឬ pull request របស់វាត្រូវបានបញ្ចូល។ អនុវត្តតាមការកំណត់បែបផែនសំឡេងចំណុចប្រទាក់របស់ Mac។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보고 있는 채팅에서 긴 턴이 끝나거나, 검사가 통과하거나, 풀 리퀘스트가 병합되면 부드러운 소리를 냅니다. Mac의 사용자 인터페이스 사운드 효과 설정을 따릅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En myk lyd når en lang runde i chatten du ser på slutter, sjekkene består eller pull requesten flettes. Følger Mac-innstillingen for lydeffekter i brukergrensesnittet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cichy dźwięk, gdy kończy się długa tura w oglądanym czacie, jego testy przechodzą lub jego pull request zostaje scalony. Zgodnie z ustawieniem efektów dźwiękowych interfejsu na Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um som suave quando um turno longo termina no chat que você está vendo, as verificações passam ou o pull request é mesclado. Segue o ajuste de efeitos sonoros da interface do Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тихий звук, когда в открытом чате заканчивается долгий ход, проходят проверки или сливается его pull request. Следует настройке звуковых эффектов интерфейса Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เสียงเบา ๆ เมื่อรอบที่ยาวในแชตที่คุณกำลังดูจบลง การตรวจสอบผ่าน หรือ pull request ถูกรวม ทำตามการตั้งค่าเอฟเฟกต์เสียงของอินเทอร์เฟซบน Mac"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baktığınız sohbette uzun bir tur bittiğinde, denetimleri geçtiğinde veya pull request'i birleştirildiğinde yumuşak bir ses. Mac'in arayüz ses efektleri ayarına uyar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тихий звук, коли у відкритому чаті закінчується довгий хід, проходять перевірки або зливається його pull request. Дотримується налаштування звукових ефектів інтерфейсу Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một âm thanh nhẹ khi một lượt dài trong cuộc trò chuyện bạn đang xem kết thúc, các kiểm tra đạt hoặc pull request được hợp nhất. Theo cài đặt hiệu ứng âm thanh giao diện của Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你正在查看的聊天中长回合结束、检查通过或拉取请求合并时，播放一声轻柔的提示音。遵循 Mac 的“播放用户界面音效”设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你正在查看的聊天中長回合結束、檢查通過或提取要求合併時，播放一聲輕柔的提示音。遵循 Mac 的「播放使用者介面音效」設定。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.pinnedPlan": {
       "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",

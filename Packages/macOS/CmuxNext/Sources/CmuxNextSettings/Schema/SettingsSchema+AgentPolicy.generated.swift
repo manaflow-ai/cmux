@@ -227,8 +227,8 @@ extension SettingsSchema {
         "markdown.code.blockSize", "markdown.tables", "markdown.theme",
         // The agent chat's fonts, sizes and width (looks only).
         "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.display.vscodeMinimap",
-        "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle",
-        "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge",
+        "agentPane.display.pinnedPlan", "agentPane.display.finishSound", "agentPane.display.trayTucked",
+        "agentPane.display.trayHandle", "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge",
         "agentPane.display.senderIcon.corner", "agentPane.display.font.preset", "agentPane.display.font.ui",
         "agentPane.display.font.size", "agentPane.display.font.lineHeight", "agentPane.display.code.family",
         "agentPane.display.code.scale", "agentPane.display.sessionInfo.placement",

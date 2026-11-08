@@ -10,6 +10,8 @@ import { Popover } from "../../../ui/Popover";
 import { usePopoverTrigger } from "../../../ui/popoverTrigger";
 import type { HeaderPullRequest } from "./headerState";
 import { PullRequestMerge, type MergeResult, type Merging } from "./PullRequestMerge";
+import { FinishBurst } from "../finish/FinishBurst";
+import { usePullRequestFinish } from "../finish/finishMoments";
 
 const STATES: Record<string, StringKey> = {
   open: "header.prState.open",
@@ -55,6 +57,8 @@ export function PullRequestChip({
         ? t("header.pullRequestLabelFailing", { number, state, passed: checks.passed, total: checks.total, failed })
         : t("header.pullRequestLabelChecks", { number, state, passed: checks.passed, total: checks.total });
   const review = REVIEWS[pullRequest.review];
+  // Green checks or a merge that just happened (finish/finishMoments.ts).
+  const finish = usePullRequestFinish(pullRequest.url);
   return (
     <>
       <button
@@ -66,12 +70,14 @@ export function PullRequestChip({
         className="acpmux-header-tool acpmux-header-pr"
         data-state={pullRequest.state}
         data-checks={checks.state}
+        data-finish={finish}
         aria-label={label}
         aria-haspopup="dialog"
         aria-expanded={open}
         {...trigger}
       >
         <Icon name="git.pullrequest" size={14} />#{number}
+        {finish === "merged" && <FinishBurst />}
       </button>
       <Popover
         fade
