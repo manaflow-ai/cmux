@@ -144,7 +144,8 @@ pub fn is_grant_device_id(device_id: &str) -> bool {
 
 /// A service name a grant may carry: the wire name of a cmux-remote
 /// [`Service`] (`mux-control`, `workspace-rpc`, `process-stream`,
-/// `terminal-bytes-v1`, `tcp-tunnel`, `computer-use`, `local-socket`).
+/// `terminal-bytes-v1`, `tcp-tunnel`, `computer-use`, `local-socket`,
+/// `acpmux`).
 pub fn service_from_name(name: &str) -> Option<Service> {
     serde_json::from_value(Value::String(name.to_owned())).ok()
 }
@@ -208,7 +209,7 @@ fn admit(
     }
     Ok(GrantAdmission {
         device_id: grant_device_id(&grant.subject, noise_key),
-        authority: ServiceAuthority::from_services(services),
+        authority: ServiceAuthority::from_services(services).with_grant(grant),
     })
 }
 
@@ -576,6 +577,28 @@ mod tests {
                 link_group: [2; 32],
             });
             assert!(admitted.is_ok(), "{admitted:?}");
+        }
+
+        /// Only a grant whose `svc` names `acpmux` holds the acpmux
+        /// service, and the session's authority keeps the grant it was
+        /// admitted with (the acpmux bridge's only source of the person).
+        #[test]
+        fn acpmux_comes_only_from_svc_and_the_authority_keeps_the_grant() {
+            let dir = tempfile::tempdir().unwrap();
+            let file = dir.path().join("carrier-grant.json");
+            let key = signer();
+            put(&file, &config("k1", &key, MACHINE));
+            let verifier = FileGrantVerifier::load(&file).unwrap();
+            let noise_key = [6_u8; 32];
+            let without = grant_for("k1", &key, &noise_key, 20, &["mux-control"]);
+            let admitted = verifier.verify(present(&without, &noise_key)).unwrap();
+            assert!(!admitted.authority.allows(Service::Acpmux));
+            let with = grant_for("k1", &key, &noise_key, 21, &["acpmux"]);
+            let admitted = verifier.verify(present(&with, &noise_key)).unwrap();
+            assert!(admitted.authority.allows(Service::Acpmux));
+            let grant = admitted.authority.grant().expect("the admitting grant");
+            assert_eq!((grant.subject.as_str(), grant.team.as_str()), ("user_1", TEAM));
+            assert_eq!(grant.services, ["acpmux"]);
         }
 
         #[test]
