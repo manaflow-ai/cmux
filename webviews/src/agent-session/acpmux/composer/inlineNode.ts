@@ -416,7 +416,15 @@ export function insertInline(view: EditorView, ids: readonly string[], replace =
 /// Takes attachment `id`'s node out of the prompt, as an undoable edit.
 export function removeInline(view: EditorView, id: string, caret = false) {
   const found = inlineNodes(view.state.doc).filter((node) => node.id === id);
-  if (!found.length) return;
+  if (!found.length) {
+    // A chip with no place (an oversized paste in a code fence keeps its chip in the strip): what
+    // goes in next goes after the selection, never over the person's selected draft.
+    const { selection } = view.state;
+    if (caret && !selection.empty) {
+      view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(selection.to), -1)));
+    }
+    return;
+  }
   // `caret`: what goes in next (a pasted chip's text) takes the attachment's place, not the caret's,
   // and the two are one undo step of their own, as a Backspace over the node is: an undo brings the
   // chip back, never the typing before it.
