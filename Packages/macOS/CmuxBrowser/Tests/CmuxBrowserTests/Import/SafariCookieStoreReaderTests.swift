@@ -81,7 +81,28 @@ struct ReadFailureCase: Sendable, CustomTestStringConvertible {
             legacyStore: .success(Data("legacy".utf8)),
         ])
 
-        #expect(reader.load(for: defaultProfile) == .accessDenied(url: containerStore))
+        #expect(reader.load(for: defaultProfile) == .accessDenied(url: containerStore, cause: .privacyProtected))
+    }
+
+    @Test func reportsAFilePermissionDenialWithItsCause() {
+        let fileModeDenial = NSError(
+            domain: NSCocoaErrorDomain,
+            code: CocoaError.fileReadNoPermission.rawValue,
+            userInfo: [NSUnderlyingErrorKey: NSError(domain: NSPOSIXErrorDomain, code: Int(EACCES))]
+        )
+        let reader = reader([
+            containerStore: .failure(fileModeDenial),
+            legacyStore: .success(Data("legacy".utf8)),
+        ])
+
+        #expect(reader.load(for: defaultProfile) == .accessDenied(url: containerStore, cause: .filePermissions))
+    }
+
+    @Test func reportsADenialWithNoPOSIXCauseAsUnspecified() {
+        let bareDenial = NSError(domain: NSCocoaErrorDomain, code: CocoaError.fileReadNoPermission.rawValue)
+        let reader = reader([containerStore: .failure(bareDenial)])
+
+        #expect(reader.load(for: defaultProfile) == .accessDenied(url: containerStore, cause: .unspecified))
     }
 
     @Test func reportsAnyOtherReadFailureInsteadOfFallingBack() {
@@ -134,13 +155,20 @@ struct ReadFailureCase: Sendable, CustomTestStringConvertible {
 
     @Test(arguments: [
         ReadFailureCase(domain: NSCocoaErrorDomain, code: CocoaError.fileReadNoPermission.rawValue,
-                        underlyingDomain: nil, underlyingCode: nil, expected: .permissionDenied),
+                        underlyingDomain: nil, underlyingCode: nil, expected: .permissionDenied(.unspecified)),
+        ReadFailureCase(domain: NSCocoaErrorDomain, code: CocoaError.fileReadNoPermission.rawValue,
+                        underlyingDomain: NSPOSIXErrorDomain, underlyingCode: Int(EPERM),
+                        expected: .permissionDenied(.privacyProtected)),
+        ReadFailureCase(domain: NSCocoaErrorDomain, code: CocoaError.fileReadNoPermission.rawValue,
+                        underlyingDomain: NSPOSIXErrorDomain, underlyingCode: Int(EACCES),
+                        expected: .permissionDenied(.filePermissions)),
         ReadFailureCase(domain: NSPOSIXErrorDomain, code: Int(EPERM),
-                        underlyingDomain: nil, underlyingCode: nil, expected: .permissionDenied),
+                        underlyingDomain: nil, underlyingCode: nil, expected: .permissionDenied(.privacyProtected)),
         ReadFailureCase(domain: NSPOSIXErrorDomain, code: Int(EACCES),
-                        underlyingDomain: nil, underlyingCode: nil, expected: .permissionDenied),
+                        underlyingDomain: nil, underlyingCode: nil, expected: .permissionDenied(.filePermissions)),
         ReadFailureCase(domain: NSCocoaErrorDomain, code: CocoaError.fileReadUnknown.rawValue,
-                        underlyingDomain: NSPOSIXErrorDomain, underlyingCode: Int(EACCES), expected: .permissionDenied),
+                        underlyingDomain: NSPOSIXErrorDomain, underlyingCode: Int(EACCES),
+                        expected: .permissionDenied(.filePermissions)),
         ReadFailureCase(domain: NSCocoaErrorDomain, code: CocoaError.fileReadNoSuchFile.rawValue,
                         underlyingDomain: nil, underlyingCode: nil, expected: .missing),
         ReadFailureCase(domain: NSCocoaErrorDomain, code: CocoaError.fileNoSuchFile.rawValue,
