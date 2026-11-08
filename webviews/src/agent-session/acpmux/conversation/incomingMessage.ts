@@ -842,7 +842,9 @@ function digestNotice(notices: readonly AgentNotice[]): AgentNotice {
   const shared = <T>(values: readonly T[]): T | undefined =>
     values.every((value) => value === values[0]) ? values[0] : undefined;
   const host = shared(notices.map((notice) => notice.host));
-  const links = [...new Map(notices.flatMap((notice) => notice.links.map((link) => [link.url, link] as const))).values()];
+  const links = [
+    ...new Map(notices.flatMap((notice) => notice.links.map((link) => [link.url, link] as const))).values(),
+  ];
   return {
     sender: shared(notices.map((notice) => notice.sender)) ?? top.sender,
     ...(host && { host }),

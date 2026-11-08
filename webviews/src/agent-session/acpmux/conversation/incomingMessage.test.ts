@@ -755,7 +755,12 @@ test("a turn of several agents' messages shows each under its sender, signatures
 function digestTurn(parts: readonly (readonly [string, string])[]) {
   const text = [
     `${parts.length} messages from other agents arrived while you were busy. Each follows as it was sent, oldest first.`,
-    ...parts.flatMap(([from, body], index) => ["", `[agent message ${index + 1} of ${parts.length}] from ${from}`, "", body]),
+    ...parts.flatMap(([from, body], index) => [
+      "",
+      `[agent message ${index + 1} of ${parts.length}] from ${from}`,
+      "",
+      body,
+    ]),
   ].join("\n");
   const msg = { _meta: { provenance: { kind: "agent_digest", messages: parts.map(([from]) => ({ from })) } } };
   return incomingPrompt(text, msg);
@@ -798,7 +803,11 @@ test("a turn of notices from several senders names each sender before its title"
     ["acpmux", "[notice from acpmux] Background command finished: ls (exit 0)"],
   ]);
   if (turn?.kind !== "message") throw new Error("not a message");
-  expect(turn.message.notice).toMatchObject({ sender: "base-red-watch", severity: "fire", title: "fast tier failed on 3 PRs" });
+  expect(turn.message.notice).toMatchObject({
+    sender: "base-red-watch",
+    severity: "fire",
+    title: "fast tier failed on 3 PRs",
+  });
   // The machines differ (one names none): the row names none.
   expect(turn.message.notice?.host).toBeUndefined();
   expect(turn.message.text).toBe(
@@ -823,14 +832,22 @@ test("a mixed turn previews its first message, never its first sender's name", (
     ["lane-a", "**Merged** #1\nnext: the iOS half"],
     ["lane-b", "tests pass"],
   ]);
-  expect(plain).toMatchObject({ message: { preview: "Merged #1", text: "**lane-a**\n**Merged** #1\nnext: the iOS half\n\n**lane-b**\ntests pass" } });
+  expect(plain).toMatchObject({
+    message: { preview: "Merged #1", text: "**lane-a**\n**Merged** #1\nnext: the iOS half\n\n**lane-b**\ntests pass" },
+  });
 });
 
 test("a turn of one message is its text, a notice read as one", () => {
-  expect(digestTurn([["lane-a", "[lane-a] Merged #1"]])).toMatchObject({ message: { name: "lane-a", text: "Merged #1" } });
+  expect(digestTurn([["lane-a", "[lane-a] Merged #1"]])).toMatchObject({
+    message: { name: "lane-a", text: "Merged #1" },
+  });
   const one = digestTurn([["acpmux", "[notice from acpmux] Background command finished: ls (exit 0)\nok"]]);
   if (one?.kind !== "message") throw new Error("not a message");
-  expect(one.message.notice).toMatchObject({ sender: "acpmux", severity: "info", title: "Background command finished: ls (exit 0)" });
+  expect(one.message.notice).toMatchObject({
+    sender: "acpmux",
+    severity: "info",
+    title: "Background command finished: ls (exit 0)",
+  });
   expect(one.message.text).toBe("ok");
   expect(one.message.preview).toBeUndefined();
 });

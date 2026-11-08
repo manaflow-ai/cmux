@@ -31,7 +31,12 @@ const REVIEW = "[review-lane] **SHIP** at `64d6b1b`: the preview reads the first
 function digest(parts: readonly (readonly [string, string])[], minutes: number) {
   const text = [
     `${parts.length} messages from other agents arrived while you were busy. Each follows as it was sent, oldest first.`,
-    ...parts.flatMap(([from, body], index) => ["", `[agent message ${index + 1} of ${parts.length}] from ${from}`, "", body]),
+    ...parts.flatMap(([from, body], index) => [
+      "",
+      `[agent message ${index + 1} of ${parts.length}] from ${from}`,
+      "",
+      body,
+    ]),
   ].join("\n");
   const provenance = { kind: "agent_digest", messages: parts.map(([from]) => ({ from })) };
   const incoming = incomingPrompt(text, { client: "acpmux", _meta: { provenance } });
