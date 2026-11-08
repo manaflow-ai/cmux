@@ -17,9 +17,6 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 /// How long the daemon has to answer the stamp.
 pub(crate) const STAMP_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// The longest stamp reply read.
-const MAX_REPLY_BYTES: usize = 4096;
-
 /// Why a stream was refused before any of the person's bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum StampRefused {
@@ -49,7 +46,7 @@ where
         loop {
             match socket.read(&mut byte).await {
                 Ok(1) if byte[0] == b'\n' => break,
-                Ok(1) if reply.len() < MAX_REPLY_BYTES => reply.push(byte[0]),
+                Ok(1) if reply.len() < carrier_role::MAX_REPLY_BYTES => reply.push(byte[0]),
                 _ => return Err(StampRefused::Unavailable),
             }
         }
@@ -79,23 +76,38 @@ mod tests {
             let mut daemon = BufReader::new(daemon);
             let mut line = String::new();
             daemon.read_line(&mut line).await.unwrap();
-            daemon.get_mut().write_all(reply.as_bytes()).await.unwrap();
-            daemon.get_mut().write_all(b"{\"next\":true}\n").await.unwrap();
+            // A refused stream is closed mid-reply; the rest goes nowhere.
+            let _ = daemon.get_mut().write_all(reply.as_bytes()).await;
+            let _ = daemon.get_mut().write_all(b"{\"next\":true}\n").await;
             line
         });
         let result = stamp(&mut host, vm_kind).await;
-        let line = daemon.await.unwrap();
         if result.is_ok() {
             // The pump reads the daemon's next line whole.
             let mut next = String::new();
             BufReader::new(&mut host).read_line(&mut next).await.unwrap();
             assert_eq!(next, "{\"next\":true}\n");
         }
-        (result, line)
+        drop(host);
+        (result, daemon.await.unwrap())
     }
 
     const TAKEN: &str = "{\"id\":\"carrier-role\",\"ok\":true,\"data\":{}}\n";
     const REFUSED: &str = "{\"ok\":false,\"error\":\"bad_request\"}\n";
+
+    /// What a daemon from before the stamp answers it: an unknown command,
+    /// with every command it knows listed (cmux-tui-core's
+    /// `carrier_role_tests` measures the real one).
+    fn legacy_reply() -> String {
+        let known: Vec<String> = (0..400).map(|n| format!("`command-{n:03}`")).collect();
+        let error = format!(
+            "bad request: unknown variant `carrier-role`, expected one of {}",
+            known.join(", ")
+        );
+        let reply =
+            serde_json::json!({"id": carrier_role::REQUEST_ID, "ok": false, "error": error});
+        format!("{reply}\n")
+    }
 
     #[tokio::test]
     async fn the_grants_role_is_the_first_line_the_daemon_reads() {
@@ -116,6 +128,25 @@ mod tests {
         }
         // The owner loses nothing on an older daemon.
         assert_eq!(exchange(Some(VmKind::Owner), REFUSED).await.0, Ok(()));
+    }
+
+    #[tokio::test]
+    async fn an_older_daemons_long_unknown_command_reply_is_read_whole() {
+        let legacy = legacy_reply();
+        assert!(legacy.len() > 6 * 1024, "{}", legacy.len());
+        // The owner's stream goes on, and the pump sees the daemon's next line whole.
+        assert_eq!(exchange(Some(VmKind::Owner), &legacy).await.0, Ok(()));
+        for role in [Some(VmKind::Team), None] {
+            assert_eq!(exchange(role, &legacy).await.0, Err(StampRefused::NotTaken), "{role:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_reply_past_the_bound_refuses_every_stream() {
+        let long = format!("{{\"error\":\"{}\"}}\n", "x".repeat(carrier_role::MAX_REPLY_BYTES));
+        for role in [Some(VmKind::Owner), Some(VmKind::Team)] {
+            assert_eq!(exchange(role, &long).await.0, Err(StampRefused::Unavailable), "{role:?}");
+        }
     }
 
     #[tokio::test]

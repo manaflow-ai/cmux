@@ -3,7 +3,8 @@
 //! where a Mac's start keeps whatever mode its harness starts in.
 
 use super::agent_session_attach_tests::{
-    Client, FakeAcpmux, Fixture, PhoneFloor, SESSION, assert_code, mux_with, run, terminal_pane,
+    Client, FakeAcpmux, Fixture, PhoneFloor, SESSION, WAIT, assert_code, mux_with, run,
+    terminal_pane,
 };
 use super::*;
 use crate::server::AgentStartHost;
@@ -28,13 +29,15 @@ fn connect(
     stuck: bool,
 ) -> Phone {
     let mode = Arc::new(Mutex::new(mode.to_owned()));
+    let floor = PhoneFloor { strict, family, mode, stuck, table_gate: None };
+    connect_with(label, phone, floor)
+}
+
+fn connect_with(label: &str, phone: bool, floor: PhoneFloor) -> Phone {
+    let (family, mode) = (floor.family, floor.mode.clone());
     let fake = FakeAcpmux::start_with(
         label,
-        Fixture {
-            start_folder_trusted: Some(true),
-            phone: Some(PhoneFloor { strict, family, mode: mode.clone(), stuck }),
-            ..Default::default()
-        },
+        Fixture { start_folder_trusted: Some(true), phone: Some(floor), ..Default::default() },
     );
     let mux = mux_with(&fake, label);
     mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
@@ -132,4 +135,50 @@ fn the_owners_own_start_on_their_cloud_vm_keeps_its_harness_mode() {
     assert_eq!(*owner.mode.lock().unwrap(), "acceptEdits");
     let methods = owner.methods();
     assert!(!methods.contains(&"session/set_mode".to_owned()), "{methods:?}");
+}
+
+#[test]
+fn a_phone_start_keeps_the_phones_floor_after_the_phone_disconnects() {
+    let (release, gate) = std::sync::mpsc::channel();
+    let floor = PhoneFloor {
+        strict: true,
+        family: "claude",
+        mode: Arc::new(Mutex::new("acceptEdits".to_owned())),
+        stuck: false,
+        table_gate: Some(Arc::new(Mutex::new(gate))),
+    };
+    let Phone { fake, mut client, surface, cwd, mode } =
+        connect_with("phone-disconnects", true, floor);
+    client.send(json!({"cmd":"agent-session-start","surface":surface,"cwd":cwd,
+        "harness":"claude","vm_kind":"owner"}));
+    // The start's worker waits on acpmux's table; the phone's connection ends meanwhile.
+    let mut methods = Vec::new();
+    while let Ok(frame) = fake.frames.recv_timeout(WAIT) {
+        let method = frame["method"].as_str().unwrap_or_default().to_owned();
+        let asked = method == "_acpmux/web_modes";
+        methods.push(method);
+        if asked {
+            break;
+        }
+    }
+    drop(client);
+    release.send(()).unwrap();
+    while let Ok(frame) = fake.frames.recv_timeout(Duration::from_millis(500)) {
+        methods.push(frame["method"].as_str().unwrap_or_default().to_owned());
+    }
+    // The start that went on still got the phone's floor.
+    assert!(methods.contains(&"session/new".to_owned()), "{methods:?}");
+    assert!(methods.contains(&"session/set_mode".to_owned()), "{methods:?}");
+    assert_eq!(*mode.lock().unwrap(), "default");
+}
+
+#[test]
+fn a_phone_start_of_a_codex_bridge_session_moves_to_ask() {
+    // acpmux lists Codex as a refused Web family; its bridge holds to the phone floor in `ask`.
+    let mut phone = connect("phone-codex", true, true, "codex", "auto", false);
+    let start = json!({"cmd":"agent-session-start","surface":phone.surface,"cwd":phone.cwd,
+        "vm_kind":"owner"});
+    let started = phone.client.request(start);
+    assert_eq!(started["ok"], json!(true), "{started}");
+    assert_eq!(*phone.mode.lock().unwrap(), "ask");
 }

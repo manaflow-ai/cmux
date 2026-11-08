@@ -29,6 +29,11 @@ pub const COMMAND: &str = "carrier-role";
 /// The stamp's request id; its reply carries the same id.
 pub const REQUEST_ID: &str = "carrier-role";
 
+/// The longest stamp reply the session host reads. A daemon from before the
+/// stamp answers it as an unknown command, and that reply lists every command
+/// the daemon knows (over 6 KB), so the bound leaves room for that list to grow.
+pub const MAX_REPLY_BYTES: usize = 256 * 1024;
+
 /// The stamp for a grant that signed `vm_kind` (`None`: the grant names no
 /// role), without the trailing newline.
 pub fn line(vm_kind: Option<VmKind>) -> String {
