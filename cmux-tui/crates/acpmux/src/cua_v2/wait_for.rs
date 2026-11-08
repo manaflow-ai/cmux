@@ -13,6 +13,15 @@
 //! the machine consent check runs for every one, exactly as for a direct
 //! `get_window_state` call.
 //!
+//! A wait for an element to appear counts only rows an agent can act on:
+//! an `element_index`, not `display_only`, not `enabled: false`. A wait for
+//! one to go away counts any row unless `actionable: true` asks otherwise.
+//!
+//! "Gone" is only claimed from a whole tree. A check that sees no match in a
+//! tree the caller bounded (`max_elements`, `max_depth`) reads again at once
+//! without those bounds; one that is still `truncated` proves nothing, so the
+//! wait goes on and, at its deadline, says the absence was not confirmed.
+//!
 //! Every wait ends: at a match, at an error, or at its deadline
 //! (`timeout_ms`, default [`DEFAULT_TIMEOUT_MS`], at most
 //! [`MAX_TIMEOUT_MS`]). A timed-out wait answers `isError` with
@@ -50,7 +59,7 @@ const PASSED_ON: [&str; 4] = ["pid", "window_id", "max_depth", "max_elements"];
 pub fn definition() -> Value {
     json!({
         "name": TOOL,
-        "description": "Wait until an element appears in a window's accessibility tree (or, with gone: true, until none matches), instead of sleeping and taking another screenshot. Checks the tree with get_window_state (no screenshot) every interval_ms until timeout_ms. On a match it returns the matching elements in get_window_state's shape, with element_token values from the newest snapshot, ready for click or type_text. On timeout it returns isError with timed_out: true and the count the last check saw. Pass query (get_window_state's case-insensitive match on an element's role, label or value; like it, only indexed rows count, so a plain text or spinner with no element_index never matches), role, or both.",
+        "description": "Wait until an element appears in a window's accessibility tree (or, with gone: true, until none matches), instead of sleeping and taking another screenshot. Checks the tree with get_window_state (no screenshot) every interval_ms until timeout_ms. On a match it returns the matching elements in get_window_state's shape, with element_token values from the newest snapshot, ready for click or type_text. On timeout it returns isError with timed_out: true and the count the last check saw. Pass query (get_window_state's case-insensitive match on an element's role, label or value; like it, only indexed rows count, so a plain text or spinner with no element_index never matches), role, or both. A wait to appear matches only elements you can act on (an element_index, not disabled). gone is only reported from a whole tree: a bounded read (max_elements, max_depth) that sees no match is read again without the bounds, and a truncated tree never counts as gone (at the deadline the result says gone_unconfirmed: true).",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -59,6 +68,7 @@ pub fn definition() -> Value {
                 "query": {"type": "string", "description": "get_window_state's query: a case-insensitive match on an element's role, label or value."},
                 "role": {"type": "string", "description": "Only elements of this role, for example button or AXButton (case-insensitive; the AX prefix is optional)."},
                 "gone": {"type": "boolean", "description": "Wait until no element matches instead. Default false."},
+                "actionable": {"type": "boolean", "description": "Count only elements you can act on (an element_index, not display_only, not enabled: false). Default true for a wait to appear, false with gone."},
                 "timeout_ms": {"type": "integer", "minimum": 0, "maximum": MAX_TIMEOUT_MS, "description": "How long to wait in all. Default 10000; larger values are cut to 50000; 0 checks once."},
                 "interval_ms": {"type": "integer", "minimum": MIN_INTERVAL_MS, "maximum": MAX_INTERVAL_MS, "description": "The pause between checks. Default 200."},
                 "max_depth": {"type": "integer", "description": "Passed to get_window_state."},
@@ -93,6 +103,7 @@ pub struct Wait {
     query: Option<String>,
     role: Option<String>,
     gone: bool,
+    actionable: bool,
     timeout: Duration,
     interval: Duration,
 }
@@ -133,6 +144,13 @@ impl Wait {
                 return Err(format!("invalid_arguments: {TOOL} takes gone as true or false"));
             }
         };
+        let actionable = match object.get("actionable") {
+            None | Some(Value::Null) => !gone,
+            Some(Value::Bool(actionable)) => *actionable,
+            Some(_) => {
+                return Err(format!("invalid_arguments: {TOOL} takes actionable as true or false"));
+            }
+        };
         let millis = |key: &str, default: u64| -> Result<u64, String> {
             match object.get(key) {
                 None | Some(Value::Null) => Ok(default),
@@ -162,6 +180,7 @@ impl Wait {
             query,
             role,
             gone,
+            actionable,
             timeout: Duration::from_millis(timeout),
             interval: Duration::from_millis(interval),
         })
@@ -196,8 +215,14 @@ pub trait TreeReader {
 /// With a query the helper already kept only matching rows and their
 /// ancestors, in depth-first order; a row followed by a deeper row is an
 /// ancestor and is dropped unless its own role, label or value holds the
-/// query too.
-pub fn matching(state: &Value, query: Option<&str>, role: Option<&str>) -> Vec<Value> {
+/// query too. With `actionable` only rows [`is_actionable`] says an agent
+/// can act on count.
+pub fn matching(
+    state: &Value,
+    query: Option<&str>,
+    role: Option<&str>,
+    actionable: bool,
+) -> Vec<Value> {
     let empty = Vec::new();
     let elements = state.get("elements").and_then(Value::as_array).unwrap_or(&empty);
     let depth =
@@ -219,14 +244,40 @@ pub fn matching(state: &Value, query: Option<&str>, role: Option<&str>) -> Vec<V
                     !ancestor || own_text_holds(element, query)
                 }
             };
-            hit && role.as_ref().is_none_or(|role| {
-                element.get("role").and_then(Value::as_str).map(normalized_role).as_ref()
-                    == Some(role)
-            })
+            hit && (!actionable || is_actionable(element))
+                && role.as_ref().is_none_or(|role| {
+                    element.get("role").and_then(Value::as_str).map(normalized_role).as_ref()
+                        == Some(role)
+                })
         })
         .map(|(_, element)| element.clone())
         .collect()
 }
+
+/// Whether an agent can act on this row: it has an `element_index` (so
+/// click and type_text can name it), it is not a `display_only` row, and it
+/// is not `enabled: false`.
+pub fn is_actionable(element: &Value) -> bool {
+    element.get("element_index").is_some_and(Value::is_u64)
+        && element.get("display_only") != Some(&Value::Bool(true))
+        && element.get("enabled") != Some(&Value::Bool(false))
+}
+
+/// Whether a `get_window_state` result may have left elements out: the
+/// helper says `truncated` (or names a `truncation_reason`), or the read was
+/// bounded by `max_elements`/`max_depth` and the helper did not say
+/// `truncated: false`.
+fn incomplete(state: &Value, bounded: bool) -> bool {
+    match state.get("truncated") {
+        Some(Value::Bool(true)) => true,
+        _ if state.get("truncation_reason").is_some_and(|reason| !reason.is_null()) => true,
+        Some(Value::Bool(false)) => false,
+        _ => bounded,
+    }
+}
+
+/// The caller's bounds on the walk, which a "gone" check must not trust.
+const BOUNDS: [&str; 2] = ["max_elements", "max_depth"];
 
 fn own_text_holds(element: &Value, query: &str) -> bool {
     ["role", "label", "value"].iter().any(|key| {
@@ -250,13 +301,13 @@ pub async fn run<R: TreeReader>(wait: &Wait, reader: &mut R) -> Value {
     let mut last: Vec<Value> = Vec::new();
     let mut window = Value::Null;
     let mut unanswered = false;
+    let mut arguments = wait.read_arguments.clone();
+    let mut widened = false;
+    let mut unconfirmed = false;
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         checks = checks.saturating_add(1);
-        let read = tokio::time::timeout(
-            remaining.max(CHECK_GRACE),
-            reader.read(wait.read_arguments.clone()),
-        );
+        let read = tokio::time::timeout(remaining.max(CHECK_GRACE), reader.read(arguments.clone()));
         let result = match read.await {
             Err(_) => {
                 // This check has no answer: the count stays the last one's.
@@ -274,9 +325,26 @@ pub async fn run<R: TreeReader>(wait: &Wait, reader: &mut R) -> Value {
         }
         let state = result.get("structuredContent").unwrap_or(&result);
         window = json!({"pid": state.get("pid"), "window_id": state.get("window_id")});
-        last = matching(state, wait.query.as_deref(), wait.role.as_deref());
+        last = matching(state, wait.query.as_deref(), wait.role.as_deref(), wait.actionable);
+        unconfirmed = false;
         if last.is_empty() == wait.gone {
-            return done(wait, &last, &window, checks, started);
+            let bounded = BOUNDS.iter().any(|key| arguments.get(*key).is_some());
+            if !wait.gone || !incomplete(state, bounded) {
+                return done(wait, &last, &window, checks, started, widened);
+            }
+            if bounded {
+                // No match in a bounded tree proves nothing: read the whole
+                // tree now, and keep reading it whole.
+                if let Some(read) = arguments.as_object_mut() {
+                    for key in BOUNDS {
+                        read.remove(key);
+                    }
+                }
+                widened = true;
+                continue;
+            }
+            // Even the whole tree was cut short: absence stays unknown.
+            unconfirmed = true;
         }
         let now = Instant::now();
         if now >= deadline {
@@ -285,7 +353,17 @@ pub async fn run<R: TreeReader>(wait: &Wait, reader: &mut R) -> Value {
         // Nothing is held across this pause: the reader owns the connection.
         tokio::time::sleep(wait.interval.min(deadline.saturating_duration_since(now))).await;
     }
-    timed_out(wait, &last, &window, checks, unanswered, started)
+    timed_out(wait, &last, &window, checks, Ending { unanswered, unconfirmed, widened }, started)
+}
+
+/// How the last checks of a timed-out wait went.
+struct Ending {
+    /// The last check got no answer in time.
+    unanswered: bool,
+    /// The last check saw no match, but in a truncated tree.
+    unconfirmed: bool,
+    /// The caller's `max_elements`/`max_depth` were dropped to confirm gone.
+    widened: bool,
 }
 
 fn elapsed_ms(started: Instant) -> u64 {
@@ -316,10 +394,18 @@ fn lines(elements: &[Value]) -> String {
     text
 }
 
-fn done(wait: &Wait, found: &[Value], window: &Value, checks: u64, started: Instant) -> Value {
+fn done(
+    wait: &Wait,
+    found: &[Value],
+    window: &Value,
+    checks: u64,
+    started: Instant,
+    widened: bool,
+) -> Value {
     let elapsed = elapsed_ms(started);
     let text = if wait.gone {
-        format!("no element is {} any more ({elapsed} ms, {checks} checks)", wait.describe())
+        let whole = if widened { ", read without max_elements/max_depth to be sure" } else { "" };
+        format!("no element is {} any more ({elapsed} ms, {checks} checks{whole})", wait.describe())
     } else {
         format!(
             "found {} element(s): {} ({elapsed} ms, {checks} checks){}",
@@ -338,6 +424,7 @@ fn done(wait: &Wait, found: &[Value], window: &Value, checks: u64, started: Inst
             "elements_truncated": found.len() > MAX_LISTED,
             "checks": checks,
             "elapsed_ms": elapsed,
+            "widened": widened,
             "pid": window.get("pid"),
             "window_id": window.get("window_id"),
         },
@@ -349,16 +436,22 @@ fn timed_out(
     last: &[Value],
     window: &Value,
     checks: u64,
-    unanswered: bool,
+    ending: Ending,
     started: Instant,
 ) -> Value {
+    let Ending { unanswered, unconfirmed, widened } = ending;
     let elapsed = elapsed_ms(started);
     let timeout = u64::try_from(wait.timeout.as_millis()).unwrap_or(MAX_TIMEOUT_MS);
     let goal = if wait.gone { "to disappear" } else { "to appear" };
     let unanswered_text =
         if unanswered { "; one more check got no answer from the helper in time" } else { "" };
+    let unconfirmed_text = if unconfirmed {
+        "; it saw none, but its tree was truncated, so gone is not confirmed"
+    } else {
+        ""
+    };
     let text = format!(
-        "timed_out: waited {elapsed} ms ({checks} checks) for {} {goal}; the last check saw {} matching element(s){unanswered_text}. Next: get_window_state to look at the window, or {TOOL} again with a larger timeout_ms (at most {MAX_TIMEOUT_MS}).",
+        "timed_out: waited {elapsed} ms ({checks} checks) for {} {goal}; the last check saw {} matching element(s){unconfirmed_text}{unanswered_text}. Next: get_window_state to look at the window, or {TOOL} again with a larger timeout_ms (at most {MAX_TIMEOUT_MS}).",
         wait.describe(),
         last.len()
     );
@@ -374,6 +467,8 @@ fn timed_out(
             "elapsed_ms": elapsed,
             "timeout_ms": timeout,
             "last_check_unanswered": unanswered,
+            "gone_unconfirmed": unconfirmed,
+            "widened": widened,
             "pid": window.get("pid"),
             "window_id": window.get("window_id"),
         },

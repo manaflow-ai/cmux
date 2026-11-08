@@ -271,7 +271,11 @@ Perceive, act in logical groups, then verify:
    `gone: true` to wait for disappearance, and `timeout_ms` (default 10000, at
    most 50000). It reads the accessibility tree only, with no screenshot, and
    returns the matching elements with fresh `element_token`s; a wait that runs
-   out returns `timed_out: true` and the last count. It is served by the
+   out returns `timed_out: true` and the last count. A wait to appear matches
+   only elements you can act on (not `display_only`, not `enabled: false`;
+   `actionable: false` widens it). `gone` is reported only from a whole tree: a
+   read bounded by `max_elements`/`max_depth` is checked again without them,
+   and a `truncated` tree ends in `gone_unconfirmed: true`, not gone. It is served by the
    `upstream` driver's bridge (`acpmux cua-mcp`) only.
 
 Notes:
