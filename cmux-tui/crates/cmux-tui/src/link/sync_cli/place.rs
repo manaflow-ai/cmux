@@ -288,13 +288,13 @@ impl Dir {
     }
 }
 
+/// A file [`open_beneath`] opened, its device and inode, and its root's.
+pub(super) type Beneath = (File, (u64, u64), (u64, u64));
+
 /// The regular file `relative` under the folder `root`, opened one name at
 /// a time with `O_NOFOLLOW`, so no symlink anywhere below `root` is
 /// followed; with the file's device and inode and the root's.
-pub(super) fn open_beneath(
-    root: &Path,
-    relative: &str,
-) -> anyhow::Result<(File, (u64, u64), (u64, u64))> {
+pub(super) fn open_beneath(root: &Path, relative: &str) -> anyhow::Result<Beneath> {
     use std::os::unix::fs::MetadataExt as _;
     let dir = Dir::open(root)?;
     let root_identity = dir.identity()?;
