@@ -46,8 +46,10 @@ export function listedChat(target: CmuxLinkTarget, store: SessionHoverStore | un
     return store.get(target.session) ? target.session : undefined;
   if (target.kind !== "agent") return undefined;
   if (target.harness && target.session) return store.byAgent(target.harness, target.session);
-  // A web link that names the session alone: its acpmux id when the list has it.
-  return target.session && store.get(target.session) ? target.session : undefined;
+  // A web link that names the session alone: the harness's own id (what `?session=` carries), or an
+  // acpmux id when the list has one by it.
+  if (!target.session) return undefined;
+  return store.byAgentSession(target.session) ?? (store.get(target.session) ? target.session : undefined);
 }
 
 /// What a link's chip reads from the page's stores: the host's place it names, or the listed chat

@@ -12,7 +12,7 @@
 // before the chips, for every kind: an app link takes the host's link path (`link.open`), which the
 // anchor's own click takes; cmux.com's agent link opens as its URL chip did (ChatLinkChip below).
 // Copy: a selection copies each chip as its link (conversation/selectionCopy.ts).
-import { useContext, useState, type ReactNode } from "react";
+import { useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { AnchoredCard } from "../../../ui/Tooltip";
 import { experimentArm } from "../../../experiments/experiment";
 import { Icon } from "../icons/Icon";
@@ -75,13 +75,71 @@ function usePlaceLine(info: CmuxLinkInfo): string {
 export function CmuxLinkChip({ href, fallback, look }: { href: string; fallback: ReactNode; look?: CmuxLinkLook }) {
   const { target, info } = useCmuxLink(href);
   const shown = look ?? experimentArm(cmuxLinkLook);
-  if (!target || !info || shown === "link") return <>{fallback}</>;
+  const chip = Boolean(target && info && shown !== "link");
   // A selection copies the chip as its link, in a prompt's text too (conversation/selectionCopy.ts).
-  installSelectionCopy();
-  return namesChat(target) ? (
-    <ChatLinkChip href={href} target={target} info={info} look={shown} />
-  ) : (
-    <PlaceLinkChip href={href} info={info} look={shown} />
+  if (chip) installSelectionCopy();
+  return (
+    <LinkSlot swap={chip ? "chip" : "link"}>
+      {!target || !info || shown === "link" ? (
+        fallback
+      ) : namesChat(target) ? (
+        <ChatLinkChip href={href} target={target} info={info} look={shown} />
+      ) : (
+        <PlaceLinkChip href={href} info={info} look={shown} />
+      )}
+    </LinkSlot>
+  );
+}
+
+/// The link and its chip are different elements (the caller's link, the chip once something names
+/// it), so the anchor is replaced when the answer comes. This box, which draws nothing
+/// (`display: contents`), stays: focus or the pointer on the link when it is replaced moves to the
+/// new anchor, so a link tabbed to before its answer still takes Enter and its card follows the
+/// pointer (review of #38166), as a URL chip that resolves in place does.
+function LinkSlot({ swap, children }: { swap: "chip" | "link"; children: ReactNode }) {
+  const [slot, setSlot] = useState<HTMLSpanElement | null>(null);
+  const held = useRef({ focused: false, hovered: false });
+  useEffect(() => {
+    if (!slot) return;
+    const state = held.current;
+    const focusIn = () => void (state.focused = true);
+    // Read after the event: a replaced anchor's blur comes while the new one is not in yet, and the
+    // swap's layout effect, in the same task, still sees the focus as here.
+    const focusOut = () => queueMicrotask(() => void (state.focused = slot.contains(slot.ownerDocument.activeElement)));
+    const over = () => void (state.hovered = true);
+    const leave = () => void (state.hovered = false);
+    slot.addEventListener("focusin", focusIn);
+    slot.addEventListener("focusout", focusOut);
+    slot.addEventListener("pointerover", over);
+    slot.addEventListener("pointerleave", leave);
+    return () => {
+      slot.removeEventListener("focusin", focusIn);
+      slot.removeEventListener("focusout", focusOut);
+      slot.removeEventListener("pointerover", over);
+      slot.removeEventListener("pointerleave", leave);
+    };
+  }, [slot]);
+  const shownOnce = useRef(swap);
+  useLayoutEffect(() => {
+    if (shownOnce.current === swap) return;
+    shownOnce.current = swap;
+    const anchor = slot?.querySelector<HTMLAnchorElement>("a[href]");
+    if (!slot || !anchor) return;
+    const owner = slot.ownerDocument;
+    const lost = !owner.activeElement || owner.activeElement === owner.body;
+    if (held.current.focused && lost) anchor.focus({ preventScroll: true });
+    else if (held.current.hovered && !held.current.focused) {
+      // The new anchor's hover, as the pointer arriving on it (its card's own enter).
+      const box = anchor.getBoundingClientRect();
+      const at = { bubbles: true, clientX: (box.left + box.right) / 2, clientY: (box.top + box.bottom) / 2 };
+      anchor.dispatchEvent(new PointerEvent("pointerover", at));
+      anchor.dispatchEvent(new PointerEvent("pointerenter", { ...at, bubbles: false }));
+    }
+  }, [swap, slot]);
+  return (
+    <span ref={setSlot} className="cv-cmux-link-slot">
+      {children}
+    </span>
   );
 }
 

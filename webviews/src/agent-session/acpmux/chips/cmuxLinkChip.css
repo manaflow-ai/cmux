@@ -3,6 +3,11 @@
    design/chat-transcript.md "Session link chip") with the kind's icon before the title and, for
    another machine's, the machine muted after it. Inline, so a long title wraps with the sentence,
    and the line's own height: the chip replacing the link never moves the lines under it. */
+/* The box the link and its chip are drawn in (CmuxLinkChip.tsx LinkSlot): it draws nothing, so the
+   line lays out as if the anchor were the text's own child. */
+.cv-cmux-link-slot {
+  display: contents;
+}
 .cv-cmux-link {
   text-decoration: none;
   overflow-wrap: anywhere;

@@ -769,6 +769,24 @@ test("the draft hears the page's chat list set after it mounted, and its renames
   expect(titled()).toEqual([["Review the retry fix, again · build-box", AGENT]]);
 });
 
+test("the draft resolves a cmux.com link naming the harness's session alone to its listed chat", async () => {
+  // `?session=` with no harness is the harness's own session id, never an acpmux one.
+  const link = `https://cmux.com/deeplink/agent?session=${SESSION}`;
+  setPageChats(chats());
+  await composer(`Pick up ${link}`);
+  expect(titled()).toEqual([["Review the retry fix · build-box", link]]);
+});
+
+test("a sent cmux.com link naming the harness's session alone is its listed chat's chip", async () => {
+  const link = `https://cmux.com/deeplink/agent?session=${SESSION}`;
+  await mount(
+    <SessionHoverContext.Provider value={{ store: chats(), open: () => undefined }}>
+      <PromptTyped text={`Pick up ${link}`} show={(text) => text} />
+    </SessionHoverContext.Provider>,
+  );
+  expect(host.querySelector("[data-cmux-link=chat] .cv-cmux-link__title")?.textContent).toBe("Review the retry fix");
+});
+
 test("the draft's chip carries its kind's icon as a mask image", async () => {
   setLinkPlaces([place("Retry fix")]);
   await composer(`See ${WORKSPACE}`);
