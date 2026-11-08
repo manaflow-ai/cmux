@@ -6,7 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
 import { sessionEntry } from "../sessionList";
-import { renderInline } from "../conversation/Markdown";
+import { renderInline } from "../conversation/inlineMarkdown";
 import { turnView } from "../conversation/turns";
 import { StartedSessionCards } from "./StartedSessionCard";
 import { AgentMark } from "../../shared/AgentMark";

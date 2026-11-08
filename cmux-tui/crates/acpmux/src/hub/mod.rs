@@ -656,6 +656,9 @@ pub struct Hub {
     /// Model lists from Claude Code's and Codex's own CLIs, by profile name
     /// (`hub/live_models.rs`): richer than `known_models` (efforts, fast).
     pub(super) live_models: StdMutex<HashMap<String, Vec<crate::live_models::LiveModel>>>,
+    /// The model ids Codex chats reported that each live list lacked, by profile name, each
+    /// already probed again for once (`recheck_live_models`).
+    pub(super) live_rechecks: StdMutex<HashMap<String, std::collections::HashSet<String>>>,
     /// (harness, model) pairs whose backend refused them, with its message (model_availability.rs).
     pub(super) refused_models: StdMutex<HashMap<(String, String), String>>,
     /// False while the daemon finishes startup work (login environment,
@@ -1006,6 +1009,7 @@ impl Hub {
             peer_notices_done: Arc::new(Notify::new()),
             known_models: StdMutex::new(HashMap::new()),
             live_models: StdMutex::new(HashMap::new()),
+            live_rechecks: StdMutex::new(HashMap::new()),
             refused_models: StdMutex::new(HashMap::new()),
             startup_ready: tokio::sync::watch::channel(true).0,
             startup_work_done: tokio::sync::watch::channel(true).0,

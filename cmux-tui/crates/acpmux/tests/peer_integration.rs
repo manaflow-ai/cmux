@@ -302,9 +302,17 @@ async fn a_prompt_an_agent_sends_through_a_peer_names_that_agent_on_the_owning_d
     let meta = a.resolve(&lane_id).unwrap().meta();
     let family = meta.family.clone().unwrap_or(meta.harness.clone());
     let stamped = json!({"kind": "agent_message", "from": "fromAgent", "fromName": "codex-lane", "to": remote_id,
-                         "fromSessionId": lane_id, "fromHarness": family});
+                         "fromSessionId": lane_id, "fromHarness": family,
+                         "verified": false, "transport": "peer", "forwardedBy": {"actor": "peer"}});
     assert_eq!(by_id("from-lane").pointer("/_meta/provenance"), Some(&stamped), "{messages:?}");
+    // A's client proved the person (`client` above): A says so (`personVerified`), and B records
+    // the prompt as the person's, marked as proven.
     assert!(by_id("from-person").pointer("/_meta/provenance").is_none(), "{messages:?}");
+    assert_eq!(
+        by_id("from-person").pointer("/_meta/origin"),
+        Some(&json!({"actor": "person", "verified": true})),
+        "{messages:?}"
+    );
 }
 
 /// A person's prompt through a peer (chat multiplayer, `author.rs`): A forwards its `author`, and
@@ -344,7 +352,8 @@ async fn a_persons_prompt_through_a_peer_is_recorded_as_theirs_on_the_owning_dae
                       "_meta": {"acpmux": {"promptId": "from-both", "author": ana, "provenance": agent}}});
     let refused = ca.call(method::SESSION_PROMPT, both).await.unwrap_err();
     assert!(refused.contains("never both"), "{refused}");
-    let stamped = json!({"kind": "person_message", "from": "tailnet:ana@example.com", "fromName": "Ana", "node": "ana-mbp"});
+    let stamped = json!({"kind": "person_message", "from": "tailnet:ana@example.com", "fromName": "Ana", "node": "ana-mbp",
+                         "verified": false, "transport": "peer", "forwardedBy": {"actor": "peer"}});
     assert_eq!(message.pointer("/_meta/provenance"), Some(&stamped), "{message}");
 }
 

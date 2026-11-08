@@ -10,7 +10,7 @@ import { openSenderChat } from "../rows/rowActions";
 import { AgentTag } from "./AgentTag";
 import { openSessionAttributes } from "./menuParts";
 import { useTranscriptReadOnly } from "./readOnly";
-import { useSessionRef } from "./SessionRef";
+import { useSessionRef } from "./sessionRefModel";
 import { resolveSessionRef, sessionRefsResolve, whenIdle } from "./sessionRefs";
 import type { SentFrom } from "./sentFromHarness";
 

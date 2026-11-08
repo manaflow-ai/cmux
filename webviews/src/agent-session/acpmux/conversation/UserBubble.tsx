@@ -42,6 +42,7 @@ import { recordedPromptParts } from "../inlinePrompt";
 import { frameTextOf, rowImageNames, withoutFramesNotes, withoutVideoFrames } from "../composer/videoPrompt";
 import { useComposerSettings } from "../composerSettings";
 import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
+
 import { SourceBadge } from "../composer/SourceBadge";
 import { useSourceLabel, withSourceLabel } from "../composer/sourceBadgeModel";
 import { ForkButton, MessageCopy, MessageFooterRow, MessageTime, PinButton, PromptRetry } from "./MessageActions";

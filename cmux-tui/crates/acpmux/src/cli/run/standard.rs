@@ -706,6 +706,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // from...").
             (prompt_id.from_agent, prompt_id.sender_harness) =
                 crate::sender_harness::of_this_send(from.or(relayed));
+            prompt_id.from_harness =
+                crate::cli::sender::harness_of_this_process().map(str::to_owned);
             prompt_id.cli_host = crate::cli::sender::person_host(prompt_id.from_agent.is_some());
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;

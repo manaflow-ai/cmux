@@ -143,7 +143,7 @@ export default componentEntry<Props>({
     },
     "tint-popover": {
       props: { look: "card", only: "stack", tint: "popover" },
-      note: "Option: the popovers' denser theme tint.",
+      note: "Option: the popovers' theme tint (--ds-glass-popover-tint).",
     },
     "ask-check": { props: { look: "card", only: "ask" }, play: checkAskFirst },
     "error-retry-first": { props: { look: "card", only: "error" }, play: retryLeads },

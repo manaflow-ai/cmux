@@ -170,7 +170,8 @@ import { PICKER_LABELS } from "./composerPickerModel";
 import { chatAccessGrants, revokeAccessRows } from "./header/grantsMenu";
 import { openPicker } from "./pickerOpeners";
 import { startRefusalRoute } from "./startRefusal";
-import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
+import { EmptyState, type EmptyStateProjects } from "./EmptyState";
+import { isNewChat, projectName } from "./emptyStateModel";
 import { paneKnowsNewChat } from "./locationRow";
 import { ChatUnavailableState } from "./ChatUnavailableState";
 import { useCloudChatRecovery } from "./useCloudChatRecovery";
@@ -179,7 +180,7 @@ import { cloudSendWakes, cloudTypingWakes, type CloudWakeState } from "./cloudWa
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos } from "./projectRepos";
-import { answerFromHome } from "./HomeInbox";
+import { answerFromHome } from "./homeInboxModel";
 import { HomeLists } from "./HomeLists";
 import { lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
@@ -320,8 +321,8 @@ import { DictationNotice } from "./DictationNotice";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import { AgentNamesContext, AgentOpenContext, agentNames, agentViews } from "./conversation/agentNames";
 import { setReadAloudState } from "./conversation/readAloud";
+import { loadEditDiffHunks } from "./conversation/editDiffModel";
 import { loadHighlightedCode } from "./conversation/codeBlockModel";
-import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { BackgroundTaskOutputContext, type BackgroundTaskOutputReader } from "./conversation/backgroundTaskOutput";
 import { SessionCwdContext, SessionEditsContext, sessionEdits, type SessionEdits } from "./turnChanges/sessionRows";
 import { startedNames, SubsessionNamesProvider, type StartedNames } from "./conversation/startedNames";
@@ -333,7 +334,7 @@ import {
   viewChangesPatch,
   viewChangesTurn,
 } from "./turnChanges/viewChanges";
-import { resendToOwner, retryFailedTurn } from "./conversation/turnRetry";
+import { resendToOwner, retryFailedTurn, sendUntilTaken } from "./conversation/turnRetry";
 import {
   TurnActionsContext,
   chatLoginCommand,
@@ -417,7 +418,7 @@ import {
   type OpenedArtifact,
 } from "./conversation/artifactPin";
 import { uniqueArtifacts } from "./conversation/artifactDedupe";
-import { writtenArtifacts } from "./conversation/writtenArtifacts";
+import { writtenArtifacts } from "./conversation/writtenArtifactsModel";
 import { artifactVersions } from "./conversation/artifactVersions";
 import { artifactLiveSource, mergeArtifactVersions } from "./conversation/artifactLive";
 import { RenderPages, renderPages, renderVersions } from "./conversation/renderCall";
@@ -528,12 +529,14 @@ import { useTranscriptView, type TranscriptView } from "./conversation/transcrip
 import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";
 import { readWakeFolds, wakeFolds, type PaneFolds } from "./conversation/wakeFolds";
 import { callsToHold, foldsToHold, linedCallOf, withHeldFolds, withoutHeldCalls } from "./conversation/turnEndHold";
-import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
+import { HarnessHealthNotice } from "./HarnessHealthNotice";
+import { type HarnessHealth, type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
 import { Notice, NoticeSlot } from "./NoticeSlot";
 import { createPaneToasts, paneNotices } from "./paneToasts";
 import { ToastLayer } from "./ToastLayer";
 import { AutoResumeNotice } from "./AutoResumeNotice";
-import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
+import { RulesNotice } from "./RulesNotice";
+import { type ForumRule, forumRules } from "./rulesNoticeModel";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { ACCESS_ACTIONS, type AccessOffer } from "./accessOffer";
 import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
@@ -565,7 +568,7 @@ import {
 } from "./subagents/subagentGroupModel";
 import { useEscapeClosesSubagent } from "./subagents/subagentEscape";
 import { endedEditRow, markRows, type RowMarks } from "./rowMarks";
-import { ShellActionsContext, type ShellActions } from "./shell/ShellRow";
+import { ShellActionsContext, type ShellActions } from "./shell/shellRowModel";
 import { SwitchNotice } from "./SwitchNotice";
 import { BACKGROUND_NOTICE_TEXT, useBackgroundNotice } from "./conversation/backgroundNotice";
 import { InstructionsNotice, type InstructionsFailure } from "./header/InstructionsNotice";
@@ -606,7 +609,7 @@ import { checkpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
 import { chiefDock } from "./chiefDock.experiment";
-import { contextAttachment, floatingStatus, type QuickFloating } from "./FloatingChat";
+import { contextAttachment, floatingStatus, type QuickFloating } from "./floatingChatModel";
 import { designSelectionChips, designSelectionRemovals } from "./designSelection";
 import { setFloatingState, useFloatingState } from "./floatingState";
 import { FailedSendsContext, type FailedSends } from "./conversation/promptDeliveryModel";
@@ -3636,7 +3639,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
 
       ...(connected &&
         ((resend: (rowId: string, prompt: string) => Promise<unknown>) => ({
-          retry: (rowId: string, prompt: string) => void resend(rowId, prompt).catch(() => undefined),
+          retry: (rowId: string, prompt: string) =>
+            resend(rowId, prompt).then(
+              () => true,
+              () => false,
+            ),
           // A failed turn's Retry asks acpmux to retry the turn of the chat its row was drawn for
           // (turnRetry.ts), and sends the prompt again only where acpmux cannot. Like Continue and
           // Restart, never to a View Only chat or a read-only pane, and never to the next chat
@@ -3645,7 +3652,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             retryFailed: ((owner: string) => (rowId: string | undefined, prompt: string | undefined) => {
               const reaches = () => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession);
               const client = directClient.current;
-              if (!client || !reaches()) return Promise.resolve(undefined);
+              // Nothing to ask (the daemon went away and the client is not back yet, or the pane moved
+              // to another chat): say so on the card. Settling as sent left a Retry that did nothing
+              // (cmux#34369).
+              if (!client || !reaches()) return Promise.resolve("retry.failed" as const);
               return retryFailedTurn({
                 sessionId: owner,
                 capabilities: client.capabilities,
@@ -3659,7 +3669,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                           owns: reaches,
                           restore: () => client.resendPrompt(rowId, prompt),
                           send: (draft) =>
-                            callNative("chat.send", { text: draft.input, attachments: draft.attachments }),
+                            sendUntilTaken((taken) =>
+                              callNative("chat.send", { text: draft.input, attachments: draft.attachments, taken }),
+                            ),
                         })
                     : undefined,
               });
@@ -3667,7 +3679,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           }),
         }))(async (rowId: string, prompt: string) => {
           const draft = await directClient.current?.resendPrompt(rowId, prompt);
-          return callNative("chat.send", { text: draft?.input ?? prompt, attachments: draft?.attachments ?? [] });
+          // Settled once acpmux took it, not when its turn ends (turnRetry.ts `sendUntilTaken`).
+          return sendUntilTaken((taken) =>
+            callNative("chat.send", {
+              text: draft?.input ?? prompt,
+              attachments: draft?.attachments ?? [],
+              taken,
+            }),
+          );
         })),
 
       // Continue after a stop (Codex's) sends its prompt as the composer would: it shows as the
@@ -7101,6 +7120,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           fromTrust?: HeldSend,
           // The gesture the composer bound at this send's Enter or click while it held it.
           gesture?: SendGesture,
+          // Called once acpmux took the prompt (queued too), with no hold on it: a failed turn's
+          // Retry settles there, not when its turn ends (conversation/turnRetry.ts `sendUntilTaken`).
+          taken?: () => void,
         ) => {
           if (expectedSessionId && (directClient.current !== client || client.selectedSession !== expectedSessionId))
             throw startCancelled();
@@ -7129,6 +7151,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               seeded,
               fromTrust,
               gesture,
+              taken,
             );
           } finally {
             handedOn();
@@ -7182,6 +7205,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           seeded = false,
           fromTrust?: HeldSend,
           gesture?: SendGesture,
+          taken?: () => void,
         ) => {
           // The chat it is sent in; once a start made the chat's session, that session (trustHeld.ts).
           let sentFrom = shownFrom.current();
@@ -7325,7 +7349,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               accepted && (() => accepted(sessionId)),
               sendTicket,
               steer,
-              () => promptLanded.current(),
+              () => {
+                promptLanded.current();
+                taken?.();
+              },
             )
             .catch((error: unknown) => refused(error, Boolean(accepted)));
           // The client counts it from here (it registers the send before its first wait).
@@ -7336,7 +7363,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
           // `accepted` (in-page only): the composer holds the prompt until acpmux takes it.
           // `fromTrust` (in-page only): a prompt the folder's trust held, with its id and ticket.
           // `gesture` (in-page only): the gesture the composer bound at the Enter of a send it held.
-          "chat.send": ({ text, attachments, accepted, steer, expectedSessionId, fromTrust, gesture }) =>
+          // `taken` (in-page only): called once acpmux took the prompt; unlike `accepted` it holds
+          // nothing, so a refusal still fails or restores the prompt as any send's does.
+          "chat.send": ({ text, attachments, accepted, steer, expectedSessionId, fromTrust, gesture, taken }) =>
             send(
               String(text ?? ""),
               Array.isArray(attachments) ? attachments : [],
@@ -7347,6 +7376,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               false,
               heldPromptParams(fromTrust),
               sendGestureParam(gesture),
+              typeof taken === "function" ? (taken as () => void) : undefined,
             ),
           "chat.cancel": () => client.cancel(),
           "chat.typing": async ({ text, sessionId }) =>

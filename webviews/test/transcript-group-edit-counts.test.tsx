@@ -105,7 +105,7 @@ test("a run with no edits draws no count", async () => {
 });
 
 test("streaming a command's output never counts the edits again", async () => {
-  const { editTotalsProbe } = await import("../src/agent-session/acpmux/conversation/EditCounts");
+  const { editTotalsProbe } = await import("../src/agent-session/acpmux/conversation/editCountsModel");
   const items: AcpmuxActivity[] = [
     edit("edit-d", "/repo/d.ts", "x\n", "y\n"),
     ...Array.from({ length: 10 }, (_, n) => command(10 + n)),
@@ -130,7 +130,7 @@ test("streaming a command's output never counts the edits again", async () => {
 });
 
 test("a folded run and an edits group inside it, both ending on one edit, keep their own counts", async () => {
-  const { editTotalsProbe } = await import("../src/agent-session/acpmux/conversation/EditCounts");
+  const { editTotalsProbe } = await import("../src/agent-session/acpmux/conversation/editCountsModel");
   const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
   resetTranscriptDisclosure();
   const items: AcpmuxActivity[] = [
@@ -160,7 +160,7 @@ test("a folded run and an edits group inside it, both ending on one edit, keep t
 });
 
 test("a run that grows keeps one count, not every earlier prefix", async () => {
-  const { editTotalsEntries } = await import("../src/agent-session/acpmux/conversation/EditCounts");
+  const { editTotalsEntries } = await import("../src/agent-session/acpmux/conversation/editCountsModel");
   const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
   resetTranscriptDisclosure();
   const items: AcpmuxActivity[] = [edit("grow-0", "/repo/grow-0.ts", "", "x\n"), command(50)];
@@ -173,7 +173,7 @@ test("a run that grows keeps one count, not every earlier prefix", async () => {
 });
 
 test("editTotals: no diffs, no totals; a Write over unknown contents adds nothing", async () => {
-  const { editTotals } = await import("../src/agent-session/acpmux/conversation/EditCounts");
+  const { editTotals } = await import("../src/agent-session/acpmux/conversation/editCountsModel");
   expect(editTotals([command(30).tool!])).toBeUndefined();
   expect(editTotals([edit("edit-e", "/repo/e.ts", "a\n", "b\n").tool!])).toEqual({ additions: 1, deletions: 1 });
 });
