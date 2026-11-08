@@ -93,9 +93,12 @@ def shim(path: Path, root: Path) -> None:
     )
 
 
-def run_shim_case(root: Path, *, custom_points_at_shim: bool = False) -> dict[str, object]:
+def run_shim_case(root: Path, *, custom_points_at_shim: bool = False, real_agy: bool = True) -> dict[str, object]:
     """Launch agy through the surface shim with the shim, a stale shim, another cmux bundle's
-    wrapper and the real agy on PATH, in that order."""
+    wrapper and, unless real_agy is False, the real agy on PATH, in that order.
+
+    Returns the exit code, stderr, and what the real agy received (None when it did not run).
+    """
     shim_root = root / "home" / ".cmuxterm" / "cmux-cli-shims" / "surface-agy"
     stale_root = root / "home" / ".cmuxterm" / "cmux-cli-shims" / "surface-earlier"
     current_shim = shim_root / "agy"
@@ -109,11 +112,12 @@ def run_shim_case(root: Path, *, custom_points_at_shim: bool = False) -> dict[st
     real_bin = root / "real-bin"
     real_bin.mkdir()
     real_result = root / "agy-result.json"
-    executable(
-        real_bin / "agy",
-        "#!/bin/sh\n"
-        "python3 -c 'import json,os,sys; json.dump({\"argv\":sys.argv[1:]}, open(os.environ[\"AGY_RESULT\"], \"w\"))' \"$@\"\n",
-    )
+    if real_agy:
+        executable(
+            real_bin / "agy",
+            "#!/bin/sh\n"
+            "python3 -c 'import json,os,sys; json.dump({\"argv\":sys.argv[1:]}, open(os.environ[\"AGY_RESULT\"], \"w\"))' \"$@\"\n",
+        )
     environment = {
         "PATH": f"{shim_root}:{stale_root}:{other_bundle_bin}:{real_bin}:/usr/bin:/bin",
         "HOME": str(root / "home"),
@@ -122,21 +126,34 @@ def run_shim_case(root: Path, *, custom_points_at_shim: bool = False) -> dict[st
     }
     if custom_points_at_shim:
         environment["CMUX_CUSTOM_ANTIGRAVITY_PATH"] = str(current_shim)
-    process = subprocess.Popen([str(current_shim), "--version"], env=environment, start_new_session=True)
+    process = subprocess.Popen(
+        [str(current_shim), "--version"],
+        env=environment,
+        start_new_session=True,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
     try:
-        process.wait(timeout=5)
+        _, stderr = process.communicate(timeout=5)
     except subprocess.TimeoutExpired:
         os.killpg(process.pid, signal.SIGKILL)
-        process.wait()
+        process.communicate()
         raise AssertionError(
             "agy through the surface shim did not exit within 5s: the wrapper re-entered a cmux agy "
-            f"shim instead of the real agy (custom_points_at_shim={custom_points_at_shim})"
+            f"shim instead of the real agy (custom_points_at_shim={custom_points_at_shim}, real_agy={real_agy})"
         ) from None
-    if process.returncode != 0:
+    real = json.loads(real_result.read_text(encoding="utf-8")) if real_result.exists() else None
+    return {"returncode": process.returncode, "stderr": stderr, "real": real}
+
+
+def expect_real_agy_ran(result: dict[str, object], description: str) -> None:
+    """Fail unless the shim launch exited cleanly after the real agy received `--version`."""
+    if result["returncode"] != 0:
         raise AssertionError(
-            f"agy through the surface shim exited {process.returncode}; 97 means it ran another cmux bundle's agy wrapper"
+            f"{description}: exited {result['returncode']}; 97 means it ran another cmux bundle's agy wrapper"
         )
-    return json.loads(real_result.read_text(encoding="utf-8"))
+    if result["real"] != {"argv": ["--version"]}:
+        raise AssertionError(f"{description}: real agy did not receive the shim's arguments: {result}")
 
 
 def main() -> int:
@@ -207,14 +224,22 @@ def main() -> int:
             raise AssertionError(f"an agy shipped in another app's Resources/bin did not run: {result}")
 
     with tempfile.TemporaryDirectory(prefix="cmux-agy-wrapper-shim-") as directory:
-        real = run_shim_case(Path(directory))
-        if real["argv"] != ["--version"]:
-            raise AssertionError(f"real agy did not receive the shim's arguments: {real}")
+        expect_real_agy_ran(run_shim_case(Path(directory)), "agy through the surface shim")
 
     with tempfile.TemporaryDirectory(prefix="cmux-agy-wrapper-custom-shim-") as directory:
-        real = run_shim_case(Path(directory), custom_points_at_shim=True)
-        if real["argv"] != ["--version"]:
-            raise AssertionError(f"a custom path naming the shim did not fall back to the real agy: {real}")
+        expect_real_agy_ran(
+            run_shim_case(Path(directory), custom_points_at_shim=True),
+            "a custom path naming the shim",
+        )
+
+    with tempfile.TemporaryDirectory(prefix="cmux-agy-wrapper-shim-only-") as directory:
+        result = run_shim_case(Path(directory), real_agy=False)
+        stderr = str(result["stderr"])
+        if result["returncode"] != 127 or "agy executable not found" not in stderr or "PATH" in stderr:
+            raise AssertionError(
+                f"with only cmux shims and wrappers on PATH, agy must exit 127 with a not-found error "
+                f"that does not name PATH: {result}"
+            )
 
     print("PASS: agy wrapper installs hooks, captures metadata, preserves custom executables, and skips cmux shims")
     return 0
