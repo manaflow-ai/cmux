@@ -22,6 +22,9 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
     /// Sound with no media element behind it (Web Audio, `hiddenSoundScript`): the tab's speaker
     /// shows it, the media hub and Now Playing do not (nothing there to play, pause or seek).
     public var isSoundOnly: Bool
+    /// Sound besides the reported element: Web Audio in its frame, or another frame's sound
+    /// (`BrowserMediaFrames`). The tab's speaker shows it; the reported element stays the session.
+    public var isOtherSound: Bool
     /// The `mediaSession` actions the page handles (`nexttrack`, ...).
     public var actions: Set<BrowserMediaAction>
     /// The element's position in seconds when reported (`positionDate`);
@@ -36,7 +39,7 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
 
     public init(title: String, artist: String = "", album: String = "", artworkURL: URL? = nil, isPlaying: Bool,
                 isMuted: Bool = false, isVideo: Bool = false, isPictureInPicture: Bool = false, isTabMuted: Bool = false,
-                isSoundOnly: Bool = false, actions: Set<BrowserMediaAction> = [], position: TimeInterval? = nil, duration: TimeInterval? = nil, rate: Double = 1,
+                isSoundOnly: Bool = false, isOtherSound: Bool = false, actions: Set<BrowserMediaAction> = [], position: TimeInterval? = nil, duration: TimeInterval? = nil, rate: Double = 1,
                 positionDate: Date = Date()) {
         self.title = title
         self.artist = artist
@@ -48,6 +51,7 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
         self.isPictureInPicture = isPictureInPicture
         self.isTabMuted = isTabMuted
         self.isSoundOnly = isSoundOnly
+        self.isOtherSound = isOtherSound
         self.actions = actions
         self.position = position
         self.duration = duration
@@ -57,6 +61,9 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
 
     /// Sound is coming out of the tab (the tab's speaker indicator).
     public var isAudible: Bool { isPlaying && !isMuted }
+
+    /// Sound is coming out of the tab, from the element or besides it (the tab's speaker).
+    public var isSounding: Bool { isAudible || isOtherSound }
 
     /// The position at `date`: it moves on while playing, kept inside the length.
     public func position(at date: Date) -> TimeInterval? {
@@ -103,6 +110,7 @@ public nonisolated struct BrowserMediaState: Hashable, Sendable {
             isPlaying: object["playing"] as? Bool ?? false, isMuted: object["muted"] as? Bool ?? false,
             isVideo: object["video"] as? Bool ?? false, isPictureInPicture: object["pip"] as? Bool ?? false,
             isTabMuted: object["tabMuted"] as? Bool ?? false, isSoundOnly: object["soundOnly"] as? Bool ?? false,
+            isOtherSound: object["sound"] as? Bool ?? false,
             actions: Set(actions),
             position: seconds("position"), duration: seconds("duration").flatMap { $0 > 0 ? $0 : nil },
             rate: seconds("rate").flatMap { $0 > 0 ? $0 : nil } ?? 1))

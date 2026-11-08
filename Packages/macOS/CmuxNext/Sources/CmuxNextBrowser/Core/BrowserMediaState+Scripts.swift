@@ -84,28 +84,35 @@ nonisolated extension BrowserMediaState {
           const look = () => {
             playing = false;
             const element = active();
-            // An element in the document that plays wins; else what plays outside it (a detached
-            // `new Audio()`, a shadow root's element, Web Audio), else the document's paused one.
-            const other = element && !element.paused && !element.ended ? null : askHidden();
-            const outside = other && (other.playing || !element) ? other : null;
-            if (!element && !outside) {
+            // An element in the document that plays (or floats) wins; else one that plays outside it
+            // (a detached `new Audio()`, a shadow root's element), else the document's paused one,
+            // else the hidden paused one. Other sound (Web Audio) is `sound` next to it, or alone `soundOnly`.
+            const pip = !!element && floating() === element;
+            const other = askHidden();
+            const found = other && other.element && typeof other.element === 'object' ? other.element : null;
+            const outside = found && !pip && (!element || ((element.paused || element.ended) && found.playing)) ? found : null;
+            // A hidden element that plays but is not the one reported still sounds (beside a floating video).
+            const sound = !!(other && other.sound) || !!(found && !outside && found.playing && !found.muted);
+            const alone = !element && !outside && sound ? { playing: true } : null;
+            if (!element && !outside && !alone) {
               if (reported && send(null)) { reported = false; last = ''; held = null; }
               return;
             }
+            const from = outside || alone;
             const meta = navigator.mediaSession ? navigator.mediaSession.metadata : null;
             const state = {
               title: (meta && meta.title) || document.title || '',
               artist: (meta && meta.artist) || '', album: (meta && meta.album) || '',
               artwork: artwork(meta),
-              playing: outside ? !!outside.playing : !element.paused && !element.ended,
-              muted: outside ? !!outside.muted : element.muted || element.volume === 0,
-              video: outside ? !!outside.video : element.tagName === 'VIDEO',
-              pip: !outside && floating() === element, soundOnly: !!(outside && outside.soundOnly),
+              playing: from ? !!from.playing : !element.paused && !element.ended,
+              muted: from ? !!from.muted : element.muted || element.volume === 0,
+              video: from ? !!from.video : element.tagName === 'VIDEO',
+              pip: !from && pip, soundOnly: !!alone, sound,
               tabMuted, actions,
             };
             playing = state.playing;
-            const position = outside ? (typeof outside.position === 'number' ? outside.position : null) : element.currentTime;
-            const duration = outside ? (typeof outside.duration === 'number' ? outside.duration : null)
+            const position = from ? (typeof from.position === 'number' ? from.position : null) : element.currentTime;
+            const duration = from ? (typeof from.duration === 'number' ? from.duration : null)
               : isFinite(element.duration) ? element.duration : null;
             // The position leaves the key: the heartbeat corrects its drift, and a seek reports at once.
             const key = JSON.stringify(state) + '#' + (duration === null ? '' : Math.round(duration))
@@ -113,13 +120,13 @@ nonisolated extension BrowserMediaState {
             seeked = false;
             state.position = position;
             state.duration = duration;
-            state.rate = outside ? (typeof outside.rate === 'number' ? outside.rate : 1) : element.playbackRate;
+            state.rate = from ? (typeof from.rate === 'number' ? from.rate : 1) : element.playbackRate;
             // Again every few seconds while it plays: the position the app runs on may have drifted.
             if (key === last && !heartbeat) return;
             if (!send(state)) return;
             last = key;
             reported = true;
-            held = outside ? null : element;
+            held = from ? null : element;
           };
           // Metadata changes fire no event: look again every second while what this frame reported
           // plays (every third look sends it again with its position), and for at most `maxRetries`
@@ -235,7 +242,7 @@ nonisolated extension BrowserMediaCommand {
         func element(_ hidden: String) -> String {
             "const all = Array.from(document.querySelectorAll('video, audio')); "
                 + "const p = all.find((m) => !m.paused && !m.ended); "
-                + "if (!p && !document.dispatchEvent(new CustomEvent('cmux-media-hidden-command', { detail: '\(hidden)' + (all.some((m) => m.currentTime > 0) ? '|started' : ''), cancelable: true }))) return true; "
+                + "if (!p && !document.dispatchEvent(new CustomEvent('cmux-media-hidden-command', { detail: '\(hidden)' + (all.some((m) => m.currentTime > 0 && !m.ended) ? '|started' : ''), cancelable: true }))) return true; "
                 + "const e = p || all.find((m) => m.currentTime > 0) || all[0]; "
                 + "if (!e) return false; "
         }

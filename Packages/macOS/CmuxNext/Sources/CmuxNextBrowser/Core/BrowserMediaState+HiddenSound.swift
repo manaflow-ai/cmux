@@ -9,13 +9,14 @@ import Foundation
 ///
 /// - it wraps `HTMLMediaElement.prototype.play` and `Element.prototype.attachShadow` (a capture
 ///   listener on each new root, open or closed), and keeps each element it saw play weakly;
-/// - it wraps `AudioScheduledSourceNode.prototype.start` (oscillators, buffer and constant
-///   sources) and keeps each started source until its `ended`; a source of a context that is not
-///   `running` (suspended, closed) makes no sound;
+/// - it wraps `start` of every source node that owns one (`AudioScheduledSourceNode`, and
+///   `AudioBufferSourceNode`'s own) and keeps each started source of a live `AudioContext` until
+///   its `ended`; a source of a context that is not `running` (suspended, closed) makes no sound;
+/// - the wrappers are proxies, so the page still sees the native functions' name and length;
 /// - on any change it fires `cmux-media-hidden-changed` on the document; the observer then asks
 ///   (`cmux-media-hidden-ask`) and the answer comes back at once as `cmux-media-hidden`, a JSON
-///   string: the element outside the document that plays (else one that played), or
-///   `{playing: true, soundOnly: true}` while a Web Audio source sounds, or null;
+///   string `{element, sound}`: the element outside the document that plays (else one that
+///   played, else null) and whether a Web Audio source sounds; null when neither;
 /// - the media commands reach that element through `cmux-media-hidden-command` (`playPause`,
 ///   `play`, `pause`, `toggleMute`, `seek:<seconds>`, then `|started` when the document has an element
 ///   that played, which wins over a paused hidden one); the listener cancels the event when it acted.
@@ -43,53 +44,43 @@ nonisolated extension BrowserMediaState {
         elements.add(new WeakRef(e));
         for (const type of kinds) e.addEventListener(type, changed, true);
       };
-      const play = HTMLMediaElement.prototype.play;
-      Object.defineProperty(HTMLMediaElement.prototype, 'play', {
-        configurable: true, writable: true,
-        value: function () {
-          try { if (hidden(this)) { watch(this); changed(); } } catch (_) {}
-          return play.apply(this, arguments);
-        },
-      });
-      const attachShadow = Element.prototype.attachShadow;
-      if (attachShadow) {
-        Object.defineProperty(Element.prototype, 'attachShadow', {
-          configurable: true, writable: true,
-          value: function () {
-            const root = attachShadow.apply(this, arguments);
-            try {
-              root.addEventListener('play', (event) => {
-                const e = event.target;
-                if (e instanceof HTMLMediaElement) { watch(e); changed(); }
-              }, true);
-            } catch (_) {}
-            return root;
-          },
-        });
-      }
-      const Scheduled = window.AudioScheduledSourceNode;
-      if (Scheduled && Scheduled.prototype.start) {
-        const start = Scheduled.prototype.start;
-        Object.defineProperty(Scheduled.prototype, 'start', {
-          configurable: true, writable: true,
-          value: function () {
-            const result = start.apply(this, arguments);
-            try {
-              const node = this, context = node.context;
-              sources.add(node);
-              node.addEventListener('ended', () => { sources.delete(node); changed(); }, { once: true });
-              if (context && !contexts.has(context)) {
-                contexts.add(context);
-                context.addEventListener('statechange', () => {
-                  if (context.state === 'closed') for (const s of sources) if (s.context === context) sources.delete(s);
-                  changed();
-                });
-              }
-              changed();
-            } catch (_) {}
+      // Wrappers as proxies keep the originals' name, length and native toString (as `BrowserPageBusy`).
+      const wrap = (owner, name, after) => {
+        const original = owner && Object.prototype.hasOwnProperty.call(owner, name) ? owner[name] : null;
+        if (typeof original !== 'function') return;
+        owner[name] = new Proxy(original, {
+          apply(target, self, args) {
+            const result = Reflect.apply(target, self, args);
+            try { after(self, result); } catch (_) {}
             return result;
           },
         });
+      };
+      wrap(HTMLMediaElement.prototype, 'play', (e) => { if (hidden(e)) { watch(e); changed(); } });
+      wrap(Element.prototype, 'attachShadow', (_, root) => {
+        root.addEventListener('play', (event) => {
+          const e = event.target;
+          if (e instanceof HTMLMediaElement) { watch(e); changed(); }
+        }, true);
+      });
+      // `AudioBufferSourceNode` declares its own `start`, which hides the shared one: wrap each owner.
+      // An offline context renders to a buffer (no sound), and a closed one never plays again.
+      const started = (node) => {
+        const context = node.context;
+        if (!context || context.state === 'closed' || (window.OfflineAudioContext && context instanceof OfflineAudioContext)) return;
+        sources.add(node);
+        node.addEventListener('ended', () => { sources.delete(node); changed(); }, { once: true });
+        if (!contexts.has(context)) {
+          contexts.add(context);
+          context.addEventListener('statechange', () => {
+            if (context.state === 'closed') for (const s of sources) if (s.context === context) sources.delete(s);
+            changed();
+          });
+        }
+        changed();
+      };
+      for (const name of ['AudioScheduledSourceNode', 'AudioBufferSourceNode', 'OscillatorNode', 'ConstantSourceNode']) {
+        if (window[name]) wrap(window[name].prototype, 'start', started);
       }
       // The hidden element that plays, else one that played and has not ended.
       const element = () => {
@@ -107,15 +98,18 @@ nonisolated extension BrowserMediaState {
         for (const s of sources) if (s.context && s.context.state === 'running') return true;
         return false;
       };
+      // `{element, sound}`: the hidden element's state (or null), and whether Web Audio sounds.
       const answer = () => {
         const e = element();
-        if (e && (!e.paused || !sounding())) {
-          return {
+        const sound = sounding();
+        if (!e && !sound) return null;
+        return {
+          sound,
+          element: e ? {
             playing: !e.paused && !e.ended, muted: e.muted || e.volume === 0, video: e.tagName === 'VIDEO',
             position: e.currentTime, duration: isFinite(e.duration) ? e.duration : null, rate: e.playbackRate,
-          };
-        }
-        return sounding() ? { playing: true, soundOnly: true } : null;
+          } : null,
+        };
       };
       document.addEventListener('cmux-media-hidden-ask', () => {
         let detail = 'null';

@@ -7,8 +7,9 @@ import Testing
 /// Issue 38062: a tab playing sound showed no speaker, on the tab or its sidebar row, when the
 /// sound came from outside the document: the media observer looks only for `<video>` and `<audio>`
 /// in it, so a detached `new Audio()` (web radios, stream players), an element in a shadow root and
-/// Web Audio went unseen, and Mute had nothing to show. Real WebKit pages, each started by the
-/// person's key press; the speaker is `BrowserTabAudio.badge`, what the strip and the sidebar row draw.
+/// Web Audio (oscillators, decoded buffers) went unseen, and Mute had nothing to show. Real WebKit
+/// pages, each started by the person's key press; the speaker is `BrowserTabAudio.badge`, what the
+/// strip and the sidebar row draw.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3))) struct HiddenSoundSpeakerTests {
     @Test func aDetachedAudioElementShowsTheSpeakerUntilItStops() async throws {
         let rig = try HiddenPageHibernationTests.Rig()
@@ -68,6 +69,65 @@ import Testing
         #expect(cache.pageRequests.media.sessions(in: cache).isEmpty, "Web Audio has nothing the media hub could pause")
         _ = try await page.evaluate("tone.stop(); true", world: .page, gesture: .cmux)
         try await rig.until("the speaker clears once the sound stops") { BrowserTabAudio.badge(page.state) == nil }
+    }
+
+    @Test func aDecodedBufferShowsTheSpeaker() async throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        // `AudioBufferSourceNode` declares its own `start` (games, Howler, every decoded mp3).
+        let page = try await rig.page("buffer", body: Self.onKey("""
+            window.synth = new AudioContext();
+            const buffer = synth.createBuffer(1, 22050, 22050);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < data.length; i++) data[i] = 0.01 * Math.sin(2 * Math.PI * 440 * i / 22050);
+            window.tone = synth.createBufferSource();
+            tone.buffer = buffer;
+            tone.loop = true;
+            tone.connect(synth.destination);
+            tone.start();
+            synth.resume();
+            """))
+        try await rig.pressDown(page)
+        try await Self.until(rig, page, "the audio context runs", "window.synth?.state === 'running'")
+        try await rig.until("the tab shows its speaker") { BrowserTabAudio.badge(page.state) == .playing }
+        #expect(page.state.media?.isSoundOnly == true)
+        _ = try await page.evaluate("tone.stop(); true", world: .page, gesture: .cmux)
+        try await rig.until("the speaker clears once the sound stops") { BrowserTabAudio.badge(page.state) == nil }
+    }
+
+    @Test func webAudioBesideAPausedElementKeepsItsSession() async throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        let start = """
+            player.play();
+            window.synth = new AudioContext();
+            window.tone = synth.createOscillator();
+            const gain = synth.createGain();
+            gain.gain.value = 0.01;
+            tone.connect(gain).connect(synth.destination);
+            tone.start();
+            synth.resume();
+            """
+        let page = try await rig.page("both", body: """
+            <audio id="player" loop></audio>
+            <script>player.src = \(Self.tone);</script>
+            \(Self.onKey(start))
+            """)
+        try await rig.pressDown(page)
+        try await Self.until(rig, page, "both play", "!player.paused && player.currentTime > 0 && window.synth?.state === 'running'")
+        _ = try await page.evaluate("player.pause(); true", world: .page, gesture: .cmux)
+        try await rig.until("the paused element is reported, with the other sound") {
+            page.state.media.map { !$0.isPlaying && !$0.isSoundOnly && $0.isOtherSound } == true
+        }
+        #expect(BrowserTabAudio.badge(page.state) == .playing, "Web Audio still sounds")
+        let key = page.id.rawValue
+        rig.keys.append(key)
+        rig.services.cache.install(page, for: key)
+        let cache = rig.services.cache
+        #expect(cache.pageRequests.media.sessions(in: cache).count == 1, "Web Audio hid the paused element's session")
+        _ = try await page.evaluate("tone.stop(); true", world: .page, gesture: .cmux)
+        try await rig.until("the speaker clears once the sound stops") { BrowserTabAudio.badge(page.state) == nil }
+        #expect(page.state.media?.isSoundOnly == false, "the paused element stays")
     }
 
     /// A page script that notes the person's key (`window.pressed`, what `Rig.pressDown` waits for) and runs `start`.
