@@ -134,6 +134,79 @@ import os
         return color.map { ($0.redComponent, $0.greenComponent, $0.blueComponent) }
     }
 
+    /// Leo, 2026-11-07: a relaunched Background task terminal showed its last frame on an opaque white page under
+    /// "Restoring…" ("why did the background task become a white background? ... we don't do that"). On a see-through
+    /// window a terminal draws no background, so its frame is clear but for its text; saved as a JPEG, which has no
+    /// alpha, those clear pixels came back one opaque color until the live frame drew. A frame with clear pixels is
+    /// saved with them (a PNG), so the pane's glass shows through it; an opaque frame stays a JPEG.
+    @Test func aSeeThroughTerminalsLastFrameKeepsItsClearPixels() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let pane = Pane(reveal: reveal)
+        defer { pane.close() }
+        try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
+        let size = pane.session.surfaceView.bounds.size, scale = pane.window.backingScaleFactor
+        let directory = try await Self.saved(["tab-clear": Self.frame(size, scale: scale),
+                                              "tab-opaque": Self.solid(size, scale: scale, red: 0.1, green: 0.1, blue: 0.1)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // One name per key, as before (so a keeper write and the quit's save replace one file); the bytes are a PNG for
+        // the see-through frame and a JPEG for the opaque one.
+        let names = try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted()
+        #expect(names == ["tab-clear@\(Int(scale))x.jpg", "tab-opaque@\(Int(scale))x.jpg"])
+        let png: [UInt8] = [0x89, 0x50, 0x4E, 0x47]
+        #expect(try Array(Data(contentsOf: directory.appending(path: "tab-clear@\(Int(scale))x.jpg")).prefix(4)) == png,
+                "a see-through terminal's frame is saved with its clear pixels")
+        #expect(try Array(Data(contentsOf: directory.appending(path: "tab-opaque@\(Int(scale))x.jpg")).prefix(4)) != png)
+        let frames = await Self.launch(directory)
+        #expect(frames.show("tab-clear", on: pane.session, in: pane.content, reveal: reveal))
+        let shown = try #require(pane.held?.layer?.contents.flatMap { CFGetTypeID($0 as CFTypeRef) == CGImage.typeID ? unsafeDowncast($0 as AnyObject, to: CGImage.self) : nil })
+        #expect(Self.centerAlpha(shown) == 0, "the last frame painted the pane's glass one opaque color")
+    }
+
+    /// Review 3 of #38056 (P2): a see-through frame is a PNG, much larger than its JPEG, and the read refuses a file over
+    /// ``TerminalLaunchFrames/maximumBytes``. A keeper write of a frame over the cap replaced the key's saved frame with a
+    /// file the next launch refuses, so the pane showed nothing. A frame over the cap is not written, and the key keeps
+    /// the frame it had.
+    @Test func aFrameOverTheReadsSizeCapKeepsTheSavedFrame() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let pane = Pane(reveal: reveal)
+        defer { pane.close() }
+        try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
+        let size = pane.session.surfaceView.bounds.size, scale = pane.window.backingScaleFactor, at = Int(scale)
+        let directory = try await Self.saved(["tab-1": Self.solid(size, scale: scale, red: 0.9, green: 0.1, blue: 0.1)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let clear = try #require(Self.frame(size, scale: scale).cgImage(forProposedRect: nil, context: nil, hints: nil))
+        TerminalLaunchFrames.writeOne(clear, key: "tab-1", scale: at, to: directory, keeping: nil, maximumBytes: 64)
+        let frames = await Self.launch(directory)
+        #expect(frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal), "the key lost its saved frame")
+        let shown = try #require(pane.held?.layer?.contents.flatMap { CFGetTypeID($0 as CFTypeRef) == CGImage.typeID ? unsafeDowncast($0 as AnyObject, to: CGImage.self) : nil })
+        #expect(Self.centerAlpha(shown) == 255, "the frame over the cap replaced the saved one")
+    }
+
+    /// Review 7 of #38056 (P1, #38146): a frame at another scale (the window moved to a screen of another scale) that is
+    /// not written (over the cap) still removed the key's frame at the old scale, and the next launch had none. A key's
+    /// other files go only after its new file is written, in the keeper's write and in the quit's.
+    @Test func aSkippedFrameAtAnotherScaleKeepsTheOldScalesFrame() async throws {
+        let directory = try await Self.saved(["tab-1": Self.solid(Self.size, scale: 2, red: 0.9, green: 0.1, blue: 0.1)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let old = directory.appending(path: "tab-1@2x.jpg")
+        try #require(FileManager.default.fileExists(atPath: old.path))
+        let clear = try #require(Self.frame(Self.size, scale: 1).cgImage(forProposedRect: nil, context: nil, hints: nil))
+        TerminalLaunchFrames.writeOne(clear, key: "tab-1", scale: 1, to: directory, keeping: nil, maximumBytes: 64)
+        #expect(FileManager.default.fileExists(atPath: old.path), "the keeper's skipped write removed the old scale's frame")
+        await TerminalLaunchFrames(directory: directory).save(images: ["tab-1": Self.frame(Self.size, scale: 1)], maximumBytes: 64)
+        #expect(FileManager.default.fileExists(atPath: old.path), "the quit's skipped write removed the old scale's frame")
+    }
+
+    /// The alpha at the center of `image` (0...255).
+    static func centerAlpha(_ image: CGImage) -> UInt8? {
+        guard let crop = image.cropping(to: CGRect(x: image.width / 2, y: image.height / 2, width: 1, height: 1)),
+              let context = CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        context.draw(crop, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        return context.data?.load(fromByteOffset: 3, as: UInt8.self)
+    }
+
     /// The quit saves each visible terminal's frame for the next launch from its surface. A terminal still held over its
     /// slow attach showed its last frame, but the quit saved the empty surface under it (or nothing, before its first
     /// draw): the next launch then showed an empty pane with a cursor box as the terminal's last frame. The quit saves

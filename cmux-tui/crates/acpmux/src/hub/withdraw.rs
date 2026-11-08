@@ -320,6 +320,7 @@ impl Hub {
         let mut found = lookup()?;
         // A person's prompt (`author.rs`) is no agent message either.
         if found.provenance.is_none()
+            || crate::prompt_provenance::is_unverified(found.provenance.as_ref())
             || crate::author::of_provenance(found.provenance.as_ref()).is_some()
         {
             let message = "the prompt is the person's own, not an agent message";

@@ -12,7 +12,8 @@ import { useToolRunLook } from "../toolRunLook";
 import { useTranscriptDisclosure, useTranscriptViewContext } from "./transcriptDisclosure";
 import { isThought } from "./thoughts";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
-import { EditCounts, useEditTotals } from "./EditCounts";
+import { EditCounts } from "./EditCounts";
+import { useEditTotals } from "./editCountsModel";
 import { FailedCount } from "./FailedCount";
 import { ToolLabel } from "./ToolVerb";
 
@@ -41,12 +42,15 @@ export function ToolRun({
   children,
   disclosureKey,
   inherits,
+  defaultOpen = false,
 }: {
   items: readonly AcpmuxActivity[];
   children: ReactNode;
   disclosureKey: string;
   /// The keys of the group lines this run's line took the place of: one the reader opened opens it.
   inherits?: readonly string[];
+  /// Open until the reader closes it: a run inside a steered turn's opened Worked for (turns.ts).
+  defaultOpen?: boolean;
 }) {
   const t = useT();
   const look = useToolRunLook();
@@ -54,7 +58,7 @@ export function ToolRun({
   // thought, so the thought it opens is on screen.
   const thinking = useTranscriptViewContext() === "thinking";
   const holdsThought = useMemo(() => thinking && items.some(isThought), [thinking, items]);
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, holdsThought, true, inherits, true);
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, defaultOpen || holdsThought, true, inherits, true);
   useFindReveal(items, () => setOpen(true));
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
   const list = useId();

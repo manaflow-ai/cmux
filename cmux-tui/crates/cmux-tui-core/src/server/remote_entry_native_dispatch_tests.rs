@@ -178,6 +178,34 @@ fn native_owner_identify_lists_the_no_folder_start() {
     assert!(capabilities.contains(&json!(AGENT_SESSION_START_NO_CWD_CAPABILITY)), "{identity}");
 }
 
+/// A Cloud capture's chat start failed "started but its agent didn't (cmux-tui connection closed:
+/// EOF)" (2026-11-07): identify on the Native owner link left out viewport-splits-v1,
+/// viewport-column-resize-v1 and layout-undo-v1, which the app requires, so the app read the
+/// machine's daemon as refused and ran its machine update on every reconnect, also under the start,
+/// though the machine already ran the app's own build. Every capability the app requires
+/// (plans/cmux-next/daemon-capabilities.json, exported from its `DaemonCapability`) is on that link.
+#[test]
+fn native_owner_identify_lists_every_capability_the_app_requires() {
+    let export: Value = serde_json::from_str(include_str!(
+        "../../../../../plans/cmux-next/daemon-capabilities.json"
+    ))
+    .unwrap();
+    let required: Vec<&str> =
+        export["required"].as_array().unwrap().iter().map(|c| c.as_str().unwrap()).collect();
+    assert!(!required.is_empty());
+    let fake = FakeAcpmux::start("native-required");
+    let entry = entry_with(true, Arc::new(FsGate), Some(true));
+    entry.mux.set_acpmux_socket(Some(fake.socket.clone()));
+    entry.mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let (mut stream, mut reader) = connect_as_link(&entry);
+    send(&mut stream, &native_stamp(Some(VmKind::Owner)));
+    let identity = ok(&mut stream, &mut reader, json!({"cmd":"identify"}));
+    let listed = identity["capabilities"].as_array().unwrap();
+    let missing: Vec<&str> =
+        required.iter().copied().filter(|c| !listed.contains(&json!(c))).collect();
+    assert!(missing.is_empty(), "the Native owner link leaves out {missing:?}: {identity}");
+}
+
 #[test]
 fn team_missing_role_and_legacy_stamps_cannot_enter_native_owner_dispatch() {
     let issued_at_ms =
@@ -353,8 +381,10 @@ const NOT_OVER_NATIVE_OWNER: &[&str] = &[
     "agent-cli-update-job",
     "agent-session-share-create",
     "agent-session-share-invite",
+    "agent-session-share-invite-chat",
     "agent-session-share-kick",
     "agent-session-share-list",
+    "agent-session-share-open-link",
     "agent-session-share-revoke",
     "agent-session-share-room",
     "agent-session-share-uninvite",

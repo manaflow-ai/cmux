@@ -113,7 +113,7 @@ export function TurnWaterfall({
   summary = "count",
 }: {
   id?: string;
-  row: Pick<AcpmuxRow, "at" | "durationMs">;
+  row: Pick<AcpmuxRow, "at" | "durationMs" | "workEndedAt">;
   work: readonly AcpmuxActivity[];
   look?: WaterfallLook;
   summary?: WaterfallSummary;
