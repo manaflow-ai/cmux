@@ -331,11 +331,18 @@ fn dispatch_exact_topology_mutation(
 ) -> Result<Value, ResourceError> {
     let mutation = mutation(&request.envelope)?;
     let expected_revision = expected_revision(&request.fields)?;
+    let mut fields = request.fields;
+    if operation == ResourceOperation::ScreenCreate {
+        // A caller's `screen.create` keeps the focused screen (socket focus
+        // policy), so an attached TUI does not jump to the new screen; the
+        // caller passes `focus: true` to show it.
+        fields.entry(crate::mux::SCREEN_CREATE_FOCUS_FIELD).or_insert(Value::Bool(false));
+    }
     let commit = mux
         .resource_topology_operation(
             operation,
             request.selectors,
-            request.fields,
+            fields,
             expected_revision,
             &mutation,
         )

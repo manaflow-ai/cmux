@@ -753,12 +753,16 @@ USAGE
 const SCREEN_HELP: &str = "\
 USAGE
   cmux screen list
-  cmux screen create [--correlation-key <value>]
+  cmux screen create [--workspace <selector>] [--name <value>] [--focus]
+    [--correlation-key <value>]
   cmux screen <selector> show|rename|focus|close
   cmux screen <selector> layout export
   cmux screen <selector> layout undo [--confirm-close]
     [--confirmation-token <value>]
   cmux screen <selector> pane ...
+
+create adds the screen to the current workspace (or --workspace) and keeps
+the focus where it is unless --focus is given.
 ";
 
 const PANE_HELP: &str = "\
@@ -776,7 +780,21 @@ USAGE
   cmux pane <selector> split ratio set --split <id> --ratio <value>
   cmux pane <selector> viewport width set --columns <value>
   cmux pane <selector> run [--on-exit <close|keep>] [--correlation-key <value>] -- <argv...>
+  cmux pane <selector> move --to-pane <selector> [--split right|down|left|up] [--focus]
+  cmux pane <selector> move --to-tab <selector> [--focus]
+  cmux pane <selector> move --to-workspace <selector> [--name <value>] [--focus]
+  cmux pane <selector> move --new-screen|--new-tab [--name <value>] [--focus]
   cmux pane <selector> tab ...
+
+move moves the whole pane, all its tabs in order (tmux join-pane and
+break-pane): --to-pane puts them at the end of that pane, or with --split
+into a new pane split off it; --to-tab puts them after that tab in its pane;
+--to-workspace into a new screen in that workspace; --new-screen (--new-tab is
+the same) into a new screen in the pane's own workspace. The emptied pane
+closes. The focus stays where it is unless --focus is given (when the moved
+pane had the focus, the focus goes with it). --json prints pane, moved_tabs,
+destination {workspace, screen, pane, index}, created and focused_pane. A
+failed step is not resumed: details.made names what already moved.
 ";
 
 const TAB_HELP: &str = "\
@@ -807,7 +825,10 @@ USAGE
   cmux terminal <selector> move|project|attach|close [OPTIONS]
 
 screen wait prints its result either way and exits 1 when the timeout
-passes without a match.
+passes without a match. --pattern is a regular expression matched line by
+line: ^ and $ match at the start and end of each line, as in grep, so
+--pattern '^BENCH_OK$' matches a line that is only BENCH_OK. Start the
+pattern with (?-m) to match the whole text instead.
 ";
 
 const BROWSER_HELP: &str = "\
@@ -827,7 +848,10 @@ USAGE
 
 const AGENT_HELP: &str = "\
 USAGE
-  cmux agent list [OPTIONS]
+  cmux agent list [--state working|blocked|done|idle|unknown|ended]
+                  [--terminal <id>]
+                  (done: idle with an unread notification; ended: the session
+                  ended, which --state done selected before)
   cmux agent report --terminal <selector> --state <value> --source <value>
   cmux agent hook install|uninstall|status [provider...]
   cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]

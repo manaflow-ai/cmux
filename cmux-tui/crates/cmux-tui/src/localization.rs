@@ -1258,7 +1258,8 @@ pub(crate) struct AgentWrapperMessages {
     pub agent_start_failed: &'static str,
 }
 
-/// `cmux identify` and `cmux skill`: the identity labels and the help.
+/// `cmux identify` and `cmux skill`: the identity labels and the help; and
+/// other lines the CLI prints itself.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct PaneCliMessages {
     pub session: &'static str,
@@ -1287,6 +1288,9 @@ pub(crate) struct PaneCliMessages {
     pub root_agent_commands: &'static str,
     pub identify_help: &'static str,
     pub skill_help: &'static str,
+    /// What `cmux agent|sidebar plugin list` prints when no plugin is
+    /// installed; `{command}` is `cmux agent plugin` or `cmux sidebar plugin`.
+    pub no_plugins_installed: &'static str,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -1374,6 +1378,7 @@ Print the agent guide for this cmux build as Markdown: where you run, the
 rules, recipes, waits, errors, scopes and the terminal, pane and tab paths.
 Pass --json for {name, version, markdown}.
 ",
+        no_plugins_installed: "No plugins are installed. {command} install <git-url> installs one.",
     },
     startup: StartupMessages {
         schema_too_new: "cannot open session \"{session}\" with cmux {version}: its saved state is incompatible with this build",
@@ -2164,6 +2169,7 @@ cmux-tui ターミナルの外では caller.found が false になります。--
 ルール、レシピ、待機、エラー、スコープ、terminal・pane・tab のパスを含みます。
 --json で {name, version, markdown} を表示します。
 ",
+        no_plugins_installed: "インストール済みのプラグインはありません。{command} install <git-url> でインストールできます。",
     },
     startup: StartupMessages {
         schema_too_new: "cmux {version} ではセッション \"{session}\" を開けません。保存状態はこのビルドと互換性がありません",

@@ -9,8 +9,7 @@
 /// Compiles `pattern` as a wait pattern: multi-line mode, the `regex`
 /// crate's default size limits.
 pub fn compile(pattern: &str) -> Result<regex::Regex, regex::Error> {
-    // Red stub: the old single-line compile; the fix makes it multi-line.
-    regex::Regex::new(pattern)
+    regex::RegexBuilder::new(pattern).multi_line(true).build()
 }
 
 #[cfg(test)]

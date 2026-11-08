@@ -1,51 +1,149 @@
-#![allow(dead_code)] // Red stub: `agent list` as before (no `status`); the fix adds it.
-//! `cmux agent list`: the daemon's `agent.list` rows.
+//! `cmux agent list`: the daemon's `agent.list` rows with `status`, the one
+//! agent status vocabulary of the TUI sidebar (`working`, `blocked`, `done`,
+//! `idle`, `unknown`; `cmux_tui_core::AgentStatus`). `done` is a finished
+//! turn nobody has viewed: an idle agent whose terminal has an unread
+//! notification. The daemon's own `state` keeps `done` for a session that
+//! ended; such a row has `status: null` and `--state ended` selects it.
+//!
+//! The daemon's fields are unchanged; only the CLI adds `status`, from one
+//! `notification.list` read after `agent.list`.
 
 use std::collections::HashSet;
 
-use serde_json::Value;
+use cmux_tui_core::AgentStatus;
+use cmux_tui_core::resource::ResourceOperation;
+use serde_json::{Value, json};
 
-use super::command::RequestPlan;
+use super::command::{RequestPlan, WireOperation};
 use super::{GlobalArgs, wire};
 
 /// A parsed `agent list` (`command.rs` `parse_agent`).
 #[derive(Clone, Debug)]
 pub(super) struct AgentListPlan {
+    /// The `agent.list` request, its `state` already the daemon's word
+    /// ([`daemon_state_for_status`]).
     pub request: RequestPlan,
+    /// `--state`: keep only the rows whose status is this word.
     pub status: Option<&'static str>,
 }
 
-/// The words `agent list --state` takes.
-pub(super) const STATUS_WORDS: [&str; 5] = ["working", "blocked", "idle", "done", "unknown"];
+/// The words `agent list --state` takes: the shared status vocabulary and
+/// `ended`.
+pub(super) const STATUS_WORDS: [&str; 6] =
+    ["working", "blocked", "done", "idle", "unknown", "ended"];
 
-/// The daemon `state` that `agent list --state <status>` asks for.
+/// The status word of a row whose session ended (`status: null`).
+const ENDED: &str = "ended";
+
+/// `notification.list`'s largest `limit`: a session keeps at most this many.
+const NOTIFICATION_LIMIT: u32 = 256;
+
+/// The daemon `state` that `agent list --state <status>` asks for; the CLI
+/// then keeps the rows whose `status` is that word. `done` and `idle` are
+/// both the daemon's `idle` (the unread marker tells them apart), and
+/// `ended` is the daemon's `done`.
 pub(super) fn daemon_state_for_status(status: &str) -> &str {
-    status
-}
-
-pub(super) fn run(global: GlobalArgs, plan: AgentListPlan) -> i32 {
-    match wire::fetch(&global, plan.request) {
-        Ok(rows) => {
-            wire::print_local_success(&shape(rows, &HashSet::new(), plan.status), global.output)
-        }
-        Err(error) => wire::print_local_error(&error, global.output, 1),
+    match status {
+        "done" | "idle" => "idle",
+        ENDED => "done",
+        other => other,
     }
 }
 
-fn unseen_terminals(notifications: &[Value]) -> HashSet<&str> {
-    let _ = notifications;
-    HashSet::new()
+pub(super) fn run(global: GlobalArgs, plan: AgentListPlan) -> i32 {
+    let notifications = notifications_request(&plan.request);
+    let rows = match wire::fetch(&global, plan.request) {
+        Ok(rows) => rows,
+        Err(error) => return wire::print_local_error(&error, global.output, exit_code(&error)),
+    };
+    // A refused read (an older daemon) leaves every idle agent `idle`.
+    let notifications = wire::fetch(&global, notifications)
+        .ok()
+        .and_then(|notifications| notifications.as_array().cloned())
+        .unwrap_or_default();
+    let shaped = shape(rows, &unseen_terminals(&notifications), plan.status);
+    wire::print_local_success(&shaped, global.output)
 }
 
+/// The CLI exit code for a failed request: 2 for a usage error, 3 when the
+/// session could not be reached, 1 for an error the server answered.
+fn exit_code(error: &Value) -> i32 {
+    let code = error.get("code").and_then(Value::as_str).unwrap_or_default();
+    if code.starts_with("usage.") {
+        2
+    } else if code.starts_with("transport.") {
+        3
+    } else {
+        1
+    }
+}
+
+/// `notification.list` on the same machine and session as `agents`.
+fn notifications_request(agents: &RequestPlan) -> RequestPlan {
+    let mut params = json!({"limit": NOTIFICATION_LIMIT});
+    for route in ["machine", "session"] {
+        if let Some(value) = agents.params.get(route) {
+            params[route] = value.clone();
+        }
+    }
+    RequestPlan {
+        operation: WireOperation::Typed(ResourceOperation::NotificationList),
+        params,
+        idempotency_key: None,
+        stream: false,
+    }
+}
+
+/// The terminals with an unread notification: a turn finished there that
+/// nobody has viewed (done-until-seen). `notifications` are
+/// `notification.list` rows.
+fn unseen_terminals(notifications: &[Value]) -> HashSet<&str> {
+    notifications
+        .iter()
+        .filter(|notification| notification["unread"] == true)
+        .filter_map(|notification| notification["terminal_id"].as_str())
+        .collect()
+}
+
+/// The printed rows: each daemon row with `status` (its terminal is in
+/// `unseen` when it has an unread notification), only the rows with status
+/// word `wanted` when given. Anything but an array prints as it came.
 fn shape(rows: Value, unseen: &HashSet<&str>, wanted: Option<&str>) -> Value {
-    let _ = (unseen, wanted);
-    rows
+    let mut agents = match rows {
+        Value::Array(rows) => rows,
+        other => return other,
+    };
+    for agent in &mut agents {
+        let status = status_of(agent, unseen).map(AgentStatus::as_str);
+        if let Some(object) = agent.as_object_mut() {
+            object.insert("status".into(), json!(status));
+        }
+    }
+    if let Some(wanted) = wanted {
+        agents.retain(|agent| status_word(agent) == wanted);
+    }
+    Value::Array(agents)
+}
+
+/// The shared status of a listed agent: from the daemon's `state`, `done`
+/// for an idle agent whose terminal is in `unseen`. `None` for a session
+/// that ended; a state the CLI does not know is `unknown`.
+fn status_of(agent: &Value, unseen: &HashSet<&str>) -> Option<AgentStatus> {
+    let state = agent.get("state").and_then(Value::as_str).unwrap_or_default();
+    let unseen = agent
+        .get("terminal_id")
+        .and_then(Value::as_str)
+        .is_some_and(|terminal| unseen.contains(terminal));
+    AgentStatus::from_state_str(state, unseen)
+}
+
+/// The row's status word ([`shape`] set it): `ended` for `status: null`.
+fn status_word(agent: &Value) -> &str {
+    agent.get("status").and_then(Value::as_str).unwrap_or(ENDED)
 }
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-
     use super::*;
 
     const IDLE_SEEN: &str = "term_11111111111111111111111111111111";

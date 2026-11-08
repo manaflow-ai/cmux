@@ -587,6 +587,17 @@ fn run_with_context(plan: &Plan, context: &Context) -> RunResult {
                     "state":state,
                     "changed":changed,
                 })),
+                // A read-only status reports one provider's unreadable config
+                // on that provider's row (`state: unavailable`, `reason:
+                // unreadable`); the other providers still answer.
+                Err(error) if plan.action == Action::Status => results.push(json!({
+                    "provider":provider.id,
+                    "path":path,
+                    "state":"unavailable",
+                    "reason":"unreadable",
+                    "detail":format!("{error:#}"),
+                    "changed":false,
+                })),
                 Err(error) => errors.push(format!("{}: {error:#}", provider.id)),
             }
         }

@@ -419,8 +419,13 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
     action(
         "screen create",
         Some(Op::ScreenCreate),
-        "Create a screen",
-        &[opt("name", "<value>", "Screen name")],
+        "Create a screen; the focus stays where it is unless --focus",
+        &[
+            opt("workspace", "<selector>", "Workspace to add the screen to (default: current)"),
+            opt("name", "<value>", "Screen name"),
+            switch("focus", "Make the new screen its workspace's focused screen"),
+            switch("no-focus", "Keep the focus where it is (the default)"),
+        ],
     ),
     action("screen <selector> show", Some(Op::ScreenGet), "Show one screen", &[]),
     action(
@@ -519,6 +524,27 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
         &[req("columns", "<n>", "Width in columns")],
     ),
     action("pane <selector> close", Some(Op::PaneClose), "Close a pane", &[]),
+    action(
+        "pane <selector> move",
+        None,
+        "Move every tab of a pane to another pane, a tab's pane or a new screen",
+        &[
+            opt("to-pane", "<selector>", "Put the tabs at the end of this pane"),
+            opt(
+                "split",
+                "<right|down|left|up>",
+                "With --to-pane: into a new pane split off it in this direction",
+            ),
+            opt("to-tab", "<selector>", "Put the tabs after this tab, in its pane"),
+            opt("to-workspace", "<selector>", "Put the tabs in a new screen in this workspace"),
+            switch("new-screen", "Put the tabs in a new screen in the pane's own workspace"),
+            switch("new-tab", "Same as --new-screen"),
+            opt("name", "<value>", "Name of the new screen"),
+            switch("focus", "Focus the destination pane (default: the focus stays)"),
+            switch("no-focus", "Keep the focus where it is (the default)"),
+            IDEMPOTENCY_KEY,
+        ],
+    ),
     action(
         "pane <selector> run -- <argv...>",
         Some(Op::PaneRun),
@@ -848,7 +874,12 @@ pub(in crate::cli) const ACTIONS: &[ActionSpec] = &[
         "List agents",
         &[
             opt("terminal", "<term_id>", "Only this terminal's agent"),
-            opt("state", "<working|blocked|idle|done|unknown>", "Only agents in this state"),
+            opt(
+                "state",
+                "<working|blocked|done|idle|unknown|ended>",
+                "Only agents with this status (done: idle with an unread notification; \
+                 ended: the session ended, which --state done selected before)",
+            ),
         ],
     ),
     action(

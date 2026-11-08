@@ -12,6 +12,11 @@ cmux agent hook install claude
 cmux agent hook status
 ```
 
+`status` reports each provider on its own row. A provider whose config cannot
+be read gets `state: unavailable`, `reason: unreadable` and the cause in
+`detail`; the other providers still answer and the command exits 0. A failed
+install or uninstall names each cause in its message.
+
 Hook reports outrank the screen-detection plugin for 30 s, with one
 exception: a blocked state ends when the screen proves the dialog gone, after
 the hook reported it. The proof is one plugin process seeing the dialog and

@@ -812,7 +812,14 @@ fn parse_screen_strings(
         ["list"] => request(ResourceOperation::ScreenList, selectors, flags, Map::new()),
         ["create"] => {
             let mut params = Map::new();
+            add_optional_parent_selectors(selectors, flags, &["workspace"])?;
             insert_optional_string(&mut params, flags, "name", "name");
+            // The new screen keeps the person's focus unless --focus
+            // (`screen.create.focus`, default false); --no-focus says so.
+            let _ = flags.boolean("no-focus");
+            if flags.boolean("focus") {
+                params.insert("focus".into(), Value::Bool(true));
+            }
             request(ResourceOperation::ScreenCreate, selectors, flags, params)
         }
         [selector, "show"] => {
@@ -3012,6 +3019,15 @@ pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
         },
         plan.kind,
     ) {
+        Ok(result)
+            if global.output == super::OutputMode::Human
+                && plan.positionals.first().map(String::as_str) == Some("list")
+                && result == json!([]) =>
+        {
+            // An empty list printed nothing at all (bench round 3).
+            println!("{}", no_plugins_line(plan.kind, crate::localization::catalog()));
+            0
+        }
         Ok(result) => super::wire::print_local_success(&result, global.output),
         Err(error) => {
             let value = json!({
@@ -3041,20 +3057,23 @@ pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_instal
 }
 
 /// What `cmux agent|sidebar plugin list` prints when no plugin is installed.
-#[allow(dead_code)] // Red stub: an empty list prints nothing; the fix prints this line.
 fn no_plugins_line(
     kind: crate::plugin_manager::PluginKind,
     catalog: &crate::localization::Catalog,
 ) -> String {
-    let _ = (kind, catalog);
-    String::new()
+    catalog.pane_cli.no_plugins_installed.replace("{command}", kind.command_prefix())
 }
 
-/// The message of a failed `agent hook install|uninstall|status`.
+/// The message of a failed `agent hook install|uninstall|status`: the
+/// operations' own errors (`<provider>: <cause>`), which text output shows
+/// only in the message.
 fn agent_hooks_failure_message(value: &Value) -> String {
-    // Red stub: the old fixed message; the fix names each cause.
-    let _ = value;
-    "one or more coding-agent hook operations failed".to_owned()
+    let errors: Vec<&str> =
+        value["errors"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+    if errors.is_empty() {
+        return "one or more coding-agent hook operations failed".to_owned();
+    }
+    format!("coding-agent hook operations failed: {}", errors.join("; "))
 }
 
 pub(super) fn run_provider_authority(global: GlobalArgs, plan: ProviderAuthorityPlan) -> i32 {

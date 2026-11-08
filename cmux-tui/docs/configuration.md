@@ -205,6 +205,9 @@ cmux agent plugin update <name-or-id>
 cmux agent plugin remove <name-or-id>
 ```
 
+With no plugin installed, `list` says how to install one; `--json` prints
+`[]`.
+
 The reference screen detector keeps 21 herdr-derived manifests in its own
 package. `cmux-agent-screen-detection update` checks an HTTPS catalog only when
 the user invokes it. Startup never performs network access. See
