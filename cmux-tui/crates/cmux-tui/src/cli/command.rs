@@ -420,7 +420,9 @@ fn parse_session(
 ) -> Result<CommandPlan, UsageError> {
     match strs(words).as_slice() {
         ["list"] => request(ResourceOperation::SessionList, selectors, flags, Map::new()),
-        [selector, "show"] => {
+        // `session current` alone is `session current show`: an agent's
+        // first "which session am I in" (`cmux identify` has the whole path).
+        [selector, "show"] | [selector] => {
             selectors.insert("session", "session", selector)?;
             request(ResourceOperation::SessionGet, selectors, flags, Map::new())
         }
@@ -1162,7 +1164,16 @@ fn parse_terminal(
         }
         [selector, "read"] | [selector, "screen", "read"] => {
             selectors.insert("terminal", "term", selector)?;
-            request(ResourceOperation::TerminalScreenRead, selectors, flags, Map::new())
+            let mut params = Map::new();
+            // `terminal-read-unwrap-v1`: soft wraps joined, and the last N
+            // lines of scrollback and screen.
+            if flags.boolean("unwrap") {
+                params.insert("unwrap".into(), Value::Bool(true));
+            }
+            if let Some(lines) = flags.take("lines") {
+                insert_bounded_u32(&mut params, "lines", "--lines", lines, 1, 10_000)?;
+            }
+            request(ResourceOperation::TerminalScreenRead, selectors, flags, params)
         }
         [selector, "state", "read"] => {
             selectors.insert("terminal", "term", selector)?;
@@ -1217,6 +1228,11 @@ fn parse_terminal(
             if let Some(timeout) = flags.take("timeout-ms") {
                 insert_decimal(&mut params, "timeout_ms", "--timeout-ms", timeout)?;
             }
+            // `terminal-wait-new-v1`: only output printed below the cursor's
+            // line from now on can match, never a typed command's echo.
+            if flags.boolean("new") {
+                params.insert("new".into(), Value::Bool(true));
+            }
             request(ResourceOperation::TerminalWait, selectors, flags, params)
         }
         [selector, "copy"] => {
@@ -1225,6 +1241,9 @@ fn parse_terminal(
             if let Some(mode) = flags.take("mode") {
                 validate_one_of("--mode", &mode, &["screen", "selection", "scrollback"])?;
                 params.insert("mode".into(), Value::String(mode));
+            }
+            if flags.boolean("unwrap") {
+                params.insert("unwrap".into(), Value::Bool(true));
             }
             request(ResourceOperation::TerminalCopy, selectors, flags, params)
         }

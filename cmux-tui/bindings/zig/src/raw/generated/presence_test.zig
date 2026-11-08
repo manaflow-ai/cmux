@@ -103,6 +103,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "palette");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "surface");
     try expectExplicitNullRejected(protocol.ConversationInboxChangedEvent, "pin_position");
+    try expectExplicitNullRejected(protocol.DaemonShutdownEvent, "restart");
     try expectExplicitNullRejected(protocol.DetachedEvent, "by");
     try expectExplicitNullRejected(protocol.DetachedEvent, "reason");
     try expectExplicitNullRejected(protocol.DetachedEvent, "scope");
