@@ -111,6 +111,7 @@ import { noteTranscriptReplace } from "./flickerLog";
 import { acpmuxPerf } from "./perf";
 import { BUSY_TRIES, busyDelay, RequestBudget, waitsForSlot } from "./requestBudget";
 import { translate } from "./i18n";
+import { approvePlan, clearPlanScope, editPaths, observePlanEdit } from "./planScopeDriftStore";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
 import {
   cliHost,
@@ -6208,6 +6209,7 @@ export class AcpmuxDirectClient {
   /// Mux events that move the live summary, queue or permission.
   private reduceLiveState(event: EventRecord): void {
     const msg = event.msg ?? {};
+    const sessionId = event.sessionId ?? this.selectedSessionId;
     if (event.kind === "queue_updated") {
       // An edit keeps the prompt's place and its sender: acpmux keeps an agent's provenance and
       // names the editor beside it (hub/queue_edit.rs `editedBy`), so its row stays the agent's.
@@ -6386,6 +6388,17 @@ export class AcpmuxDirectClient {
       if (!asked && card && card.permissionId === String(msg.permissionId ?? ""))
         this.askedPermissions.set(card.permissionId, card);
     } else if (event.kind === "permission_decision") {
+      if (sessionId) {
+        const permissionId = String(msg.permissionId ?? "");
+        const permission =
+          this.askedPermissions.get(permissionId) ??
+          this.groupedPermissions.get(permissionId) ??
+          this.waitingPermissions.get(permissionId) ??
+          (this.pendingPermission?.permissionId === permissionId ? this.pendingPermission : undefined);
+        const decision = permission && permissionDecision(permission, msg.outcome);
+        if (permission?.plan && decision && (decision.kind === "allowed" || decision.kind === "allowedAlways"))
+          approvePlan(sessionId, permission.plan);
+      }
       this.recordQuestion(event, msg);
       this.recordPermission(event, msg);
       if (msg.permissionId) this.groupedPermissions.delete(String(msg.permissionId));
@@ -6898,6 +6911,7 @@ export class AcpmuxDirectClient {
 
   private reduceEvent(event: EventRecord): void {
     const msg = event.msg ?? {};
+    const sessionId = event.sessionId ?? this.selectedSessionId;
     if (event.dir === "mux" && event.kind === NATIVE_HISTORY_KIND) {
       // Draws nothing: where the transcript's older turns end. The oldest one held is the seeded
       // page's (a page of the log seq order puts first).
@@ -6907,6 +6921,13 @@ export class AcpmuxDirectClient {
       return;
     }
     const update = sessionUpdate(event);
+    if (sessionId && update && (event.kind === "tool_call" || event.kind === "tool_call_update")) {
+      const tool = String(update._meta?.claude?.tool ?? update.title ?? "").toLowerCase();
+      const editing = update.kind === "edit" ||
+        (Array.isArray(update.content) && update.content.some((item: any) => item?.type === "diff")) ||
+        /(?:edit|write|patch|replace|notebook)/.test(tool);
+      if (editing) observePlanEdit(sessionId, editPaths(update));
+    }
     const resultTurnId =
       event.kind === "turn_result" && typeof msg.turnId === "string" && msg.turnId ? msg.turnId : undefined;
     if (event.dir === "mux" && ["turn_end", "turn_result", "turn_error"].includes(event.kind)) {
@@ -6926,6 +6947,9 @@ export class AcpmuxDirectClient {
         if (terminalTurnId !== undefined && terminalTurnId === this.stopTurnId) this.stopAnswered(event);
         return;
       }
+    }
+    if (sessionId && event.dir === "mux" && ["turn_end", "turn_result", "turn_error"].includes(event.kind)) {
+      clearPlanScope(sessionId);
     }
     // Route child updates before session metadata's early returns too: a helper's init or
     // usage belongs to that helper, just like its text and tools.
