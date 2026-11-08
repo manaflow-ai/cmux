@@ -7275,6 +7275,11 @@ impl Mux {
         self.workspace_registry.lock().unwrap().corrupt_agent_projection_for_test(terminal_id);
     }
 
+    #[cfg(test)]
+    pub(crate) fn reject_resource_effect_commits_for_test(&self) {
+        self.workspace_registry.lock().unwrap().reject_resource_effect_commits_for_test();
+    }
+
     pub fn terminal_registry_snapshot(&self) -> anyhow::Result<TerminalRegistrySnapshot> {
         self.workspace_registry.lock().unwrap().terminal_snapshot()
     }

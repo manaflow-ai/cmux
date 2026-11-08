@@ -70,6 +70,7 @@ impl HeadlessServer {
             .arg("--state")
             .arg(&state)
             .env("CMUX_TUI_CONFIG", &config)
+            .env("CMUX_TUI_LOG_FILE", daemon_log_path(&dir))
             .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
@@ -257,8 +258,36 @@ fn signal_test_process_group(pid: u32, signal: libc::c_int) {
     }
 }
 
+/// The headless daemon's diagnostic log. The daemon records the cause of a
+/// `mutation.indeterminate` and other internal faults only here.
+fn daemon_log_path(dir: &std::path::Path) -> PathBuf {
+    dir.join("daemon.log")
+}
+
+/// Prints the end of the daemon log, so a failed CLI assertion shows the
+/// daemon-side cause next to the client error.
+fn print_daemon_log(dir: &std::path::Path) {
+    const MAX_PRINTED_BYTES: usize = 64 * 1024;
+    let path = daemon_log_path(dir);
+    let Ok(log) = fs::read(&path) else {
+        eprintln!("headless daemon log {}: none", path.display());
+        return;
+    };
+    let tail = &log[log.len().saturating_sub(MAX_PRINTED_BYTES)..];
+    eprintln!(
+        "--- headless daemon log {} (last {} of {} bytes) ---\n{}\n--- end of daemon log ---",
+        path.display(),
+        tail.len(),
+        log.len(),
+        String::from_utf8_lossy(tail)
+    );
+}
+
 impl Drop for HeadlessServer {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            print_daemon_log(&self.dir);
+        }
         // Durable terminal hosts intentionally outlive the daemon. Tests must
         // close their terminal resources first rather than assuming SIGKILL
         // of the daemon also owns or reaps their processes.
@@ -1365,6 +1394,7 @@ fn explicit_socket_keeps_state_in_platform_root() {
         .args(["--headless", "--socket"])
         .arg(&socket)
         .env("CMUX_TUI_STATE_DIR", &state)
+        .env("CMUX_TUI_LOG_FILE", daemon_log_path(&dir))
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
