@@ -495,8 +495,8 @@ impl Underlay for Multipath {
             // quiet, and make it suspect when that probe is not answered
             // within the window.
             let mut silence_at = None;
+            let window = silence_window(view.rtt_us);
             if chosen == Some(slot.id) {
-                let window = silence_window(view.rtt_us);
                 match slot.probe.outstanding() {
                     Some((probe, sent)) if slot.flagged_probe != Some(probe) => {
                         if now >= sent + window {
@@ -520,6 +520,13 @@ impl Underlay for Multipath {
             }
             if let Some(id) = step.ping {
                 due.pings.push((slot.id, id));
+                // A probe just sent on the chosen path (a silence probe
+                // among them) is judged one window from now, not at its
+                // 1 s timeout.
+                if chosen == Some(slot.id) {
+                    let at = now + window;
+                    silence_at = Some(silence_at.map_or(at, |old: Instant| old.min(at)));
+                }
             }
             for next in [step.next, silence_at] {
                 due.next = match (due.next, next) {
