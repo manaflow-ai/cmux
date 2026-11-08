@@ -925,6 +925,19 @@
         "additionalProperties": false,
         "description": "Machine details used to redeem a single-use join credential.",
         "properties": {
+          "capabilities": {
+            "description": "What this machine's client can do, recorded with the credential. The server decides from this list, never from a later request: `vault.proxy.v1` means its acpmux runs the vault's egress proxy, so GET /v1/vault/machine may give it proxy entries' values. Unknown names are stored and ignored.",
+            "examples": [
+              [
+                "vault.proxy.v1"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "type": "array"
+          },
           "hostname": {
             "description": "The joining machine's reported hostname.",
             "maxLength": 256,
@@ -1018,6 +1031,15 @@
             "description": "The owning team identifier.",
             "examples": [
               "team_01"
+            ],
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "userId": {
+            "description": "The person who minted the join credential (mintedBy). The machine acts as them on the team mesh, so a mesh message whose from.user equals this came from one of the same person's machines or sessions.",
+            "examples": [
+              "user_abc"
             ],
             "maxLength": 256,
             "minLength": 1,
@@ -1554,6 +1576,33 @@
         "required": [
           "machines"
         ],
+        "type": "object"
+      },
+      "MachineCredentialRotate": {
+        "additionalProperties": false,
+        "description": "Options for a rotation. Without `capabilities` the recorded list is kept; a rotation by anyone but the minter in person records none.",
+        "examples": [
+          {
+            "capabilities": [
+              "vault.proxy.v1"
+            ]
+          }
+        ],
+        "properties": {
+          "capabilities": {
+            "description": "What this machine's client can do, recorded with the credential. The server decides from this list, never from a later request: `vault.proxy.v1` means its acpmux runs the vault's egress proxy, so GET /v1/vault/machine may give it proxy entries' values. Unknown names are stored and ignored.",
+            "examples": [
+              [
+                "vault.proxy.v1"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "type": "array"
+          }
+        },
         "type": "object"
       },
       "MachineCredentialRow": {
@@ -6292,7 +6341,7 @@
     },
     "/v1/machines/credentials/{machineId}/rotate": {
       "post": {
-        "description": "Issue a new credential for an enrolled machine and retire its previous credential. This mutates credential state and is not idempotent; call GET /v1/machines/credentials/self with the new credential.",
+        "description": "Issue a new credential for an enrolled machine and retire its previous credential. The body is optional. This mutates credential state and is not idempotent; call GET /v1/machines/credentials/self with the new credential.",
         "operationId": "machineJoin.rotate",
         "parameters": [
           {
@@ -6310,6 +6359,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MachineCredentialRotate"
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "200": {
             "content": {

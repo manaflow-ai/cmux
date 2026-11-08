@@ -11,7 +11,10 @@ pub(crate) mod host_fingerprint;
 mod leave;
 mod recovery;
 
-pub(crate) use enroll::{EnrollOutcome, EnrollRequest, enroll_self, leave_if_auto};
+pub(crate) use enroll::{
+    EnrollOutcome, EnrollRequest, enroll_self, finish_leave_at_start, leave_if_auto, leave_pending,
+    relay_may_start,
+};
 
 pub const CAPABILITY: &str = "machine.join.stdin.v1";
 /// The hub a join with no `--hub` uses: cmux-platform's production origin
@@ -65,6 +68,31 @@ pub struct MachineCredential {
     /// out removes only that join. None for a pair code or a pasted join line: those stay.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub joined_by: Option<String>,
+    /// What this machine told the hub it can do at its redeem or its last rotate
+    /// ([`machine_capabilities`]); the hub records it with the credential. None: joined before
+    /// the hub took the list (cmux-platform#1015), so the next sign-in rotates once to state it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Vec<String>>,
+}
+
+/// The capability that says this machine's acpmux runs the vault's egress proxy: the hub then
+/// gives it proxy entries' values (`GET /v1/vault/machine`), never otherwise.
+pub(crate) const VAULT_PROXY_CAPABILITY: &str = "vault.proxy.v1";
+
+/// Whether this acpmux runs the vault's egress proxy. Every build carries it (`vault::egress`,
+/// started on the first spawn that has a proxy entry, for the daemon's life), with no switch
+/// that turns it off, so this is decided by the build: true.
+const RUNS_EGRESS_PROXY: bool = true;
+
+/// The list a redeem or a rotate sends, always (an empty list too: the hub reads a missing one
+/// as a machine joined before it took the list).
+fn capabilities_for(egress_proxy: bool) -> Vec<String> {
+    if egress_proxy { vec![VAULT_PROXY_CAPABILITY.to_owned()] } else { Vec::new() }
+}
+
+/// This acpmux's list ([`capabilities_for`] with [`RUNS_EGRESS_PROXY`]).
+fn machine_capabilities() -> Vec<String> {
+    capabilities_for(RUNS_EGRESS_PROXY)
 }
 
 /// Where a join says what it did: printed for a person (`Text`), as JSON, or nowhere
@@ -284,7 +312,11 @@ pub(crate) fn settle_clone_at(home: &std::path::Path, current: Option<&str>) -> 
 }
 
 fn configure_mesh_relay(hub: &str) -> Result<()> {
-    let mut config = crate::config::Config::load()?;
+    configure_mesh_relay_at(&crate::config::Config::path(), hub)
+}
+
+fn configure_mesh_relay_at(config_path: &std::path::Path, hub: &str) -> Result<()> {
+    let mut config = crate::config::Config::load_from(config_path)?;
     let previous = config.mesh_relay.take();
     // The owner's own choice of team messaging stays across a rejoin or a repair.
     let team_messaging = previous.as_ref().is_none_or(|relay| relay.team_messaging);
@@ -942,6 +974,7 @@ mod tests {
             host_fingerprint: None,
             cloned: false,
             joined_by: None,
+            capabilities: None,
         };
         let identity = MachineIdentity::from_record(&record);
         let serialized = serde_json::to_string(&identity).unwrap();

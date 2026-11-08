@@ -504,7 +504,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     crate::hub::watches::Watches::start(&hub);
     // The team hub's relay, when config.json names one (`server/mesh_relay.rs`).
     // Kept on the hub, so a sign-in enroll can start one live (`server/machine_enroll.rs`).
-    *hub.mesh_relay.lock().await = crate::server::mesh_relay::start_configured(&hub).await;
+    // A sign-out's leave the last run did not finish goes first: no relay for a machine that left.
+    crate::server::machine_enroll::start_relay_at_start(&hub).await;
     // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
     hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {

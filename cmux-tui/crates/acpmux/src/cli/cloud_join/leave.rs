@@ -17,8 +17,11 @@ use super::*;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum HubAnswer {
     Revoked,
-    /// Already revoked or unknown there: the credential is dead either way.
-    AlreadyGone,
+    /// Already revoked (`revoked`: someone revoked it there) or unknown there: the credential
+    /// is dead either way.
+    AlreadyGone {
+        revoked: bool,
+    },
     /// This hub has no machine-side revoke: the person revokes it from a signed-in device.
     Unsupported,
     /// No answer, or one that says nothing about the credential (5xx, 429, unreadable).
@@ -31,7 +34,7 @@ impl HubAnswer {
     pub(super) fn label(&self) -> &'static str {
         match self {
             Self::Revoked => "revoked",
-            Self::AlreadyGone => "already_revoked",
+            Self::AlreadyGone { .. } => "already_revoked",
             Self::Unsupported => "unsupported",
             Self::Unavailable(_) => "unavailable",
             Self::Copy => "not_asked_copy",
@@ -39,14 +42,15 @@ impl HubAnswer {
     }
 
     pub(super) fn revoked(&self) -> bool {
-        matches!(self, Self::Revoked | Self::AlreadyGone)
+        matches!(self, Self::Revoked | Self::AlreadyGone { .. })
     }
 }
 
 /// Reads the hub's refusal of the self-revoke.
 pub(super) fn classify(error: &cmux_cloud_client::ApiError) -> HubAnswer {
     match (error.status, error.code.as_deref()) {
-        (Some(401), Some("machine.revoked" | "machine.unknown")) => HubAnswer::AlreadyGone,
+        (Some(401), Some("machine.revoked")) => HubAnswer::AlreadyGone { revoked: true },
+        (Some(401), Some("machine.unknown")) => HubAnswer::AlreadyGone { revoked: false },
         // A hub before the self-revoke: no route, or its `{machineId}/revoke` route taking
         // `self` as an id and refusing a machine credential there.
         (Some(401 | 403 | 404 | 405), _) => HubAnswer::Unsupported,
@@ -137,7 +141,7 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
     // Refused unless the hub revoked it or the person asked for a local-only leave.
     let refusal = match &answer {
         _ if local_only => None,
-        HubAnswer::Revoked | HubAnswer::AlreadyGone | HubAnswer::Copy => None,
+        HubAnswer::Revoked | HubAnswer::AlreadyGone { .. } | HubAnswer::Copy => None,
         HubAnswer::Unsupported => Some(leave_error(
             "leave.revoke_from_mac",
             3,
@@ -191,7 +195,7 @@ pub(super) async fn run(local_only: bool, json_out: bool) -> Result<()> {
     } else {
         let hub = match &answer {
             HubAnswer::Revoked => "revoked at the hub".to_owned(),
-            HubAnswer::AlreadyGone => "already revoked at the hub".to_owned(),
+            HubAnswer::AlreadyGone { .. } => "already revoked at the hub".to_owned(),
             HubAnswer::Copy => {
                 "a copy of another machine's join: the hub was not asked, and that machine keeps its join".to_owned()
             }
@@ -220,8 +224,14 @@ mod tests {
     fn a_refusal_says_whether_the_credential_is_dead_or_the_mac_must_revoke() {
         let answer =
             |status: u16, body: &str| classify(&ApiError::from_status(status, body.as_bytes()));
-        assert_eq!(answer(401, r#"{"code":"machine.revoked"}"#), HubAnswer::AlreadyGone);
-        assert_eq!(answer(401, r#"{"code":"machine.unknown"}"#), HubAnswer::AlreadyGone);
+        assert_eq!(
+            answer(401, r#"{"code":"machine.revoked"}"#),
+            HubAnswer::AlreadyGone { revoked: true }
+        );
+        assert_eq!(
+            answer(401, r#"{"code":"machine.unknown"}"#),
+            HubAnswer::AlreadyGone { revoked: false }
+        );
         assert_eq!(answer(404, r#"{"code":"machine.not_found"}"#), HubAnswer::Unsupported);
         assert_eq!(answer(404, "<html>no route</html>"), HubAnswer::Unsupported);
         assert_eq!(

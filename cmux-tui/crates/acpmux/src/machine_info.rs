@@ -193,6 +193,7 @@ mod tests {
             host_fingerprint: None,
             cloned: false,
             joined_by: None,
+            capabilities: None,
         };
         let identity = MachineIdentity::from_record(&credential);
         let result = render(State {

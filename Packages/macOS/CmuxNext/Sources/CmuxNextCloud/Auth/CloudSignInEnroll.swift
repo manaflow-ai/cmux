@@ -12,7 +12,9 @@ import os
 ///   background, with one retry after a failure. Sign-in never waits on it; a failure leaves this
 ///   Mac as it was.
 /// - Signed out: `_acpmux/machine_leave_if_auto`, which leaves only a join signing in made. A Mac
-///   joined with a pair code or a join line stays joined.
+///   joined with a pair code or a join line stays joined. acpmux marks the leave before it acts and
+///   finishes one cut short at its next start, before its relay; signed out at launch asks again,
+///   for a sign-out whose request never reached it.
 /// - Another person: the leave, then the enroll.
 ///
 /// Event-driven (an ``ObservationStream`` of the signed-in person); its only wait is the retry's
@@ -26,7 +28,8 @@ public final class CloudSignInEnroll {
     /// Who is signed in, or that the session is still being read (nothing is decided then).
     enum Person: Equatable, Sendable {
         case restoring
-        case signedIn(String?)
+        case signedOut
+        case signedIn(String)
     }
 
     public static let capability = "machine-enroll-v1"
@@ -38,6 +41,8 @@ public final class CloudSignInEnroll {
     private let extraParams: [String: String]
     /// The person the last change was for; nil signed out.
     private var current: String?
+    /// Whether the session has been read once since launch.
+    private var decided = false
     /// The work for the changes so far, one after another.
     private var work: Task<Void, Never>?
     private var following: Task<Void, Never>?
@@ -46,10 +51,10 @@ public final class CloudSignInEnroll {
     /// build's tag, so its machine is named apart.
     public init(auth: CloudAuth, hub: String?, buildTag: String?, call: @escaping Call) {
         person = { [weak auth] in
-            guard let auth else { return .signedIn(nil) }
-            if auth.isRestoring { return .restoring }
+            guard let auth, !auth.isRestoring else { return .restoring }
+            guard auth.isSignedIn else { return .signedOut }
             // Signed in with no user read yet is no person yet.
-            return .signedIn(auth.isSignedIn ? auth.user?.id : nil)
+            return auth.user.map { .signedIn($0.id) } ?? .restoring
         }
         accessToken = { [weak auth] in try? await auth?.tokens().access }
         self.call = call
@@ -60,7 +65,7 @@ public final class CloudSignInEnroll {
     }
 
     /// Follows the signed-in person for the app's life (its owner, the app's services, lives as long).
-    /// Signed out at launch leaves nothing: no sign-out was seen.
+    /// Signed out at launch asks for the leave once more (acpmux leaves only a join signing in made).
     public func follow() {
         guard following == nil else { return }
         let person = person
@@ -73,22 +78,33 @@ public final class CloudSignInEnroll {
     }
 
     private func changed(to person: Person) {
-        guard case let .signedIn(next) = person, next != current else { return }
-        let previous = current
+        let next: String?
+        switch person {
+        case .restoring: return
+        case .signedOut: next = nil
+        case let .signedIn(id): next = id
+        }
+        guard !decided || next != current else { return }
+        // At launch, signed out: a sign-out whose leave never reached acpmux is asked again.
+        let leave = decided ? current != nil : next == nil
+        decided = true
         current = next
         let before = work
         // task-owner: one change's leave and enroll, after the previous change's; ends with them.
         work = Task { [weak self] in
             await before?.value
             guard let self else { return }
-            if previous != nil { await leaveIfAuto() }
+            if leave { await leaveIfAuto() }
             if let next { await enroll(userId: next) }
         }
     }
 
     private func leaveIfAuto() async {
         let reply = await call("_acpmux/machine_leave_if_auto", [:])
-        Self.log.info("sign-out leave: left=\((reply?["left"] as? Bool) ?? false, privacy: .public)")
+        // No reply: the next launch, still signed out, asks again; a leave acpmux took and did
+        // not finish (`kept: busy`) it finishes at its next start.
+        let kept = (reply?["kept"] as? String) ?? (reply == nil ? "no answer" : "")
+        Self.log.info("sign-out leave: left=\((reply?["left"] as? Bool) ?? false, privacy: .public) kept=\(kept, privacy: .public)")
     }
 
     private func enroll(userId: String) async {

@@ -22,6 +22,15 @@ struct Pending {
     /// another box is set aside unsent: its proposed credential is the original box's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     host_fingerprint: Option<String>,
+    /// What began this join (`joined_by` of the record it completes): `sign-in` for a sign-in's
+    /// enroll, None for a pasted join line. Kept here so a join resumed later, by whatever
+    /// asks, completes as what began it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    joined_by: Option<String>,
+    /// The capabilities its redeem sends (`machine_capabilities`). None on an older build's
+    /// pending: its redeem, if done, sent none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    capabilities: Option<Vec<String>>,
 }
 
 /// The pending file of a join made on another box, kept beside unread.
@@ -234,25 +243,33 @@ async fn probe(p: &Pending) -> Result<Probe> {
         // Joined on this box: a later start on another box finds the copy.
         host_fingerprint: host_fingerprint::current(),
         cloned: false,
-        // `complete` sets what joined it.
+        // `complete` sets what joined it and what it said it can do.
         joined_by: None,
+        capabilities: None,
     })))
 }
 
-fn complete(
-    p: &Pending,
-    record: &MachineCredential,
-    report: Report,
-    joined_by: Option<&str>,
-) -> Result<()> {
+/// The record a probed join stores: what began it and what its redeem said it can do come from
+/// the proposal, never from whoever finishes it.
+fn completed_record(p: &Pending, probed: &MachineCredential) -> MachineCredential {
+    MachineCredential {
+        joined_by: p.joined_by.clone(),
+        capabilities: p.capabilities.clone(),
+        ..probed.clone()
+    }
+}
+
+fn complete(p: &Pending, record: &MachineCredential, report: Report) -> Result<()> {
     authority().and_then(|a| a.enroll()).map_err(|_| store_error())?;
-    let record = &MachineCredential { joined_by: joined_by.map(str::to_owned), ..record.clone() };
+    let record = &completed_record(p, record);
     let bytes = Zeroizing::new(serde_json::to_vec(record).map_err(|_| store_error())?);
     write_durable(&credential_path(), &bytes, true).map_err(|_| store_error())?;
     configure_mesh_relay(&p.hub).map_err(|_| store_error())?;
     // Remove the immutable recovery proof only after final + relay are durable.
     crate::config::private_state_file(&state_dir().join(FILE)).map_err(|_| store_error())?;
     std::fs::remove_file(state_dir().join(FILE)).map_err(|_| store_error())?;
+    // A join made here ends what a hub's revoke kept from enrolling on its own.
+    super::enroll::clear_revoked(&state_dir());
     sync_ancestors(&state_dir()).map_err(|_| store_error())?;
     match report {
         Report::Quiet => {}
@@ -309,6 +326,7 @@ fn new_pending(
     name: String,
     prior: Option<MachineCredential>,
     overwrite: bool,
+    joined_by: Option<String>,
 ) -> Result<Pending> {
     let mut random = Zeroizing::new([0u8; 32]);
     getrandom::fill(&mut *random).map_err(|_| store_error())?;
@@ -327,6 +345,8 @@ fn new_pending(
             .public_key_b64(),
         prior,
         host_fingerprint: host_fingerprint::current(),
+        joined_by,
+        capabilities: Some(machine_capabilities()),
     };
     let bytes = Zeroizing::new(serde_json::to_vec(&p).map_err(|_| store_error())?);
     write_durable(&state_dir().join(FILE), &bytes, overwrite).map_err(|_| store_error())?;
@@ -348,7 +368,7 @@ pub(super) async fn join(
         );
     }
     let existing = read()?;
-    let pending = if let Some(p) = existing {
+    let mut pending = if let Some(p) = existing {
         // Retry a failed directory fsync before any request can redeem this
         // proof. Reading a surviving directory entry alone is not durability.
         crate::config::private_state_file(&state_dir().join(FILE))
@@ -364,12 +384,13 @@ pub(super) async fn join(
             return Err(error(2, "join incomplete; retry with the original hub and name"));
         }
         match probe(&p).await? {
-            Probe::Live(record) => return complete(&p, &record, report, joined_by),
+            // Completes as what began it (`Pending::joined_by`), whatever resumes it.
+            Probe::Live(record) => return complete(&p, &record, report),
             Probe::Revoked if replace && token.is_some() => {
                 // Definitive revocation makes the proposal unusable. Only an
                 // explicit replacement with fresh stdin may replace this proof.
                 // If this was a replacement, its old final is already retired.
-                new_pending(p.hub, p.name, None, true)?
+                new_pending(p.hub, p.name, None, true, p.joined_by)?
             }
             Probe::Revoked => return Err(error(3, "revoked: run machine add again")),
             Probe::Unknown => p,
@@ -407,13 +428,16 @@ pub(super) async fn join(
         if prior.as_ref().is_some_and(|old| old.hub_origin != hub) {
             return Err(error(3, "existing enrollment cannot authorize replacement"));
         }
-        new_pending(hub, name, prior, false)?
+        new_pending(hub, name, prior, false, joined_by.map(str::to_owned))?
     };
+    // An older build's proposal sent no list; the redeem now does, and the record says so.
+    pending.capabilities.get_or_insert_with(machine_capabilities);
     let token =
         token.ok_or_else(|| error(2, "join incomplete; original join token required on stdin"))?;
     authority().and_then(|a| a.enroll()).map_err(|_| store_error())?;
     let mut body = json!({"token":token,"proposedCredential":pending.credential,
-        "name":pending.name,"hostname":pending.hostname,"platform":pending.platform,"wgPublicKey":pending.wg_public_key});
+        "name":pending.name,"hostname":pending.hostname,"platform":pending.platform,"wgPublicKey":pending.wg_public_key,
+        "capabilities":pending.capabilities});
     if let Some(old) = &pending.prior {
         body.set("replaceCredential", json!(old.credential));
     }
@@ -442,7 +466,7 @@ pub(super) async fn join(
         });
     }
     match probe(&pending).await? {
-        Probe::Live(record) => complete(&pending, &record, report, joined_by),
+        Probe::Live(record) => complete(&pending, &record, report),
         Probe::Revoked => Err(error(3, "revoked: run machine add again")),
         Probe::Unknown => Err(hub_error()),
     }
@@ -452,6 +476,46 @@ pub(super) async fn join(
 mod tests {
     use super::*;
     use std::os::unix::fs::{PermissionsExt, symlink};
+
+    fn pending(joined_by: Option<&str>, capabilities: Option<Vec<String>>) -> Pending {
+        Pending {
+            version: 1,
+            credential: "cmm_x".into(),
+            hub: "https://hub.example".into(),
+            name: "box".into(),
+            hostname: "box".into(),
+            platform: "linux".into(),
+            wg_public_key: "key".into(),
+            prior: None,
+            host_fingerprint: None,
+            joined_by: joined_by.map(str::to_owned),
+            capabilities,
+        }
+    }
+
+    #[test]
+    fn a_join_completes_as_what_began_it_whoever_resumes_it() {
+        // A sign-in's redeem landed, its probe failed: the proposal stays on disk and says so.
+        let begun =
+            pending(Some(super::super::enroll::JOINED_BY_SIGN_IN), Some(machine_capabilities()));
+        let on_disk = serde_json::to_vec(&begun).unwrap();
+        let resumed: Pending = serde_json::from_slice(&on_disk).unwrap();
+        let probed = MachineCredential { credential: "cmm_x".into(), ..Default::default() };
+        let record = completed_record(&resumed, &probed);
+        assert_eq!(record.joined_by.as_deref(), Some("sign-in"), "a sign-out then leaves it");
+        assert_eq!(record.capabilities, Some(vec!["vault.proxy.v1".to_owned()]));
+        // A pasted join line's stays the person's, even when a sign-in finishes it.
+        let pasted = completed_record(&pending(None, Some(Vec::new())), &probed);
+        assert_eq!(pasted.joined_by, None);
+        // An older build's proposal: no provenance, no list (the next sign-in rotates once).
+        let older: Pending = serde_json::from_value(
+            json!({"version":1,"credential":"cmm_x","hub":"https://hub.example","name":"box",
+                "hostname":"box","platform":"linux","wg_public_key":"key","prior":null}),
+        )
+        .unwrap();
+        let record = completed_record(&older, &probed);
+        assert_eq!((record.joined_by, record.capabilities), (None, None));
+    }
 
     #[test]
     fn custom_state_ancestors_are_synced_and_errors_stop_the_commit() {

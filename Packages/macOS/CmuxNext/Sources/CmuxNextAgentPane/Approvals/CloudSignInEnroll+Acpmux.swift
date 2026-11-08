@@ -4,11 +4,11 @@ import Foundation
 extension CloudSignInEnroll {
     /// ``CloudSignInEnroll`` over the app's acpmux (`environment`; nil with no acpmux, as in a mock
     /// agent host): each request is one short ``AcpmuxPersonLine``, sent only when the daemon serves
-    /// ``CloudSignInEnroll/capability``. The hub is the platform origin the app's `cmux machine add` mints
-    /// on (`CMUX_PLATFORM_URL`), so both joins land on the same hub.
+    /// ``CloudSignInEnroll/capability``. The hub is the platform origin the app selected
+    /// (`CloudConfiguration.relayAPIBaseURL`), the backend the person signed in to.
     public static func overAcpmux(auth: CloudAuth, buildTag: String?,
                                   environment: @escaping @MainActor () -> AcpmuxEnvironment?) -> CloudSignInEnroll {
-        let hub = ProcessInfo.processInfo.environment["CMUX_PLATFORM_URL"]
+        let hub = auth.configuration.relayAPIBaseURL().absoluteString
         return CloudSignInEnroll(auth: auth, hub: hub, buildTag: buildTag) { method, params in
             // The deadline covers a join that holds acpmux's lock for a while, then the hub's answers.
             guard let environment = environment(),

@@ -74,11 +74,40 @@ pub(super) async fn leave_if_auto(hub: &Arc<Hub>, conn: &Conn) -> Result<Value, 
     let outcome = crate::cli::cloud_join::leave_if_auto().await;
     tracing::info!(left = outcome.left, kept = ?outcome.kept, "sign-out leave");
     if outcome.left {
-        hub.config.write().await.mesh_relay = None;
-        let relay = hub.mesh_relay.lock().await.take();
-        if let Some(relay) = relay {
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
-        }
+        stop_relay(hub).await;
     }
     serde_json::to_value(outcome).map_err(|e| RpcError::internal(e.to_string()))
+}
+
+async fn stop_relay(hub: &Arc<Hub>) {
+    hub.config.write().await.mesh_relay = None;
+    let relay = hub.mesh_relay.lock().await.take();
+    if let Some(relay) = relay {
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(6), relay.stop()).await;
+    }
+}
+
+/// The daemon start's mesh relay. A sign-out's leave the last run did not finish is finished
+/// first, off the start's path, and the relay starts only if the machine stayed joined.
+pub(crate) async fn start_relay_at_start(hub: &Arc<Hub>) {
+    if !crate::cli::cloud_join::leave_pending() {
+        *hub.mesh_relay.lock().await = crate::server::mesh_relay::start_configured(hub).await;
+        return;
+    }
+    let hub = Arc::clone(hub);
+    // task-owner: one leave and maybe the relay start; ends with them (the leave waits at most
+    // for the join lock and the hub's bounded answer).
+    tokio::spawn(async move {
+        let Some(outcome) = crate::cli::cloud_join::finish_leave_at_start().await else {
+            *hub.mesh_relay.lock().await = crate::server::mesh_relay::start_configured(&hub).await;
+            return;
+        };
+        tracing::info!(left = outcome.left, kept = ?outcome.kept, "sign-out leave at start");
+        if crate::cli::cloud_join::relay_may_start(&outcome) {
+            let relay = crate::server::mesh_relay::start_configured(&hub).await;
+            *hub.mesh_relay.lock().await = relay;
+        } else if outcome.left {
+            stop_relay(&hub).await;
+        }
+    });
 }
