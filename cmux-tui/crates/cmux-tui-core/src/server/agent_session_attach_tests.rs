@@ -278,6 +278,8 @@ fn serve(
                 })
             }
             "_acpmux/permission_respond" | "_acpmux/view" => Some(json!({})),
+            // The owner's decision on a prompt held for them (agent-session-queue-*).
+            "_acpmux/queue_approve" | "_acpmux/queue_decline" => Some(json!({"ok": true})),
             "_acpmux/context" | "_acpmux/context_override" => Some(json!({
                 "sessionId": params["sessionId"],
                 "parts": [{"source": "cmux", "text": "Read early.", "tokens": 3}],
