@@ -1666,10 +1666,10 @@ An empty group now keeps only its header at rest. The header's existing + appear
   at once and faded back near the spring's settle (`cmux.passOver`, cx-ai79), so the group's header and members sat
   at opacity 0 for two frames and blinked back.
 - Now crossed rows no longer hide: they stay at full opacity the whole move. The moving selected row draws above them
-  and covers them itself: until its move ends it paints its selection fill over the sidebar's opaque ground
-  (`SidebarRowView.passOverGround`: the theme's sidebar background under the sidebar's own surface fill), so no
-  crossed title shows through a translucent fill, and it lands on its own fill. Over the plain sidebar the row looks
-  the same either way.
+  and covers them itself: until the move is within 3% of its target its background shows its selection fill over the
+  sidebar's opaque ground (the theme's sidebar background under the sidebar's own surface fill), then fades to its own
+  fill (`passOverCover`, one render-server keyframe that removes itself), so no crossed title shows through a
+  translucent fill. Over the plain sidebar the row looks the same either way.
 - In a see-through window (translucent, frosted, glass, a picture) no opaque color matches what is behind the rows,
   so there the crossed rows still hide and fade back as before.
 - Test: `SidebarGroupFlickerTests` event i (no top group piece below opacity 1 in any frame; the moving row above the
