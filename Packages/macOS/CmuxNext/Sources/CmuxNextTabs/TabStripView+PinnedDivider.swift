@@ -23,8 +23,10 @@ extension TabStripView {
     /// With `move` (a close, an open, a reorder), it slides from where it showed on the same move as the
     /// tabs beside it, so it never lies over a pinned tab's pill; `scroll` is the share of its change
     /// the pinned region's scroll made (`TabStripMove.addScroll`).
+    /// `crossing`: the tabs a pin or an unpin flies (`flyPinnedTabs`): the divider fades around them instead of sliding
+    /// through them (`addPinnedDividerCrossing`).
     func layoutPinnedDivider(mapping: TabScrollMapping, tabY: CGFloat, tabHeight: CGFloat, pixel: (CGFloat) -> CGFloat,
-                             move: TabStripMove? = nil, scroll: CGFloat = 0) {
+                             move: TabStripMove? = nil, scroll: CGFloat = 0, crossing: [CALayer] = []) {
         let slots = result.slots.filter { !$0.isCollapsed }
         guard metrics.showsPinnedDivider,
               let firstNormal = slots.firstIndex(where: { !$0.isPinned }), firstNormal > 0, slots[firstNormal - 1].isPinned,
@@ -43,6 +45,11 @@ extension TabStripView {
         let from = pinnedDivider.position
         pinnedDivider.frame = CGRect(x: pixel(x), y: pixel(tabY + (tabHeight - height) / 2), width: line, height: height)
         pinnedDivider.isHidden = false
+        if let move, !crossing.isEmpty {
+            TabStripMove.cancel(pinnedDivider)
+            addPinnedDividerCrossing(move, from: from.x - scroll, wasShown: wasShown, crossing: crossing)
+            return
+        }
         // A divider that just showed is at its place at once, as a new tab's separator is.
         guard let move, wasShown else { return }
         let delta = CGPoint(x: from.x - pinnedDivider.position.x - scroll, y: from.y - pinnedDivider.position.y)

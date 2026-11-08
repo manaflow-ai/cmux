@@ -27,6 +27,13 @@ extension TabCell {
     /// a running one, a hover or a selection change mid-move start from what is on screen.
     func retimeInner(_ path: MotionPath, now: CFTimeInterval, end: CFTimeInterval) {
         titleFade.stopMarquee(animated: false)
+        if let from = pinStartForm {
+            pinStartForm = nil
+            // The width's move began at the change (`TabStripMove.begin`), before this layout: the look's samples start
+            // there too, so frame 0 shows the old look and each frame after it the look at the width's progress. From
+            // `now` the frames between the begin and this layout would show the new look's model at once.
+            return retimePin(path, from: from, now: min(now, path.lastBegin ?? now), end: end)
+        }
         // What shows on screen now (before this layout): the start of the path as the user sees it.
         // The first sample is laid out in the new state (a tab that lost its selection has no x
         // there), so it is not the start form.
@@ -106,6 +113,79 @@ extension TabCell {
         innerPath = InnerPath(end: end, layers: order)
     }
 
+    /// A pin or an unpin: the parts go from the look the tab showed (`from`: the title, the icon at the leading inset)
+    /// to its new rest look (a pinned tab's centred icon, or back) on the width's own progress, so nothing pops on the
+    /// first frame or the last. Each sample lays the parts out in both looks at the sample's width and blends them by
+    /// the width's progress there: positions and sizes in between, a part in one look only fading with it, the title
+    /// too. Chromium lays a pinned tab out in its new look at once and lets BoundsAnimator move the bounds; here the
+    /// look rides the same tween as the bounds instead (cmux-ad m70: "translate properly").
+    private func retimePin(_ path: MotionPath, from: TabChromeVisibility, now: CFTimeInterval, end: CFTimeInterval) {
+        let times = MotionPath.times(from: now, to: end, count: MotionPath.sampleCount(seconds: end - now))
+        let modelWidth = layer.bounds.width
+        let widths = times.indices.map { index in index == times.count - 1 ? modelWidth : max(0, path.value(at: times[index]).x) }
+        let startWidth = widths.first ?? modelWidth
+        let span = modelWidth - startWidth
+        let progress = widths.indices.map { index -> CGFloat in
+            guard abs(span) > 0.5 else { return CGFloat(index) / CGFloat(max(1, widths.count - 1)) }
+            return min(max((widths[index] - startWidth) / span, 0), 1)
+        }
+        let to = TabChromeVisibility.resolve(width: modelWidth, isPinned: item.isPinned, isSelected: isSelected, isHovered: isHovered,
+                                             isClosable: item.isClosable, hasStatus: hasStatusMark, style: style, metrics: metrics)
+        // The start look keeps its parts at every width (only the width moves them).
+        let start = from
+        var order: [CALayer] = []
+        var known: Set<ObjectIdentifier> = []
+        func record() -> ([ObjectIdentifier: Part], TitleFade.Sample?) {
+            var parts: [ObjectIdentifier: Part] = [:]
+            for part in layer.sublayers ?? [] {
+                let id = ObjectIdentifier(part)
+                if known.insert(id).inserted { order.append(part) }
+                parts[id] = Part(position: part.position, size: part.bounds.size, opacity: part.opacity)
+            }
+            return (parts, pathTitle)
+        }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        var samples: [(parts: [ObjectIdentifier: Part], title: TitleFade.Sample?, titleOpacity: Float)] = []
+        for (width, p) in zip(widths, progress) {
+            let slot = (width * scale).rounded() / scale
+            layoutParts(slotWidth: slot, onPath: true, form: start)
+            let (a, titleA) = record()
+            layoutParts(slotWidth: slot, onPath: true, form: to)
+            let (b, titleB) = record()
+            var blended: [ObjectIdentifier: Part] = [:]
+            for id in Set(a.keys).union(b.keys) {
+                let pa = a[id], pb = b[id]
+                guard let from = pa ?? pb, let target = pb ?? pa else { continue }
+                let opacity = (pa?.opacity ?? 0) * Float(1 - p) + (pb?.opacity ?? 0) * Float(p)
+                blended[id] = Part(position: CGPoint(x: from.position.x + (target.position.x - from.position.x) * p,
+                                                     y: from.position.y + (target.position.y - from.position.y) * p),
+                                   size: CGSize(width: from.size.width + (target.size.width - from.size.width) * p,
+                                                height: from.size.height + (target.size.height - from.size.height) * p),
+                                   opacity: opacity)
+            }
+            let titleOpacity = Float(titleA == nil ? 0 : 1 - p) + Float(titleB == nil ? 0 : p)
+            samples.append((blended, titleA ?? titleB, titleOpacity))
+        }
+        // The model values: the parts at rest in the new look.
+        layoutParts(slotWidth: modelWidth, onPath: true)
+        removeInnerKeyframes()
+        for part in order where part !== titleLayer {
+            let id = ObjectIdentifier(part)
+            let first = samples.lazy.compactMap { $0.parts[id] }.first ?? Part(position: part.position, size: part.bounds.size, opacity: 0)
+            addKeyframes(samples.map { $0.parts[id] ?? Part(position: first.position, size: first.size, opacity: 0) }, times: times,
+                         steps: [], to: part, fades: true)
+        }
+        let titleOpacities = samples.map(\.titleOpacity)
+        if titleOpacities.contains(where: { abs($0 - (titleOpacities.first ?? 0)) > 0.001 }),
+           let animation = MotionPath.keyframes("opacity", values: titleOpacities.map { NSNumber(value: $0) }, times: times, on: titleLayer) {
+            titleLayer.add(animation, forKey: Self.innerKeyPrefix + "opacity")
+        }
+        titleFade.follow(samples.map(\.title), times: times, steps: [])
+        innerPath = InnerPath(end: end, layers: order)
+    }
+
     /// The form on screen now, from what the parts show (`shown`: the parts whose presentation is
     /// visible): the start of a width path as the user sees it, also mid-way through an earlier path.
     private func shownForm(_ shown: Set<ObjectIdentifier>) -> TabChromeVisibility {
@@ -132,7 +212,8 @@ extension TabCell {
 
     /// Keyframes of each value that changes along the path (geometry linear between frames, opacity
     /// held until the next frame, as a relayout per frame shows it).
-    private func addKeyframes(_ values: [Part], times: [CFTimeInterval], steps: Set<Int>, to part: CALayer) {
+    /// `fades`: opacity moves between the samples (a pin's look changing on the width's progress), not held.
+    private func addKeyframes(_ values: [Part], times: [CFTimeInterval], steps: Set<Int>, to part: CALayer, fades: Bool = false) {
         func varies<T>(_ read: (Part) -> T, _ differ: (T, T) -> Bool) -> Bool {
             guard let first = values.first.map(read) else { return false }
             return values.contains { differ(read($0), first) }
@@ -146,7 +227,7 @@ extension TabCell {
             part.add(animation, forKey: Self.innerKeyPrefix + "size")
         }
         if varies({ $0.opacity }, { abs($0 - $1) > 0.001 }),
-           let animation = MotionPath.keyframes("opacity", values: values.map { NSNumber(value: $0.opacity) }, times: times, on: part, discrete: true) {
+           let animation = MotionPath.keyframes("opacity", values: values.map { NSNumber(value: $0.opacity) }, times: times, on: part, discrete: !fades) {
             part.add(animation, forKey: Self.innerKeyPrefix + "opacity")
         }
     }
