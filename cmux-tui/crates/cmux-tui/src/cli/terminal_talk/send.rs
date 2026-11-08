@@ -22,6 +22,8 @@
 //! - `pattern`: the wait also ends as soon as output printed after the
 //!   message's echo matches a regex (the echo itself and older output never
 //!   match), and when the command finishes without a match.
+//! - The reply is the output after the message's echo; without the echo,
+//!   the output after what the screen showed before the send (`idle`).
 //! - Reads join soft-wrapped rows into the lines the program printed
 //!   (`terminal-read-unwrap-v1`) when the daemon can; an older daemon gets
 //!   the plain row reads.
@@ -232,8 +234,9 @@ pub(in crate::cli) fn snapshot<B: Daemon + ?Sized>(
 }
 
 /// The terminal record `target` names: a `term_` id or unique prefix, a
-/// `tab_` id it shows in, `current` (the caller's terminal), or an exact
-/// title.
+/// `tab_` id it shows in, `current` (the caller's terminal), an exact title,
+/// or (when no title matches) an agent name or unique tab name
+/// (agent_names.rs).
 pub(in crate::cli) fn find_terminal<'a>(
     snapshot: &'a Value,
     target: &str,
@@ -260,6 +263,29 @@ pub(in crate::cli) fn find_terminal<'a>(
     } else {
         terminals.iter().filter(|terminal| terminal["title"] == target).collect()
     };
+    // An agent name (or a unique tab name) only where no title matches, so a
+    // title that selected a terminal before still selects it.
+    if matches.is_empty() && !target.starts_with("term_") {
+        use super::super::agent_names::{Found, resolve};
+        match resolve(snapshot, target) {
+            Found::One(place) => {
+                if let Some(found) =
+                    terminals.iter().find(|terminal| terminal["id"] == place.terminal)
+                {
+                    return Ok(found);
+                }
+            }
+            Found::Ambiguous(tabs) => {
+                return Err(SendFailure::local(
+                    "selector.ambiguous",
+                    format!("{} tabs are named {target:?}; name one by its id", tabs.len()),
+                    json!({"target": target, "candidates": tabs}),
+                    1,
+                ));
+            }
+            Found::Missing => {}
+        }
+    }
     match matches.as_slice() {
         [one] => Ok(one),
         [] => Err(SendFailure::local(
@@ -418,7 +444,7 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         return Err(SendFailure::local("usage.invalid", "send needs --text", json!({}), 2));
     }
     let pattern = match request.pattern.as_deref() {
-        Some(pattern) => Some(Regex::new(pattern).map_err(|error| {
+        Some(pattern) => Some(cmux_tui_core::wait_pattern::compile(pattern).map_err(|error| {
             SendFailure::local(
                 "usage.invalid",
                 format!("--pattern is not a valid regular expression: {error}"),
@@ -496,6 +522,14 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
             .map_err(|error| stage_failure(error.into(), &send_id, &id, stage))?;
         Ok(())
     };
+    let reads = Reads::new();
+    // What the screen shows before the message: an agent whose echo is not
+    // found (a pasted message drawn as a placeholder) still answers only
+    // what it printed after the send, never the turns already there.
+    let shown_before = (request.wait == Wait::Idle)
+        .then(|| reads.screen(backend, session, &id, &[]).ok())
+        .flatten()
+        .map(|screen| reply::lines(screen.get("text").and_then(Value::as_str).unwrap_or_default()));
     let sent_ms = super::now_ms();
     write(&typed, "paste")?;
     std::thread::sleep(request.enter_delay);
@@ -512,7 +546,6 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         receipt.set("sent", Value::Bool(true));
         return Ok(receipt);
     }
-    let reads = Reads::new();
     let waited = wait(
         backend,
         session,
@@ -522,7 +555,10 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         &reads,
     )?;
     let lines = reply_lines(backend, session, &id, &waited.screen, &request.text, &reads);
-    let Reply { text, anchored } = reply::reply_after(&lines, &request.text);
+    let screen =
+        reply::lines(waited.screen.get("text").and_then(Value::as_str).unwrap_or_default());
+    let Reply { text, anchored } =
+        reply::reply_since(&lines, &request.text, shown_before.as_deref(), &screen);
     let (state, timed_out) = match waited.verdict {
         Verdict::Done(state) => (state.as_str(), false),
         Verdict::Exited => ("exited", false),

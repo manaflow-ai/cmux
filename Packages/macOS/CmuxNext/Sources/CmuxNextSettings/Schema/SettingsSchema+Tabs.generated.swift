@@ -88,12 +88,6 @@ extension NewTerminalWorkspaceSetting {
     public nonisolated static let fallback = false
 }
 
-extension CmdWClosesPinnedTabsSetting {
-    /// `tabs.cmdWClosesPinnedTabs`: Whether the user's Cmd-W closes a pinned tab.
-    public nonisolated static let configPath = ["tabs", "cmdWClosesPinnedTabs"]
-    public nonisolated static let fallback = true
-}
-
 extension VerticalTabsSetting {
     /// `tabs.verticalTabs`: Tabs as a vertical list in every workspace; a workspace's own choice, from the tab list's menu, wins.
     public nonisolated static let configPath = ["tabs", "verticalTabs"]

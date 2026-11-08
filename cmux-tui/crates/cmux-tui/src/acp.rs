@@ -228,7 +228,7 @@ const TERMINAL_IDENTITY_ENV: [&str; 5] =
 /// The acpmux home `cmux acp` uses: `ACPMUX_HOME`, else its build's home
 /// ([`build_home`]), else `~/.acpmux`.
 #[cfg(unix)]
-fn daemon_acpmux_home() -> Option<PathBuf> {
+pub(crate) fn daemon_acpmux_home() -> Option<PathBuf> {
     // Another app's terminal names that app's acpmux (per-build isolation S4).
     if let Some(home) = env_value("ACPMUX_HOME")
         && !crate::app_identity::this_process_in_other_apps_terminal()

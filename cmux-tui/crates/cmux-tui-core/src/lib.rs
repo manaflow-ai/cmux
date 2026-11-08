@@ -102,6 +102,7 @@ mod sidebar_resource;
 pub mod sizing_policy;
 mod state;
 pub mod store_schemas;
+pub mod wait_pattern;
 use cmux_tui_util::stream_interrupt;
 #[cfg(unix)]
 mod holder_runtime;

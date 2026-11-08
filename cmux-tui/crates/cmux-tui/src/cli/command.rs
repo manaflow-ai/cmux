@@ -23,6 +23,7 @@ mod conversation;
 mod flags;
 pub(super) mod git;
 mod history;
+mod list_filter;
 mod machine;
 mod name_flags;
 pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
@@ -30,6 +31,7 @@ pub(super) mod plan;
 mod screen;
 mod session_reset;
 pub(super) use session_reset::run_session_reset_state;
+pub(super) use state::parse_duration_ms;
 mod server_ensure;
 mod settings;
 #[cfg(test)]
@@ -38,6 +40,9 @@ pub(super) use settings::{SettingsList, human_rows as settings_human_rows, resol
 mod sidebar_doc;
 mod state;
 mod workspace;
+#[cfg(test)]
+pub(super) use list_filter::CwdFilter;
+pub(super) use list_filter::ListFilter;
 pub(super) use plan::{
     AgentRosterView, AgentSort, RequestPlan, Resolve, ResponseView, WireOperation, ZoomStep,
 };
@@ -808,7 +813,9 @@ fn parse_pane_strings(
     match words {
         ["list"] => {
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen"])?;
+            let filter = list_filter::take(flags, true, true)?;
             request(ResourceOperation::PaneList, selectors, flags, Map::new())
+                .map(|plan| plan.filtered(filter))
         }
         ["create"] => {
             let mut params = Map::new();
@@ -1053,7 +1060,9 @@ fn parse_terminal(
                 flags,
                 &["workspace", "screen", "pane", "tab"],
             )?;
+            let filter = list_filter::take(flags, false, true)?;
             request(ResourceOperation::TerminalList, selectors, flags, Map::new())
+                .map(|plan| plan.filtered(filter))
         }
         [selector, verb @ ("show" | "status")] => {
             selectors.insert("terminal", "term", selector)?;
@@ -1173,7 +1182,10 @@ fn parse_terminal(
             if let Some(lines) = flags.take("lines") {
                 insert_bounded_u32(&mut params, "lines", "--lines", lines, 1, 10_000)?;
             }
+            // Plain screen text unless --details asks for the record's fields (W3-H).
+            let details = flags.boolean("details");
             request(ResourceOperation::TerminalScreenRead, selectors, flags, params)
+                .map(|plan| if details { plan } else { plan.screen_text() })
         }
         [selector, "state", "read"] => {
             selectors.insert("terminal", "term", selector)?;
@@ -2099,6 +2111,7 @@ fn finalize_request(
         idempotency_key: explicit_key,
         resolve: Vec::new(),
         view: ResponseView::Full,
+        filter: Default::default(),
     })))
 }
 
@@ -2944,6 +2957,11 @@ pub(super) fn run_plugin(global: GlobalArgs, plan: PluginPlan) -> i32 {
         },
         plan.kind,
     ) {
+        Ok(result) if global.output == super::OutputMode::Human && result == json!([]) => {
+            // An empty list printed nothing at all (bench round 3).
+            println!("{}", no_plugins_line(plan.kind));
+            0
+        }
         Ok(result) => super::wire::print_local_success(&result, global.output),
         Err(error) => {
             let value = json!({
@@ -2962,7 +2980,7 @@ pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_instal
     if result.failed {
         let error = json!({
             "code": "local.agent_hooks",
-            "message": "one or more coding-agent hook operations failed",
+            "message": agent_hooks_failure_message(&result.value),
             "details": result.value,
             "retryable": false,
         });
@@ -2970,6 +2988,23 @@ pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_instal
     } else {
         super::wire::print_local_success(&result.value, global.output)
     }
+}
+
+/// What `cmux agent|sidebar plugin list` prints when no plugin is installed.
+fn no_plugins_line(kind: crate::plugin_manager::PluginKind) -> String {
+    format!("No plugins are installed. {} install <git-url> installs one.", kind.command_prefix())
+}
+
+/// The message of a failed `agent hook install|uninstall|status`: the
+/// operations' own errors (`<provider>: <cause>`), which text output shows
+/// only in the message.
+fn agent_hooks_failure_message(value: &Value) -> String {
+    let errors: Vec<&str> =
+        value["errors"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+    if errors.is_empty() {
+        return "one or more coding-agent hook operations failed".to_owned();
+    }
+    format!("coding-agent hook operations failed: {}", errors.join("; "))
 }
 
 pub(super) fn run_provider_authority(global: GlobalArgs, plan: ProviderAuthorityPlan) -> i32 {
@@ -3018,6 +3053,22 @@ pub(super) fn run_provider_authority(global: GlobalArgs, plan: ProviderAuthority
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `cmux agent hook status` text output said only "One or more
+    /// coding-agent hook operations failed" (bench round 3); the cause was
+    /// in `--json` alone.
+    #[test]
+    fn w4j_a_hook_failure_message_names_each_cause() {
+        let value = json!({"errors": ["copilot: ~/.copilot/config.json is not valid JSON"]});
+        assert_eq!(
+            agent_hooks_failure_message(&value),
+            "coding-agent hook operations failed: copilot: ~/.copilot/config.json is not valid JSON"
+        );
+        assert_eq!(
+            agent_hooks_failure_message(&json!({"errors": []})),
+            "one or more coding-agent hook operations failed"
+        );
+    }
 
     fn raw_request(args: &[&str]) -> Value {
         match parse(&strings(args), super::super::Surface::CmuxTui).unwrap() {
@@ -4274,9 +4325,9 @@ mod tests {
     #[test]
     fn agent_commands_use_canonical_public_states() {
         const TERMINAL: &str = "term_55555555555555555555555555555555";
+        // agent list --state takes the shared status words and maps them
+        // (command/agent_list.rs tests); agent report takes the daemon state.
         for state in ["working", "blocked", "idle", "done", "unknown"] {
-            let list = protocol(&["agent", "list", "--terminal", TERMINAL, "--state", state]);
-            assert_eq!(list.params["state"], state);
             let report = protocol(&[
                 "agent",
                 "report",

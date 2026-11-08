@@ -33,10 +33,9 @@ extension TabStripModel {
             guard ordered.contains(where: { $0.id == id }) else { return false }
             // Pinned tabs after `id` stay (Chrome).
             let closed = Set(closedByCloseToRight(of: id))
+            let selects = selectionKeeping(id)
             tabs = ordered.filter { !closed.contains($0.id) }
-            if let selectedID, closed.contains(selectedID) {
-                self.selectedID = id
-            }
+            if let selects { selectedID = selects }
         case .reorder(let id, _, let to):
             guard let from = ordered.firstIndex(where: { $0.id == id }) else { return false }
             let item = ordered.remove(at: from)

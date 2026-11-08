@@ -45,7 +45,7 @@ export type EnvironmentFaceStyle = "label" | "icon" | "chip";
 
 /// Which rows the list holds (ComposerContext `stripLayout`). `combined`: This Mac and Cloud, a
 /// machine only once it is the pick, every machine behind Machines… (one control for both).
-/// `where`: where the chat runs, three one-line rows, This Mac, Cloud and Another machine, whose
+/// `where`: where the chat runs, three one-line rows, This Mac, Cloud and Remote, whose
 /// pick is the machine control's (`onAnother`). `machines`: which machine, the person's machines
 /// with no Cloud row, ready ones first, SSH and Cloud peers alike (their icon is the only mark of
 /// how each connects), then Add Machine…; This Mac heads it with `includeLocal`. `run`: ChatGPT's
@@ -152,9 +152,9 @@ export function EnvironmentPicker({
   digits?: boolean;
   /// Whether the right-click setup menu is this control's (one control per strip has it).
   setupMenu?: boolean;
-  /// `where`: Another machine was picked; the strip shows and opens its machine control.
+  /// `where`: Remote was picked; the strip shows and opens its machine control.
   onAnother?(): void;
-  /// Each new value opens the list (the strip opens the machine control after Another machine).
+  /// Each new value opens the list (the strip opens the machine control after Remote).
   openRequest?: number;
   /// `machines`: only the person's own machines (SSH), not Cloud machines (Cloud is one pick; its machines are behind Machines…).
   ownOnly?: boolean;
@@ -336,7 +336,7 @@ export function EnvironmentPicker({
           }
       : undefined;
   const cloudRow = runMode !== undefined ? CLOUD_RUN : cloud?.value;
-  // Where: Another machine, whose pick is the machine control's. Which machine: Add Machine… last.
+  // Where: Remote, whose pick is the machine control's. Which machine: Add Machine… last.
   const another: Action | undefined =
     listRows === "where" && onAnother
       ? { value: ANOTHER, text: t("composer.anotherMachine"), kind: "local", run: onAnother }
@@ -410,9 +410,9 @@ export function EnvironmentPicker({
     ...savedShown.map((environment) => SAVED + environment.id),
     ...shown.filter((environment) => !isLocal(environment)).map((environment) => environment.id),
   ];
-  // Where: This Mac, Cloud, Another machine (checked while the pick is any other machine or a saved
+  // Where: This Mac, Cloud, Remote (checked while the pick is any other machine or a saved
   // environment). The cloud toggle: This Mac and Cloud.
-  // A Cloud machine picked is Cloud's; any other machine (or a saved environment) is Another machine's.
+  // A Cloud machine picked is Cloud's; any other machine (or a saved environment) is Remote's.
   const checkedKind = ordered.find((environment) => environment.id === checkedRow)?.kind;
   const cloudChecked = clouded || (listRows === "where" && checkedKind === "cloud");
   // A saved environment on this Mac is This Mac's row in the Where list.
@@ -531,7 +531,7 @@ export function EnvironmentPicker({
       focusPrompt();
       return;
     }
-    // A machine, Another machine, or Cloud's New Cloud Machine flow: Persistent again.
+    // A machine, Remote, or Cloud's New Cloud Machine flow: Persistent again.
     if (!action || (value === ACTION + "cloud" && !action.signsIn) || value === ANOTHER) persistent();
     if (action) action.run();
     // The chat's own machine, paused (cloudMachines.ts withCloudSleep), is still a pick: it resumes.
@@ -775,7 +775,7 @@ export function EnvironmentPicker({
 
 /// An action row's value: never a machine's id.
 const ACTION = "\u0000action:";
-/// Where's Another machine row.
+/// Where's Remote row.
 const ANOTHER = ACTION + "another";
 /// A saved environment's row value: its id after this, never a machine's id.
 const SAVED = "\u0000saved:";
@@ -823,7 +823,7 @@ export function EnvironmentIcon({ kind, name }: { kind: EnvironmentKind; name?: 
   );
 }
 
-/// Another machine (Codex desktop's Remote): a globe, any kind of machine alike.
+/// Remote (one of the person's own machines): a globe, any kind of machine alike.
 export function AnotherMachineIcon() {
   return (
     <svg
