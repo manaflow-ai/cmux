@@ -14,10 +14,11 @@ extension LayoutRootView {
         deferredMountQueued = true
         LaunchReveal.shared.whenReady(.pane) { [weak self] in
             AfterFrameCommit().run { [weak self] in
+                // Cleared here, not in the still work: a later ask replaces that work (one key), so a dropped or
+                // replaced task never leaves the flag set and the idle mounts stopped.
+                self?.deferredMountQueued = false
                 self?.whenStill("layout.hiddenScreens", on: queue) { [weak self] in
-                    guard let self else { return }
-                    deferredMountQueued = false
-                    guard isLive, mountDeferredScreen() else { return }
+                    guard let self, isLive, mountDeferredScreen() else { return }
                     mountDeferredScreensWhenIdle()
                 }
             }
