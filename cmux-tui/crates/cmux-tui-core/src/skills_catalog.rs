@@ -21,7 +21,7 @@
 //! `.claude/settings.json` and `.claude/settings.local.json`, and a plugin's skills follow the
 //! plugin's `enabledPlugins` entry. Codex reads `[[skills.config]]` rules (`path` or `name`,
 //! `enabled`; the last match wins) from `config.toml`. A write keeps the rest of the person's file as
-//! it was: a JSON file's other top-level entries keep their order and text, a TOML file keeps its
+//! it was: a JSON file's other top-level entries keep their order and each value its text (the top level is laid out again, two spaces per entry, and a repeated top-level key keeps its last value), a TOML file keeps its
 //! comments, and a file that does not parse is never written (`skills.settings_unreadable`).
 //!
 //! Cost stays bounded however many skills a machine has: each folder lists at most
@@ -49,6 +49,10 @@ pub(crate) const MAX_HEAD_BYTES: usize = 64 * 1024;
 pub(crate) const MAX_SKILL_BYTES: u64 = 1024 * 1024;
 const MAX_NAME: usize = 64;
 const MAX_DESCRIPTION: usize = 1024;
+
+/// One write at a time: a toggle reads a settings file, edits it and renames a new copy over it,
+/// so two at once (two windows, a double click) would each keep only their own edit.
+static WRITES: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// A refusal's wire code (`skills.*`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -309,6 +313,7 @@ pub(crate) fn set_enabled(
     id: &str,
     enabled: bool,
 ) -> Result<Skill, SkillsError> {
+    let _writing = WRITES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let skill = find(env, projects, id).ok_or(SkillsError::NotFound)?;
     match (skill.harness, skill.toggle) {
         (_, None) => return Err(SkillsError::NotToggleable),
@@ -371,6 +376,7 @@ pub(crate) fn create(
     projects: &[Project],
     new: &NewSkill,
 ) -> Result<Skill, SkillsError> {
+    let _writing = WRITES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let harness = Harness::parse(&new.harness).ok_or(SkillsError::BadScope)?;
     if !valid_name(&new.name) {
         return Err(SkillsError::BadName);
@@ -852,9 +858,16 @@ fn write_atomic(file: &Path, text: &str) -> Result<(), SkillsError> {
     let parent = file.parent().ok_or(SkillsError::WriteFailed)?;
     fs::create_dir_all(parent).map_err(|_| SkillsError::WriteFailed)?;
     let name = file.file_name().ok_or(SkillsError::WriteFailed)?.to_string_lossy().into_owned();
-    let temp = parent.join(format!(".{name}.cmux-{}", std::process::id()));
+    // A name of its own per write (process, counter, time), made with create_new, so two writes
+    // never share a temporary file; WRITES already serializes this daemon's own.
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.subsec_nanos());
+    let temp = parent.join(format!(".{name}.cmux-{}-{n}-{nanos}", std::process::id()));
     let result = (|| {
-        let mut f = fs::File::create(&temp)?;
+        let mut f = fs::OpenOptions::new().write(true).create_new(true).open(&temp)?;
         f.write_all(text.as_bytes())?;
         f.sync_all()?;
         // The person's file keeps its permissions.

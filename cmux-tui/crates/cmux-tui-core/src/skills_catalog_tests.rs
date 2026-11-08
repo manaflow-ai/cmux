@@ -372,3 +372,30 @@ fn one_folder_contributes_a_bounded_number_of_skills() {
     }
     assert!(list(&f.env, &[]).len() <= MAX_ENTRIES_PER_FOLDER);
 }
+
+#[test]
+fn toggles_at_once_each_keep_their_edit() {
+    let f = fixture();
+    let folder = f.env.claude_dir.join("skills");
+    let names: Vec<String> = (0..8).map(|i| format!("s{i}")).collect();
+    for name in &names {
+        skill(&folder, name, &front(name, "d"));
+    }
+    let ids: Vec<String> = list(&f.env, &[]).into_iter().map(|s| s.id).collect();
+    std::thread::scope(|scope| {
+        for id in &ids {
+            let env = &f.env;
+            scope.spawn(move || set_enabled(env, &[], id, false).unwrap());
+        }
+    });
+    assert!(
+        list(&f.env, &[]).iter().all(|s| !s.enabled),
+        "a concurrent toggle lost another's edit"
+    );
+    let leftovers: Vec<_> = fs::read_dir(&f.env.claude_dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_name().to_string_lossy().contains(".cmux-"))
+        .collect();
+    assert!(leftovers.is_empty(), "temporary files left: {leftovers:?}");
+}

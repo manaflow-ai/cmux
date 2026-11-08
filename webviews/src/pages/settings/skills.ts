@@ -64,9 +64,10 @@ export function groupSkills(skills: readonly Skill[]): HarnessGroups[] {
   );
 }
 
-/** A skill's name as the daemon accepts it: lowercase letters, digits and hyphens, 1 to 64. */
+/** A skill's name as the daemon accepts it (skills_catalog.rs `valid_name`): lowercase letters and
+ * digits in words joined by single hyphens, at most 64 characters. */
 export function validSkillName(name: string): boolean {
-  return /^[a-z0-9-]{1,64}$/.test(name);
+  return name.length <= 64 && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name);
 }
 
 export function harnessTitle(harness: SkillHarness): string {

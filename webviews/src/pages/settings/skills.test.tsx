@@ -65,6 +65,8 @@ test("a name is lowercase letters, digits and hyphens, 1 to 64", () => {
   expect(validSkillName("")).toBe(false);
   expect(validSkillName("a".repeat(64))).toBe(true);
   expect(validSkillName("a".repeat(65))).toBe(false);
+  // The daemon's rule: no leading, trailing or doubled hyphen.
+  for (const bad of ["-x", "x-", "a--b", "-"]) expect(validSkillName(bad)).toBe(false);
 });
 
 test("the card lists each skill under its harness and source, with its problem and Overridden", async () => {

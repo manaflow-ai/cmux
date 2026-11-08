@@ -54,9 +54,13 @@ public final class SettingsSkills: PageProvider {
         switch op {
         case "cmux.settings.skills.list": return try await list()
         case "cmux.settings.skills.run":
-            // Turning a skill on or off, making one and opening its file are a person's clicks in the
-            // Settings page; Show in Finder is not a write.
-            if params["action"]?.stringValue != "reveal", context.page != PageDescriptor.settings.id {
+            // Only the Settings page asks. Turning a skill on or off and making one change the person's
+            // agent configs, so they run only on the person's own click or key in the page
+            // (`context.userGesture`) or a call they approved, as the Agent integrations card's
+            // installs do; a page script alone gets `cmux.app.user_only`. Open and Show in Finder
+            // write nothing.
+            let writes = ["set_enabled", "create"].contains(params["action"]?.stringValue ?? "")
+            guard context.page == PageDescriptor.settings.id, !writes || context.userGesture || context.isConfirmedUser else {
                 throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
             }
             return try await run(params)
