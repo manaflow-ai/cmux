@@ -22,7 +22,8 @@ import { mentionedRepository } from "../../../githubReferences";
 import { CardCopy } from "./CardCopy";
 import { FindReveal, foldFind } from "./chatFind";
 import { SenderName } from "./IncomingMessageCard";
-import { groupSender, MessageGroupHead } from "./MessageGroupHead";
+import { MessageGroupHead } from "./MessageGroupHead";
+import { groupSender } from "./messageGroupHeadModel";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import type { IncomingMessage } from "./incomingMessage";
 import {

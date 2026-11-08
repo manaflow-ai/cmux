@@ -15,7 +15,8 @@ struct FloatingGlassStyleTests {
         try #require(view.subviews.compactMap { $0 as? OverlaySurfaceView }.first)
     }
 
-    /// The veil is gray, never a theme hue, and the rim is brighter at the top than the bottom.
+    /// The look's veil is gray (the toast paints it in the theme's tint, ``Palette/veil(of:)``),
+    /// and the rim is brighter at the top than the bottom.
     @Test(arguments: [false, true])
     func theLookIsNeutralWithATopLitRim(isDark: Bool) {
         for style in [FloatingGlassStyle.toast, .dialog, .card] {
@@ -49,11 +50,10 @@ struct FloatingGlassStyleTests {
         #expect(surface.rimView == nil)
     }
 
-    /// The confirm dialog uses the same neutral glass and rim.
+    /// The confirm dialog's card (the sheet glass the dialog drawing puts under the overlay page)
+    /// uses the same neutral glass and rim.
     @Test func theDialogUsesTheSharedGlass() throws {
-        let dialog = CmuxDialogView(spec: CmuxDialogSpec(title: "Restart cmux-tui?", lines: ["Terminals keep running."],
-                                                         buttons: [.cancel(), .ok("Restart")]))
-        let surface = try #require(dialog.surface)
+        let surface = Glass.makeSurface(.sheet, content: NSView())
         #expect(surface.tone == .neutral)
         if surface.material != .opaque { #expect(surface.rimView != nil) }
     }

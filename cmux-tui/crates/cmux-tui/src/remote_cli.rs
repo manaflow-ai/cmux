@@ -35,7 +35,7 @@ use cmux_remote::provider::{
 };
 use cmux_remote::secure_directory::{DirectoryAccess, ensure_secure_directory};
 use cmux_remote_protocol::{
-    LanePolicy, REMOTE_PROTOCOL_VERSION, RoutePolicy, SessionId, WorkspaceRequest,
+    LanePolicy, REMOTE_PROTOCOL_VERSION, RouteId, RoutePolicy, SessionId, WorkspaceRequest,
     WorkspaceResponse,
 };
 use serde_json::Value;
@@ -100,6 +100,7 @@ fn run_inner(
         Some("connect") => run_connect(&args[1..], None, load_config),
         Some("ssh") => run_ssh(&args[1..], load_config),
         Some("forward") => run_forward(&args[1..]),
+        Some("dial-tcp") => run_dial_tcp(args.get(1..).unwrap_or_default()),
         Some("browser-proxy") => run_browser_proxy(&args[1..]),
         Some("rpc") => run_rpc(&args[1..]),
         Some("enroll") => run_enroll(&args[1..], load_config),
@@ -195,6 +196,7 @@ fn remote_help(command: Option<&str>) -> &'static str {
         Some("connect") => client.connect_help,
         Some("ssh") => client.ssh_help,
         Some("forward") => client.forward_help,
+        Some("dial-tcp") => client.dial_tcp_help,
         Some("browser-proxy") => client.browser_proxy_help,
         Some("rpc") => client.rpc_help,
         Some("enroll") => client.enroll_help,
@@ -1074,23 +1076,7 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
     let runtime = tokio_runtime()?;
     let result = runtime.block_on(async {
         let client = WorkspaceClient::connect(connected.runtime.multiplexer().clone()).await?;
-        let workspace =
-            match client.request(WorkspaceRequest::OpenWorkspace { root: workspace_root }).await? {
-                WorkspaceResponse::Workspace { id, .. } => id,
-                _ => return Err(anyhow!("unexpected open-workspace response")),
-            };
-        let route = match client
-            .request(WorkspaceRequest::CreateRoute {
-                workspace,
-                host,
-                port,
-                policy: RoutePolicy::LoopbackOnly,
-            })
-            .await?
-        {
-            WorkspaceResponse::RouteCreated { route, .. } => route,
-            _ => return Err(anyhow!("unexpected create-route response")),
-        };
+        let route = create_loopback_route(&client, workspace_root, host, port).await?;
         let forward =
             LocalPortForward::bind(connected.runtime.multiplexer().clone(), route, listen).await?;
         println!("{}", forward.webview_url(&scheme)?);
@@ -1131,11 +1117,43 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
     result.and(shutdown)
 }
 
+/// Opens `workspace_root` and a [`RoutePolicy::LoopbackOnly`] route to
+/// `host:port` in it. The daemon scopes every route to a workspace this
+/// client holds open, so a stream that needs no files still opens one; the
+/// daemon refuses an address that is not loopback.
+async fn create_loopback_route(
+    client: &WorkspaceClient,
+    workspace_root: String,
+    host: String,
+    port: u16,
+) -> anyhow::Result<RouteId> {
+    let workspace =
+        match client.request(WorkspaceRequest::OpenWorkspace { root: workspace_root }).await? {
+            WorkspaceResponse::Workspace { id, .. } => id,
+            _ => return Err(anyhow!("unexpected open-workspace response")),
+        };
+    match client
+        .request(WorkspaceRequest::CreateRoute {
+            workspace,
+            host,
+            port,
+            policy: RoutePolicy::LoopbackOnly,
+        })
+        .await?
+    {
+        WorkspaceResponse::RouteCreated { route, .. } => Ok(route),
+        _ => Err(anyhow!("unexpected create-route response")),
+    }
+}
+
 #[path = "remote_browser_proxy.rs"]
 mod remote_browser_proxy;
+#[path = "remote_dial_tcp.rs"]
+mod remote_dial_tcp;
 #[path = "remote_wg_hub.rs"]
 mod remote_wg_hub;
 use remote_browser_proxy::{parse_browser_proxy_args, serve_browser_proxy};
+use remote_dial_tcp::run_dial_tcp;
 use remote_wg_hub::run_wg;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -3845,7 +3863,7 @@ mod tests {
 
     #[test]
     fn every_remote_subcommand_help_exits_without_running_the_command() {
-        for command in ["connect", "ssh", "forward", "rpc", "enroll", "remote-probe"] {
+        for command in ["connect", "ssh", "forward", "dial-tcp", "rpc", "enroll", "remote-probe"] {
             let args = [command.to_string(), "--help".to_string()];
             assert!(
                 run_inner(&args, "unused", || panic!("help must not load TUI config")).is_ok(),
@@ -4429,6 +4447,7 @@ mod tests {
             "connect",
             "ssh",
             "forward",
+            "dial-tcp",
             "rpc",
             "enroll",
             "known-daemons",

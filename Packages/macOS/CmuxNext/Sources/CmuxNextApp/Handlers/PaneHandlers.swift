@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextLayout
+import CmuxNextWindowRules
 
 /// Pane and split actions (category `.pane` except columns and screens):
 /// split in four directions, focus, swap, resize, equalize, zoom, close,
@@ -77,12 +78,6 @@ enum PaneHandlers {
         let controller = ctx.services.paneController(for: pane)
         let content = controller?.workspace
         let handle = pane.handle
-        // Ghostty's `split-inherit-working-directory = false`: the home folder (NewTerminalStart).
-        let named = invocation["cwd"]?.stringValue
-            ?? NewTerminalStart.uninherited(.split, services: ctx.services, daemon: daemon, besides: controller?.selectedTab)
-        // Else the folder of the tab it splits: a terminal's, or an agent chat's exact folder.
-        let inherited = named ?? NewTerminalStart.inherited(besides: controller?.selectedTab, in: pane, services: ctx.services)
-        let cwd = inherited ?? controller?.selectedTab?.cwd ?? pane.tabs.first?.cwd
         let workspace = ctx.services.workspaceKey(of: pane)
         let keep = invocation["keep"]?.boolValue == true ? true : nil
         let logger = ctx.services.daemon.logger
@@ -92,31 +87,55 @@ enum PaneHandlers {
         // A person's split of a browser tab, the New Tab page or a chat opens the New Tab page (cx-jfo7),
         // unless it asked for a terminal (the chat header's Terminal).
         let page = !invocation.opensTerminal && NewTabPage.splitsToPage(controller, direction: direction, byPerson: invocation.origin == .user)
-        switch ctx.services.toolSplit(from: pane, edge: edge(direction), byPerson: invocation.origin == .user) {
-        case .split:
-            if page, let controller { NewTabPage.split(controller, edge: edge(direction)); return }
-        case .refused(let reason):
+        let tool = ctx.services.toolSplit(from: pane, edge: edge(direction), byPerson: invocation.origin == .user)
+        // The plan is Rust's (cmux-window-rules `tabs::panes::split`): the folder is the explicit one,
+        // else home when Ghostty's `split-inherit-working-directory` is false (NewTerminalStart), else the
+        // split tab's (a terminal's, or an agent chat's exact folder), else the selected or first tab's.
+        let explicit = invocation["cwd"]?.stringValue
+        let uninherited = explicit == nil ? NewTerminalStart.uninherited(.split, services: ctx.services, daemon: daemon, besides: controller?.selectedTab) : nil
+        let folders = WindowRules.SplitFolders(
+            explicit: explicit, uninherited: uninherited,
+            inherited: (explicit ?? uninherited) == nil ? NewTerminalStart.inherited(besides: controller?.selectedTab, in: pane, services: ctx.services) : nil,
+            selected: controller?.selectedTab?.cwd, first: pane.tabs.first?.cwd
+        )
+        let toolName = switch tool {
+        case .split: "split"
+        case .refused: "refused"
+        case .tab: "tab"
+        case .besideDock: "besideDock"
+        }
+        guard let plan = WindowRules().split(WindowRules.SplitFacts(direction: direction.rawValue, folders: folders, tool: toolName,
+                                                                    page: page, shown: controller != nil)) else {
+            return ctx.refuse(MiscHandlerStrings.daemonOffline)
+        }
+        let cwd = plan.cwd
+        let planEdge = PaneEdge(rawValue: plan.edge) ?? edge(direction)
+        switch (plan.action, tool) {
+        case ("pageSplit", _):
+            if let controller { NewTabPage.split(controller, edge: planEdge) }
+            return
+        case ("refuse", .refused(let reason)):
             return ctx.refuse(reason)
-        case .tab(let strip):
+        case ("stripPage", .tab(let strip)), ("stripTerminal", .tab(let strip)):
             if let content = strip.workspace { focus(strip.layoutPaneID, in: content) }
-            if page { return strip.newTabPage() }
-            return strip.newTerminalTab(cwd: inherited, keep: keep, fromSelectedTab: true, daemonResolvesCwd: true)
-        case .besideDock(let dock):
+            if plan.action == "stripPage" { return strip.newTabPage() }
+            return strip.newTerminalTab(cwd: plan.tabCwd, keep: keep, fromSelectedTab: true, daemonResolvesCwd: true)
+        case ("dockPage", .besideDock(let dock)):
             // Every direction is a column on the dock's right: the pinned dock neither splits nor moves.
-            if page { NewTabPage.split(dock, edge: .right); return }
+            NewTabPage.split(dock, edge: planEdge)
+            return
+        case ("dockColumn", .besideDock(let dock)):
             dock.workspace?.newColumn(after: dock.layoutPaneID, options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
             return
+        default:
+            break
         }
-        let axis: SplitAxis = direction == .left || direction == .right ? .horizontal : .vertical
+        let axis: SplitAxis = plan.horizontal ? .horizontal : .vertical
         let sizing = controller.flatMap { controller in
             content?.layoutModel.splitSizingChanges(splitting: controller.layoutPaneID, axis: axis)
         } ?? []
-        let daemonDirection: SplitDirection = direction == .left || direction == .right ? .right : .down
-        let swapTowards: PaneDirection? = switch direction {
-        case .left: .right
-        case .up: .down
-        default: nil
-        }
+        let daemonDirection = SplitDirection(rawValue: plan.daemonDirection) ?? .right
+        let swapTowards = plan.swapTowards.flatMap(PaneDirection.init(rawValue:))
         let intent = content?.beginFocusIntent()
         let command = PaneSplitCommand(pane: handle, direction: daemonDirection,
                                        options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep), swapTowards: swapTowards)
@@ -172,17 +191,7 @@ enum PaneHandlers {
         }
         if intended != nil { content?.pendingCreate = work }
         // A refusal never vanishes: the stand-in rolls back and the refusal shows where refusals show (rule a).
-        ctx.registry.trackRollingBack(splitAction(direction), work)
-    }
-
-    /// The action a split in `direction` runs (its title names a refused split).
-    static func splitAction(_ direction: PaneDirection) -> ActionID {
-        switch direction {
-        case .left: "splitLeft"
-        case .right: "splitRight"
-        case .up: "splitUp"
-        case .down: "splitDown"
-        }
+        ctx.registry.trackRollingBack(ActionID(rawValue: plan.splitAction), work)
     }
 
     static func edge(_ direction: PaneDirection) -> PaneEdge {
@@ -218,10 +227,11 @@ enum PaneHandlers {
             guard let pane = ctx.paneController(invocation), let content = pane.workspace,
                   let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return }
             guard let number = invocation["index"]?.intValue ?? ctx.refuse(RefusalStrings.indexRequired) else { return }
-            // Focus Next Pane's order; 9 is always the last pane, as Cmd-9 is the last workspace.
+            // Focus Next Pane's order; 9 is always the last pane, as Cmd-9 is the last workspace (Rust's `tabs::pane_by_number`).
             let order = screen.layout.visualPanes
-            let index = number >= 9 ? order.count - 1 : number - 1
-            guard order.indices.contains(index) else { return ctx.refuseQuietly(RefusalStrings.noPaneWithNumber) }
+            guard let index = WindowRules().paneByNumber(number, count: order.count), order.indices.contains(index) else {
+                return ctx.refuseQuietly(RefusalStrings.noPaneWithNumber)
+            }
             focusByKey(order[index], in: content, invocation)
         })
     }

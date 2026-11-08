@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxMobileDesign
+import CmuxSpinner
 import CmuxTabsKit
 import SwiftUI
 
@@ -106,7 +107,7 @@ public struct WorkspaceAddressSuggestions: View {
                         .padding(.leading, 15)
                     Spacer(minLength: 0)
                     if source.pendingTabTitle == WorkspaceTabsSource.openAddressTitle {
-                        ProgressView().padding(.trailing, 4)
+                        CmuxSpinner().padding(.trailing, 4)
                     }
                 }
                 .frame(height: 52)

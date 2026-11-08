@@ -1,5 +1,5 @@
 // HOST GLASS: the App draws a floating surface's glass under the page, as its native menus are drawn
-// (Leo, 2026-11-06: "why the fuck is this not glass? Like the way the native menus are. We can just do
+// (Leo, 2026-11-06: "why the f*** is this not glass? Like the way the native menus are. We can just do
 // that, right? Like we're literally in Swift"). In a see-through Chromium page a CSS backdrop-filter
 // never reaches the window glass behind the page, so a floating `.ui-glass` lays the theme surface under
 // its tint (glass.css, "CHROMIUM OVER THE WINDOW GLASS") and reads as a flat box. A surface marked
@@ -19,6 +19,7 @@
 // stops after STABLE_FRAMES unchanged frames; a resize, a style write, a transition or a scroll starts it
 // again. Nothing runs while no marked surface is mounted, and the App's answer is the only other work.
 import { LENS_ATTRIBUTE } from "./glassState";
+import { attachSeeThroughBlur, type CoveredCandidates, type SeeThroughOptions } from "./seeThroughBlur";
 
 /** pages/shared/desktop.ts SEE_THROUGH_ATTRIBUTE: the page sits on the window glass. */
 const SEE_THROUGH_ATTRIBUTE = "data-cmux-see-through";
@@ -28,6 +29,9 @@ export const HOST_GLASS_ATTRIBUTE = "data-host-glass";
 /** On a surface: "1" once the App draws its glass, "0" when the page draws its own (past the deadline,
  * or an App that cannot). */
 export const HOST_GLASS_DRAWN_ATTRIBUTE = "data-host-glass-drawn";
+/** On a surface: the page under it blurs in place once the App draws its glass (the reporter's `cover`).
+ * A surface that blurs what it covers itself (Session Info, a hover card given `under`) leaves it off. */
+export const HOST_GLASS_COVER_ATTRIBUTE = "data-host-glass-cover";
 /** On `<html>` while the App draws host glass: glass.css hides a marked surface until it is drawn. */
 export const HOST_GLASS_ROOT_ATTRIBUTE = "data-host-glass-on";
 
@@ -96,12 +100,26 @@ export function hostGlassSurface(element: Element, id: string): HostGlassSurface
  * host glass: every surface keeps the page's own glass and the reports end. Returns the stop, which
  * sends an empty list if the last report was not.
  */
-export function reportHostGlass(doc: Document, post: (surfaces: HostGlassSurface[]) => Promise<unknown>): () => void {
+/** What a `data-host-glass-cover` surface blurs in place under it once drawn (module constants). */
+export type HostGlassCover = { candidates: CoveredCandidates; options?: SeeThroughOptions };
+
+export function reportHostGlass(
+  doc: Document,
+  post: (surfaces: HostGlassSurface[]) => Promise<unknown>,
+  cover?: HostGlassCover,
+): () => void {
   const view = doc.defaultView;
   if (!view) return () => undefined;
   const root = doc.documentElement;
   const ids = new Map<Element, string>();
   const deadlines = new Map<Element, ReturnType<typeof setTimeout>>();
+  // The in-place blur of each drawn cover surface: the page's own pixels under it would read crisp
+  // through its clear fill (Chromium's backdrop draws a blurred copy over them, not in their place).
+  const blurs = new Map<Element, () => void>();
+  const unblur = (element: Element) => {
+    blurs.get(element)?.();
+    blurs.delete(element);
+  };
   const resize = view.ResizeObserver ? new view.ResizeObserver(() => kick()) : undefined;
   // A surface placed by its own or its positioner's inline style (Base UI rewrites it on scroll) moves
   // with no resize: that style measures again. Only the marked surfaces and their parents are watched.
@@ -126,6 +144,14 @@ export function reportHostGlass(doc: Document, post: (surfaces: HostGlassSurface
     deadlines.delete(element);
     if (element.getAttribute(HOST_GLASS_DRAWN_ATTRIBUTE) !== drawn)
       element.setAttribute(HOST_GLASS_DRAWN_ATTRIBUTE, drawn);
+    if (drawn === "0") unblur(element);
+    else if (
+      cover &&
+      !blurs.has(element) &&
+      element.hasAttribute(HOST_GLASS_COVER_ATTRIBUTE) &&
+      element instanceof view!.HTMLElement
+    )
+      blurs.set(element, attachSeeThroughBlur(element, cover.candidates, cover.options));
   };
   // Surfaces the App did not draw by the deadline: they keep the page's glass while they stay mounted. A
   // surface that fell back only because host glass did not apply (the lens, Reduce Transparency, an
@@ -136,6 +162,7 @@ export function reportHostGlass(doc: Document, post: (surfaces: HostGlassSurface
     const timer = deadlines.get(element);
     if (timer !== undefined) clearTimeout(timer);
     deadlines.delete(element);
+    unblur(element);
     ids.delete(element);
     resize?.unobserve(element);
     element.removeAttribute(HOST_GLASS_DRAWN_ATTRIBUTE);

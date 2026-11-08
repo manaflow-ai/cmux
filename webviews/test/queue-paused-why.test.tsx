@@ -10,6 +10,8 @@ import type { Root } from "react-dom/client";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { queuePauseReason } from "../src/agent-session/acpmux/queuePause";
+import { mergeQueue } from "../src/agent-session/acpmux/direct";
+import { ownQueue, queuedMessageRows } from "../src/agent-session/acpmux/conversation/queuedMessages";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "ResizeObserver", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -52,14 +54,14 @@ const queued = [
   { id: "q2", prompt: "Then run the tests" },
 ];
 
-async function draw(paused: boolean, reason?: string) {
+async function draw(paused: boolean, reason?: string, queue: readonly unknown[] = queued) {
   const { createRoot } = await import("react-dom/client");
   const { ComposerQueue } = await import("../src/agent-session/acpmux/ComposerQueue");
   root ??= createRoot(host);
   await act(async () =>
     root!.render(
       <ComposerQueue
-        queue={queued as never}
+        queue={queue as never}
         paused={paused}
         {...(reason ? { pauseReason: reason } : {})}
         t={translatorFor("en")}
@@ -113,4 +115,63 @@ test("the reason is the error of the chat's latest failed turn", () => {
   );
   expect(queuePauseReason([row("a", "turnSummary", "failed")])).toBeUndefined();
   expect(queuePauseReason([])).toBeUndefined();
+});
+
+// Leo, 2026-11-05, on "[inbox] New messages from other agents in 3 threads..." under "Paused after
+// an error": "Why is the thing still queued? ... don't show these kinds of things." acpmux's inbox
+// notice is no prompt of the person's: listed with its provenance (`inboxNotice`), it never draws as
+// a queue row, also when the pane never read its `queued` record (a chat reopened on a recent page).
+const NOTICE_TEXT = "[inbox] New messages from other agents in 3 threads. Read one whole with inbox_read.";
+const threads = [
+  {
+    threadId: "pr:1",
+    label: "#1",
+    from: ["lane-a"],
+    count: 1,
+    preview: "Merged #1",
+    blocker: false,
+    promptIds: ["m1"],
+  },
+];
+
+test("a listed inbox notice is no queue row, with or without its record", () => {
+  const listed = { promptId: "n1", prompt: NOTICE_TEXT, client: "acpmux", held: true, fromAgent: null };
+  const withThreads = mergeQueue([], [{ ...listed, inboxNotice: { kind: "inbox_notice", noticeId: "n1", threads } }]);
+  expect(ownQueue(withThreads)).toEqual([]);
+  // It draws as the messages it carries, in the transcript's waiting group.
+  expect(queuedMessageRows(withThreads).length).toBe(1);
+  // One that names no thread, and one from an acpmux that lists no provenance: nothing to draw.
+  const bare = mergeQueue([], [{ ...listed, inboxNotice: { kind: "inbox_notice", noticeId: "n1" } }]);
+  expect(ownQueue(bare)).toEqual([]);
+  expect(queuedMessageRows(bare)).toEqual([]);
+  const older = mergeQueue([], [listed]);
+  expect(ownQueue(older)).toEqual([]);
+  expect(queuedMessageRows(older)).toEqual([]);
+  // The person's own prompt with the same words stays theirs.
+  const mine = mergeQueue([], [{ ...listed, client: "app", inboxNotice: null }]);
+  expect(ownQueue(mine).length).toBe(1);
+});
+
+test("a failed turn's hold of only an inbox notice draws nothing", async () => {
+  // acpmux reads such a hold as not paused (`queuePaused` false): the notice goes in again by itself.
+  const [notice] = mergeQueue([], [{ promptId: "n1", prompt: NOTICE_TEXT, client: "acpmux", held: true }]);
+  await draw(false, undefined, [notice]);
+  expect(host.querySelector(".acpmux-queue-paused")).toBeNull();
+  expect(host.querySelector(".acpmux-composer-queue")).toBeNull();
+  expect(host.textContent).not.toContain("[inbox]");
+});
+
+// Review of #36821 (F1): after the person's Stop, other agents' messages wait for their next turn or
+// Resume (acpmux `cancel.rs`), so acpmux reads the queue as paused, and the note keeps its Resume
+// though none of the held prompts is the person's.
+test("a Stop's hold of only agent messages keeps the paused note and its Resume", async () => {
+  const held = mergeQueue(
+    [],
+    [{ promptId: "m1", prompt: "Merged #1", client: "acpmux", held: true, fromAgent: "lane-a" }],
+  );
+  expect(ownQueue(held)).toEqual([]);
+  await draw(true, undefined, held);
+  expect(host.querySelector(".acpmux-queue-paused")).not.toBeNull();
+  expect(host.querySelectorAll(".acpmux-queue-resume").length).toBe(1);
+  expect(host.querySelectorAll(".acpmux-queued").length).toBe(0);
 });
