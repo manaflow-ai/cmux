@@ -86,7 +86,7 @@ pub(super) fn take(words: &[String]) -> Result<(Vec<String>, Option<FaultSpec>),
                 kept.extend(rest.cloned());
                 break;
             }
-            if super::TAKES_VALUE.contains(&word.as_str())
+            if TAKES_VALUE.contains(&word.as_str())
                 && let Some(value) = rest.next()
             {
                 kept.push(value.clone());
