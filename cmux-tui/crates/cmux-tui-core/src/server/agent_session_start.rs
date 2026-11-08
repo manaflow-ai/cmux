@@ -503,7 +503,8 @@ fn start_and_bind(
     // A phone's start (the Cloud mobile carrier, `cloud-mobile-chat-v1`) gets the phone's
     // floor, also on the caller's own Cloud VM: an acpmux that holds Cloud mobile prompts to it,
     // a family the floor has a mode for, and that mode before the start answers.
-    let phone = mux.control_clients.supports_capability(client, super::CLOUD_MOBILE_CHAT_CAPABILITY);
+    let phone =
+        mux.control_clients.supports_capability(client, super::CLOUD_MOBILE_CHAT_CAPABILITY);
     let table = link.call("_acpmux/web_modes", json!({}), CALL_TIMEOUT).map_err(Refusal::of)?;
     if phone && table.get("cloudMobileStrictFloor").and_then(Value::as_u64) != Some(1) {
         return Err(Refusal::NotAsking);
