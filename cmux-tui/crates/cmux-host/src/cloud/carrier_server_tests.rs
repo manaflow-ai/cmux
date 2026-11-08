@@ -668,10 +668,7 @@ fn an_ask_before_the_fetch_thread_takes_a_rebind_does_not_get_the_old_ticket() {
     wait_for("the fetch thread held", || {
         server.shared.test_points.hold_fetcher.lock().unwrap().is_none()
     });
-    let asking = {
-        let path = path.clone();
-        std::thread::spawn(move || ask(&path, r#"{"carrier_ticket": {}}"#))
-    };
+    let asking = std::thread::spawn(move || ask(&path, r#"{"carrier_ticket": {}}"#));
     std::thread::sleep(Duration::from_millis(200));
     release.send(()).unwrap();
     let reply = asking.join().unwrap();
