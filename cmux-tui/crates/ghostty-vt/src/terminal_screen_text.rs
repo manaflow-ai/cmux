@@ -6,9 +6,11 @@
 //! The libghostty-vt pin on this branch has no search API, so the search is
 //! a Rust scan (feat-cmux-next calls `ghostty_search_*` instead; a later
 //! promotion of feat's engine replaces this file). One formatter pass reads
-//! the whole screen as one line per logical line. Only the logical lines whose
-//! text can hold the needle are then read cell by cell to place the matches,
-//! so the cost per search is one formatter pass plus the lines that match.
+//! the whole screen as one line per logical line, and one read of each row's
+//! first cell finds the logical lines and checks that the formatter lines
+//! line up with them. Only the logical lines whose text can hold the needle
+//! are then read cell by cell to place the matches, so the cost per search is
+//! one formatter pass, one cell per row, and the lines that match.
 
 use super::*;
 use crate::screen_text::{ScreenRowText, ScreenSearch, ScreenTextCell};
@@ -19,6 +21,16 @@ struct PlacedChar {
     ch: char,
     col: u16,
     row: u32,
+}
+
+/// One soft-wrapped logical line of the screen.
+#[derive(Debug, Clone, Copy)]
+struct LogicalLine {
+    top: u32,
+    bottom: u32,
+    /// The first character of the line's first cell; `None` when that cell
+    /// is blank.
+    lead: Option<char>,
 }
 
 /// What one search read, for tests that bound its work.
@@ -96,6 +108,7 @@ impl Terminal {
         limit: usize,
     ) -> (ScreenSearch, ScanStats) {
         let query = Query {
+            text: needle.to_owned(),
             needle: needle.chars().collect(),
             folded: fold(needle.chars(), case_sensitive),
             case_sensitive,
@@ -107,19 +120,15 @@ impl Terminal {
         }
         let total = self.scrollbar().map_or(u64::from(self.rows()), |scrollbar| scrollbar.total);
         let lines = self.logical_lines(total);
-        // Without formatter text (the needle is only whitespace, or the
-        // formatter failed) every logical line is read cell by cell.
-        let texts = if query.folded.is_empty() {
-            None
-        } else {
-            self.folded_line_texts(case_sensitive).filter(|texts| texts.len() <= lines.len())
-        };
+        let texts = self.formatter_lines().filter(|texts| lines_align(&lines, texts));
         if let Some(texts) = texts.as_deref()
             && let Some(result) = self.scan_lines(&lines, Some(texts), &query, &mut stats)
         {
             return (result, stats);
         }
-        stats.fallback = texts.is_some();
+        // The formatter lines do not line up with the screen: read every
+        // line cell by cell. Correct, and still stops at the limit.
+        stats.fallback = true;
         stats.precise_lines = 0;
         let result = self.scan_lines(&lines, None, &query, &mut stats).unwrap_or_default();
         (result, stats)
@@ -127,31 +136,34 @@ impl Terminal {
 
     /// Read the candidate logical lines newest first and place their
     /// matches. With `texts`, a line is a candidate only when its formatter
-    /// text holds the needle, and every line read is checked against its
-    /// formatter text: `None` means the two disagree and the caller must
-    /// read every line instead.
+    /// text can hold the needle; the formatter's last line and every line
+    /// past it are always read, and every line read is checked against its
+    /// formatter text. `None` means the two disagree and the caller must read
+    /// every line instead.
     fn scan_lines(
         &self,
-        lines: &[(u32, u32)],
+        lines: &[LogicalLine],
         texts: Option<&[String]>,
         query: &Query,
         stats: &mut ScanStats,
     ) -> Option<ScreenSearch> {
         let mut result = ScreenSearch::default();
         let mut codepoints = Vec::new();
-        'lines: for (index, &(top, bottom)) in lines.iter().enumerate().rev() {
+        let anchor = texts.map_or(0, |texts| texts.len().saturating_sub(1));
+        'lines: for (index, line) in lines.iter().enumerate().rev() {
             let expected = texts.map(|texts| texts.get(index));
             if let Some(Some(text)) = expected
-                && !text.contains(query.folded.as_str())
+                && index != anchor
+                && !query.may_match(text)
             {
                 continue;
             }
             stats.precise_lines += 1;
-            let placed = self.logical_line_chars(top, bottom, &mut codepoints);
+            let placed = self.logical_line_chars(line.top, line.bottom, &mut codepoints);
             if let Some(expected) = expected {
                 // A line past the formatter's last line must be blank.
-                let formatter = expected.map_or("", String::as_str);
-                if fold(placed.iter().map(|placed| placed.ch), query.case_sensitive) != formatter {
+                let formatter = expected.map_or(String::new(), |text| fold(text.chars(), true));
+                if fold(placed.iter().map(|placed| placed.ch), true) != formatter {
                     return None;
                 }
             }
@@ -167,30 +179,31 @@ impl Terminal {
         Some(result)
     }
 
-    /// The first and last rows of every soft-wrapped logical line, top to
-    /// bottom.
-    fn logical_lines(&self, total: u64) -> Vec<(u32, u32)> {
+    /// Every soft-wrapped logical line, top to bottom.
+    fn logical_lines(&self, total: u64) -> Vec<LogicalLine> {
         let mut lines = Vec::new();
-        let mut top: Option<u32> = None;
+        let mut codepoints = Vec::new();
+        let mut open: Option<LogicalLine> = None;
         for row in 0..total {
             let Ok(row32) = u32::try_from(row) else { break };
-            let start = *top.get_or_insert(row32);
-            if self.screen_row_wraps(row) != Some(true) || row + 1 == total {
-                lines.push((start, row32));
-                top = None;
+            let (wraps, lead) = self.row_head(row, &mut codepoints);
+            let line =
+                open.get_or_insert(LogicalLine { top: row32, bottom: row32, lead: lead.flatten() });
+            line.bottom = row32;
+            if wraps != Some(true) || row + 1 == total {
+                lines.extend(open.take());
             }
         }
         lines
     }
 
-    /// The formatter's text of every logical line, top to bottom, folded
-    /// like the needle. Trailing blank lines are left out.
-    fn folded_line_texts(&mut self, case_sensitive: bool) -> Option<Vec<String>> {
+    /// The formatter's plain text of every logical line, top to bottom,
+    /// with trailing blanks trimmed. Trailing blank lines are left out.
+    fn formatter_lines(&mut self) -> Option<Vec<String>> {
         let bytes = self.format(plain_text_options(ptr::null(), true, true)).ok()?;
         let text = String::from_utf8_lossy(&bytes);
-        let mut texts: Vec<String> =
-            text.split('\n').map(|line| fold(line.chars(), case_sensitive)).collect();
-        while texts.last().is_some_and(String::is_empty) {
+        let mut texts: Vec<String> = text.split('\n').map(str::to_owned).collect();
+        while texts.last().is_some_and(|text| text.chars().all(char::is_whitespace)) {
             texts.pop();
         }
         Some(texts)
@@ -238,21 +251,23 @@ impl Terminal {
         placed
     }
 
+    /// A row's soft-wrap flag and the first character of its first cell
+    /// (`Some(None)` for a blank cell), from one grid reference.
+    fn row_head(
+        &self,
+        row: u64,
+        codepoints: &mut Vec<u32>,
+    ) -> (Option<bool>, Option<Option<char>>) {
+        let Some(grid_ref) = self.grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, 0, row) else {
+            return (None, None);
+        };
+        let lead = grid_ref_text(&grid_ref, codepoints).map(|text| text.chars().next());
+        (grid_ref_wraps(&grid_ref), lead)
+    }
+
     /// Whether a screen row soft-wraps into the next one.
     fn screen_row_wraps(&self, row: u64) -> Option<bool> {
-        let grid_ref = self.grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, 0, row)?;
-        let mut raw_row = sys::GhosttyRow::default();
-        check(unsafe { sys::ghostty_grid_ref_row(&grid_ref, &mut raw_row) }).ok()?;
-        let mut wraps = false;
-        check(unsafe {
-            sys::ghostty_row_get(
-                raw_row,
-                sys::GHOSTTY_ROW_DATA_WRAP,
-                (&mut wraps as *mut bool).cast(),
-            )
-        })
-        .ok()?;
-        Some(wraps)
+        grid_ref_wraps(&self.grid_ref(sys::GHOSTTY_POINT_TAG_SCREEN, 0, row)?)
     }
 }
 
@@ -265,8 +280,38 @@ fn fold(chars: impl Iterator<Item = char>, case_sensitive: bool) -> String {
         .collect()
 }
 
+/// Whether the row under a grid reference soft-wraps into the next one.
+fn grid_ref_wraps(grid_ref: &sys::GhosttyGridRef) -> Option<bool> {
+    let mut raw_row = sys::GhosttyRow::default();
+    check(unsafe { sys::ghostty_grid_ref_row(grid_ref, &mut raw_row) }).ok()?;
+    let mut wraps = false;
+    check(unsafe {
+        sys::ghostty_row_get(raw_row, sys::GHOSTTY_ROW_DATA_WRAP, (&mut wraps as *mut bool).cast())
+    })
+    .ok()?;
+    Some(wraps)
+}
+
+/// Whether the formatter lines can belong to the logical lines one to one:
+/// no more formatter lines than logical lines, and each line's first cell
+/// agrees with its formatter line's first character. A blank first cell
+/// shows as a leading space or an empty line.
+fn lines_align(lines: &[LogicalLine], texts: &[String]) -> bool {
+    texts.len() <= lines.len()
+        && lines.iter().enumerate().all(|(index, line)| {
+            let first = texts.get(index).and_then(|text| text.chars().next());
+            match (line.lead, first) {
+                (Some(lead), Some(first)) => lead == first,
+                (Some(_), None) => false,
+                (None, first) => first.is_none_or(char::is_whitespace),
+            }
+        })
+}
+
 /// One search: the needle as typed and in folded form, and its limits.
 struct Query {
+    /// The needle as typed.
+    text: String,
     needle: Vec<char>,
     /// The needle as [`fold`] writes it, to test formatter lines.
     folded: String,
@@ -275,6 +320,18 @@ struct Query {
 }
 
 impl Query {
+    /// Whether a formatter line can hold a match. Folding keeps substrings,
+    /// so this never drops a line that holds one. A needle of only
+    /// whitespace is looked for as typed: the formatter keeps the blanks
+    /// inside a line.
+    fn may_match(&self, text: &str) -> bool {
+        if self.folded.is_empty() {
+            text.contains(self.text.as_str())
+        } else {
+            fold(text.chars(), self.case_sensitive).contains(self.folded.as_str())
+        }
+    }
+
     /// Non-overlapping matches of the needle in one logical line, left to
     /// right.
     fn find_in(&self, placed: &[PlacedChar]) -> Vec<SelectionRange> {
@@ -450,16 +507,54 @@ mod tests {
         term.vt_write(lines.as_bytes());
         assert!(term.history_rows() > 19_000, "the fixture must fill a large scrollback");
 
+        // The matching line, the last printed line (the alignment anchor),
+        // and the blank rows below the output are read cell by cell.
+        let bound = 2 + usize::from(term.rows());
         let (found, stats) = term.search_screen_scan("row 12345", false, 10_000);
         assert_eq!(found.matches.len(), 1);
         assert!(!stats.fallback, "{stats:?}");
-        assert!(
-            stats.precise_lines <= 1 + usize::from(term.rows()),
-            "only the matching line and the blank rows below the output are read: {stats:?}"
-        );
+        assert!(stats.precise_lines <= bound, "{stats:?}");
 
         let (none, stats) = term.search_screen_scan("absent needle", false, 10_000);
         assert!(none.matches.is_empty());
-        assert!(stats.precise_lines <= usize::from(term.rows()), "{stats:?}");
+        assert!(!stats.fallback, "{stats:?}");
+        assert!(stats.precise_lines <= bound, "{stats:?}");
+    }
+
+    #[test]
+    fn copy_mode_search_screen_keeps_alignment_over_leading_blank_rows_and_indents() {
+        // Blank rows above the first output and an indented, soft-wrapped
+        // line keep the cheap path.
+        let mut term = terminal(10, 6, "\x1b[3;1H   indented foo\r\nbar\r\n");
+        let (found, stats) = term.search_screen_scan("foo", false, 10);
+        assert!(!stats.fallback, "{stats:?}");
+        assert_eq!(found.matches.len(), 1);
+        let range = found.matches[0];
+        assert_eq!((range.start.row, range.start.column), (3, 2));
+        assert_eq!((range.end.row, range.end.column), (3, 4));
+    }
+
+    #[test]
+    fn copy_mode_search_screen_finds_a_whitespace_needle_without_reading_every_line() {
+        let mut term = terminal(20, 4, "a  b\r\ncd\r\n");
+        let (found, stats) = term.search_screen_scan("  ", false, 10);
+        assert!(!stats.fallback, "{stats:?}");
+        assert_eq!(found.matches.len(), 1);
+        let range = found.matches[0];
+        assert_eq!((range.start.row, range.start.column), (0, 1));
+        assert_eq!((range.end.row, range.end.column), (0, 2));
+    }
+
+    #[test]
+    fn copy_mode_search_screen_handles_an_erased_row_after_a_soft_wrap() {
+        // Row 0 keeps its wrap flag while the row it wrapped into is erased.
+        let mut term = terminal(4, 4, "abcdefgh\x1b[2K\r\nxyz");
+        let found = term.search_screen("abcd", false, 10).unwrap();
+        assert_eq!(found.matches.len(), 1);
+        let range = found.matches[0];
+        assert_eq!((range.start.row, range.start.column), (0, 0));
+        assert_eq!((range.end.row, range.end.column), (0, 3));
+        assert!(term.search_screen("efgh", false, 10).unwrap().matches.is_empty());
+        assert_eq!(term.search_screen("xyz", false, 10).unwrap().matches.len(), 1);
     }
 }
