@@ -82,6 +82,25 @@ struct NativeNewTabViewTests {
                 "the rows sit under the field")
     }
 
+    /// Real-app capture (2026-11-08): every row read "Split Ri..." and "P...s" in a 640 pt card. A
+    /// short title and detail are drawn whole when the row has the room.
+    @Test func aShortTitleAndDetailAreNotTruncated() throws {
+        let (host, _, _, window) = Self.make()
+        defer { window.close() }
+        try Self.enter("toggle", into: host)
+        host.layoutSubtreeIfNeeded()
+        let row = try #require(host.page.rows.first { $0.content?.title == "Toggle Sidebar" })
+        #expect(row.frame.width > 500)
+        for label in [row.titleField, row.detailField] {
+            let whole = ceil(label.attributedStringValue.size().width)
+            #expect(label.frame.width >= whole, "\(label.stringValue) drawn in \(label.frame.width) pt of its \(whole) pt")
+        }
+        let title = row.titleField, detail = row.detailField
+        let titleBaseline = title.frame.maxY - title.firstBaselineOffsetFromTop
+        let detailBaseline = detail.frame.maxY - detail.firstBaselineOffsetFromTop
+        #expect(abs(titleBaseline - detailBaseline) < 0.5, "the detail sits on the title's baseline")
+    }
+
     @Test func downUpAndReturnRunTheHighlightedRow() throws {
         let (host, model, box, window) = Self.make()
         defer { window.close() }
