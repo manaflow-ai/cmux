@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextDaemon
 import Foundation
 
@@ -38,13 +39,6 @@ struct CloudTransferLocal {
         return []
     }
 
-    /// Whether `machine` is the signed-in person's own: they created it, or it is a personal
-    /// machine (no team) whose record names no creator.
-    static func isOwner(_ machine: CloudMachine, user: String?) -> Bool {
-        guard let creator = machine.createdBy, !creator.isEmpty else { return machine.team == nil }
-        return creator == user
-    }
-
     /// Starts the transfer of the invocation's machine chat tab. Throws, before anything is copied,
     /// when the tab is not a machine chat or Bring Back Local owns it.
     func start(_ invocation: ActionInvocation, context: AppActionContext) throws {
@@ -68,11 +62,13 @@ struct CloudTransferLocal {
             guard expanded.hasPrefix("/") else { throw ActionFailure(message: CloudMoveStrings.relativePath(path)) }
             folder = expanded
         }
-        let copyOnly = !Self.isOwner(machine.machine, user: services.cloud.auth.user?.id)
+        let copyOnly = !CloudTransferRules.isOwner(machine.machine, user: services.cloud.auth.user?.id)
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
         // Bring Back Local's own toast id: its progress and stops take this toast's place.
         let toastID = "cloud-bring-back-" + tab.id
         CloudMove.toast(services, toastID, CloudTransferLocalStrings.copying, duration: CloudMove.working)
+        // main-hop-allow: the same tracked action work as Bring Back Local's (``CloudBringBack``): it awaits the CLI process
+        // and the daemon off the main thread and only updates toasts and the moved-chats ledger between those awaits.
         let work: ActionWork = Task { @MainActor in
             do {
                 let fetched = try await fetch(tab: tab, record: record, session: session, machine: machine, folder: folder, copyOnly: copyOnly,
@@ -107,7 +103,8 @@ struct CloudTransferLocal {
         guard let socket = await machine.daemon.connection?.endpoint?.socketPath else {
             throw Failure(message: CloudMoveStrings.notConnected(name))
         }
-        let local = folder ?? Self.newFolder(named: (remoteChat as NSString).lastPathComponent)
+        let local: String
+        if let folder { local = folder } else { local = await Self.newFolder(named: (remoteChat as NSString).lastPathComponent) }
         let answer: CloudMoveCLI.Answer
         do {
             answer = try await cli.transferFetch(socket: socket, local: local, remote: remoteChat, adopt: !copyOnly)
@@ -116,11 +113,9 @@ struct CloudTransferLocal {
         }
         guard answer.ok else {
             if answer.errorCode == CloudMoveStrings.outdatedCode { throw Failure(message: CloudBringBackStrings.outdatedMachine(name)) }
-            throw Failure(message: CloudTransferLocalStrings.refusal(answer, machine: name, folder: local))
+            throw Failure(message: CloudTransferLocalStrings.refusal(answer, machine: name, folder: local) ?? CloudBringBackStrings.conflict(answer.conflicts))
         }
-        let root = answer.remoteRoot ?? remoteChat
-        let sub = remoteChat == root ? "" : String(remoteChat.dropFirst(root.count).drop { $0 == "/" })
-        let localChat = sub.isEmpty ? local : (local as NSString).appendingPathComponent(sub)
+        let (root, localChat) = CloudTransferRules.localChat(local: local, remoteChat: remoteChat, remoteRoot: answer.remoteRoot)
         return CloudMovedChats.Entry(machineID: machine.machineID, host: record.host, session: session, harness: record.harness,
                                      localRoot: local, localChat: localChat, remoteFolder: root, remoteChat: remoteChat, name: tab.titleText)
     }
@@ -133,17 +128,13 @@ struct CloudTransferLocal {
         return tabs.lazy.compactMap(\.cwd).first { $0.hasPrefix("/") }
     }
 
-    /// A folder that does not exist yet: `~/Cloud Transfers/<name>`, else `<name> 2`, `<name> 3`...
-    static func newFolder(named name: String, home: String = NSHomeDirectory(), exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> String {
-        let base = (home as NSString).appendingPathComponent(CloudTransferLocalStrings.folderName)
-        let plain = name.isEmpty || name == "/" ? "Cloud chat" : name
-        var candidate = (base as NSString).appendingPathComponent(plain)
-        var number = 2
-        while exists(candidate) {
-            candidate = (base as NSString).appendingPathComponent("\(plain) \(number)")
-            number += 1
-        }
-        return candidate
+    /// A new folder under `~/Cloud Transfers` (``CloudTransferRules/newFolder(named:base:home:exists:)``), its
+    /// names checked off the main thread.
+    private static func newFolder(named name: String) async -> String {
+        let base = CloudTransferLocalStrings.folderName, home = NSHomeDirectory()
+        return await Task.detached(priority: .userInitiated) {
+            CloudTransferRules.newFolder(named: name, base: base, home: home) { FileManager.default.fileExists(atPath: $0) }
+        }.value
     }
 
     /// The person's copy: a new workspace here with a terminal in the copied folder.

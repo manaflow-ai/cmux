@@ -105682,7 +105682,19 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "傳輸到這台 Mac"}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "传输到这台 Mac"}},
         "ko": {"stringUnit": {"state": "translated", "value": "이 Mac으로 전송"}},
-        "ja": {"stringUnit": {"state": "translated", "value": "この Mac に転送"}}
+        "ja": {"stringUnit": {"state": "translated", "value": "この Mac に転送"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Prenesi na ovaj Mac"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Overfør til denne Mac"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Trasferisci su questo Mac"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ផ្ទេរមក Mac នេះ"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Overfør til denne Macen"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Przenieś na ten Mac"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Transferir para este Mac"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Перенести на этот Mac"}},
+        "th": {"stringUnit": {"state": "translated", "value": "โอนมายัง Mac เครื่องนี้"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bu Mac'e aktar"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Перенести на цей Mac"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Chuyển sang máy Mac này"}}
       }
     }
   },

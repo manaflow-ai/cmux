@@ -34,7 +34,7 @@
 //! `machine_outdated`, `sync_conflict`, `sync_failed`.
 
 use std::path::Path;
-use std::process::Command;
+use cmux_process::Command;
 
 use serde_json::{Value, json};
 

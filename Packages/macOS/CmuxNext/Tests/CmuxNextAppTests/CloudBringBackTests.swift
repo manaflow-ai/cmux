@@ -100,19 +100,22 @@ struct CloudBringBackTests {
 
     @Test func aNewTransferFolderNeverReusesOneThatExists() {
         let taken: Set<String> = ["/h/Cloud Transfers/app", "/h/Cloud Transfers/app 2"]
-        #expect(CloudTransferLocal.newFolder(named: "app", home: "/h", exists: taken.contains) == "/h/Cloud Transfers/app 3")
-        #expect(CloudTransferLocal.newFolder(named: "", home: "/h", exists: { _ in false }) == "/h/Cloud Transfers/Cloud chat")
+        #expect(CloudTransferRules.newFolder(named: "app", base: "Cloud Transfers", home: "/h", exists: taken.contains) == "/h/Cloud Transfers/app 3")
+        #expect(CloudTransferRules.newFolder(named: "", base: "Cloud Transfers", home: "/h", exists: { _ in false }) == "/h/Cloud Transfers/Cloud chat")
+        #expect(CloudTransferRules.localChat(local: "/l", remoteChat: "/r/sub/x", remoteRoot: "/r") == ("/r", "/l/sub/x"))
+        #expect(CloudTransferRules.localChat(local: "/l", remoteChat: "/r", remoteRoot: nil) == ("/r", "/l"))
+        #expect(CloudTransferRules.localChat(local: "/l", remoteChat: "/rx/a", remoteRoot: "/r") == ("/r", "/l"), "a root that is not a parent")
     }
 
     @Test func onlyTheCreatorOwnsATeamMachine() {
         var machine = CloudMachine(id: "vm", status: .running, displayName: "VM")
-        #expect(CloudTransferLocal.isOwner(machine, user: "u1"), "a personal machine with no creator is the person's")
+        #expect(CloudTransferRules.isOwner(machine, user: "u1"), "a personal machine with no creator is the person's")
         machine.team = "team_a"
-        #expect(!CloudTransferLocal.isOwner(machine, user: "u1"), "a team machine with no creator is no one's to move")
+        #expect(!CloudTransferRules.isOwner(machine, user: "u1"), "a team machine with no creator is no one's to move")
         machine.createdBy = "u1"
-        #expect(CloudTransferLocal.isOwner(machine, user: "u1"))
-        #expect(!CloudTransferLocal.isOwner(machine, user: "u2"))
-        #expect(!CloudTransferLocal.isOwner(machine, user: nil))
+        #expect(CloudTransferRules.isOwner(machine, user: "u1"))
+        #expect(!CloudTransferRules.isOwner(machine, user: "u2"))
+        #expect(!CloudTransferRules.isOwner(machine, user: nil))
     }
 
     /// The chat comes back: the machine's folder is merged into the chat's folder here, the chat

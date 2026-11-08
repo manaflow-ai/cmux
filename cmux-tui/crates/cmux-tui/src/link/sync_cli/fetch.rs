@@ -22,7 +22,7 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::process::Command;
+use cmux_process::Command;
 
 use anyhow::{Context as _, bail};
 
