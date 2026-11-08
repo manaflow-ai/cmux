@@ -34,8 +34,11 @@ release-notes/next/clips/ID.json, whose caption becomes its alt). It wins over -
 and a clip added to a highlight of the last CLIP_REANNOUNCE_DAYS rides along with the next build (its
 highlights and its What's New digest), so an update that already listed the item shows it again with
 its clip (the page keeps one copy). A malformed clip line is left out with a report.
+A highlight with a spec and no `clip:` line gets its clip recorded by the nightly media tour, and an
+improvement its before on the previous nightly's app, at fixed names (clip_auto_url); --pr-media takes
+those before the gallery pictures, role by role.
 
-A New or Improved highlight of the last LATE_PICTURE_DAYS whose gallery pictures were published after its
+A New or Improved highlight of the last LATE_PICTURE_DAYS whose gallery pictures or recorded clips were published after its
 nightly cut (the public feed's notes showed it without them) rides along with the next --pr-media build
 that finds them, the same way, once (late_pictures).
 
@@ -643,25 +646,48 @@ def gallery_urls(meta, highlight_id, category):
     return urls
 
 
+def clip_auto_url(highlight_id, role):
+    """Where media/whats-new-clips.py publish-auto puts a clip the nightly tour recorded from the highlight's
+    spec (release-notes/next/clips/ID.json): on the new tip's app ("after"), the previous tip's ("before")."""
+    return f"{CLIP_PREFIX}{highlight_id}/clip-auto-{role}.webp"
+
+
+def clip_auto_urls(meta, highlight_id, category):
+    """{role: url} of a highlight's recorded clips: a New or Improved one with no `clip:` line, and for an
+    Improved one its before."""
+    if "clip" in meta or category not in {"new", "improved"}:
+        return {}
+    return {role: clip_auto_url(highlight_id, role) for role in GALLERY_ROLES[:2 if category == "improved" else 1]}
+
+
 def add_gallery_media(highlight, text, deadline):
-    """Gives `highlight` its published gallery pictures: the state first, then its before, each with a
-    role when both are there. True when it got the picture. A missing or unreadable one only leaves it out."""
-    urls = gallery_urls(front_matter(text)[0], highlight["id"], highlight.get("category", "new"))
-    if not urls:
+    """Gives `highlight` its published clip or gallery pictures: the state first, then its before, each with a
+    role when both are there; a recorded clip wins over a gallery picture, role by role. True when it got the
+    first. A missing or unreadable one only leaves it out."""
+    meta = front_matter(text)[0]
+    category = highlight.get("category", "new")
+    clips = clip_auto_urls(meta, highlight["id"], category)
+    pictures = gallery_urls(meta, highlight["id"], category)
+    candidates = {role: [url for url in (clips.get(role), pictures.get(role)) if url] for role in GALLERY_ROLES}
+    if not any(candidates.values()):
         return False
     fixture_path = os.environ.get("CMUX_RELEASE_NOTES_PR_FIXTURE")
     fixture = json.loads(Path(fixture_path).read_text()) if fixture_path else None
     media = []
     for role in GALLERY_ROLES:
-        if role not in urls or time.monotonic() > deadline:
-            continue
-        url = urls[role]
-        try:
-            data = pr_download(url, fixture)
-        except Exception as error:
-            print(f"gallery: {highlight['id']} {role}: {type(error).__name__}: {error}; left out", file=sys.stderr)
+        url = data = None
+        for url in candidates[role]:
+            if time.monotonic() > deadline:
+                break
+            try:
+                data = pr_download(url, fixture)
+            except Exception as error:
+                print(f"gallery: {highlight['id']} {role}: {type(error).__name__}: {error}; left out", file=sys.stderr)
+                data = None
+            if data is not None and pr_media_picture(data):
+                break
             data = None
-        if data is None or not pr_media_picture(data):
+        if data is None:
             if role == "after":
                 return False
             continue
