@@ -3,6 +3,11 @@
 //! One boringtun/smoltcp mesh owns one UDP socket. Incoming streams can reach
 //! only this daemon's loopback WebSocket listener, which still checks tokens,
 //! peer proofs and policy. They never reach the privileged local socket.
+//!
+//! The transport runs only while it holds this machine's WireGuard key lock
+//! (`cmux_link::key_holder`, in the acpmux home). When another process holds
+//! it (the cmux link), the transport steps down for the run and peers go on
+//! over ssh and the relay.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::{IpAddr, SocketAddr};
@@ -12,6 +17,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, ensure};
 use base64::Engine;
+use cmux_link::key_holder::{KeyHolder, KeyHolderError};
 use cmux_wg::{
     InterfaceAddress, IpNetwork, WgMesh, WgMeshConfig, WgMeshListener, WgPeer, WgStream,
 };
@@ -48,10 +54,13 @@ pub struct Transport {
     stop: watch::Sender<bool>,
     bridge: Mutex<Option<JoinHandle<()>>>,
     local: SocketAddr,
+    /// This machine's WireGuard key lock, released when the transport stops.
+    key: Mutex<Option<KeyHolder>>,
 }
 
 impl Transport {
     /// Disabled means no key access, DNS lookup, UDP bind or background task.
+    /// So does a key lock another process holds: the transport steps down.
     pub async fn start(
         config: &crate::config::Config,
         state_dir: &Path,
@@ -66,8 +75,21 @@ impl Transport {
             .as_ref()
             .context("transport.wireguard requires wireguardStatic settings")?;
         let target = local_websocket(websocket)?;
+        let key = match KeyHolder::acquire(state_dir) {
+            Ok(key) => key,
+            Err(KeyHolderError::KeyHeld { pid }) => {
+                tracing::warn!(
+                    holder_pid = ?pid,
+                    "WireGuard transport off for this run: another process holds this machine's WireGuard key; peers use ssh and the relay"
+                );
+                return Ok(None);
+            }
+            Err(KeyHolderError::Io(error)) => {
+                return Err(anyhow::Error::from(error).context("take the WireGuard key lock"));
+            }
+        };
         let socket = UdpSocket::bind(settings.listen).await.context("bind WireGuard UDP")?;
-        Self::from_socket(settings, &config.peers, state_dir, target, socket).await.map(Some)
+        Self::from_socket(settings, &config.peers, state_dir, target, socket, key).await.map(Some)
     }
 
     async fn from_socket(
@@ -76,6 +98,7 @@ impl Transport {
         state_dir: &Path,
         websocket: SocketAddr,
         socket: UdpSocket,
+        key: KeyHolder,
     ) -> Result<Arc<Self>> {
         ensure!(settings.address.port() != 0, "WireGuard service port must be nonzero");
         ensure!(
@@ -84,10 +107,10 @@ impl Transport {
         );
         let websocket = local_websocket(websocket)?;
         let local = socket.local_addr()?;
-        let keys = crate::cli::mesh_node_key::load_or_create_at(state_dir)?;
+        let (_, private_key) = crate::cli::mesh_node_key::load_or_create_held(state_dir, &key)?;
         let mesh = WgMesh::start(
             WgMeshConfig {
-                private_key: keys.private_key(),
+                private_key,
                 addresses: vec![InterfaceAddress {
                     address: settings.address.ip(),
                     prefix: host_prefix(settings.address.ip()),
@@ -141,6 +164,7 @@ impl Transport {
             stop,
             bridge: Mutex::new(Some(bridge)),
             local,
+            key: Mutex::new(Some(key)),
         }))
     }
 
@@ -187,6 +211,8 @@ impl Transport {
         if let Some(mesh) = mesh {
             mesh.close(deadline).await;
         }
+        // The mesh no longer runs with the key: another process may take it.
+        drop(self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take());
     }
 }
 
