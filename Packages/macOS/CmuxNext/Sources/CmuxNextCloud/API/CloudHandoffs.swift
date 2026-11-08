@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextDaemon
 
 /// The person's hand-offs (cloud work mode; cmux#26578, `backend/apps/api/src/handoffs/`): a chat
 /// handed to a Cloud machine, which reports `running`, `needs-you`, `done` or `failed` and a summary.
@@ -7,29 +8,22 @@ extension CloudOwnerAPIClient {
     /// The longest the store holds one wait (`MAX_WAIT_MS`).
     public static let handoffWaitLimitMs = 25_000
 
-    /// `GET /v1/handoffs/:id/wait?after=&timeoutMs=`: `{handoff}` once its version passes `after`
-    /// (nil: at once), or at the deadline (25 s at most). Answers the body as sent.
+    /// `owner.handoff_wait` (`GET /v1/handoffs/:id/wait?after=&timeoutMs=`): `{handoff}` once its
+    /// version passes `after` (nil: at once), or at the deadline (25 s at most). Answers the body as sent.
     public func handoffWait(_ id: String, after: Int?, timeoutMs: Int = handoffWaitLimitMs) async throws -> Data {
         guard Self.isHandoffID(id) else { throw CloudAPIError.transport("not a hand-off id") }
         let held = max(0, min(timeoutMs, Self.handoffWaitLimitMs))
-        return try await get("/v1/handoffs/\(id)/wait", query: [("after", max(0, after ?? 0)), ("timeoutMs", held)],
-                             timeout: .milliseconds(held) + .seconds(15))
+        let answer = try await caller.call("owner.handoff_wait", as: try await credentials(),
+                                           args: ["id": .string(id), "after": JSONValue(max(0, after ?? 0)), "timeoutMs": JSONValue(held)],
+                                           timeout: .milliseconds(held) + .seconds(15))
+        do { return try JSONEncoder().encode(answer) } catch { throw CloudAPIError.decoding("/v1/handoffs: \(error)") }
     }
 
-    /// `GET /v1/handoffs?limit=&cursor=`: the person's hand-offs, newest first, page after page
-    /// (at most `pages` of 100).
+    /// `owner.handoffs` (`GET /v1/handoffs?limit=&cursor=`): the person's hand-offs, newest first,
+    /// page after page (at most `pages` of 100).
     public func handoffs(pages: Int = 20) async throws -> [CloudHandoff] {
-        struct Page: Decodable { var handoffs: [CloudHandoff]; var nextCursor: String? }
-        var all: [CloudHandoff] = [], cursor: String?
-        for _ in 0..<max(1, pages) {
-            let data = try await get("/v1/handoffs", query: [("limit", 100)], cursor: cursor, timeout: .seconds(30))
-            let page: Page
-            do { page = try JSONDecoder().decode(Page.self, from: data) } catch { throw CloudAPIError.decoding("/v1/handoffs: \(error)") }
-            all += page.handoffs
-            guard let next = page.nextCursor, !next.isEmpty else { break }
-            cursor = next
-        }
-        return all
+        try await call("owner.handoffs", ["pages": JSONValue(max(1, pages))], timeout: .seconds(30) * max(1, pages),
+                       as: [CloudHandoff].self)
     }
 
     /// The store's ids (`ho_` and 20 hex digits), the only path part that varies.

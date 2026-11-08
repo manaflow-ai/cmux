@@ -1,61 +1,23 @@
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextDaemon
 import CmuxNextDaemonService
 import Foundation
 import Testing
 
-/// `cloud resize-machine --disk GIB` grows a machine's disk (POST /api/vm/{id}/resize's storageMb),
+/// `cloud resize-machine --disk GIB` grows a machine's disk (the daemon's `cloud.vm.resize` storageMb),
 /// alone or with `--size` in the same call; the body carries only the dimensions given.
-@Suite(.serialized)
-struct CloudResizeDiskTests {
-    nonisolated final class ResizeRoute: URLProtocol {
-        nonisolated(unsafe) static var seen: [(method: String, path: String, body: [String: Any]?)] = []
+@Suite struct CloudResizeDiskTests {
+    let fake = FakeCloudAPI { _ in .null }
 
-        override class func canInit(with _: URLRequest) -> Bool { true }
-        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    private func api() -> CloudAPIClient { fake.classic() }
 
-        override func startLoading() {
-            guard let url = request.url else { return }
-            let body = Self.body(of: request).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-            Self.seen.append((request.httpMethod ?? "", url.path, body))
-            guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
-                                                 headerFields: ["Content-Type": "application/json"]) else { return }
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Data(#"{"id":"vm-1","state":"running"}"#.utf8))
-            client?.urlProtocolDidFinishLoading(self)
-        }
-
-        override func stopLoading() {}
-
-        /// URLSession moves a body into a stream before a protocol sees it.
-        private static func body(of request: URLRequest) -> Data? {
-            if let data = request.httpBody { return data }
-            guard let stream = request.httpBodyStream else { return nil }
-            stream.open()
-            defer { stream.close() }
-            var data = Data()
-            var buffer = [UInt8](repeating: 0, count: 4_096)
-            while stream.hasBytesAvailable {
-                let count = stream.read(&buffer, maxLength: buffer.count)
-                guard count > 0 else { break }
-                data.append(buffer, count: count)
-            }
-            return data
-        }
-    }
-
-    private func api() -> CloudAPIClient {
-        let configuration = CloudConfiguration.resolve(
-            bundleID: nil,
-            bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
-            process: [:],
-            isDebugBuild: true
-        )
-        let sessionConfiguration = URLSessionConfiguration.ephemeral
-        sessionConfiguration.protocolClasses = [ResizeRoute.self]
-        return CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { "team-1" },
-                              session: URLSession(configuration: sessionConfiguration))
+    /// The one call's args, without its machine id.
+    private var body: [String: JSONValue] {
+        var args = fake.seen.first?.args ?? [:]
+        args["id"] = nil
+        return args
     }
 
     private func request(_ arguments: [String: ActionValue]) throws -> CloudResizeRequest {
@@ -63,35 +25,29 @@ struct CloudResizeDiskTests {
     }
 
     @Test func aDiskOnlyResizeSendsOnlyStorage() async throws {
-        ResizeRoute.seen = []
         let request = try request(["disk": .int(100)])
         try await api().resize("vm-1", cpu: request.cpu, memoryMb: request.memoryMb, storageMb: request.storageMb)
-        #expect(ResizeRoute.seen.map(\.method) == ["POST"])
-        #expect(ResizeRoute.seen.map(\.path) == ["/api/vm/vm-1/resize"])
-        let body = try #require(ResizeRoute.seen.first?.body)
+        #expect(fake.operations == ["cloud.vm.resize"])
+        #expect(fake.seen.first?.args["id"]?.stringValue == "vm-1")
         #expect(body.count == 1)
-        #expect(body["storageMb"] as? Int == 100 * 1024)
+        #expect(body["storageMb"]?.intValue == 100 * 1024)
     }
 
     @Test func sizeAndDiskGoInOneCall() async throws {
-        ResizeRoute.seen = []
         let request = try request(["size": .string("large"), "disk": .string("100")])
         try await api().resize("vm-1", cpu: request.cpu, memoryMb: request.memoryMb, storageMb: request.storageMb)
-        #expect(ResizeRoute.seen.count == 1)
-        let body = try #require(ResizeRoute.seen.first?.body)
-        #expect(body["cpu"] as? Int == 8)
-        #expect(body["memoryMb"] as? Int == 16384)
-        #expect(body["storageMb"] as? Int == 102_400)
+        #expect(fake.seen.count == 1)
+        #expect(body["cpu"]?.intValue == 8)
+        #expect(body["memoryMb"]?.intValue == 16384)
+        #expect(body["storageMb"]?.intValue == 102_400)
         #expect(request.fields == ["size": .string("large"), "disk_gib": .int(100)])
     }
 
     @Test func aSizeOnlyResizeSendsNoStorage() async throws {
-        ResizeRoute.seen = []
         let request = try request(["size": .string("small")])
         try await api().resize("vm-1", cpu: request.cpu, memoryMb: request.memoryMb, storageMb: request.storageMb)
-        let body = try #require(ResizeRoute.seen.first?.body)
-        #expect(body["cpu"] as? Int == 2)
-        #expect(body["memoryMb"] as? Int == 4096)
+        #expect(body["cpu"]?.intValue == 2)
+        #expect(body["memoryMb"]?.intValue == 4096)
         #expect(body["storageMb"] == nil)
         #expect(request.fields == ["size": .string("small")])
     }

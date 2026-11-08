@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextDaemon
 import CmuxNextCompat
 
 /// The remote off switch for a Release build's copy of the person's Claude login to their own Cloud
@@ -63,23 +64,11 @@ extension CloudOwnerAPIClient {
     /// The longest an answer is trusted, whatever the route says: the switch takes effect within this.
     public static let harnessLoginCopyMaxTTL = 300
 
-    /// `GET /v1/cloud/harness-login-copy`: whether a Release build may copy the person's Claude login
-    /// to their own machine now. Bounded to 5 seconds; any failure throws (the caller reads it as off).
+    /// `owner.harness_login_copy` (`GET /v1/cloud/harness-login-copy`): whether a Release build may
+    /// copy the person's Claude login to their own machine now, `ttlSeconds` clamped to
+    /// ``harnessLoginCopyMaxTTL`` (cmux-cloud-machine `harness_copy`). Bounded to 5 seconds; any
+    /// failure throws (the caller reads it as off).
     public func harnessLoginCopy() async throws -> HarnessLoginCopy {
-        let data = try await get("/v1/cloud/harness-login-copy", query: [], timeout: .seconds(5))
-        return try Self.decodeHarnessLoginCopy(data)
-    }
-
-    static func decodeHarnessLoginCopy(_ data: Data) throws -> HarnessLoginCopy {
-        struct Wrapped: Decodable { var value: HarnessLoginCopy }
-        let decoder = JSONDecoder()
-        var answer: HarnessLoginCopy
-        if let plain = try? decoder.decode(HarnessLoginCopy.self, from: data) { answer = plain } else {
-            do { answer = try decoder.decode(Wrapped.self, from: data).value } catch {
-                throw CloudAPIError.decoding("/v1/cloud/harness-login-copy: \(error)")
-            }
-        }
-        answer.ttlSeconds = max(0, min(answer.ttlSeconds, harnessLoginCopyMaxTTL))
-        return answer
+        try await call("owner.harness_login_copy", [:], timeout: .seconds(5), as: HarnessLoginCopy.self)
     }
 }

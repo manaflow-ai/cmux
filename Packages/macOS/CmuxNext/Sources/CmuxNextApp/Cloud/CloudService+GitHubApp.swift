@@ -12,14 +12,14 @@ extension CloudService {
     /// device flow.
     func gitHubApp() async -> CloudGitHubApp {
         let auth = auth, identity = installIdentity
-        let signedInTeam = auth.teamID
+        let signedInTeam = auth.teamID, caller = apiCaller
         let baseURL = FeedService.apiBaseURL(auth: auth)
         let accessToken: @Sendable () async throws -> String = { try await auth.tokens().access }
         return await Self.firstAnswer(within: Self.gitHubAppDeadline, otherwise: .unknown) {
             // The selected team first: a shared-team machine's tokens come from that team's connection.
             let claimed = signedInTeam == nil ? (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) : nil
             guard let team = signedInTeam ?? claimed else { return CloudGitHubApp.unknown }
-            let owner = CloudOwnerAPIClient(baseURL: baseURL, accessToken: accessToken, teamID: { team })
+            let owner = CloudOwnerAPIClient(baseURL: baseURL, accessToken: accessToken, teamID: { team }, caller: caller)
             return await owner.gitHubApp(team: team)
         }
     }

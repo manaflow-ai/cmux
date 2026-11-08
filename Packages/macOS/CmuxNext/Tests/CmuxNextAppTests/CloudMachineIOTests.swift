@@ -7,23 +7,15 @@ import Testing
 /// A Worker machine's exec and file routes forward to the bundled cmux-tui (`cmux cloud
 /// machine-io`), which reaches the provider directly with a client session. Swift only forwards:
 /// the request goes on the child's stdin (never argv), the answer line is decoded as the route's own
-/// answer, and a child that gives no answer sends the request to the cmux API route instead.
+/// answer, and a child that gives no answer sends the request through the daemon to the cmux API route instead.
 @Suite(.serialized)
 struct CloudMachineIOTests {
-    nonisolated final class Route: URLProtocol {
-        nonisolated(unsafe) static var paths: [String] = []
-        override class func canInit(with _: URLRequest) -> Bool { true }
-        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-        override func startLoading() {
-            guard let url = request.url,
-                  let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])
-            else { return }
-            Self.paths.append(url.path)
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Data(#"{"path":"/a","kind":"file","size":1}"#.utf8))
-            client?.urlProtocolDidFinishLoading(self)
-        }
-        override func stopLoading() {}
+    /// The daemon's `cloud.machine.io`, which a call cmux-tui gave no answer to goes to instead.
+    let fake = FakeCloudAPI { _ in FakeCloudAPI.json(#"{"path":"/a","kind":"file","size":1}"#) }
+
+    /// The ops sent to the daemon, each through the cmux API's own route (`route: proxy`).
+    private var proxied: [String] {
+        fake.seen.filter { $0.args["route"]?.stringValue == "proxy" }.compactMap { $0.args["op"]?.stringValue }
     }
 
     /// A stand-in `cmux` that saves its stdin and argv, then prints `line`. It answers the empty
@@ -41,18 +33,12 @@ struct CloudMachineIOTests {
     }
 
     private func client(_ binary: URL, _ folder: URL) -> CloudAPIClient {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [Route.self]
-        return CloudAPIClient.workerMachines(baseURL: URL(string: "https://machines.standin.invalid") ?? folder,
-                                             accessToken: { "session-access" }, teamID: { "team_cmux" },
-                                             session: URLSession(configuration: configuration),
-                                             machineIO: CloudMachineIO(binary: binary, cacheDirectory: folder.appendingPathComponent("sessions"), work: BackgroundWork()))
+        fake.worker(machineIO: CloudMachineIO(binary: binary, cacheDirectory: folder.appendingPathComponent("sessions"), work: BackgroundWork()))
     }
 
     @Test func aWriteGoesOnStdinAndTheAnswerDecodesAsTheRoutes() async throws {
         let (binary, folder) = try fakeCLI(printing: #"{"route":"direct","status":200,"code":null,"body":{"path":"/a","dataBase64":"aGk=","size":2}}"#)
         defer { try? FileManager.default.removeItem(at: folder) }
-        Route.paths = []
         let api = client(binary, folder)
         let big = Data(repeating: 7, count: 1_000_000)
         try await api.writeFile("vm_abcdefghij0123456789", path: "/a", data: big, mode: 0o640)
@@ -68,7 +54,7 @@ struct CloudMachineIOTests {
         #expect(argv == "cloud machine-io\n", "the credential is never in argv")
         let read = try await api.readFile("vm_abcdefghij0123456789", path: "/a")
         #expect(read.dataBase64 == "aGk=")
-        #expect(Route.paths.isEmpty)
+        #expect(fake.seen.isEmpty)
     }
 
     @Test func aRefusalThrowsWhatTheRouteWouldHave() async throws {
@@ -89,35 +75,32 @@ struct CloudMachineIOTests {
         for line in ["not json", #"{"route":"none","status":400,"code":"validation.invalid","body":null}"#] {
             let (binary, folder) = try fakeCLI(printing: line)
             defer { try? FileManager.default.removeItem(at: folder) }
-            Route.paths = []
             let stat = try await client(binary, folder).statFile("vm_abcdefghij0123456789", path: "/a")
             #expect(stat.kind == "file")
-            #expect(Route.paths == ["/v1/cloud/machines/vm_abcdefghij0123456789/fs/stat"])
+            #expect(proxied == ["stat"])
         }
     }
 
     @Test func aChangeThatMayHaveRunIsNeverSentAgain() async throws {
         let (binary, folder) = try fakeCLI(printing: "not json")
         defer { try? FileManager.default.removeItem(at: folder) }
-        Route.paths = []
         do {
             try await client(binary, folder).makeDirectory("vm_abcdefghij0123456789", path: "/a")
             Issue.record("expected the unanswered change to be reported")
         } catch CloudAPIError.transport {}
-        #expect(Route.paths.isEmpty, "a change cmux may have made is not replayed over HTTP")
+        #expect(fake.seen.isEmpty, "a change cmux may have made is not replayed through the cmux API")
 
         let (refusing, other) = try fakeCLI(printing: #"{"route":"none","status":400,"code":"validation.invalid","body":null}"#)
         defer { try? FileManager.default.removeItem(at: other) }
         try await client(refusing, other).makeDirectory("vm_abcdefghij0123456789", path: "/a")
-        #expect(Route.paths == ["/v1/cloud/machines/vm_abcdefghij0123456789/fs/mkdir"], "a change cmux never took goes over HTTP")
+        #expect(proxied == ["mkdir"], "a change cmux never took goes through the cmux API")
     }
 
     @Test func aCmuxWithoutMachineIOSendsEveryCallOverHTTP() async throws {
         let (binary, folder) = try fakeCLI(printing: "error: unrecognized subcommand machine-io", speaksMachineIO: false)
         defer { try? FileManager.default.removeItem(at: folder) }
-        Route.paths = []
         try await client(binary, folder).makeDirectory("vm_abcdefghij0123456789", path: "/a")
-        #expect(Route.paths == ["/v1/cloud/machines/vm_abcdefghij0123456789/fs/mkdir"])
+        #expect(proxied == ["mkdir"])
         #expect(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("stdin").path), "the call itself never ran")
     }
 
@@ -175,20 +158,14 @@ struct CloudMachineIOTests {
     }
     #endif
 
-    /// A build without a bundled cmux sends every call over HTTP, as it did when the app made no machine IO for it.
+    /// A build without a bundled cmux sends every call through the cmux API, as it did when the app made no machine IO for it.
     @Test func aBuildWithoutTheBundledCmuxSendsEveryCallOverHTTP() async throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("machine-io-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
-        Route.paths = []
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [Route.self]
-        let api = CloudAPIClient.workerMachines(baseURL: URL(string: "https://machines.standin.invalid") ?? folder,
-                                                accessToken: { "session-access" }, teamID: { "team_cmux" },
-                                                session: URLSession(configuration: configuration),
-                                                machineIO: CloudMachineIO(bundleResources: folder, cloudRoot: folder, work: BackgroundWork()))
+        let api = fake.worker(machineIO: CloudMachineIO(bundleResources: folder, cloudRoot: folder, work: BackgroundWork()))
         try await api.makeDirectory("vm_abcdefghij0123456789", path: "/a")
-        #expect(Route.paths == ["/v1/cloud/machines/vm_abcdefghij0123456789/fs/mkdir"])
+        #expect(proxied == ["mkdir"])
     }
 
     /// Every file call of a machine IO call runs on the app's blocking-work lanes (`BackgroundWork` `.files`),

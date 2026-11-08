@@ -6,56 +6,30 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-@MainActor @Suite(.serialized)
+@MainActor @Suite
 struct CloudLivePreviewTests {
     private static let response = #"{"machine":"vm-one","listening":[22,3000,8080],"previews":[{"port":3000,"url":"https://preview.standin.invalid/__cmux/open?token=temporary","origin":"https://preview.standin.invalid","expiresAt":1999999999999}],"unavailable":[{"port":22,"code":"machine.preview_internal_port"}]}"#
-
-    nonisolated final class PreviewAPI: URLProtocol {
-        nonisolated(unsafe) static var seen: [URLRequest] = []
-        nonisolated(unsafe) static var response = Data()
-
-        override class func canInit(with _: URLRequest) -> Bool { true }
-        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-        override func startLoading() {
-            guard let url = request.url,
-                  let reply = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
-                                              headerFields: ["Content-Type": "application/json"]) else { return }
-            Self.seen.append(request)
-            client?.urlProtocol(self, didReceive: reply, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Self.response)
-            client?.urlProtocolDidFinishLoading(self)
-        }
-
-        override func stopLoading() {}
-    }
 
     private func inventory() throws -> CloudMachinePreviews {
         try JSONDecoder().decode(CloudMachinePreviews.self, from: Data(Self.response.utf8))
     }
 
-    private func session() -> URLSession {
-        PreviewAPI.seen = []
-        PreviewAPI.response = Data(Self.response.utf8)
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [PreviewAPI.self]
-        return URLSession(configuration: configuration)
-    }
-
     @Test func refreshUsesNewCloudWithThePersonsAccessAndTeam() async throws {
-        let api = CloudAPIClient.workerMachines(baseURL: try #require(URL(string: "https://worker.standin.invalid")),
-                                                accessToken: { "person-access" }, teamID: { "team-one" }, session: session())
+        let response = Self.response
+        let fake = FakeCloudAPI { _ in FakeCloudAPI.json(response) }
+        let api = fake.worker("https://worker.standin.invalid")
             .previewClient(baseURL: try #require(URL(string: "https://machines.standin.invalid")))
         let result = try await api.refreshPreviews("vm-one")
         #expect(result.listening == [22, 3000, 8080])
         #expect(result.previews.first?.expiresAt == 1_999_999_999_999)
-        let request = try #require(PreviewAPI.seen.first)
-        #expect(PreviewAPI.seen.count == 1)
-        #expect(request.httpMethod == "POST")
-        #expect(request.url?.absoluteString == "https://machines.standin.invalid/v1/cloud/machines/vm-one/previews/refresh")
-        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer person-access")
-        #expect(request.value(forHTTPHeaderField: "x-cmux-team") == "team-one")
-        #expect(request.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == nil)
-        #expect(request.value(forHTTPHeaderField: "X-Cmux-Team-Id") == nil)
+        let call = try #require(fake.seen.first)
+        #expect(fake.operations == ["cloud.previews.refresh"])
+        #expect(call.field("api") == "https://machines.standin.invalid")
+        #expect(call.field("auth") == "worker")
+        #expect(call.field("access_token") == "session-access")
+        #expect(call.field("team") == "team_cmux")
+        #expect(call.fields["refresh_token"] == nil)
+        #expect(call.args["machine"]?.stringValue == "vm-one")
     }
 
     @Test func selectedBackendSuppliesPreviewAndArtifactOrigins() {
