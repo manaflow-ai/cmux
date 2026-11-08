@@ -75,6 +75,13 @@ struct DiffViewerGitTests {
         #expect(reply["url"]?.stringValue == "https://github.com/o/r/pull/7")
         #expect(opened.map(\.absoluteString) == ["https://github.com/o/r/pull/7"])
 
+        // `gh pr create --web` has already opened its compare form. The viewer reports the
+        // result without routing the URL through LinkRouter a second time.
+        git.pullRequestOutcome = .formOpened(url: "https://github.com/o/r/compare/main...feature?expand=1")
+        let form = try await provider.call(op, params: [:], context: clicked)
+        #expect(form["url"]?.stringValue == "https://github.com/o/r/compare/main...feature?expand=1")
+        #expect(opened.map(\.absoluteString) == ["https://github.com/o/r/pull/7"])
+
         git.pullRequestOutcome = .refused("The remote branch is protected; push a feature branch.")
         do {
             _ = try await provider.call(op, params: [:], context: clicked)
@@ -87,7 +94,7 @@ struct DiffViewerGitTests {
         await #expect(throws: PageError.self) {
             _ = try await provider.call(op, params: [:], context: clicked)
         }
-        #expect(git.pullRequests.count == 2)
+        #expect(git.pullRequests.count == 3)
         await provider.close()
     }
 

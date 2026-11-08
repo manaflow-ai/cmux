@@ -41,6 +41,13 @@ extension DiffPageProvider {
             }
             onPullRequestOpened(url)
             return ["url": .string(text), "number": number.map { .number(Double($0)) } ?? .null]
+        case .formOpened(let text):
+            // `gh pr create --web` already opened this compare form. Do not route it through
+            // LinkRouter a second time; the result lets the page finish its write transition.
+            guard let url = URL(string: text), url.scheme == "https" else {
+                throw PageError(code: "git.failed", message: DiffPageStrings.pullRequestFailed)
+            }
+            return ["url": .string(text), "number": .null]
         case .refused(let message):
             throw PageError(code: "git.failed", message: message)
         default:

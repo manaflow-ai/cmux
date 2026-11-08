@@ -2,8 +2,8 @@ import Foundation
 
 /// The Changes view's Create PR (cx-tcwj, Codex desktop's): `git.pullRequest` with `{cwd}`. The
 /// App opens the pull request of the chat's checked-out branch with the GitHub CLI: the open one
-/// when the branch has one, else `gh pr create --web --head <branch>` (only when gh says the
-/// branch has none: a failed lookup opens nothing). It answers `{url, number}` for the browser target. Before asking
+/// when the branch has one, else `gh pr create --web` (only when gh says the branch has none: a
+/// failed lookup opens nothing). It answers the compare-form URL that gh opened. Before asking
 /// `gh`, it asks the session host's Rust `git.push` mutation to push the branch and set its
 /// upstream when needed; that mutation never force-pushes and reports actionable remote errors.
 /// It needs a real click or key in the pane, a chat on this
@@ -38,6 +38,8 @@ public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
     /// The pull request the run opened (or the threads it read), or why it did not.
     public enum Outcome: Equatable, Sendable {
         case opened(url: String, number: Int?)
+        /// `gh pr create --web` opened the compare form itself; no second browser open is needed.
+        case formOpened(url: String)
         case threads(url: String?, number: Int?, [AgentPaneGitReviewThread])
         case merged(url: String, number: Int, queued: Bool)
         case refused(String)
@@ -86,12 +88,41 @@ public nonisolated struct AgentPaneGitPullRequest: Equatable, Sendable {
         if open.status == 0, let opened = opened(fromView: open.text) { return opened }
         // Create only when gh found no pull request, or only a merged or closed one.
         guard open.status == 0 || open.text.contains("no pull requests found") else { return .refused(message(open)) }
-        let target = await recordedBase(of: head.text.trimmingCharacters(in: .whitespacesAndNewlines), git: git)
-        let created = await cli(["pr", "create", "--web", "--head", branch] + (target.map { ["--base", $0] } ?? []))
-        guard created.status == 0, let url = created.text.split(separator: "\n").map(String.init).last(where: isPullRequestURL) else {
-            return .refused(message(created))
+        let target = await recordedBase(of: branch, git: git)
+        let repo = await cli(["repo", "view", "--json", "url,defaultBranchRef"])
+        guard repo.status == 0, let formURL = await formURL(branch: branch, base: target, repo: repo.text, git: git) else {
+            return .refused(message(repo))
         }
-        return .opened(url: url, number: Int(url.split(separator: "/").last ?? ""))
+        // Do not pass --head: after the Rust push establishes the upstream, gh resolves the
+        // tracking repository (including a fork) itself. Passing only a branch silently selects
+        // the base repository and loses that fork selection.
+        let created = await cli(["pr", "create", "--web"] + (target.map { ["--base", $0] } ?? []))
+        guard created.status == 0 else { return .refused(message(created)) }
+        return .formOpened(url: formURL)
+    }
+
+    /// The compare URL that `gh pr create --web` opens without printing. `repo` comes from
+    /// `gh repo view`; the branch's tracking remote supplies the fork owner when it differs from
+    /// the base repository. This is only a link for the result wire: gh has already opened it.
+    static func formURL(branch: String, base: String?, repo: String,
+                        git: (_ arguments: [String]) async -> AgentPaneGitProcess.Outcome) async -> String? {
+        guard let object = try? JSONSerialization.jsonObject(with: Data(repo.utf8)) as? [String: Any],
+              let baseURL = object["url"] as? String,
+              isPullRequestURL(baseURL),
+              let defaultBase = (object["defaultBranchRef"] as? [String: Any])?["name"] as? String else { return nil }
+        let remoteOutcome = await git(["config", "--get", "branch.\(branch).remote"])
+        guard remoteOutcome.status == 0 else { return nil }
+        let remote = remoteOutcome.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !remote.isEmpty else { return nil }
+        let remoteURL = await git(["remote", "get-url", remote])
+        guard remoteURL.status == 0 else { return nil }
+        let head = AgentPaneGitHubRepository.parse(remoteURL.text).map { "\($0):\(branch)" } ?? branch
+        let base = base ?? defaultBase
+        guard !base.isEmpty, !base.contains(where: \.isWhitespace),
+              !head.contains(where: \.isWhitespace),
+              let encodedBase = base.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let encodedHead = head.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return nil }
+        return "\(baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/compare/\(encodedBase)...\(encodedHead)?expand=1"
     }
 
     /// The remote name of the branch `branch` was made from (`branch.<b>.cmuxBase`, recorded by the
@@ -249,6 +280,7 @@ extension AgentPaneGitPullRequest {
         }
         switch await run(request, roots: runRoots, gh: gh, push: push) {
         case .opened(let url, let number): return AgentPaneReply.success(["url": url, "number": number.map { $0 as Any } ?? NSNull()])
+        case .formOpened(let url): return AgentPaneReply.success(["url": url, "number": NSNull()])
         case .threads(let url, let number, let threads):
             return AgentPaneReply.success(["url": url.map { $0 as Any } ?? NSNull(), "number": number.map { $0 as Any } ?? NSNull(),
                                            "threads": threads.map(\.json)])
