@@ -240,8 +240,13 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
           appearance: context.appearance,
           labels,
           commentsSend: state.commentsSend,
+          reviewBrief: state.reviewBrief != null,
         },
-        ops: ["cmux.diff.comments", ...(state.fingerprintError ? ["cmux.diff.git.fingerprint"] : [])],
+        ops: [
+          "cmux.diff.comments",
+          ...(state.fingerprintError ? ["cmux.diff.git.fingerprint"] : []),
+          ...(state.reviewBrief != null ? ["cmux.diff.brief"] : []),
+        ],
       }),
       "cmux.diff.protocolHandshake": () => ({
         type: "handshake",
@@ -260,6 +265,7 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
         if (state.fingerprintError) throw new HostError(state.fingerprintError.code, state.fingerprintError.message);
         return { fingerprint: hash(patch) };
       },
+      "cmux.diff.brief": () => state.reviewBrief,
       "cmux.diff.sessionClose": () => ({ type: "sessionClosed" }),
       "cmux.diff.branchList": () => ({
         type: "branches",

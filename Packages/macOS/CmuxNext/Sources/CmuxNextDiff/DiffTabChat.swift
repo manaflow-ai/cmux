@@ -9,10 +9,15 @@ public struct DiffTabChat: Sendable {
     /// Delivers `(text, promptID)`; true when the chat took it. A resend with the same prompt id
     /// is delivered once.
     let deliver: @Sendable (String, String) async -> Bool
+    /// The chat's review brief for a repository root (``AcpmuxReviewBrief``) as JSON; nil when
+    /// there is no acpmux to ask.
+    let brief: @Sendable (String) async throws -> Data?
 
-    public init(session: String, deliver: @escaping @Sendable (String, String) async -> Bool) {
+    public init(session: String, deliver: @escaping @Sendable (String, String) async -> Bool,
+                brief: @escaping @Sendable (String) async throws -> Data?) {
         self.session = session
         self.deliver = deliver
+        self.brief = brief
     }
 
     /// The tab's chat when it runs on this Mac (`isLocal`), sent to through `replies`: this Mac's
@@ -21,9 +26,12 @@ public struct DiffTabChat: Sendable {
     public static func local(session: String?, isLocal: Bool, replies: AcpmuxReplySender,
                              environment: AcpmuxEnvironment?) -> DiffTabChat? {
         guard isLocal, let session, !session.isEmpty else { return nil }
-        return DiffTabChat(session: session) { text, promptID in
+        let reader = environment.map { AcpmuxReviewBrief(socketPath: $0.socketPath) }
+        return DiffTabChat(session: session, deliver: { text, promptID in
             await replies.send(session: session, text: text, promptID: promptID, environment: environment)
-        }
+        }, brief: { root in
+            try await reader?.read(session: session, root: root)
+        })
     }
 
     func send(_ text: String, promptID: String) async -> Bool { await deliver(text, promptID) }
