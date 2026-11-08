@@ -118,5 +118,6 @@ struct AgentChatRefusalReasonTests {
         }, "Reveal Chat Folder ran with no folder")
         #expect(reason != services.registry.reason(.notStarted, for: id), "a started chat was refused as not started")
         #expect(reason != services.registry.reason(.noChat, for: id), "the chat was not found: \(reason)")
+        #expect(reason == services.registry.reason(.noFolder, for: id), "\(reason)")
     }
 }

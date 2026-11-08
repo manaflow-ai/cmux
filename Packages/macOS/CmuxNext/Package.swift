@@ -2010,6 +2010,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             resources: [
                 .process("AccountsActions.xcstrings"),
                 .process("ActionCatalog.xcstrings"),
+                .process("AgentChatMenu.xcstrings"),
                 .process("AgentConfigurationActions.xcstrings"),
                 .process("AppStoreActions.xcstrings"),
                 .process("BookmarkActions.xcstrings"),
