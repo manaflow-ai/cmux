@@ -37,7 +37,7 @@ extension DebugMouse {
         }
         return .object(["window": .string(controller.state.id), "x": .number(point.x), "y": .number(point.y),
                         "delivered": .number(Double(events.count)),
-                        "delivered_to": .array(names.map(JSONValue.string))])
+                        "delivered_to": .array(names.map { .string($0) })])
     }
 }
 #endif
