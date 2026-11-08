@@ -444,7 +444,16 @@ impl Hub {
         let heard_at = session.last_model_at.load(Ordering::Relaxed);
         // After `turn`: a retry's turn that started since is seen there (`retry_row`).
         let (retry, retry_deciding) = self.retry_row(session, m.last_turn.as_ref());
-        let loop_episode = if m.status == SessionStatus::Closed || turn.is_none() {
+        let loop_episode = if m.status == SessionStatus::Closed
+            || turn.as_ref().is_none_or(|current| {
+                session
+                    .stalled_counted
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .as_deref()
+                    != Some(current.turn_id.as_str())
+            })
+        {
             None
         } else {
             session.loop_detector.lock().unwrap_or_else(|e| e.into_inner()).active().cloned()
