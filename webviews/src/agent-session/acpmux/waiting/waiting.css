@@ -77,7 +77,7 @@
   border-radius:4px;
   background:var(--waiting-working);
 }
-.acpmux-waiting-span[data-state=blocked]{background:var(--waiting-blocked);cursor:pointer}
+.acpmux-waiting-span[data-state=blocked]{background:var(--waiting-blocked)}
 .acpmux-waiting-span[data-state=blocked]:hover{background:color-mix(in srgb,var(--waiting-blocked) 80%,var(--agent-text))}
 .acpmux-waiting-span[data-state=blocked]:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
 .acpmux-waiting-lane-total{

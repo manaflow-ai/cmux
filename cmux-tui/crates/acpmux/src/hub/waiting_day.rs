@@ -32,6 +32,9 @@ pub(crate) const RETAIN_MS: u64 = 48 * HOUR_MS;
 pub(crate) const MAX_MARKS: usize = 512;
 /// Chats kept.
 pub(crate) const MAX_LANES: usize = 1024;
+/// Lanes one reply carries, most waiting first: 512 spans each stay far under the RPC frame limit.
+/// The totals still count every chat.
+pub(crate) const MAX_REPLY_LANES: usize = 200;
 pub(crate) const FILE: &str = "waiting-day.json";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,9 +175,11 @@ impl WaitingDay {
         match record.kind.as_str() {
             "turn_started" => {
                 let turn = record.msg.get("turnId").and_then(Value::as_str);
-                if let Some(turn) = turn
-                    && let Some(lane) = self.lock().get_mut(id)
-                {
+                if let Some(turn) = turn {
+                    // A new chat's first turn starts before its first `running` status: the lane
+                    // is made here, so that status and a wait in the turn carry the turn.
+                    let mut lanes = self.lock();
+                    let lane = lane_mut(&mut lanes, id);
                     lane.turn = Some(turn.to_owned());
                     // The turn's working mark came before its start record: it is this turn's.
                     if let Some(last) = lane.marks.back_mut()
@@ -199,22 +204,11 @@ impl WaitingDay {
 
     fn mark(&self, id: &str, state: State, at: u64, seq: u64) {
         let mut lanes = self.lock();
-        if !lanes.contains_key(id) {
-            // A chat's first mark that is idle says nothing.
-            if state == State::Idle {
-                return;
-            }
-            if lanes.len() >= MAX_LANES {
-                let quietest = lanes
-                    .iter()
-                    .min_by_key(|(_, l)| l.marks.back().map_or(0, |m| m.at))
-                    .map(|(k, _)| k.clone());
-                if let Some(k) = quietest {
-                    lanes.remove(&k);
-                }
-            }
+        // A chat's first mark that is idle says nothing.
+        if state == State::Idle && lanes.get(id).is_none_or(|l| l.marks.is_empty()) {
+            return;
         }
-        let lane = lanes.entry(id.to_owned()).or_default();
+        let lane = lane_mut(&mut lanes, id);
         if lane.marks.back().is_some_and(|m| m.state == state) {
             return;
         }
@@ -294,8 +288,23 @@ impl WaitingDay {
                 .then(b.last_at.cmp(&a.last_at))
                 .then(a.session_id.cmp(&b.session_id))
         });
+        reply.lanes.truncate(MAX_REPLY_LANES);
         reply
     }
+}
+
+/// Session `id`'s lane, made when it has none; past [`MAX_LANES`] the chat quiet longest goes.
+fn lane_mut<'a>(lanes: &'a mut HashMap<String, Lane>, id: &str) -> &'a mut Lane {
+    if !lanes.contains_key(id) && lanes.len() >= MAX_LANES {
+        let quietest = lanes
+            .iter()
+            .min_by_key(|(_, l)| l.marks.back().map_or(0, |m| m.at))
+            .map(|(k, _)| k.clone());
+        if let Some(k) = quietest {
+            lanes.remove(&k);
+        }
+    }
+    lanes.entry(id.to_owned()).or_default()
 }
 
 /// Drops marks older than [`RETAIN_MS`] before `now`, keeping the last one before the cut.

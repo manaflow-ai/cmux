@@ -188,3 +188,38 @@ fn fifty_chats_answer_in_one_pass() {
     assert!(reply.lanes.iter().all(|l| l.spans.len() <= MAX_MARKS));
     assert!(reply.blocked_ms > 0);
 }
+
+/// The turn record comes before the chat's first `running` status (`turns.rs`): the first wait
+/// still opens its turn.
+#[test]
+fn a_new_chats_first_wait_carries_its_turn() {
+    let t = DAY + 60 * MIN;
+    let day = day_of(&[(
+        "new",
+        vec![
+            rec(1, t, "turn_started", json!({"turnId": "turn-1"})),
+            status(2, t + 1, "running"),
+            status(3, t + MIN, "waiting"),
+            status(4, t + 2 * MIN, "ready"),
+        ],
+    )]);
+    let reply = day.query(DAY, t + 60 * MIN);
+    let spans = &reply.lanes[0].spans;
+    assert_eq!(spans[0].turn_id.as_deref(), Some("turn-1"));
+    assert_eq!(spans[1].state, State::Blocked);
+    assert_eq!(spans[1].turn_id.as_deref(), Some("turn-1"));
+}
+
+#[test]
+fn a_reply_carries_at_most_its_lane_cap_and_counts_every_chat() {
+    let day = WaitingDay::open(None, DAY);
+    let n = MAX_REPLY_LANES as u64 + 20;
+    for i in 0..n {
+        let id = format!("s{i}");
+        day.record(&id, &status(1, DAY + i, "waiting"));
+        day.record(&id, &status(2, DAY + i + MIN, "ready"));
+    }
+    let reply = day.query(DAY, DAY + 60 * MIN);
+    assert_eq!(reply.lanes.len(), MAX_REPLY_LANES);
+    assert_eq!(reply.blocked_ms, n * MIN);
+}

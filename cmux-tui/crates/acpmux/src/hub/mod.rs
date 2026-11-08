@@ -1002,8 +1002,8 @@ impl Hub {
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
         // Beside the session store in its home; a memory store keeps it in memory only.
         let ledger = ledger::Ledger::open(home.as_ref().map(|h| h.join("ledger")));
-        let waiting_day =
-            waiting_day::WaitingDay::open(home.as_ref().map(|h| h.join(waiting_day::FILE)), now_ms());
+        let waiting_path = home.as_ref().map(|h| h.join(waiting_day::FILE));
+        let waiting_day = waiting_day::WaitingDay::open(waiting_path, now_ms());
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
@@ -2199,9 +2199,13 @@ impl Hub {
         // The cost ledger's index: O(1), no IO (its writer thread writes the file).
         self.ledger.observe(session, &record);
         // The waiting day's marks: O(1), no IO; a sub-session waits on the session above it.
+        let sub = || {
+            let meta = session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            meta.subsession.is_some()
+        };
         if matches!(kind, "status" | "turn_started")
             && !session.purged.load(Ordering::SeqCst)
-            && session.meta.lock().unwrap().subsession.is_none()
+            && !sub()
         {
             self.waiting_day.record(&session.id, &record);
         }
