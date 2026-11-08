@@ -59,6 +59,9 @@ pub struct RelayOptions {
     pub backoff_cap: Duration,
     /// Deliveries running at once; the inbox waits for one to end past it.
     pub max_in_flight: usize,
+    /// Called when the hub takes a heartbeat again after failing ones (the joined relay states
+    /// the machine's capabilities then, `cli/cloud_join/self_capabilities.rs`).
+    pub on_reconnect: Option<fn()>,
 }
 
 impl Default for RelayOptions {
@@ -70,6 +73,7 @@ impl Default for RelayOptions {
             backoff_first: Duration::from_secs(1),
             backoff_cap: Duration::from_secs(60),
             max_in_flight: 32,
+            on_reconnect: None,
         }
     }
 }
@@ -183,6 +187,7 @@ async fn started(hub: &Weak<Hub>, stop: &mut watch::Receiver<bool>) -> bool {
 /// for sends (`Hub::mesh`). None, and nothing started, when none is named or it is unusable.
 pub async fn start_configured(hub: &Arc<Hub>) -> Option<MeshRelay> {
     let config = hub.config.read().await.mesh_relay.clone()?;
+    let joined = config.credential.as_deref() == Some("join");
     let client: Arc<dyn MeshHub> = match crate::mesh_http::HttpHub::new(&config) {
         Ok(client) => Arc::new(client),
         Err(e) => {
@@ -199,7 +204,12 @@ pub async fn start_configured(hub: &Arc<Hub>) -> Option<MeshRelay> {
         MeshControlHook::new(config.control_from, ledger)
             .with_own_user(Arc::new(crate::cli::cloud_join::machine_user_id)),
     );
-    Some(MeshRelay::start(hub, client, control, RelayOptions::default()))
+    // A joined relay's reconnect: a machine joined before the hub recorded capabilities states
+    // them then, too.
+    let on_reconnect =
+        joined.then_some(crate::cli::cloud_join::state_capabilities_on_reconnect as fn());
+    let options = RelayOptions { on_reconnect, ..RelayOptions::default() };
+    Some(MeshRelay::start(hub, client, control, options))
 }
 
 /// The wait after a failed call: the next backoff, or the hub's own wait when longer.
@@ -329,6 +339,9 @@ async fn heartbeats(
                     taken = true;
                     if std::mem::take(&mut failing) {
                         tracing::info!("mesh relay: the hub takes heartbeats again");
+                        if let Some(on_reconnect) = options.on_reconnect {
+                            on_reconnect();
+                        }
                     }
                     backoff.reset();
                     if !reply.daemon_id.is_empty() {

@@ -934,6 +934,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_empty_list_saved_after_a_409_changes_nothing_sent_and_a_rotate_replaces_it() {
+        // `self_capabilities.rs` saves [] when the hub refused to widen a narrower list.
+        let home = tempfile::tempdir().unwrap();
+        joined(home.path(), |r| r.capabilities = Some(Vec::new()));
+        // What this acpmux runs and sends comes from the build, never from the record.
+        assert!(RUNS_EGRESS_PROXY, "the egress proxy runs whatever the record says");
+        assert_eq!(machine_capabilities(), vec!["vault.proxy.v1".to_owned()]);
+        // A sign-in finds a list recorded: no rotate of its own.
+        let port = FakeHub::at(home.path());
+        assert_eq!(enroll(home.path(), &port).await, EnrollOutcome::AlreadyJoined);
+        assert!(port.rotations.lock().unwrap().is_empty());
+        // A rotate sends the build's list, not the recorded [], and its answer replaces the [].
+        let record = load_at(home.path()).unwrap().unwrap();
+        rotate_once(home.path(), record, Some("user_me"), &port).await;
+        assert_eq!(*port.rotations.lock().unwrap(), vec![machine_capabilities()]);
+        let record = load_at(home.path()).unwrap().unwrap();
+        assert_eq!(record.credential, "cmm_rotated");
+        assert_eq!(record.capabilities, Some(vec!["vault.proxy.v1".to_owned()]));
+    }
+
+    #[tokio::test]
     async fn a_legacy_credential_rotates_once_and_never_again() {
         let home = tempfile::tempdir().unwrap();
         joined(home.path(), |r| r.capabilities = None);

@@ -16,7 +16,10 @@ pub(crate) use enroll::{
     EnrollOutcome, EnrollRequest, enroll_self, finish_leave_at_start, leave_if_auto, leave_pending,
     relay_may_start,
 };
-pub(crate) use self_capabilities::state_at_start as state_capabilities_at_start;
+pub(crate) use self_capabilities::{
+    state_at_start as state_capabilities_at_start,
+    state_on_reconnect as state_capabilities_on_reconnect,
+};
 
 pub const CAPABILITY: &str = "machine.join.stdin.v1";
 /// The hub a join with no `--hub` uses: cmux-platform's production origin
