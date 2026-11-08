@@ -125,7 +125,22 @@ extension SidebarViewComponents {
             // The sidebar document (one renderer): its sections draw in the list, in document order; the band
             // above keeps only the client's items with nothing to follow. One anchored after an item the
             // document shows (Channels after Home) draws right after it in its block.
-            let docSections = model.placingTransientItems(in: above.presenting(hidingItems: hidden, apps: apps), anchoredOnly: true).map(titled)
+            // A workspace draws once, in the rows or in a block (cx-odqn): its item waits while the rows still list it. The
+            // document and the rows are separate observations, so a pin's document can come a render before its rows;
+            // the item then comes in the render that closes the row, and the pin flies from the row in that one apply.
+            var listing: [WorkspaceID: Bool] = [:]
+            let docSections = model.placingTransientItems(in: above.presenting(hidingItems: hidden, apps: apps), anchoredOnly: true)
+                .map { section in
+                    var section = titled(section)
+                    section.items.removeAll { item in
+                        guard let workspace = selectedInfos[item.id]?.workspace else { return false }
+                        let listed = model.lists(workspace)
+                        listing[workspace] = listed
+                        return listed
+                    }
+                    return section
+                }
+            docWorkspaceListing = listing
             // Only the blocks' own items' infos: another item's change does not reload the list.
             let shownIDs = Set(docSections.flatMap(\.items).map(\.id))
             // A block's rows end where the list's other rows do, `rowEdgeGap` from the edge (`rowTrailingTrim`): a
