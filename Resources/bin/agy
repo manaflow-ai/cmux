@@ -1,11 +1,37 @@
 #!/usr/bin/env bash
 # cmux agy wrapper - installs cmux hooks and captures launch metadata.
 
+cmux_agy_is_self_or_shim() {
+    local candidate="$1"
+    [[ -n "$candidate" ]] || return 1
+    if [[ -e "$candidate" && "$candidate" -ef "$0" ]]; then
+        return 0
+    fi
+    if [[ -n "${CMUX_AGY_WRAPPER_SHIM:-}" &&
+          -e "$candidate" &&
+          -e "$CMUX_AGY_WRAPPER_SHIM" &&
+          "$candidate" -ef "$CMUX_AGY_WRAPPER_SHIM" ]]; then
+        return 0
+    fi
+    if [[ -n "${CMUX_AGY_WRAPPER_SHIM_ROOT:-}" &&
+          "$candidate" == "${CMUX_AGY_WRAPPER_SHIM_ROOT%/}/agy" ]]; then
+        return 0
+    fi
+    case "$candidate" in
+        */cmux-cli-shims/*/agy|*/cmux-cli-shims/agy|*/Contents/Resources/bin/agy|*/Resources/bin/agy)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+# Find the real agy, skipping this wrapper, cmux's per-surface shims (which exec
+# this wrapper again) and other cmux bundles' wrappers.
 find_real_agy() {
     local custom="${CMUX_CUSTOM_ANTIGRAVITY_PATH:-}"
     custom="${custom#"${custom%%[![:space:]]*}"}"
     custom="${custom%"${custom##*[![:space:]]}"}"
-    if [[ -n "$custom" && -f "$custom" && -x "$custom" && ! "$custom" -ef "$0" ]]; then
+    if [[ -n "$custom" && -f "$custom" && -x "$custom" ]] && ! cmux_agy_is_self_or_shim "$custom"; then
         printf '%s' "$custom"
         return 0
     fi
@@ -16,9 +42,7 @@ find_real_agy() {
         [[ "$d" == "$self_dir" ]] && continue
         local candidate="$d/agy"
         [[ -x "$candidate" ]] || continue
-        if [[ "$candidate" -ef "$0" ]]; then
-            continue
-        fi
+        cmux_agy_is_self_or_shim "$candidate" && continue
         printf '%s' "$candidate"
         return 0
     done
