@@ -199,7 +199,7 @@ test("a command that exited 0 reads as info whatever its output looks like, and 
   const line = container.querySelector(".cv-received.cv-notice")!;
   expect(line.querySelector(".cv-notice-mark")?.getAttribute("data-severity")).toBe("info");
   // The outcome is its own slot that never shrinks, so a long command never cuts it off.
-  expect(line.querySelector(".cv-notice__end")?.textContent).toBe("(exit 0)");
+  expect(line.querySelector(".cv-notice__end")?.textContent?.trim()).toBe("(exit 0)");
   expect(line.querySelector(".cv-notice__lead")?.textContent).toBe(
     "Background command finished: cmux-ci test --committed -- 'cd tools && python3 -m unittest'",
   );
@@ -212,7 +212,7 @@ test("a failed command's warning shows its exit on the line", async () => {
   const container = await render(<IncomingMessageLine id="n-2" message={read.message} onOpen={() => undefined} />);
   const line = container.querySelector(".cv-received.cv-notice")!;
   expect(line.querySelector(".cv-notice-mark")?.getAttribute("data-severity")).toBe("warn");
-  expect(line.querySelector(".cv-notice__end")?.textContent).toBe("(exit 2)");
+  expect(line.querySelector(".cv-notice__end")?.textContent?.trim()).toBe("(exit 2)");
 });
 
 /// Notices that waited behind a busy turn go in as one (acpmux hub/digest.rs `digest_blocks`).
@@ -234,7 +234,7 @@ test("background command ends that went in together read as their notice, never 
   const container = await render(<IncomingMessageLine id="n-3" message={read.message} onOpen={() => undefined} />);
   const line = container.querySelector(".cv-received.cv-notice")!;
   expect(line.querySelector(".cv-notice-mark")?.getAttribute("data-severity")).toBe("info");
-  expect(line.querySelector(".cv-notice__end")?.textContent).toBe("(exit 0)");
+  expect(line.querySelector(".cv-notice__end")?.textContent?.trim()).toBe("(exit 0)");
   expect(line.querySelector(".cv-notice__title")?.textContent).not.toBe("acpmux");
   await act(async () => (line.querySelector(".cv-disclosure__toggle") as HTMLElement).click());
   const text = container.querySelector(".cv-received__text")!.textContent ?? "";
