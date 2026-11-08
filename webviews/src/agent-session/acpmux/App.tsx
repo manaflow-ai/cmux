@@ -3979,7 +3979,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (turn) openDiff(turn.rowId, path);
   };
   const launchSecondOpinion = useCallback(
-    (rowId: string) => {
+    (rowId: string, changedFiles: readonly string[]) => {
       const sessionId = snapshot.sessionId;
       const client = directClient.current;
       if (!sessionId || !client) return;
@@ -3990,7 +3990,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             entry.id !== current && entry.pickable !== false && (!entry.unavailable || entry.probeFailed),
         ) ?? composerSnapshot.catalog.find((entry) => entry.pickable !== false);
       if (!target) return;
-      const files = cardEdit.changes?.files.map((file) => file.path).filter(Boolean).slice(0, 40) ?? [];
+      const files = changedFiles.filter(Boolean).slice(0, 40);
       const question = [
         "Give a second opinion on the plan and current diff in this chat.",
         `The relevant turn is ${rowId}.`,
@@ -4010,7 +4010,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         target.id,
       );
     },
-    [cardEdit.changes, composerSnapshot.catalog, snapshot.sessionId, snapshot.summary?.harness, turnRowsShown, btwNotes],
+    [composerSnapshot.catalog, snapshot.sessionId, snapshot.summary?.harness, turnRowsShown, btwNotes],
   );
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   /// For a transcript that acts on nothing live (a replay, a read-only subagent's): its recaps draw

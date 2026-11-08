@@ -273,6 +273,7 @@ export function mentionItems({
   sessions,
   chatId,
   recent = [],
+  harnesses = [],
 }: {
   query: string;
   files: readonly FileMatch[];
@@ -283,7 +284,7 @@ export function mentionItems({
 }): MentionItem[] {
   const text = query.trim();
   const chats = sessionItems(sessions, chatId, text);
-  const harnesses = harnessItems(harnesses ?? [], text);
+  const harnessRows = harnessItems(harnesses, text);
   const known = new Set(files.map((file) => file.path));
   const matching = (entry: RecentMention) => !text || fuzzyIndices(text, entry.path) !== undefined;
   const recentFiles = recent
@@ -308,7 +309,7 @@ export function mentionItems({
       ...matchRuns(file.path, file.matches),
     })),
   ];
-  return /[./]/.test(text) ? [...paths, ...chats, ...harnesses] : [...harnesses, ...chats, ...paths];
+  return /[./]/.test(text) ? [...paths, ...chats, ...harnessRows] : [...harnessRows, ...chats, ...paths];
 }
 
 /// The row Return or Tab picks: the one the person moved to (by key, so it stays put when the
