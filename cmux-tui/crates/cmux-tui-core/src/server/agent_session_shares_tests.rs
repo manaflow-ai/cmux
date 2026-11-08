@@ -138,6 +138,7 @@ fn a_link_works_once_and_a_retried_redeem_gets_the_same_guest() {
                     name: "Theo".into(),
                     attempt_id: attempt.into(),
                     account: None,
+                    avatar_url: None,
                 };
                 (attempt, mux.control_clients.agent_sessions.link_shares.redeem(None, redeem))
             })
@@ -345,6 +346,7 @@ fn a_share_its_uses_kicks_and_revoke_survive_a_restart() {
                 name: "Ann".into(),
                 attempt_id: attempt.into(),
                 account: None,
+                avatar_url: None,
             },
         )
     };
@@ -666,6 +668,11 @@ fn uninvite_ends_the_accounts_connections_and_its_later_joins() {
     assert_eq!(still["ok"], true, "another invitee stays: {still}");
     assert_code(&redeem_as(&mut owner, &share, "ann@example.com", "a1"), "share.kicked");
     assert_code(&redeem_as(&mut owner, &share, "ann@example.com", "a3"), "share.not_invited");
+    // The link's secret does not let a removed account back in either.
+    let by_link = owner.request(json!({"cmd":"agent-session-share-redeem",
+        "share_id":share["share_id"], "secret":share["secret"], "account":"ann@example.com",
+        "name":"Ann Lee", "attempt_id":"a5"}));
+    assert_code(&by_link, "share.kicked");
     let shown = list(&mut owner);
     assert_eq!(shown[0]["invitees"][0]["state"], "removed");
     let unknown = owner.request(json!({"cmd":"agent-session-share-uninvite",
@@ -724,6 +731,7 @@ fn invitees_survive_a_restart_and_an_old_file_without_them_loads() {
             name: "Ann".into(),
             attempt_id: "a1".into(),
             account: Some("ann@example.com".into()),
+            avatar_url: None,
         },
     );
     assert!(joined.is_ok(), "{joined:?}");
@@ -809,6 +817,7 @@ fn every_acknowledged_change_reloads_however_many_invitees_join() {
                     name: "n".repeat(64),
                     attempt_id: format!("{a}-{g}-{}", "y".repeat(100)),
                     account: Some(account.clone()),
+                    avatar_url: None,
                 };
                 if let Err(code) = shares.redeem(dir, redeem) {
                     assert_eq!(code, "share.limit");
@@ -925,6 +934,7 @@ fn ending_everything_in_a_full_registry_stays_within_the_bound() {
                 name: "n".repeat(64),
                 attempt_id: format!("{a}-{}", "y".repeat(100)),
                 account: Some(account),
+                avatar_url: None,
             };
             if let Err(code) = shares.redeem(dir, redeem) {
                 assert_eq!(code, "share.provisioning");
@@ -951,6 +961,7 @@ fn ending_everything_in_a_full_registry_stays_within_the_bound() {
             name: "n".repeat(64),
             attempt_id: format!("late-{}", "y".repeat(100)),
             account: Some(account),
+            avatar_url: None,
         };
         let _ = shares.redeem(dir, redeem);
     }
@@ -1055,7 +1066,8 @@ fn a_move_aside_never_replaces_a_kept_copy_on_a_suffix_collision() {
 }
 
 /// A redeem with the link's secret and an account that is not invited joins as a link guest (it
-/// spends a use), instead of being refused as not invited (cmux#33746, 2).
+/// spends a use), instead of being refused as not invited (cmux#33746, 2), and keeps its account
+/// (`via: link`): on a link with no role it may send (ask-2a1105b933).
 #[test]
 fn a_redeem_with_the_secret_and_an_uninvited_account_joins_by_the_link() {
     let fake = FakeAcpmux::start("share-secret-account");
@@ -1075,7 +1087,18 @@ fn a_redeem_with_the_secret_and_an_uninvited_account_joins_by_the_link() {
     assert_eq!(again["data"]["guest_id"], joined["data"]["guest_id"], "a retry is the same guest");
     let shown = list(&mut owner);
     assert_eq!(shown[0]["uses_left"], 1, "a link guest spends a use");
-    assert!(shown[0]["guests"][0].get("account").is_none(), "a link guest names no account");
+    assert_eq!(joined["data"]["role"], "talk", "{joined}");
+    let eve = &shown[0]["guests"][0];
+    assert_eq!(
+        (&eve["account"], &eve["via"], &eve["role"]),
+        (&json!("eve@example.com"), &json!("link"), &json!("talk")),
+        "a signed-in link guest keeps its account: {eve}"
+    );
+    // The same attempt without the secret is not that guest.
+    let bare = owner
+        .request(json!({"cmd":"agent-session-share-redeem", "share_id":share["share_id"],
+        "account":"eve@example.com", "name":"Eve", "attempt_id":"e1"}));
+    assert_code(&bare, "share.secret");
     // An invited account takes the invite, secret or not: no use spent.
     assert_eq!(invite(&mut owner, &share, "ann@example.com", None)["ok"], true);
     assert_eq!(both(&mut owner, &share["secret"], "ann@example.com", "a1")["ok"], true);
@@ -1152,11 +1175,13 @@ fn a_view_link_guest_watches_but_its_prompt_is_refused() {
             assert_code(&client.request(frame), "agent_session.scope_not_granted");
         }
         fake.no_frame();
-        // An account holding the link's secret but not invited joins by the link: view too.
+        // An account holding the link's secret but not invited joins by the link: it watches
+        // only on a viewers' link, and may send on a link with no role or `talk`.
         let secret_account = owner.request(json!({"cmd":"agent-session-share-redeem",
             "share_id":link["share_id"], "secret":link["secret"], "account":"eve@example.com",
             "name":"Eve", "attempt_id":format!("e{index}")}));
-        assert_eq!(secret_account["data"]["role"], "view", "{secret_account}");
+        let signed_in = if index == 0 { "view" } else { "talk" };
+        assert_eq!(secret_account["data"]["role"], signed_in, "{name}: {secret_account}");
     }
 }
 
@@ -1193,10 +1218,10 @@ fn a_default_link_guest_is_refused_and_an_invited_talker_is_held() {
     );
 }
 
-/// A view-only link may admit up to 1000 guests (the Share dialog's "Anyone with the link"); a
-/// talk or default link keeps its 8.
+/// A link made with a role, `view` or `talk`, may admit up to 1000 guests (the Share dialog's
+/// "Anyone with the link"); a link with no role keeps its 8.
 #[test]
-fn a_view_link_takes_up_to_1000_uses_and_a_talk_link_8() {
+fn a_link_with_a_role_takes_up_to_1000_uses_and_one_without_8() {
     let fake = FakeAcpmux::start("share-link-uses");
     let mux = mux_with(&fake, "share-link-uses");
     let surface = agent_tab(&mux, Some(SESSION));
@@ -1215,8 +1240,10 @@ fn a_view_link_takes_up_to_1000_uses_and_a_talk_link_8() {
     refused(&mut owner, json!({"role":"view", "uses":0}));
     assert_eq!(create(&mut owner, surface, json!({"uses":8}))["uses_left"], 8);
     refused(&mut owner, json!({"uses":9}));
-    refused(&mut owner, json!({"role":"talk", "uses":9}));
     refused(&mut owner, json!({"uses":1000}));
+    let talk = create(&mut owner, surface, json!({"role":"talk", "uses":1000}));
+    assert_eq!((talk["uses_left"].clone(), talk["role"].clone()), (json!(1000), json!("talk")));
+    refused(&mut owner, json!({"role":"talk", "uses":1001}));
 }
 
 /// Revoking a view-role link share ends its live guest in the same step: the bound, attached
@@ -1265,6 +1292,7 @@ fn a_link_shares_role_survives_a_restart_and_old_files_have_none() {
                 name: "Ann".into(),
                 attempt_id: "a1".into(),
                 account: None,
+                avatar_url: None,
             },
         )
         .unwrap();
@@ -1300,7 +1328,7 @@ fn a_view_link_redeemed_900_times_leaves_room_for_another_chats_share() {
     let shares = LinkShares::default();
     let view = ShareTerms {
         ttl_secs: MAX_TTL_SECS,
-        uses: MAX_VIEW_USES,
+        uses: MAX_LINK_USES,
         create_id: None,
         role: Some(Role::View),
     };
@@ -1314,6 +1342,7 @@ fn a_view_link_redeemed_900_times_leaves_room_for_another_chats_share() {
             name: "n".repeat(64),
             attempt_id: attempt,
             account: None,
+            avatar_url: None,
         };
         shares.redeem(dir, redeem)
     };
@@ -1330,7 +1359,7 @@ fn a_view_link_redeemed_900_times_leaves_room_for_another_chats_share() {
         assert!(joined.is_ok(), "join {i}: {joined:?}");
     }
     let all = shares.with(dir, |all, _| Ok((all.clone(), false))).unwrap();
-    assert_eq!(all[0].uses_left, MAX_VIEW_USES - 900, "every join spent one use");
+    assert_eq!(all[0].uses_left, MAX_LINK_USES - 900, "every join spent one use");
     assert!(all[0].guests.len() < 900, "the guests that left are forgotten");
     let still = all[0].guests.iter().find(|g| g.guest_id == kicked_id);
     assert_eq!(still.map(|g| g.state), Some(GuestState::Kicked), "the kicked guest stays");
@@ -1406,6 +1435,7 @@ fn join_until(mux: &Mux, share: &Value, done: impl Fn(&[LinkShare]) -> bool) {
             name: "n".repeat(64),
             attempt_id: format!("fill-{i}-{}", "y".repeat(100)),
             account: None,
+            avatar_url: None,
         };
         shares.redeem(directory.as_deref(), redeem).unwrap();
         shares.settle(mux);
@@ -1489,4 +1519,208 @@ fn a_guest_whose_relay_just_dropped_resumes_as_itself() {
     join_until(&mux, &share, |all| !has_guest(all, &ann));
     let (_link, refused) = bind(&mux, &share, &ann, "share-forget-relay-ann-late");
     assert_code(&refused, "agent_session.share_ended");
+}
+
+fn redeem_signed_in(owner: &mut Client, share: &Value, account: &str, attempt: &str) -> Value {
+    owner.request(json!({"cmd":"agent-session-share-redeem", "share_id":share["share_id"],
+        "secret":share["secret"], "account":account, "name":"Sam Park", "attempt_id":attempt,
+        "avatar_url":"https://lh3.example.com/a/sam.png"}))
+}
+
+/// A guest the room signed in who holds the link's secret, not invited, may send on a link the
+/// owner made with no role or `talk`: it joins with `talk`, its author carries its name and
+/// picture, and its prompt still goes to acpmux held for the owner. On a viewers' link it watches;
+/// a guest nobody signed in watches on any link (cmux#37766). ask-2a1105b933, items 2 and 3.
+#[test]
+fn a_signed_in_link_guest_talks_unless_the_link_is_for_viewers() {
+    let fake = FakeAcpmux::start("share-signed-in-link");
+    let mux = mux_with(&fake, "share-signed-in-link");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-signed-in-link-owner");
+    let share = create(&mut owner, surface, json!({"role":"talk", "uses":3}));
+    let sam = redeem_signed_in(&mut owner, &share, "Sam@Example.com", "s1");
+    assert_eq!(sam["ok"], true, "{sam}");
+    assert_eq!(sam["data"]["role"], "talk", "{sam}");
+    let again = redeem_signed_in(&mut owner, &share, "sam@example.com", "s1");
+    assert_eq!(again["data"]["guest_id"], sam["data"]["guest_id"], "a retry is the same guest");
+    let shown = list(&mut owner);
+    assert_eq!(shown[0]["uses_left"], 2, "a signed-in link guest spends one use, once");
+    let guest = &shown[0]["guests"][0];
+    assert_eq!(
+        (&guest["account"], &guest["via"], &guest["role"], &guest["avatar_url"]),
+        (
+            &json!("sam@example.com"),
+            &json!("link"),
+            &json!("talk"),
+            &json!("https://lh3.example.com/a/sam.png")
+        ),
+        "{guest}"
+    );
+    let (mut client, bound) = bind(&mux, &share, &sam, "share-signed-in-link-sam");
+    assert_eq!(bound["ok"], true, "{bound}");
+    let attach = client.request(json!({"cmd":"agent-session-attach", "surface":surface}));
+    assert_eq!(attach["ok"], true, "{attach}");
+    fake.frame();
+    let sent = client.request(json!({"cmd":"agent-session-prompt", "surface":surface,
+        "client_id":"c1", "text":"hello from Sam"}));
+    assert_eq!(sent["ok"], true, "{sent}");
+    let frame = fake.frame();
+    assert_eq!(frame["method"], "session/prompt");
+    let author = &frame["params"]["_meta"]["acpmux"]["author"];
+    assert_eq!(
+        author,
+        &json!({"id": format!("guest:{}.{}", share["share_id"].as_str().unwrap(),
+                    sam["data"]["guest_id"].as_str().unwrap()),
+                "name": "Sam Park", "approval": "owner", "role": "talk",
+                "avatar": "https://lh3.example.com/a/sam.png"}),
+        "its prompt names its sender and is held for the owner"
+    );
+    assert!(!frame.to_string().contains("sam@example.com"), "the account stays the owner's");
+
+    // A viewers' link: the signed-in guest watches.
+    let view = create(&mut owner, surface, json!({"role":"view", "uses":3}));
+    let watcher = redeem_signed_in(&mut owner, &view, "sam@example.com", "v1");
+    assert_eq!(watcher["data"]["role"], "view", "{watcher}");
+    let (mut watching, _) = bind(&mux, &view, &watcher, "share-signed-in-link-view");
+    assert_code(
+        &watching.request(json!({"cmd":"agent-session-prompt", "surface":surface,
+            "client_id":"c1", "text":"hi"})),
+        "agent_session.scope_not_granted",
+    );
+    // Nobody signed in: view on the talk link too, and a picture without an account is dropped.
+    let anon = owner.request(json!({"cmd":"agent-session-share-redeem",
+        "share_id":share["share_id"], "secret":share["secret"], "name":"Anon",
+        "attempt_id":"n1", "avatar_url":"https://lh3.example.com/a/x.png"}));
+    assert_eq!(anon["data"]["role"], "view", "{anon}");
+    let shown = list(&mut owner);
+    let talk_share = shown.as_array().unwrap().iter().find(|s| s["share_id"] == share["share_id"]);
+    let anon_shown = &talk_share.unwrap()["guests"][1];
+    assert!(anon_shown.get("account").is_none() && anon_shown.get("avatar_url").is_none());
+    // A picture that is not an https URL of printable ASCII is dropped; the guest still joins.
+    for (attempt, bad) in [("b1", "http://x.example/a.png"), ("b2", "https://x/a b.png")] {
+        let joined = owner.request(json!({"cmd":"agent-session-share-redeem",
+            "share_id":view["share_id"], "secret":view["secret"], "account":"bo@example.com",
+            "name":"Bo", "attempt_id":attempt, "avatar_url":bad}));
+        assert_eq!(joined["ok"], true, "{joined}");
+    }
+    let shown = list(&mut owner);
+    let view_shown = shown.as_array().unwrap().iter().find(|s| s["share_id"] == view["share_id"]);
+    for guest in view_shown.unwrap()["guests"].as_array().unwrap() {
+        if guest["account"] == "bo@example.com" {
+            assert!(guest.get("avatar_url").is_none(), "{guest}");
+        }
+    }
+}
+
+/// A signed-in link guest is forgotten once gone, as an anonymous one is (its uses stay spent);
+/// an invitee's guest is not (it has its own bound).
+#[test]
+fn a_signed_in_link_guest_is_forgotten_once_gone_and_an_invitee_is_not() {
+    let directory = scratch("shares-forget-signed-in");
+    let dir = Some(directory.as_path());
+    let shares = LinkShares::default();
+    let share = shares.insert(dir, "acp_x".into(), 1, ShareTerms { uses: 3, ..terms() }, false);
+    let share = share.unwrap();
+    let share_id = share["share_id"].as_str().unwrap().to_owned();
+    shares
+        .invite(
+            dir,
+            &Invite { share_id: share_id.clone(), account: "ann@example.com".into(), role: None },
+        )
+        .unwrap();
+    let join = |account: &str, attempt: &str| {
+        shares.redeem(
+            dir,
+            Redeem {
+                share_id: share_id.clone(),
+                secret: share["secret"].as_str().unwrap().into(),
+                name: "Guest".into(),
+                attempt_id: attempt.into(),
+                account: Some(account.into()),
+                avatar_url: Some("https://lh3.example.com/a.png".into()),
+            },
+        )
+    };
+    assert_eq!(join("ann@example.com", "a1").unwrap()["role"], "talk");
+    assert_eq!(join("sam@example.com", "s1").unwrap()["role"], "talk");
+    shares.advance(Duration::from_millis(KEEP_MS));
+    shares
+        .with(dir, |all, now| {
+            forget_gone(all, now, &Present::default());
+            Ok(((), true))
+        })
+        .unwrap();
+    let all = shares.with(dir, |all, _| Ok((all.clone(), false))).unwrap();
+    let accounts: Vec<_> = all[0].guests.iter().map(|g| g.account.clone().unwrap()).collect();
+    assert_eq!(accounts, ["ann@example.com"], "the signed-in link guest that left is forgotten");
+    assert_eq!(all[0].uses_left, 2, "forgetting returns no use");
+    let read = |s: &LinkShares| s.with(dir, |all, _| Ok((all.clone(), false))).unwrap();
+    assert_eq!(read(&LinkShares::default()), read(&shares), "a restart reads it back");
+    let _ = std::fs::remove_dir_all(&directory);
+}
+
+/// The picture is the one part of a guest the registry drops to make it fit: a signed-in guest
+/// who would fit only without it joins without it.
+#[test]
+fn a_guest_whose_picture_would_not_fit_joins_without_it() {
+    let directory = scratch("shares-avatar-fit");
+    let dir = Some(directory.as_path());
+    let shares = LinkShares::default();
+    let talk = ShareTerms {
+        ttl_secs: MAX_TTL_SECS,
+        uses: MAX_LINK_USES,
+        create_id: None,
+        role: Some(Role::Talk),
+    };
+    let share = shares.insert(dir, "acp_fit".into(), 1, talk, false).unwrap();
+    let share_id = share["share_id"].as_str().unwrap().to_owned();
+    let secret = share["secret"].as_str().unwrap().to_owned();
+    let picture = format!("https://x.example/{}", "p".repeat(MAX_AVATAR_BYTES - 18));
+    assert_eq!(picture.len(), MAX_AVATAR_BYTES);
+    let join = |account: Option<String>, attempt: String, avatar_url: Option<String>| {
+        shares.redeem(
+            dir,
+            Redeem {
+                share_id: share_id.clone(),
+                secret: secret.clone(),
+                name: "Sam".into(),
+                attempt_id: attempt,
+                account,
+                avatar_url,
+            },
+        )
+    };
+    // The signed-in guest as the redeem would record it, to learn when it no longer fits.
+    let signed_in = |avatar_url: Option<String>| Guest {
+        guest_id: "g".repeat(11),
+        name: "Sam".into(),
+        joined_at: shares.now(),
+        state: GuestState::Active,
+        attempt_id_sha256: "0".repeat(64),
+        account: Some("sam@example.com".into()),
+        role: Some(Role::Talk),
+        via: Some(Via::Link),
+        avatar_url,
+    };
+    // Small anonymous joins (far smaller than the picture) until the signed-in guest fits only
+    // without its picture.
+    for i in 0.. {
+        let all = shares.with(dir, |all, _| Ok((all.clone(), false))).unwrap();
+        let mut with = all.clone();
+        with[0].guests.push(signed_in(Some(picture.clone())));
+        if !fits(&with) {
+            let mut without = all;
+            without[0].guests.push(signed_in(None));
+            assert!(fits(&without), "it fits without its picture");
+            break;
+        }
+        assert!(join(None, format!("a{i}"), None).is_ok(), "join {i}");
+    }
+    let joined = join(Some("sam@example.com".into()), "sam".into(), Some(picture));
+    let joined = joined.expect("the guest joins");
+    assert_eq!(joined["role"], "talk");
+    let all = shares.with(dir, |all, _| Ok((all.clone(), false))).unwrap();
+    let sam = all[0].guests.iter().find(|g| g.guest_id == joined["guest_id"]).unwrap();
+    assert_eq!(sam.avatar_url, None, "the picture was dropped to fit");
+    let _ = std::fs::remove_dir_all(&directory);
 }

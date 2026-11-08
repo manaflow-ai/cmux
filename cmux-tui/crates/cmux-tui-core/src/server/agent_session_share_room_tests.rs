@@ -1328,6 +1328,57 @@ fn a_share_the_room_expired_is_expired_here() {
     }
 }
 
+/// A signed-in link guest's redeem: the room's own `redeem` frame on the host socket carries the
+/// account it signed in (and its picture) beside the secret, which is the room's attestation. The
+/// daemon answers `talk` on a link with no role, and nothing about the account goes back. Frames
+/// that stand for a guest's browser (`guest_*`, whatever fields they carry) never redeem: a guest
+/// page cannot name an account. ask-2a1105b933.
+#[test]
+fn only_the_rooms_redeem_frame_signs_a_link_guest_in_and_a_guests_frames_never_do() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, _mux, surface, mut owner) = bridged("room-signed-in-link", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    let secret = share["secret"].clone();
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    // A guest's browser frames, forged to carry what a redeem would: none redeems.
+    let forged = |t: &str| {
+        json!({"v": 1, "t": t, "guest_id": "forged", "request_id": t, "attempt_id": t,
+            "secret": secret, "account": "eve@example.com", "name": "Eve",
+            "avatar_url": "https://x.example/e.png", "client_id": "c1", "text": "hi"})
+    };
+    for t in ["guest_prompt", "guest_typing", "guest_redeem", "prompt_status", "older"] {
+        room.send(forged(t));
+    }
+    room.none(
+        "an answer to a guest's frame as a redeem",
+        |seen| matches!(seen, Seen::Frame { frame, .. } if frame["t"] == "redeemed"),
+    );
+    let shown = state(&mut owner);
+    assert_eq!(shown["uses_left"], 1, "no guest frame spent a use: {shown}");
+    assert_eq!(shown["guests"], json!([]), "{shown}");
+    // The room's own redeem, with the account it signed in: a guest who may send.
+    room.send(json!({"v": 1, "t": "redeem", "request_id": "r1", "attempt_id": "attempt-1",
+        "secret": secret, "name": "Sam Park", "account": "Sam@example.com",
+        "avatar_url": "https://lh3.example.com/a/sam.png"}));
+    let redeemed = room.frame(conn);
+    let guest = redeemed["guest_id"].clone();
+    assert!(guest.is_string(), "{redeemed}");
+    assert_eq!(
+        redeemed,
+        json!({"v": 1, "t": "redeemed", "request_id": "r1", "guest_id": guest, "role": "talk"}),
+        "nothing about the account reaches the room"
+    );
+    let shown = state(&mut owner);
+    let sam = &shown["guests"][0];
+    assert_eq!(
+        (&sam["account"], &sam["via"], &sam["avatar_url"]),
+        (&json!("sam@example.com"), &json!("link"), &json!("https://lh3.example.com/a/sam.png")),
+        "{sam}"
+    );
+    assert_eq!(shown["uses_left"], 0, "a signed-in link guest spends the use");
+}
+
 #[test]
 fn only_guest_facing_redeem_refusals_reach_the_room() {
     assert!(GUEST_REFUSALS.contains(&"share.used"));

@@ -1012,7 +1012,12 @@ export interface QueueRemoveParams {
 
 /** The person who queued a prompt in a shared chat. */
 export type QueuedAuthor = {
-  /** `tailnet:<login>` or `user_…`. */
+  /**
+   * Their profile picture (`_meta.provenance` `fromAvatar`, an `https://` URL), left out when
+   * they have none (and from an older acpmux).
+   */
+  avatar?: (string | null);
+  /** `tailnet:<login>`, `user_…` or `guest:<share>.<guest>`. */
   id: string;
   name: string;
 } & Record<string, unknown>;
