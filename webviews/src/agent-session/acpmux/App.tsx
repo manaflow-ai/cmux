@@ -9638,7 +9638,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const client = directClient.current;
     const summary = snapshotRef.current?.summary;
     const origin = snapshotRef.current?.origin;
-    if (!client || !summary?.cwd || origin === "remote" || origin === "peer") throw new Error(translate("error.notOpen"));
+    if (!client || !summary?.cwd || origin === "remote" || origin === "peer")
+      throw new Error(translate("error.notOpen"));
     const { root } = await newWorktree(callNative, summary.cwd, () => undefined);
     return client.startTask(root, task.prompt, {
       harness: summary.harness,
