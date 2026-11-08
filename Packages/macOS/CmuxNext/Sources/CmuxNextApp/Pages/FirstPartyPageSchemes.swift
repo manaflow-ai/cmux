@@ -84,6 +84,7 @@ enum FirstPartyPageSchemes {
         .mobilePairing,
         .onboarding,
         .passwords,
+        .serverCards,
         .settings,
         .stats,
         .tasks,

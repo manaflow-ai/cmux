@@ -364,6 +364,11 @@ impl RemoteSession {
         self.interactive_writer.close();
     }
 
+    /// What the daemon's shutdown notice said, or `None` when none came.
+    pub(crate) fn daemon_shutdown_notice(&self) -> Option<crate::session::DaemonShutdownNotice> {
+        self.disconnect_state.shutdown_notice()
+    }
+
     /// Returns the first reason recorded when the remote reader stopped.
     pub fn transport_disconnect_reason(&self) -> Option<String> {
         match &*self.disconnect_state.lock().unwrap() {
