@@ -205,7 +205,7 @@ import Testing
             let out = try #require(ghost.animation(forKey: "cmux.textSwap.out") as? CAAnimationGroup, "the old words rise and fade")
             let children = out.animations ?? []
             #expect(children.count == 2, "a fade and a rise")
-            // A child with no duration of its own runs 0.25 s inside the group and is clipped at its end, still showing.
+            // Each child spans the group: a shorter one would end early, a longer one would be clipped still showing.
             for child in children {
                 #expect(abs(child.duration - out.duration) < 1e-9,
                         "\((child as? CAPropertyAnimation)?.keyPath ?? "?") spans \(child.duration) s of the group's \(out.duration) s")
@@ -213,7 +213,8 @@ import Testing
             // As `useTextSwap.ts`: gone at `TextSwapMotion.goneAt` of the out duration, and still gone at its end.
             let fade = try #require(children.compactMap { $0 as? CAKeyframeAnimation }.first { $0.keyPath == "opacity" })
             #expect(fade.keyTimes?.map(\.doubleValue) == [0, TextSwapMotion.goneAt, 1])
-            #expect((fade.values as? [Double])?.suffix(2) == [0, 0], "fully transparent from goneAt to the end")
+            #expect((fade.values ?? []).compactMap { ($0 as? NSNumber)?.doubleValue }.suffix(2) == [0, 0],
+                    "fully transparent from goneAt to the end: \(fade.values ?? [])")
         }
     }
 

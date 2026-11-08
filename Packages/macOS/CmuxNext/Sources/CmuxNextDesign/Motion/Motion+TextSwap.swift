@@ -93,8 +93,8 @@ extension MotionGate {
             let lift = CABasicAnimation(keyPath: "transform.translation.y")
             lift.fromValue = CGFloat(start.y) * down
             lift.toValue = CGFloat(-TextSwapMotion.rise) * down
-            // A group's children keep their own duration (0.25 s when unset) and the group clips them: each spans
-            // the whole out duration, so the fade is gone at `goneAt` of it, as `useTextSwap.ts`'s keyframes are.
+            // Said, not left to the group: each child spans the whole out duration, so the fade is gone at `goneAt`
+            // of it, as `useTextSwap.ts`'s keyframes are.
             (fade.duration, lift.duration) = (motion.outDuration, motion.outDuration)
             let group = CAAnimationGroup()
             group.animations = [fade, lift]
