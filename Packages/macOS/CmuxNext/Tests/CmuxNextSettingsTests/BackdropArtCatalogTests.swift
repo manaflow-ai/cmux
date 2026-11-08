@@ -28,7 +28,7 @@ import Testing
     }
 
     @Test func everyArtChoiceIsLabelledTitleAndArtist() throws {
-        let descriptor = try #require(SettingsSchema.descriptor(for: BackdropSelectionSetting().configPath))
+        let descriptor = try #require(SettingsSchema.descriptor(for: BackdropSelectionSetting.configPath))
         guard case .choice(let choices) = descriptor.kind else {
             Issue.record("appearance.background is not a choice")
             return

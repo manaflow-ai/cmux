@@ -24,7 +24,7 @@ use crate::app_identity::AppIdentity;
 use events::stream_events;
 use open::{OpenRequest, parse_open};
 #[cfg(test)]
-use open::{is_web_url, parse_open_with};
+use open::{is_web_url, open_is_interactive, parse_open_with};
 use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot, takes_caller};
 pub(super) use run::{action_run_params, insert_run_key, request_with_retry, safe_to_resend};
 
@@ -77,6 +77,9 @@ pub(super) const APP_SCOPES: &[&str] = &[
 /// network action the app bounds itself (`ActionDescriptor.resultDeadline`,
 /// 40 s, Connect to CodeRouter), so the CLI gives the app longer than that.
 pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(5);
+/// The app method `cmux app remote-views` reads; the app registers it in every
+/// build (RemoteViewTabsControl.releaseMethods, whose test reads this line).
+pub(super) const REMOTE_VIEWS_METHOD: &str = "remote_view.state";
 pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 /// `errors.list` reads the app's logs first (the app bounds it at 12 s).
 const ERRORS_TIMEOUT: Duration = Duration::from_secs(15);
@@ -279,6 +282,17 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("app", Some("identify")) => call("system.identify", json!({})),
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
         ("app", Some("renderers")) => renderers::parse(rest)?,
+        // The Cloud desktop tabs (`remote_view.state`, every build): per tab its
+        // viewer, whether it is connected and who has control; never a credential
+        // or a pixel of the screen.
+        ("app", Some("remote-views")) => {
+            let options = Options::parse(rest.get(1..).unwrap_or_default(), &["tab"], &[])?;
+            let mut params = Map::new();
+            if let Some(tab) = options.value("tab") {
+                params.insert("tab".into(), json!(tab));
+            }
+            call(REMOTE_VIEWS_METHOD, Value::Object(params))
+        }
         ("window", Some("list")) => AppCommand::Call {
             method: "snapshot.get",
             params: json!({}),
@@ -747,6 +761,15 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
 /// that does not answer as the cmux app is `socket.wrong_kind`; neither
 /// tries another socket.
 pub(super) fn connect_command(global: &GlobalArgs) -> Result<UnixStream, Value> {
+    connect_command_within(global, None)
+}
+
+/// [`connect_command`] for an optional read that must never hold up a command: with `probe`, the
+/// `--socket` kind probe (`system.ping`) has that hard deadline instead of waiting out a busy app.
+pub(super) fn connect_command_within(
+    global: &GlobalArgs,
+    probe: Option<Duration>,
+) -> Result<UnixStream, Value> {
     let socket = command_socket(global)?;
     let Some(flag) = socket.named_by else {
         return connect(&socket.path).map_err(|message| typed("app.unreachable", message, None));
@@ -769,7 +792,10 @@ pub(super) fn connect_command(global: &GlobalArgs) -> Result<UnixStream, Value> 
         // An app's refusal is an object with a code (a classic app in
         // older password-mode app refuses ping before `auth.login`; a daemon's
         // refusal of the unknown line is a plain string.
-        let pong = exchange(&mut stream, "system.ping", json!({}), READ_TIMEOUT);
+        let pong = match probe {
+            Some(timeout) => exchange_within(&mut stream, "system.ping", json!({}), timeout),
+            None => exchange(&mut stream, "system.ping", json!({}), READ_TIMEOUT),
+        };
         let is_app = match &pong {
             Ok(Ok(result)) => result.get("pong") == Some(&Value::Bool(true)),
             Ok(Err(error)) => error.get("code").is_some_and(Value::is_string),
@@ -1301,6 +1327,55 @@ pub(super) fn exchange(
     let line = json!({ "id": 1, "method": method, "params": params });
     send_line(stream, &line)?;
     read_reply(stream, method, timeout, app_answers_ping)
+}
+
+/// [`exchange`] with a hard deadline: no answer within `timeout` is an error, even from an app
+/// that is only busy. For an optional read that must never hold up a command. The write and
+/// every read share the one deadline, so an app that trickles bytes cannot stretch it. Like
+/// every app request, it carries the read barrier ([`with_read_barrier`]), so a value an earlier
+/// `cmux` call wrote through the daemon is the one read; the barrier's round trip is inside the
+/// same deadline.
+pub(super) fn exchange_within(
+    stream: &mut UnixStream,
+    method: &str,
+    params: Value,
+    timeout: Duration,
+) -> Result<Result<Value, Value>, String> {
+    let deadline = std::time::Instant::now().checked_add(timeout);
+    let left = || {
+        deadline
+            .and_then(|deadline| deadline.checked_duration_since(std::time::Instant::now()))
+            .filter(|left| !left.is_zero())
+            .ok_or_else(|| wait::timeout_message(timeout))
+    };
+    stream.set_write_timeout(Some(left()?)).map_err(|error| error.to_string())?;
+    let line = json!({ "id": 1, "method": method, "params": with_read_barrier(method, params) });
+    send_line(stream, &line)
+        .map_err(|error| if left().is_err() { wait::timeout_message(timeout) } else { error })?;
+    let mut response = Vec::new();
+    let mut chunk = [0_u8; 4096];
+    loop {
+        stream.set_read_timeout(Some(left()?)).map_err(|error| error.to_string())?;
+        let read = match stream.read(&mut chunk) {
+            Ok(read) => read,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(read_error(&error, Some(timeout))),
+        };
+        let got = chunk.get(..read).unwrap_or_default();
+        if let Some(end) = got.iter().position(|byte| *byte == b'\n') {
+            response.extend_from_slice(got.get(..=end).unwrap_or_default());
+            break;
+        }
+        // End of stream: parse what came.
+        if got.is_empty() {
+            break;
+        }
+        response.extend_from_slice(got);
+        if u64::try_from(response.len()).unwrap_or(u64::MAX) > MAX_RESPONSE_BYTES {
+            return Err(format!("{method}: the answer is over {MAX_RESPONSE_BYTES} bytes"));
+        }
+    }
+    parse_response(&String::from_utf8_lossy(&response))
 }
 
 /// Reads one reply line. `timeout` is how long to wait before asking whether the app is still

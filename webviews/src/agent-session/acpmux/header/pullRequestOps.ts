@@ -1,17 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { translate, useT, type StringKey, type Translate } from "../i18n";
 import type { HeaderCheck, HeaderPullRequest } from "./headerState";
+import { readyToMerge } from "./pullRequestMergeModel";
 import type { Merging, MergeResult } from "./PullRequestMerge";
-
-export function readyToMerge(pr: HeaderPullRequest) {
-  return (
-    pr.state === "open" &&
-    pr.mergeable === "mergeable" &&
-    pr.review !== "changes_requested" &&
-    pr.review !== "review_required" &&
-    (pr.checks.state === "passing" || pr.checks.state === "none")
-  );
-}
 
 export function checkPresentation(check: HeaderCheck, t: Translate = translate): string {
   const marker = check.state === "failed" ? "✕" : check.state === "pending" ? "…" : "✓";

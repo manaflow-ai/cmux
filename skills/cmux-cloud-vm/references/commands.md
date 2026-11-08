@@ -82,8 +82,7 @@ cmux machine new                                            # prints its target 
 cmux cloud new-workspace                                    # New Cloud Workspace: a new small machine of its own, never a listed one
 cmux cloud new-workspace --target machine:vm-…              # a new workspace on that machine
 cmux cloud open-machine --target machine:vm-…
-cmux cloud open-desktop --target machine:vm-…                # its desktop in a cmux browser tab, over the app's Cloud tunnel
-cmux cloud open-desktop --target machine:vm-… --viewer native # the same desktop in the native remote view pane (development builds)
+cmux cloud open-desktop --target machine:vm-…                # its desktop as a live video stream over the carrier (your own cmux NEXT machine only)
 cmux cloud new-terminal-on-machine --target machine:vm-…      # a new workspace with a terminal
 cmux cloud new-terminal-on-machine --target machine:vm-… --workspace <workspace-id>   # a terminal tab in that workspace
 cmux cloud rename-machine --target machine:vm-… --name <label>
@@ -248,8 +247,8 @@ run again.
 ## Account and diagnostics
 
 ```bash
-cmux cloud sign-in
-cmux cloud sign-out
+cmux login
+cmux logout
 cmux cloud team-picker
 cmux cloud diagnostics
 cmux cloud open-mobile-pairing

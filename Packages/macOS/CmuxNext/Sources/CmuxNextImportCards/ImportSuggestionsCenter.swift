@@ -87,8 +87,8 @@ public final class ImportSuggestionsCenter {
         }
     }
 
-    /// `browser.import.enabled` and Debug Settings `browserImport.suggestionCards` (both on by default).
-    public var isEnabled: Bool { importEnabled && BrowserImportTunables.suggestionCards.value }
+    /// `browser.import.enabled` (on by default).
+    public var isEnabled: Bool { importEnabled }
 
     /// Starts the cards once: the jobs a quit cut off, the first scan and the rescans.
     public func start(host: ImportCardsHost, registry: ActionRegistry) {
@@ -401,6 +401,19 @@ public final class ImportSuggestionsCenter {
         state.conductorNoteClosed = true
         state.save(to: defaults)
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// DEBUG and bench builds: adds a stand-in Conductor finding to the scan's and reopens the note's x, so a
+    /// capture on a Mac with no Conductor shows the sidebar note and its Settings › Import card
+    /// (`debug.import_note`). Nothing is saved; the next scan drops the stand-in.
+    public func showConductorNoteFixture(workspaces: Int = 3) {
+        if !findings.contains(where: { $0.kind == .conductor }) {
+            findings.append(ImportFinding(id: "agents.conductor", kind: .conductor, name: "Conductor", count: workspaces))
+        }
+        state.conductorNoteClosed = nil
+        state.conductorImportRan = nil
+    }
+    #endif
 
     /// Import from Conductor finished: the note stays gone after its job is pruned.
     func conductorImportFinished() {

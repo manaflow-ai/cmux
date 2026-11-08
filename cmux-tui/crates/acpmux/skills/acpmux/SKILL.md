@@ -260,10 +260,9 @@ acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works o
 ```
 
 - **cmux Cloud machines.** A Cloud machine's chats run in that machine's own acpmux, which is not
-  one of this Mac's machines unless enrolled (`cmux cloud enroll-machine --target machine:vm-…`).
-  From the Mac, `cmux cloud start-chat --prompt TEXT --wait --json` starts a chat there, sends the
-  prompt and answers the reply with its `machine_id` and `session_id`; its `follow_up` commands
-  send, wait and read on through `cmux cloud exec`.
+  one of this Mac's machines. From the Mac, `cmux cloud start-chat --prompt TEXT --wait --json`
+  starts a chat there, sends the prompt and answers the reply with its `machine_id` and
+  `session_id`; its `follow_up` commands send, wait and read on through `cmux cloud exec`.
 - **Old spellings.** `acpmux host` (and `hosts`, `peer`), `host place`, `host vm-host` and
   `--host` still work; `machine`, `machine pick`, `machine dedicated` and `--machine` are the names.
 - **Check first.** Run `acpmux machine status` before remote work and after any request to a
@@ -331,3 +330,7 @@ turn was denied · 6 `session stop --if-idle` refused (`busy` or
 - Do not delete sessions you did not create. Do not change defaults, presets, or machines
   unless the task is about them.
 - `--current` / `@` targets your own session only when `ACPMUX_ENV=1`.
+- To hand another session an image (a screenshot, a mockup), attach the file:
+  `acpmux send NAME --no-wait "…" --attach /abs/shot.png`, or `attach` in the MCP
+  `send` tool. It shows as a preview. Never pass a provider's own file id
+  (ChatGPT's `libfile_…`, an upload id): nobody here can open one.

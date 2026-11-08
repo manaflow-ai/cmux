@@ -328,6 +328,8 @@ nightly-only labels). This applies to humans, Leo and every agent:
   add `risk:human-ok` or `risk:waived`.
 - Before opening a PR and before merging, check it against [REVIEW.md](REVIEW.md) (draft),
   the mistakes our review history keeps catching.
+- Before designing a change or fixing a bug, read [design-lessons.md](docs/cmux-next/design-lessons.md):
+  the causes our fix history keeps repeating, each with its rule and cost.
 - Before merging, use a [review subagent](skills/cmux-review/SKILL.md), correctness
   first. A small change (a removal, a copy, CSS or token tweak, a fix confined to one
   component) needs only that. A behavior change into `feat-cmux-next` that is not small gets
@@ -379,7 +381,8 @@ one schema, so do it like this:
   (`Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema.swift`): a row in a section JSON,
   `schemas/settings/source/<section>.json`, then `python3 scripts/cmux-next/gen-settings-sources.py`, or a
   `*SettingsSchema` / `SettingsSchema+<Area>.swift` group in that folder. A new section JSON also needs its
-  entry in the generator's `SECTIONS`, and its generated type added to `SettingsSchema.all`.
+  file `schemas/settings/generator/<section>.json` (copy a neighbour's), and its generated type added to
+  `SettingsSchema.all`.
   Never keep a setting in `UserDefaults`, a side file or a private key list: the surfaces read only the schema.
 - Palette: `SettingsPaletteSource` (CmuxNextApp) and `SettingsPaletteProvider` (CmuxNextPalette) give every
   `isPaletteExposed` descriptor a row with an editor for its `SettingKind`. Keep `palette = .exposed`;
@@ -393,9 +396,9 @@ one schema, so do it like this:
   (`SettingsSchemaExportTests`; base autofix regenerates it, never hand-edit it). A new kind, validation or
   value shape also goes into `cmux-config`'s schema module.
 - MCP: `settings_list|get|set|reset|unset` (`cmux-tui/crates/cmux-tui/src/cli/mcp/settings_tools.rs`) read the
-  same schema and write only keys marked `agent_settable`. Put every new key in exactly one table of
-  `SettingsSchema+AgentPolicy.swift`: `agentSettableKeys` (agents may set it; looks and layout usually) or
-  `agentRefusedKeys` with an `AgentRefusal` reason (privacy, network, destructive, user-only).
+  same schema and write only keys marked `agent_settable`. Put every new key in exactly one group of
+  `schemas/settings/source/agent-policy.json`: `settable` (agents may set it; looks and layout usually) or a
+  refusal reason (privacy, network, destructive, userOnly), then run `scripts/cmux-next/gen-settings-sources.py`.
   `SettingsSchemaExportTests` fails on a key in neither or both.
 - A setting edited by a dedicated control instead of a schema row (keybindings, custom actions) gets the
   surfaces through its `ActionCatalog` action's `ActionSurfacePlan`: `palette`, and `cli: .offered` for a

@@ -629,10 +629,18 @@ impl Mux {
         self.publish_resource_event();
         let _ = self.retry_pending_agent_hooks_for_terminal(&plan.public_id);
         self.reconcile_agent_roster_projections_for_terminal(&plan.public_id);
+        // Only a shell the freeing tier parked offers its last command again.
+        let freed_last = plan
+            .kept
+            .iter()
+            .filter(|kept| kept.on_show)
+            .find_map(|kept| kept.last_command.as_ref())
+            .map(|last| last.command.as_str());
         let prefill = self.respawn_prefill(
             &plan.terminal_id,
             record.as_ref(),
             crate::user_settings::resume_agents(),
+            freed_last,
         );
         Ok(Some((surface, prefill)))
     }

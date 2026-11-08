@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextPalette
@@ -167,38 +168,6 @@ extension CloudHandlers {
             context.services.registry.ask("cloudRenameMachine", invocation,
                                           ActionArgumentAsk(argument: "name", initialText: session.machine.displayName ?? ""))
         }
-        // Share Machine… (CloudMachineShare): `--teammate` shares or (`--revoke`) takes back; without
-        // it a person's run opens the teammates page and a CLI or agent run answers the list.
-        bind("cloudShareMachine", registry, reason: reason) { invocation in
-            let session = try machine(invocation, context)
-            if let teammate = invocation["teammate"]?.stringValue?.trimmingCharacters(in: .whitespaces), !teammate.isEmpty {
-                let shared = invocation["revoke"]?.boolValue != true
-                return result("share machine", context) {
-                    do { try await CloudMachineShare.set(shared, teammate: teammate, on: session, cloud: cloud) } catch {
-                        throw ActionFailure(message: CloudMachineShare.message(error))
-                    }
-                    return machineFields(session.machineID, ["teammate": .string(teammate), "shared": .bool(shared)])
-                }
-            }
-            if origin(of: invocation) == .user {
-                return context.services.palette.show(page: CloudMachineShare.page(session, services: context.services),
-                                                     relativeTo: context.activeWindow?.window)
-            }
-            answer("machine shares", invocation, context) {
-                let roster: CloudMachineShareRoster
-                do { roster = try await CloudMachineShare.roster(session, cloud: cloud) } catch {
-                    throw ActionFailure(message: CloudMachineShare.message(error))
-                }
-                let lines = roster.rows.map { "\($0.shared ? "shared" : "-") \($0.name) (\($0.userID))" }
-                let teammates = roster.rows.map { row in
-                    ActionResultValue.object(["user_id": .string(row.userID), "name": .string(row.name), "shared": .bool(row.shared)])
-                }
-                return CloudAnswer(title: CloudShareStrings.listTitle, text: lines.isEmpty ? "(none)" : lines.joined(separator: "\n"),
-                                   fields: machineFields(session.machineID, ["teammates": .array(teammates), "can_share": .bool(roster.canShare)]))
-            }
-        }
-        // Grants live on the classic Cloud API (`/api/vm`): a machine on the app server link has none yet.
-        ActionTargetVisibility.hide("cloudShareMachine", in: registry) { _ in true }
         // Destructive: the registry confirmed it (sheet, or `confirm: true`).
         bind("cloudKillMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
@@ -235,7 +204,8 @@ extension CloudHandlers {
         }
         bind("cloudCopyLink", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), port = try port(invocation); guard session.machine.allows(.ports) else { throw operationUnavailable }
-            run("copy machine link", context) { CloudPresenter.copy(try await cloud.api.openPort(session.machineID, port: port).url) }
+            let names = CloudPortNames(session, port: port)
+            run("copy machine link", context) { CloudPresenter.copy(try await previewShareLink(cloud.previewAPI, machine: session.machineID, port: port, names: names).url) }
         }
         bind("cloudResizeMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.sizing) else { throw operationUnavailable }
@@ -261,7 +231,7 @@ extension CloudHandlers {
             if invocation["machineConfig"] != nil, invocation["machineConfig"]?.stringValue?.isEmpty != false {
                 throw ActionFailure(message: CloudStrings.machineConfigUnreadable("--machine-config"))
             }
-            let path = invocation["machineConfig"]?.stringValue.map(expandingHome)
+            let path = invocation["machineConfig"]?.stringValue.map(CloudMachineRequest.expandingHome)
             let work = context.services.work, machineID = session.machineID
             result("apply machine config", context) {
                 var request = CloudMachineRequest()
@@ -456,7 +426,7 @@ extension CloudHandlers {
 
     /// `cloud deliver-secrets --target machine:<id> [--repo OWNER/NAME] [--names A,B]` (CloudMachineSecrets): the values
     /// of the names the machine's last machine-config apply declared, from this Mac's Keychain to the
-    /// machine over its daemon link: `--repo`'s values first, else the global ones (the person picks
+    /// machine, sealed to its daemon over its carrier (`cmux carrier secrets`): `--repo`'s values first, else the global ones (the person picks
     /// the scope, never the machine). Answers the names delivered and those with no value here; a
     /// machine that already has what the Mac holds gets nothing (`unchanged`); a machine that had
     /// values and now gets none has its set cleared.
@@ -481,14 +451,13 @@ extension CloudHandlers {
         }
         let cloud = context.services.cloud, work = context.services.work, session = try machine(invocation, context)
         guard session.machine.allows(.exec) else { throw operationUnavailable }
-        guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
         let machineID = session.machineID, home = FileManager.default.homeDirectoryForCurrentUser
         let ledgerURL = cloud.paths.root.appendingPathComponent("secret-ledger.json")
         // One delivery per machine at a time (plan, delivery and ledger together): an older run that
         // finished after a newer one would leave the older values on the machine but the newer in the ledger.
         // Not beside an own-machine delivery, which may reach this same machine over ssh.
         guard !cloud.deliveringSecrets.contains(ownMachineDeliveryKey), cloud.deliveringSecrets.insert(machineID).inserted else { throw ActionFailure(message: CloudStrings.secretsDeliveryRunning) }
-        // A delivery waits up to a minute on each of the receiver's answers, past the CLI's result deadline:
+        // A delivery waits for the machine's carrier (up to 180 s), past the CLI's result deadline:
         // the answer is then `pending`, the delivery goes on, and running the command again says how it ended
         // (`unchanged` once delivered, or that one is still running).
         let pending: [String: ActionResultValue] = ["machine_id": .string(machineID), "status": .string("delivering"),
@@ -523,46 +492,11 @@ extension CloudHandlers {
                 return answer
             }
             let values = try await keychainValues(items)
-            // 0644 and run with `sh`: the file API may write as root, and the terminal runs as the work user.
-            // The receiver holds no value; the folder is the work user's 0700 one (the config apply made it),
-            // so its ticket (below) is readable by that user and root only.
-            try await cloud.machineAPI.writeFile(machineID, path: CloudMachineSecrets.receiverPath, data: Data(CloudMachineSecrets.receiver.utf8), mode: 0o644)
-            let key = try await terminalAnchor(on: session, context).key
-            // The handle is "<surface> <terminal id>": the surface takes input and waits, the id closes it.
-            let surface: @Sendable (String) -> SurfaceID = { SurfaceID(rawValue: $0.split(separator: " ").first.flatMap { UInt64($0) } ?? 0) }
-            // Read here, on the main actor (CloudStrings is main-actor isolated); the link's closures are not.
-            let notConnected = CloudStrings.notConnected
-            let link = CloudMachineSecrets.Link(
-                // Like the receiver: 0644 in the work user's 0700 folder, so only it (and root) can read it.
-                writeTicket: { ticket in
-                    try await cloud.machineAPI.writeFile(machineID, path: CloudMachineSecrets.ticketPath, data: ticket, mode: 0o644)
-                },
-                start: { argv in
-                    // An explicit empty environment: nil would take the app's terminal environment provider,
-                    // whose values the daemon stores with the receipt. Only the daemon's placement ids are added.
-                    let made = try await connection.createTerminal(in: key, argv: argv, name: "cmux secrets",
-                                                                   size: CellSize(cols: CloudMachineSecrets.terminalColumns, rows: 24), env: [:], keep: false)
-                    guard let surface = made.surface else { throw ActionFailure(message: notConnected) }
-                    return "\(surface.rawValue) \(made.terminalID.rawValue)"
-                },
-                waitFor: { handle, pattern, seconds in
-                    try await connection.request(WaitForTextRequest(surface: surface(handle), pattern: pattern, timeoutMs: seconds * 1000),
-                                                 timeout: .seconds(seconds + 5)).text
-                },
-                type: { handle, bytes in try await connection.send(surface(handle), bytes: bytes) },
-                close: { handle in
-                    guard let id = handle.split(separator: " ").last else { return }
-                    try? await connection.closeTerminal(TerminalID(rawValue: String(id)))
-                })
-            let count: Int
-            do { count = try await CloudMachineSecrets.deliver(values, over: link) } catch {
-                // A receiver that never started leaves its ticket: emptied, so no stale key stays behind.
-                try? await cloud.machineAPI.writeFile(machineID, path: CloudMachineSecrets.ticketPath, data: Data(), mode: 0o644)
-                guard let failed = error as? CloudMachineSecrets.DeliveryFailed else {
-                    // Only the kind of failure: no error text near the values reaches a log or the caller.
-                    throw ActionFailure(message: CloudStrings.secretsNotDelivered(String(describing: type(of: error))))
-                }
-                throw ActionFailure(message: CloudStrings.secretsNotDelivered(failed.reason))
+            // Sealed on this Mac to the machine's daemon key and opened only there (`cmux carrier secrets`):
+            // no value crosses the platform, a file API, a terminal or a log.
+            let delivered = try await cloud.machineAPI.deliverSealedSecrets(machineID, values: values)
+            guard case .wrote(let count) = delivered else {
+                throw ActionFailure(message: CloudStrings.secretsNotDelivered(Self.sealedReason(delivered)))
             }
             // The values are on the machine either way; a ledger not written only means the next run delivers again.
             try? await work.run(.userBlocking, mayBlock: .files) { try CloudMachineSecrets.Ledger.record(items, on: machineID, at: ledgerURL) }
@@ -571,6 +505,15 @@ extension CloudHandlers {
             answer["written"] = .int(count)
             answer["next"] = .string("cmux cloud apply-machine-config --target machine:\(machineID)")
             return answer
+        }
+    }
+
+    /// A sealed delivery's failure as its fixed code: the machine's refusal (`bad-name`, `replay`, `busy`)
+    /// or the step that failed. Never a value or a machine's own text.
+    static func sealedReason(_ answer: CloudAPIClient.SealedDelivery) -> String {
+        switch answer {
+        case .wrote: "unexpected"
+        case .failed(let code, let refusal, _): refusal ?? code
         }
     }
 
@@ -674,11 +617,10 @@ extension CloudHandlers {
         if let used = stats.diskUsedMb { fields["disk_used_mb"] = .double(used) }
         if let total = stats.diskTotalMb { fields["disk_total_mb"] = .double(total) }
         if let address = session.machine.address?.ipv4 { fields["address"] = .string(address) }
-        fields["desktop"] = .bool(session.machine.capabilities.desktop)
+        fields["desktop"] = .bool(session.machine.opensCarrierDesktop)
         fields.merge(costFields(session.machine, now: now)) { _, new in new }
-        if let idlePause = session.machine.idlePause {
-            fields["idle_pause"] = .object(idlePauseFields(idlePause))
-        }
+        if let idlePause = session.machine.idlePause { fields["idle_pause"] = .object(idlePauseFields(idlePause)) }
+        if let failure = session.machine.lastChangeFailure { fields["error"] = .object(["code": .string(failure.code), "message": .string(failure.message)]) }
         return fields
     }
 
@@ -723,6 +665,7 @@ extension CloudHandlers {
 
     static func describe(_ session: CloudMachineSession, _ stats: CloudMachineStats, now: Date = Date()) -> String {
         var lines = ["\(session.machine.title) (\(session.machineID))", "state: \(stats.state), status: \(session.effectiveStatus.rawValue)"]
+        if let failure = session.machine.lastChangeFailure { lines.append("error: \(failure.code): \(failure.message)") }
         if let cpus = stats.cpus { lines.append("cpus: \(cpus)" + (stats.cpuPercent.map { String(format: ", %.0f%%", $0) } ?? "")) }
         if let used = stats.memoryUsedMb, let total = stats.memoryTotalMb { lines.append(String(format: "memory: %.0f / %.0f MB", used, total)) }
         if let used = stats.diskUsedMb, let total = stats.diskTotalMb { lines.append(String(format: "disk: %.0f / %.0f MB", used, total)) }

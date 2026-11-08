@@ -107,6 +107,7 @@ mod holder_runtime;
 #[cfg(feature = "hotpatch")]
 pub mod hotpatch;
 mod surface;
+mod tasks_link;
 mod terminal_activity;
 #[cfg(unix)]
 mod terminal_backend;
@@ -215,7 +216,8 @@ pub use workspace_registry::{
     PersistentSessionStateResetPreview, PersistentSessionStateResetter, ProjectionCommit,
     RegistryCommit, RegistryCompactError, RegistryCompaction, RegistryEvent, RegistryQuarantined,
     RegistrySnapshot, RegistryWorkspace, SessionJournalPage, SessionJournalRecord,
-    UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry, compact_registry,
+    TabAttentionRecord, UnsupportedWorkspaceRegistrySchema, WorkspaceMutation, WorkspaceRegistry,
+    compact_registry,
 };
 
 pub use cmux_remote_protocol::{REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES};

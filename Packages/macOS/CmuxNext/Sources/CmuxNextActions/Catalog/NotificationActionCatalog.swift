@@ -114,7 +114,7 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "notifications.toggleBanners",
-                title: String(localized: "action.notifications.toggleBanners", defaultValue: "Toggle Notification Banners", bundle: .module),
+                title: String(localized: "action.notifications.toggleBanners", defaultValue: "Notification Banners", bundle: .module),
                 keywords: ["banner", "desktop", "system", "macos", "notifications"], category: .notifications, symbol: "rectangle.stack.badge.minus",
                 surfaces: [.palette, .keyboard], cliName: "notification toggle-banners"
             ),

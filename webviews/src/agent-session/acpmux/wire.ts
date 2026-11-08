@@ -46,6 +46,8 @@ export type WireStats = {
   connects: number;
   closes: number;
   reconnects: number;
+  /// Full transcript replaces of the chat on screen (direct.ts `noteReplace`).
+  transcriptReplaces: number;
   lastError?: string;
   latencyP50Ms?: number;
   latencyMaxMs?: number;
@@ -110,7 +112,7 @@ export class AcpWireLog {
   private droppedCount = 0;
   private pending = new Map<number, Pending>();
   private latencies: number[] = [];
-  private counters = { requests: 0, errors: 0, connects: 0, closes: 0, reconnects: 0 };
+  private counters = { requests: 0, errors: 0, connects: 0, closes: 0, reconnects: 0, transcriptReplaces: 0 };
   private lastError?: string;
   private listeners = new Set<Listener>();
   private readonly now: () => number;
@@ -187,6 +189,7 @@ export class AcpWireLog {
     if (event === "connected") this.counters.connects += 1;
     if (event === "close") this.counters.closes += 1;
     if (event === "reconnect scheduled") this.counters.reconnects += 1;
+    if (event === "transcript replaced") this.counters.transcriptReplaces += 1;
     if (event === "error" || event === "connect failed")
       this.lastError = `${event}${detail?.message ? `: ${String(detail.message)}` : ""}`;
     if (event === "close") {

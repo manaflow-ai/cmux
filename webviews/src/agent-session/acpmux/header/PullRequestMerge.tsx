@@ -8,7 +8,6 @@ import { useEffect, useRef } from "react";
 import { StableLabel } from "../../../ui/StableLabel";
 import { useT } from "../i18n";
 import type { PullRequestOps } from "./pullRequestOps";
-export { readyToMerge } from "./pullRequestOps";
 
 export type Merging =
   | { step: "idle" | "confirm" | "merging" | "merged" | "queued" }

@@ -1,5 +1,5 @@
 {
-  "$comment": "HAND-EDITED source of the Updates and Announcements settings (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and the parser constants (paths, defaults, ranges, choice values) from this file; schemas/settings/settings-schema.json is still exported from Swift and must not change when this file moves. Row fields: key (dotted cmux.json path), name (identifier for generated constants; default the last path part), title/help/summary {key: string catalog key, text: English}, kind (toggle | number | choice | folder_list | string_list), choices [{value, title}], range {min, max, step, unit, placeholder (default min)}, default, aliases {old value: value it loads as}, keywords, note (developer note, not shown).",
+  "$comment": "HAND-EDITED source of the Updates and Announcements settings (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and the parser constants (paths, defaults, ranges, choice values) from this file; schemas/settings/settings-schema.json is still exported from Swift and must not change when this file moves. Row fields: key (dotted cmux.json path), name (identifier for generated constants; default the last path part), title/help/summary {key: string catalog key, text: English}, kind (toggle | number | choice | folder_list | string_list), choices [{value, title}], range {min, max, step, unit, placeholder (default min)}, default, aliases {old value: value it loads as}, keywords, placeholder {key, text} (what an empty list field shows; a list row only), note (developer note, not shown).",
   "lists": [
     {
       "name": "updates",
@@ -22,6 +22,9 @@
             "text": "Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "UpdatesChannelSetting"
+          },
           "choices": [
             {
               "value": "stable",
@@ -179,6 +182,9 @@
             "text": "While downloads wait, a found update shows on Settings and one click downloads it."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "UpdatesMeteredSetting"
+          },
           "choices": [
             {
               "value": "defer-low-data",
@@ -223,6 +229,9 @@
             "text": "Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with."
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "UpdatesWebSetting"
+          },
           "choices": [
             {
               "value": "every-merge",
@@ -307,6 +316,9 @@
             "text": "When an Update Is Ready"
           },
           "kind": "choice",
+          "swift_enum": {
+            "name": "UpdatesNotifySetting"
+          },
           "choices": [
             {
               "value": "badge",

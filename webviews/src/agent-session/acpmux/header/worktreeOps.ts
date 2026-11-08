@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
-import type { HeaderWorktree } from "./WorktreePill";
+import type { HeaderWorktree } from "./worktreePillModel";
 
 /// Where Apply stands. `key` is the action's idempotency key, kept until the host answers that it
 /// applied: a retry after a reply that never came (or a timeout) is the same action, so the host

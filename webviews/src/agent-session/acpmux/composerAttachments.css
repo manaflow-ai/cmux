@@ -245,6 +245,49 @@
 .acpmux-attachment-file.acpmux-attachment-pending {
   gap: 4px;
 }
+/* A loading image whose header gave its size (composer/attachmentIntakeModel.ts imageShape): the
+   width its thumbnail will have (`.acpmux-attachment-image img`: its height, its shape, 48 to
+   128px wide), so a wide or tall screenshot's picture arriving moves nothing (Leo, 2026-11-07: "they
+   go up top above and then they land to where they should be"). In the strip and in the text. */
+:is(.acpmux-attachment-image.acpmux-attachment-pending, .acpmux-md-inline-chip[data-state="loading"])[data-sized] {
+  width: auto;
+  min-width: 48px;
+  max-width: 128px;
+}
+/* One whose header is still being read (attachmentIntakeModel.ts `sizing`, HEADER_WAIT_MS at most): held
+   zero wide and unseen, so its first frame shown is its final size, not a stand-in width. */
+:is(.acpmux-attachment-image.acpmux-attachment-pending, .acpmux-md-inline-chip[data-state="loading"])[data-sizing] {
+  visibility: hidden;
+  width: 0;
+  min-width: 0;
+  padding: 0;
+}
+.acpmux-md-inline > .acpmux-md-inline-chip[data-sizing] {
+  margin-inline-end: 0;
+}
+/* A loading image's own picture (composer/attachmentIntake.tsx InstantPreview), there the moment it
+   is pasted or dropped, filling its tile under the spinner until its chip takes the tile's place
+   (Leo, 2026-11-07: "can't we make this all "appear" a lot faster"). */
+:is(.acpmux-attachment, .acpmux-md-inline-chip) .acpmux-attachment-instant {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  outline: none;
+  pointer-events: none;
+}
+/* Over the loading glass's own `background` shorthand (below), which would reset its size. */
+.acpmux-attachment.acpmux-attachment-pending[data-instant] {
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+}
+/* Positioned, and after the picture: it paints over it. */
+:is(.acpmux-attachment-spinner, .acpmux-md-inline-spinner) {
+  position: relative;
+}
 /* Its spinner says it is loading (Leo, 2026-10-24: "why don't you put a spinner on the attachment
    rather than this placeholder that doesn't do anything"); its × cancels it. */
 .acpmux-attachment-spinner {
@@ -453,12 +496,8 @@
   overflow: hidden;
   /* The width stays, the line is clear: the glass rim draws the one edge (.ui-glass). */
   border: var(--cmux-hairline, 0.5px) solid transparent;
-  border-radius: 12px;
   /* Glass, not the page color: a translucent window's page color is clear, so the chat read
-     through the viewer (as the Add project dialog, addProject.css). */
-  --glass-elevation: var(--elevation-2);
-  /* glass-opaque-allow: the Reduce Transparency fill only */
-  --glass-opaque: var(--surface-popup);
+     through the viewer (as the Add project dialog, addProject.css); the sheet role's veil, radius and depth (ui/popupSurface.css .ui-dialog.ui-glass). */
   color: var(--agent-text);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
@@ -519,15 +558,17 @@
   height: 16px;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 50%;
   display: grid;
   place-items: center;
   opacity: 0;
-  transition: opacity 120ms ease-out;
-  /* The composer's own surface, so the badge reads as a cut-out in the thumbnail in every theme. */
-  background: color-mix(in srgb, var(--acpmux-composer-bg) 82%, transparent);
-  box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge);
-  color: var(--agent-text);
+  /* Solid and inverted (RemoveGlyph.tsx): the text's own colour as the fill and the page's opaque
+     base as the ×, so it reads over a thumbnail or a text card's lines in every theme. Never the
+     composer's glass (13% of the text over a see-through page) and never a fade: both left a faint
+     × floating over the label (Leo, 2026-11-06: "Also this close button, this is bad clarity."). */
+  background: var(--agent-text);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--acpmux-base, Canvas) 72%, transparent);
+  color: var(--acpmux-base, Canvas);
   cursor: default;
 }
 .acpmux-attachment-file .acpmux-attachment-remove {
@@ -538,11 +579,11 @@
   opacity: 1;
 }
 :is(.acpmux-composer, .nt-box) .acpmux-attachment-remove:hover {
-  background: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-composer-bg));
+  background: color-mix(in srgb, var(--agent-text) 82%, var(--acpmux-base, Canvas));
 }
 :is(.acpmux-composer, .nt-box) .acpmux-attachment-remove:focus-visible {
   outline: 1.5px solid var(--agent-text);
-  outline-offset: -1.5px;
+  outline-offset: 1.5px;
 }
 .acpmux-attachment-note {
   color: var(--agent-muted);
@@ -602,6 +643,36 @@ button.acpmux-attachment-pasted-open:hover {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -2px;
 }
+/* An oversized paste's other way on: Keep as .txt, on its card's label row at the end, always shown
+   so both choices are on the card (a click on the card is the other). Either host: the strip's card
+   and the one placed in the prompt (composer/attachmentIntake.tsx KeepFileButton). */
+.acpmux-text-card {
+  position: relative;
+}
+/* Scoped to its card: `.acpmux-composer-box button { font: inherit }` comes later at one class and
+   one element, and set the prompt's copy at the composer's 14px, over its label (review of #37516). */
+.acpmux-text-card > .acpmux-attachment-keep-file {
+  position: absolute;
+  right: 8px;
+  bottom: 4px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--acpmux-base, Canvas);
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  line-height: var(--text-caption--line-height);
+}
+.acpmux-attachment-keep-file:hover {
+  color: var(--agent-text);
+  background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-base, Canvas));
+}
+.acpmux-attachment-keep-file:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: 1px;
+}
 /* The card's body, in either host: lines from the top, the label pinned to the bottom. */
 .acpmux-text-card .acpmux-attachment-pasted-open,
 .acpmux-text-card .acpmux-text-card__open {
@@ -642,8 +713,26 @@ button.acpmux-attachment-pasted-open:hover {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.acpmux-text-card__label {
+/* The label row: the label, then the room an action over its end takes (TextAttachmentCard
+   `reserve`), so the label's ellipsis comes before Keep as .txt, never under it. */
+.acpmux-text-card__foot {
+  display: flex;
   flex: none;
+  gap: 8px;
+  min-width: 0;
+}
+.acpmux-text-card__reserve {
+  flex: none;
+  padding: 0 4px;
+  visibility: hidden;
+  font-size: var(--text-caption);
+  letter-spacing: var(--text-caption--letter-spacing);
+  line-height: 14px;
+  white-space: nowrap;
+}
+.acpmux-text-card__label {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   color: var(--agent-muted);
   font-size: var(--text-caption);
@@ -773,4 +862,98 @@ button.acpmux-attachment-pasted-open:hover {
   outline: none;
   background: none;
   object-fit: contain;
+}
+
+/* Loading (composer/pasteLoading.tsx): a pasted or dropped attachment still being read, in the text
+   at the caret or in the strip, is the composer's own glass (ui-glass ui-glass-material, its tint,
+   frost and rim), never a solid fill, and starts dim, coming up as it loads (Leo, 2026-11-07: "why
+   do we have a solid color thing anyway? Shouldn't it also be glass?"). No drop shadow: it sits in
+   the composer's glass, not over the page. */
+:is(.acpmux-md-inline-chip, .acpmux-attachment).acpmux-paste-loading {
+  background: var(--glass-tint);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  backdrop-filter: var(--glass-backdrop);
+  box-shadow: var(--glass-rim-shadow);
+  color: var(--agent-muted);
+  opacity: 0.85;
+}
+/* Its indicator (a ring, a bar, an upload's progress) shows only once a read passes 400 ms
+   (pasteLoading.tsx sets data-late from one timer); a quick paste never flashes one. */
+.acpmux-paste-late {
+  display: inline-flex;
+}
+/* Transparent, not hidden: an upload's assistive <progress> inside is read all along. */
+.acpmux-paste-late:not([data-late]) {
+  opacity: 0;
+}
+.acpmux-paste-bar {
+  position: absolute;
+  right: 8px;
+  bottom: var(--ds-space-1);
+  left: 8px;
+  height: calc(var(--ds-space-1) / 2);
+  overflow: hidden;
+  border-radius: var(--ds-radius-sm);
+  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+}
+.acpmux-paste-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--agent-text) 55%, transparent);
+  transform: scaleX(0.5);
+  transform-origin: left;
+}
+/* A picture that loaded in place comes up from the tile's dim instead of popping in. */
+@keyframes acpmux-paste-arrive {
+  from {
+    opacity: 0.4;
+  }
+  to {
+    opacity: 0.85;
+  }
+}
+@keyframes acpmux-paste-late-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes acpmux-paste-bar-fill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(0.9);
+  }
+}
+@keyframes acpmux-paste-reveal {
+  from {
+    opacity: 0.6;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* The motion gate (data-cmux-motion, Reduce Motion): the tile is simply there at its loading dim,
+   the indicator appears at 400 ms with no fade, the bar is its track and half fill, the picture
+   shows at once. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-paste-loading {
+    animation: acpmux-paste-arrive calc(var(--agent-motion-in, 120ms) * 8) var(--agent-ease-out, ease-out) both;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-paste-late[data-late] {
+    animation: acpmux-paste-late-in var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-paste-bar[data-late]::after {
+    animation: acpmux-paste-bar-fill calc(var(--cmux-motion-large, 240ms) * 25) var(--agent-ease-out, ease-out) both;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"])
+    .acpmux-md-inline-chip[data-loaded]
+    .acpmux-attachment-image
+    img {
+    animation: acpmux-paste-reveal var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
+  }
 }

@@ -14,7 +14,7 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { AgentMark } from "../../shared/AgentMark";
 import { useMinuteClock } from "../clock";
 import { agentDisplayName } from "../agents";
-import { HEADER_GLYPH } from "../header/ChatHeaderTools";
+import { HEADER_GLYPH } from "../header/chatHeaderToolsModel";
 import { HeaderIcon } from "../header/HeaderIcon";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -25,18 +25,16 @@ import { onOpenNeedsYou } from "./links";
 import type { NeedsYouAnswer, NeedsYouItem, NeedsYouKind } from "./model";
 import type { AskContext } from "./context";
 import { reply as questionReply, selection, type AgentQuestion, type QuestionReply } from "../question/model";
-import { askText, sideQuestionPrompt, type NeedsYouActions, type NeedsYouMode, type NeedsYouPlace } from "./ask";
 import "./needsYou.css";
-
-export {
+import {
   askText,
-  needsYouMode,
-  needsYouModeCapabilities,
   sideQuestionPrompt,
   type NeedsYouActions,
   type NeedsYouMode,
   type NeedsYouPlace,
-} from "./ask";
+} from "./needsYouModel";
+
+export type { NeedsYouActions, NeedsYouPlace } from "./needsYouModel";
 
 const PLACES: readonly { place: NeedsYouPlace; label: StringKey }[] = [
   { place: "right", label: "needsYou.openRight" },

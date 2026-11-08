@@ -695,6 +695,24 @@ const PARAGRAPH = Array.from(
 ).join(" ");
 
 /// Pastes PARAGRAPH on the prompt and waits for its card (`card`).
+/// Pastes a 131-line build log into the inline prompt: its card of first lines over "Pasted text ·
+/// 131 lines" (composer/TextAttachmentCard.tsx), with Keep as .txt on it.
+async function pasteBuildLog(ctx: PlayContext) {
+  const view = ctx.document.defaultView!;
+  const data = new view.DataTransfer();
+  const log = Array.from({ length: 130 }, (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`);
+  data.setData("text/plain", ["Ran a command, read a file", ...log].join("\n"));
+  const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", { value: data });
+  ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-md-inline-chip[data-preview="text"]'));
+  const card = ctx.find({ selector: '.acpmux-md-inline-chip[data-preview="text"]' });
+  if (!card.querySelector(".acpmux-text-card__lines")?.textContent?.startsWith("Ran a command, read a file"))
+    throw new Error("the inline paste card must show the paste's first lines");
+  if (!/131 lines/.test(card.querySelector(".acpmux-text-card__label")?.textContent ?? ""))
+    throw new Error("the inline paste card must say its line count");
+}
+
 async function pasteParagraph(ctx: PlayContext, card: string) {
   const view = ctx.document.defaultView!;
   const data = new view.DataTransfer();
@@ -802,7 +820,7 @@ export default agentPaneEntry({
       ready: { newSession: true, cwd: AGENT_HOME, chooseFolder: true },
       // A new chat's session starts at once (the prewarmed process), so the snapshot and its
       // summary name the same session, as the app's do; the folder control is then the new chat's
-      // folder menu (Choose folder…), not the path field.
+      // folder menu (Add folder…), not the path field.
       snapshot: noChat([], {
         sessionId: "prewarmed",
         summary: {
@@ -1092,22 +1110,29 @@ export default agentPaneEntry({
       ready: { draft: "Why does the build fail? " },
       snapshot: chat(finished),
       play: async (ctx) => {
-        const view = ctx.document.defaultView!;
-        const data = new view.DataTransfer();
-        const log = Array.from(
-          { length: 130 },
-          (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`,
-        );
-        data.setData("text/plain", ["Ran a command, read a file", ...log].join("\n"));
-        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
-        Object.defineProperty(paste, "clipboardData", { value: data });
-        ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-md-inline-chip[data-preview="text"]'));
+        await pasteBuildLog(ctx);
+      },
+    },
+    // Keep as .txt in the inline card's right-click menu (review of #37516): beside Edit in Prompt.
+    "text-pasted-inline-menu": {
+      note: "Right-click on the inline paste card: Edit in Prompt, Keep as .txt, Remove.",
+      ready: { draft: "Why does the build fail? " },
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        await pasteBuildLog(ctx);
         const card = ctx.find({ selector: '.acpmux-md-inline-chip[data-preview="text"]' });
-        if (!card.querySelector(".acpmux-text-card__lines")?.textContent?.startsWith("Ran a command, read a file"))
-          throw new Error("the inline paste card must show the paste's first lines");
-        if (!/131 lines/.test(card.querySelector(".acpmux-text-card__label")?.textContent ?? ""))
-          throw new Error("the inline paste card must say its line count");
+        const box = card.getBoundingClientRect();
+        card.dispatchEvent(
+          new MouseEvent("contextmenu", {
+            bubbles: true,
+            cancelable: true,
+            clientX: box.left + 40,
+            clientY: box.top + 20,
+          }),
+        );
+        await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]'));
+        if (!/Keep as \.txt/.test(ctx.document.querySelector('[role="menu"]')?.textContent ?? ""))
+          throw new Error("the inline paste card's menu must offer Keep as .txt");
       },
     },
     // Leo (2026-11-05): "we don't even render bullet points properly in our thing when we're pasting
@@ -1484,6 +1509,27 @@ export default agentPaneEntry({
       ready: { draft: "Which layout reads better?" },
       play: pasteTwoScreenshots,
     },
+    // Leo, 2026-11-07: "the blinking caret to the right of attachments needs a little more space than
+    // what we have right now". The room after each chip in the text (markdownField.css
+    // .acpmux-md-inline), the caret after the last of two: 2px, a thin spacer; 4px, half; 8px, the
+    // default, the same as from one chip to the next.
+    ...Object.fromEntries(
+      ([2, 4, 8] as const).map((room) => [
+        `attachment-inline-caret-room-${room}`,
+        {
+          note: `Leo, 2026-11-07: "the blinking caret to the right of attachments needs a little more space than what we have right now". ${room}px of room after each chip in the text${room === 8 ? " (the default)" : ""}: the caret after the second screenshot stands ${room}px from it, as the second stands from the first. The prompt's text gains no space.`,
+          snapshot: chat(finished),
+          ready: { draft: "Which layout reads better?" },
+          play: async (ctx: PlayContext) => {
+            ctx.document.documentElement.style.setProperty("--acpmux-inline-room", `${room}px`);
+            await pasteTwoScreenshots(ctx);
+            const field = ctx.find({ selector: ".acpmux-md-field" }) as MarkdownFieldElement;
+            field.acpmuxMarkdownField!.focus();
+            field.acpmuxMarkdownField!.setCaret("Which layout reads better?".length + 2);
+          },
+        },
+      ]),
+    ),
     "attachment-inline-reorder-hover": {
       note: "The pointer on the first screenshot: its small × shows in the top-right corner, and only there; the rest of the thumbnail is where a drag starts.",
       snapshot: chat(finished),
@@ -2330,29 +2376,57 @@ export default agentPaneEntry({
           throw new Error("a cancelled capture left focus off the prompt");
       },
     },
-    "attach-screenshot-too-large": {
-      note: "Play: + > Attach Screenshot… of a capture too large to attach shows the composer's note naming it, not nothing.",
+    "attach-screenshot-oversized": {
+      note: "Play: + > Attach Screenshot… of a capture over the 5 MiB image cap attaches it like a pasted image: its thumbnail, with the full original saved to the chat for the agent. Never refused for its size.",
       snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
         chat(finished),
       ),
       checks: {
         anchorMovePx: {
-          value: 40,
-          reason: "The note row opens above the prompt, as a pasted file that is too large does.",
+          value: 78,
+          reason: "The attached image's thumbnail row opens above the prompt, the same growth a pasted image makes.",
         },
-        layoutShiftMax: { value: 0.05, reason: "The note row the refused capture adds above the prompt." },
+        layoutShiftMax: { value: 0.07, reason: "The thumbnail row the capture adds above the prompt." },
       },
-      native: { "composer.capture": { tooLarge: true, name: "Screenshot 2026-10-11 14.32.05.png" } },
+      native: {
+        // A noise PNG no encoder shrinks under the cap, made when the pane asks for it.
+        "composer.capture": () => {
+          const canvas = document.createElement("canvas");
+          // 1800 x 1300 opaque noise: about 7 MB of RGB that no PNG filter or deflate shrinks.
+          canvas.width = 1800;
+          canvas.height = 1300;
+          const context = canvas.getContext("2d")!;
+          const pixels = context.createImageData(canvas.width, canvas.height);
+          let seed = 0x9e3779b9;
+          for (let at = 0; at < pixels.data.length; at += 4) {
+            seed ^= seed << 13;
+            seed ^= seed >>> 17;
+            seed ^= seed << 5;
+            pixels.data[at] = seed & 255;
+            pixels.data[at + 1] = (seed >>> 8) & 255;
+            pixels.data[at + 2] = (seed >>> 16) & 255;
+            pixels.data[at + 3] = 255;
+          }
+          context.putImageData(pixels, 0, 0);
+          const data = canvas.toDataURL("image/png").slice("data:image/png;base64,".length);
+          return { name: "Screenshot 2026-10-11 14.32.05.png", mimeType: "image/png", data };
+        },
+      },
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
         await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.screenshot"]' });
-        await ctx.waitFor(() =>
-          ctx.document
-            .querySelector(".acpmux-attachment-note")
-            ?.textContent?.includes("Screenshot 2026-10-11 14.32.05.png"),
-        );
-        if (ctx.document.querySelector(".acpmux-attachment-image"))
-          throw new Error("a refused capture attached an image");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img"));
+        const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string; params?: unknown }[] })
+          .cmuxGalleryLog;
+        // The original streams to the chat through the staged upload, as a pasted image's does.
+        await ctx.waitFor(() => log.some(({ method }) => method === "chat.upload.finish"), { capMs: 30_000 });
+        const begun = log.find(({ method }) => method === "chat.upload.begin")?.params as
+          | { name?: string; size?: number }
+          | undefined;
+        if (begun?.name !== "Screenshot 2026-10-11 14.32.05.png" || !(Number(begun.size) > 5 * 1024 * 1024))
+          throw new Error(`the capture's original was not saved: ${JSON.stringify(begun)}`);
+        if (ctx.document.querySelector(".acpmux-attachment-note"))
+          throw new Error("an oversized capture must not show a refusal note");
       },
     },
     "context-breakdown": {

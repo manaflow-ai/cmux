@@ -10,7 +10,7 @@ import { componentEntry, type ComponentVariant } from "../../../gallery/format";
 import { activity, tool } from "../../../gallery/fixtures/acpmux";
 import { useEffect } from "react";
 import { ToolRows } from "./TurnRows";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 type Look = "before" | "inline" | "trailing" | "added-only";
 type Props = { look: Look; mode: "light" | "dark" };

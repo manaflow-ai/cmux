@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "a8bf2d3326aa4ee4ca8db46cb9b69b3f29663cf614c1a9e776b2aae5751ab54b";
+inline constexpr std::string_view kProtocolIrSha256 = "b1e4b36789fe19a6f7c3aca80a20320fa7f0c8ed0f1bc9ecd237196bf9d6c91c";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -228,6 +228,8 @@ struct TerminalHistoryPagesResult;
 enum class TerminalKey;
 enum class TerminalKeyAction;
 struct TerminalKeyInput;
+struct TerminalLastCommand;
+struct TerminalLastCommandResult;
 enum class TerminalLifecycle;
 struct TerminalModifiers;
 struct TerminalPlacement;
@@ -560,6 +562,7 @@ struct TerminalClipboardReplyRequest;
 struct TerminalClipboardSubscribeRequest;
 struct TerminalEventsRequest;
 struct TerminalHistoryRequest;
+struct TerminalLastCommandRequest;
 struct TerminalPortsRequest;
 struct TerminalReadRangeRequest;
 struct TerminalResourcesRequest;
@@ -655,6 +658,7 @@ struct ScrollChangedEvent;
 struct SelectionChangedEvent;
 struct SettingsChangedEvent;
 struct SizeStateEvent;
+struct StashChangedEvent;
 struct StatusEvent;
 struct SurfaceExitedEvent;
 struct SurfaceOutputEvent;
@@ -5507,6 +5511,11 @@ struct SplitRequest {
     friend bool operator==(const SplitRequest&, const SplitRequest&) = default;
 };
 
+struct StashChangedEvent {
+    std::uint64_t revision{};
+    friend bool operator==(const StashChangedEvent&, const StashChangedEvent&) = default;
+};
+
 struct StatusEvent {
     std::string message{};
     friend bool operator==(const StatusEvent&, const StatusEvent&) = default;
@@ -5766,6 +5775,26 @@ struct TerminalInputUnclaimedEvent {
     std::string reason{};
     std::string terminal_id{};
     friend bool operator==(const TerminalInputUnclaimedEvent&, const TerminalInputUnclaimedEvent&) = default;
+};
+
+struct TerminalLastCommand {
+    std::string command{};
+    std::string ended_at_ms{};
+    std::optional<std::int32_t> exit_code{};
+    std::string started_at_ms{};
+    friend bool operator==(const TerminalLastCommand&, const TerminalLastCommand&) = default;
+};
+
+struct TerminalLastCommandRequest {
+    Field<Id> surface{};
+    Field<std::string> terminal_id{};
+    friend bool operator==(const TerminalLastCommandRequest&, const TerminalLastCommandRequest&) = default;
+};
+
+struct TerminalLastCommandResult {
+    std::optional<TerminalLastCommand> last_command{};
+    std::string terminal_id{};
+    friend bool operator==(const TerminalLastCommandResult&, const TerminalLastCommandResult&) = default;
 };
 
 struct TerminalPlacement {
@@ -7509,6 +7538,18 @@ template <>
 struct Codec<TerminalKeyInput> {
     static Result<Json> encode(const TerminalKeyInput& value);
     static Result<TerminalKeyInput> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalLastCommand> {
+    static Result<Json> encode(const TerminalLastCommand& value);
+    static Result<TerminalLastCommand> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalLastCommandResult> {
+    static Result<Json> encode(const TerminalLastCommandResult& value);
+    static Result<TerminalLastCommandResult> decode(const Json& value);
 };
 
 template <>
@@ -9504,6 +9545,12 @@ struct Codec<TerminalHistoryRequest> {
 };
 
 template <>
+struct Codec<TerminalLastCommandRequest> {
+    static Result<Json> encode(const TerminalLastCommandRequest& value);
+    static Result<TerminalLastCommandRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<TerminalPortsRequest> {
     static Result<Json> encode(const TerminalPortsRequest& value);
     static Result<TerminalPortsRequest> decode(const Json& value);
@@ -10071,6 +10118,12 @@ template <>
 struct Codec<SizeStateEvent> {
     static Result<Json> encode(const SizeStateEvent& value);
     static Result<SizeStateEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<StashChangedEvent> {
+    static Result<Json> encode(const StashChangedEvent& value);
+    static Result<StashChangedEvent> decode(const Json& value);
 };
 
 template <>
