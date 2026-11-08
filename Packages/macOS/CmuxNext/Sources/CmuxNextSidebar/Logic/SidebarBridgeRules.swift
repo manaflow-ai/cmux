@@ -148,6 +148,14 @@ public nonisolated struct SidebarBridgeRules: Sendable {
                          "reconnects_on_use": .bool(header.map(MachineLinkState.reconnectsOnUse) ?? false)], as: String.self) ?? "stuck"
     }
 
+    /// A Machines section row's link as one ``MachineLinkState`` (`machine.list`): connected first, then
+    /// what its server says (`serverState`: `paused`, `resuming`, `failed`, `deleted`), then whether the
+    /// link is being made. Nil when the library did not answer.
+    public func rowLink(connected: Bool, connecting: Bool, serverState: String?) -> MachineLinkState? {
+        ask("row_link", ["connected": .bool(connected), "connecting": .bool(connecting), "server_state": RuleJSON(serverState)],
+            as: String.self).flatMap(MachineLinkState.init(rawValue:))
+    }
+
     // MARK: Cards (SidebarBridge+Cards) and items (SidebarBridge+Sections)
 
     public enum NoticeRoute: Equatable, Sendable {
