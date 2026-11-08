@@ -100,7 +100,9 @@ extension MainPaneGutterSuites {
             }
         }
 
-        /// Flush (gutter 0): the pane meets every window edge, and the sidebar when it shows.
+        /// Flush (gutter 0): the pane meets the sidebar when it shows, and stays just inside every window
+        /// edge, so the window's lit rim runs over it as over the sidebar (Leo 2026-11-07: "the window at the
+        /// edges, it just doesn't show through ... this doesn't look cohesive").
         @Test(arguments: [false, true])
         func withNoGutterThePaneMeetsTheWindowEdges(sidebarHidden: Bool) throws {
             try onCurvedMainPane {
@@ -108,10 +110,11 @@ extension MainPaneGutterSuites {
                     let (window, root) = root(sidebarHidden: sidebarHidden)
                     defer { window.close() }
                     try #require(Metrics.mainPaneCurved)
-                    let card = root.contentHost.frame, bounds = window.contentView!.bounds
-                    #expect(card.maxX == bounds.maxX && card.maxY == bounds.maxY && card.minY == bounds.minY,
-                            "no gutter at the window edges")
-                    if sidebarHidden { #expect(card.minX == bounds.minX) } else { #expect(card.minX == root.sidebar.frame.maxX) }
+                    let card = root.contentHost.frame, rim = PaneTabRowRim.height
+                    let inside = window.contentView!.bounds.insetBy(dx: rim, dy: rim)
+                    #expect(card.maxX == inside.maxX && card.maxY == inside.maxY && card.minY == inside.minY,
+                            "no gutter at the window edges, only the window's rim: \(card) in \(inside)")
+                    if sidebarHidden { #expect(card.minX == inside.minX) } else { #expect(card.minX == root.sidebar.frame.maxX) }
                 }
             }
         }

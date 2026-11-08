@@ -22,16 +22,20 @@ public final class ChiefPanelView: NSView {
         public var hide: @MainActor () -> Void
         /// A drag or a resize ended at this frame, in the superview's coordinates (y up).
         public var moved: @MainActor (NSRect) -> Void
+        /// Stop the Chief's answer (Esc while it answers).
+        public var stop: @MainActor () -> Void
 
         /// - Parameters:
         ///   - toggleDock: Dock or Float.
         ///   - hide: Hide.
         ///   - moved: A drag or resize ended at this frame.
+        ///   - stop: Stop the Chief's answer; nothing by default.
         public init(toggleDock: @escaping @MainActor () -> Void, hide: @escaping @MainActor () -> Void,
-                    moved: @escaping @MainActor (NSRect) -> Void) {
+                    moved: @escaping @MainActor (NSRect) -> Void, stop: @escaping @MainActor () -> Void = {}) {
             self.toggleDock = toggleDock
             self.hide = hide
             self.moved = moved
+            self.stop = stop
         }
     }
 
@@ -42,8 +46,9 @@ public final class ChiefPanelView: NSView {
 
     /// The bar's buttons and the hand moves.
     public var actions: Actions
-    /// Whether the held Chief is answering: Esc then stops it, as in Home, instead of hiding the panel.
-    public var isBusy: @MainActor (NSView) -> Bool = { _ in false }
+    /// Whether the held Chief is answering (``ChiefPanelContent``): Esc then stops it, as in Home, instead of hiding
+    /// the panel.
+    public var chiefIsAnswering: Bool { (chief as? any ChiefPanelContent)?.chiefIsAnswering == true }
     /// Floating (corners, shadow, drag, resize) or docked (square).
     public private(set) var floating = true
     /// The Chief view this panel shows now; nil while it is in Home's pane.
@@ -256,11 +261,18 @@ public final class ChiefPanelView: NSView {
 
     // MARK: Esc
 
-    /// Esc hides a floating panel whose Chief has the keys and is not answering (Esc stops an answering Chief).
+    /// Esc while the panel's Chief has the keys: stops the Chief's answer while it answers (as Esc does in Home);
+    /// else hides a floating panel.
     override public func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard floating, event.type == .keyDown, event.keyCode == 53,
-              event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty, hasKeys,
-              !(chief.map(isBusy) ?? false) else { return super.performKeyEquivalent(with: event) }
+        guard event.type == .keyDown, event.keyCode == 53,
+              event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty, hasKeys else {
+            return super.performKeyEquivalent(with: event)
+        }
+        if chiefIsAnswering {
+            actions.stop()
+            return true
+        }
+        guard floating else { return super.performKeyEquivalent(with: event) }
         actions.hide()
         return true
     }

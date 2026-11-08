@@ -12,8 +12,8 @@ use serde_json::{Value, json};
 
 use super::sender::{Answer, OpRequest};
 use super::wire::{
-    BIND_FILE, BOUND_FILE, Bound, DaemonInfo, INSTALL_KEY_FILE, VM_KIND_FILE, WG_KEY_FILE,
-    parse_bind_file,
+    BIND_FILE, BIND_UNANSWERED_FILE, BOUND_FILE, Bound, DaemonInfo, INSTALL_KEY_FILE, VM_KIND_FILE,
+    WG_KEY_FILE, parse_bind_file,
 };
 
 /// JSON HTTP operations: `(status, body)`, or a transport error.
@@ -48,6 +48,20 @@ pub trait Http {
         _deadline: &RequestDeadline,
     ) -> Result<(u16, Vec<u8>), String> {
         Err("continuous Cloud transport unavailable".into())
+    }
+
+    /// [`Http::request_with_deadline`] with the response's `Retry-After`.
+    /// A transport without headers answers none.
+    fn request_with_headers(
+        &self,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        deadline: &RequestDeadline,
+    ) -> Result<cmux_server::cloud_http::Response, String> {
+        self.request_with_deadline(url, body, bearer, deadline).map(|(status, bytes)| {
+            cmux_server::cloud_http::Response { status, retry_after: None, bytes }
+        })
     }
 
     /// Optional for POST-only test transports; production implements both methods.
@@ -192,6 +206,8 @@ pub enum BindResult {
     None,
     Bound(Box<Bound>),
     /// A final 4xx answer: the token is spent or invalid; `bind.json` is gone.
+    /// A 4xx after an unanswered try of the same token, while the token may
+    /// still live, is a `Retry` instead (see [`bind_machine`]).
     Refused(String),
     /// `bind.json` did not parse; it is gone.
     Invalid(String),
@@ -232,6 +248,7 @@ pub fn bind_machine(
         Ok(file) => file,
         Err(why) => {
             store.remove(BIND_FILE);
+            store.remove(BIND_UNANSWERED_FILE);
             return BindResult::Invalid(why);
         }
     };
@@ -249,19 +266,33 @@ pub fn bind_machine(
     let (status, answer) =
         match http.post(&format!("{}/v1/cloud/bind", file.api_origin), &body, None) {
             Ok(answer) => answer,
-            Err(e) => return BindResult::Retry(e),
+            Err(e) => {
+                note_unanswered(store, &file.bind_token, now_wall_ms);
+                return BindResult::Retry(e);
+            }
         };
     if status >= 500 || status == 429 {
+        note_unanswered(store, &file.bind_token, now_wall_ms);
         return BindResult::Retry(format!("HTTP {status}"));
     }
     let value = answer.field("value");
     if status != 200 || *answer.field("ok") != true || !value.is_object() {
-        store.remove(BIND_FILE);
         let code = answer
             .field("error")
             .field("code")
             .as_str()
             .map_or(format!("http.{status}"), str::to_owned);
+        // An earlier try may have reached the platform and spent the token
+        // with only its answer lost; this refusal may then be the replay
+        // racing that bind's commit (hq#7542). Removing bind.json here would
+        // leave the machine never bound, so keep it while the token can live.
+        if unanswered_since(store, &file.bind_token)
+            .is_some_and(|at| now_wall_ms.saturating_sub(at) < BIND_TOKEN_LIFE_MS)
+        {
+            return BindResult::Retry(format!("refused {code} after an unanswered try"));
+        }
+        store.remove(BIND_FILE);
+        store.remove(BIND_UNANSWERED_FILE);
         return BindResult::Refused(code);
     }
     let text = |v: &Value| v.as_str().unwrap_or("").to_owned();
@@ -306,7 +337,37 @@ pub fn bind_machine(
     // every restart (role.rs); each try keeps a record that is already there.
     let _ = record_owner_kind(store);
     store.remove(BIND_FILE);
+    store.remove(BIND_UNANSWERED_FILE);
     BindResult::Bound(Box::new(bound))
+}
+
+/// How long a bind token can live: it expires 15 minutes after the machine
+/// runs, which is before any try of it was sent.
+const BIND_TOKEN_LIFE_MS: u64 = super::daemon_noise_key::WAIT_DEADLINE_MS;
+
+fn token_digest(token: &str) -> String {
+    use base64::Engine as _;
+    use sha2::Digest as _;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(token.as_bytes()))
+}
+
+/// Records the first unanswered try of `token`; a later one keeps that time.
+/// Best effort: without the record a later refusal is final, as before.
+fn note_unanswered(store: &mut dyn Store, token: &str, now_wall_ms: u64) {
+    if unanswered_since(store, token).is_some() {
+        return;
+    }
+    let text = json!({ "token": token_digest(token), "at": now_wall_ms });
+    let _ = store.write(BIND_UNANSWERED_FILE, &format!("{text}\n"), 0o600);
+}
+
+/// When a try of `token` first went unanswered, if one did.
+fn unanswered_since(store: &dyn Store, token: &str) -> Option<u64> {
+    let saved: Value = serde_json::from_str(&store.read(BIND_UNANSWERED_FILE)?).ok()?;
+    if saved.get("token")?.as_str()? != token_digest(token) {
+        return None;
+    }
+    saved.get("at")?.as_u64()
 }
 
 /// Records this machine as an owner VM ([`VM_KIND_FILE`]) when nothing has
@@ -474,6 +535,26 @@ impl<H: Http> CloudClient<H> {
             return Err("bounded Cloud response unavailable".into());
         }
         Ok(result)
+    }
+
+    /// [`Self::request_until`] with the response's `Retry-After`: the same
+    /// origin check and size bound.
+    pub(super) fn request_with_headers(
+        &self,
+        path: &str,
+        deadline: &RequestDeadline,
+    ) -> Result<cmux_server::cloud_http::Response, String> {
+        if self.bound.api_origin != self.bound.env.api_origin() || deadline.remaining().is_none() {
+            return Err("bounded Cloud request unavailable".into());
+        }
+        let response = self
+            .http
+            .request_with_headers(&self.url(path), None, None, deadline)
+            .map_err(|_| "bounded Cloud request unavailable".to_owned())?;
+        if response.bytes.len() > 1024 * 1024 || deadline.remaining().is_none() {
+            return Err("bounded Cloud response unavailable".into());
+        }
+        Ok(response)
     }
 
     pub(super) fn install_public_jwk(&self) -> Value {

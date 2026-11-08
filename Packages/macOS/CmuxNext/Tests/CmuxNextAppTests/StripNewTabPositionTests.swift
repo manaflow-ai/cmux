@@ -16,7 +16,7 @@ import Testing
 
     /// The + opens at the end unless the person picked another place for it.
     @Test func thePlusDefaultsToTheEnd() {
-        #expect(NewTabPosition.buttonFallback == .end)
-        #expect(NewTabSlot.target(current: nil, pane: [], explicit: nil, user: true, setting: NewTabPosition.buttonFallback) == nil)
+        #expect(NewTabPosition.buttonDefault == .end)
+        #expect(NewTabSlot.target(current: nil, pane: [], explicit: nil, user: true, setting: NewTabPosition.buttonDefault) == nil)
     }
 }

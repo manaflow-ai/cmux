@@ -655,7 +655,7 @@
                   ]
                 }
               ],
-              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
             },
             {
               "keys": [
@@ -667,7 +667,7 @@
                   ]
                 }
               ],
-              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
             }
           ]
         },
@@ -708,7 +708,7 @@
                   ]
                 }
               ],
-              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
             }
           ]
         },
@@ -749,7 +749,7 @@
                   ]
                 }
               ],
-              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
             }
           ]
         },

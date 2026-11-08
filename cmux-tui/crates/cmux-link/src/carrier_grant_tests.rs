@@ -352,3 +352,19 @@ fn construction_refuses_an_empty_issuer_machine_or_team() {
     assert!(CarrierGrantVerifier::with_system_clock(ISSUER, "", TEAM, signer.keyset()).is_err());
     assert!(CarrierGrantVerifier::with_system_clock(ISSUER, MACHINE, "", signer.keyset()).is_err());
 }
+
+/// The caller's own refusal (`verify_with`) comes before the `jti` is
+/// spent: the same grant, accepted later from another link group, is
+/// admitted once and then replayed.
+#[test]
+fn a_grant_the_caller_refuses_spends_nothing() {
+    let signer = Signer::generate("k1");
+    let (verifier, _) = verifier(&signer);
+    let key = [3_u8; 32];
+    let token = signer.sign(GRANT_TYP, &claims(&key));
+    let refusal = verifier.verify_with(&token, &key, ATTEMPT, |_| false).unwrap_err();
+    assert_eq!((refusal.kind, refusal.reason), (TokenRefused::Invalid, "no_known_service"));
+    let other = [2_u8; 32];
+    assert!(verifier.verify_with(&token, &key, other, |_| true).is_ok());
+    assert_eq!(verifier.verify(&token, &key, ATTEMPT).unwrap_err().kind, TokenRefused::Replayed);
+}

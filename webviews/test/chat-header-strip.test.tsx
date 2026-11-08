@@ -36,7 +36,8 @@ afterAll(() => {
 
 test("the header strip has no separators and every icon button draws the same glyph size", async () => {
   const { createRoot } = await import("react-dom/client");
-  const { ChatHeaderTools, HEADER_GLYPH } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
+  const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
+  const { HEADER_GLYPH } = await import("../src/agent-session/acpmux/header/chatHeaderToolsModel");
   const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
   const { NeedsYouButton } = await import("../src/agent-session/acpmux/needsYou/NeedsYou");
   const { SummaryButton } = await import("../src/agent-session/acpmux/summary/SummaryButton");

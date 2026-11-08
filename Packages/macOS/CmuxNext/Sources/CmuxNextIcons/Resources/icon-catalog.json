@@ -1015,6 +1015,24 @@
    "family": "git"
   },
   {
+   "name": "git.issue",
+   "meaning": "Open issue (a GitHub issue link's card and chip).",
+   "sf": "questionmark.square.dashed",
+   "family": "git"
+  },
+  {
+   "name": "git.issue.closed",
+   "meaning": "Issue closed as completed.",
+   "sf": "questionmark.square.dashed",
+   "family": "git.issue"
+  },
+  {
+   "name": "git.issue.notplanned",
+   "meaning": "Issue closed as not planned.",
+   "sf": "questionmark.square.dashed",
+   "family": "git.issue"
+  },
+  {
    "name": "git.pullrequest",
    "meaning": "Pull request (session PR, workspace PR links).",
    "sf": "arrow.triangle.pull",
@@ -1712,6 +1730,13 @@
    "denseStyle": "solid"
   },
   {
+   "name": "status.check",
+   "meaning": "Finished, as a bare check after the total (a done line's end)",
+   "sf": "questionmark.square.dashed",
+   "family": "status",
+   "denseStyle": "solid"
+  },
+  {
    "name": "status.complete",
    "meaning": "Completed / toggled on",
    "sf": "checkmark.circle.fill",
@@ -1815,6 +1840,13 @@
    "family": "system"
   },
   {
+   "name": "tab.browser",
+   "meaning": "Browser tab without a favicon, at tab size",
+   "sf": "globe",
+   "family": "tab",
+   "alias": false
+  },
+  {
    "name": "tab.close",
    "meaning": "Close tab (drawn X on hover)",
    "sf": "questionmark.square.dashed",
@@ -1825,6 +1857,20 @@
    "meaning": "New tab / new workspace",
    "sf": "plus.square",
    "family": "tab"
+  },
+  {
+   "name": "tab.terminal",
+   "meaning": "Terminal, at tab size (the tab strip and vertical tabs)",
+   "sf": "terminal",
+   "family": "tab",
+   "alias": false
+  },
+  {
+   "name": "tab.terminal.dead",
+   "meaning": "Terminal process exited, at tab size",
+   "sf": "xmark.octagon",
+   "family": "tab.terminal",
+   "alias": false
   },
   {
    "name": "tabgroup.save",

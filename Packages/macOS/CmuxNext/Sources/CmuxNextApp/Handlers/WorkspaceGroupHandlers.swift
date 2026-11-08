@@ -266,10 +266,9 @@ enum WorkspaceGroupHandlers {
             throw ActionFailure.invalidTarget(WorkspaceVerbStrings.subgroupNeedsDocument)
         }
         let id = CmuxNextSidebar.GroupID.make()
-        let plan = SidebarDocSubgroupPlan(parent: parent, id: id, name: name, color: SidebarGroup.newTint(in: (try? context.sidebar().model.sections) ?? []),
-                                          records: store.records)
-        guard let ops = plan.ops else {
-            throw ActionFailure.invalidTarget(plan.refusal == .tooDeep ? WorkspaceVerbStrings.subgroupTooDeep : RefusalStrings.groupRequired)
+        let ops: [[String: Any]], color = SidebarGroup.newTint(in: (try? context.sidebar().model.sections) ?? [])
+        do throws(SidebarDocSubgroupRefusal) { ops = try store.subgroupOps(parent: parent, id: id, name: name, color: color) } catch {
+            throw ActionFailure.invalidTarget(error == .tooDeep ? WorkspaceVerbStrings.subgroupTooDeep : RefusalStrings.groupRequired)
         }
         do {
             try store.sendChecked(ops: ops, title: SidebarDocStore.moveTitle)

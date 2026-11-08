@@ -46,7 +46,24 @@ extension MainPaneGutterSuites {
             }
         }
 
-        /// Flush (gutter 0): the pane's corners are the window's own, so the two are one outline.
+        /// The main pane keeps clear of the window's lit rim only where the window has one: a titled
+        /// window, not a borderless one (a fullscreen window is square and has none either).
+        @Test func onlyAWindowWithARimKeepsTheMainPaneInsideIt() {
+            func window(_ style: NSWindow.StyleMask) -> NSWindow {
+                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: style, backing: .buffered, defer: true)
+                window.isReleasedWhenClosed = false
+                return window
+            }
+            let titled = window([.titled]), borderless = window([.borderless])
+            defer { titled.close(); borderless.close() }
+            #expect(Metrics.windowEdgeInset(0, in: titled) == PaneTabRowRim.height, "flush: the rim's width")
+            #expect(Metrics.windowEdgeInset(6, in: titled) == 6, "a gutter already clears the rim")
+            #expect(Metrics.windowEdgeInset(0, in: borderless) == 0, "a borderless window has no rim")
+            #expect(Metrics.windowEdgeInset(0, in: nil) == 0, "no window yet")
+        }
+
+        /// Flush (gutter 0): the pane's corners sit just inside the window's lit rim, concentric with the
+        /// window's own (Leo 2026-11-07: "the window at the edges, it just doesn't show through").
         @Test func withNoGutterTheMainPaneCornersAreTheWindowCorners() throws {
             try MainPaneGutterSuites.onCurvedMainPane {
                 try MainPaneGutterSuites.withGutter(0) {
@@ -54,7 +71,8 @@ extension MainPaneGutterSuites {
                     defer { window.close() }
                     let windowRadius = CEFClipShape.windowCornerRadius(window)
                     try #require(Metrics.mainPaneCurved && windowRadius > 0, "a curved main pane in a window with round corners")
-                    #expect(root.contentHost.layer?.cornerRadius == windowRadius, "the pane's corner is the window's own")
+                    #expect(root.contentHost.layer?.cornerRadius == windowRadius - PaneTabRowRim.height,
+                            "the pane's corner is concentric with the window's, inside its rim")
                 }
             }
         }

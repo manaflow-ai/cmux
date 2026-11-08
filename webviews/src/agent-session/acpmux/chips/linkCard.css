@@ -16,6 +16,10 @@
 .cv-link-preview__open:hover,.cv-link-preview .acpmux-open-in:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
 .cv-link-preview .acpmux-open-in{height:20px;padding:0 6px;border-radius:5px;box-shadow:none;color:var(--agent-muted)}
 .cv-link-preview__open:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
+/* Open and its chevron are one split control (Leo 2026-11-07): one hairline frame, a hairline between the halves, each half hovering on its own. */
+.cv-link-preview__split{display:inline-flex;flex:none;align-items:stretch;height:20px;border:var(--cmux-hairline) solid var(--agent-border);border-radius:6px;overflow:hidden}
+.cv-link-preview__split .cv-link-preview__open{height:auto;border-radius:0;color:var(--agent-text)}
+.cv-link-preview__split .acpmux-open-in.is-chevron{height:auto;padding:0 4px;border-left:var(--cmux-hairline) solid var(--agent-border);border-radius:0}
 .cv-link-preview__target{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
 /* Every link's hover card (chips/LinkHoverCard.tsx; Leo 2026-10-20) is the liquid glass (.ui-glass, ui/glass/glass.css) with the tooltip's shadow: its hairline border keeps its width, clear under the glass rim (desktop.css .ui-card.ui-glass). Its glass is the popover level, as every hover card's (glass.css GLASS LEVELS), which Reduce Transparency makes opaque. A pull request's (PullRequestCard.tsx) puts its glyph, in its state's colour, and its title in the head, then owner/repo#N and the author, then an open one's checks as ✓/✗ counts. */
 .cv-link-preview.ui-card{border:var(--cmux-hairline) solid transparent;--glass-elevation:var(--tooltip-shadow,var(--elevation-2))}
@@ -24,17 +28,31 @@
 .acpmux-pr-card__facts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0;color:var(--agent-muted)}
 .acpmux-pr-card__status{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0;color:var(--agent-muted);font-variant-numeric:tabular-nums}
 .acpmux-pr-card__state{font-weight:600}
+.acpmux-pr-card__state[data-state=open]{color:var(--agent-status-success)}
+.acpmux-pr-card__state[data-state=merged]{color:var(--agent-status-merged)}
+.acpmux-pr-card__state[data-state=closed]{color:var(--agent-status-failure)}
 .acpmux-pr-card__status .acpmux-pr-card__checks{display:inline-flex}
 /* The card's owner/repo#N is the pull request's link, drawn as every link in the pane (.cv-link): blue, faintly underlined, solidly on hover. */
 .acpmux-pr-card__ref{color:var(--agent-link);font-variant-numeric:tabular-nums;font-weight:500;text-decoration:underline;text-decoration-thickness:1px;text-decoration-color:color-mix(in srgb,currentColor 40%,transparent);text-underline-offset:3px;border-radius:3px}.acpmux-pr-card__ref:hover{text-decoration-color:currentColor}.acpmux-pr-card__ref:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
 /* The state is the pull request glyph's colour, as GitHub draws it: merged uses the theme purple. */
-.acpmux-pr-card__glyph{display:inline-flex;flex:none;color:var(--agent-muted)}
+/* A disc of its own colour behind the glyph (Leo 2026-11-07: "Why is it gray? What is the gray about?"): the thin outline alone read as grey. Draft stays grey, as on GitHub. */
+.acpmux-pr-card__glyph{display:inline-flex;flex:none;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:color-mix(in srgb,currentColor 18%,transparent);color:var(--agent-muted)}
+.acpmux-pr-card .cv-link-preview__icon{width:20px}
 .acpmux-pr-card__glyph[data-state=open]{color:var(--agent-status-success)}
 .acpmux-pr-card__glyph[data-state=merged]{color:var(--agent-status-merged)}
 .acpmux-pr-card__glyph[data-state=closed]{color:var(--agent-status-failure)}
 .acpmux-pr-card__glyph[data-state=draft]{color:var(--agent-muted)}
 .acpmux-pr-card__author{min-width:0;overflow-wrap:anywhere}
-.acpmux-pr-card__checks{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;color:var(--agent-muted);font-variant-numeric:tabular-nums}
+.acpmux-pr-card__checks{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;color:var(--agent-muted);font-variant-numeric:tabular-nums;border-radius:4px}
+.acpmux-pr-card__checks:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
+.acpmux-pr-card__checksName{color:var(--agent-text);font-weight:600}
+.acpmux-pr-card__count{font-weight:600}
+.acpmux-pr-card__checks > * + :is(.acpmux-pr-card__failed,.acpmux-pr-card__pending,.acpmux-pr-card__onBase)::before{content:"·";margin-inline-end:8px;color:var(--agent-border)}
+.acpmux-pr-card__checkNames{display:grid;gap:8px;max-width:320px}
+.acpmux-pr-card__checkList{display:grid}
+.acpmux-pr-card__checkListTitle{font-weight:600}
+.acpmux-pr-card__checkList[data-state=failed] .acpmux-pr-card__checkListTitle{color:var(--agent-status-failure)}
+.acpmux-pr-card__checkName{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted)}
 .acpmux-pr-card__sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .acpmux-pr-card__passed{color:var(--agent-status-success)}
 .acpmux-pr-card__failed{color:var(--agent-status-failure)}
@@ -44,7 +62,8 @@
 /* Secondary pull request context: author, branches, review decision, labels and freshness. */
 .acpmux-pr-card__conflicts{color:var(--agent-status-failure)}
 .acpmux-pr-card__who{display:inline-flex;align-items:center;gap:6px;min-width:0}
-.acpmux-pr-card__monogram{display:inline-flex;flex:none;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:color-mix(in srgb,var(--agent-muted) 22%,transparent);color:var(--agent-text);font-size:var(--text-caption);font-weight:600;line-height:1;letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-pr-card__avatar{flex:none;width:20px;height:20px;border-radius:50%;object-fit:cover;background:color-mix(in srgb,var(--agent-muted) 22%,transparent)}
+.acpmux-pr-card__monogram{display:inline-flex;flex:none;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:color-mix(in srgb,var(--agent-muted) 22%,transparent);color:var(--agent-text);font-size:var(--text-caption);font-weight:600;line-height:1;letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-pr-card__monogram[data-tone="0"]{background:color-mix(in srgb,var(--agent-ansi-1,var(--agent-muted)) 26%,transparent)}
 .acpmux-pr-card__monogram[data-tone="1"]{background:color-mix(in srgb,var(--agent-ansi-2,var(--agent-muted)) 26%,transparent)}
 .acpmux-pr-card__monogram[data-tone="2"]{background:color-mix(in srgb,var(--agent-ansi-3,var(--agent-muted)) 26%,transparent)}
@@ -58,15 +77,35 @@
 .acpmux-pr-card__decision{font-weight:500}
 .acpmux-pr-card__decision[data-review=approved]{color:var(--agent-status-success)}
 .acpmux-pr-card__decision[data-review=changes_requested]{color:var(--agent-status-failure)}
-.acpmux-pr-card__label{padding:0 6px;border:var(--cmux-hairline) solid var(--agent-border);border-radius:4px;font-size:var(--text-caption);line-height:16px;letter-spacing:var(--text-caption--letter-spacing)}
+/* A label in its colour (GitHub's, else a tone its name picks): a tint, a stronger edge, and the colour mixed into the text, so a pale or a dark label reads on either theme. risk:high without a colour takes the failure ink. */
+.acpmux-pr-card__label{--label:var(--agent-muted);padding:0 6px;border:var(--cmux-hairline) solid color-mix(in srgb,var(--label) 55%,transparent);border-radius:4px;background:color-mix(in srgb,var(--label) 18%,transparent);color:color-mix(in oklab,var(--label) 55%,var(--agent-text));font-size:var(--text-caption);font-weight:600;line-height:16px;letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-pr-card__label[data-tone="0"]{--label:var(--agent-ansi-1,var(--agent-muted))}
+.acpmux-pr-card__label[data-tone="1"]{--label:var(--agent-ansi-2,var(--agent-muted))}
+.acpmux-pr-card__label[data-tone="2"]{--label:var(--agent-ansi-3,var(--agent-muted))}
+.acpmux-pr-card__label[data-tone="3"]{--label:var(--agent-ansi-4,var(--agent-muted))}
+.acpmux-pr-card__label[data-tone="4"]{--label:var(--agent-ansi-5,var(--agent-muted))}
+.acpmux-pr-card__label[data-tone="5"]{--label:var(--agent-ansi-6,var(--agent-muted))}
+.acpmux-pr-card__label[data-tone="6"]{--label:var(--agent-link)}
+.acpmux-pr-card__label[data-tone="7"]{--label:var(--agent-status-merged)}
+.acpmux-pr-card__label[data-tone=danger]{--label:var(--agent-status-failure)}
 .acpmux-pr-card__changes{min-width:0}
 .acpmux-pr-card__counts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;color:var(--agent-muted);font-variant-numeric:tabular-nums}
 .acpmux-pr-card__lines{display:inline-flex;align-items:center;gap:5px;color:inherit}
-.acpmux-pr-card__breakdown{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px 0;min-width:0;color:var(--agent-muted);font-variant-numeric:tabular-nums}
+/* One bar split by the lines each kind of file changed, then each kind's +/− after a dot of its colour (Leo 2026-11-07). The bar and the dots are marks, not controls, so they size by block-size. */
+.acpmux-pr-card__kindBar{display:flex;gap:4px;block-size:6px;margin-block:4px;overflow:hidden;border-radius:999px}
+.acpmux-pr-card__barPart{min-width:3px;border-radius:999px;background:var(--kind)}
+.acpmux-pr-card__bar,.acpmux-pr-card__breakdown{--kind:var(--agent-muted)}
+[data-kind=code]{--kind:var(--agent-link)}
+[data-kind=tests]{--kind:var(--agent-ansi-6,var(--agent-status-success))}
+[data-kind=mocks]{--kind:var(--agent-ansi-3,var(--agent-status-warning))}
+[data-kind=docs]{--kind:var(--agent-ansi-5,var(--agent-status-merged))}
+[data-kind=evals]{--kind:var(--agent-status-merged)}
+[data-kind=generated]{--kind:color-mix(in srgb,var(--agent-muted) 60%,transparent)}
+.acpmux-pr-card__breakdown{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;min-width:0;color:var(--agent-muted);font-variant-numeric:tabular-nums}
+.acpmux-pr-card__kindDot{flex:none;inline-size:8px;block-size:8px;border-radius:50%;background:var(--kind);align-self:center}
 .acpmux-pr-card__kind{display:inline-flex;align-items:baseline;gap:4px;min-width:0}
 .acpmux-pr-card__kindName{color:var(--agent-muted);font-weight:500}
-.acpmux-pr-card__separator{margin-inline:5px;color:var(--agent-border)}
-.acpmux-pr-card__kindPartial{flex-basis:100%;padding-top:2px;color:var(--agent-muted);font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-pr-card__kindPartial{color:var(--agent-muted);font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-pr-card__added{color:var(--agent-diff-add)}
 .acpmux-pr-card__removed{color:var(--agent-diff-del)}
 .acpmux-pr-card__warning{padding:0 6px;border-radius:4px;background:color-mix(in srgb,var(--agent-status-warning) 20%,transparent);color:var(--agent-text);font-size:var(--text-caption);line-height:16px;letter-spacing:var(--text-caption--letter-spacing)}
@@ -79,3 +118,20 @@
    bar alone would set the height). */
 .acpmux-pr-card__body [data-placeholder]:not(.acpmux-pr-card__changes),.acpmux-pr-card__body [data-placeholder]>div{align-items:center;min-height:var(--text-detail--line-height)}
 .acpmux-pr-card__age{color:var(--agent-muted);font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}
+/* The rows the host's answer fills, after the card drew their placeholders, fade in once on the
+   shared load fade (pages/shared/desktop.css `cmux-load-fade`; shared/loadFade.ts): opacity only, so the
+   card keeps its size and its glass never redraws for a move. */
+@media (prefers-reduced-motion:no-preference){.acpmux-pr-card__body[data-load-fade] :is(.acpmux-pr-card__status,.acpmux-pr-card__who,.acpmux-pr-card__changes,.acpmux-pr-card__branches,.acpmux-pr-card__review):not([data-placeholder],[data-placeholder] *){animation:cmux-load-fade var(--cmux-load-fade-duration,var(--agent-motion-in,var(--cmux-motion-micro,120ms))) var(--cmux-load-fade-easing,var(--cmux-ease-out,ease-out)) both}
+/* …while the placeholder it replaces, in the same grid cell (PullRequestCard.tsx Slot), plays the same fade backwards: a crossfade in place, the cell already the row's size, so nothing moves while it plays or when the placeholder goes at its end (Leo 2026-11-08: "a bit too discontinuous and jumpy"). */
+.acpmux-pr-card__slot>[data-placeholder]{animation:cmux-load-fade var(--cmux-load-fade-duration,var(--agent-motion-in,var(--cmux-motion-micro,120ms))) var(--cmux-load-fade-easing,var(--cmux-ease-out,ease-out)) reverse both}}
+:root:is([data-agent-motion="off"],[data-agent-motion="reduced"],[data-cmux-motion="off"],[data-cmux-motion="reduced"]) .acpmux-pr-card__body[data-load-fade] *{animation:none}
+.acpmux-pr-card__slot{display:grid;min-width:0}
+.acpmux-pr-card__slot:empty{display:none}
+.acpmux-pr-card__face{flex:none;width:20px;height:20px;border-radius:50%;background:color-mix(in srgb,var(--agent-muted) 22%,transparent)}
+.acpmux-pr-card__slot>*{grid-area:1/1}
+/* With no fade to play (motion off or reduced) a placeholder still in its slot draws nothing. */
+.acpmux-pr-card__slot>[data-placeholder]{opacity:0;pointer-events:none}
+.acpmux-pr-card__changes[data-placeholder] .acpmux-pr-card__kindBar{background:color-mix(in srgb,var(--agent-muted) 18%,transparent)}
+/* An issue as GitHub draws one: open green, closed (completed) purple, not planned grey. */
+.acpmux-pr-card__glyph[data-kind=issue][data-state=closed],.acpmux-pr-card__state[data-kind=issue][data-state=closed]{color:var(--agent-status-merged)}
+.acpmux-pr-card__glyph[data-kind=issue][data-state=not_planned],.acpmux-pr-card__state[data-kind=issue][data-state=not_planned]{color:var(--agent-muted)}

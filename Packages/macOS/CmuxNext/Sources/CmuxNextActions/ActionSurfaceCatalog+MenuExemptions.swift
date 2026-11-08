@@ -23,7 +23,7 @@ nonisolated extension ActionSurfaceCatalog {
         .noObject: [
             "window.toggleDockLeft", "window.toggleDockRight", "window.toggleDockTop", "window.toggleDockBottom",
             "window.toggleDockOrientation",
-            "home.openChiefDock", "window.toggleDock", "window.toggleDockTabBar", "window.focusDock",
+            "home.openChiefDock", "home.undockChief", "window.toggleDock", "window.toggleDockTabBar", "window.focusDock",
             "window.dockEdgeLeft", "window.dockEdgeRight", "window.dockEdgeTop", "window.dockEdgeBottom",
             "palette.openFilesPane", "palette.openFindPane",
             "sidebar.profileMenu", "browser.downloads.showFolder",

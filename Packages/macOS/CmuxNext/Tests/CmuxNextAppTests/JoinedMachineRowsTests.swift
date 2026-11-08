@@ -21,6 +21,7 @@ import CmuxNextWakeups
         var lists = 0
         var revoked: [String] = []
         var rotated: [String] = []
+        var removed: [String] = []
         var answer = true
         var on = true
         /// Whether the test's section is on screen, and whether a list read covers it (the window is
@@ -39,13 +40,34 @@ import CmuxNextWakeups
                         if answer { rows = rows.map { $0.id == id ? Fake.machine(id, $0.name, state: .revoked) : $0 } }
                         return answer
                     },
-                    rotate: { [self] id in rotated.append(id); return answer })
+                    rotate: { [self] id in rotated.append(id); return answer },
+                    remove: { [self] id in
+                        removed.append(id)
+                        if answer { rows.removeAll { $0.id == id } }
+                        return answer
+                    })
             })
         }
 
         static func machine(_ id: String, _ name: String, state: JoinedMachine.State = .online, mesh: String? = nil) -> JoinedMachine {
             JoinedMachine(id: id, name: name, state: state, platform: "linux", meshPeerId: mesh, joinTokenId: "jt_\(id)", mintedBy: "you@example.com")
         }
+    }
+
+    /// Remove runs `device remove` (the service's `remove`) and reads the list again: a removed
+    /// machine is gone from it; a refused one stays and its row says the Remove failed.
+    @Test func removeTakesTheMachineOffTheListOrSaysItFailed() async {
+        let fake = Fake()
+        fake.rows.append(Fake.machine("m_2", "build-box"))
+        let store = fake.store()
+        await store.refresh()
+        #expect(await store.perform(.remove, "m_1"))
+        #expect(fake.removed == ["m_1"])
+        #expect(store.machines.map(\.id) == ["m_2"])
+        fake.answer = false
+        #expect(!(await store.perform(.remove, "m_2")))
+        #expect(store.machines.map(\.id) == ["m_2"])
+        #expect(store.failed["m_2"] == .remove)
     }
 
     @Test func theStoreListsNothingWhileItHasNoService() async {

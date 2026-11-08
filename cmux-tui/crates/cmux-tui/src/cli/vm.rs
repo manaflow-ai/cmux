@@ -124,10 +124,14 @@ fn help() -> String {
 /// What `cmux vm --help` adds under the Cloud verbs: where devices went, and the old names.
 pub(super) fn vm_help_note(japanese: bool) -> &'static str {
     if japanese {
-        "ペアリングして一覧するデバイス（この Mac、SSH ホスト、サーバー）は `cmux device --help`。\n\
+        "cmux アプリがあれば、`cmux vm ls|status|pause|resume|rm|resize|fork|rename` は VM の名前か ID\n\
+         （1 台なら省略可）であなたの Cloud VM を操作します。アプリがなければ cmux VM API の動詞として動きます。\n\
+         ペアリングして一覧するデバイス（この Mac、SSH ホスト、サーバー）は `cmux device --help`。\n\
          `cmux cloud` と `cmux machine new|show|pause|…` は `cmux vm` の旧名で、どちらも使えます。"
     } else {
-        "Devices you pair and list (this Mac, SSH hosts, servers): `cmux device --help`.\n\
+        "With the cmux app, `cmux vm ls|status|pause|resume|rm|resize|fork|rename` act on your\n\
+         Cloud VMs by name or id (or the only one); without it they are the cmux VM API's verbs.\n\
+         Devices you pair and list (this Mac, SSH hosts, servers): `cmux device --help`.\n\
          `cmux cloud` and `cmux machine new|show|pause|...` are old names of `cmux vm`;\n\
          both work."
     }

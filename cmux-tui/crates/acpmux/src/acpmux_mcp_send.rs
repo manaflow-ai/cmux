@@ -793,6 +793,9 @@ pub(super) async fn relay(target: &Target, e: &anyhow::Error) -> Option<Value> {
 /// Hand one message to the outbox (`_acpmux/send_queue`).
 async fn queue(daemon: &Arc<Client>, target: &Target) -> Result<(PromptId, Value)> {
     let mut prompt = PromptId::new(None);
+    // Outside an acpmux session, where this server's MCP client or harness says it came from
+    // (`sender_harness.rs`): self-reported, shown beside the message.
+    prompt.sender_harness = crate::sender_harness::of_this_mcp_server();
     prompt.class = target.item.class.clone();
     prompt.pr = target.item.pr;
     prompt.thread = target.item.thread.clone();
@@ -906,8 +909,8 @@ fn sent_line(row: &Value) -> String {
         _ => {
             return format!(
                 "On its way to {to} (delivery {delivery}, promptId {prompt_id}): this daemon keeps \
-delivering it, retrying while the target is slow or its peer is down. Do not send it again; info \
-{to} shows it once it arrives."
+delivering it, retrying while the target is slow or its peer is down. Do not send it again; \
+send_status with this deliveryId says where it is."
             );
         }
     };

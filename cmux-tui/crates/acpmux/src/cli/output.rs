@@ -134,6 +134,9 @@ pub(crate) struct PromptId {
     pub resend: bool,
     /// `--from`: the prompt is this agent's message (`_meta.acpmux.fromAgent`, `hub/digest.rs`).
     pub from_agent: Option<String>,
+    /// The harness family of an agent harness's own shell that sent it (`_meta.acpmux.fromHarness`,
+    /// `cli/sender.rs`), which the receiver's card draws.
+    pub from_harness: Option<String>,
     /// `--supersede`: the same sender's prompt still queued under this key is replaced
     /// (`_meta.acpmux.supersede`, `hub/supersede.rs`).
     pub supersede: Option<String>,
@@ -151,6 +154,11 @@ pub(crate) struct PromptId {
     pub attachments: Vec<Value>,
     /// `--notice`: a tool's notice (`_meta.acpmux.notice`, `prompt_provenance::notice_of`).
     pub notice: Option<Value>,
+    /// `--relay`: a relay's `fromRelay` and `fromHarness` (`cli/run/standard.rs` `relay_fields`).
+    pub relay: Option<Value>,
+    /// The harness or app this send came from, as it reports itself (`_meta.acpmux.senderHarness`,
+    /// `sender_harness.rs`): provenance shown beside the prompt, never who sent it.
+    pub sender_harness: Option<Value>,
 }
 
 impl PromptId {
@@ -160,6 +168,7 @@ impl PromptId {
                 id,
                 resend: true,
                 from_agent: None,
+                from_harness: None,
                 supersede: None,
                 class: None,
                 pr: None,
@@ -167,11 +176,14 @@ impl PromptId {
                 cli_host: None,
                 attachments: Vec::new(),
                 notice: None,
+                relay: None,
+                sender_harness: None,
             },
             None => Self {
                 id: uuid::Uuid::now_v7().to_string(),
                 resend: false,
                 from_agent: None,
+                from_harness: None,
                 supersede: None,
                 class: None,
                 pr: None,
@@ -179,6 +191,8 @@ impl PromptId {
                 cli_host: None,
                 attachments: Vec::new(),
                 notice: None,
+                relay: None,
+                sender_harness: None,
             },
         }
     }
@@ -198,6 +212,9 @@ impl PromptId {
         }
         if let Some(name) = &self.from_agent {
             mux["fromAgent"] = json!(name);
+            if let Some(harness) = &self.from_harness {
+                mux.set("fromHarness", json!(harness));
+            }
         }
         if let Some(key) = &self.supersede {
             mux["supersede"] = json!(key);
@@ -216,6 +233,14 @@ impl PromptId {
         }
         if let Some(notice) = &self.notice {
             mux.set("notice", notice.clone());
+        }
+        if let Some(claim) = &self.sender_harness {
+            mux.set(crate::sender_harness::META_KEY, claim.clone());
+        }
+        if let Some(Value::Object(relay)) = &self.relay {
+            for (key, value) in relay {
+                mux.set(key, value.clone());
+            }
         }
         let mut prompt = vec![json!({"type": "text", "text": text})];
         prompt.extend(self.attachments.iter().cloned());

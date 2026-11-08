@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextHomeEngine
 
 /// Home as the home workspace with its left dock (classic off, cx-ebm.59.5): Home's actions run in

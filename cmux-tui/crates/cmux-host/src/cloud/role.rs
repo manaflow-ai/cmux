@@ -47,11 +47,6 @@ use crate::daemon_spec::{ROOT_HOME, WORK_HOME, WORK_USER, binary_path};
 use crate::linux::fds::Inotify;
 use crate::linux::spawn::lookup_user;
 
-/// How often, and how far apart, a carrier bind waits for the session
-/// host's Noise key before binding without it (about 15 s in all).
-const NOISE_KEY_WAITS: u32 = 30;
-const NOISE_KEY_WAIT_MS: u64 = 500;
-
 /// The dev-only heartbeat test override (read once at role start).
 pub const HEARTBEAT_ENV: &str = "CMUX_VM_AGENT_HEARTBEAT_MS";
 /// Where a trajectory restore stages its bundles (the work user's, 0700).
@@ -243,6 +238,16 @@ impl Http for PosterHttp {
         deadline: &cmux_server::cloud_http::RequestDeadline,
     ) -> Result<(u16, Vec<u8>), String> {
         self.0.request_with_deadline(url, body, bearer, deadline)
+    }
+
+    fn request_with_headers(
+        &self,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        deadline: &cmux_server::cloud_http::RequestDeadline,
+    ) -> Result<cmux_server::cloud_http::Response, String> {
+        self.0.request_with_deadline_headers(url, body, bearer, deadline)
     }
 
     fn reset(&self) {
@@ -522,15 +527,20 @@ struct Worker {
     live: Option<Live>,
     /// GitHub token asks, off the poll loop (`github_minter.rs`).
     github: Minter<PosterHttp>,
+    /// The carrier grant keyset's own fetch (`carrier_keyset.rs`).
+    keyset: super::carrier_keyset::Refresher<PosterHttp>,
     /// ACP chats kept in cmux Cloud and restored on a replacement (`trajectory_thread.rs`).
     trajectories: Option<Trajectories<PosterHttp>>,
     /// The held socket of the relay-first chat path (`relay.rs`), from bind on.
     relay: Option<Relay>,
+    /// This machine's inference gateway bearer, while the person made it their gateway (gateway_token.rs).
+    gateway_token: Option<super::gateway_token::GatewayToken>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
-    /// Binds put off while a carrier bind waits for the session host's
-    /// Noise key (its identity file appears once the host has started).
-    noise_key_waits: u32,
+    /// A carrier bind waiting for the session host's Noise key (its
+    /// identity file appears once the host has started): the bind token it
+    /// waits for and when the wait began. A new token starts a new wait.
+    noise_key_wait: Option<(String, u64)>,
     /// The workload probe (`workload.rs`): its memory and when it runs next (while bound).
     workload: super::workload::Tracker,
     workload_at: Option<u64>,
@@ -555,6 +565,7 @@ impl Worker {
         let trajectories =
             spawn_trajectories(&paths).map_err(|e| log(&format!("trajectory mirror: {e}"))).ok();
         forget_harness_login_state(&paths);
+        let keyset = super::carrier_keyset::Refresher::spawn(paths.clone(), log)?;
         Ok(Worker {
             bootstrap: None,
             bootstrap_retry_at: None,
@@ -579,11 +590,13 @@ impl Worker {
             },
             live: None,
             github: Minter::spawn(wall_ms, log, github_stop)?,
+            keyset,
             trajectories,
             relay: None,
+            gateway_token: None,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
-            noise_key_waits: 0,
+            noise_key_wait: None,
             workload: super::workload::Tracker::default(),
             workload_at: None,
             rng: SystemRandom::new(),
@@ -806,6 +819,24 @@ impl Worker {
             if closed.contains(&i) {
                 continue;
             }
+            if let Some(ask) = carrier_keyset_ask(&line) {
+                let reply = match ask {
+                    Ok(kid) => {
+                        self.keyset.unknown_kid(kid);
+                        json!({ "ok": true })
+                    }
+                    Err(why) => github::refusal("request.invalid", &why),
+                };
+                let Some(client) = self.clients.get_mut(i) else { continue };
+                if !client.output.is_empty() {
+                    closed.push(i);
+                    continue;
+                }
+                client.output = serde_json::to_vec(&reply).unwrap_or_default();
+                client.output.push(b'\n');
+                client.write_deadline = Some(self.epoch.elapsed().as_millis() as u64 + 1000);
+                continue;
+            }
             if let Some(ask) = agent_ask(&line) {
                 asks.push((i, ask));
                 continue;
@@ -943,21 +974,40 @@ impl Worker {
             Ok(poster) => PosterHttp(poster),
             Err(e) => return log(&e),
         };
-        // Only a bind with a relay carrier sends its daemon's Noise key. The
-        // token is not spent yet, so a short wait for the key costs nothing;
-        // after it the bind goes on without (the field is optional).
-        let carrier = self
+        // Only a bind with a relay carrier sends its daemon's Noise key, and
+        // it must: the device's dial requires it (#37211). The token is not
+        // spent yet, so the bind waits for the key, as long as the token
+        // lives (`daemon_noise_key::wait_after`), and never goes without it.
+        let carrier_token = self
             .store
             .read(BIND_FILE)
             .and_then(|text| super::wire::parse_bind_file(&text).ok())
-            .is_some_and(|file| file.carrier.is_some());
-        let noise_key = carrier.then(|| self.daemon_noise_key()).flatten();
-        if carrier && noise_key.is_none() && self.noise_key_waits < NOISE_KEY_WAITS {
-            self.noise_key_waits += 1;
-            self.bind_retry_at = Some(self.now() + NOISE_KEY_WAIT_MS);
-            return log("bind: waiting for the session host's Noise key");
+            .filter(|file| file.carrier.is_some())
+            .map(|file| file.bind_token);
+        let noise_key = carrier_token.as_ref().and_then(|_| self.daemon_noise_key());
+        if let Some(token) = carrier_token.filter(|_| noise_key.is_none()) {
+            let now = self.now();
+            let started = match &self.noise_key_wait {
+                Some((waiting, at)) if *waiting == token => *at,
+                _ => {
+                    log("bind: waiting for the session host's Noise key");
+                    self.noise_key_wait = Some((token, now));
+                    now
+                }
+            };
+            match super::daemon_noise_key::wait_after(now.saturating_sub(started)) {
+                Some(delay) => self.bind_retry_at = Some(now + delay),
+                None => log(
+                    "bind: the session host's Noise key did not appear while the bind token lives; not binding until a new bind.json",
+                ),
+            }
+            return;
         }
+        self.noise_key_wait = None;
         let changes = cmux_server::cloud_http::network_changes();
+        // The bind writes carrier.json; the keyset refresher's write waits.
+        let carrier_lock = self.keyset.carrier_lock();
+        let carrier_held = carrier_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let result = bind_machine(
             &mut self.store,
             &http,
@@ -967,6 +1017,7 @@ impl Worker {
             noise_key.as_deref(),
             wall_ms(),
         );
+        drop(carrier_held);
         log(&format!("bind: {}", result.describe()));
         match result {
             BindResult::Bound(bound) => {
@@ -985,9 +1036,11 @@ impl Worker {
         }
     }
 
-    /// The session host's Noise static public key, from its identity file.
+    /// The session host's Noise static public key, from its identity file
+    /// under the home the supervisor spawned it with (the layout marker).
     fn daemon_noise_key(&self) -> Option<String> {
-        let home = relay_runner().ok()?.home;
+        let marker = fs::read_to_string(self.paths.at(crate::config::LAYOUT_MARKER_FILE)).ok();
+        let home = super::daemon_noise_key::session_home(marker.as_deref())?;
         let file = super::daemon_noise_key::identity_path(&home, crate::daemon_spec::SESSION);
         super::daemon_noise_key::read(&self.paths.at(&file.to_string_lossy()))
     }
@@ -1032,6 +1085,10 @@ impl Worker {
             Ok(client) => self.github.bound(client),
             Err(e) => log(&format!("github minter: {e}")),
         }
+        match github_client(&bound, &key) {
+            Ok(client) => self.keyset.bound(client),
+            Err(e) => log(&format!("carrier keyset: {e}")),
+        }
         if let Some(trajectories) = self.trajectories.as_ref() {
             match github_client(&bound, &key) {
                 Ok(client) => trajectories.bound(client),
@@ -1047,6 +1104,16 @@ impl Worker {
                     .ok();
             }
             (Err(e), _) | (_, Err(e)) => log(&format!("relay: {e}")),
+        }
+        self.gateway_token = None;
+        match github_client(&bound, &key) {
+            Ok(client) => {
+                self.gateway_token =
+                    super::gateway_token::GatewayToken::spawn(client, wall_ms, log)
+                        .map_err(|e| log(&format!("inference gateway token: {e}")))
+                        .ok();
+            }
+            Err(e) => log(&format!("inference gateway token: {e}")),
         }
         let mut session = Session::new(&bound.machine, daemon, heartbeat);
         let reqs = session.start(self.now());
@@ -1308,6 +1375,13 @@ fn forget_harness_login_state(paths: &Paths) {
 fn github_client(bound: &Bound, key: &InstallKey) -> Result<CloudClient<PosterHttp>, String> {
     let key = InstallKey::from_pkcs8(key.pkcs8(), &SystemRandom::new())?;
     Ok(CloudClient::new(PosterHttp(JsonPoster::new()?), bound.clone(), key))
+}
+
+/// The kid of a `{"carrier_keyset": {"kid": ...}}` line (checked): the
+/// session host's verifier saw a grant signed by a kid it does not hold.
+fn carrier_keyset_ask(line: &str) -> Option<Result<String, String>> {
+    let msg: Value = serde_json::from_str(line).ok()?;
+    msg.get(super::carrier_keyset::REQUEST_KEY).map(super::carrier_keyset::check_ask)
 }
 
 /// The ask of a `{"github_token": {...}}` or `{"handoff_report": {...}}`
