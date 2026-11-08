@@ -619,7 +619,7 @@ async fn tamper_upstream(
     let mut chunk = vec![0u8; 16 * 1024];
     // Before the HTTP upgrade completes the bytes pass as they are.
     let mut upgraded = false;
-    // Only A's circuit (the connection whose first control message is `connect`) is tampered.
+    // Only A's circuit (the connection that joins a circuit as its client) is tampered.
     let mut dialer = None;
     let mut held: Option<Vec<u8>> = None;
     loop {
@@ -639,7 +639,8 @@ async fn tamper_upstream(
         while let Some((opcode, payload, size)) = next_frame(&buf) {
             let frame: Vec<u8> = buf.drain(..size).collect();
             if opcode == 1 && dialer.is_none() {
-                dialer = Some(String::from_utf8_lossy(&payload).contains("\"connect\""));
+                let control = String::from_utf8_lossy(&payload);
+                dialer = Some(control.contains("\"join\"") && control.contains("\"client\""));
             }
             let mut out = vec![frame.clone()];
             if opcode == 2 && dialer == Some(true) {
