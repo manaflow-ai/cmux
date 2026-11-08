@@ -5,7 +5,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextSidebar
 import Foundation
-import Observation
+public import Observation
 
 /// Allow and Deny on the sidebar's Needs You tray and Priority rows (cmuxterm-hq#7794: a pending
 /// tool permission no longer needs the chat opened). Wiring only: each chat of this Mac's acpmux whose
