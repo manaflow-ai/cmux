@@ -49,7 +49,7 @@ extension TerminalSurfaceView {
         previousPressureStage = 0
         defer {
             linkPressInCapture = false
-            selectionPressInCapture = false
+            selectionHint.released()
             if let surface { ghostty_surface_mouse_pressure(surface, 0, 0) }
         }
         if linkPointer.mouseUp(event) { return }
@@ -189,14 +189,14 @@ extension TerminalSurfaceView {
     // MARK: Helpers
 
     /// A left press: the move first, with the keys that let Ghostty find a link under it while
-    /// the program has the mouse, then the press, as a link click when it found one or as a
-    /// selection with Option held (``TerminalPointerMods``).
+    /// the program has the mouse, then the press, as a link click when it found one
+    /// (``TerminalPointerMods``) or as a selection with Option held (``TerminalSelectionHint``).
     private func sendLeftPress(_ event: NSEvent) {
         sendPosition(event)
         let mods = pointerMods(event.modifierFlags)
         linkPressInCapture = mods.linkGesture(event.modifierFlags, phase: .press) || mods.chordGesture(event.modifierFlags, phase: .press)
-        selectionPressInCapture = mods.selectionGesture(event.modifierFlags, phase: .press)
-        selectionHint.pressed(event.modifierFlags)
+        let captured = mods.captured || (selectionHint.pressAsksCapture(event.modifierFlags) && programCapturesMouse)
+        selectionHint.pressed(event.modifierFlags, captured: captured)
         sendButton(event, state: GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_LEFT, phase: .press, position: false)
     }
 
@@ -205,7 +205,7 @@ extension TerminalSurfaceView {
                             phase: TerminalPointerMods.Phase? = nil, position: Bool = true) -> Bool {
         guard let surface else { return false }
         if position { sendPosition(event, phase: phase ?? .move) }
-        let flags = phase.map { pointerMods(event.modifierFlags).flags(event.modifierFlags, phase: $0) } ?? event.modifierFlags
+        let flags = phase.map { pointerFlags(event.modifierFlags, phase: $0) } ?? event.modifierFlags
         return clipboardRequests.asUserClipboardWrite {
             ghostty_surface_mouse_button(surface, state, button, GhosttyInput.mods(flags))
         }
@@ -220,18 +220,18 @@ extension TerminalSurfaceView {
     }
 
     /// The pointer state ``TerminalPointerMods`` decides from. The capture check takes the
-    /// terminal's lock, so it runs only with Command or Option alone held (or during a link click).
+    /// terminal's lock, so it runs only with Command alone held (or during a link click).
     func pointerMods(_ flags: NSEvent.ModifierFlags) -> TerminalPointerMods {
-        let asks = TerminalPointerMods.commandOnly(flags) || TerminalPointerMods.commandChord(flags) || TerminalPointerMods.optionOnly(flags)
-            || linkPressInCapture
+        let asks = TerminalPointerMods.commandOnly(flags) || TerminalPointerMods.commandChord(flags) || linkPressInCapture
         let captured = asks && surface.map { ghostty_surface_mouse_captured($0) } == true
-        return TerminalPointerMods(captured: captured, overLink: session?.model.hoveredLink != nil, linkPress: linkPressInCapture,
-                                   selectionPress: selectionPressInCapture)
+        return TerminalPointerMods(captured: captured, overLink: session?.model.hoveredLink != nil, linkPress: linkPressInCapture)
     }
 
-    /// `flags` as Ghostty gets them with a pointer event in `phase` (``TerminalPointerMods``).
+    /// `flags` as Ghostty gets them with a pointer event in `phase`: an Option selection's
+    /// (``TerminalSelectionHint``), else ``TerminalPointerMods``'.
     func pointerFlags(_ flags: NSEvent.ModifierFlags, phase: TerminalPointerMods.Phase = .move) -> NSEvent.ModifierFlags {
-        pointerMods(flags).flags(flags, phase: phase)
+        if phase != .move, selectionHint.selecting { return selectionHint.following(flags) }
+        return pointerMods(flags).flags(flags, phase: phase)
     }
 
     private static func button(for number: Int) -> ghostty_input_mouse_button_e {

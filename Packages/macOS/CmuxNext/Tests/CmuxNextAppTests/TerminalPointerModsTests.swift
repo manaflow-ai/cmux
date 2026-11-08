@@ -17,7 +17,7 @@ import Testing
         #expect(pressed.flags([], phase: .followingPress) == .shift)
     }
 
-    @Test(arguments: [NSEvent.ModifierFlags([]), .shift, [.command, .control], [.control], [.option, .shift], [.option, .control]])
+    @Test(arguments: [NSEvent.ModifierFlags([]), .shift, [.command, .control], [.control], [.option]])
     func otherKeysStayAsTheyAre(_ flags: NSEvent.ModifierFlags) {
         let mods = TerminalPointerMods(captured: true, overLink: true, linkPress: false)
         for phase in [TerminalPointerMods.Phase.move, .press, .followingPress] {
@@ -57,28 +57,5 @@ import Testing
         #expect(on.flags(flags, phase: .press) == [.command, .shift])
         let pressed = TerminalPointerMods(captured: true, overLink: true, linkPress: true)
         #expect(pressed.flags(flags, phase: .followingPress) == [.command, .shift])
-    }
-
-    /// An Option-drag selects text while the program has the mouse, as in other Mac terminals: its press
-    /// goes with Ghostty's Shift override in place of Option, and so do its drags and release, also once
-    /// Option is let go. A move without a button keeps Option.
-    @Test func optionDragInACaptureSelectsWithTheShiftOverride() {
-        let mods = TerminalPointerMods(captured: true, overLink: false, linkPress: false)
-        #expect(mods.selectionGesture(.option, phase: .press))
-        #expect(mods.flags(.option, phase: .press) == .shift)
-        #expect(mods.flags(.option, phase: .move) == .option)
-        let pressed = TerminalPointerMods(captured: true, overLink: false, linkPress: false, selectionPress: true)
-        #expect(pressed.flags(.option, phase: .followingPress) == .shift)
-        #expect(pressed.flags([], phase: .followingPress) == .shift)
-    }
-
-    /// Without a capture Option-drag stays Ghostty's rectangle selection, and Option-Shift stays the
-    /// rectangle override in a capture.
-    @Test func optionDragWithoutACaptureStaysARectangleSelection() {
-        let free = TerminalPointerMods(captured: false, overLink: false, linkPress: false)
-        #expect(!free.selectionGesture(.option, phase: .press))
-        #expect(free.flags(.option, phase: .press) == .option)
-        let captured = TerminalPointerMods(captured: true, overLink: false, linkPress: false)
-        #expect(captured.flags([.option, .shift], phase: .press) == [.option, .shift])
     }
 }

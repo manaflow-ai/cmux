@@ -17,12 +17,6 @@ import AppKit
 /// pick) and Option-Command (a browser profile) matched none. A move with one of them, and a press on
 /// a link with its drags and release, go as Command alone, or as Command with the Shift override
 /// while the program has the mouse; the open reads the real keys from the event.
-///
-/// An Option-drag selects text while the program has the mouse, as Option does in other Mac terminals
-/// (Shift, Ghostty's own override, works too). Its press, drags and release go with Shift in place of
-/// Option, so Ghostty selects and Cmd-C copies exactly that text; with Option let go mid-drag the click
-/// still ends as the selection it began as, so no release reaches the program to clear it. Without a
-/// capture Option keeps Ghostty's rectangle selection, and Option-Shift stays that in a capture.
 nonisolated struct TerminalPointerMods: Equatable {
     /// What the pointer does.
     enum Phase: Equatable {
@@ -40,17 +34,10 @@ nonisolated struct TerminalPointerMods: Equatable {
     var overLink: Bool
     /// The press of this click went as a link click (``TerminalSurfaceView/linkPressInCapture``).
     var linkPress: Bool
-    /// The press of this click went as an Option selection (``TerminalSurfaceView/selectionPressInCapture``).
-    var selectionPress = false
 
     /// True when Command is the only key of `flags` held (Caps Lock aside).
     static func commandOnly(_ flags: NSEvent.ModifierFlags) -> Bool {
         flags.intersection([.command, .shift, .control, .option, .function]) == .command
-    }
-
-    /// True when Option is the only key of `flags` held (Caps Lock aside).
-    static func optionOnly(_ flags: NSEvent.ModifierFlags) -> Bool {
-        flags.intersection([.command, .shift, .control, .option, .function]) == .option
     }
 
     /// Command with Shift or Option, without Control or Fn: a link click that picks where it opens.
@@ -79,19 +66,9 @@ nonisolated struct TerminalPointerMods: Equatable {
         }
     }
 
-    /// Whether this event goes as an Option selection: with Shift in place of Option.
-    func selectionGesture(_ flags: NSEvent.ModifierFlags, phase: Phase) -> Bool {
-        switch phase {
-        case .move: return false
-        case .press: return captured && Self.optionOnly(flags)
-        case .followingPress: return selectionPress
-        }
-    }
-
-    /// `flags` with Shift in place of Option when ``selectionGesture(_:phase:)`` holds, with Shift added when ``linkGesture(_:phase:)`` holds, as Command alone when
+    /// `flags` with Shift added when ``linkGesture(_:phase:)`` holds, as Command alone when
     /// ``chordGesture(_:phase:)`` does.
     func flags(_ flags: NSEvent.ModifierFlags, phase: Phase) -> NSEvent.ModifierFlags {
-        if selectionGesture(flags, phase: phase) { return flags.subtracting(.option).union(.shift) }
         let chord: NSEvent.ModifierFlags = captured ? [.command, .shift] : .command
         // A chord first: with Option kept, Ghostty would match no link even with the Shift override.
         if Self.commandChord(flags), chordGesture(flags, phase: phase) { return chord }
