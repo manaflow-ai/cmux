@@ -785,14 +785,56 @@ def diff_lines(patch: str) -> tuple[list[str], list[str]]:
     return [l for l in removed if l], [l for l in added if l]
 
 
+def change_blocks(patch: str) -> list[tuple[list[str], list[str]]]:
+    """(removed, added) non-blank stripped lines of each run of -/+ lines in a patch: one edit each."""
+    blocks: list[tuple[list[str], list[str]]] = []
+    current: tuple[list[str], list[str]] | None = None
+    for line in patch.splitlines():
+        if line.startswith(("---", "+++")) or not line.startswith(("-", "+")):
+            current = None
+            continue
+        if current is None:
+            current = ([], [])
+            blocks.append(current)
+        text = line[1:].strip()
+        if text:
+            current[0 if line.startswith("-") else 1].append(text)
+    return blocks
+
+
+WORD = re.compile(r"\w+")
+
+
+def in_order(needle: list[str], haystack: list[str]) -> bool:
+    """Whether every word of `needle` appears in `haystack` in the same order (other words may sit between)."""
+    words = iter(haystack)
+    return all(any(word == other for other in words) for word in needle)
+
+
+def reflowed(pr_patch: str, keep_out: set[str]) -> set[str]:
+    """The removed lines whose words all come back, in order, in the same edit's added lines: a list or
+    a call rewrapped (rustfmt after one more item, PR #38436), not a line taken out. Added lines in
+    `keep_out` (lines the commit replaced, now restored) do not count, so `foo(a)` turned back into
+    `foo(a, b)` is still a revert of the change that shortened it."""
+    kept = set()
+    for removed, added in change_blocks(pr_patch):
+        stream = [word for line in added if line not in keep_out for word in WORD.findall(line)]
+        for line in removed:
+            words = WORD.findall(line)
+            if words and in_order(words, stream):
+                kept.add(line)
+    return kept
+
+
 def undoes(pr_patch: str, commit_patch: str, added_elsewhere: frozenset[str] = frozenset()) -> bool:
     """Whether a pull request's change to a file takes back a commit's change to it: it deletes
     most of what the commit added, and, when the commit replaced lines, puts most of them back."""
     pr_removed, pr_added = map(set, diff_lines(pr_patch))
-    # A line the pull request removes and adds back, here or in another file, moved; it wasn't
-    # taken back.
-    gone, back = pr_removed - pr_added - added_elsewhere, pr_added - pr_removed
     commit_removed, commit_added = map(set, diff_lines(commit_patch))
+    # A line the pull request removes and adds back, here or in another file, moved; a line whose words
+    # come back in order in the same edit was rewrapped. Neither was taken back.
+    gone = pr_removed - pr_added - added_elsewhere - reflowed(pr_patch, commit_removed)
+    back = pr_added - pr_removed
     if not commit_added:
         return False
     if len(commit_added & gone) / len(commit_added) < 0.8:
