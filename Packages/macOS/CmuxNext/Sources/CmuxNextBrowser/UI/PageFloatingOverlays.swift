@@ -133,9 +133,7 @@ final class PageFloatingOverlays {
             // So does a card under a pane in front of the page: the page is cut there too.
             let placed = placedRect(of: cards[index], in: clip)
             if view.isHidden || !shown.shows(placed) {
-                if cards[index].handle != nil || !MotionTrace.notes.contains(where: { $0.text.hasPrefix("card.off") }) {
-                    MotionTrace.note("card.off hidden=\(view.isHidden) placed=\(placed) visible=\(shown.visible) cutouts=\(shown.cutouts) clip=\(clip)")
-                }
+                MotionTrace.note("card.off hidden=\(view.isHidden) placed=\(placed) visible=\(shown.visible) cutouts=\(shown.cutouts) clip=\(clip)")
                 dismiss(index)
                 continue
             }
