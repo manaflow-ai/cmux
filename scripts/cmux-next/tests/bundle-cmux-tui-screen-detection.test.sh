@@ -119,18 +119,19 @@ grep -q 'CMUX_NEXT_TUI_MODE=deferred: bundled no cmux-tui' "$TMP/out" || { cat "
 [[ ! -e "$bin/cmux" ]] || fail "the deferred exit kept a stale bin/cmux"
 [[ ! -e "$bin/cmux-agent-screen-detection" ]] || fail "the deferred exit kept a stale bin/cmux-agent-screen-detection"
 
-# Publication stages the detector per macOS target with
-# scripts/ci/stage-agent-detector.sh (cmux-tui-build-package.yml, macos-cross.sh
-# hosts). The detector is optional: a target without one publishes none and
-# prints a GitHub warning annotation, never an error.
+# Publication stages the detector per macOS and Linux musl target with
+# scripts/ci/stage-agent-detector.sh (cmux-tui-build-package.yml, macos-cross.sh).
+# The detector is required on those targets: a target without one fails the
+# artifacts build with a GitHub error annotation and leaves no stale copy.
 stage="$ROOT/scripts/ci/stage-agent-detector.sh"
 mkdir -p "$TMP/release-empty" "$TMP/release-built" "$TMP/dist"
 printf 'built detector\n' > "$TMP/release-built/cmux-agent-screen-detection"
 printf 'stale\n' > "$TMP/dist/cmux-tui-agent-screen-detection-aarch64-apple-darwin"
-out=$(bash "$stage" "$TMP/release-empty" aarch64-apple-darwin "$TMP/dist/cmux-tui-agent-screen-detection-aarch64-apple-darwin" 2>&1) \
-  || fail "stage-agent-detector.sh failed for a missing detector: $out"
-[[ "$out" == "::warning title=agent screen detector missing::aarch64-apple-darwin" ]] \
-  || fail "a missing detector did not print exactly the warning annotation: '$out'"
+if out=$(bash "$stage" "$TMP/release-empty" aarch64-apple-darwin "$TMP/dist/cmux-tui-agent-screen-detection-aarch64-apple-darwin" 2>&1); then
+  fail "stage-agent-detector.sh passed for a missing detector: $out"
+fi
+[[ "$out" == "::error title=agent screen detector missing::aarch64-apple-darwin" ]] \
+  || fail "a missing detector did not print exactly the error annotation: '$out'"
 [[ ! -e "$TMP/dist/cmux-tui-agent-screen-detection-aarch64-apple-darwin" ]] || fail "a missing detector left a stale staged copy"
 out=$(bash "$stage" "$TMP/release-built" x86_64-apple-darwin "$TMP/dist/cmux-tui-agent-screen-detection-x86_64-apple-darwin" 2>&1) \
   || fail "stage-agent-detector.sh failed for a built detector: $out"
