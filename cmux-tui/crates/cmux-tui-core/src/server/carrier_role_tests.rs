@@ -19,7 +19,8 @@ fn mux() -> Arc<Mux> {
 /// One line through the connection's own frame path; its reply.
 fn send(mux: &Arc<Mux>, client: u64, line: &str) -> Value {
     let (writer, outbound) = writer();
-    let scheduler = Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
     let transport = mux.control_clients.transport_of(client).unwrap();
     handle_connection_frame(mux, client, transport, line, &writer, &scheduler);
     serde_json::from_str(&outbound.try_pop().expect("a reply")).unwrap()
