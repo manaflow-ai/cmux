@@ -155,6 +155,11 @@ nonisolated enum AcpmuxPaneMethods {
         // Model races: candidates and reviewer run only under the selected parent chat's
         // existing authorization and isolated worktree guard (acpmux hub/races.rs).
         "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",
+        // The home's Waiting on me lanes (waiting/useWaitingDay.ts, direct.ts waitingDay; acpmux
+        // hub/waiting_day.rs): when each chat worked or waited on the person today, as times, seqs
+        // and turn ids only, never text. Read-only, no gesture; acpmux answers it to this Mac's app
+        // and unix socket only. Not session-scoped: like `_acpmux/sessions`, it covers every chat.
+        "_acpmux/waiting_day",
         // Reconnect a failed MCP server of a chat in the pane's scope (direct.ts reconnectMcp,
         // Session Info's Connectors): acpmux sends Claude Code's mcp_reconnect for a server the chat
         // already lists, on its running process; it starts nothing and refuses other harnesses.

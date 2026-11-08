@@ -78,6 +78,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/race/list": (["parent"], []),
         "_acpmux/race/cancel": (["parent", "raceId"], []),
         "_acpmux/race/stats": (["parent"], []),
+        // The day's range in ms; acpmux clamps it to the last 48 hours.
+        "_acpmux/waiting_day": (["since", "until"], []),
         // `server`: one of that chat's MCP servers by name; acpmux refuses a name the chat does not list.
         "_acpmux/mcp/reconnect": (["sessionId", "server"], []),
         // `release`: a new chat's typing prewarm taken back (cleared prompt, closed unsent; newChatPrewarm.ts).
