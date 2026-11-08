@@ -27031,7 +27031,7 @@
             "description": "The drafts to post."
           },
           "versions": {
-            "required": false,
+            "required": true,
             "type": {
               "kind": "map",
               "values": {
@@ -27040,7 +27040,7 @@
                 "min_length": 1
               }
             },
-            "description": "Each id's updatedAt as the caller read it: a draft edited since is not posted and stays."
+            "description": "Every id's updatedAt as the caller read it: a draft edited since is not posted and stays, also when the post is a retry that finds its review already on GitHub."
           }
         },
         "extra": false

@@ -249,10 +249,25 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     assert_eq!(listed["result"]["review"]["base"], merge_base.as_str(), "{listed}");
     assert_eq!(listed["result"]["comments"].as_array().unwrap().len(), 3, "{listed}");
 
-    let post = v2(
+    // A post names each draft's version as the page read it; one without is
+    // refused, since its retry could not tell an edit from what it posted.
+    let unversioned = v2(
         &server,
         "git.review.post",
         serde_json::json!({"root": review_root, "ids": ids}),
+        Some("post-unversioned"),
+    );
+    assert!(unversioned["result"].is_null(), "{unversioned}");
+    assert!(unversioned.to_string().contains("versions"), "{unversioned}");
+    let mut versions = serde_json::Map::new();
+    for comment in listed["result"]["comments"].as_array().unwrap() {
+        let id = comment["id"].as_str().unwrap().to_string();
+        versions.insert(id, comment["updatedAt"].clone());
+    }
+    let post = v2(
+        &server,
+        "git.review.post",
+        serde_json::json!({"root": review_root, "ids": ids, "versions": versions}),
         Some("post-once"),
     );
     let result = &post["result"]["value"];
@@ -282,12 +297,14 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     // the key's marker), so the retry posts nothing and clears the draft.
     let again = git_cli(&server, &worktree, &draft);
     assert_success(&again);
-    let id = json_output(&again)["value"]["comment"]["id"].clone();
+    let draft_again = json_output(&again)["value"]["comment"].clone();
+    let (id, version) = (draft_again["id"].clone(), draft_again["updatedAt"].clone());
     fs::write(&existing, "https://github.com/o/r/pull/7#pullrequestreview-2\n").unwrap();
+    let id_text = id.as_str().unwrap().to_string();
     let retried = v2(
         &server,
         "git.review.post",
-        serde_json::json!({"root": review_root, "ids": [id]}),
+        serde_json::json!({"root": review_root, "ids": [id], "versions": {id_text: version}}),
         Some("post-lost"),
     );
     assert_eq!(

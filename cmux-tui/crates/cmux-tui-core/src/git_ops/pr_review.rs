@@ -149,7 +149,9 @@ fn start(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resou
             "title": view.title,
             "head": view.head,
             "base": base,
-            "diff": format!("git diff {base} HEAD"),
+            // No diff or textconv driver: one can run a script the pull
+            // request changes.
+            "diff": format!("git diff --no-ext-diff --no-textconv {base} HEAD"),
             // A review never runs the worktree's setup recipe: the recipe
             // (or a script it names) is the pull request's code, run with
             // the person's environment before anyone read it.
@@ -445,6 +447,13 @@ fn post(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, Resour
     let root = diff_comments::root(&request.fields)?;
     let ids = diff_comments::ids(&request.fields)?;
     let versions = diff_comments::versions(&request.fields)?;
+    // Every draft's version: a retry that finds its review already posted
+    // clears only drafts unchanged since, so an edit made after a lost reply
+    // stays for the next post instead of being cleared unposted.
+    if let Some(id) = ids.iter().find(|id| !versions.contains_key(id.as_str())) {
+        let message = format!("versions must name every id's updatedAt; {id} has none");
+        return Err(ResourceError::validation_invalid(Some("versions"), message));
+    }
     let store = Store::open(mux, POST)?;
     diff_comments::mutate(mux, &store, request, root, |file, key| {
         let review = file.review.clone().unwrap_or(Value::Null);
@@ -538,9 +547,14 @@ fn gh(
         .run_program(program.as_os_str(), arguments, &extra, input)
         .map_err(|failure| run_failed(operation, &failure))?;
     if !run.success {
+        // gh's own last words (a login to renew, a line GitHub refused) say
+        // what to fix.
+        let said = run.stderr.lines().map(str::trim).rfind(|line| !line.is_empty());
+        let said: String = said.unwrap_or_default().chars().take(300).collect();
         let message = format!(
-            "gh {} failed",
-            arguments.iter().take(2).copied().collect::<Vec<_>>().join(" ")
+            "gh {} failed{}{said}",
+            arguments.iter().take(2).copied().collect::<Vec<_>>().join(" "),
+            if said.is_empty() { "" } else { ": " }
         );
         return Err(refused(operation, "gh_failed", message, output_extra(&run.output())));
     }
