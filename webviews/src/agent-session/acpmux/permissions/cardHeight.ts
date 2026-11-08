@@ -22,6 +22,7 @@ const body = step("body");
 const detail = step("detail");
 const caption = step("caption");
 const padding = gridLength("cards-padding");
+
 // The UI font's stack (type-scale.json font.stack, the macOS system font); it has no letter-spacing.
 const UI_FONT = typeScale.font.stack.join(", ");
 
