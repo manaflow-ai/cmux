@@ -8,7 +8,9 @@ import CmuxTerminalSizing
 /// reports are refused) until it reattaches. That includes the Mac pane's own
 /// view (tmux `detach-client` on the host's client): the PTY keeps running
 /// here and the other viewers keep their sessions. Pure and synchronous, so
-/// the controller that owns the Ghostty surface decides when to apply.
+/// the controller that owns the Ghostty surface decides when to apply. Every
+/// attach and activity carries `at`, the controller's monotonic clock in
+/// milliseconds (see ``TerminalSizingEngine/activityHoldMilliseconds``).
 public struct LocalTerminalSizingHost: Sendable {
     /// The engine; its `state` is what every viewer sees.
     public private(set) var engine: TerminalSizingEngine
@@ -36,15 +38,17 @@ public struct LocalTerminalSizingHost: Sendable {
     ///   - macParticipant: the Mac pane; its viewport is the pane's own grid.
     ///   - initialSize: the grid before anyone else reports, normally the PTY's size.
     ///   - policy: the effective policy.
+    ///   - at: the attach time in milliseconds of the host clock.
     public init(
         macParticipant: TerminalSizingParticipant,
         initialSize: TerminalGridSize,
-        policy: TerminalSizingPolicy = .fitEveryone
+        policy: TerminalSizingPolicy = .fitEveryone,
+        at: UInt64
     ) {
         macParticipantID = macParticipant.id
         self.macParticipant = macParticipant
         engine = TerminalSizingEngine(initialSize: initialSize, policy: policy)
-        engine.attach(macParticipant)
+        engine.attach(macParticipant, at: at)
     }
 
     /// The published state.
@@ -93,10 +97,12 @@ public struct LocalTerminalSizingHost: Sendable {
     /// phones in the list are ignored. Identity and counts overrides of phones
     /// already attached are kept.
     ///
-    /// - Parameter phones: every phone currently reporting, with viewports.
+    /// - Parameters:
+    ///   - phones: every phone currently reporting, with viewports.
+    ///   - at: the time of this sync in milliseconds of the host clock.
     /// - Returns: whether the published state changed.
     @discardableResult
-    public mutating func syncPhones(_ phones: [TerminalSizingParticipant]) -> Bool {
+    public mutating func syncPhones(_ phones: [TerminalSizingParticipant], at: UInt64) -> Bool {
         var changed = false
         var wanted = Set<String>()
         for var phone in phones where phone.id != macParticipantID && !isDetached(phone.id) {
@@ -107,7 +113,7 @@ public struct LocalTerminalSizingHost: Sendable {
                 }
             } else {
                 phone.countsOverride = viewerOnNextAttach.remove(phone.id) != nil ? false : phone.countsOverride
-                changed = engine.attach(phone) || changed
+                changed = engine.attach(phone, at: at) || changed
             }
         }
         for id in phoneParticipantIDs where !wanted.contains(id) {
@@ -116,11 +122,19 @@ public struct LocalTerminalSizingHost: Sendable {
         return changed
     }
 
-    /// Explicit input or focus from a participant.
+    /// Explicit input or focus from a participant. Input from a non-owner
+    /// waits for the owner's hold; focus takes the grid at once.
+    ///
+    /// - Parameters:
+    ///   - id: the participant id.
+    ///   - kind: input or an explicit focus.
+    ///   - at: the time in milliseconds of the host clock.
+    /// - Returns: whether the published state changed. The owner's own input
+    ///   refreshes its hold without publishing, so store the host either way.
     @discardableResult
-    public mutating func noteActivity(_ id: String) -> Bool {
+    public mutating func noteActivity(_ id: String, kind: TerminalSizingActivityKind, at: UInt64) -> Bool {
         guard !isDetached(id) else { return false }
-        return engine.noteActivity(id)
+        return engine.noteActivity(id, kind: kind, at: at)
     }
 
     /// Sets the effective policy.
@@ -163,15 +177,16 @@ public struct LocalTerminalSizingHost: Sendable {
     /// - Parameters:
     ///   - id: the participant id.
     ///   - asViewer: attach with `counts_override: false`.
+    ///   - at: the time in milliseconds of the host clock.
     /// - Returns: whether a disconnect was in force.
     @discardableResult
-    public mutating func reattach(_ id: String, asViewer: Bool) -> Bool {
+    public mutating func reattach(_ id: String, asViewer: Bool, at: UInt64) -> Bool {
         if id == macParticipantID {
             guard macDetachment != nil else { return false }
             macDetachment = nil
             var mac = macParticipant
             mac.countsOverride = asViewer ? false : nil
-            engine.attach(mac)
+            engine.attach(mac, at: at)
             return true
         }
         let wasDetached = detachedPhones.removeValue(forKey: id) != nil

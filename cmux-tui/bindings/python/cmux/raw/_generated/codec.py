@@ -318,6 +318,7 @@ ENUM_BY_PATH = {
     'types/RenderGraphicFormat': models.RenderGraphicFormat,
     'types/RenderUnderline': models.RenderUnderline,
     'types/ServerStatsWriterPhase': models.ServerStatsWriterPhase,
+    'types/SizeActivityKind': models.SizeActivityKind,
     'types/SizeDeviceKind': models.SizeDeviceKind,
     'types/SizeMode': models.SizeMode,
     'types/SizeReason': models.SizeReason,

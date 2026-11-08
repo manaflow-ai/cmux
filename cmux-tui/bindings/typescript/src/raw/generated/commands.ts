@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298. */
+/* cmux-tui mux protocol 12, IR 14d8af5728debdd6caf62cd0f2d9bf34926b4672256abd95cb286e193dce9275. */
 
 
 import type * as T from "./types.js";
@@ -547,6 +547,7 @@ export type NewWorkspaceResult = T.SurfaceResult;
 /** Protocol v12; authority: control. */
 export interface NoteSizeActivityRequest extends CmuxRequestBase {
   cmd: "note-size-activity";
+  "kind"?: (T.SizeActivityKind) | null;
   "surface": T.Id;
   "view"?: (string) | null;
 }

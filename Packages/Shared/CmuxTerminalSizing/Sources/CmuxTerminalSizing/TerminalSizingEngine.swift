@@ -1,13 +1,31 @@
+/// What kind of activity a participant showed.
+public enum TerminalSizingActivityKind: String, Codable, Hashable, Sendable {
+    /// Keyboard, paste or mouse input. Waits for the owner's hold.
+    case input
+    /// An explicit focus-click (or "Size to My Window"). Takes the grid at once.
+    case focus
+}
+
 /// Decides the PTY grid of one shared terminal. Pure and synchronous: the host
 /// feeds attach, detach, viewport, activity, counts and policy events and
-/// publishes `state` whenever a mutation returns `true`.
+/// publishes `state` whenever a mutation returns `true`. Attach and activity
+/// carry the host's monotonic clock in milliseconds, so the reducer never
+/// reads a clock itself.
 ///
 /// The Rust twin in cmux-tui-core must stay identical; both replay
 /// `schemas/terminal-sizing/fixtures.json`.
 public struct TerminalSizingEngine: Sendable {
+    /// How long the owner keeps the grid against input from another
+    /// participant after the owner's own last activity. Keep equal to
+    /// `ACTIVITY_HOLD_MS` in cmux-tui-core and docs/shared-terminal-sizing.md.
+    public static let activityHoldMilliseconds: UInt64 = 2000
+
     private struct Entry: Sendable {
         var participant: TerminalSizingParticipant
+        /// Event order of the latest attach or recorded activity.
         var activity: UInt64
+        /// Host clock (ms) of the latest attach or recorded activity.
+        var activeAt: UInt64
     }
 
     private var entries: [Entry] = []
@@ -30,17 +48,20 @@ public struct TerminalSizingEngine: Sendable {
 
     // MARK: Mutations. Each returns true when the published state changed.
 
-    /// Adds a view, or replaces one with the same id. Attach counts as activity.
+    /// Adds a view, or replaces one with the same id. Attach counts as
+    /// activity and ignores the owner's hold.
+    /// - Parameter at: the host's monotonic clock in milliseconds.
     @discardableResult
-    public mutating func attach(_ participant: TerminalSizingParticipant) -> Bool {
+    public mutating func attach(_ participant: TerminalSizingParticipant, at: UInt64) -> Bool {
         activityClock += 1
         var participant = participant
         // A decoded participant bypasses the clamping initializer.
         participant.viewport = participant.viewport?.clamped
+        let entry = Entry(participant: participant, activity: activityClock, activeAt: at)
         if let i = index(participant.id) {
-            entries[i] = Entry(participant: participant, activity: activityClock)
+            entries[i] = entry
         } else {
-            entries.append(Entry(participant: participant, activity: activityClock))
+            entries.append(entry)
         }
         return publish()
     }
@@ -60,11 +81,23 @@ public struct TerminalSizingEngine: Sendable {
     }
 
     /// Explicit focus-click or keyboard, paste or mouse input. Never hover.
+    ///
+    /// The owner's own activity always refreshes its hold. Input from another
+    /// participant that would move the grid is dropped while the owner has
+    /// been active within ``activityHoldMilliseconds``; focus never waits.
+    /// - Parameter at: the host's monotonic clock in milliseconds.
     @discardableResult
-    public mutating func noteActivity(_ id: String) -> Bool {
+    public mutating func noteActivity(_ id: String, kind: TerminalSizingActivityKind, at: UInt64) -> Bool {
         guard let i = index(id) else { return false }
+        if kind == .input, let owner = holdingOwner(at: at), owner != id {
+            var next = entries
+            next[i].activity = activityClock + 1
+            next[i].activeAt = at
+            if decide(next.filter(counts)).1 != state.owners { return false }
+        }
         activityClock += 1
         entries[i].activity = activityClock
+        entries[i].activeAt = at
         return publish()
     }
 
@@ -111,6 +144,19 @@ public struct TerminalSizingEngine: Sendable {
             return other.userID == user && (other.deviceKind == .mac || other.deviceKind == .tui)
                 && other.viewport != nil && other.countsOverride != false
         }
+    }
+
+    /// The single owner picked by activity, while it is inside its hold.
+    private func holdingOwner(at: UInt64) -> String? {
+        switch state.reason {
+        case .latest, .priority, .priorityFallback: break
+        default: return nil
+        }
+        guard state.owners.count == 1, let owner = state.owners.first,
+              let entry = entries.first(where: { $0.participant.id == owner }) else { return nil }
+        // A clock that went backwards counts as inside the hold.
+        guard at < entry.activeAt || at - entry.activeAt < Self.activityHoldMilliseconds else { return nil }
+        return owner
     }
 
     private func decide(_ counting: [Entry]) -> (TerminalGridSize, [String], TerminalSizingReason) {
