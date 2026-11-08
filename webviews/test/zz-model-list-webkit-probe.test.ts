@@ -49,7 +49,7 @@ for (const engine of ["webkit", "chromium"])
           document.head.appendChild(s);
         });
       }, css);
-      await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.composer", { variant: "picker-toggle", frame: "component", width: 760, theme: "Catppuccin Mocha" })}`);
+      await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.composer", { variant: "new-chat-reasoning", frame: "component", width: 760, theme: "Catppuccin Mocha" })}`);
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, { timeout: 120_000 });
       const chip = page.locator('button[aria-haspopup][aria-label="Model"]').first();
       await chip.waitFor();
@@ -66,7 +66,7 @@ for (const engine of ["webkit", "chromium"])
           for (const el of document.querySelectorAll<HTMLElement>("[style*=min-width]")) el.style.minWidth = "";
         });
       const report = await page.evaluate(() => {
-        const list = ([...document.querySelectorAll<HTMLElement>('[role^="menuitem"], [role="option"]')].map((r) => { let e = r.parentElement; while (e && e !== document.body && !/(auto|scroll)/.test(getComputedStyle(e).overflowY)) e = e.parentElement; return e; }).find((e) => e && e !== document.body) as HTMLElement | undefined);
+        const list = (document.querySelector<HTMLElement>('.acpmux-cols-list[data-cmux-card-scroll]') ?? [...document.querySelectorAll<HTMLElement>('[role^="menuitem"], [role="option"]')].map((r) => { let e = r.parentElement; while (e && e !== document.body && !/(auto|scroll)/.test(getComputedStyle(e).overflowY)) e = e.parentElement; return e; }).find((e) => e && e !== document.body)) as HTMLElement | undefined;
         if (!list) return { error: "no list" };
         const lb = list.getBoundingClientRect();
         const cs = getComputedStyle(list);
