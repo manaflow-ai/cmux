@@ -30,6 +30,7 @@ def run_case(
     custom_real_path: bool = False,
     custom_dir: str = "custom",
     bin_dir_name: str = "bin",
+    sibling_cmux_dir: bool = False,
 ) -> dict[str, object]:
     """Run the wrapper directly with a fake real agy and a fake cmux CLI behind a listening socket.
 
@@ -39,6 +40,9 @@ def run_case(
     bin_dir.mkdir(parents=True)
     real_agy = (root / custom_dir / "agy") if custom_real_path else (bin_dir / "agy")
     real_agy.parent.mkdir(parents=True, exist_ok=True)
+    if sibling_cmux_dir:
+        # A directory named cmux beside the real agy, which is not a cmux CLI.
+        (real_agy.parent / "cmux").mkdir()
     real_result = root / "agy-result.json"
     executable(
         real_agy,
@@ -236,6 +240,16 @@ def main() -> int:
         )
         if result["real"]["argv"] != ["--prompt-interactive", "hello"]:
             raise AssertionError(f"an agy found on PATH in another app's Resources/bin did not run: {result}")
+
+    with tempfile.TemporaryDirectory(prefix="cmux-agy-wrapper-cmux-dir-") as directory:
+        result = run_case(
+            Path(directory),
+            ("--prompt-interactive", "hello"),
+            bin_dir_name="Antigravity.app/Contents/Resources/bin",
+            sibling_cmux_dir=True,
+        )
+        if result["real"]["argv"] != ["--prompt-interactive", "hello"]:
+            raise AssertionError(f"a cmux directory beside another app's agy hid that agy: {result}")
 
     with tempfile.TemporaryDirectory(prefix="cmux-agy-wrapper-shim-") as directory:
         expect_real_agy_ran(run_shim_case(Path(directory)), "agy through the surface shim")

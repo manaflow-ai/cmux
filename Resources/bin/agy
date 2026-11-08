@@ -24,7 +24,8 @@ cmux_agy_is_self_or_shim() {
         */Resources/bin/agy)
             # Another cmux bundle's wrapper sits beside that bundle's cmux CLI; an
             # agy that another app ships in its own Resources/bin is still real.
-            [[ -x "${candidate%/agy}/cmux" ]] && return 0
+            local sibling_cli="${candidate%/agy}/cmux"
+            [[ -f "$sibling_cli" && -x "$sibling_cli" ]] && return 0
             ;;
     esac
     return 1
