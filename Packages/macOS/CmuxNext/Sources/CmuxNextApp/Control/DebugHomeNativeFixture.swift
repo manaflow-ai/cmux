@@ -170,7 +170,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         case "agent_messages":
             // The fixture's Chief run with messages to five agents and one report; `pill` opens one, `say` writes it.
             guard let fixture = shownFixture else { return .object(["error": .string("agent_messages needs the native Home fixture (debug.home_native_fixture.open)")]) }
-            ok = fixture.debugAgentMessages(notes: params["notes"]?.boolValue ?? false, open: params["open"]?.boolValue ?? false, group: params["group"]?.boolValue ?? false, step: params["step"]?.intValue ?? 0, pill: params["pill"]?.stringValue, say: params["say"]?.stringValue)
+            ok = fixture.debugAgentMessages(notes: params["notes"]?.boolValue ?? false, open: params["open"]?.boolValue ?? false, group: params["group"]?.boolValue ?? false, step: params["step"]?.intValue ?? 0, pill: params["pill"]?.stringValue, say: params["say"]?.stringValue, queued: params["queued"]?.boolValue ?? false)
         case "live":
             // The fixture's Chief works: its typing bubble and the status line above it, one frame per
             // step of `steps` (default "Reading", "Starting agents"), the last begun `elapsed` s ago.
