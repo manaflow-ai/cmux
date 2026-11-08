@@ -92,28 +92,28 @@ test("the app URL keeps the secret in its fragment only, never in the page addre
   expect(invite).toBe(`cmux://share?link=${encodeURIComponent(`https://share.cmux.dev/i/${SHARE}`)}`);
 });
 
-test("each share host opens its build's app, `?app=` names only a cmux scheme, and a local page offers none", () => {
-  const at = (hostname: string, search = "") => appScheme({ hostname, search });
-  expect(at("share.cmux.dev")).toBe("cmux");
-  expect(at("cmux-platform-production.debussy.workers.dev")).toBe("cmux");
-  expect(at("share-staging.cmux.dev")).toBe("cmux-nightly");
-  expect(at("cmux-platform-staging.debussy.workers.dev")).toBe("cmux-nightly");
-  expect(at("share-dev.cmux.dev")).toBe("cmux-dev");
-  expect(at("cmux-platform-development.debussy.workers.dev")).toBe("cmux-dev");
-  expect(at("share-dev.cmux.dev", "?app=cmux-dev-mytag")).toBe("cmux-dev-mytag");
-  expect(at("share.cmux.dev", "?app=javascript")).toBe("cmux");
-  expect(at("share.cmux.dev", "?app=https")).toBe("cmux");
-  expect(at("localhost")).toBeUndefined();
+test("a link opens cmux NIGHTLY unless it names its build, `?app=` names only a cmux scheme, and a local page offers none", () => {
+  const at = (search = "", protocol = "https:") => appScheme({ protocol, search });
+  expect(at()).toBe("cmux-nightly");
+  // Each build the daemon names (cmux-cloud-config `callback_scheme`): NEXT DEV, a Debug build, a tagged one, RC.
+  for (const scheme of ["cmux-next-dev", "cmux-dev", "cmux-dev-my-tag", "cmux-rc", "cmux"]) {
+    expect(at(`?app=${scheme}`)).toBe(scheme);
+  }
+  expect(at("?app=javascript")).toBe("cmux-nightly");
+  expect(at("?app=https")).toBe("cmux-nightly");
+  expect(at("?app=cmux-")).toBe("cmux-nightly");
+  expect(at("", "http:")).toBeUndefined();
+  expect(at("?app=cmux-dev", "http:")).toBe("cmux-dev");
 });
 
 test("the step is skipped inside the app, after the browser was chosen, once joined and with no share", () => {
   const storage = memoryStorage();
-  const page = { hostname: "share.cmux.dev", search: "" };
+  const page = { protocol: "https:", search: "" };
   expect(offersApp(page, storage, SHARE, false)).toBe(true);
   expect(offersApp({ ...page, search: "?in_app=1" }, storage, SHARE, false)).toBe(false);
   expect(offersApp(page, storage, SHARE, true)).toBe(false);
   expect(offersApp(page, storage, "", false)).toBe(false);
-  expect(offersApp({ hostname: "localhost", search: "" }, storage, SHARE, false)).toBe(false);
+  expect(offersApp({ protocol: "http:", search: "" }, storage, SHARE, false)).toBe(false);
   chooseBrowser(storage, SHARE);
   expect(offersApp(page, storage, SHARE, false)).toBe(false);
   expect(offersApp(page, storage, "c2hhcmUtb3RoZXI", false)).toBe(true);

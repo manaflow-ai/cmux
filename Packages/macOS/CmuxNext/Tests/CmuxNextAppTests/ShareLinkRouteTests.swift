@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextOnboarding
 import Foundation
 import Testing
@@ -48,6 +49,19 @@ import Testing
     @Test func aWebLinkFromInsideCmuxKeepsItsShareRoute() throws {
         let url = try #require(URL(string: "https://share.cmux.dev/g/\(share)"))
         #expect(router.routeWebLink(url) == .shareLink(url))
+    }
+
+    @Test func aSharePageContinuedFromAnotherDeviceOpensAsAShareLink() throws {
+        let page = try #require(URL(string: "https://share.cmux.dev/g/\(share)"))
+        #expect(router.route(continuing: NSUserActivityTypeBrowsingWeb, webpageURL: page) == .shareLink(page))
+        let other = try #require(URL(string: "https://example.com/docs"))
+        #expect(router.route(continuing: NSUserActivityTypeBrowsingWeb, webpageURL: other) == .browserTab(other))
+    }
+
+    @Test func aPageOpenedWithoutTheDaemonIsMarkedInsideTheApp() throws {
+        let page = try #require(URL(string: "https://share.cmux.dev/g/\(share)?app=cmux-next-dev#c2VjcmV0LTAwMDAwMDAwMDAx"))
+        #expect(AgentShareLinks.inApp(page).absoluteString
+            == "https://share.cmux.dev/g/\(share)?app=cmux-next-dev&in_app=1#c2VjcmV0LTAwMDAwMDAwMDAx")
     }
 
     @Test func theDaemonRequestCarriesTheLinkAndTokenAndDecodesItsAnswer() throws {

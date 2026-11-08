@@ -3,6 +3,7 @@
 //! which it asks the operating system to open when the cmux app is installed) becomes the page the app
 //! opens in its own web view, signed in as the person's cmux account so they join as themselves.
 //!
+//! A link made by a build other than the default a guest page opens carries `?app=<scheme>` (dropped here).
 //! Only a share page of a known room is opened: the configured room's own origin, or a declared platform
 //! deployment's origin or short share host (`platform::share_deployment`). The person's cmux token is
 //! spent only on a page of the configured room's own deployment: one `POST /v1/chat-shares/<id>/handoff`
@@ -69,7 +70,7 @@ impl ShareLink {
     }
 }
 
-/// Reads a share link in either form; nil for anything else (another path, a query on the page, credentials
+/// Reads a share link in either form; nil for anything else (another path, a query other than `app=`, credentials
 /// in the URL, a scheme that is not cmux's).
 pub(super) fn parse(raw: &str) -> Option<ShareLink> {
     let url = url::Url::parse(raw).ok()?;
@@ -97,7 +98,7 @@ pub(super) fn parse(raw: &str) -> Option<ShareLink> {
     if !(page.scheme() == "https" || (page.scheme() == "http" && loopback))
         || !page.username().is_empty()
         || page.password().is_some()
-        || page.query().is_some()
+        || !page.query().is_none_or(names_only_an_app)
     {
         return None;
     }
@@ -118,8 +119,13 @@ pub(super) fn parse(raw: &str) -> Option<ShareLink> {
     Some(ShareLink { origin: page.origin().ascii_serialization(), page: kind, share_id, secret })
 }
 
+/// A page's only query a link may carry: `app=<scheme>`, the build that made it (room `set_link_share_app_scheme`).
+fn names_only_an_app(query: &str) -> bool {
+    query.strip_prefix("app=").is_some_and(is_cmux_scheme)
+}
+
 /// `cmux`, `cmux-dev`, `cmux-nightly`, `cmux-dev-<tag>`: a cmux build's own scheme.
-fn is_cmux_scheme(scheme: &str) -> bool {
+pub(super) fn is_cmux_scheme(scheme: &str) -> bool {
     scheme == "cmux"
         || scheme.strip_prefix("cmux-").is_some_and(|rest| {
             !rest.is_empty()

@@ -6,16 +6,12 @@
 // account (the platform's hand-off, `?cmux_handoff=`) and marks it `?in_app=1`, where this step is
 // skipped. Without the app nothing opens, and the page carries on as before.
 
-/** The scheme of the cmux build each share host belongs to: a link from a release build opens the
- * release app, a NIGHTLY's the NIGHTLY, a DEV build's the DEV build. */
-const SCHEMES: Readonly<Record<string, string>> = {
-  "share.cmux.dev": "cmux",
-  "cmux-platform-production.debussy.workers.dev": "cmux",
-  "share-staging.cmux.dev": "cmux-nightly",
-  "cmux-platform-staging.debussy.workers.dev": "cmux-nightly",
-  "share-dev.cmux.dev": "cmux-dev",
-  "cmux-platform-development.debussy.workers.dev": "cmux-dev",
-};
+/**
+ * The app a link opens when it names none: cmux NEXT ships as cmux NIGHTLY, which registers
+ * `cmux-nightly`. A link another build made names its own scheme in `?app=` (the daemon's
+ * `set_link_share_app_scheme`, from the scheme that build registers), so the page keeps no list.
+ */
+export const DEFAULT_APP_SCHEME = "cmux-nightly";
 
 /** A cmux build's own scheme (`cmux`, `cmux-nightly`, `cmux-dev-<tag>`): `?app=` may name one. */
 const CMUX_SCHEME = /^cmux(?:-[a-z0-9]+)*$/;
@@ -25,11 +21,11 @@ export const APP_OPEN_WAIT_MS = 1500;
 
 export type AppLinkTarget = { shareId: string; secret?: string; invite?: boolean };
 
-/** The app's scheme for this page, or undefined where no cmux app takes it (a local page). */
-export function appScheme(location: Pick<Location, "hostname" | "search">): string | undefined {
+/** The app's scheme for this page: the link's `?app=`, else the default; none off https (a local page). */
+export function appScheme(location: Pick<Location, "protocol" | "search">): string | undefined {
   const asked = new URLSearchParams(location.search).get("app");
   if (asked && CMUX_SCHEME.test(asked)) return asked;
-  return SCHEMES[location.hostname.toLowerCase()];
+  return location.protocol === "https:" ? DEFAULT_APP_SCHEME : undefined;
 }
 
 /** The app URL for a link: the page's own address in `link` (no secret), the secret in the fragment. */
@@ -55,7 +51,7 @@ export function chooseBrowser(storage: Storage, shareId: string): void {
  * app scheme fits, not after the visitor chose the browser, and not once this tab has joined.
  */
 export function offersApp(
-  location: Pick<Location, "hostname" | "search">,
+  location: Pick<Location, "protocol" | "search">,
   storage: Storage,
   shareId: string,
   joined: boolean,

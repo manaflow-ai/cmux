@@ -122,11 +122,12 @@ public nonisolated struct ExternalOpenRouter: Sendable {
     }
 
     /// A web page continued from another device (Handoff,
-    /// `NSUserActivityTypeBrowsingWeb`): a browser tab for its `http(s)` URL.
-    /// Any other activity or URL is refused.
+    /// `NSUserActivityTypeBrowsingWeb`): a browser tab for its `http(s)` URL,
+    /// or a chat share page's own route. Any other activity or URL is refused.
     public func route(continuing activityType: String, webpageURL: URL?) -> ExternalOpenRoute {
         guard activityType == NSUserActivityTypeBrowsingWeb, let url = webpageURL,
               let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return .unsupported }
+        if scheme == "https", Self.isSharePagePath(url.path(percentEncoded: true)) { return .shareLink(url) }
         return .browserTab(url)
     }
 

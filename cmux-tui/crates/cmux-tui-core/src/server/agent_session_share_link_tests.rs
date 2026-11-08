@@ -36,6 +36,10 @@ fn reads_both_link_forms() {
         parse(&format!("https://cmux-platform-production.debussy.workers.dev/g/{SHARE}#{SECRET}"))
             .unwrap();
     assert_eq!(old.origin, "https://cmux-platform-production.debussy.workers.dev");
+    // A link a DEV build made names its app; the page it opens is the same.
+    let dev =
+        parse(&format!("https://share.cmux.dev/g/{SHARE}?app=cmux-next-dev#{SECRET}")).unwrap();
+    assert_eq!(dev, https);
     let invite = parse(&format!("https://share.cmux.dev/i/{SHARE}#{SECRET}")).unwrap();
     assert_eq!((invite.page, invite.secret), ("i", None));
 }
@@ -48,6 +52,8 @@ fn refuses_anything_else() {
         format!("https://share.cmux.dev/x/{SHARE}"),
         format!("https://share.cmux.dev/g/{SHARE}/more"),
         format!("https://share.cmux.dev/g/{SHARE}?q=1"),
+        format!("https://share.cmux.dev/g/{SHARE}?app=evil"),
+        format!("https://share.cmux.dev/g/{SHARE}?app=cmux-dev&q=1"),
         "https://share.cmux.dev/g/short".into(),
         format!("https://user:pw@share.cmux.dev/g/{SHARE}"),
         format!("http://share.cmux.dev/g/{SHARE}"),

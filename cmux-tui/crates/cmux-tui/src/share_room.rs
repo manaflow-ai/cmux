@@ -56,6 +56,22 @@ pub(crate) fn url() -> Option<String> {
         .map(str::to_owned)
 }
 
+/// This daemon's app's URL scheme (the one its Info.plist registers, cmux-cloud-config `callback_scheme`), which
+/// the links it makes name for the guest page; nil outside an app bundle.
+pub(crate) fn app_scheme() -> Option<String> {
+    let exe = std::env::current_exe().ok();
+    let identity =
+        crate::app_identity::AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref())?;
+    Some(scheme_of(&identity, std::env::var("CMUX_AUTH_CALLBACK_SCHEME").ok().as_deref()))
+}
+
+fn scheme_of(identity: &crate::app_identity::AppIdentity, configured: Option<&str>) -> String {
+    const DEBUG: &str = "com.cmuxterm.app.debug";
+    let bundle = identity.bundle_id.as_deref().unwrap_or(DEBUG);
+    let debug = bundle == DEBUG || bundle.starts_with("com.cmuxterm.app.debug.");
+    cmux_cloud_config::config::callback_scheme(configured, bundle, identity.tag.as_deref(), debug)
+}
+
 fn default_for(kind: BuildKind) -> Option<&'static str> {
     match kind {
         BuildKind::Release | BuildKind::Rc => Some(PRODUCTION),
@@ -77,5 +93,35 @@ mod tests {
         assert_eq!(default_for(BuildKind::Staging), Some(STAGING));
         assert_eq!(default_for(BuildKind::Dev), Some(DEVELOPMENT));
         assert_eq!(default_for(BuildKind::Unbundled), None);
+    }
+
+    #[test]
+    fn each_build_names_the_scheme_it_registers() {
+        use crate::app_identity::AppIdentity;
+        let app = |bundle: Option<&str>, tag: Option<&str>| AppIdentity {
+            bundle_id: bundle.map(str::to_owned),
+            tag: tag.map(str::to_owned),
+            socket_override: None,
+            shipped_tag: tag.map(str::to_owned),
+        };
+        let cases = [
+            (app(Some("com.cmuxterm.app.nightly"), None), "cmux-nightly"),
+            (app(Some("com.cmuxterm.app"), None), "cmux"),
+            (app(Some("com.cmuxterm.app.rc"), None), "cmux-rc"),
+            (app(Some("com.cmuxterm.app.debug.next"), None), "cmux-next-dev"),
+            (app(Some("com.cmuxterm.app.debug"), None), "cmux-dev"),
+            (
+                app(Some("com.cmuxterm.app.debug.share.links"), Some("share-links")),
+                "cmux-dev-share-links",
+            ),
+            (app(None, Some("share-links")), "cmux-dev-share-links"),
+        ];
+        for (identity, scheme) in cases {
+            assert_eq!(scheme_of(&identity, None), scheme, "{identity:?}");
+        }
+        // The bundle's own setting wins (cmux NIGHTLY's LSEnvironment), unless it cannot be a scheme.
+        let nightly = app(Some("com.cmuxterm.app.nightly"), None);
+        assert_eq!(scheme_of(&nightly, Some("cmux-nightly")), "cmux-nightly");
+        assert_eq!(scheme_of(&nightly, Some("1 bad")), "cmux-nightly");
     }
 }
