@@ -357,7 +357,7 @@ fn imported_events(chat: &PortableChat, id: &str) -> Vec<EventRecord> {
             at: turn.prompt_at.unwrap_or(0),
             dir: "mux".into(),
             kind: "user_message".into(),
-            msg: json!({"sessionId": id, "parts": parts}),
+            msg: json!({"sessionId": id, "text": turn.prompt, "parts": parts}),
             host_seq: None,
         });
         for call in &turn.tool_calls {
@@ -571,14 +571,20 @@ pub async fn import(hub: &Arc<Hub>, path: &Path) -> std::result::Result<Value, R
     std::fs::create_dir_all(&root).map_err(|e| RpcError::internal(e.to_string()))?;
     let configured: Vec<String> = hub.config.read().await.harnesses.keys().cloned().collect();
     let fallback = configured
-        .first()
+        .iter()
+        .find(|harness| harness.as_str() != "cmux-harness")
+        .or_else(|| configured.first())
         .cloned()
         .ok_or_else(|| RpcError::invalid_params("no configured harness can host imported chats"))?;
     let mut imported = Vec::new();
     let mut imported_sessions = Vec::new();
     let mut restored_attachments = Vec::new();
     for chat in &bundle.chats {
-        let harness = if configured.iter().any(|candidate| candidate == &chat.harness) {
+        // cmux-harness has additional durable state that is intentionally not embedded in this
+        // portable document. Restore its readable event journal into a fresh configured harness.
+        let harness = if chat.harness == "cmux-harness" {
+            fallback.as_str()
+        } else if configured.iter().any(|candidate| candidate == &chat.harness) {
             chat.harness.as_str()
         } else {
             fallback.as_str()
@@ -693,5 +699,31 @@ mod tests {
         let encoded = serde_json::to_string(&bundle(vec![chat.clone()])).unwrap();
         let decoded: PortableBundle = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded.chats[0], chat);
+    }
+
+    #[test]
+    fn imported_transcript_prompts_use_the_canonical_text_field() {
+        let chat = PortableChat {
+            key: "foreign:s".into(),
+            harness: "foreign".into(),
+            session_id: "s".into(),
+            title: None,
+            cwd: None,
+            created_at: None,
+            updated_at: None,
+            model: None,
+            turns: vec![PortableTurn {
+                prompt: "remember this".into(),
+                answer: String::new(),
+                prompt_at: None,
+                answer_at: None,
+                tool_calls: Vec::new(),
+            }],
+            events: Vec::new(),
+            session: None,
+            attachments: Vec::new(),
+        };
+        let events = imported_events(&chat, "imported");
+        assert_eq!(events[0].msg.get("text").and_then(Value::as_str), Some("remember this"));
     }
 }
