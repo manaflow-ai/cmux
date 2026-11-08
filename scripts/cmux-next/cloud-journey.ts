@@ -332,9 +332,9 @@ function cliExec(cmux: string, api: Api, machine: string): Exec {
 
 /**
  * What is wrong with a POST /v1/cloud/machines/{id}/carrier answer for a person who sent a noise_key (cmux-platform
- * CarrierRoute.ts), or null when it is a whole carrier answer: the relay, the machine's slot, a live ticket and the
- * grant for the key. The daemon's Noise key (`daemon_key`, stored at bind by an image that serves the carrier) is
- * reported by the step, not required here.
+ * CarrierRoute.ts), or null when it is a whole carrier answer: the relay, the machine's slot, a live ticket, the
+ * grant for the key and the daemon's Noise key (32 bytes, base64url), which an image that serves the carrier stores
+ * at bind and which the dial pins (cmux-tui carrier/client.rs pinned_daemon refuses an answer without it).
  */
 export function carrierTicketProblem(status: number, body: any, nowS = Date.now() / 1000): string | null {
   if (status !== 200 || body?.ok !== true) return `HTTP ${status} ${short(body?.error ?? body)}`;
@@ -342,6 +342,8 @@ export function carrierTicketProblem(status: number, body: any, nowS = Date.now(
   if (typeof v.relay !== "string" || !v.relay.startsWith("relay+do://")) return `no relay+do:// relay (${short(v.relay)})`;
   for (const field of ["slot", "ticket", "grant"]) if (typeof v[field] !== "string" || !v[field]) return `no ${field}`;
   if (typeof v.expires_at !== "number" || v.expires_at <= nowS) return `the ticket is not live (expires_at ${short(v.expires_at)})`;
+  if (typeof v.daemon_key !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(v.daemon_key) || Buffer.from(v.daemon_key, "base64url").length !== 32)
+    return "no 32-byte daemon_key: the machine's daemon stored no carrier key at bind, and the dial refuses that";
   return null;
 }
 
@@ -1498,7 +1500,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const r = await api.raw("POST", `/v1/cloud/machines/${created.id}/carrier`, { noise_key: noiseKey });
         const problem = carrierTicketProblem(r.status, r.body);
         if (problem) throw new Error(`carrier ticket: ${problem}`);
-        return { value: null, detail: `${r.body.value.relay}, ticket until ${r.body.value.expires_at}, grant present, ${r.body.value.daemon_key ? "daemon key present" : "no daemon key stored at bind"}` };
+        return { value: null, detail: `${r.body.value.relay}, ticket until ${r.body.value.expires_at}, grant and daemon key present` };
       });
       J.skip("connect (carrier dial)", "--cmux is required for a carrier dial");
     }

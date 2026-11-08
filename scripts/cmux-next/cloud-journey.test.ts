@@ -278,7 +278,7 @@ describe("opRetryable", () => {
 });
 
 describe("cloud journey: carrier ticket without a cmux binary", () => {
-  const whole = { relay: "relay+do://cmux-remote-relay-production.debussy.workers.dev", slot: "s", ticket: "t", grant: "g", daemon_key: "k", expires_at: 2_000 };
+  const whole = { relay: "relay+do://cmux-remote-relay-production.debussy.workers.dev", slot: "s", ticket: "t", grant: "g", daemon_key: Buffer.alloc(32, 7).toString("base64url"), expires_at: 2_000 };
   test("a whole answer passes", () => {
     expect(carrierTicketProblem(200, { ok: true, value: whole }, 1_000)).toBeNull();
   });
@@ -287,6 +287,7 @@ describe("cloud journey: carrier ticket without a cmux binary", () => {
     expect(carrierTicketProblem(200, { ok: true, value: { ...whole, relay: "wss://x" } }, 1_000)).toContain("relay+do://");
     expect(carrierTicketProblem(200, { ok: true, value: { ...whole, grant: undefined } }, 1_000)).toBe("no grant");
     expect(carrierTicketProblem(200, { ok: true, value: whole }, 3_000)).toContain("not live");
-    expect(carrierTicketProblem(200, { ok: true, value: { ...whole, daemon_key: undefined } }, 1_000)).toBeNull();
+    expect(carrierTicketProblem(200, { ok: true, value: { ...whole, daemon_key: undefined } }, 1_000)).toContain("no 32-byte daemon_key");
+    expect(carrierTicketProblem(200, { ok: true, value: { ...whole, daemon_key: "k" } }, 1_000)).toContain("no 32-byte daemon_key");
   });
 });
