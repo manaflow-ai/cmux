@@ -88,6 +88,10 @@ pub enum Action {
     BrowserReload,
     BrowserEditUrl,
     ShowShortcuts,
+    /// Jump to the next tab that needs the person (src/attention.rs order).
+    NextAttention,
+    /// Open the searchable list of tabs that need the person.
+    AttentionList,
     Detach,
     /// Docked workspaces (plans/cmux-next/docked-workspace-DESIGN.md): dock
     /// the active workspace on an edge, undock it, show or hide an edge,

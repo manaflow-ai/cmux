@@ -11,6 +11,7 @@
 import React from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { ComposerAttachment } from "../attachments";
+import type { PlayContext } from "../../../gallery/play";
 
 type Look = "page" | "page-body" | "header" | "tile";
 type Props = { look: Look };
@@ -54,6 +55,19 @@ const LOOKS: Record<Look, string> = {
     [data-text-look=tile] .acpmux-text-card__label { text-transform: uppercase; }`,
 };
 
+/// Right-clicks the strip's paste card: its menu offers Keep as .txt beside Edit in Prompt (review of
+/// #37516).
+async function openPasteMenu(ctx: PlayContext) {
+  const card = ctx.find({ selector: ".acpmux-attachment-pasted" });
+  const box = card.getBoundingClientRect();
+  card.dispatchEvent(
+    new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: box.left + 40, clientY: box.top + 20 }),
+  );
+  await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]'));
+  if (!/Keep as \.txt/.test(ctx.document.querySelector('[role="menu"]')?.textContent ?? ""))
+    throw new Error("the strip's paste card menu must offer Keep as .txt");
+}
+
 export default componentEntry<Props>({
   id: "agent-pane.text-attachment-card",
   title: "Text attachment card",
@@ -94,6 +108,11 @@ export default componentEntry<Props>({
     ),
   variants: {
     page: { note: "Shipped: first lines in monospace, faded, over Pasted text · 40 lines.", props: { look: "page" } },
+    "page-menu": {
+      note: "Right-click on the strip's paste card: Edit in Prompt, Keep as .txt, Remove.",
+      props: { look: "page" },
+      play: openPasteMenu,
+    },
     "page-body": { note: "The same page with the lines in the body font.", props: { look: "page-body" } },
     header: { note: "The label on top, the lines under it.", props: { look: "header" } },
     tile: { note: "Claude's narrow tile: wrapped lines, an uppercase label.", props: { look: "tile" } },
