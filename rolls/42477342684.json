@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42477342684",
+  "recorded_at": "2026-11-08T11:56:02Z",
+  "reason": "cmux-tui e27250f9686a changes the image's cmux-tui (pinned f2262beec1ac)",
+  "dry_run": false,
+  "cmux_tui": "e27250f9686af48a1c62f38f344e9294aa781b5e",
+  "fixes": [
+    {
+      "sha": "e27250f9686af48a1c62f38f344e9294aa781b5e",
+      "mergedAt": "2026-11-08T03:32:36-08:00",
+      "subject": "cmux-tui: restart test reads the terminal id from the live tab"
+    },
+    {
+      "sha": "cf5ee264eca11b396d4caec31d6c64c7e60bd889",
+      "mergedAt": "2026-11-08T03:32:35-08:00",
+      "subject": "cmux-tui: Restart Shell Here works after a failed respawn; no-PTY respawns park"
+    },
+    {
+      "sha": "cddd40a94e4b56751cfccfe7f5cd15c83368e22d",
+      "mergedAt": "2026-11-08T03:32:34-08:00",
+      "subject": "cmux-tui: failing test: Restart Shell Here refused after a failed respawn launch"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T11:56:02Z",
+    "snapshot_id": "sh-0530c7d71de14cf09cdebcf11c3f2637",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42477342684): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "8572dc2bdfc7db7a2779ebe5ff390e39a843425c",
+    "image": "cloud-native-auto-e27250f9-42477342684-1",
+    "revision": "ci-42477342684-1",
+    "at": "2026-11-08T11:56:02Z"
+  },
+  "rolled_back": false
+}
