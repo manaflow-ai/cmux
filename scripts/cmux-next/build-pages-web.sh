@@ -52,6 +52,7 @@ mobile-pairing
 onboarding
 overlay
 passwords
+server-cards
 settings
 stash
 stats

@@ -322,13 +322,6 @@ fn a_file_hash_covers_every_byte_past_one_read_buffer() {
     assert_eq!(store::sha256_file(&path).unwrap(), sha(&bytes));
 }
 
-#[test]
-fn a_running_relay_chat_holds_the_update() {
-    assert_eq!(relay_chats_busy(0), None);
-    assert_eq!(relay_chats_busy(1).as_deref(), Some("1 relay chat"));
-    assert_eq!(relay_chats_busy(3).as_deref(), Some("3 relay chats"));
-}
-
 /// A claimed spare resumed at 21:28:35 and its updater restarted the services
 /// at 21:28:41, killing the Mac's first dial (nightly 8d8fc7a, 2026-11-06): no
 /// flip within the connect hold of a start, a bind or a resume.
@@ -379,4 +372,16 @@ fn a_hold_that_starts_during_staging_holds_the_flip() {
         Some(role::Outcome::Busy(why)) => assert!(why[0].contains("connect hold"), "{why:?}"),
         other => panic!("the flip is not held: {other:?}"),
     }
+}
+
+/// A new machine is a restore of the bake's snapshot: `realtime - boottime`
+/// jumps by the stopped time, which starts the connect hold before the
+/// supervisor's `Resumed` arrives; a clock sync's drift does not.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_snapshot_restore_counts_from_the_clock_offset_not_a_sync() {
+    let second = 1_000_000_000_i128;
+    assert!(!role::restored_between(None, 50 * second));
+    assert!(!role::restored_between(Some(50 * second), 50 * second + second / 2));
+    assert!(role::restored_between(Some(50 * second), 50 * second + 3 * 24 * 3600 * second));
 }

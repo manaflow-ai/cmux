@@ -310,7 +310,8 @@ pub(super) fn run_all_sessions(global: &GlobalArgs, plan: RequestPlan) -> i32 {
                 terminals.extend(list);
             }
         }
-        let roster = super::wire::agent_roster_across(plan.view, join(results), &terminals);
+        let roster =
+            super::wire::agent_roster_across(plan.view, join(results), &terminals, &plan.params);
         super::wire::print_result(global, &plan, roster)
     } else {
         super::wire::print_local_success(&join(results), global.output)

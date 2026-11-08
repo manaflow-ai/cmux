@@ -104,6 +104,36 @@ pub(super) fn held_outcome(now: Instant) -> Option<Outcome> {
         .map(|left| Outcome::Busy(vec![format!("connect hold, {} s left", left.as_secs())]))
 }
 
+/// `realtime - boottime` at the worker's last look ([`hold_after_restore`]).
+static CLOCK_OFFSET: Mutex<Option<i128>> = Mutex::new(None);
+
+/// Whether `realtime - boottime` moved from `before` to `now` by a whole stop:
+/// a snapshot restore, as the supervisor's clock-set wake counts one.
+pub(super) fn restored_between(before: Option<i128>, now: i128) -> bool {
+    before.is_some_and(|before| {
+        crate::agent::clock_set_wake(before, now) == crate::agent::Wake::ClockSet
+    })
+}
+
+/// Starts the connect hold for a snapshot restore the supervisor's
+/// `Resumed` has not reached yet. A new machine is a restore of the bake's
+/// snapshot, so the hold its role start set ran out long before. Its
+/// `Resumed` comes only after a metadata read, and this worker's next
+/// look could flip first (production probe, 2026-11-08: a new machine
+/// flipped 10 s after its create and the app's first link ended).
+fn hold_after_restore() {
+    #[cfg(target_os = "linux")]
+    {
+        let now = crate::linux::realtime_minus_boottime_ns();
+        let mut last = CLOCK_OFFSET.lock().unwrap_or_else(|e| e.into_inner());
+        if restored_between(*last, now) {
+            hold_connects();
+            log("a snapshot restore: no flip during the connect hold");
+        }
+        *last = Some(now);
+    }
+}
+
 /// How much of the connect hold is left at `now`.
 pub(super) fn held_for(now: Instant) -> Option<Duration> {
     hold_left(*HELD_UNTIL.lock().unwrap_or_else(|e| e.into_inner()), now)
@@ -186,6 +216,7 @@ impl Role for UpdaterRole {
             return Ok(());
         }
         hold_connects();
+        hold_after_restore();
         let (tx, rx) = mpsc::channel();
         let (done_tx, done) = mpsc::channel::<()>();
         let paths = self.paths.clone();
@@ -245,6 +276,7 @@ fn run(paths: &Paths, rx: &Receiver<Msg>) {
     loop {
         // A check during the hold waits it out (a Check message only wakes it
         // to look again).
+        hold_after_restore();
         if let Some(left) = held_for(Instant::now()) {
             if !wait(rx, left) {
                 return;
@@ -402,6 +434,7 @@ fn check_inner(paths: &Paths) -> Outcome {
         },
     };
     let commit = COMMIT.lock().unwrap_or_else(|e| e.into_inner());
+    hold_after_restore();
     let last = last
         .or_else(|| stopped().then(|| Outcome::Failed("the updater stopped".to_owned())))
         .or_else(|| held_outcome(Instant::now()));
@@ -553,12 +586,8 @@ fn acpmux(args: &[&str]) -> Option<(bool, String)> {
     Some((output.status.success(), String::from_utf8_lossy(&output.stdout).into_owned()))
 }
 
-/// What a restart would cut: the relay chats this cmux-host runs, then
-/// [`acpmux_busy_sessions`]. Empty only when both are idle.
+/// What a restart would cut: [`acpmux_busy_sessions`]. Empty only when it is idle.
 fn busy_sessions() -> Result<Vec<String>, String> {
-    if let Some(chats) = super::relay_chats_busy(crate::cloud::relay::running_chats()) {
-        return Ok(vec![chats]);
-    }
     acpmux_busy_sessions()
 }
 

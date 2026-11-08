@@ -76,6 +76,8 @@ struct ChatTurnContext: Equatable, Sendable {
     var choicesFor: String?
     /// The next turn's prompt: a next-step card this turn ended on folds to the answer it gave.
     var nextPrompt: String?
+    /// The tones the chat gave this turn's senders' sessions (`AgentTones`), by session id.
+    var senderTones: [String: Int] = [:]
 }
 
 /// A turn's rows, built once per change to the turn.
@@ -105,6 +107,11 @@ final class ChatTranscriptBuilder {
     private var memos: [String: Memo] = [:]
     private var parses: [String: MarkdownStreamParse] = [:]
     private var generation = 0
+    /// The chat's senders' tones: each session that sent a message, from when the chat first heard
+    /// from it (`AgentTones`, as the Mac tones a chat's agents).
+    private var tones = AgentTones()
+    private var senderFirstSeen: [String: Double] = [:]
+    private var senderTones: [String: Int] = [:]
     /// Turns built (tests: one per changed turn, not one per turn per update).
     private(set) var turnBuilds = 0
 
@@ -121,12 +128,14 @@ final class ChatTranscriptBuilder {
         out.reserveCapacity(turns.count)
         var followsActions = false
         let choicesFor = permissionBarHidden ? pendingPermission?.request.id : nil
+        assignSenderTones(turns)
         for (index, turn) in turns.enumerated() {
             let isLast = index == turns.count - 1
             let context = ChatTurnContext(isFirst: index == 0, isLast: isLast, earlierHistory: index == 0 && earlierHistory,
                                           followsActions: followsActions, askOpen: isLast && askOpen,
                                           choicesFor: isLast ? choicesFor : nil,
-                                          nextPrompt: isLast ? nil : Self.reply(turns[index + 1].prompt))
+                                          nextPrompt: isLast ? nil : Self.reply(turns[index + 1].prompt),
+                                          senderTones: turnTones(turn))
             let rows: ChatTurnRows
             if let memo = memos[turn.id], memo.context == context, memo.turn == turn,
                !memo.waitsForDiff || memo.diffVersion == diffs.version {
@@ -159,6 +168,39 @@ final class ChatTranscriptBuilder {
         last?.isActions == true ? 18 : 24
     }
 
+    /// `incoming` with each message's assigned tone.
+    private static func toned(_ incoming: AgentIncoming, _ tones: [String: Int]) -> AgentIncoming {
+        guard !tones.isEmpty else { return incoming }
+        var toned = incoming
+        for index in toned.messages.indices {
+            toned.messages[index].tone = toned.messages[index].senderID.flatMap { tones[$0] }
+        }
+        return toned
+    }
+
+    /// Records the sessions that first sent a message in `turns` and, when there is a new one, assigns
+    /// the chat's tones again. One look at each turn's senders, as the memo pass looks at each turn.
+    private func assignSenderTones(_ turns: [AgentTurn]) {
+        var added = false
+        for turn in turns {
+            for message in turn.incoming?.messages ?? [] {
+                guard let id = message.senderID, senderFirstSeen[id] == nil else { continue }
+                senderFirstSeen[id] = turn.promptAt.timeIntervalSince1970
+                added = true
+            }
+        }
+        guard added else { return }
+        senderTones = tones.assign(senderFirstSeen.map { AgentTones.Agent(id: $0.key, startedAt: $0.value) })
+    }
+
+    private func turnTones(_ turn: AgentTurn) -> [String: Int] {
+        var out: [String: Int] = [:]
+        for message in turn.incoming?.messages ?? [] {
+            if let id = message.senderID, let tone = senderTones[id] { out[id] = tone }
+        }
+        return out
+    }
+
     private func buildTurn(_ turn: AgentTurn, context: ChatTurnContext) -> (rows: [ChatRow], waitsForDiff: Bool) {
         var rows: [ChatRow] = []
         var waits = false
@@ -174,7 +216,7 @@ final class ChatTranscriptBuilder {
         // An inbox notice with nothing to show (AgentIncoming with no messages) draws no prompt row.
         if turn.incoming?.messages.isEmpty != true {
             rows.append(ChatRow(id: "u-\(turnID)", turnID: turnID,
-                                kind: turn.incoming.map { .incoming($0, attachments: turn.attachments, at: turn.promptAt) }
+                                kind: turn.incoming.map { .incoming(Self.toned($0, context.senderTones), attachments: turn.attachments, at: turn.promptAt) }
                                     ?? .prompt(text: turn.prompt, attachments: turn.attachments, at: turn.promptAt, isLast: context.isLast),
                                 gap: context.isFirst ? 0 : (context.followsActions ? 18 : 24)))
         }

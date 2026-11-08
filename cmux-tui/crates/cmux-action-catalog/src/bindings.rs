@@ -65,6 +65,8 @@ pub static PANE_FOCUS_ALIASES: &[Binding] = &[
 pub static FOCUS_HISTORY_ALIASES: &[Binding] = &[
     Binding { keys: &[Shortcut { key: "[", modifiers: CMD }], command: "focusHistoryBack", argument: None, arguments: &[], when: Some("surfaceKind != page && !codeEditorFocused"), source: "default" },
     Binding { keys: &[Shortcut { key: "]", modifiers: CMD }], command: "focusHistoryForward", argument: None, arguments: &[], when: Some("surfaceKind != page && !codeEditorFocused"), source: "default" },
+    Binding { keys: &[Shortcut { key: "-", modifiers: CTRL }], command: "focusHistoryBack", argument: None, arguments: &[], when: Some("surfaceKind != terminal"), source: "default" },
+    Binding { keys: &[Shortcut { key: "-", modifiers: CTRL | SHIFT }], command: "focusHistoryForward", argument: None, arguments: &[], when: Some("surfaceKind != terminal"), source: "default" },
 ];
 
 #[rustfmt::skip]
@@ -147,8 +149,6 @@ pub static YIELDS_TO_CODE_EDITOR: &[&str] = &[
 ];
 pub static YIELDS_TO_TERMINAL: &[&str] = &[
     "decreaseWorkspaceTerminalFontSize",
-    "focusHistoryBack",
-    "focusHistoryForward",
     "groupSelectedWorkspaces",
     "increaseWorkspaceTerminalFontSize",
     "resetWorkspaceTerminalFontSize",
