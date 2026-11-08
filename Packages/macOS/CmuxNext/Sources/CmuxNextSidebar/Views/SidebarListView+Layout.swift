@@ -218,7 +218,9 @@ extension SidebarListViewComponents {
         // goes on to 1, and it clips until its own open ends (Lawrence 2026-10-28, sidebar-burst-motion.md: reopening
         // it in a new, empty and transparent view on every key left only empty slots until the repeat stopped). A row
         // still opening that moved by itself (shown at the daemon's slot, then placed below the current one) opens
-        // again there, in a new view: carried across the list half open, it would cross the rows (cx-ai79).
+        // again there from zero height: carried across the list half open, it would cross the rows (cx-ai79). It keeps
+        // its view and its fade goes on from the opacity on screen: torn down, it went at once and a new view opened
+        // from 0, while its group's line stayed (Leo 2026-11-08: "still a bit of a flicker").
         let now = CACurrentMediaTime()
         // How the rows make room for a new workspace row (`sidebar.insertMotion`, Leo 2026-10-21: "when you create a
         // workspace at the top it's a huge cascade"). Only for a change that only adds rows, among them workspaces new
@@ -288,7 +290,6 @@ extension SidebarListViewComponents {
             let row = layout.rows[index]
             let target = frame(for: row)
             framesComputed += 1
-            if reopened.contains(row.key) { rowViews.removeValue(forKey: row.key)?.removeFromSuperview() }
             let existing = rowViews[row.key]
             guard existing != nil || target.intersects(realize) else { continue }
             keep.insert(row.key)
@@ -300,9 +301,11 @@ extension SidebarListViewComponents {
             configure(view, row: row, animated: animate || (adopting && existing != nil))
             // A row new to the layout, one that moved by itself, or one still opening that scrolls in with no view
             // (it opens in place, as `RowMotion.place` opens one on a scroll).
-            let opens = animate && existing == nil
-                && (old.row(for: row.key) == nil || reopened.contains(row.key) || openingRows[row.key] != nil)
+            let opens = animate && (reopened.contains(row.key)
+                || existing == nil && (old.row(for: row.key) == nil || openingRows[row.key] != nil))
             if existing == nil || opens {
+                // A reopened row's opacity on screen, read before its fade comes off with its springs.
+                let shown = existing.flatMap { $0.layer?.presentation()?.opacity }.map { CGFloat($0) } ?? 0
                 // The start state never animates: a recycled view shows no
                 // frame of its previous row (cx-bqm6).
                 view.layer?.removeAllAnimations()
@@ -311,7 +314,7 @@ extension SidebarListViewComponents {
                         // An inserted row grows from its run's top; an expanded one comes out from under its header.
                         let opening = SidebarRowTransition.insertFrame(row, target: target, runTop: insertRuns[row.key], from: old, to: layout)
                         view.frame = insertMotion?.openFrame(opening, target: target, nudge: nudge) ?? opening
-                        view.alphaValue = 0
+                        view.alphaValue = shown
                         view.clipsToBounds = true
                         view.opens += 1
                     } else {
