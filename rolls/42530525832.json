@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42530525832",
+  "recorded_at": "2026-11-08T22:38:41Z",
+  "reason": "cmux-tui 4db772abd264 changes the image's cmux-tui (pinned b0a7382fdee2)",
+  "dry_run": false,
+  "cmux_tui": "4db772abd264dccba31df0c03c7902320f1930d1",
+  "fixes": [
+    {
+      "sha": "4db772abd264dccba31df0c03c7902320f1930d1",
+      "mergedAt": "2026-11-08T14:15:12-08:00",
+      "subject": "acpmux agent_text: no bounded Unicode repetition in the sender patterns (daemon_page_memory red) (#38894)"
+    },
+    {
+      "sha": "fde9065ad581df4b2b7cdcc947eefb5b7b5a18bd",
+      "mergedAt": "2026-11-08T14:15:01-08:00",
+      "subject": "npm transfer archive: a second identical binary is a hard link (entrypoints red) (#38837)"
+    },
+    {
+      "sha": "167c5f4e9b7759cb07c122b037336b77ba20da4b",
+      "mergedAt": "2026-11-08T14:13:42-08:00",
+      "subject": "cmux-tui: stale client socket fixtures bind a socket that never listens (port of main #38723) (#38841)"
+    },
+    {
+      "sha": "f3bc331fbd5ca0b4e5c55abc22ec162fdd8425dd",
+      "mergedAt": "2026-11-08T14:13:39-08:00",
+      "subject": "Agent Chats page: find a chat by what was said in it (#38431)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T22:38:41Z",
+    "snapshot_id": "sh-57bc614d6a4248acbe7d1bd797f8416d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42530525832): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "69201789c562a6a709715cd03956c14753b6799a",
+    "image": "cloud-native-auto-4db772ab-42530525832-1",
+    "revision": "ci-42530525832-1",
+    "at": "2026-11-08T22:38:41Z"
+  },
+  "rolled_back": false
+}
