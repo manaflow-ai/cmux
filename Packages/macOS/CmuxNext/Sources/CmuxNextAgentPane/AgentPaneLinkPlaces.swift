@@ -69,13 +69,13 @@ public final class AgentPaneLinkPlaces {
     /// records alone.
     public struct Titles {
         public var workspace: @MainActor (WorkspaceModel) -> String
-        /// A tab's name in its workspace.
-        public var tab: @MainActor (WorkspaceModel, TabModel) -> String
+        /// A tab's name in its workspace, made once per list (the sidebar's rule reads live stores).
+        public var tabs: @MainActor () -> (WorkspaceModel, TabModel) -> String
 
         public init(workspace: @escaping @MainActor (WorkspaceModel) -> String,
-                    tab: @escaping @MainActor (WorkspaceModel, TabModel) -> String) {
+                    tabs: @escaping @MainActor () -> (WorkspaceModel, TabModel) -> String) {
             self.workspace = workspace
-            self.tab = tab
+            self.tabs = tabs
         }
 
         /// The records' own names (tests): an unnamed workspace by its front tab's record.
@@ -83,7 +83,7 @@ public final class AgentPaneLinkPlaces {
             Titles(workspace: { workspace in
                 let front = workspace.screens.flatMap(\.panes).first.flatMap { AgentPaneLinkPlaces.frontTab(of: $0) }?.displayTitle
                 return workspace.isUnnamed ? (front.flatMap { $0.isEmpty ? nil : $0 } ?? workspace.displayName) : workspace.displayName
-            }, tab: { _, tab in tab.displayTitle })
+            }, tabs: { { _, tab in tab.displayTitle } })
         }
     }
 
@@ -106,6 +106,7 @@ public final class AgentPaneLinkPlaces {
     /// no resource id (an older daemon) or no name names no link and is left out.
     static func places(in workspaces: [(WorkspaceModel, host: String?)], titles: Titles = .records) -> [Place] {
         var places: [Place] = []
+        let tabTitle = titles.tabs()
         for (workspace, host) in workspaces {
             let panes = workspace.screens.flatMap(\.panes)
             let name = titles.workspace(workspace)
@@ -113,13 +114,13 @@ public final class AgentPaneLinkPlaces {
                 places.append(Place(id: id, kind: .workspace, title: name, host: host))
             }
             for pane in panes {
-                let title = pane.name.flatMap { $0.isEmpty ? nil : $0 } ?? Self.frontTab(of: pane).map { titles.tab(workspace, $0) } ?? ""
+                let title = pane.name.flatMap { $0.isEmpty ? nil : $0 } ?? Self.frontTab(of: pane).map { tabTitle(workspace, $0) } ?? ""
                 if let id = pane.resourceID?.rawValue, !title.isEmpty {
                     places.append(Place(id: id, kind: .pane, title: title, host: host, workspace: name))
                 }
                 for tab in pane.tabs {
                     guard let id = tab.resourceID?.rawValue else { continue }
-                    let title = titles.tab(workspace, tab)
+                    let title = tabTitle(workspace, tab)
                     if !title.isEmpty { places.append(Place(id: id, kind: .tab, title: title, host: host, workspace: name)) }
                 }
             }
