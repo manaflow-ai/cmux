@@ -22,7 +22,8 @@ A prompt ending in "settings-probe" replies with the prompt text as Claude
 read it, every `apply_flag_settings` it got, and its argv.
 "slow-stop" runs until the interrupt, then echoes the next prompt line it
 reads before the stopped turn's result (a Stop Claude Code answers late).
-"compact-stop" reports a compaction, ignores its interrupt until the
+"/compact" compacts (with FAKE_CLAUDE_COMPACT_FAIL_IF=<path>, while that file exists, it fails
+on a dropped connection instead). "compact-stop" reports a compaction, ignores its interrupt until the
 compaction finishes, then emits the late result (the Stop path must settle
 before that result arrives).
 "long-step" is one step (a long tool call) that runs until the interrupt, as
@@ -968,6 +969,11 @@ while True:
         # "/compact" runs Claude Code 2.1.303's compaction: the compacting status, the
         # boundary, the summary as a synthetic user line, the command's stdout, a result.
         if said.strip() == "/compact":
+            # FAKE_CLAUDE_COMPACT_FAIL_IF=<path>: while it exists, the connection drops mid-compaction.
+            if os.path.exists(os.environ.get("FAKE_CLAUDE_COMPACT_FAIL_IF") or "\0"):
+                send({"type": "result", "subtype": "success", "is_error": True, "num_turns": 1,
+                      "result": "API Error: Connection error.", "duration_api_ms": 5})
+                continue
             send({"type": "system", "subtype": "status", "status": "compacting", "session_id": SESSION})
             send({"type": "system", "subtype": "status", "status": None, "compact_result": "success",
                   "session_id": SESSION})
@@ -1126,6 +1132,15 @@ while True:
             send({"type": "stream_event", "event": {"type": "message_delta", "usage": {
                 "input_tokens": 1200, "cache_read_input_tokens": 3000, "cache_creation_input_tokens": 0,
                 "output_tokens": 300}}})
+        # "cache-probe": a main-loop call that read 150K tokens from the prompt cache and wrote 500
+        # more at the 5 minute tier (cache_creation), as Claude Code 2.1.310 streams them.
+        if said.strip() == "cache-probe":
+            cached = {"input_tokens": 2, "cache_read_input_tokens": 150000, "cache_creation_input_tokens": 500,
+                      "cache_creation": {"ephemeral_5m_input_tokens": 500, "ephemeral_1h_input_tokens": 0},
+                      "output_tokens": 30}
+            send({"type": "stream_event", "event": {"type": "message_start", "message": {
+                "id": "msg-cache", "model": "fake", "usage": cached}}})
+            send({"type": "stream_event", "event": {"type": "message_delta", "usage": cached}})
         # "compact-probe": /compact ran after the turn's message: its context is smaller now.
         if said.strip() == "compact-probe":
             send({"type": "system", "subtype": "compact_boundary",
@@ -1369,7 +1384,7 @@ while True:
                                                  "delta": {"type": "text_delta", "text": text}}})
         result = {"type": "result", "subtype": "success", "result": text, "num_turns": 1, "duration_api_ms": 1,
                   "usage": {"input_tokens": 1, "output_tokens": 1}}
-        if said.strip() in ("usage-probe", "compact-probe"):
+        if said.strip() in ("usage-probe", "compact-probe", "cache-probe"):
             result["modelUsage"] = {"claude-haiku": {"inputTokens": 50, "contextWindow": 100000},
                                     "fake": {"inputTokens": 1200, "contextWindow": 200000}}
         # "cost-restore X": a process that restored its running total X first.

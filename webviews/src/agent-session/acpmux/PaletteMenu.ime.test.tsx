@@ -2,7 +2,8 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { PaletteMenu, paletteSections } from "./PaletteMenu";
+import { PaletteMenu } from "./PaletteMenu";
+import { paletteSections } from "./paletteMenuModel";
 import { translate, type Translate } from "./i18n";
 
 let dom: JSDOM | undefined;

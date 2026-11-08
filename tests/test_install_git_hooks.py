@@ -643,7 +643,6 @@ cat > node_modules/.bin/vp <<'VP'
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/pane.js",
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/locales/en.js",
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/highlight-worker.js",
-            "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
             "webviews/src/agent-session/acpmux/generated/strings.json",
             "webviews/src/pages/settings/generated/strings.json",
             # Other checked exports: lanes committed "regenerate after the tip
@@ -651,6 +650,8 @@ cat > node_modules/.bin/vp <<'VP'
             "plans/cmux-next/actions.md",
             "plans/cmux-next/action-surfaces.json",
             "schemas/settings/settings-schema.json",
+            # The docs reference that follows the schema: 13 conflicts in a week.
+            "web/data/next-docs/settings-reference.generated.json",
             "docs/mdm/com.manaflow.cmux.plist",
             "Packages/macOS/CmuxNext/ci-target-graph.json",
             "cmux-tui/bindings/go/raw/generated_types.go",

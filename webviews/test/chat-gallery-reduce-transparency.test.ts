@@ -1,6 +1,6 @@
 // The chat's gallery (GalleryDialog.tsx) blurs the pane behind it. Under Reduce Transparency, the
 // host's data-reduce-transparency or the system's media query, it is a solid page instead, as the
-// other blurred acpmux surfaces are. Real Chromium loads summary.css; it cannot emulate
+// other blurred acpmux surfaces are. Real Chromium loads desktop.css and summary.css; it cannot emulate
 // prefers-reduced-transparency, so the media block's own rules are checked against the dialog.
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -17,7 +17,10 @@ await requireBrowserLane("chat-gallery-reduce-transparency.test.ts", async () =>
     describe.skip("chat gallery reduce transparency", () => test("chromium", () => {}));
     return;
   }
-  const css = readFileSync(path.resolve(import.meta.dir, "../src/agent-session/acpmux/summary/summary.css"), "utf8");
+  // desktop.css first, as every page loads it: it holds the glass levels the gallery names.
+  const css = ["pages/shared/desktop.css", "agent-session/acpmux/summary/summary.css"]
+    .map((file) => readFileSync(path.resolve(import.meta.dir, "../src", file), "utf8"))
+    .join("\n");
   let browser: Browser | undefined;
   beforeAll(async () => {
     browser = await chromium.launch({ headless: true });

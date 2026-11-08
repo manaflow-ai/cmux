@@ -27,6 +27,8 @@ mod apps_place;
 #[cfg(unix)]
 mod apps_run;
 #[cfg(unix)]
+mod attention;
+#[cfg(unix)]
 mod auth_token;
 #[cfg(unix)]
 mod automation;
@@ -136,6 +138,7 @@ use machine_server::ServerRoute;
 pub(crate) use machine_server::is_lifecycle_scope;
 #[cfg(unix)]
 mod mcp;
+mod older_daemon;
 mod raw;
 #[cfg(unix)]
 mod remote_host;
@@ -646,6 +649,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
         .or_else(|| remote_host::run_if_requested(args))
+        .or_else(|| attention::run_if_requested(args))
         .or_else(|| status::run_args(args))
     {
         return code;
@@ -1363,7 +1367,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   terminal      Read, write, and attach to terminals
   browser       Navigate and attach to browsers
   notification  List and create notifications
-  attention     Mark the tab where the person must act (no focus change)
+  attention     Mark tabs where the person must act; find the next one
   agent         List and report agent state
   room          Organize workspaces into rooms
   space         List and organize spaces

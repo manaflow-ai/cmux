@@ -1,5 +1,29 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-08: the Updated card's remembered height keeps its scale, review F1 and F2 of #38150. The heights
+  `SidebarUpdatedCardHost` remembers across launches are CSS pixels (points over `app.uiScale`) under new `.v3`
+  keys, read back at the scale now, so a 60 pt card remembered at 125% holds 48 at 100%; the `.v2` points at an
+  unrecorded scale are dropped, not guessed. The host also observes `app.uiScale` while a card shows and lays the
+  card out again, so a remembered card follows a scale change before its page's first report.
+  Regression: `UpdatedCardScaleDownTests`.
+- 2026-11-08: the Updated card follows a live interface scale change, review of #38107. The first-frame hold
+  (`SidebarUpdatedCardHost.heldHeight`) keeps the scale it was taken at and is read at the scale now, so a scale
+  decrease shrinks the card with its page instead of holding its old, larger height; #38107 made the page's
+  points follow a live scale change. Regression: `UpdatedCardScaleDownTests`, `UpdatedCardLiveScaleTests`.
+- 2026-11-08: the Updated card's hover preview stays glass. Leo, verbatim: "it turns from glass when it's unhovered
+  into opaque when it does get hovered. I feel like we should be able to keep it as glass though, right?" A native
+  glass behind the card's page (`SidebarUpdatedCardHost.glass`), the card and its open preview, frosts the rows under
+  it, so the page keeps its tint open, at rest and dragged (takes back the solid fill of a72c0fd5c542, f1d36c5f77e3,
+  9205005b4340). The preview and the glass move on cubic-bezier(0.16, 1, 0.3, 1) over 265 ms on `Motion.web`. The rows
+  under the open card neither light nor open hover cards (`SidebarListView.hoverOccluded`), and the grown view takes
+  clicks only on the glass. Regression: `UpdatedCardHoverPreviewTests`, webviews `updated-card-hover-preview.test.tsx`,
+  `updated-card-native-glass.test.ts`.
+- 2026-11-07: a group drawn as its one row folds like any group. Leo, verbatim: "when you're collapsing a group, the
+  text needs to fade faster". A group of one member titled as the group draws that row in the header's place
+  (`standsForGroup`) and no header, so its collapse found no open header: the row faded over the whole `.move` spring and
+  its slot shut to nothing. `SidebarRowTransition.foldingHeader` takes the row's `standingHeader` as the open header: the
+  row fades on `fadeOut` under the collapsed header, and an expand brings it out at full height in place (F1 of #36457).
+  Regression: `SidebarSingleMemberGroupTests/collapsingASameNameGroupFoldsItsOneRowUnderTheHeader`.
 - 2026-11-07: the Updated card hidden mid-drag, review of #38020. Hiding the card mid-drag lays it out at its rest,
   so it comes back there, and taking the card away (its page goes too) stops dropping drag messages, so the next
   drag's first move is not lost. Leo, verbatim: "what if you could, like, drag around the updated to nightly, and
@@ -265,6 +289,16 @@
   smaller than its own rows; it now takes `titleFont`'s size, semibold. The veil, rim and radius are the role's, owned
   with the other glass roles (real-glass-material, #36240); only the color's share is sidebar's. Gallery: `AANoColorGroupGalleryTests`
   (today and the three glass looks over a busy wallpaper). Regression: `GroupHeaderGlassTests`.
+- 2026-11-07: the Gradient palette (`sidebar.groupPalette` `gradient`, `sidebar.groupGradient`: Sunset, Aurora,
+  Lagoon, Two-Tone). Leo, verbatim: "imagine the gradients are just, like, based off of placement, and they're not,
+  like, just static. They're, like, dynamic" and "you want to make sure you do the thing where they don't become
+  brown". Each group with a palette color takes the gradient's color at its place among them, top to bottom, spread
+  over the whole gradient (gallery G1 "stepped": one color per group, so every header look and the rail work as they
+  are; G2 "flowing", each header blending into the next, can follow). Nothing is stored: the list works out
+  `drawnTints` once per reload (`SidebarGroup.drawnTints`, O(groups)) and the header and line draw it; a picked custom
+  color keeps its own and no color stays glass. The blend is OKLCH, hue the short way, chroma pulled in to fit sRGB
+  (`GroupGradient.rgb(at:)`). Regression: `GroupGradientTests`, `GroupGradientPlacementTests`,
+  `SidebarGroupGradientSettingTests`.
 - 2026-11-07: group colors come from a palette (`sidebar.groupPalette`): Glass (default), Theme, Wallpaper,
   Grayscale, Vibrant. Leo, verbatim (2026-11-06): "if it's a choice between frumpy colors or no colors at all slash
   black and white, you just pick black and white", "you pick this circle, right? And it's like this ball of colors
@@ -702,7 +736,7 @@ density; a pill too tall to center under the window's top stops 1 pt below it. T
 alone, centers on the trailing column (`SidebarStyle.trailingColumnFrame`) that the rows' status marks, unread dots
 and footer Search share; with the chooser segment shown the pair keeps the row's trailing inset. Debug
 `chrome.topRowLine`: `lights` (default), `tabs`, `titlebar`, `off`. Regression: `TopRowAlignmentTests`,
-`TopRowSidebarColumnTests`; live lines: `debug.top_alignment`, tour `top-alignment`.
+`TopRowSidebarColumnTests`; live lines: `debug.top_alignment`, tours `top-alignment`, `top-alignment-cozy` and `top-alignment-spacious` (one tour holds 30 steps).
 
 ## The notice card's rows share one leading edge and show whole (2026-11-05)
 
@@ -767,8 +801,8 @@ A workspace close removes only the workspace. The daemon close path and remote-c
 | Drag and reorder | The lifted row follows the pointer and a gap opens where it drops. No stray blue line during the drag, and nothing stays after a drop or a cancel. | Lawrence 11405 |
 | Nesting | Groups nest deeply (16 levels). The indent stops growing at 6 steps so a label keeps room. | Lawrence 11240 |
 | Pinned section | Rows with a leading pin, never tiles (a702, 9a2fceefbbb). | a702 |
-| Leading columns | Home, the band's rows, pinned rows (workspaces and groups) and workspace rows share one icon column: one `SidebarStyle.iconColumnBox` slot that starts at the row inset plus the pill inset (where a text-only row's title starts). Every leading glyph (Home's, a band row's, a pin, a workspace icon) takes one rule, `SidebarStyle.iconColumnGlyphX`: its ink starts at the slot's leading edge (see Leading edge), and it centers on its row's center line. A title after a leading glyph (Home's label, a pinned title after its pin, a workspace title after its icon) starts at one text column, `SidebarStyle.leadingTextX`. No per-row offsets. Debug `sidebar.leadingColumn`: `inset` (default), `slotted` (an empty slot on text-only rows; takes back 11405, comparison only), `centered` (the ink centered on `iconColumnCenterX`, the look before msg 19643). | Lawrence 2026-10-28 ("home and pinned are not aligned"); Leo 2026-10-28 ("the alignment", "i feel like this is misaligned checkmark :( can we all audit the checkmarks and whatnot"); Lawrence msg 19643 ("left alignment here is bad") moved the glyphs from the column's center to its leading edge |
-| Leading edge | Every row's first ink at the inset; icons in one column. A pin, Home's house, a favicon, an emoji, a symbol and a text-only row's title all start on the row inset, within half a point, at every density and text size; every icon column box has one x and one width; icon rows' titles start at one text x. A text-only row keeps no empty slot (Row text). Held by `SidebarLeadingEdgeTests`. | Lawrence msg 19643 ("left alignment here is bad") |
+| Leading columns | Home, the band's rows, pinned rows (workspaces and groups) and workspace rows share one icon column: one `SidebarStyle.iconColumnBox` slot that starts at the row inset plus the pill inset (where a text-only row's title starts). Home's glyph, a band row's glyph and a pinned row's pin center their ink in that slot (`SidebarStyle.bandGlyphX`, at every look), so they line up under one another whatever their ink widths; a workspace row's icon takes `SidebarStyle.iconColumnGlyphX`: its ink starts at the slot's leading edge (see Leading edge). Every leading glyph centers on its row's center line. A title after a leading glyph (Home's label, a pinned title after its pin, a workspace title after its icon) starts at one text column, `SidebarStyle.leadingTextX`. No per-row offsets. Debug `sidebar.leadingColumn`: `inset` (default), `slotted` (an empty slot on text-only rows; takes back 11405, comparison only), `centered` (the ink centered on `iconColumnCenterX`, the look before msg 19643). | Lawrence 2026-10-28 ("home and pinned are not aligned"); Leo 2026-10-28 ("the alignment", "i feel like this is misaligned checkmark :( can we all audit the checkmarks and whatnot"); Lawrence msg 19643 ("left alignment here is bad") moved the glyphs from the column's center to its leading edge; [#38061](https://github.com/manaflow-ai/cmux/issues/38061) ("the pin icon on pinned workspace rows is not aligned with the Home row's house icon") centered Home's glyph and the pins again, taking back that part of 483e06be02f |
+| Leading edge | Every workspace row's first ink at the inset; icons in one column. A favicon, an emoji, a symbol and a text-only row's title all start on the row inset (Home's house and the pins center in the icon column instead, Leading columns), within half a point, at every density and text size; every icon column box has one x and one width; icon rows' titles start at one text x. A text-only row keeps no empty slot (Row text). Held by `SidebarLeadingEdgeTests`. | Lawrence msg 19643 ("left alignment here is bad") |
 | Footer | Avatar at the left, Search button at the right end (inset mirrors the avatar's); 4 pt bottom margin. | Lawrence msgs 13901, 14242 |
 | Sidebar controls on hover | Opt-in `sidebar.controlsOnHover` ("Show Sidebar Controls Only on Hover", off by default): the sidebar's controls show only while the pointer is over the sidebar. With the sidebar open and it off, every titlebar control shows at rest: the sidebar toggle, Back, Forward and +; `window.titlebarButtons` hover hides the toggle, Back and Forward only while the sidebar is hidden (Lawrence msg 15460). Separate from Minimal Mode (`sidebar.minimal`, compact rows; App Store card "Minimal Sidebar"); the two stack. | Lawrence msg 14242 |
 | Cursor | Arrow on sidebar buttons and rows (a916, the app default); resize cursor on the sidebar edge. | a916 |
@@ -1004,6 +1038,7 @@ the gap, no row left out of place after drop or cancel).
 | [fc4ad465bae](https://github.com/manaflow-ai/cmux/commit/fc4ad465bae) | Direct commit: the Updated card follows the sidebar's density: padding, text, button and corner (`SidebarDensityTokens`, `SidebarUpdatedCardHost`). Visual change to the Updated card. Reached feat-cmux-next without this note's record; reviewed and logged for the Sidebar-Look sweep (2026-11-02). |
 | [fc77da95056](https://github.com/manaflow-ai/cmux/commit/fc77da95056) | PR [#31416](https://github.com/manaflow-ai/cmux/pull/31416): every row status mark draws at the red warning's size (`Views/RowBadgeView.swift`). Visual change: one status-mark size. Reached feat-cmux-next without this note's record; reviewed and logged for the Sidebar-Look sweep (2026-11-02). |
 | sb-leading-column: the "(red)" test commit (fleet step c32aed243a46701a16b321f0, failed as expected: Home's glyph 2.25 pt, pins 5 pt, the favicon 2 pt, emoji and symbol 1 pt right of the inset), then this fix (green step 0a5d70848894b9691a0e5b49: every test of the 13 suites passes but `SidebarLookContractTests.theHoverCloseIsTheRowsTrailingX` at comfortable, the hover close this range does not touch, failing as logged under sb-pinned-noclose; the step reports 11 suites "failed (exit 1)" because the runner's XCTest pass ended on signal 6 after each Swift Testing pass; gallery step 22247da6fc22379c43e1499d) | Every row's first ink at the row inset, icons in one column (Lawrence msg 19643: "left alignment here is bad"). Root cause: every leading glyph was centered in the 16 pt (compact) icon column whose box already started at the inset, so each glyph started half its spare width in: the pin (6 pt of ink in its 12 pt square) about 5 pt, Home's house (12 pt of ink) about 2 pt, a favicon or emoji drawn in a 14 to 16 pt square 1 to 2 pt, while text-only titles start at the inset itself. One rule now, `SidebarStyle.iconColumnGlyphX(leading:ink:)`: the pin (`SidebarItemRowView.pinGlyphFrame`), a band row's bare glyph (Home), its list-look well and color dot, and a workspace or list item row's icon (`SidebarIconView.leadsWithInk`: symbol and favicon ink measured by `SidebarGlyphInk`, a bare emoji's by `SidebarEmojiGlyphView`, a chip and a dot are their own ink) start their ink at the column's leading edge. Box x and width, the text column and text-only titles are unchanged. Group and section header glyphs, Priority rows and chat history rows keep their centered glyphs. Debug `sidebar.leadingColumn` keeps `centered` (before) and `slotted` (the Chief's empty-slot alternative) for comparison. Tests: `SidebarLeadingEdgeTests`; `SidebarIconColumnTests.leadingGlyphsShareOneLeadingX`, `SidebarGridAlignmentTests.leadingIconBoxEndsOneGapBeforeTheText` and `SidebarUniformRowSpacingTests.thePinStartsOnAnUnpinnedRowsIconColumn` moved from the center rule. Gallery `AALeadingColumnGalleryTests` (`leading-column-gallery.tar`), crops in `~/fun/cmux-galleries/leading-column/`. |
+| issue-38061-pinned-icon-alignment: the "(red)" test commit 02d2417699 (`HomePinnedRowAlignmentTests.homesGlyphAndThePinCenterInOneIconColumn`), then this fix | [#38061](https://github.com/manaflow-ai/cmux/issues/38061): a pinned workspace row's pin ("CLOUDMUX") did not line up under Home's house. Cause: 483e06be02f (Lawrence msg 19643) started every leading glyph's ink at the icon column's leading edge, so glyphs of different ink widths shared a left edge but not a center: the pin's narrow ink centered left of the house's. Now Home's glyph, the other band rows' glyphs in the leading column and the pin center their ink in the one fixed-width icon column (`SidebarStyle.bandGlyphX`: `iconColumnCenterX(leading:) - ink.midX`; `SidebarItemRowView.pinGlyphFrame` and `inkColumnGlyphFrame(centered:)`), at every density, text size and `sidebar.leadingColumn` look; a pinned workspace's own icon after its pin keeps the inset rule in the text column, and the pinned group header's pin already centered there. That center is a workspace row's icon box center too. Workspace row icons and text-only titles keep the inset rule; boxes and the text column are unchanged. Tests moved from the leading-edge rule for Home and the pin: `SidebarIconColumnTests.leadingGlyphsShareOneCenterX`, `SidebarLeadingEdgeTests.everyRowsFirstInkStartsAtTheInset` (workspace rows only now), `SidebarGridAlignmentTests.leadingIconBoxEndsOneGapBeforeTheText`, `SidebarUniformRowSpacingTests.thePinStartsOnAnUnpinnedRowsIconColumn`. |
 | sb-left-bar: the "(red)" test commit (SidebarGroupRailCapsuleTests, fleet step 8c0b3eb930d97c99b494e622, failed as expected), then this fix | Lawrence msg 19775: the left bar (group rail, `GroupLineView`) is one capsule. Cause: 51897bafba35 (#24712, "match Chrome rail end caps") rounded only the rail's right corners, and 7c08b2980032 (#27865) gave the connected look a cut top-right shoulder over a round bottom. Now `SidebarGroupLineShape` (radius = width / 2, all four corners) is the one shape; crops in ~/fun/cmux-galleries/left-bar/ (AALeftBarGalleryTests). |
 | sb-favicons: the "(red)" test commit (SidebarFaviconLegibilityTests, fleet step 59611f206408def1c7964267, failed as expected: 1.03:1 dark mark on the dark sidebar, 1.0:1 white mark on the light one), then this fix (green 0d615ce68fec59587648e892) | Lawrence msg 19869: favicons legible on light and dark. Cause: `SidebarIconView` drew the fetched favicon as is since c0a833b40ac5 (cx-e32b), so the GitHub mark (dark on transparent) vanished on the dark sidebar. Now `SidebarFaviconStyle.adaptive` (default) tints a low-contrast mono favicon with the label colour, from a high-quality downsample of the hi-res source. Workspace rows, band items (`SidebarItemRowView`) and the hover card's tab rows all draw favicons through one path (`SidebarFaviconRenditions`, one per view, plate baked into the bitmap). Six other looks behind Debug "Favicon style", and in the Sidebar States Playground (Debug menu) as a "Favicon styles" sheet per appearance, one column per style over its GitHub-like, colorful and missing-favicon rows; crops in ~/fun/cmux-galleries/favicons/ (AAFaviconStyleGalleryTests, gallery step aed31217b0720a9fc0b2d831). |
 | sb-favicon-placeholder: the "(red)" test commit (SidebarFaviconPlaceholderTests), then this fix | Lawrence default "a site with no favicon gets a placeholder (a neutral globe glyph in the same icon slot)". Before: a browser workspace whose page had no favicon mapped to no icon, so its row was text only and its title started left of a favicon row's title. Now `SidebarMapping.row` maps a site page with no favicon to `WorkspaceIcon.pagePlaceholder` (its own case, so a user icon edit, a saved snapshot and a row decoration never take it for a user symbol); `SidebarIconView` draws the globe in the symbol slot in the secondary label colour; band items (`SidebarTopProjection.glyphInfo`) draw the globe and, with `AppServices.sidebarPageFavicon`, the site's favicon once it loads; the hover card's tab row draws the globe for a page with a host and no favicon. The Sidebar States Playground's favicon styles sheets are now one per style at every density × Text Size, the missing-favicon row showing the globe. Crops in ~/fun/cmux-galleries/favicons/placeholder/; playground sheets in ~/fun/cmux-shots/sidebar-states/. |
@@ -1601,6 +1636,20 @@ An empty group now keeps only its header at rest. The header's existing + appear
 - Commits: the "(red)" test commit (`PinnedSummaryDensityTests`, `AAPinnedDensityGalleryTests`, fleet step
   b756692bcd72c93601f38a3e), then the fix. Before|After sheets: ~/fun/cmux-galleries/pinned-density/.
 
+## A collapsed group never reorders: held slots and fixed anchors (2026-11-07)
+
+- Leo 2026-11-07: "this is also just insanely weird sidebar group behaviour. see i selected you and then i collapse
+  the group you're in then i click elsewhere and then all sorts of wack nonsense occurs".
+- Running members of a collapsed group the document stopped placing for a moment (an item or ref in flight) listed
+  as new rows below the current workspace (`SidebarDocSections.sections`, `newRowsPlace` `afterCurrent`), so every
+  click elsewhere moved them out of the group, under the clicked row; opened again, the group listed without them
+  until the document placed them back.
+- Now a row that listed keeps its slot (its group, under the same row) until the document places it again
+  (`holdSlots`, `noteSlots`), and a new row keeps the place it first took (`anchors`). A fold repaints the selection
+  on every row it keeps (no stuck highlight). The peek rule is unchanged: a collapsed group draws its active member
+  and the members selected while it was collapsed (`shown(inCollapsed:)`), so a click elsewhere moves no row.
+- Tests: `SidebarDocHeldSlotTests`, red commit first.
+
 ## A relaunch's first frame has the live rows' heights (2026-11-07)
 
 - Leo 2026-11-07: "Like, it was already loaded, and then it flickered."
@@ -1636,6 +1685,17 @@ An empty group now keeps only its header at rest. The header's existing + appear
   into opens none: the document's Pinned takes no item from outside it (`keepingPinned`, Pin is the way in).
 - A zone moves with its anchor row (its title's block, or the row it opens above): a drop's gap that moves that row
   moves the zone's reach by as much.
+
+## The +, the band and the tabs share the line the tabs reach (2026-11-07, #38054)
+
+- https://github.com/manaflow-ai/cmux/issues/38054: "Expected: tabs are vertically centered in the tab row, with equal
+  top and bottom inset relative to the row's top edge and the divider below."
+- The top row's pills keep equal gaps above and below them; the main pane's card moves down to bring them onto the
+  traffic lights' line (`WindowTitlebar.topRowCardTop`). Where it cannot (Comfortable, Spacious, flat chrome),
+  `WindowTitlebar.topRowLine` is the pills' center, and the sidebar's + follows it: Comfortable 2x, 18.5 pt down
+  (it was the lights' 16). Compact keeps 16.
+- The +'s top snaps to the device pixel grid, not whole points (the line can sit on a half point).
+- The sidebar re-lays out its top row when the card's reach changes: gutter, pane padding, floating panes, strip tokens.
 
 ## Reviewed behavior-only commits
 

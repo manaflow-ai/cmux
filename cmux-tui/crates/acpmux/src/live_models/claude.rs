@@ -152,6 +152,7 @@ fn row_model(row: &Value) -> Option<LiveModel> {
         default_effort: None,
         fast: row.get("supportsFastMode").and_then(Value::as_bool),
         is_default: false,
+        upgrade: None,
     })
 }
 

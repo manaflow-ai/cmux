@@ -381,7 +381,8 @@ one schema, so do it like this:
   (`Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema.swift`): a row in a section JSON,
   `schemas/settings/source/<section>.json`, then `python3 scripts/cmux-next/gen-settings-sources.py`, or a
   `*SettingsSchema` / `SettingsSchema+<Area>.swift` group in that folder. A new section JSON also needs its
-  entry in the generator's `SECTIONS`, and its generated type added to `SettingsSchema.all`.
+  file `schemas/settings/generator/<section>.json` (copy a neighbour's), and its generated type added to
+  `SettingsSchema.all`.
   Never keep a setting in `UserDefaults`, a side file or a private key list: the surfaces read only the schema.
 - Palette: `SettingsPaletteSource` (CmuxNextApp) and `SettingsPaletteProvider` (CmuxNextPalette) give every
   `isPaletteExposed` descriptor a row with an editor for its `SettingKind`. Keep `palette = .exposed`;

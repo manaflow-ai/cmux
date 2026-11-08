@@ -175,6 +175,7 @@
     "pane.tabRowTools.openMenu": "pane.tabRowTools.openMenu",
     "pane.tabRowTools.set": "pane.tabRowTools.set",
     "pane.tabState": "pane.tabState",
+    "pane.toastAvoidance": "pane.toastAvoidance",
     "pr.inspect": "pr.inspect",
     "project.addFiles": "project.addFiles",
     "project.browse": "project.browse",

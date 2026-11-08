@@ -43,7 +43,6 @@ INPUTS = [
     "scripts/cmux-next/build-agent-pane-web.sh",
     "scripts/cmux-next/build-agent-activity-web.sh",
     "scripts/cmux-next/build-pages-web.sh",
-    "scripts/cmux-next/build-palette-ranker.sh",
     "scripts/cmux-next/build-optchat-inspector-web.sh",
     "scripts/cmux-next/build-web-bundles.sh",
     "scripts/cmux-next/web-bundle-key.py",
@@ -56,13 +55,11 @@ GEN_STRINGS = "webviews/scripts/pages/gen-strings.mjs"
 GEN_STRINGS_FILE = re.compile(r"""\bfile:\s*["'`]([^"'`]+\.xcstrings)["'`]""")
 GEN_STRINGS_CONST = re.compile(r"""^const (\w+) = ["']([^"'$]+)["'];""", re.M)
 
-# What the builders write (build-web-bundles.sh). The palette ranker is one file
-# in a resource directory that holds other files.
+# What the builders write (build-web-bundles.sh).
 OUTPUTS = [
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane",
     "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity",
-    "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
     "Resources/markdown-viewer/webviews-app",
     "Native/OptChat/optchat-chief/inspector/index.html",
 ]

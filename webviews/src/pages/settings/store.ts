@@ -373,8 +373,10 @@ export class SettingsStore {
     return reply.ok && reply.value.accepts;
   }
 
-  /** The section's action buttons; empty when the host has none. */
-  async sectionActions(section: string): Promise<Array<{ id: string; title: string; enabled: boolean }>> {
+  /** The section's action buttons; empty when the host has none. `hint` says what one does. */
+  async sectionActions(
+    section: string,
+  ): Promise<Array<{ id: string; title: string; enabled: boolean; hint?: string | null }>> {
     const reply = await this.request("cmux.settings.section.actions", { section });
     return reply.ok ? reply.value : [];
   }

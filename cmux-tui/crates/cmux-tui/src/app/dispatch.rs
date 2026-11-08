@@ -132,6 +132,10 @@ impl App {
                 self.refresh_size_state_label(surface);
                 Ok(RenderAction::Draw)
             }
+            AppEvent::Mux(MuxEvent::Notification(notification)) => {
+                self.forward_notification_to_host(&notification);
+                Ok(RenderAction::Draw)
+            }
             AppEvent::Mux(_) => Ok(RenderAction::Draw),
             AppEvent::BrowserResizeFailed(failure) => self.on_browser_resize_failed(failure),
             AppEvent::PtyFailuresReady => Ok(self.apply_pty_failures()),

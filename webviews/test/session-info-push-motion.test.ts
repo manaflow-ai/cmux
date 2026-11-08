@@ -14,7 +14,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { sessionInfoPushAlways, papercutPane } from "./support/papercutChat";
-import { sessionInfoPushes } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { sessionInfoPushes } from "../src/agent-session/acpmux/session-info/sessionInfoModel";
 import { SESSION_INFO_WIDTH } from "../src/agent-session/acpmux/session-info/sessionInfoState";
 
 await requireBrowserLane("session-info-push-motion.test.ts", async () => {
@@ -117,7 +117,7 @@ await requireBrowserLane("session-info-push-motion.test.ts", async () => {
   for (const name of browsers.keys())
     test(`${name}: pushing, the column slides with the panel, the chat keeps its width, and neither end jumps`, async () => {
       current = browsers.get(name)!;
-      const page = await pane!.open({ width: 1100, height: 600 });
+      const page = await pane!.open({ width: 1200, height: 600 });
       try {
         const toggle = await ready(page);
         const shell = await page.evaluate(() => document.querySelector(".acpmux-shell")!.clientWidth);

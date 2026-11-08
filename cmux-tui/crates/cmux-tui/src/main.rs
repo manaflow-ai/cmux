@@ -19,6 +19,7 @@ mod agent_start_host;
 mod app;
 #[cfg(unix)]
 mod app_identity;
+mod attention;
 mod browser_input;
 #[cfg(unix)]
 mod build_adopt;
@@ -59,6 +60,7 @@ mod feature_flags;
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
 mod host_colors;
+mod host_notify;
 mod keys;
 mod layout_undo;
 // Decided on every Unix so its tests run off the Mac; used on macOS only.
@@ -2775,6 +2777,8 @@ fn run_server(
     #[cfg(unix)]
     cloud_conversations_backend::install(&mux);
     #[cfg(unix)]
+    cmux_tui_core::server::set_link_share_app_scheme(&mux, share_room::app_scheme().as_deref());
+    #[cfg(unix)]
     cmux_tui_core::server::start_link_share_bridge(&mux, share_room::url().as_deref());
     // Ends terminals that have had no tab placement for the reap grace
     // period and are not marked keep (`terminal-reap-v1`). Opt-in: a close
@@ -3151,6 +3155,7 @@ fn start_detached_owner_session(
         chief_tools_socket: None,
         chief_brains: None,
         websocket: None,
+        carried_env: Vec::new(),
     };
     let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;
     // A restore can take minutes on a loaded machine: say so once instead of

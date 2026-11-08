@@ -28,6 +28,7 @@ done
 PAGES="
 apps
 artifacts
+bookmarks
 changelog
 chief-inspector
 chief-usage
@@ -48,9 +49,11 @@ import-history
 keybindings
 machines
 mobile-pairing
+onboarding
 overlay
 passwords
 settings
+stash
 stats
 tasks
 "

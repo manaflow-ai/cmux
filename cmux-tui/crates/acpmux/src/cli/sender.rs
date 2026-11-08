@@ -1,17 +1,22 @@
-//! Who `acpmux send` names as its sender when given no `--from` (`_meta.acpmux.fromAgent`).
+//! Who `acpmux send` names as its sender when given no `--from` (`_meta.acpmux.fromAgent`): a
+//! claimed label only, never proof (`prompt_provenance.rs` `verified`).
 //!
 //! An agent in an acpmux session needs none: its caller token, inherited from the session's
 //! process tree, proves the session to the daemon that issued it (`client.rs`, `hub/person.rs`
-//! (a)). Run outside one, nothing tells an agent from the person, so a send is the person's
-//! unless `ACPMUX_FROM` names an agent: `reach` sets it from the caller's session name, the one
-//! identity that survives an ssh hop (claude-sr2, 2026-10-24: lanes on other machines sent their
-//! reports with `reach cosmic-gray 'acpmux send …'`, and each read as the person's own words).
+//! (a)). Run outside one, the shared Unix account proves nobody, so the CLI says what it can
+//! tell: an agent harness's shell names itself and its harness (below), and the daemon records
+//! that send as the agent's (Leo, 2026-11-05: "why is it sending it as if it were me?"). A send
+//! that names no one and claims no harness is the owner's own terminal send, recorded as the
+//! person's prompt (`server/requests.rs` `owner_terminal`). `ACPMUX_FROM` names an agent: `reach` sets it from the
+//! caller's session name, the one identity that survives an ssh hop (claude-sr2, 2026-10-24).
 //!
 //! With neither, an agent harness's own shell names its harness ([`harness_name`]): Claude Code
 //! (desktop, VS Code or terminal, by `CLAUDE_CODE_ENTRYPOINT`), Codex (`CODEX_THREAD_ID`), or any
 //! tool that marks the commands it runs with `AI_AGENT` (`<tool>_<version>_<mode>`), with the
 //! machine and the harness's session id. Leo, 2026-11-07: "could it possibly detect that you sent
-//! it as the Claude Code desktop?" A desktop chat's `acpmux send` had read as his own words.
+//! it as the Claude Code desktop?" A desktop chat's `acpmux send` had read as his own words. Its
+//! harness family goes along too (`fromHarness`, [`harness_of_this_process`]), so the receiver
+//! shows that agent's mark; both are claims.
 
 /// Names the sender of every `acpmux send` run with it set and no `--from`.
 pub const FROM_ENV: &str = "ACPMUX_FROM";
@@ -21,8 +26,15 @@ pub fn of_this_process() -> Option<String> {
     implicit(|key| std::env::var(key).ok(), crate::host_pressure::host_name)
 }
 
-/// The machine the person's own send ran on (`_meta.acpmux.cliHost`): the transcript says
-/// "via CLI on big-red" under their prompt. None for an agent's send, named or in a session.
+/// The harness family this process runs in when it is an agent harness's own shell outside
+/// acpmux (`_meta.acpmux.fromHarness`), else `None`.
+pub fn harness_of_this_process() -> Option<&'static str> {
+    let env = |key: &str| std::env::var(key).ok();
+    if in_session(env) { None } else { harness_of(env) }
+}
+
+/// The machine a send naming no sender ran on (`_meta.acpmux.cliHost`), a claimed label the
+/// daemon keeps on the recorded client (and on an `unverified` provenance). None for an agent's send, named or in a session.
 pub fn person_host(named: bool) -> Option<String> {
     (!from_an_agent(named)).then(crate::host_pressure::host_name)
 }
@@ -41,9 +53,15 @@ pub fn in_an_agent_harness() -> bool {
 }
 
 fn harness_in(env: impl Fn(&str) -> Option<String>) -> bool {
-    ["CLAUDECODE", "CODEX_THREAD_ID"]
-        .iter()
-        .any(|key| env(key).is_some_and(|v| !v.trim().is_empty()))
+    harness_of(env).is_some()
+}
+
+/// The harness whose shell this is, by the variable each sets in its commands' environment.
+fn harness_of(env: impl Fn(&str) -> Option<String>) -> Option<&'static str> {
+    [("CLAUDECODE", "claude"), ("CODEX_THREAD_ID", "codex")]
+        .into_iter()
+        .find(|(key, _)| env(key).is_some_and(|v| !v.trim().is_empty()))
+        .map(|(_, harness)| harness)
 }
 
 fn agent_in(named: bool, env: impl Fn(&str) -> Option<String>) -> bool {
@@ -57,7 +75,8 @@ fn in_session(env: impl Fn(&str) -> Option<String>) -> bool {
 }
 
 /// The sender a send names with no `--from`: `None` when it runs in an acpmux session (the
-/// daemon proves that one) or is the person's. `ACPMUX_FROM` wins over the harness's own name.
+/// daemon proves that one) or names no one (the owner's own send, `owner_terminal`). `ACPMUX_FROM`
+/// wins over the harness's own name.
 pub fn implicit(
     env: impl Fn(&str) -> Option<String>,
     host: impl FnOnce() -> String,
@@ -117,6 +136,8 @@ mod tests {
 
     #[test]
     fn a_claude_code_or_codex_shell_is_an_agent_harness() {
+        assert_eq!(harness_of(env(&[("CODEX_THREAD_ID", "t-1")])), Some("codex"));
+        assert_eq!(harness_of(env(&[("CLAUDECODE", "1")])), Some("claude"));
         assert!(harness_in(env(&[("CLAUDECODE", "1")])));
         assert!(harness_in(env(&[("CODEX_THREAD_ID", "t-1")])));
         assert!(!harness_in(env(&[("CLAUDECODE", " ")])));
@@ -160,7 +181,7 @@ mod tests {
     }
 
     #[test]
-    fn with_no_name_and_no_session_the_send_is_the_persons() {
+    fn with_no_name_and_no_session_the_send_names_no_one() {
         assert_eq!(implicit(env(&[])), None);
         assert_eq!(
             implicit(env(&[("SSH_CONNECTION", "100.81.77.9 50022 100.84.217.73 22")])),
