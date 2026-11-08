@@ -60,6 +60,7 @@ public nonisolated struct PageDevServer: Sendable, Equatable {
         "cmux.passwords",
         "cmux.server-cards",
         "cmux.settings",
+        "cmux.skills",
         "cmux.stash",
         "cmux.stats",
         "cmux.tasks",
