@@ -33053,21 +33053,6 @@
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
           "isTargetName" : false,
-          "kind" : {
-            "int" : {
-              "max" : 6,
-              "min" : 0
-            }
-          },
-          "name" : "open",
-          "suggestions" : null,
-          "title" : "Pill Click"
-        },
-        {
-          "isRequired" : false,
-          "isSuppliedByTarget" : false,
-          "isTargetDescription" : false,
-          "isTargetName" : false,
           "kind" : "string",
           "name" : "peer",
           "suggestions" : null,

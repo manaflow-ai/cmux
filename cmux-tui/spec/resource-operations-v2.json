@@ -31718,6 +31718,14 @@
             },
             "description": "Script the new screen's first terminal runs with the server platform default shell and -lc. Clients never expand $SHELL."
           },
+          "focus": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Make the new screen its workspace's focused screen. Default false: the focused screen stays."
+          },
           "expected_revision": {
             "required": false,
             "type": {
