@@ -148,8 +148,8 @@ pub fn validate_encoded(bytes: &[u8], maximum: usize) -> Result<(), Error> {
     }
     let is_separator = |byte: u8| matches!(byte, b' ' | b'\t' | b'\n' | b'\r' | b',' | b':');
     let (mut index, mut depth, mut tokens, mut string_bytes) = (0usize, 0usize, 0usize, 0usize);
-    while index < bytes.len() {
-        match bytes[index] {
+    while let Some(&byte) = bytes.get(index) {
+        match byte {
             0 => return Err(Error::NotASnapshot),
             b'"' => {
                 tokens += 1;
@@ -158,8 +158,8 @@ pub fn validate_encoded(bytes: &[u8], maximum: usize) -> Result<(), Error> {
                 }
                 index += 1;
                 let (mut encoded, mut closed) = (0usize, false);
-                while index < bytes.len() {
-                    match bytes[index] {
+                while let Some(&byte) = bytes.get(index) {
+                    match byte {
                         b'"' => {
                             index += 1;
                             closed = true;
@@ -209,8 +209,7 @@ pub fn validate_encoded(bytes: &[u8], maximum: usize) -> Result<(), Error> {
                     return too_complex();
                 }
                 let mut token_bytes = 0usize;
-                while index < bytes.len() {
-                    let byte = bytes[index];
+                while let Some(&byte) = bytes.get(index) {
                     if is_separator(byte) || matches!(byte, b'{' | b'}' | b'[' | b']') {
                         break;
                     }

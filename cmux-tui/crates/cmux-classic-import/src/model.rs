@@ -118,9 +118,9 @@ impl Remote {
     /// `[user@]host[:port]`, an IPv6 host in brackets. Port 22 is left out,
     /// so it names the same machine as a saved entry without a port.
     pub fn ssh_destination(&self) -> String {
-        let (user, host) = match self.destination.rfind('@') {
-            Some(at) => (&self.destination[..=at], &self.destination[at + 1..]),
-            None => ("", self.destination.as_str()),
+        let (user, host) = match self.destination.rsplit_once('@') {
+            Some((user, host)) => (format!("{user}@"), host),
+            None => (String::new(), self.destination.as_str()),
         };
         let host = if host.contains(':') && !host.starts_with('[') {
             format!("[{host}]")

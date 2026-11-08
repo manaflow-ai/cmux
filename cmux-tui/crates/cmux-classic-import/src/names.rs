@@ -112,7 +112,7 @@ pub fn names(clues: &[Clues]) -> Vec<String> {
         *counts.entry(name.clone()).or_default() += 1;
     }
     for (name, clue) in names.iter_mut().zip(clues) {
-        if counts[name.as_str()] > 1
+        if counts.get(name.as_str()).is_some_and(|count| *count > 1)
             && clue.custom.is_none()
             && let Some(branch) = clue.branch.as_ref().filter(|branch| *branch != name)
         {
@@ -148,11 +148,10 @@ pub fn fitting(name: &str, bytes: usize) -> String {
     if name.len() <= bytes {
         return name.to_string();
     }
-    let mut cut = bytes;
-    while !name.is_char_boundary(cut) {
-        cut -= 1;
-    }
-    name[..cut].to_string()
+    name.char_indices()
+        .take_while(|(index, character)| index + character.len_utf8() <= bytes)
+        .map(|(_, character)| character)
+        .collect()
 }
 
 /// The workspace's identity across classic saves: `stableId`, else

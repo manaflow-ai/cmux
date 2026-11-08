@@ -208,7 +208,12 @@ impl Record {
             "seen" => Event::Seen,
             "baseline" => Event::Baseline,
             "begin" => Event::Begin {
-                source: source(true)?.expect("required source"),
+                source: source(true)?.ok_or_else(|| {
+                    ResourceError::validation_invalid(
+                        Some("source"),
+                        "begin names the plan's source",
+                    )
+                })?,
                 backups: texts(fields, "backups")?,
                 cloud_vms: texts(fields, "cloud_vm_keys")?,
                 app_version,
@@ -254,9 +259,13 @@ impl Record {
                 ));
             }
         };
-        let mut fingerprint = Value::Object(fields.clone());
-        fingerprint["operation"] = json!("classic_import.record");
-        Ok(Self { bundle_id: required(fields, "bundle_id")?.to_string(), event, fingerprint })
+        let mut fingerprint = fields.clone();
+        fingerprint.insert("operation".into(), json!("classic_import.record"));
+        Ok(Self {
+            bundle_id: required(fields, "bundle_id")?.to_string(),
+            event,
+            fingerprint: Value::Object(fingerprint),
+        })
     }
 
     /// The ledger after this step, from what the file held; none leaves it as it is.
@@ -365,47 +374,46 @@ impl Mux {
             Ok(save) => (save, None),
             Err(error) => (None, Some(error.to_string())),
         };
-        let mut reply = json!({
-            "ledger": load.name(),
-            "decision": null,
-            "source": save.as_ref().map(|save| &save.source),
-            "backups": save.as_ref().map(|save| save.backups.iter().map(|path| path.to_string_lossy()).collect::<Vec<_>>()),
-            "error": error,
-            "plan": null,
-            "preview": null,
+        let backups: Vec<String> = save.as_ref().map_or_else(Vec::new, |save| {
+            save.backups.iter().map(|path| path.to_string_lossy().into_owned()).collect()
         });
-        if reply["backups"].is_null() {
-            reply["backups"] = json!([]);
-        }
+        let mut reply = Map::new();
+        reply.insert("ledger".into(), json!(load.name()));
+        reply.insert("decision".into(), Value::Null);
+        reply.insert("source".into(), json!(save.as_ref().map(|save| &save.source)));
+        reply.insert("backups".into(), json!(backups));
+        reply.insert("error".into(), json!(error));
+        reply.insert("plan".into(), Value::Null);
+        reply.insert("preview".into(), Value::Null);
         match mode {
             Mode::Automatic => {
                 let source = save.as_ref().map(|save| &save.source);
                 let running = source.is_some_and(|source| places.classic_running(source));
                 let decision = plan::decision(&load, source, running);
-                reply["decision"] = json!(decision);
+                reply.insert("decision".into(), json!(decision));
                 if matches!(decision, plan::Decision::Skip(_)) {
-                    return Ok(reply);
+                    return Ok(Value::Object(reply));
                 }
             }
             // A newer cmux NEXT's ledger is left alone: this build cannot tell what it recorded.
             Mode::Manual if matches!(load, Load::Newer(_)) => {
-                reply["error"] = json!(NEWER_LEDGER);
-                return Ok(reply);
+                reply.insert("error".into(), json!(NEWER_LEDGER));
+                return Ok(Value::Object(reply));
             }
             // A ledger that is there but cannot be read is never recorded over.
             Mode::Manual if matches!(load, Load::Failed(_)) => {
                 let error = if let Load::Failed(error) = &load { error.as_str() } else { "" };
-                reply["error"] = json!(format!("{UNREADABLE_LEDGER}: {error}"));
-                return Ok(reply);
+                reply.insert("error".into(), json!(format!("{UNREADABLE_LEDGER}: {error}")));
+                return Ok(Value::Object(reply));
             }
             Mode::Manual => {}
         }
-        let Some(save) = save else { return Ok(reply) };
+        let Some(save) = save else { return Ok(Value::Object(reply)) };
         let (live, live_groups) = self.classic_live();
         let made = plan::plan(&save.snapshot, load.ledger().as_ref(), &live, &live_groups, mode);
-        reply["preview"] = json!(Preview::new(&save.source, &made));
-        reply["plan"] = json!(made);
-        Ok(reply)
+        reply.insert("preview".into(), json!(Preview::new(&save.source, &made)));
+        reply.insert("plan".into(), json!(made));
+        Ok(Value::Object(reply))
     }
 
     /// `classic_import.record`: one ledger step, committed with its
