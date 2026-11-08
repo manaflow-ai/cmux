@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { minutesAgo } from "../../../gallery/clock";
+import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import { session } from "../../../gallery/fixtures/acpmux";
 import {
   changesPrompt,
@@ -12,6 +12,9 @@ import {
   type ReviewRead,
 } from "./reviewModel";
 
+/// The fixtures' times are relative to the gallery clock, so the queue reads them at that clock.
+const candidatesAt = (sessions: Parameters<typeof reviewCandidates>[0]) => reviewCandidates(sessions, GALLERY_NOW);
+
 const diff = (paths: string[], head = "a1") => ({
   scope: "branch",
   head,
@@ -22,7 +25,7 @@ const diff = (paths: string[], head = "a1") => ({
 });
 
 test("one row per folder, owned by its latest chat; idle chats first, newest first", () => {
-  const candidates = reviewCandidates([
+  const candidates = candidatesAt([
     session({ sessionId: "a", worktree: "/wt/a", activityAt: minutesAgo(30) }),
     session({ sessionId: "a2", worktree: "/wt/a", activityAt: minutesAgo(10) }),
     session({ sessionId: "b", worktree: "/wt/b", activityAt: minutesAgo(5), lane: "working" }),
@@ -36,7 +39,7 @@ test("one row per folder, owned by its latest chat; idle chats first, newest fir
 });
 
 test("archived, side, unsent, other machines, merged and stale chats are not candidates", () => {
-  const candidates = reviewCandidates([
+  const candidates = candidatesAt([
     session({ sessionId: "archived", worktree: "/wt/1", archived: true }),
     session({ sessionId: "side", worktree: "/wt/2", side: true }),
     session({ sessionId: "unsent", worktree: "/wt/3", unsent: true }),
@@ -59,7 +62,7 @@ test("a stat's signature follows the files and HEAD, and an empty diff is no sta
 });
 
 test("rows arrive in order: none shows below a folder still being read", () => {
-  const candidates = reviewCandidates([
+  const candidates = candidatesAt([
     session({ sessionId: "a", worktree: "/wt/a", activityAt: minutesAgo(1) }),
     session({ sessionId: "b", worktree: "/wt/b", activityAt: minutesAgo(2) }),
     session({ sessionId: "c", worktree: "/wt/c", activityAt: minutesAgo(3) }),
@@ -80,7 +83,7 @@ test("rows arrive in order: none shows below a folder still being read", () => {
 test("a verdict hides the row until the folder's changes differ", () => {
   const stat = readReviewStat(diff(["x.ts"]), "branch")!;
   const tagged = (done?: string) =>
-    reviewCandidates([session({ sessionId: "a", worktree: "/wt/a", ...(done ? { reviewDone: done } : {}) })]);
+    candidatesAt([session({ sessionId: "a", worktree: "/wt/a", ...(done ? { reviewDone: done } : {}) })]);
   const rows = (done?: string, value = stat) => {
     const candidates = tagged(done);
     return reviewRows(candidates, new Map([[readKey(candidates[0]!), { state: "read", stat: value }]])).rows;
@@ -95,7 +98,7 @@ test("a verdict hides the row until the folder's changes differ", () => {
 });
 
 test("reads stay within a window past what is reached, however many chats there are", () => {
-  const candidates = reviewCandidates(
+  const candidates = candidatesAt(
     Array.from({ length: 500 }, (_, index) =>
       session({ sessionId: `s${index}`, worktree: `/wt/${index}`, activityAt: minutesAgo(index + 1) }),
     ),
@@ -110,7 +113,7 @@ test("reads stay within a window past what is reached, however many chats there 
 });
 
 test("Request changes names the branch and the change before the person's words", () => {
-  const candidates = reviewCandidates([session({ sessionId: "a", worktree: "/wt/a", branch: "lane/x" })]);
+  const candidates = candidatesAt([session({ sessionId: "a", worktree: "/wt/a", branch: "lane/x" })]);
   const stat = readReviewStat(diff(["x.ts", "y.ts"]), "branch")!;
   expect(changesPrompt({ ...candidates[0]!, stat }, "  Use the shared helper.  ")).toBe(
     "Review of your changes on lane/x (2 files, +6 −2): changes requested.\n\nUse the shared helper.",
