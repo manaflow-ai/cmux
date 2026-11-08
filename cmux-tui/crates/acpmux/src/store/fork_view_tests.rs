@@ -631,3 +631,35 @@ fn a_reserved_fork_on_the_journal_store_gets_no_folder_before_its_meta() {
     assert_eq!(seqs(&view.events("late", 0, usize::MAX).unwrap()), expected(20, 1));
     assert!(view.load("late").unwrap().unwrap().history_from.is_none());
 }
+
+/// The dropped reference is durable before the chat goes: a crash right after the delete, with
+/// nothing waited for, must not bring back a reference to a folder that is gone, whose fork
+/// would then show none of its history (review of #37020 at 82dd442, F1).
+#[test]
+fn a_crash_right_after_the_chat_goes_keeps_the_forks_history() {
+    use cmux_journal::{Crash, SimStorage};
+    let home = tempfile::tempdir().unwrap();
+    let journal = SimStorage::new(64);
+    let config = cmux_journal::Config {
+        retry_min: std::time::Duration::from_millis(1),
+        retry_max: std::time::Duration::from_millis(5),
+        ..cmux_journal::Config::default()
+    };
+    let open = |storage: SimStorage| {
+        crate::store::open_with_journal(
+            &crate::config::StoreConfig::default(),
+            home.path(),
+            std::sync::Arc::new(storage),
+            config.clone(),
+        )
+        .unwrap()
+    };
+    let view = forked(open(journal.clone()), 30, 20, 2);
+    assert!(view.wait_durable(std::time::Duration::from_secs(10)).unwrap(), "never durable");
+    view.delete("chat").unwrap();
+    let crashed = journal.restart(Crash::Os);
+    drop(view);
+    let view = ForkView::new(open(crashed));
+    assert!(view.load("fork").unwrap().unwrap().history_from.is_none(), "the reference came back");
+    assert_eq!(seqs(&view.events("fork", 0, usize::MAX).unwrap()), expected(20, 2));
+}
