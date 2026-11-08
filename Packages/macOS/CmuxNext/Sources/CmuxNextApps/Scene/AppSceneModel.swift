@@ -26,6 +26,9 @@ public final class AppSceneModel {
 
     public private(set) var scene = AppScene()
     public var status: Status = .loading
+    /// Counts applied batches and resets, so an AppKit renderer can tell in `layout()` whether the
+    /// scene changed since it last drew, without comparing scenes.
+    @ObservationIgnored public private(set) var revision = 0
     public weak var interaction: (any AppSceneInteraction)?
 
     public init(status: Status = .loading) {
@@ -36,6 +39,7 @@ public final class AppSceneModel {
     /// itself refuses to emit past its budgets, so this means a bad VM).
     public func apply(_ ops: [AppSceneOp]) {
         let issues = scene.apply(ops)
+        revision &+= 1
         if let issue = issues.first {
             switch issue {
             case .nodeBudget: status = .failed("app.limit: more than \(AppScene.maxNodes) scene nodes")
@@ -50,6 +54,7 @@ public final class AppSceneModel {
     public func reset() {
         scene = AppScene()
         status = .loading
+        revision &+= 1
     }
 
     func send(_ node: String, _ event: String, _ payload: AppJSON = .object([:])) {
