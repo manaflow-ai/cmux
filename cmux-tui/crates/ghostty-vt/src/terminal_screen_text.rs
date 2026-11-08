@@ -95,9 +95,34 @@ impl Terminal {
         case_sensitive: bool,
         limit: usize,
     ) -> (ScreenSearch, ScanStats) {
-        // Red commit: the Rust scan lands in the next commit.
-        let _ = (needle, case_sensitive, limit);
-        (ScreenSearch::default(), ScanStats::default())
+        let query = Query {
+            needle: needle.chars().collect(),
+            folded: fold(needle.chars(), case_sensitive),
+            case_sensitive,
+            limit,
+        };
+        let mut stats = ScanStats::default();
+        if query.needle.is_empty() || limit == 0 {
+            return (ScreenSearch::default(), stats);
+        }
+        let total = self.scrollbar().map_or(u64::from(self.rows()), |scrollbar| scrollbar.total);
+        let lines = self.logical_lines(total);
+        // Without formatter text (the needle is only whitespace, or the
+        // formatter failed) every logical line is read cell by cell.
+        let texts = if query.folded.is_empty() {
+            None
+        } else {
+            self.folded_line_texts(case_sensitive).filter(|texts| texts.len() <= lines.len())
+        };
+        if let Some(texts) = texts.as_deref()
+            && let Some(result) = self.scan_lines(&lines, Some(texts), &query, &mut stats)
+        {
+            return (result, stats);
+        }
+        stats.fallback = texts.is_some();
+        stats.precise_lines = 0;
+        let result = self.scan_lines(&lines, None, &query, &mut stats).unwrap_or_default();
+        (result, stats)
     }
 
     /// Read the candidate logical lines newest first and place their
@@ -108,7 +133,7 @@ impl Terminal {
     fn scan_lines(
         &self,
         lines: &[(u32, u32)],
-        texts: Option<&Vec<String>>,
+        texts: Option<&[String]>,
         query: &Query,
         stats: &mut ScanStats,
     ) -> Option<ScreenSearch> {
