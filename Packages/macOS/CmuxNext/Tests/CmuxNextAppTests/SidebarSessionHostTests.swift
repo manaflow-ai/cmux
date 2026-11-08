@@ -163,6 +163,24 @@ import Testing
         #expect(layout.row(for: .workspace(Self.child))?.section == .pinned)
     }
 
+    /// A host header elsewhere in the list never takes a Pinned parent's own fold control away.
+    @Test func pinnedParentKeepsItsFoldWhenAFleetHostHeaderShows() throws {
+        let pinned = CmuxNextSidebar.SidebarSection(kind: .pinned, nodes: [
+            .workspace(SidebarWorkspace(id: Self.parent, title: "Pinned coordinator")),
+            .workspace(SidebarWorkspace(id: Self.child, title: "Pinned worker")),
+        ])
+        let machine = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)),
+                                     nodes: [.workspace(SidebarWorkspace(id: Self.other, title: "Fleet lane"))])
+        var state = Self.state()
+        state.hosts[Self.other] = "registry:fleet"
+        var options = SidebarLayoutOptions(); options.sessionTree = state
+        let layout = SidebarLayout.make(sections: [pinned, machine], metrics: .standard, options: options)
+        #expect(layout.rows.contains { if case .sessionHost = $0.key { true } else { false } }, "the fleet lane draws a host header")
+        #expect(layout.row(for: .workspace(Self.parent))?.content?.treeFold == .expanded, "the Pinned parent keeps its disclosure")
+        #expect(layout.row(for: .workspace(Self.child))?.content?.treeDepth == 1)
+        #expect(layout.row(for: .workspace(Self.child))?.section == .pinned)
+    }
+
     @Test func hostGroupsStaySeparatedByMachineSection() {
         let first = SidebarMachine(id: MachineID("one"), name: "One", kind: .ssh)
         let second = SidebarMachine(id: MachineID("two"), name: "Two", kind: .ssh)
