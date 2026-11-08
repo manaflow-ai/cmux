@@ -589,6 +589,58 @@ test("a thread whose preview was cut inside the broker's head stays an expandabl
   expect(container.querySelector(".cv-received__text")?.textContent).toBe("The whole message.");
 });
 
+// Review of #37653: a preview-only inbox row (one with no messages) still asks for its sender by
+// acpmux's record (its label, never cut), not by the bare name its line shows: a label-only sender
+// whose bare name another chat shares must not open that other chat.
+test("a preview-only inbox row opens its sender by the record's label, not the bare name", async () => {
+  const { flattenInboxRows } = await import("../src/agent-session/acpmux/conversation/laneNoticeBatches");
+  const { MessageRow } = await import("../src/agent-session/acpmux/rows/MessageRow");
+  const refs = await import("../src/agent-session/acpmux/conversation/sessionRefs");
+  const prompt = incomingPrompt("[inbox] New messages from other agents in 1 thread.", {
+    client: "acpmux",
+    _meta: {
+      provenance: {
+        kind: "inbox_notice",
+        threads: [
+          {
+            threadId: "declared:vm-1/lane-a",
+            from: ["lane-a"],
+            new: 1,
+            preview: "done",
+            promptIds: ["p1"],
+            sender: { label: "vm-1/lane-a", labelDeclared: true, verification: "declared" },
+          },
+        ],
+      },
+    },
+  });
+  if (prompt?.kind !== "inbox") throw new Error("not an inbox notice");
+  const row: AcpmuxRow = { id: "inbox-label", version: 1, at: 1, kind: "user", incoming: prompt };
+  const child = flattenInboxRows([row]).find((r) => r.inboxThread)!;
+  const opened: string[] = [];
+  refs.resetSessionRefs();
+  // acpmux has not answered yet: the click opens by what the chip asks for.
+  refs.setSessionRefResolver(() => new Promise(() => undefined));
+  try {
+    const container = await render(
+      <MessageRow row={child} onToggleActivity={() => undefined} expanded={false} />,
+      (window) => {
+        (window as unknown as Record<string, unknown>).cmuxAcpmuxActions = {
+          "chat.offer.open": async ({ sessionId }: { sessionId: string }) => void opened.push(sessionId),
+          "chat.inbox.thread": async () => [],
+        };
+      },
+    );
+    const chip = container.querySelector<HTMLElement>(".cv-received__from--open");
+    expect(chip).not.toBeNull();
+    await act(async () => chip!.click());
+    expect(opened).toEqual(["vm-1/lane-a"]);
+  } finally {
+    refs.setSessionRefResolver(undefined);
+    refs.resetSessionRefs();
+  }
+});
+
 test("two preview-only notices from one sender whose previews clean to nothing both keep their row", async () => {
   // Review of cmux#37653 (F1 at b2dc1923): a preview cut inside the broker's head cleans to "", and
   // with two prompt ids a thread names no single msgId, so the duplicate check keyed both on
