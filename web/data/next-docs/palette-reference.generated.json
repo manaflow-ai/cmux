@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1374,
-    "shortcuts": 189
+    "entries": 1373,
+    "shortcuts": 188
   },
   "sections": [
     {
@@ -6056,12 +6056,6 @@
           "title": "Preview Notification Sound",
           "shortcut": null,
           "command": "cmux notification preview-sound"
-        },
-        {
-          "id": "feed.show",
-          "title": "Show Feed",
-          "shortcut": "⇧⌘I",
-          "command": null
         },
         {
           "id": "showNotifications",

@@ -18,6 +18,7 @@ mod away_recap;
 mod message_events;
 pub use agent_pairs::PairGuard;
 mod aside;
+mod asks_below;
 mod atomic_json;
 mod build;
 pub use build::{build, install_build, version_line};
@@ -51,6 +52,8 @@ pub(crate) mod dispatch;
 pub(crate) mod file_uploads;
 mod gemini_plan;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
+#[cfg(test)]
+mod agent_messaging_tests;
 #[cfg(test)]
 mod first_work_tests;
 mod fork;
@@ -192,6 +195,7 @@ pub(super) use session::{newest_first, prompt_text, short_text};
 mod shell_readonly;
 mod shutdown;
 pub use shutdown::SHUTTING_DOWN;
+pub(crate) use shutdown::{CREATED as REFUSED_CREATED, shutting_down_before_create};
 pub(crate) mod inbox;
 mod spawn;
 mod start_defaults;
@@ -529,6 +533,10 @@ pub struct PromptOptions {
     /// chat's inbox takes it. Every other path that prompts (reports, task cards, a paused pair's
     /// release, a peer's or the mesh relay's forward) keeps the queue.
     pub inbox: bool,
+    /// The sender waits for the reply (`_meta.acpmux.wakeOrFail`): a message the inbox would
+    /// hold in an idle chat that it does not wake is refused at once (`inbox.rs`
+    /// `not_woken`), never left waiting for a turn that does not come.
+    pub wake_or_fail: bool,
 }
 
 /// The outcome of one client prompt id, shared with a resend of it.
@@ -563,6 +571,7 @@ pub struct Hub {
     pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
     /// Each peer's last-known-good path (`peer_last_good.rs`), beside the peer caches.
     pub(crate) peer_paths: Arc<crate::peer_last_good::LastGood>,
+    /// The daemon's store, read through each fork's referenced history (`store/fork_view.rs`).
     pub(super) store: Box<dyn Store>,
     pub(super) mailbox: Mailbox,
     /// The forum log (`forum.rs`, `hub/forum.rs`).
@@ -976,7 +985,7 @@ impl Hub {
             usage_limits,
             wireguard,
             peer_paths,
-            store,
+            store: Box::new(crate::store::ForkView::new(store)),
             mailbox,
             forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
@@ -1472,6 +1481,7 @@ impl Hub {
             permission_epoch: AtomicU64::new(0),
             input_since: AtomicU64::new(0),
             work_below_since: StdMutex::new(0),
+            asks_below: StdMutex::new((0, 0)),
             unread_after_work: AtomicBool::new(false),
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
@@ -2162,6 +2172,7 @@ impl Hub {
                 | "stopping"
                 | "unstuck"
                 | work_below::RECORD_KIND
+                | asks_below::RECORD_KIND
                 | "queued"
                 | "dequeued"
                 | "queue_removed"
@@ -2483,6 +2494,8 @@ impl Hub {
             self.care_status(status);
             // A sub-session that starts or ends a turn, or closes, changes its parent's work.
             self.refresh_parent_work_below(session);
+            // One that starts or stops waiting on the person changes its parent's asks below.
+            self.refresh_parent_asks_below(session);
             if status == SessionStatus::Closed {
                 self.retention_wake();
             }

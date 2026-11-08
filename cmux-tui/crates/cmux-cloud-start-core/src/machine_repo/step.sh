@@ -5,10 +5,10 @@ set -u
 d=$(cd "$(dirname "$0")" && pwd)
 url='@URL@'; ref='@REF@'; dir="$HOME/@DIRECTORY@"; github=@GITHUB@
 host='@HOST@'; key="credential.https://$host"
-cred=none; helper=""; status=failed; sha=""; why=""; fresh=""
+cred=none; helper=""; status=failed; sha=""; why=""; fresh=""; tip=""; fill=none
 result() {
-  printf '{"status":"%s","url":"%s","ref":"%s","dir":"%s","credential":"%s","sha":"%s"}\n' \
-    "$status" "$url" "$ref" "$dir" "$cred" "$sha" >"$d/repo-status.json.tmp" && mv -f "$d/repo-status.json.tmp" "$d/repo-status.json"
+  printf '{"status":"%s","url":"%s","ref":"%s","dir":"%s","credential":"%s","sha":"%s","fill":"%s"}\n' \
+    "$status" "$url" "$ref" "$dir" "$cred" "$sha" "$fill" >"$d/repo-status.json.tmp" && mv -f "$d/repo-status.json.tmp" "$d/repo-status.json"
 }
 die() { status=failed; result; echo "cmux repo: $1" >&2; exit 1; }
 # Nothing inherited or configured may ask another credential source or log a request (git's
@@ -75,6 +75,46 @@ switch() {
     why="no branch, tag or commit $ref in $url"; return 1
   fi || { why="cannot check out $ref"; return 1; }
 }
+root() { if [ "$(id -u)" = 0 ]; then "$@"; else sudo -n "$@"; fi; }
+# A clone of the default branch is cloned head first: one commit's trees, the root files
+# (AGENTS.md, CLAUDE.md, lockfiles) and the harness folders, in about a second where the whole
+# clone takes tens (microsoft/vscode: 1.0 s against 28 s). The rest of the tree comes in the
+# background (`fill`) under `cmux repo hold`, which keeps every agent tool waiting until the tree
+# is whole while a Claude start goes ahead at the head. A machine whose cmux has no `repo hold`,
+# or no systemd-run, clones the whole repository as before. So does a start with a bootstrap
+# script (anything but machine_bootstrap.rs `NO_SCRIPT`): the runner runs it right after this
+# step, and nothing holds it at the barrier.
+head_dirs=".claude .codex .cursor .gemini .github .vscode .devcontainer"
+holder() {
+  printf '#!/bin/sh\nexit 0\n' | cmp -s - "$d/script" &&
+    { hx=$(command -v cmux-tui) || hx=$(command -v cmux); } && "$hx" repo hold --help >/dev/null 2>&1 &&
+    command -v systemd-run >/dev/null 2>&1
+}
+# The fill, in its own scope: the bootstrap's unit ends with this runner, and the hold outlives it.
+# The hold is taken before this returns, so no chat starts on the folder before it.
+fill_later() {
+  if root systemd-run --scope --quiet --collect --unit="cmux-repo-fill-$(date +%s)-$$" \
+    runuser -u "$(id -un)" -- env HOME="$HOME" PATH="$PATH" "$hx" repo hold "$dir" -- "$d/repo" fill "$cred"; then
+    fill=background
+  else
+    echo "cmux repo: cannot fill $dir in the background; filling it now" >&2
+    g -C "$dir" sparse-checkout disable && g -C "$dir" fetch --quiet --unshallow --filter=blob:none origin ||
+      die "cannot check out all of $url"
+    fill=done
+  fi
+}
+# Run by `cmux repo hold` (`fill_later`): the whole tree, then, once the barrier is open, the history.
+if [ "${1:-}" = fill ]; then
+  use "${2:-anonymous}"
+  g -C "$dir" sparse-checkout disable || exit 1
+  setsid "$d/repo" unshallow "${2:-anonymous}" </dev/null >>"$d/bootstrap.log" 2>&1 &
+  exit 0
+fi
+if [ "${1:-}" = unshallow ]; then
+  use "${2:-anonymous}"
+  g -C "$dir" fetch --quiet --unshallow --filter=blob:none origin
+  exit
+fi
 # Fast-forward the checked-out branch to its upstream; a branch with local commits is kept.
 forward() {
   up=$(g -C "$dir" rev-parse --verify --quiet '@{u}') || return 0
@@ -98,13 +138,40 @@ if [ -d "$dir/.git" ]; then
   # A checkout with local changes stays as it is.
   changes=$(g -C "$dir" status --porcelain) || die "cannot read $dir"
   if [ -n "$changes" ]; then status=kept; else switch && forward || die "$why"; fi
+  # A head-first clone whose fill did not finish: fill it again.
+  if [ "$(git -C "$dir" config --bool core.sparseCheckout 2>/dev/null)" = true ] && [ -f "$dir/.git/info/sparse-checkout" ]; then
+    if holder; then tip=1; else
+      g -C "$dir" sparse-checkout disable || die "cannot check out all of $url"
+      # And its history, as a whole clone has it.
+      if [ "$(g -C "$dir" rev-parse --is-shallow-repository)" = true ]; then
+        g -C "$dir" fetch --quiet --unshallow --filter=blob:none origin || die "cannot fetch the history of $url"
+      fi
+    fi
+  fi
 elif [ -e "$dir" ]; then
   die "$dir exists and is not a git checkout"
 else
   mkdir -p "$(dirname "$dir")"
   fresh=1
-  net clone --quiet --filter=blob:none "$url" "$dir"
-  switch || { rm -rf "$dir"; die "$why"; }
+  if [ -z "$ref" ] && holder; then
+    net clone --quiet --depth 1 --filter=blob:none --sparse "$url" "$dir"
+    # A depth-1 clone fetches only the default branch from then on; every branch, as a whole
+    # clone has, so the history fill and a later start's `@branch` see them all.
+    g -C "$dir" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*' ||
+      { rm -rf "$dir"; die "cannot track the branches of $url"; }
+    # shellcheck disable=SC2086 # one word per folder
+    if g -C "$dir" sparse-checkout add $head_dirs; then
+      tip=1
+    else
+      # A harness folder that is a symlink or a file is no sparse folder: the whole tree, now.
+      g -C "$dir" sparse-checkout disable && g -C "$dir" fetch --quiet --unshallow --filter=blob:none origin ||
+        { rm -rf "$dir"; die "cannot check out all of $url"; }
+      fill=done
+    fi
+  else
+    net clone --quiet --filter=blob:none "$url" "$dir"
+    switch || { rm -rf "$dir"; die "$why"; }
+  fi
   status=cloned
 fi
 # The checkout keeps the cmux path it cloned with, so the agent's own push and pull there
@@ -118,4 +185,5 @@ if { [ "$cred" = cmux-github ] || [ "$cred" = cmux-gitlab ]; } && ! git -C "$dir
     echo "cmux repo: cannot keep the $host path in $dir, so a push there needs credentials" >&2
 fi
 sha=$(g -C "$dir" rev-parse --verify --quiet HEAD) || die "no commit checked out in $dir"
+[ -z "$tip" ] || fill_later
 result

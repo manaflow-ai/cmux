@@ -95,6 +95,21 @@ import Testing
         )
     }
 
+    @Test(arguments: [
+        "github_pat" + "_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOP",
+        "glpat" + "-0123456789abcdefABCD",
+        "npm" + "_0123456789abcdefghijklmnopqrstuvwxyz",
+        "hf" + "_0123456789abcdefghijklmnopqrstuvwx",
+        "AIz" + "aSyA0123456789abcdefghijklmnopqrstuv",
+    ])
+    func redactsMoreProviderTokens(token: String) {
+        #expect(scrubber.scrub("push with \(token) now") == "push with <redacted-secret> now")
+    }
+
+    @Test func leavesWordsThatShareATokenPrefix() {
+        #expect(scrubber.scrub("npm_config_cache and hf_hub and glpat-x") == "npm_config_cache and hf_hub and glpat-x")
+    }
+
     @Test func redactsJsonWebToken() {
         let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"
         #expect(scrubber.scrub("session \(jwt) expired") == "session <redacted-secret> expired")

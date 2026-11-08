@@ -701,6 +701,74 @@
   overflow-wrap: anywhere;
 }
 .wn-notes[data-titles] .wn-notes-list { margin-top: var(--ds-space-1); }
+/* The changes under What's New's areas (Leo 2026-11-08: "the sections should be more obvious what's
+   what"): each area's glyph, name and count as What's New heads it (SheetPage's cls-area-head), so a
+   click that opens the page lands under a header that reads the same. */
+.wn-notes-section + .wn-notes-section { margin-top: var(--ds-space-2); }
+.wn-notes-area {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  margin: 0;
+  padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-1);
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  font-weight: var(--weight-emphasis);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.wn-notes-area-icon {
+  display: inline-flex;
+  color: var(--cmux-accent, currentColor);
+}
+.wn-notes-area-icon svg { width: 14px; height: 14px; }
+.wn-notes-area-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.wn-notes-area-count {
+  color: var(--page-text-3, var(--page-text-2));
+  font-weight: var(--weight-regular);
+  font-variant-numeric: tabular-nums;
+}
+/* One change is one pill (Leo: "distinguishing which row does what is unclear"): its title and detail
+   light together, with a gap between pills. */
+.wn-notes-rows {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--grid-base, 4px) / 2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.wn-notes-row { padding-block: var(--ds-space-2); }
+/* Rows divided by hairlines instead of gaps (gallery variant). */
+.wn-notes-list[data-look="divided"] .wn-notes-rows { gap: 0; }
+.wn-notes-list[data-look="divided"] .wn-notes-rows > li + li { border-top: 1px solid var(--page-separator); }
+.wn-notes-list[data-look="divided"] .wn-notes-row { border-radius: 0; }
+/* How many changes are below while some are (Leo: "unclear whether you can even scroll down and why
+   you should"): a quiet pill held at the popover's bottom edge. */
+.wn-notes-more {
+  position: sticky;
+  bottom: var(--ds-space-1);
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  width: fit-content;
+  margin: var(--ds-space-1) var(--ds-space-2) 0 auto;
+  padding: calc(var(--grid-base, 4px) / 2) var(--ds-space-2);
+  border-radius: 999px;
+  background: var(--composer-material-tint, var(--page-hover));
+  box-shadow: var(--composer-material-ring, none);
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
 :is(.wn-notes-whatsnew, .wn-notes-row, .wn-card-seenew):focus-visible {
   outline: 2px solid var(--cmux-accent, currentColor);
   outline-offset: 2px;
