@@ -7,6 +7,7 @@ import type { AcpmuxPermission } from "./model";
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
 import "./permissions/externalAccess.css";
+import { takePermissionFocus } from "./permissions/focusRequest";
 import { ProposedEdits } from "./permissions/ProposedEdits";
 import {
   alwaysAllowScope,
@@ -387,7 +388,12 @@ export function PermissionCard({
   // the composer: the next 1, 2, 3, Return or Esc answers it.
   useEffect(() => {
     if (!active) return;
-    const focus = () => group.current?.focus();
+    const focus = () => {
+      takePermissionFocus();
+      group.current?.focus();
+    };
+    // Asked just before this card mounted: the chat opened first.
+    if (takePermissionFocus()) group.current?.focus();
     window.addEventListener("cmux-acpmux-permissionFocus", focus);
     return () => window.removeEventListener("cmux-acpmux-permissionFocus", focus);
   }, [active]);

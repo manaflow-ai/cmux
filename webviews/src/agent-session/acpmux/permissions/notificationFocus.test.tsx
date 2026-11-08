@@ -6,6 +6,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { permissionFromMessage } from "../direct";
+import { askPermissionFocus, FOCUS_REQUEST_MS, takePermissionFocus } from "./focusRequest";
 import { PermissionCard } from "../PermissionCard";
 
 let dom: JSDOM | undefined;
@@ -45,6 +46,7 @@ function installDom(): HTMLElement {
 }
 
 afterEach(async () => {
+  takePermissionFocus();
   if (root) await act(async () => root!.unmount());
   root = undefined;
   dom?.window.close();
@@ -112,6 +114,40 @@ test("with no ask waiting the event takes nothing from the composer", async () =
   composer.focus();
   await act(async () => {
     dom!.window.dispatchEvent(new dom!.window.CustomEvent("cmux-acpmux-permissionFocus"));
+  });
+  expect(doc.activeElement).toBe(composer);
+});
+
+test("a card that mounts just after the click still takes the keyboard", async () => {
+  const container = installDom();
+  const doc = dom!.window.document;
+  const composer = doc.getElementById("composer") as HTMLTextAreaElement;
+  const answers: string[] = [];
+  composer.focus();
+  // The click arrives while the chat opens, before its card is there.
+  askPermissionFocus();
+  root = createRoot(container);
+  await act(async () => {
+    root!.render(
+      <PermissionCard permission={permissionFromMessage(ask, "s1")!} harness="claude" onAnswer={(id) => answers.push(id)} />,
+    );
+  });
+  expect(doc.activeElement).toBe(container.querySelector(".acpmux-permission-ask"));
+  await act(async () => {
+    doc.activeElement!.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "1", bubbles: true }));
+  });
+  expect(answers).toEqual(["once"]);
+});
+
+test("a click long before the card mounts takes nothing from the composer", async () => {
+  const container = installDom();
+  const doc = dom!.window.document;
+  const composer = doc.getElementById("composer") as HTMLTextAreaElement;
+  composer.focus();
+  askPermissionFocus(performance.now() - FOCUS_REQUEST_MS - 1);
+  root = createRoot(container);
+  await act(async () => {
+    root!.render(<PermissionCard permission={permissionFromMessage(ask, "s1")!} harness="claude" onAnswer={() => undefined} />);
   });
   expect(doc.activeElement).toBe(composer);
 });
