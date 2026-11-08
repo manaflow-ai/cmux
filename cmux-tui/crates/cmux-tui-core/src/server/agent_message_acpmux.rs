@@ -49,12 +49,34 @@ impl crate::mux::Mux {
         else {
             return Handover::Unreachable;
         };
+        // Steered into a running turn when the agent steers, so a busy recipient reads it at its
+        // next tool boundary instead of after its turn; acpmux queues it for an agent that does
+        // not. A steer without `interrupt` never stops the turn; only an explicit interrupt
+        // (`_meta.acpmux.interrupt`, or the queue's `interrupt` op, `queue_edit.rs`) does.
+        let mut meta = json!({"steer": true, "promptId": id, "resend": true});
+        if let Some(provenance) = provenance(message, recipient) {
+            meta.insert("provenance", provenance);
+        }
+        let text = render(std::slice::from_ref(message));
+        self.acp_prompt(session, id, text, meta)
+    }
+
+    /// Hands `text` to the acpmux session `session` as one prompt whose id
+    /// is `prompt_id`, with `meta` as its `_meta.acpmux`; delivered once
+    /// acpmux accepts it (`_acpmux/prompt_accepted`) or answers its turn.
+    pub(crate) fn acp_prompt(
+        &self,
+        session: &str,
+        prompt_id: &str,
+        text: String,
+        meta: Value,
+    ) -> Handover {
         let Some(socket) = self.control_clients.agent_sessions.socket() else {
             return Handover::Unreachable;
         };
         let (heard, hearing) = sync_channel::<Heard>(4);
         let accepted = heard.clone();
-        let prompt_id = id.to_owned();
+        let prompt_id = prompt_id.to_owned();
         let Ok(link) = AcpmuxLink::connect(&socket, move |inbound| {
             if let Inbound::Notification(method, params) = inbound
                 && method == "_acpmux/prompt_accepted"
@@ -71,15 +93,6 @@ impl crate::mux::Mux {
             link.close();
             return Handover::Unreachable;
         }
-        // Steered into a running turn when the agent steers, so a busy recipient reads it at its
-        // next tool boundary instead of after its turn; acpmux queues it for an agent that does
-        // not. A steer without `interrupt` never stops the turn; only an explicit interrupt
-        // (`_meta.acpmux.interrupt`, or the queue's `interrupt` op, `queue_edit.rs`) does.
-        let mut meta = json!({"steer": true, "promptId": id, "resend": true});
-        if let Some(provenance) = provenance(message, recipient) {
-            meta.insert("provenance", provenance);
-        }
-        let text = render(std::slice::from_ref(message));
         let params = json!({
             "sessionId": session,
             "prompt": [{"type": "text", "text": text}],
