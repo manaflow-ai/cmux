@@ -48,7 +48,9 @@ import Testing
         override var isFlipped: Bool { true }
     }
 
-    static func scene() throws -> Scene {
+    /// `cardWantsLayer` false: a card with no layer of its own (the notice pill, the link status bubble), as the
+    /// cookie import card has one (`BrowserCookieImportCard`).
+    static func scene(cardWantsLayer: Bool = true) throws -> Scene {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         let content = try #require(window.contentView)
@@ -59,7 +61,7 @@ import Testing
         let page = NSView(frame: host.bounds)
         host.addSubview(page)
         let card = NSView()
-        card.wantsLayer = true
+        card.wantsLayer = cardWantsLayer
         card.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             card.widthAnchor.constraint(equalToConstant: 300),
@@ -154,6 +156,21 @@ import Testing
         try scene.cover([])
         scene.overlays.sync()
         #expect(scene.card.window != nil)
+        #expect(scene.card.layer?.mask == nil, "a whole card has no cut")
+    }
+
+    /// Review of #38313: the notice pill and the link status bubble are cards with no layer of their own. Partly covered,
+    /// such a card showed whole over the pane in front, and the notice took clicks there, as the cookie card did before.
+    @Test func aPartlyCoveredCardWithNoLayerOfItsOwnShowsCutLikeItsPage() throws {
+        let scene = try Self.scene(cardWantsLayer: false)
+        defer { scene.close() }
+        try scene.cover([], shown: CGRect(x: 450, y: 0, width: 350, height: 600))
+        scene.overlays.sync()
+        #expect(scene.card.window != nil, "the card shows with the part of its page that shows")
+        #expect(scene.card.layer?.mask is StripClipMaskLayer, "the card is cut where the pane in front covers its page")
+        #expect(scene.overlays.takesMouse(scene.card) != true, "no click on the card over the pane in front")
+        try scene.cover([])
+        scene.overlays.sync()
         #expect(scene.card.layer?.mask == nil, "a whole card has no cut")
     }
 }
