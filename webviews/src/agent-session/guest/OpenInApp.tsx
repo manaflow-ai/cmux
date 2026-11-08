@@ -33,7 +33,7 @@ export function OpenInApp({ appUrl, onContinue, win, waitMs = APP_OPEN_WAIT_MS }
     return () => controller.abort();
   }, [appUrl, win, waitMs]);
   return (
-    <div className="guest-app" role="status" data-testid="guest-open-in-app">
+    <output className="guest-app" data-testid="guest-open-in-app">
       <span className="guest-app__title">{t(opened ? "guest.app.opened" : "guest.app.opening")}</span>
       <a className="guest-app__open" href={appUrl}>
         {t("guest.app.open")}
@@ -41,7 +41,7 @@ export function OpenInApp({ appUrl, onContinue, win, waitMs = APP_OPEN_WAIT_MS }
       <button className="guest-app__browser" type="button" onClick={() => continued.current()}>
         {t("guest.app.browser")}
       </button>
-    </div>
+    </output>
   );
 }
 
