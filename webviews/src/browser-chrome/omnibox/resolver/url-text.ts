@@ -1,6 +1,6 @@
 // Swift and Foundation semantics the URL resolver relies on: Character's whitespace, newline,
-// letter and number tests, `URLComponents(string:)` (strict RFC 3986, nil on an invalid
-// character), `URL(string:)` (encodes invalid characters first, macOS 14+) and `URL(filePath:)`.
+// letter and number tests, `URLComponents(string:)` and `URL(string:)` (each encodes a
+// component's invalid characters first, macOS 14+) and `URL(filePath:)`.
 
 /** `CharacterSet.whitespacesAndNewlines`, and `Character.isWhitespace` for one code point. */
 const WHITESPACE = /[\t-\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]/;
@@ -131,25 +131,33 @@ export function asciiHost(host: string): string | null {
   }
 }
 
-/** Percent-encodes the non-ASCII characters of `text` as UTF-8; ASCII stays as it is. */
-const encodingNonASCII = (text: string): string => percentEncode(text, () => true);
+const USERINFO_CHARACTER = new RegExp(`^[${UNRESERVED}${SUB_DELIMS}:]$`);
+const PATH_COMPONENT_CHARACTER = new RegExp(`^[${UNRESERVED}${SUB_DELIMS}:@/]$`);
+const QUERY_CHARACTER = new RegExp(`^[${UNRESERVED}${SUB_DELIMS}:@/?]$`);
+
+/** Percent-encodes, as UTF-8, every character of `text` that `allowed` refuses; a valid `%XX` stays. */
+const encodingInvalid = (text: string, allowed: RegExp): string =>
+  percentEncode(
+    text,
+    (character, index) =>
+      allowed.test(character) || (character === "%" && /^[0-9A-Fa-f]{2}$/.test(text.slice(index + 1, index + 3))),
+  );
 
 /**
- * `URLComponents(string:)` on macOS 14 and later: a Unicode host in punycode and every other
- * non-ASCII character percent-encoded, then parsed strictly (`https://例え.jp/café` is
- * `https://xn--r8jz45g.jp/caf%C3%A9`). An invalid ASCII character still makes it null.
+ * `URLComponents(string:)` on macOS 14 and later: a Unicode host in punycode and each other
+ * component's invalid characters percent-encoded, then parsed strictly (`https://例え.jp/café` is
+ * `https://xn--r8jz45g.jp/caf%C3%A9`, `https://example.com/a|b` is `https://example.com/a%7Cb`).
  */
 export function componentsURL(text: string): { text: string; parsed: ParsedURL } | null {
   const strict = parseStrictURL(text);
   if (strict) return { text, parsed: strict };
-  if (isASCII(text)) return null;
   const match = URL_SHAPE.exec(text);
   if (!match) return null;
   const [, scheme, authority, path, query, fragment] = match;
   let encoded = `${scheme}:`;
   if (authority != null) {
     const at = authority.lastIndexOf("@");
-    const userinfo = at < 0 ? "" : `${encodingNonASCII(authority.slice(0, at))}@`;
+    const userinfo = at < 0 ? "" : `${encodingInvalid(authority.slice(0, at), USERINFO_CHARACTER)}@`;
     const hostPort = authority.slice(at + 1);
     const colon = hostPort.startsWith("[") ? hostPort.indexOf(":", hostPort.indexOf("]")) : hostPort.indexOf(":");
     const host = colon < 0 ? hostPort : hostPort.slice(0, colon);
@@ -157,9 +165,9 @@ export function componentsURL(text: string): { text: string; parsed: ParsedURL }
     if (ascii == null) return null;
     encoded += `//${userinfo}${ascii}${colon < 0 ? "" : hostPort.slice(colon)}`;
   }
-  encoded += encodingNonASCII(path);
-  if (query != null) encoded += `?${encodingNonASCII(query)}`;
-  if (fragment != null) encoded += `#${encodingNonASCII(fragment)}`;
+  encoded += encodingInvalid(path, PATH_COMPONENT_CHARACTER);
+  if (query != null) encoded += `?${encodingInvalid(query, QUERY_CHARACTER)}`;
+  if (fragment != null) encoded += `#${encodingInvalid(fragment, QUERY_CHARACTER)}`;
   const parsed = parseStrictURL(encoded);
   return parsed ? { text: encoded, parsed } : null;
 }

@@ -177,7 +177,26 @@ describe("Unicode URLs (URLComponents(string:) on macOS 14+)", () => {
     expect(url("café")).toBeNull();
     expect(url("例え")).toBeNull();
     expect(resolver.destination("café au lait")?.kind).toBe("search");
-    // An invalid ASCII character is still no URL.
-    expect(url("https://example.com/a|b")).toBeNull();
+  });
+});
+
+// Each row is what `URLComponents(string:)` answered (`components.url`), run against Foundation.
+describe("invalid ASCII characters (URLComponents(string:) on macOS 14+)", () => {
+  test.each([
+    ["https://example.com/a|b", "https://example.com/a%7Cb"],
+    ["http://localhost:3000/?filter[status]=open", "http://localhost:3000/?filter%5Bstatus%5D=open"],
+    ["https://example.com/a^b{c}", "https://example.com/a%5Eb%7Bc%7D"],
+    ["https://example.com/%zz", "https://example.com/%25zz"],
+    ["https://example.com/a\\b", "https://example.com/a%5Cb"],
+    ["https://example.com/#a#b", "https://example.com/#a%23b"],
+  ])("%s loads as %s", (text, expected) => {
+    expect(url(text)).toBe(expected);
+  });
+
+  test("Paste and Go navigates such an address instead of searching", () => {
+    expect(createOmniboxResolver().destination("https://example.com/a|b")).toEqual({
+      kind: "url",
+      url: "https://example.com/a%7Cb",
+    });
   });
 });
