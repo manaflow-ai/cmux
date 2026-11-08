@@ -43,6 +43,22 @@ export const tokenDetail = (t: Translate, language: PaneLanguage, split: TurnTok
     cacheWrite: compactTokens(language, split.cacheWrite),
   });
 
+const UNCACHED = "\ue000";
+const CACHED = "\ue001";
+const NBSP = "\u00a0";
+
+/// A row's translated text with each count in its place and held to the words after it, up to the
+/// row's next " · " ("14.2K uncached", "14,2 k hors cache"): the reply time's tooltip is plain text
+/// (a `title`, ui/titleTooltips.ts), so no span can keep them together, and a narrow pane wraps
+/// between parts, never between a count and its word. Every locale puts the count before its words.
+function countsWithTheirWords(row: string, counts: ReadonlyMap<string, string>): string {
+  const held = row.replace(
+    /([\ue000\ue001])([^·]*)/g,
+    (_, marker: string, words: string) => marker + words.replace(/\s+(?=\S)/g, NBSP),
+  );
+  return held.replace(/[\ue000\ue001]/g, (marker) => counts.get(marker) ?? "");
+}
+
 /// The reply time's token rows (TurnRows.tsx TurnFooter), one count per row: "Output 5.1K", "Input
 /// across calls 14.2K uncached · 930.9K cached", "Context at end 139.9K", "Model calls 7". The input
 /// row's two counts are its calls' added up and its label says so; the context is what the chat held
@@ -50,10 +66,13 @@ export const tokenDetail = (t: Translate, language: PaneLanguage, split: TurnTok
 /// no call count, and draws neither row (gallery `agent-pane.reply-time-tokens`).
 export const tokenRows = (t: Translate, language: PaneLanguage, split: TurnTokenSplit): string[] => [
   t("turn.tokens.outputRow", { tokens: compactTokens(language, split.output) }),
-  t("turn.tokens.inputRow", {
-    uncached: compactTokens(language, uncachedTokens(split)),
-    cached: compactTokens(language, cachedTokens(split)),
-  }),
+  countsWithTheirWords(
+    t("turn.tokens.inputRow", { uncached: UNCACHED, cached: CACHED }),
+    new Map([
+      [UNCACHED, compactTokens(language, uncachedTokens(split))],
+      [CACHED, compactTokens(language, cachedTokens(split))],
+    ]),
+  ),
   ...(split.context ? [t("turn.tokens.contextRow", { tokens: compactTokens(language, split.context) })] : []),
   ...(split.calls ? [t("turn.tokens.callsRow", { n: new Intl.NumberFormat(language).format(split.calls) })] : []),
 ];
