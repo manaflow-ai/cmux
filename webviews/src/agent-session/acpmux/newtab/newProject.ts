@@ -6,7 +6,8 @@
 /// The longest name derived from a prompt; acpmux takes up to 64.
 const NAME_MAX = 40;
 /// The words a prompt opens with that name no part of the project ("build me a", "make an").
-const LEAD = /^(?:(?:please|pls|can you|could you|let's|lets|i want to|i'd like to|help me)\s+)*(?:(?:build|make|create|write|start|scaffold|set up|setup|code)\s+)?(?:me\s+)?(?:(?:a|an|the|my|some)\s+)?/i;
+const LEAD =
+  /^(?:(?:please|pls|can you|could you|let's|lets|i want to|i'd like to|help me)\s+)*(?:(?:build|make|create|write|start|scaffold|set up|setup|code)\s+)?(?:me\s+)?(?:(?:a|an|the|my|some)\s+)?/i;
 /// Words that end the name: what comes after is detail ("a habit tracker with streaks").
 const STOP = new Set(["with", "that", "which", "where", "using", "in", "for", "on", "to", "and", "so"]);
 /// Never in the name: what is left of a lead that named nothing ("build me a").
@@ -48,7 +49,10 @@ export function projectNameFrom(prompt: string): string {
   const words = first.replace(LEAD, "").split(/\s+/).filter(Boolean);
   const kept: string[] = [];
   for (const word of words) {
-    const plain = word.toLowerCase().replace(/[^\p{L}\p{N}.-]/gu, "").replace(/^\.+|\.+$/g, "");
+    const plain = word
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}.-]/gu, "")
+      .replace(/^\.+|\.+$/g, "");
     if (!plain || SKIP.has(plain)) continue;
     if (STOP.has(plain)) {
       if (kept.length > 0) break;

@@ -1433,10 +1433,7 @@ test("Open in New Profile from the address's rows makes a profile with the defau
 });
 
 /// New Project (newProject.ts): the folder menu's New project row on a New Tab that can make one.
-async function renderNewProject(
-  onNewProject: (name: string) => Promise<string>,
-  asks: unknown[][],
-): Promise<void> {
+async function renderNewProject(onNewProject: (name: string) => Promise<string>, asks: unknown[][]): Promise<void> {
   await act(async () => {
     root!.render(
       <NewTabScreen
@@ -1481,13 +1478,10 @@ test("New project: the name follows the prompt until edited; the send makes that
   const asks: unknown[][] = [];
   const names: string[] = [];
   let made!: (folder: string) => void;
-  await renderNewProject(
-    (name) => {
-      names.push(name);
-      return new Promise<string>((resolve) => (made = resolve));
-    },
-    asks,
-  );
+  await renderNewProject((name) => {
+    names.push(name);
+    return new Promise<string>((resolve) => (made = resolve));
+  }, asks);
 
   // The strip reads New project, and the name field holds the placeholder name of an empty prompt.
   expect(container.querySelector(".nt-location")?.textContent).toContain(translate("project.new"));
