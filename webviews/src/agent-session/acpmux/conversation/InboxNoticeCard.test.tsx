@@ -307,3 +307,71 @@ test("a click on the digest's own line opens a preview-only inbox thread and rea
   await act(async () => head.click());
   expect(container.querySelectorAll(".cv-received__text")).toHaveLength(0);
 });
+
+test("the row estimator gives a preview-only thread its opened height once the digest's head opens it", async () => {
+  const { layoutConversation } = await import("../model");
+  // A preview long enough to wrap, so the opened panel is several lines taller than the line.
+  const long = Array.from({ length: 12 }, (_, index) => `Step ${index + 1} of the landing report is done.`).join(" ");
+  const thread = (threadId: string, from: string, promptId: string) => ({
+    threadId,
+    label: "",
+    from: [from],
+    count: 1,
+    preview: long,
+    blocker: false,
+    promptIds: [promptId],
+  });
+  const notice: AcpmuxRow = {
+    id: "notice-estimate",
+    version: 1,
+    at: 1,
+    kind: "queuedMessage",
+    text: "[inbox] New messages from other agents in 2 threads.",
+    incoming: {
+      kind: "inbox",
+      notice: { threads: [thread("from:lane-a/pr:9", "lane-a", "a1"), thread("from:lane-b/pr:10", "lane-b", "b1")] },
+    },
+    queuedMessage: { promptId: "notice-estimate" },
+  };
+  const group = pendingMessagesRow([], [notice])!;
+  const height = () => layoutConversation([group], 720, new Map()).heights[0]!;
+  // The group open with its threads' lines shut: the height an opened thread must exceed.
+  setMessageOpened(undefined, group.id, true);
+  const shutLines = height();
+  setMessageOpened(undefined, group.id, false);
+  const container = await render(
+    <PendingMessagesCard
+      row={group}
+      onOpen={() => undefined}
+      renderMessage={(row) =>
+        row.inboxThread ? (
+          <InboxNoticeCard
+            rowId={row.id}
+            notice={{
+              threads: [
+                {
+                  threadId: row.inboxThread.threadId,
+                  label: row.inboxThread.label ?? "",
+                  from: [row.inboxThread.sender],
+                  count: row.inboxThread.count,
+                  preview: row.inboxThread.preview,
+                  blocker: false,
+                  promptIds: [...row.inboxThread.promptIds],
+                },
+              ],
+            }}
+            onOpen={() => undefined}
+          />
+        ) : null
+      }
+    />,
+  );
+  const head = container.querySelector<HTMLButtonElement>(".cv-pending__toggle")!;
+  await act(async () => head.click());
+  try {
+    // Both threads opened by the head: each adds its panel's lines to the estimate.
+    expect(height()).toBeGreaterThan(shutLines + 2 * 40);
+  } finally {
+    await act(async () => head.click());
+  }
+});
