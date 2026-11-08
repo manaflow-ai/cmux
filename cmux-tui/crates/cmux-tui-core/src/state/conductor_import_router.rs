@@ -350,7 +350,9 @@ impl Mux {
             "unreadable_folders": catalog.unreadable,
             "has_conductor": has_conductor,
         });
-        value["plan"]["has_conductor"] = json!(has_conductor);
+        if let Some(plan) = value.get_mut("plan").and_then(Value::as_object_mut) {
+            plan.insert("has_conductor".to_owned(), json!(has_conductor));
+        }
         if let Some(projects) = value.get_mut("plan").and_then(|plan| plan.get_mut("projects")) {
             self.place_recipes(projects);
         }
