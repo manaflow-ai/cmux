@@ -43,7 +43,7 @@ public final class NavigationPaletteProvider: PaletteProvider {
     /// used tabs and panes get a recency boost that shrinks by rank, as in
     /// Search Tabs, so of two equal matches the recent one goes first.
     @MainActor
-    static func items(_ entries: [PaletteNavigationEntry], source: (any PaletteNavigationSource)?) -> [PaletteItem] {
+    static func items(_ entries: [PaletteNavigationEntry], source: (any PaletteNavigationSource)?, now: Date = Date()) -> [PaletteItem] {
         let recency = recencyRanks(entries)
         return distinctTitles(entries).map { entry in
             let boost = recency[entry.itemID].map { max(0, TabSearchPlan.recencyBoost - TabSearchPlan.recencyStep * $0) } ?? 0
