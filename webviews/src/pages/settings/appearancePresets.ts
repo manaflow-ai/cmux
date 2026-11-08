@@ -34,7 +34,7 @@ export function surfaceOpacityKeys(): string[] {
 
 /** The states a preset puts the window and the surfaces in. */
 export function presetTargets(state: SettingsState, preset: AppearancePreset): KeyState[] {
-  return [
+  const targets: KeyState[] = [
     { kind: "setting", key: MATERIAL_KEY, value: preset.material, customized: true },
     { kind: "setting", key: OPACITY_KEY, value: preset.opacity, customized: true },
     ...surfaceOpacityKeys().flatMap((key) => {
@@ -42,6 +42,8 @@ export function presetTargets(state: SettingsState, preset: AppearancePreset): K
       return row ? [{ kind: "setting" as const, key, value: row.default, customized: false }] : [];
     }),
   ];
+  // A managed key refuses every write (as Reset to Defaults leaves them).
+  return targets.filter((target) => !state.rows.get(target.key)?.managed);
 }
 
 /** The preset the page's values match now, or null when the person's look is their own. */
