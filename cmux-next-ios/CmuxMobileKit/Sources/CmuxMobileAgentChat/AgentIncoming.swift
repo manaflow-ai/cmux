@@ -255,15 +255,21 @@ extension AgentIncoming {
         return Message(sender: signed?.name ?? sender, text: signed?.text ?? text.trimmed)
     }
 
-    /// The sending chat's session id in a provenance, as the Mac reads it (incomingMessage.ts): a
-    /// session kind's `from` is always one; another kind's only as `acp:<id>`. A Chief's turn is no chat.
+    /// The sending chat's session id in a provenance, only where the Mac reads one (incomingMessage.ts):
+    /// a session kind's `from` is always one, an `agent_message`'s only as `acp:<id>`. Any other kind
+    /// (unknown, unverified, a notice) names no session, even from an `acp:` address. A Chief's turn is
+    /// no chat.
     static func senderSession(_ provenance: JSONValue?) -> String? {
         guard let from = provenance?["from"]?.nonEmpty else { return nil }
         if let chief = provenance?["fromChief"]?.nonEmpty, match(chief, #"^agent_[A-Za-z0-9_-]{1,58}$"#) { return nil }
-        if ["subsession_message", "session_message", "task_result", "lane_report"].contains(provenance?["kind"]?.stringValue ?? "") {
+        switch provenance?["kind"]?.stringValue {
+        case "subsession_message", "session_message", "task_result", "lane_report":
             return from.hasPrefix("acp:") ? sessionID(from) : from
+        case "agent_message":
+            return sessionID(from)
+        default:
+            return nil
         }
-        return sessionID(from)
     }
 
     /// The session id in a chat's address (`acp:<id>`), else nil (a named sender, a terminal agent, `cli`).
