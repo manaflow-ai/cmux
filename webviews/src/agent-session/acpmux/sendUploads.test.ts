@@ -175,8 +175,8 @@ test("a send under a ticket bound to no chat (a held prompt's) uploads nothing",
   }
 });
 
-test("a send whose chat-bound ticket comes after the chat was left goes back to its sender", async () => {
-  const { pane, prompts } = await client();
+test("a send with files to upload whose ticket comes after its chat was left goes back to its sender", async () => {
+  const { pane, prompts, uploaded } = await client();
   try {
     expect(pane.selectedSession).toBeTruthy();
     let answer: (reply: { ticket: string }) => void = () => {};
@@ -185,7 +185,7 @@ test("a send whose chat-bound ticket comes after the chat was left goes back to 
       return new Promise((resolve) => (answer = resolve));
     });
     const before = prompts.length;
-    const sending = pane.send("just text").then(
+    const sending = pane.send("read these", [pdf(1), pdf(2), pdf(3)]).then(
       () => "sent",
       (error: unknown) => (error instanceof Error ? error.message : String(error)),
     );
@@ -193,6 +193,7 @@ test("a send whose chat-bound ticket comes after the chat was left goes back to 
     pane.leave();
     answer({ ticket: "k-late" });
     expect(await sending).not.toBe("sent");
+    expect(uploaded.names).toEqual([]);
     expect(prompts.length).toBe(before);
   } finally {
     pane.close?.();
