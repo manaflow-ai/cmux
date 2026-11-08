@@ -236,7 +236,7 @@ pub struct Session {
     pub(super) person: AtomicBool,
     /// Its creator asked its agent start to wait on the harness rather than a wall clock
     /// (`NewRequest::wait_start`; the Chief, whose turn answers a person's message): the start
-    /// ends when the harness stops working (`lifecycle.rs` `StartWatch`), and says it is still
+    /// ends when the harness stops working (`start_watch.rs` `StartWatch`), and says it is still
     /// starting. Unlike `person` it proves nothing about who asks and opens nothing else.
     pub(super) wait_start: AtomicBool,
     /// Steers into the running turn by prompt id (`steer_end.rs`): Send now stops the agent's
