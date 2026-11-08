@@ -206,6 +206,25 @@ fn the_guide_names_the_callers_place() {
     assert!(location < guide.find("## Rules").unwrap());
 }
 
+/// W5-Q (bench round 4 orchestration #3): in a pane the guide says to run
+/// the session's own cmux as `"$CMUX_TUI_CLI"`, since the `cmux` on PATH can
+/// be an older install without `skill show`. Outside a pane it does not.
+#[test]
+fn w5q_the_guide_in_a_pane_runs_the_sessions_own_cmux() {
+    let identity = json!({
+        "session": {"id": "session_1", "name": "bench"},
+        "caller": {"found": true, "terminal_id": "term_1"},
+    });
+    let guide = render(&Some(identity));
+    let place = guide.find("## Where you are").unwrap_or_default();
+    let rules = guide.find("## Rules").unwrap_or_default();
+    let section = guide.get(place..rules).unwrap_or_default();
+    assert!(section.contains("\"$CMUX_TUI_CLI\""), "{section}");
+    assert!(!section.contains("`cmux` on your PATH talks to this session"), "{section}");
+    let outside = render(&None);
+    assert!(!outside.contains("$CMUX_TUI_CLI"), "{outside}");
+}
+
 #[test]
 fn skill_parses_show_help_and_refuses_other_verbs() {
     let args = |words: &[&str]| words.iter().map(|word| (*word).to_owned()).collect::<Vec<_>>();

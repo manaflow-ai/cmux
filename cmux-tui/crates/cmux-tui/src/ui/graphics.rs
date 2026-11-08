@@ -1366,6 +1366,36 @@ mod tests {
         ));
     }
 
+    /// W5-Q (bench round 4 screen #4): a host's OSC 10/11 color reply that
+    /// arrives with the startup probe replies is no input. It once became
+    /// Alt+] and typed text in the first pane. A key typed after it stays.
+    #[cfg(unix)]
+    #[test]
+    fn w5q_startup_input_drops_host_color_replies() {
+        use crossterm::event::{Event, KeyCode};
+
+        let bytes = b"\x1b]10;rgb:fdfd/ffff/f1f1\x1b\\\x1b]11;rgb:2727/2828/2222\x07\x1b[?62;22ca";
+        let parsed = parse_terminal_probe(bytes);
+        assert!(parsed.primary_device_attributes);
+        let input = split_pending_input(&parsed.pending_input);
+        assert!(input.incomplete.is_empty(), "left over: {:?}", input.incomplete);
+        assert!(
+            matches!(input.events.as_slice(), [Event::Key(key)] if key.code == KeyCode::Char('a')),
+            "a color reply became input: {:?}",
+            input.events
+        );
+
+        // The reply's end came after the probe: the rest still is no input.
+        let mut pending = split_pending_input(b"\x1b]11;rgb:2727/28");
+        pending.append(b"28/2222\x1b\\b");
+        assert!(pending.incomplete.is_empty(), "left over: {:?}", pending.incomplete);
+        assert!(
+            matches!(pending.events.as_slice(), [Event::Key(key)] if key.code == KeyCode::Char('b')),
+            "a split color reply became input: {:?}",
+            pending.events
+        );
+    }
+
     #[test]
     fn terminal_probe_preserves_fragmented_escape_input_without_dropping_bytes() {
         use crossterm::event::{Event, KeyCode};

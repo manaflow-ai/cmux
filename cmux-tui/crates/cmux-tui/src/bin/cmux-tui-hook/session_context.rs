@@ -25,6 +25,25 @@ pub(crate) struct Place {
     pub pane: Option<String>,
     pub tab: Option<String>,
     pub terminal: String,
+    /// `CMUX_TUI_CLI`: the absolute path of the session's own `cmux`.
+    pub cli: Option<String>,
+    /// The other agents of the session, as [`peers_from`] finds them.
+    pub peers: Vec<Peer>,
+}
+
+/// Another agent of the caller's session.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct Peer {
+    /// Its tab's name when that is an agent name, else its terminal id.
+    pub name: String,
+    /// `claude`, `codex`, ...
+    pub harness: String,
+}
+
+/// The session's agents other than `own_terminal` from `agent.list` and
+/// `tab.list` records. Not yet: none (W5-Q).
+pub(crate) fn peers_from(_agents: &[Value], _tabs: &[Value], _own_terminal: &str) -> Vec<Peer> {
+    Vec::new()
 }
 
 /// Whether the hook for `source`'s `native_event` carries the context: the
@@ -143,6 +162,7 @@ mod tests {
             pane: Some("pane_1".into()),
             tab: Some("tab_1".into()),
             terminal: "term_1".into(),
+            ..Place::default()
         };
         let text = text(&place);
         for needle in [
@@ -169,6 +189,65 @@ mod tests {
         let text = text(&Place { terminal: "term_9".into(), ..Place::default() });
         assert!(text.contains("terminal term_9"), "{text}");
         assert!(text.contains("pane unknown"), "{text}");
+    }
+
+    /// W5-Q (bench round 4 orchestration #3, #4): the context says to run
+    /// the session's own cmux as `"$CMUX_TUI_CLI"` (the `cmux` on PATH can
+    /// be an older build), names the session's other agents, and says to
+    /// reach them with `terminal NAME send`, not Claude Code's SendMessage
+    /// (which reached another person's session in the bench).
+    #[test]
+    fn w5q_the_context_runs_the_sessions_own_cmux_and_names_its_peers() {
+        let place = Place {
+            terminal: "term_1".into(),
+            cli: Some("/opt/cmux/bin/cmux".into()),
+            peers: vec![
+                Peer { name: "alpha".into(), harness: "claude".into() },
+                Peer { name: "term_2".into(), harness: "codex".into() },
+            ],
+            ..Place::default()
+        };
+        let text = text(&place);
+        for needle in [
+            "\"$CMUX_TUI_CLI\"",
+            "/opt/cmux/bin/cmux",
+            "alpha (claude)",
+            "term_2 (codex)",
+            "terminal NAME send",
+            "SendMessage",
+        ] {
+            assert!(text.contains(needle), "{needle}: {text}");
+        }
+        assert!(!text.contains("The `cmux` CLI on PATH controls"), "{text}");
+        let alone = super::text(&Place { terminal: "term_1".into(), ..Place::default() });
+        assert!(alone.contains("\"$CMUX_TUI_CLI\""), "{alone}");
+        assert!(alone.contains("SendMessage"), "{alone}");
+    }
+
+    /// The peers are the session's other terminal agents that still run,
+    /// by tab name when it is an agent name; never the caller, an ended
+    /// session, or an acpmux chat (no terminal).
+    #[test]
+    fn w5q_peers_are_the_sessions_other_running_agents() {
+        let agents = [
+            json!({"terminal_id": "term_1", "state": "working", "extra": {"agent": "claude"}}),
+            json!({"terminal_id": "term_2", "state": "idle", "extra": {"agent": "claude"}}),
+            json!({"terminal_id": "term_3", "state": "blocked", "agent": "codex"}),
+            json!({"terminal_id": "term_4", "state": "done", "extra": {"agent": "claude"}}),
+            json!({"address": "acp:x", "state": "idle", "agent": "claude"}),
+        ];
+        let tabs = [
+            json!({"id": "tab_1", "name": "me", "content_id": "term_1"}),
+            json!({"id": "tab_2", "name": "alpha", "content_id": "term_2"}),
+            json!({"id": "tab_3", "name": "My Tab", "content_id": "term_3"}),
+        ];
+        assert_eq!(
+            peers_from(&agents, &tabs, "term_1"),
+            [
+                Peer { name: "alpha".into(), harness: "claude".into() },
+                Peer { name: "term_3".into(), harness: "codex".into() },
+            ]
+        );
     }
 
     #[test]

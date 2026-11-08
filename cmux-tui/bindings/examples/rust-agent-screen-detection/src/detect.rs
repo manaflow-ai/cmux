@@ -300,6 +300,9 @@ pub struct ScreenDetectTracker {
 }
 
 impl ScreenDetectTracker {
+    /// Record the terminal's current size (W5-Q). Not yet: nothing.
+    pub fn observe_size(&mut self, _terminal_id: &str, _cols: u16, _rows: u16, _now: Instant) {}
+
     /// Record the terminal's current output revision. Returns `true` when
     /// the screen changed since the last evaluation and either output has
     /// been quiet for the debounce window or the max-interval pacer is due

@@ -261,6 +261,11 @@ fn identity_value(
     })
 }
 
+/// `identity` with `build`: this CLI's build id, the daemon's (`daemon`,
+/// from `identify`'s `daemon-build-v1`) and whether they match, plus a
+/// `warning` when they do not (W5-Q). Not yet: as it is.
+fn with_build(_identity: &mut Value, _own: &str, _daemon: Option<&super::skew::DaemonBuild>) {}
+
 /// The human answer: one labelled line per object.
 fn human(identity: &Value) -> String {
     let labels = &crate::localization::catalog().pane_cli;
@@ -410,6 +415,47 @@ mod tests {
         assert_eq!(value["session"]["name"], "main");
         let text = human(&value);
         assert!(text.contains(crate::localization::catalog().pane_cli.no_app), "{text}");
+    }
+
+    /// W5-Q (bench round 4 orchestration #3): `identify` says when the
+    /// `cmux` that runs is not the session daemon's build, and which `cmux`
+    /// is (`cli_path`). The bench's `cmux` on PATH was an old install.
+    #[test]
+    fn w5q_identify_warns_when_this_cmux_is_not_the_daemons_build() {
+        let identity = || {
+            identity_value(
+                Path::new("/tmp/s.sock"),
+                &record(&[("id", "session_1"), ("name", "bench")]),
+                &record(&[("id", "machine_1"), ("name", "mac")]),
+                json!({"found": true, "terminal_id": "term_1"}),
+                Value::Null,
+            )
+        };
+        let daemon = super::super::skew::DaemonBuild {
+            build_id: "cmux-tui 0.9 (def456)".into(),
+            cli_path: "/Applications/cmux.app/Contents/Resources/bin/cmux".into(),
+            pid: 7,
+        };
+        let mut other = identity();
+        with_build(&mut other, "cmux-tui 0.1 (abc123)", Some(&daemon));
+        assert_eq!(other["build"]["cli"], "cmux-tui 0.1 (abc123)", "{other}");
+        assert_eq!(other["build"]["daemon"], "cmux-tui 0.9 (def456)", "{other}");
+        assert_eq!(other["build"]["matches"], false, "{other}");
+        let warning = other["warning"].as_str().unwrap_or_default();
+        assert!(warning.contains("def456") && warning.contains("abc123"), "{other}");
+        assert!(warning.contains("/Applications/cmux.app/Contents/Resources/bin/cmux"), "{other}");
+        assert!(human(&other).contains(warning), "{}", human(&other));
+
+        let mut same = identity();
+        with_build(&mut same, "cmux-tui 0.9 (def456)", Some(&daemon));
+        assert_eq!(same["build"]["matches"], true, "{same}");
+        assert_eq!(same["warning"], Value::Null, "{same}");
+
+        // A daemon too old to say its build: nothing to compare, no warning.
+        let mut unknown = identity();
+        with_build(&mut unknown, "cmux-tui 0.1 (abc123)", None);
+        assert_eq!(unknown["build"]["daemon"], Value::Null, "{unknown}");
+        assert_eq!(unknown["warning"], Value::Null, "{unknown}");
     }
 
     /// `machine.get` refuses a session parameter ("unknown parameters").
