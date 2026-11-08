@@ -53,10 +53,16 @@ pub(super) const RECIPES: &[Recipe] = &[
     },
     Recipe {
         ask: "Run this in my shell and give me its exit code.",
-        commands: &["cmux --json terminal <term> run --timeout 10m -- npm test"],
+        commands: &[
+            "cmux --json terminal <term> run --timeout 10m -- npm test",
+            "cmux --json terminal <term> run --timeout 10m -- 'npm test && npm run lint'",
+        ],
         read: "run types the command into the terminal's shell, waits for its next prompt, \
                prints the new `output` and `exit_status`, and exits with that status (124 \
-               when the time passed, 125 when the shell reported no status).",
+               when the time passed, 125 when the shell reported no status). Several words \
+               after `--` are an argv: each is quoted for the shell, so `-- sh -c 'a; b'` \
+               runs sh with exactly those words. One word after `--` is a shell line typed \
+               as written, for `&&`, pipes and `$VAR`.",
     },
     Recipe {
         ask: "Run this command and give me its exit code.",

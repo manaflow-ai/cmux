@@ -253,7 +253,10 @@ command's exit_status (absent when the shell reports none, never guessed).
 --timeout exits 124 with the output so far. An agent that waits on a dialog
 is refused unless --force.
 run types a command into the terminal's shell, waits for it to finish and
-exits with its status: send --wait prompt --exit-with-status. status also
+exits with its status: send --wait prompt --exit-with-status. Several words
+after -- are an argv, each quoted for the shell, so `run -- sh -c 'echo a;
+exit 7'` runs sh with those three arguments. One word after -- (or --text)
+is a shell line typed as written: `run -- 'npm test && echo ok'`. status also
 names the last command's exit status (terminal show --json:
 extra.last_command).
 

@@ -746,10 +746,80 @@ fn read_run_send_pattern_matches_only_output_after_the_typed_command() {
 }
 
 #[test]
+fn run_argv_types_each_word_quoted_so_it_runs_as_given() {
+    let words = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    let typed = |args: &[&str]| {
+        let mut flags = words(&["--timeout", "20s", "--"]);
+        flags.extend(words(args));
+        super::parse_run("term_a", &flags).expect("parsed").text
+    };
+    // The audit's case: unquoted, `exit 7` ran in the person's shell and ended it.
+    assert_eq!(typed(&["sh", "-c", "echo failing; exit 7"]), "sh -c 'echo failing; exit 7'");
+    // Spaces, double quotes and runs of spaces survive.
+    assert_eq!(typed(&["sh", "-c", "echo a b; echo \"c  d\""]), "sh -c 'echo a b; echo \"c  d\"'");
+    // An embedded single quote closes, escapes and reopens.
+    assert_eq!(typed(&["echo", "it's"]), "echo 'it'\\''s'");
+    // `$`, globs and `~` reach the program as written, never expanded.
+    assert_eq!(
+        typed(&["printf", "%s\\n", "$HOME", "*.rs", "~/x"]),
+        "printf '%s\\n' '$HOME' '*.rs' '~/x'"
+    );
+    // An empty argument stays one argument.
+    assert_eq!(typed(&["printf", "[%s]", ""]), "printf '[%s]' ''");
+    // zsh expands a bare `=name`; it is quoted.
+    assert_eq!(typed(&["echo", "=ls"]), "echo '=ls'");
+    // Plain words stay readable.
+    assert_eq!(
+        typed(&["npm", "test", "--", "--grep=api", "./src/a.rs", "user@host:1"]),
+        "npm test -- --grep=api ./src/a.rs user@host:1"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn run_argv_line_reads_back_as_the_same_argv_in_sh() {
+    let argv: Vec<String> =
+        ["echo failing; exit 7", "a b", "c  d", "it's", "$HOME", "*", "", "=ls", "x\"y", "--f=1"]
+            .iter()
+            .map(|word| (*word).to_owned())
+            .collect();
+    let line = super::run_line(&argv);
+    // The shell splits the typed line into printf's arguments, NUL-terminated.
+    let output = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("printf '%s\\0' {line}"))
+        .output()
+        .expect("sh runs");
+    assert!(output.status.success(), "{line}");
+    let words: Vec<String> = String::from_utf8(output.stdout)
+        .expect("utf-8")
+        .split_terminator('\0')
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(words, argv, "{line}");
+}
+
+#[test]
+fn run_one_word_after_dashes_is_a_shell_line_typed_as_written() {
+    let words = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    let request = super::parse_run("term_a", &words(&["--", "npm test && echo ok; ls $HOME"]))
+        .expect("parsed");
+    assert_eq!(request.text, "npm test && echo ok; ls $HOME");
+    let request = super::parse_run("term_a", &words(&["--", "make"])).expect("parsed");
+    assert_eq!(request.text, "make");
+    // --text is a shell line too, never quoted.
+    let request = super::parse_run("term_a", &words(&["--text", "sh -c 'exit 7' || echo $?"]))
+        .expect("parsed");
+    assert_eq!(request.text, "sh -c 'exit 7' || echo $?");
+    // Nothing after -- is still a usage error.
+    assert!(super::parse_run("term_a", &words(&["--"])).is_err());
+}
+
+#[test]
 fn read_run_run_is_send_wait_prompt_with_exit_status() {
     let words = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
     let request =
-        super::parse_run("term_a", &words(&["--timeout", "10s", "--", "sh", "-c", "'exit 7'"]))
+        super::parse_run("term_a", &words(&["--timeout", "10s", "--", "sh", "-c", "exit 7"]))
             .expect("parsed");
     assert_eq!(request.text, "sh -c 'exit 7'");
     assert_eq!(request.wait, Wait::Prompt);
