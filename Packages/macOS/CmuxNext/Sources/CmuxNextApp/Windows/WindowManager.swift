@@ -321,6 +321,8 @@ final class WindowManager {
             let isFirstRun = firstWorkspace != nil && document.windows.isEmpty
             // One step at a time: Agents, then Bring your history once its window closed.
             await services.onboarding.showFirstRunSteps(isFirstRun: isFirstRun)
+            // Then, once per channel: `cmux` in Terminal that would not run this app.
+            await CLIInstallHandlers.offerAtLaunch(skipsOnboarding: services.environment.skipsOnboarding)
         }
         savedWindowsUnread = false
         recordSaver.scheduleSave()

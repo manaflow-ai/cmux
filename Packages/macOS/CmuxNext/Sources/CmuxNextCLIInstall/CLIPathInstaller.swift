@@ -52,6 +52,9 @@ public nonisolated struct CLIPathInstaller: Sendable {
     public nonisolated enum Failure: Error, Equatable {
         /// No CLI at `path` in the app bundle.
         case bundledCLIMissing(path: String)
+        /// The app runs from the disk image or a translocated copy, `path`:
+        /// a link to it would dangle once the image is ejected.
+        case bundleNotInstalled(path: String)
         /// Another app's CLI (a link elsewhere) or a file is at `path`;
         /// install replaces it only when asked to (`replacing: true`).
         case occupied(path: String, existing: Replaced)
@@ -141,7 +144,15 @@ public nonisolated struct CLIPathInstaller: Sendable {
         guard FileManager.default.fileExists(atPath: source.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
             throw Failure.bundledCLIMissing(path: source.path)
         }
+        if Self.runsFromImage(source) { throw Failure.bundleNotInstalled(path: source.path) }
         return source
+    }
+
+    /// Whether `url` is on a read-only volume (a mounted disk image) or in
+    /// Gatekeeper's translocated copy, which goes away when the app quits.
+    public static func runsFromImage(_ url: URL) -> Bool {
+        if url.path.contains("/AppTranslocation/") { return true }
+        return (try? url.resourceValues(forKeys: [.volumeIsReadOnlyKey]))?.volumeIsReadOnly == true
     }
 
     private func installDirectly(_ source: URL) throws {

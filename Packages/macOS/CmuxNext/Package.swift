@@ -1946,6 +1946,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextCLIInstall",
             swiftSettings: daemonSwiftSettings
         ),
+        .testTarget(
+            name: "CmuxNextCLIInstallTests",
+            dependencies: ["CmuxNextCLIInstall"],
+            swiftSettings: daemonSwiftSettings
+        ),
         // The freeze gate for this process's environment writes (libghostty
         // keeps a copy of environ from ghostty_init). No dependencies.
         .target(
