@@ -66,6 +66,9 @@ impl Caller {
 /// How a note reaches the Chief (the brain queues it and wakes the Chief).
 pub type Notify = Arc<dyn Fn(String) + Send + Sync>;
 
+/// Reads one environment variable (tests pass their own).
+pub type EnvFn = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
 /// The longest a tool call waits by default.
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(120);
 /// A task's default lifetime (the `ttl` the hub asks for).
@@ -103,7 +106,7 @@ struct Inner {
     events: Mutex<HashMap<String, EventBuffer>>,
     signing_in: Mutex<HashSet<String>>,
     notify: Notify,
-    env: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
+    env: EnvFn,
     stopped: AtomicBool,
 }
 
@@ -238,12 +241,7 @@ impl McpHub {
         )
     }
 
-    pub fn with_env(
-        dir: PathBuf,
-        skills: Option<PathBuf>,
-        notify: Notify,
-        env: Arc<dyn Fn(&str) -> Option<String> + Send + Sync>,
-    ) -> Self {
+    pub fn with_env(dir: PathBuf, skills: Option<PathBuf>, notify: Notify, env: EnvFn) -> Self {
         let dir = Dir(dir);
         let mut state = dir.load();
         // A call the hub ran itself died with the last host.
@@ -1012,7 +1010,7 @@ impl McpHub {
                 state.servers.len()
             );
         }
-        hits.sort_by(|a, b| b.0.cmp(&a.0));
+        hits.sort_by_key(|h| std::cmp::Reverse(h.0));
         let n = hits.len();
         let shown: Vec<String> = hits.into_iter().take(20).map(|(_, l)| l).collect();
         format!(

@@ -305,10 +305,10 @@ pub fn result_text(result: &Value) -> String {
                 .collect()
         })
         .unwrap_or_default();
-    if parts.is_empty() {
-        if let Some(s) = result.get("structuredContent").filter(|s| !s.is_null()) {
-            return s.to_string();
-        }
+    if parts.is_empty()
+        && let Some(s) = result.get("structuredContent").filter(|s| !s.is_null())
+    {
+        return s.to_string();
     }
     parts.join("\n")
 }
