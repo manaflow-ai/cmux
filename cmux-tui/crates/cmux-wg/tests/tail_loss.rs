@@ -6,7 +6,8 @@
 //! a 20 ms round trip, so one lost echo held the screen for over a second.
 //!
 //! The server's underlay below drops one echo segment, once. The echo must
-//! arrive well before 1 s. The clock is Tokio's paused clock, so durations
+//! arrive well before 1 s, and before the 200 ms RTO floor: the tail-loss
+//! probe resends it after about two round trips. The clock is Tokio's paused clock, so durations
 //! are simulated.
 
 use std::io;
@@ -142,6 +143,9 @@ async fn a_lost_last_segment_is_resent_well_before_one_second() {
     eprintln!("echo round trips: {echo_times:?} (simulated)");
     // With smoltcp's default 1 s floor the lost echo took over 1 s.
     assert!(lost < Duration::from_millis(400), "the lost echo took {lost:?}");
+    // The 200 ms RTO floor alone gives about 220 ms. The tail-loss probe
+    // resends the echo after 2 * SRTT + 25 ms, about 65 ms on this link.
+    assert!(lost < Duration::from_millis(150), "the lost echo took {lost:?}: no tail-loss probe");
     client.shutdown().await;
     server.shutdown().await;
 }
