@@ -19,7 +19,7 @@
 
 use cmux_remote_protocol::RelayRole;
 
-use crate::abuse::websocket_counts_toward_capacity;
+use crate::abuse::{websocket_counts_toward_capacity, websocket_is_open};
 use crate::attachment::{SlotAttachment, SlotPhase};
 
 /// How recently a daemon's control socket must have spoken for a Connect to
@@ -68,6 +68,22 @@ pub(crate) fn replaced_by_register(attachment: &SlotAttachment, slot: &str) -> b
     attachment.phase == SlotPhase::Registered && attachment.relay.slot == slot
 }
 
+/// Whether `own`, a daemon registration whose socket is in `ready_state`,
+/// is still its slot's current one: open, registered, and not replaced by a
+/// newer Register on the slot (`others`: the slot's other control sockets).
+/// A registration number of 0 is one written before numbers existed.
+pub(crate) fn current_registration(
+    own: &SlotAttachment,
+    ready_state: u16,
+    others: impl IntoIterator<Item = SlotAttachment>,
+) -> bool {
+    websocket_is_open(ready_state)
+        && own.phase == SlotPhase::Registered
+        && !others.into_iter().any(|other| {
+            replaced_by_register(&other, &own.relay.slot) && other.generation > own.generation
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use cmux_remote_protocol::{LaneToken, RelaySocketAttachment};
@@ -79,6 +95,7 @@ mod tests {
     use crate::park::{ConnectDisposition, ParkedConnect, connect_disposition, parked_and_live};
 
     const OPEN: u16 = 1;
+    const CLOSING: u16 = 2;
     const CLOSED: u16 = 3;
     const SLOT: &str = "slot";
     /// The client's relay join timeout (`control_timeout`): what a Connect
@@ -241,5 +258,29 @@ mod tests {
 
         let heartbeat = daemon(T);
         assert!(heard_within_window(&heartbeat, T + 10_000), "heartbeat: no hand-over");
+    }
+
+    fn registration(number: u64, last_seen_ms: u64) -> SlotAttachment {
+        SlotAttachment { generation: number, ..daemon(last_seen_ms) }
+    }
+
+    /// The old daemon's Ping was in flight when the new daemon's Register
+    /// ran: the old socket is closing and a newer registration holds the
+    /// slot, so its Ping must hand over and pair nothing.
+    #[test]
+    fn replaced_registration_is_not_current() {
+        let old = registration(1, T);
+        let new = registration(2, T + 1_000);
+        assert!(!current_registration(&old, CLOSING, [new.clone()]));
+        assert!(!current_registration(&old, OPEN, [new.clone()]), "a newer one exists");
+        assert!(current_registration(&new, OPEN, [old.clone()]));
+        assert!(current_registration(&new, OPEN, []));
+        let other_slot = SlotAttachment {
+            relay: RelaySocketAttachment::control("other-slot".into()),
+            ..registration(9, T)
+        };
+        assert!(current_registration(&old, OPEN, [other_slot]));
+        // Written before registration numbers: current until replaced.
+        assert!(current_registration(&registration(0, T), OPEN, []));
     }
 }
