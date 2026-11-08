@@ -2,22 +2,27 @@ import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 
-/// Who holds each `carrier serve` socket path in this process: the last serve child spawned for it, until that
-/// child exits. A session replaced for the same machine (``CloudService`` drops every session on a team switch,
-/// sign-out or a policy flip and makes new ones) makes a new ``CloudCarrierServe`` for the same socket while the
-/// old one's child is still exiting; the new one waits here for that exit instead of reading the old child's
-/// claim as another cmux serving the machine. The wait is bounded (``CloudCarrierServe/leaseWait``): past it the
-/// new child starts anyway and serve's own refusal (exit 64, ``CloudCarrierDial/socketTaken``) says why. The app's
-/// one registry is its ``CloudCarrierStreams``' (``CloudService`` makes every session's connector with the same one).
+/// Who holds each `carrier serve` socket path across serve instances: one owner at a time, from its claim (a
+/// launch reading its token) through its child's exit. A session replaced for the same machine (``CloudService``
+/// drops every session on a team switch, sign-out or a policy flip and makes new ones) makes a new
+/// ``CloudCarrierServe`` for the same socket while the old one's child is still exiting; the new one waits here for
+/// that exit instead of reading the old child's claim as another cmux serving the machine, and two new ones never
+/// both launch. The wait is bounded (``CloudCarrierServe/leaseWait``): past it the claim is taken anyway and serve's
+/// own refusal (exit 64, ``CloudCarrierDial/socketTaken``) says why. The app's one registry is its
+/// ``CloudCarrierStreams``' (``CloudService`` makes every session's connector with the same one).
 final class CloudCarrierLeases: Sendable {
     private struct Holder {
         let owner: UInt64
-        let exited: Task<Void, Never>
+        /// Tells this hold from a later one of the same path.
+        let token: UInt64
+        /// A child holds it (until its exit), else a launch that has not spawned yet.
+        let child: Bool
     }
 
     private struct State {
-        var lastOwner: UInt64 = 0
+        var last: UInt64 = 0
         var holders: [String: Holder] = [:]
+        var waiting: [String: [Once]] = [:]
     }
 
     private let state = Mutex(State())
@@ -27,49 +32,92 @@ final class CloudCarrierLeases: Sendable {
     /// A new serve instance's id.
     func newOwner() -> UInt64 {
         state.withLock { state in
-            state.lastOwner &+= 1
-            return state.lastOwner
+            state.last &+= 1
+            return state.last
+        }
+    }
+
+    /// Takes `path` for `owner`'s launch when no other owner holds it, or anyway with `force`; true when
+    /// `owner` holds it now. A launch that then spawns nothing gives it back (``release(_:by:)``).
+    func claim(_ path: String, by owner: UInt64, force: Bool = false) -> Bool {
+        state.withLock { state in
+            if let holder = state.holders[path], holder.owner != owner, !force { return false }
+            state.last &+= 1
+            state.holders[path] = Holder(owner: owner, token: state.last, child: false)
+            return true
         }
     }
 
     /// `child` of `owner` holds `path` until it exits.
     func hold(_ path: String, by owner: UInt64, child: ChildProcess) {
+        let token = state.withLock { state in
+            state.last &+= 1
+            state.holders[path] = Holder(owner: owner, token: state.last, child: true)
+            return state.last
+        }
         // task-owner: ends when the child exits (every serve child exits once its stdin closes, or at SIGTERM)
-        let exited = Task { _ = await child.waitForExit() }
-        state.withLock { $0.holders[path] = Holder(owner: owner, exited: exited) }
-    }
-
-    /// The exit another owner's child holds `path` until; nil when no other owner's child holds it.
-    func holder(of path: String, besides owner: UInt64) -> Task<Void, Never>? {
-        state.withLock { state in
-            guard let holder = state.holders[path], holder.owner != owner else { return nil }
-            return holder.exited
+        Task {
+            _ = await child.waitForExit()
+            self.remove(path) { $0.token == token }
         }
     }
 
-    /// Returns once no other owner's child holds `path`, or after `bound`.
-    func released(_ path: String, besides owner: UInt64, atMost bound: Duration) async {
-        guard let exited = holder(of: path, besides: owner) else { return }
+    /// Gives back `owner`'s claim of `path` that no child took over.
+    func release(_ path: String, by owner: UInt64) {
+        remove(path) { $0.owner == owner && !$0.child }
+    }
+
+    /// Returns once `path` changed hands (another owner gave it up), or at `deadline`; at once when no other
+    /// owner holds it. The caller claims again after.
+    func released(_ path: String, besides owner: UInt64, until deadline: ContinuousClock.Instant) async {
+        let left = ContinuousClock.now.duration(to: deadline)
+        guard left > .zero else { return }
         let once = Once()
-        await withCheckedContinuation { (waiter: CheckedContinuation<Void, Never>) in
-            once.set(waiter)
-            // task-owner: ends when the holder's child exits, which its own serve's stop deadline bounds
-            Task { await exited.value; once.resume() }
-            once.timer.schedule(after: bound) { once.resume() }
+        let held = state.withLock { state in
+            guard let holder = state.holders[path], holder.owner != owner else { return false }
+            state.waiting[path, default: []].append(once)
+            return true
         }
+        guard held else { return }
+        once.timer.schedule(after: left) { once.resume() }
+        await withCheckedContinuation { once.set($0) }
     }
 
-    /// Resumes one waiter once, from whichever of the exit and the bound comes first.
-    private final class Once: Sendable {
-        let timer = DemandTimer(owner: "CloudCarrierLeases.wait")
-        private let waiter = Mutex<CheckedContinuation<Void, Never>?>(nil)
+    private func remove(_ path: String, if matches: (Holder) -> Bool) {
+        let waiting: [Once] = state.withLock { state in
+            guard let holder = state.holders[path], matches(holder) else { return [] }
+            state.holders[path] = nil
+            return state.waiting.removeValue(forKey: path) ?? []
+        }
+        for once in waiting { once.resume() }
+    }
 
-        func set(_ waiter: CheckedContinuation<Void, Never>) { self.waiter.withLock { $0 = waiter } }
+    /// Resumes one waiter once, from whichever of the hand-over and the deadline comes first (either may come
+    /// before the waiter is set).
+    private final class Once: Sendable {
+        private enum Phase {
+            case pending
+            case waiting(CheckedContinuation<Void, Never>)
+            case fired
+        }
+
+        let timer = DemandTimer(owner: "CloudCarrierLeases.wait")
+        private let phase = Mutex(Phase.pending)
+
+        func set(_ waiter: CheckedContinuation<Void, Never>) {
+            let fired = phase.withLock { phase in
+                if case .fired = phase { return true }
+                phase = .waiting(waiter)
+                return false
+            }
+            if fired { waiter.resume() }
+        }
 
         func resume() {
-            let waiter = waiter.withLock { waiter in
-                defer { waiter = nil }
-                return waiter
+            let waiter: CheckedContinuation<Void, Never>? = phase.withLock { phase in
+                defer { phase = .fired }
+                if case .waiting(let waiter) = phase { return waiter }
+                return nil
             }
             timer.cancel()
             waiter?.resume()

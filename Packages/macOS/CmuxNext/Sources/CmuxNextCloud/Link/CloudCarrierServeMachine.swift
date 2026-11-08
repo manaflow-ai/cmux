@@ -132,16 +132,12 @@ struct ServeMachine: Sendable {
         return nil
     }
 
-    var isReady: Bool {
-        if case .ready = state { return true }
-        return false
-    }
+    var isReady: Bool { if case .ready = state { true } else { false } }
 
-    var isTerminal: Bool {
-        if case .stopping = state { return true }
-        if case .stopped = state { return true }
-        return false
-    }
+    /// A launch between its socket claim and its child: the claim is still the launch's own.
+    var launching: Bool { if case .awaitingToken = state { true } else if case .spawning = state { true } else { false } }
+
+    var isTerminal: Bool { if case .stopping = state { true } else if case .stopped = state { true } else { false } }
 
     /// The child this state owns, if any.
     var child: ChildID? {
