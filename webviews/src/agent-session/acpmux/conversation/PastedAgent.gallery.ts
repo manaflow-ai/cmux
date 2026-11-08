@@ -37,8 +37,10 @@ const typedHandoff = () =>
     summary(8.5, { seq: 3, status: "completed" }),
   ]);
 
+// A paste draws as the bubble's own text by default (sentPasteLook `text`: `.cv-user__pasted`, its
+// "Pasted from" line over it), or as a card or a label row in the other arms (`.cv-user__paste-card`).
 const drawn = async (ctx: PlayContext) => {
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-user__paste-card, .cv-user__status"));
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-user__pasted, .cv-user__paste-card, .cv-user__status"));
 };
 
 export default agentPaneEntry({

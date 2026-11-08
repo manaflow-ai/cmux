@@ -57,7 +57,7 @@ import {
 import { carryInline, inlinePrompt, recordedPromptParts, restoreInline, stripFileDisplay } from "./inlinePrompt";
 import { fitPromptBudget } from "./promptBudget";
 import { liftInlineImages } from "./inlineImages";
-import { primeSentImages } from "./conversation/imageEntries";
+import { primeSentImages, withSentShapes } from "./conversation/imageEntries";
 import { resentAttachments, shownPrompt } from "./pastedText";
 import { frameTextOf, imageNames, withoutFrames } from "./composer/videoPrompt";
 import { PeerStateEvents } from "./peerStateEvents";
@@ -7277,7 +7277,11 @@ export class AcpmuxDirectClient {
           ...(steer === "waiting" && promptId ? { steerPromptId: promptId } : {}),
           ...(promptId ? { promptId } : {}),
           ...(typeof msg.turnId === "string" ? { turnId: msg.turnId } : {}),
-          ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
+          // Each image keeps the bytes and size the pane's own row drew it with, so the echo lands
+          // at the same size (imageEntries.ts withSentShapes).
+          ...(promptImages(msg.images).length > 0 && {
+            images: withSentShapes(promptImages(msg.images), optimisticRow?.images),
+          }),
           ...(inlineParts?.length ? { inlineParts } : {}),
           // The blocks the composer sent as pastes, by where they sit in the text acpmux recorded;
           // only while the row shows that text as recorded (a harness note it hides moves them).
