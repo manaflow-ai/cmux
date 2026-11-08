@@ -69,6 +69,53 @@ export function holdHeader(header: HTMLElement): boolean {
   return !header.dispatchEvent(new Custom(ANCHORED_COLLAPSE_EVENT, { bubbles: true, cancelable: true }));
 }
 
+/// Which line a block's toggle held when it opened (`holdBlock`), so its close holds the same one.
+export type BlockHold = { current: "block" | "control" | undefined };
+
+/// Asks the transcript to hold a line for a toggle that sits under or inside the block it opens (Show
+/// more, a text file's card), so that an open then a close put the view back where it started however
+/// often the reader does it (Leo, 2026-11-08: "it's not an— what is it? idempotent action ... there's
+/// the drift"). Holding the block's top to open and the control to close, as Show more did since
+/// #24050 and the paste card since #36303, moved the view down by what opened on every round trip.
+/// - Opening holds the block's top while it is in the view, so the block grows below it (Leo,
+///   2026-10-21: "just expand the area at the bottom and you're in the same place"); else the control,
+///   so the text grows above it and the control stays where the reader clicked it.
+/// - Closing holds what the open held (`memo`) while that line is still in the view; else the block's
+///   top if it is in view, else the control (Show less under a long block scrolled down to).
+/// A close at the very bottom still pins the bottom (VirtualTranscript `beginBottomStackFold`).
+export function holdBlock(block: HTMLElement, control: HTMLElement | null, memo: BlockHold, opening: boolean): boolean {
+  const view = visibleView(block);
+  const top = block.getBoundingClientRect().top;
+  const topInView = top >= view.top - 0.5 && top <= view.bottom + 0.5;
+  const box = control?.getBoundingClientRect();
+  const controlInView = box !== undefined && box.bottom >= view.top && box.top <= view.bottom;
+  const asked = opening ? undefined : memo.current;
+  memo.current = undefined;
+  let pick: "block" | "control" =
+    asked === "block" && topInView
+      ? "block"
+      : asked === "control" && controlInView
+        ? "control"
+        : topInView || !control
+          ? "block"
+          : "control";
+  if (!control) pick = "block";
+  if (opening) memo.current = pick;
+  return holdHeader(pick === "block" ? block : control!);
+}
+
+/// The part of the transcript the reader sees `node` in: its scroller's box above the composer that
+/// covers its foot (`--acpmux-dock-space`, VirtualTranscript.tsx), or the window's.
+function visibleView(node: HTMLElement): { top: number; bottom: number } {
+  const scroller = node.closest<HTMLElement>(".acpmux-scroll") ?? scrollerOf(node);
+  if (!scroller) return { top: 0, bottom: node.ownerDocument.defaultView?.innerHeight ?? Number.POSITIVE_INFINITY };
+  const box = scroller.getBoundingClientRect();
+  const dock = parseFloat(
+    scroller.ownerDocument.defaultView?.getComputedStyle(scroller).getPropertyValue("--acpmux-dock-space") ?? "",
+  );
+  return { top: box.top, bottom: box.bottom - (Number.isFinite(dock) ? dock : 0) };
+}
+
 /// The nearest ancestor of `node` that scrolls.
 function scrollerOf(node: HTMLElement): HTMLElement | undefined {
   const view = node.ownerDocument.defaultView;

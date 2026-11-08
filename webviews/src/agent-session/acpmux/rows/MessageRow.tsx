@@ -21,6 +21,7 @@ import { PendingSteer } from "../conversation/PendingSteer";
 import { DeliveryFailure } from "../conversation/PromptDelivery";
 import { ReceivedResult } from "../offer/SuggestedTasks";
 import { callNative } from "../callNative";
+import { pastedAgent } from "../agentText";
 import { type RowProps } from "./rowProps";
 import { editQueued, openOfferChat, openSenderChat, replyToMessage, sendSteerNow } from "./rowActions";
 
@@ -114,6 +115,9 @@ export const MessageRow = memo(
       // A Chief subagent's first message: the Chief's view as one collapsed line, the task as
       // the message (the session keeps the whole text).
       const envelope = chiefEnvelope(row.text);
+      // Part of the message reads as another agent's output: typed text acpmux marks, or a paste
+      // (drawn as the message's own text, so this line says whose it reads as).
+      const agentNote = row.agentText ?? pastedAgent(row);
       return (
         <div className="cv-user">
           {envelope && (
@@ -178,10 +182,10 @@ export const MessageRow = memo(
           )}
           <DeliveryFailure row={row} />
           {row.viaCli && <div className="cv-user__status">{t("transcript.viaCli", { host: row.viaCli })}</div>}
-          {row.agentText && (
+          {agentNote && (
             <div className="cv-user__status">
-              {row.agentText.from
-                ? t("transcript.agentTextNote", { name: row.agentText.from })
+              {agentNote.from
+                ? t("transcript.agentTextNote", { name: agentNote.from })
                 : t("transcript.agentTextNoteUnknown")}
             </div>
           )}

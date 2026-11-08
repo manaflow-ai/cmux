@@ -58,11 +58,10 @@ import {
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
 import {
-  pasteChipHeight,
   type PasteRange,
   HUGE_PROMPT_HEAD_CHARS,
   collapsedPromptHeight,
-  hasHugeTypedPart,
+  hasHugeTextPart,
   isHugePrompt,
   promptHead,
   promptParts,
@@ -2463,13 +2462,12 @@ function measuredRowHeight(
   const pasted = row.kind === "user" && Boolean(row.pasted?.length);
   // A huge prompt opens collapsed to its first lines whatever it holds (conversation/PromptText.tsx):
   // its height is those lines and Show more, never a lex or measure of megabytes of text.
-  // A prompt recorded in parts is huge by its typed parts alone (a pasted block is a chip).
+  // A prompt recorded in parts is huge by its text parts, typed or pasted (a text file is a card).
   if (
     row.kind === "user" &&
-    !pasted &&
     row.from !== "chief" &&
     isHugePrompt(row.text) &&
-    (!row.inlineParts || hasHugeTypedPart(row.inlineParts)) &&
+    (!row.inlineParts || hasHugeTextPart(row.inlineParts)) &&
     !chiefEnvelope(row.text)
   ) {
     const height =
@@ -2504,25 +2502,22 @@ function measuredRowHeight(
       lexIncrementally(entry, row.text);
     }
     if (pasted) {
-      // A prompt with pasted blocks: its typed parts, each a line or more, and a chip per paste
-      // however long it is (conversation/UserBubble.tsx).
+      // A prompt with pasted blocks: its parts, typed or pasted, each a line or more of the
+      // message's own text (conversation/PromptText.tsx).
       const { lineHeight } = metrics();
       contentHeight = 0;
       for (const part of promptParts(row.text, row.pasted!))
-        contentHeight +=
-          part.kind === "paste"
-            ? pasteChipHeight(lineHeight)
-            : Math.max(
-                lineHeight,
-                // A huge typed part draws collapsed to its head (conversation/PromptText.tsx), so its
-                // head is all there is to measure.
-                textHeight(
-                  isHugePrompt(part.text) ? promptHead(part.text, HUGE_PROMPT_HEAD_CHARS) : part.text,
-                  contentWidth,
-                  entry.prepared,
-                  usedPrepared,
-                ),
-              );
+        contentHeight += Math.max(
+          lineHeight,
+          // A huge part draws collapsed to its head (conversation/PromptText.tsx), so its head is
+          // all there is to measure.
+          textHeight(
+            isHugePrompt(part.text) ? promptHead(part.text, HUGE_PROMPT_HEAD_CHARS) : part.text,
+            contentWidth,
+            entry.prepared,
+            usedPrepared,
+          ),
+        );
     } else {
       if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn, actions);
       contentHeight = (entry.blocks.length - 1) * blockGap();

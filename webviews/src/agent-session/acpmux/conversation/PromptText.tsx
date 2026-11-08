@@ -1,18 +1,19 @@
 // A sent prompt's text in its bubble (UserBubble.tsx). A prompt taller than ten lines opens on
 // them, the last ones fading out under a mask, with Show more under them and Show less once open,
-// as Claude's does (Leo 2026-10-21). A block the composer sent as a paste is a card of its first
-// lines over the composer's label ("Pasted text · N lines · NK characters"), which opens in place. Each
-// choice is kept by the row's id (transcriptDisclosure.tsx), so a prompt scrolled out and back, or
-// drawn again from history, stays as the reader left it. Find opens a collapsed prompt, or a closed
-// chip, that holds its current match. The bubble keeps the whole text; Copy copies all of it.
-import { type ReactNode, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+// as Claude's does (Leo 2026-10-21). A block the composer sent as a paste is the message's own text,
+// in its place among the typed words, under the same Show more: no card of its own (Leo, 2026-11-08:
+// "It also seems like this pasted text bit wasn't fixed yet"). The choice is kept by the row's id
+// (transcriptDisclosure.tsx), so a prompt scrolled out and back, or drawn again from history, stays
+// as the reader left it. Find opens a collapsed prompt that holds its current match. The bubble
+// keeps the whole text; Copy copies all of it.
+import { Fragment, type ReactNode, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT, usePaneLanguage } from "../i18n";
 import { FindReveal, foldFind } from "./chatFind";
 import {
   COLLAPSED_PROMPT_LINES,
   HUGE_PROMPT_HEAD_CHARS,
   type PasteRange,
-  hasHugeTypedPart,
+  hasHugeTextPart,
   isHugePrompt,
   looksLongPrompt,
   pasteName,
@@ -22,7 +23,7 @@ import {
 } from "./promptCollapse";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { cancelResize, foldMotion, foldMs, markHeightFold, playResize } from "./fold";
-import { holdHeader } from "./useAnchoredCollapse";
+import { type BlockHold, holdBlock } from "./useAnchoredCollapse";
 import { Markdown } from "./Markdown";
 import { SoftBroken } from "./softBreaks";
 import { softBreaks } from "./softBreaksModel";
@@ -40,6 +41,7 @@ import { agentText } from "../agentText";
 import { experimentArm } from "../../../experiments/experiment";
 import { pastedAgentLook } from "./pastedAgentLook.experiment";
 import { pastedSize } from "../composer/textAttachmentCardModel";
+import { pastedTextLook } from "./pastedTextLook.experiment";
 
 export function PromptText({
   rowId,
@@ -59,7 +61,7 @@ export function PromptText({
   /// `head`: the prompt is huge and collapsed, so only its first `HUGE_PROMPT_HEAD_CHARS` of text
   /// need drawing (`headParts`).
   children?: (open: () => void, head: boolean) => ReactNode;
-  /// Whether its typed text is huge (`hasHugeTypedPart`), for `children`, whose parts `text` alone
+  /// Whether its text is huge (`hasHugeTextPart`), for `children`, whose parts `text` alone
   /// cannot tell from its pastes.
   huge?: boolean;
 }) {
@@ -70,14 +72,16 @@ export function PromptText({
   // Whether the prompt is taller than the collapsed lines: guessed from its text until laid out,
   // then measured against its line height (open or closed), again when its width changes. A
   // measure is of one text: a bubble drawn again with another prompt guesses again.
-  // A huge typed part beside pastes is long too, so it never draws whole before it is measured.
-  const guess = looksLongPrompt(pasted?.length ? "" : text) || parts.length > 3 || hasHugeTypedPart(parts);
+  // A huge part is long too, so it never draws whole before it is measured.
+  const guess = looksLongPrompt(text) || parts.length > 3 || hasHugeTextPart(parts);
   const [measured, setMeasured] = useState<{ parts: typeof parts; long: boolean }>();
   // A huge prompt is always long: collapsed it draws only its head, and a measure of that head
   // (which `show` may shrink to a label) must never unclamp it, or it would flip between head and
   // whole text without end. Its Show more stays; the cost is at most a needless one.
-  // Its typed text, not its pastes (chips whatever their size); an inline prompt says (`huge`).
-  const huge = hugeTyped ?? hasHugeTypedPart(parts);
+  // A paste is text like the rest; an inline prompt says (`huge`).
+  const huge = hugeTyped ?? hasHugeTextPart(parts);
+  // How a paste reads among the typed words (gallery `agent-pane.user-bubble`; shipped: plain text).
+  const pasteLook = pasted?.length ? experimentArm(pastedTextLook) : undefined;
   const long = huge || (measured?.parts === parts ? measured.long : guess);
   const body = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -113,16 +117,19 @@ export function PromptText({
   const head = huge && collapsed;
   const shownParts = useMemo(
     () =>
-      head ? headParts(parts, HUGE_PROMPT_HEAD_CHARS, (part) => (part.kind === "text" ? part.text : undefined)) : parts,
+      head ? headParts(parts, HUGE_PROMPT_HEAD_CHARS, (part) => part.text) : parts,
     [head, parts],
   );
   // Show more and Show less (Leo 2026-10-21: "these all need animations for expand and collpase"),
   // over the fold's token, without moving what the reader looks at ("just expand the area at the
-  // bottom and you're in the same place"):
-  // - Show more holds the bubble's top: the text grows below it, and the button rides the bubble's
-  //   bottom edge down instead of jumping there.
-  // - Show less holds the button, where the reader clicked it: the text shrinks back above it into
-  //   its first lines, fully drawn until it is clipped.
+  // bottom and you're in the same place"). Show less holds the line Show more held (`holdBlock`), so
+  // the two put the view back where it was, however often the reader does it (Leo, 2026-11-08: "as
+  // you do that more and more ... there's the drift"):
+  // - The bubble's top while it is in view: the text grows below it and shrinks back up to it, the
+  //   button riding the bubble's bottom edge.
+  // - The button once the bubble's top is above the view (Show less under a long prompt scrolled
+  //   down to): the text grows and shrinks above it, and the button stays where it was clicked.
+  // At the very bottom a close pins the bottom, as every close there does (VirtualTranscript).
   // A toggle midway starts from the drawn height; unmounting cancels what plays.
   const resized = useRef<number | undefined>(undefined);
   const resizing = useRef<Animation[]>([]);
@@ -132,10 +139,11 @@ export function PromptText({
   };
   useEffect(() => stopResize, []);
   const more = () => body.current?.parentElement?.querySelector<HTMLElement>(":scope > .cv-user__more") ?? null;
+  const held = useRef<BlockHold["current"]>(undefined);
   const showMore = (next: boolean) => {
     const bubble = body.current?.parentElement;
     if (bubble) {
-      holdHeader(next ? bubble : (more() ?? bubble));
+      holdBlock(bubble, more(), held, next);
       resized.current = bubble.getBoundingClientRect().height;
     }
     stopResize();
@@ -183,8 +191,7 @@ export function PromptText({
     if (button)
       resizing.current.push(button.animate([{ translate: `0 ${from - to}px` }, { translate: "0 0" }], timing));
   }, [collapsed]);
-  // Find's current match in this prompt opens it; one in a typed part past the fold, or in a paste,
-  // needs it open to draw.
+  // Find's current match in this prompt opens it; one past the fold needs it open to draw.
   const reveal = useContext(FindReveal);
   const needle = reveal && reveal.rowId === rowId ? reveal.needle : "";
   const hit = Boolean(needle && foldFind(text).includes(needle));
@@ -201,21 +208,18 @@ export function PromptText({
       <div ref={body} id={id} className={`cv-user__text${collapsed ? " is-clamped is-faded" : ""}`}>
         {children
           ? children(() => setOpen(true), head)
-          : shownParts.map((part, index) =>
-              part.kind === "text" ? (
-                <PromptTyped key={index} text={part.text} show={show} plain={"huge" in part && part.huge === true} />
-              ) : (
-                <PasteChip
-                  key={index}
-                  rowId={rowId}
-                  index={part.index}
-                  text={part.text}
-                  needle={needle}
-                  // An opened paste shows whole, not cut at the prompt's tenth line.
-                  onOpen={() => setOpen(true)}
-                />
-              ),
-            )}
+          : shownParts.map((part, index) => {
+              const typed = (
+                <PromptTyped text={part.text} show={show} plain={"huge" in part && part.huge === true} />
+              );
+              // The line break acpmux joined a paste to the typed words with (`promptParts` drops it).
+              return (
+                <Fragment key={index}>
+                  {index > 0 && breaksInline(shownParts[index - 1]!.text) && breaksInline(part.text) ? "\n" : null}
+                  {part.kind === "paste" ? <PastedText look={pasteLook}>{typed}</PastedText> : typed}
+                </Fragment>
+              );
+            })}
       </div>
       {long && (
         <ExpandRow
@@ -227,6 +231,20 @@ export function PromptText({
         />
       )}
     </>
+  );
+}
+
+/// Whether a part draws inline (literal text), so the line break joining it to its neighbour must be
+/// drawn; a Markdown part is blocks of its own, which start their own lines.
+const breaksInline = (text: string) => isHugePrompt(text) || !isPromptMarkdown(text);
+
+/// A block the person pasted, drawn as the rest of the message's text (Leo, 2026-11-08). The shipped
+/// look adds nothing; the gallery's other arm marks it with a quiet rule down its left edge.
+function PastedText({ look, children }: { look: string | undefined; children: ReactNode }) {
+  return (
+    <span className="cv-user__pasted" data-look={look === "plain" ? undefined : look}>
+      {children}
+    </span>
   );
 }
 
@@ -344,14 +362,12 @@ function promptLinks(text: string): { start: number; end: number; value: string;
   return [...free, ...app].sort((a, b) => a.start - b.start);
 }
 
-/// One pasted block: a card of the paste's own first lines, wrapped in the prompt's font and the
-/// last fading out, over the composer's label ("Pasted text · 2,300 lines · 92K characters",
-/// composer/TextAttachmentCard.tsx). The label, or a click on the lines, opens the same text in
-/// place to the whole paste, the card sliding to its new height; the label under it closes it
-/// again. Closed, the card draws only the paste's head (`pastePreview`), outside Find. Leo,
-/// 2026-11-05, on the chip it replaces, a box of the paste's first words over the whole text:
-/// "I think this is almost kind of interesting, but it's, like, really awkward". A sent prompt's
-/// inline parts draw theirs with it too (InlinePromptContent.tsx).
+/// A text file's body in a sent prompt's inline parts (InlinePromptContent.tsx; a pasted block is the
+/// message's own text, PromptText above): a card of its first lines, wrapped in the prompt's font and
+/// the last fading out, over the composer's label (composer/TextAttachmentCard.tsx). The label, or a
+/// click on the lines, opens the same text in place, the card sliding to its new height; the label
+/// under it closes it again. Closed, the card draws only the text's head (`pastePreview`), outside
+/// Find.
 export function PasteChip({
   rowId,
   index,
@@ -382,12 +398,12 @@ export function PasteChip({
   const label = useRef<HTMLButtonElement>(null);
   // The card's height before the reader's toggle, which it slides from (fold.ts playResize).
   const resized = useRef<number | undefined>(undefined);
+  const held = useRef<BlockHold["current"]>(undefined);
   const toggle = () => {
     const node = card.current;
     if (node) {
-      // Opening holds the card's top, the text growing below it; closing holds the label, where
-      // the reader clicked it, as Show more and Show less do.
-      holdHeader(open ? (label.current ?? node) : node);
+      // Closing holds the line opening held, as Show more and Show less do (`holdBlock`).
+      holdBlock(node, label.current, held, !open);
       resized.current = node.getBoundingClientRect().height;
     }
     if (!open) onOpen();

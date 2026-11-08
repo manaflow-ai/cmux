@@ -4,8 +4,9 @@
 // signals as acpmux's `agent_text.rs`, which marks the agent's view and the record: a `From NAME:`
 // header, a `Trace-ID:` line, a generated-with or co-author footer, an agent session line, a review
 // receipt, a batched message's `[message N of M] from` line or a `Handoff` heading. The composer
-// reads them to keep such a paste as its own block (composer/pasteMarks.ts), and the bubble to name
-// its sender (PromptText.tsx PasteChip) before acpmux's echo arrives, so nothing changes when it does.
+// reads them to keep such a paste as its own block (composer/pasteMarks.ts), and the row to name its
+// sender under the bubble (`pastedAgent`, rows/MessageRow.tsx) before acpmux's echo arrives, so
+// nothing changes when it does.
 
 /// The characters read from the start of a text: headers sit there.
 export const HEAD_CHARS = 16 * 1024;
@@ -105,3 +106,23 @@ function scan(line: string, found: AgentText) {
 
 /// Whether `text` reads as another agent's output.
 export const readsAsAgent = (text: string) => agentText(text).signals.length > 0;
+
+/// The agent a sent prompt's pasted block reads as, if one does: the first block with a signal,
+/// named when its text names a sender. A paste is the message's own text in its bubble (Leo,
+/// 2026-11-08), so the row says whose it reads as in the quiet line under the bubble, as it does for
+/// typed text acpmux marks (`agentText`).
+export function pastedAgent(row: {
+  text?: string;
+  pasted?: readonly { start: number; end: number }[];
+  inlineParts?: readonly { kind: string; text?: string }[];
+}): { from?: string } | undefined {
+  const blocks = [
+    ...(row.pasted ?? []).map((range) => row.text?.slice(range.start, range.end) ?? ""),
+    ...(row.inlineParts ?? []).flatMap((part) => (part.kind === "pasted" && part.text ? [part.text] : [])),
+  ];
+  for (const block of blocks) {
+    const found = agentText(block);
+    if (found.signals.length) return found.from ? { from: found.from } : {};
+  }
+  return undefined;
+}
