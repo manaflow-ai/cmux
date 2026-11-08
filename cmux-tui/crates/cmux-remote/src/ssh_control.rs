@@ -201,21 +201,20 @@ impl SshConnectionShare {
         // Concurrent runs wait here for the first one's master instead of
         // each opening (and authenticating) their own.
         let mut masters = inner.masters.lock().await;
-        match masters.get_mut(target) {
-            Some(Shared::Master(master)) => {
-                if master.is_alive() {
-                    return Ok(master.client_arguments());
-                }
-            }
+        let live = match masters.get_mut(target) {
+            Some(Shared::Master(master)) => master.is_alive().then(|| master.client_arguments()),
             Some(Shared::Unavailable) => return Ok(Vec::new()),
-            None => {}
+            None => None,
+        };
+        if let Some(arguments) = live {
+            return Ok(arguments);
         }
         masters.remove(target);
         let _clock = inner.clock.begin();
         match ControlMaster::open(target).await? {
             Some(master) => {
                 let arguments = master.client_arguments();
-                masters.insert(target.clone(), Shared::Master(master));
+                masters.insert(target.clone(), Shared::Master(Box::new(master)));
                 Ok(arguments)
             }
             None => {
@@ -228,7 +227,7 @@ impl SshConnectionShare {
 
 /// What the share holds for one target.
 enum Shared {
-    Master(ControlMaster),
+    Master(Box<ControlMaster>),
     /// ssh authenticated but could not listen on a control socket: runs
     /// connect on their own instead of opening (and prompting for) another
     /// master each time.
