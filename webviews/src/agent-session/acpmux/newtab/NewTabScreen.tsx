@@ -2195,7 +2195,11 @@ export function NewTabScreen(props: Props) {
               >
                 Fix in a new worktree
               </button>
-              {props.fixError && <p className="nt-fix-error" role="alert">{props.fixError}</p>}
+              {props.fixError && (
+                <p className="nt-fix-error" role="alert">
+                  {props.fixError}
+                </p>
+              )}
             </div>
           )}
           {/* What was pasted on the field or dropped on the page, as a chat's composer shows it, under
