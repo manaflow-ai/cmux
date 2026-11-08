@@ -50,7 +50,8 @@ pathlib.Path(sys.argv[sys.argv.index("-o") + 1]).touch()
                        OUT_DIR=str(output), LIBTAILSCALE_SRC=str(source),
                        CARGO_CFG_TARGET_ARCH=target.split("-")[0],
                        CARGO_CFG_TARGET_OS="macos" if "apple" in target else "linux",
-                       TARGET=target, HOST=host, CAPTURE=str(capture))
+                       TARGET=target, HOST=host, CAPTURE=str(capture),
+                       CARGO_MANIFEST_DIR=str(CRATE))
             env.update(overrides)
             result = subprocess.run([str(self.executable)], env=env,
                                     capture_output=True, text=True)
