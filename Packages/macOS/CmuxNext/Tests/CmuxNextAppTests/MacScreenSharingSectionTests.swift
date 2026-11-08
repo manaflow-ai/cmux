@@ -55,6 +55,39 @@ struct MacScreenSharingSectionTests {
         }
     }
 
+    /// The list look (the default): titled This Mac; a permission's detail shows only while it is missing,
+    /// and its row then offers Open System Settings.
+    @Test func listShowsPermissionDetailsOnlyWhileMissing() throws {
+        try withHome { home in
+            let needed = L.t("macScreen.home.screenRecordingNeeded", "Needed to send this screen. macOS may ask you to reopen cmux.")
+            let open = L.t("macScreen.home.openSettings", "Open System Settings")
+            let granted = home.sharingSection(sharing(screenRecording: true, accessibility: true), look: .list)
+            #expect(texts(under: granted).first == L.t("devices.section.this", "This Mac"))
+            #expect(!texts(under: granted).contains(needed))
+            #expect(!views(under: granted).contains { ($0 as? NSButton)?.title == open })
+            let missing = home.sharingSection(sharing(screenRecording: false, accessibility: true), look: .list)
+            #expect(texts(under: missing).contains(needed))
+            #expect(views(under: missing).contains { ($0 as? NSButton)?.title == open })
+        }
+    }
+
+    /// Every look draws the switch, and the status while sharing; off, no status and no permission rows.
+    @Test(arguments: MacScreenSharingLook.allCases)
+    func everyLookDrawsTheSwitchAndStatus(_ look: MacScreenSharingLook) throws {
+        try withHome { home in
+            let on = home.sharingSection(sharing(screenRecording: true, accessibility: true), look: look)
+            let ids = views(under: on).map { $0.accessibilityIdentifier() }
+            #expect(ids.contains("macScreen.home.allowToggle"))
+            #expect(texts(under: on).contains(Self.ready))
+            var off = sharing(screenRecording: true, accessibility: true)
+            off.isSharing = false
+            let offView = home.sharingSection(off, look: look)
+            #expect(views(under: offView).contains { $0.accessibilityIdentifier() == "macScreen.home.allowToggle" })
+            #expect(!texts(under: offView).contains(Self.ready))
+            #expect(!texts(under: offView).contains(L.t("macScreen.home.screenRecording", "Screen Recording")))
+        }
+    }
+
     /// With both permissions and no viewer, the status says this Mac is ready.
     @Test func statusIsReadyWithBothPermissions() throws {
         try withHome { home in
