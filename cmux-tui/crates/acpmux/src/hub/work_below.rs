@@ -180,7 +180,7 @@ impl Hub {
     }
 
     /// The session that started `session` as its sub-session, if it is one and is here.
-    fn subsession_parent(&self, session: &Session) -> Option<Arc<Session>> {
+    pub(super) fn subsession_parent(&self, session: &Session) -> Option<Arc<Session>> {
         let parent = session.meta.lock().unwrap_or_else(|e| e.into_inner()).subsession.clone()?;
         let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         sessions.get(&parent.started_by).filter(|p| p.id != session.id).cloned()

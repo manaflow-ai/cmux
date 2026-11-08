@@ -215,6 +215,10 @@ public final class AgentPaneModel {
     @ObservationIgnored var dictationUploads = AgentPaneDictationUploads()
     /// Opens a changed file the page names; false when it could not.
     @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
+    /// Opens a file of a Cloud chat's machine (an absolute path there) in cmux's file pages, read
+    /// through that machine's daemon, never this Mac's file of the same path; false when it could
+    /// not, or when the path reaches through a symlink there.
+    @ObservationIgnored public var onOpenMachineFile: (@MainActor (String) async -> Bool)?
     /// Opens a turn's local web page in a browser tab beside the agent;
     /// false when it could not.
     @ObservationIgnored public var onOpenPreview: (@MainActor (URL) -> Bool)?
@@ -627,6 +631,7 @@ public final class AgentPaneModel {
             let projects = await onListProjects(query)
             return AgentPaneReply.success(["projects": projects, "repos": await AgentPaneProjectRepoReader.replies(for: projects)])
         case .openChat(let key): if let onOpenChat { onOpenChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.open") }
+        case .resumeChat(let ref): return AgentPaneReply.success(["status": await resumeChat(ref).rawValue])
         case .openChatInTerminal(let key): if let onOpenChatInTerminal { onOpenChatInTerminal(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.openInTerminal") }
         case .watchChat(let key): if let onWatchChat { onWatchChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.watch") }
         case .chatsPage(let query): return await respondToChatsPage(query)

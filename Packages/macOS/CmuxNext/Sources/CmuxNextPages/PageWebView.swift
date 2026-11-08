@@ -243,13 +243,15 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// (``PageID/registerBundledRoot(_:for:)``).
     public convenience init?(descriptor: PageDescriptor, routes: [PageRoute], route: String? = nil,
                              documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
-                             surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil) {
+                             surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
+                             overlayProcess: PageOverlayProcess? = nil) {
         guard let root = Self.servedRoot(for: descriptor) else { return nil }
         let handler = PageSchemeHandler(page: descriptor, root: root, dynamicSource: dynamicResources)
-        let host = Self.hostConfiguration(handler: handler, documentAttributes: documentAttributes, options: options)
+        let host = Self.hostConfiguration(handler: handler, documentAttributes: documentAttributes, options: options,
+                                          overlayProcess: overlayProcess)
         self.init(descriptor: descriptor, configuration: host.configuration, inputReadiness: host.inputReadiness,
                   routes: routes, route: route, options: options, surface: surface,
-                  dynamicResources: dynamicResources, pooled: false, load: true)
+                  dynamicResources: dynamicResources, pooled: false, load: true, overlayProcess: overlayProcess)
     }
 
     /// The root a page is served from without an explicit one: the DEBUG override, else this
@@ -330,23 +332,29 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     ///
     /// `chromium` makes the page's Chromium view when the policy picks Chromium (the app's
     /// ``chromiumHosting`` by default; tests pass a fake).
+    ///
+    /// `overlayProcess`: a transparent overlay page's (``PageWebKitReason/transparentOverlay``) shared web
+    /// content process, the app's one ``PageOverlayProcess``. Nil: the page gets its own process.
     public convenience init?(descriptor: PageDescriptor, root: URL, testRoot: Bool = false, routes: [PageRoute], route: String? = nil,
                              documentAttributes: [String: String] = [:], options: PageEngineOptions = .standard,
                              surface: SurfaceKind? = nil, dynamicResources: (any PageDynamicResourceSource)? = nil,
-                             chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting) {
+                             chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
+                             overlayProcess: PageOverlayProcess? = nil) {
         guard Self.mayServe(descriptor, from: root, testRoot: testRoot) else { return nil }
         let host = Self.hostConfiguration(handler: PageSchemeHandler(page: descriptor, root: root,
                                                                        dynamicSource: dynamicResources),
-                                          documentAttributes: documentAttributes, options: options)
+                                          documentAttributes: documentAttributes, options: options,
+                                          overlayProcess: overlayProcess)
         self.init(descriptor: descriptor, configuration: host.configuration, inputReadiness: host.inputReadiness,
                   routes: routes, route: route, options: options, surface: surface,
-                  dynamicResources: dynamicResources, pooled: false, load: true, chromium: chromium)
+                  dynamicResources: dynamicResources, pooled: false, load: true, chromium: chromium,
+                  overlayProcess: overlayProcess)
     }
 
     init(descriptor: PageDescriptor, configuration: WKWebViewConfiguration,
          inputReadiness: PageInputReadiness, routes: [PageRoute], route: String?, options: PageEngineOptions,
          surface: SurfaceKind?, dynamicResources: (any PageDynamicResourceSource)?, pooled: Bool, load: Bool,
-         chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting) {
+         chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting, overlayProcess: PageOverlayProcess? = nil) {
         self.descriptor = descriptor
         engineOptions = options
         isPooled = pooled
@@ -355,8 +363,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         self.dynamicResources = dynamicResources
         router = PageRouter(descriptor: descriptor, routes: routes)
         self.inputReadiness = inputReadiness
+        overlayProcess?.prepare(configuration)
         // webview-allow: the page host's WebKit engine; PageEnginePolicy picks it
         webView = PageWKWebView(frame: .zero, configuration: configuration)
+        overlayProcess?.joined(webView)
         inputReadiness.attach(webView)
         if options.keepsLoadedWeb { WebBundleServedViews.shared.keepLoadedTree(webView) }
         let webKitBridge = WebKitPageHostBridge(webView: webView)
