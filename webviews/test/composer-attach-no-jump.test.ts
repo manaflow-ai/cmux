@@ -9,16 +9,20 @@
 // is the size and place its thumbnail ends at, the composer grows only if the row needs another line,
 // and nothing moves when the picture arrives. Each way in is covered: a paste, a drop, a file pick.
 //
-// The page is the pane's dev entry with the in-page mock transport.
-// Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+// Each frame also checks every tile, not only the new one: no attachment is ever drawn in the strip
+// above the text (the inline view puts them all in the text), and the one already there never moves.
+//
+// The page is the pane's dev entry with the in-page mock transport. Both engines: the app's WebKit
+// and Chromium; CI fails the file when one cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 type Rect = { x: number; y: number; width: number; height: number };
-type Frame = { tile?: Rect; where?: string; box: number; row?: Rect };
+type Tile = { rect: Rect; where: string; fresh: boolean };
+type Frame = { tile?: Rect; where?: string; box: number; top: number; row?: Rect; tiles: Tile[] };
 type Way = "paste" | "drop" | "pick";
 type ProbeWindow = Window & {
   __probe?: { frames: Frame[]; stop: boolean; before: Set<Element> };
@@ -27,18 +31,28 @@ type ProbeWindow = Window & {
 
 await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
   setDefaultTimeout(120_000);
-  try {
-    await (await chromium.launch({ headless: true })).close();
-  } catch {
-    console.warn("composer-attach-no-jump: skipping (run `bunx playwright install chromium`)");
-    describe.skip("attachment slots", () => test("chromium", () => {}));
+  const engines: [string, BrowserType][] = [];
+  for (const [name, engine] of [
+    ["chromium", chromium],
+    ["webkit", webkit],
+  ] as const) {
+    try {
+      await (await engine.launch({ headless: true, timeout: 30_000 })).close();
+      engines.push([name, engine]);
+    } catch {
+      if (process.env.GITHUB_ACTIONS === "true") throw new Error(`composer-attach-no-jump: ${name} did not launch`);
+      console.warn(`composer-attach-no-jump: skipping ${name} (run \`bunx playwright install ${name}\`)`);
+    }
+  }
+  if (!engines.length) {
+    describe.skip("attachment slots", () => test("browsers", () => {}));
     return;
   }
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "..");
 
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
-  let browser: Browser | undefined;
+  const browsers = new Map<string, Browser>();
   beforeAll(async () => {
     vite = await createServer({
       configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
@@ -47,17 +61,17 @@ await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
     });
     await vite.listen();
     await warmViteServer(vite, "/");
-    browser = await chromium.launch({ headless: true });
+    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
   });
   afterAll(async () => {
-    await browser?.close();
+    for (const browser of browsers.values()) await browser.close();
     await vite?.close();
   });
 
   const PROMPT = ".acpmux-composer-prompt [contenteditable='true']";
 
-  async function newChat(): Promise<Page> {
-    const page = await browser!.newPage({ viewport: { width: 900, height: 640 } });
+  async function newChat(engine: string, width = 900): Promise<Page> {
+    const page = await browsers.get(engine)!.newPage({ viewport: { width, height: 640 } });
     await page.addInitScript(() => {
       Object.assign(window, {
         webkit: {
@@ -112,11 +126,18 @@ await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
       };
       const sample = () => {
         if (probe.stop) return;
-        const fresh = tiles().filter((tile) => !probe.before.has(tile) && tile.getBoundingClientRect().width > 0);
+        const all = tiles().filter((tile) => tile.getBoundingClientRect().width > 0);
+        const fresh = all.filter((tile) => !probe.before.has(tile));
         const old = [...probe.before].find((tile) => tile.isConnected);
         const tile = fresh[0];
         probe.frames.push({
           box: box.getBoundingClientRect().height,
+          top: box.getBoundingClientRect().top,
+          tiles: all.map((each) => ({
+            rect: rect(each),
+            where: each.closest(".acpmux-attachments") ? "strip" : "text",
+            fresh: !probe.before.has(each),
+          })),
           ...(tile
             ? {
                 tile: rect(tile),
@@ -140,7 +161,10 @@ await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
         data.items.add((window as ProbeWindow).__images![name]!);
         const field = document.querySelector(prompt)!;
         if (way === "paste") {
-          field.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+          const paste = new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true });
+          // WebKit's constructor drops the clipboard; the app's paste route hands it on the same way.
+          if (paste.clipboardData !== data) Object.defineProperty(paste, "clipboardData", { value: data });
+          field.dispatchEvent(paste);
           return;
         }
         const target = document.querySelector(".acpmux-composer-box")!;
@@ -152,7 +176,11 @@ await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
           clientX: box.left + Math.min(40, box.width / 2),
           clientY: box.top + box.height / 2,
         };
-        for (const type of ["dragenter", "dragover", "drop"]) target.dispatchEvent(new DragEvent(type, init));
+        for (const type of ["dragenter", "dragover", "drop"]) {
+          const drag = new DragEvent(type, init);
+          if (drag.dataTransfer !== data) Object.defineProperty(drag, "dataTransfer", { value: data });
+          target.dispatchEvent(drag);
+        }
       },
       { way, name, prompt: PROMPT },
     );
@@ -186,14 +214,42 @@ await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
 
   /// Attaches `name` by `way` into a composer that already holds one attachment, and answers every
   /// frame sampled from the gesture until it settled (plus a few frames after).
-  async function trace(way: Way, width: number, height: number): Promise<Frame[]> {
-    const page = await newChat();
+  /// `again`: the second paste follows the first with nothing between, the caret where the first left it.
+  async function trace(
+    engine: string,
+    way: Way,
+    width: number,
+    height: number,
+    again = false,
+    pane = 900,
+    room?: number,
+  ): Promise<Frame[]> {
+    const page = await newChat(engine, pane);
+    if (pane < 900) await page.keyboard.type("Compare these two screenshots of the settings page ");
     await makeImage(page, "first.png", 2880, 900);
     await makeImage(page, "second.png", width, height);
     await gesture(page, "paste", "first.png");
     await settled(page, 1);
-    await page.locator(PROMPT).click();
-    await page.keyboard.press("End");
+    if (!again) {
+      await page.locator(PROMPT).click();
+      await page.keyboard.press("End");
+    }
+    // `room`: the line after the attachment keeps only this much width, so a tile wider than the
+    // new one's final size would wrap to a line of its own.
+    if (room !== undefined)
+      await page.evaluate(
+        ({ prompt, room }) => {
+          const field = document.querySelector<HTMLElement>(prompt)!;
+          const chip = field.querySelector(".acpmux-md-inline-chip")!;
+          const gap = parseFloat(getComputedStyle(chip).marginInlineEnd) || 0;
+          const end = chip.getBoundingClientRect().right + gap;
+          const style = getComputedStyle(field);
+          const inset = parseFloat(style.paddingRight) + parseFloat(style.borderRightWidth);
+          field.style.width = `${end + room + inset - field.getBoundingClientRect().left}px`;
+          field.style.flex = "none";
+        },
+        { prompt: PROMPT, room },
+      );
     await startProbe(page);
     if (way === "pick") await pick(page, "second.png");
     else await gesture(page, way, "second.png");
@@ -232,6 +288,17 @@ await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
       )
       .filter((line, index, all) => index === 0 || line !== all[index - 1]);
     console.log(`composer-attach-no-jump ${label}: ${summary.join(" | ")}`);
+    const every = frames
+      .map((frame) =>
+        frame.tiles
+          .map(
+            (each) =>
+              `${each.fresh ? "new" : "old"}:${each.where}@${Math.round(each.rect.x)},${Math.round(each.rect.y)} ${Math.round(each.rect.width)}x${Math.round(each.rect.height)}`,
+          )
+          .join(" "),
+      )
+      .filter((line, index, all) => index === 0 || line !== all[index - 1]);
+    console.log(`composer-attach-no-jump ${label} tiles: ${every.join(" | ")}`);
     expect(shown.length).toBeGreaterThan(0);
     const first = shown[0]!;
     const last = shown.at(-1)!;
@@ -243,24 +310,61 @@ await requireBrowserLane("composer-attach-no-jump.test.ts", async () => {
       // Never above the row the attachments sit in.
       if (frame.row) expect(frame.tile!.y).toBeGreaterThanOrEqual(frame.row.y - 1);
     }
+    // Every tile, in every frame, is in the text (the inline view draws no strip), and the one
+    // already there keeps its place in the composer (which grows upward from its bottom edge, so
+    // its place is read from the composer's top) and its size.
+    const final = frames.at(-1)!;
+    for (const frame of frames) {
+      expect(frame.tiles.filter((each) => each.where === "strip")).toEqual([]);
+      if (frame.row && final.row)
+        expect(close({ ...frame.row, y: frame.row.y - frame.top }, { ...final.row, y: final.row.y - final.top })).toBe(
+          true,
+        );
+    }
     // The composer never grows past where it ends.
     const finalBox = frames.at(-1)!.box;
     for (const frame of frames) expect(frame.box).toBeLessThanOrEqual(finalBox + 1);
   }
 
-  test("a wide image pasted beside an attachment takes its final slot from its first frame", async () => {
-    check("paste wide", await trace("paste", 2880, 900));
-  });
+  for (const [engine] of engines) {
+    test(`${engine}: a wide image pasted beside an attachment takes its final slot from its first frame`, async () => {
+      check(`${engine} paste wide`, await trace(engine, "paste", 2880, 900));
+    });
 
-  test("a tall image pasted beside an attachment takes its final slot from its first frame", async () => {
-    check("paste tall", await trace("paste", 900, 2880));
-  });
+    test(`${engine}: a wide image pasted right after another goes after it, from its first frame`, async () => {
+      const frames = await trace(engine, "paste", 2880, 900, true);
+      check(`${engine} paste again`, frames);
+      const last = frames.at(-1)!.tiles;
+      const fresh = last.find((each) => each.fresh)!;
+      const old = last.find((each) => !each.fresh)!;
+      // After the first in reading order: right of it on its line, or on a line below.
+      expect(fresh.rect.y > old.rect.y + 1 || fresh.rect.x > old.rect.x).toBe(true);
+    });
 
-  test("a wide image dropped beside an attachment takes its final slot from its first frame", async () => {
-    check("drop wide", await trace("drop", 2880, 900));
-  });
+    test(`${engine}: in a narrow pane, a wide image pasted after text and an attachment takes its final slot`, async () => {
+      check(`${engine} paste narrow`, await trace(engine, "paste", 2880, 900, true, 420));
+    });
 
-  test("a wide image picked in the + menu takes its final slot from its first frame", async () => {
-    check("pick wide", await trace("pick", 2880, 900));
-  });
+    test(`${engine}: a tall image pasted where only its own width fits stays on the line, from its first frame`, async () => {
+      const frames = await trace(engine, "paste", 900, 2880, false, 900, 60);
+      check(`${engine} paste tall in tight room`, frames);
+      const last = frames.at(-1)!.tiles;
+      const fresh = last.find((each) => each.fresh)!;
+      const old = last.find((each) => !each.fresh)!;
+      // Beside the attachment, on its line: the 48 px tile fit in the 60 px left.
+      expect(Math.abs(fresh.rect.y - old.rect.y)).toBeLessThanOrEqual(1);
+    });
+
+    test(`${engine}: a tall image pasted beside an attachment takes its final slot from its first frame`, async () => {
+      check(`${engine} paste tall`, await trace(engine, "paste", 900, 2880));
+    });
+
+    test(`${engine}: a wide image dropped beside an attachment takes its final slot from its first frame`, async () => {
+      check(`${engine} drop wide`, await trace(engine, "drop", 2880, 900));
+    });
+
+    test(`${engine}: a wide image picked in the + menu takes its final slot from its first frame`, async () => {
+      check(`${engine} pick wide`, await trace(engine, "pick", 2880, 900));
+    });
+  }
 });

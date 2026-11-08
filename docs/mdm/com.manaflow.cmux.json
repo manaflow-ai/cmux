@@ -1717,6 +1717,12 @@
       "title" : "Offer to Import Cookies",
       "type" : "boolean"
     },
+    "browser.import.cookieSync" : {
+      "default" : true,
+      "description" : "After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it.",
+      "title" : "Keep Imported Cookies in Sync",
+      "type" : "boolean"
+    },
     "browser.import.enabled" : {
       "default" : true,
       "description" : "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays.",

@@ -28,7 +28,7 @@ final class HistoryTopPage: InternalPageProvider {
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         guard let services else { return NSView() }
-        let page = HistoryPageTab(id: BrowserTabID(rawValue: key), engine: .webkit, profile: .default, source: services.historyPage,
+        let page = HistoryPageTab(id: BrowserTabID(rawValue: key), engine: .webkit, profile: .default,
                                   webPage: PageFactory(services: services).historyWebPage())
         page.onNavigate = { [weak services] url in
             guard let services else { return }
@@ -39,7 +39,7 @@ final class HistoryTopPage: InternalPageProvider {
         return page.contentView
     }
 
-    func tabClosed(_ key: String) { pages[key] = nil }
+    func tabClosed(_ key: String) { pages.removeValue(forKey: key)?.close() }
 }
 
 /// The Bookmarks manager as a top page, over the bookmarks of the window's
