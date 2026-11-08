@@ -1658,6 +1658,16 @@ class WorkflowShape(unittest.TestCase):
         regen = next(step for step in steps if step.get("id") == "regen")
         self.assertIn(".next-batch-tools/scripts/cmux-next/regenerate-swift-exports.sh", regen["run"])
 
+    def test_swift_regeneration_provisions_bun_before_the_generator(self):
+        """regenerate-swift-exports.sh ends with export-next-docs.ts, which needs bun (or Node 22.18+): a mini
+        without either would fail every Swift regeneration before its patch."""
+        steps = self.jobs["regen"]["steps"]
+        setup = next(n for n, step in enumerate(steps) if str(step.get("uses", "")).startswith("oven-sh/setup-bun@"))
+        regen = next(n for n, step in enumerate(steps) if step.get("id") == "regen")
+        self.assertLess(setup, regen)
+        self.assertTrue(steps[setup]["with"]["bun-version"])
+        self.assertTrue(any("private-bun.sh" in step.get("run", "") for step in steps[setup:regen]))
+
     def test_regen_linux_runs_the_web_formatter_and_lint_autofix(self):
         script = "\n".join(step.get("run", "") for step in self.jobs["regen-linux"]["steps"])
         self.assertIn('*" format "*', script)
