@@ -490,6 +490,7 @@ async fn world(tag: &str, route: Route) -> World {
             let b_service: SocketAddr = "10.77.0.2:4100".parse().unwrap();
             let wg_peer =
                 |key: String, endpoint: SocketAddr, address: SocketAddr, url: String| PeerConfig {
+                    link_host: None,
                     url,
                     wireguard: Some(StaticPeer {
                         public_key: key,
@@ -628,7 +629,16 @@ struct Row {
     reshow_required: bool,
 }
 
-async fn run(row: Row) {
+/// A row's times: the cut noticed, the link ready again after it left `connected`, and the
+/// whole outage from the cut.
+#[derive(Clone, Copy)]
+struct Times {
+    detect: Duration,
+    failover: Duration,
+    total: Duration,
+}
+
+async fn run(row: Row) -> Times {
     let w = world(row.tag, row.route).await;
     let gate = w.scratch.join("gate");
     let mut ca = Client::new(&w.a).await;
@@ -653,6 +663,7 @@ async fn run(row: Row) {
     let left = w.until_not("connected", DETECT_BOUND + STEP).await;
     let left = left.unwrap_or_else(|| panic!("{}: the link never left connected", row.tag));
     let detect = left - cut_at;
+    let left_at = left;
     let mark = ca.len();
 
     // A prompt while the carrier is down: refused with a named error, or held.
@@ -790,18 +801,21 @@ async fn run(row: Row) {
         "{}: never left connected: {states:?}",
         row.tag
     );
+    let failover = back.saturating_duration_since(left_at);
     eprintln!(
-        "carrier_faults row={} cut={:?} detect_ms={} redial_ms={} total_ms={} states={} ask={ask_seen} outage_prompt={}",
+        "carrier_faults row={} cut={:?} detect_ms={} redial_ms={} failover_ms={} total_ms={} states={} ask={ask_seen} outage_prompt={}",
         row.tag,
         row.cut,
         detect.as_millis(),
         redial.as_millis(),
+        failover.as_millis(),
         (back - cut_at).as_millis(),
         states.join(">"),
         outcome
     );
     assert!(detect <= DETECT_BOUND, "{}: the cut took {detect:?} to notice", row.tag);
     assert!(redial <= REDIAL_BOUND, "{}: the redial took {redial:?}", row.tag);
+    Times { detect, failover, total: back - cut_at }
 }
 
 // ------------------------------------------------------------------ rows that pass today
@@ -860,12 +874,16 @@ async fn wireguard_black_hole_mid_turn_redials_and_replays_after_seq() {
 
 // ------------------------------------------------------------------ rows that wait for a fix
 
+/// How long the link may take from leaving `connected` to being ready on ssh once its WireGuard
+/// path died: ssh is a live path, probed all along, so the redial dials it first (no WireGuard
+/// connect deadline before it, at most the 250 ms stagger behind a dead path), then the ssh
+/// dial, the handshake and the replay of the turn so far. Before the carrier list this was
+/// 33.3 s (each redial waited out WireGuard's 30 s connect deadline first).
+const WG_TO_SSH_FAILOVER: Duration = Duration::from_secs(3);
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "needs carrier failover (audit fixes 1 and 2): connect_once tries WireGuard for the whole \
-            30 s connect deadline on every redial before the ssh route, and remembers no last good \
-            carrier, so a turn whose WireGuard path dies waits far past the redial bound"]
 async fn wireguard_dies_mid_turn_and_the_link_moves_to_ssh() {
-    run(Row {
+    let times = run(Row {
         tag: "wg-to-ssh",
         route: Route::WgThenSsh,
         cut: Cut::BlackHole,
@@ -874,6 +892,13 @@ async fn wireguard_dies_mid_turn_and_the_link_moves_to_ssh() {
         reshow_required: false,
     })
     .await;
+    assert!(
+        times.failover <= WG_TO_SSH_FAILOVER,
+        "wg-to-ssh: the link took {:?} to move to ssh (cut noticed after {:?}, {:?} in all)",
+        times.failover,
+        times.detect,
+        times.total
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
