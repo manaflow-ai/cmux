@@ -46,7 +46,7 @@ struct PageWebViewChatZoomTests {
         #expect(await Self.settles({ Self.near(other.webKitView.pageZoom, Self.uiScale) }), "other page zoom \(other.webKitView.pageZoom)")
 
         // Interface Scale changes the other page, never the Chief's.
-        design.uiScale = 1
+        design.uiScale = 1.4
         #expect(await Self.settles({ Self.near(other.webKitView.pageZoom, Self.uiScale) }), "other page zoom \(other.webKitView.pageZoom)")
         #expect(Self.near(chief.webKitView.pageZoom, Self.chatZoom), "page zoom \(chief.webKitView.pageZoom)")
         chief.close()
