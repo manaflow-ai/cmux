@@ -1265,7 +1265,7 @@ pub(super) fn name_app_in_invites(answer: &mut Value, app_query: &str) {
     if app_query.is_empty() {
         return;
     }
-    let mut name = |value: &mut Value| {
+    let name = |value: &mut Value| {
         if let Some(Value::String(url)) = value.get_mut("invite_url") {
             url.push_str(app_query);
         }

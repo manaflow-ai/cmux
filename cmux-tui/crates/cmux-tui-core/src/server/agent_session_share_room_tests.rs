@@ -422,13 +422,13 @@ fn a_link_names_the_build_that_made_it_unless_it_is_the_default_app() {
 fn every_invite_url_of_an_answer_names_the_build() {
     let mut answer = json!({"invite_url": "https://share.cmux.dev/i/a", "shares": [
         {"invite_url": "https://share.cmux.dev/i/b"}, {"invite_url": null}]});
-    super::name_app_in_invites(&mut answer, "?app=cmux-rc");
+    name_app_in_invites(&mut answer, "?app=cmux-rc");
     assert_eq!(answer, json!({"invite_url": "https://share.cmux.dev/i/a?app=cmux-rc", "shares": [
         {"invite_url": "https://share.cmux.dev/i/b?app=cmux-rc"}, {"invite_url": null}]}));
     // The default build names nothing.
     let before = json!({"invite_url": "https://share.cmux.dev/i/a"});
     let mut after = before.clone();
-    super::name_app_in_invites(&mut after, "");
+    name_app_in_invites(&mut after, "");
     assert_eq!(after, before);
 }
 
