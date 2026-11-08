@@ -625,6 +625,12 @@ impl Hub {
         let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
         summary.set("qualifiedSessionId", Value::String(receipt.qualified_id()));
         summary.set("sessionReceipt", receipt.to_value());
+        // Where its journal's own recovery at the end begins, while it ends the journal: the
+        // owner restores a copy past it from there, however far `lastSeq` is (review of #37284
+        // at 8b5f3063, F2: a recovery as long as the copy was past it hid the copy).
+        if let Some(from) = m.recovered_after.filter(|from| *from < m.last_seq) {
+            summary.set("recoveredAfter", json!(from));
+        }
         // The branch its folder has checked out now (`git_watch.rs`); null on
         // a detached HEAD or outside a repository.
         summary.set("gitBranch", json!(self.git_branch_now(&m)));

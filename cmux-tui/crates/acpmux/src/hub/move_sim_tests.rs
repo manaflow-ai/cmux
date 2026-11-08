@@ -31,7 +31,8 @@
 //! `Rules::Prior` replays 98b4575a's, and `Rules::Last` 91b1343d's (a removal the copy's bound
 //! cut before a write leaves its prompt's proof whole, a queued prompt runs while a restore holds
 //! the chat between tries, and a log read for a restore writes its recovery first, on a disk the
-//! machine came back on mid-turn): some seeds fail under each.
+//! machine came back on mid-turn): some seeds fail under each. `Rules::Hidden` replays
+//! 8b5f3063's (a recovery as long as the copy was past where it began hides the copy).
 //! Run (from `cmux-tui/`): `MOVE_SIM_SEEDS=5000 cargo test -p acpmux --lib -- move_sim --nocapture`.
 
 use super::*;
@@ -61,6 +62,10 @@ enum Rules {
     /// before a restore took the lock runs during its hold; a proof lets its files go; a proof
     /// without the Stop that held its prompt; a proof of an earlier owner start never checked.
     Recent,
+    /// 8b5f3063's (review at 8b5f3063, F2), else as now: the owner compares its copy with the
+    /// machine's `lastSeq` alone, so a restart's recovery that wrote as many records as the copy
+    /// held past where it began hides the copy.
+    Hidden,
 }
 
 impl Rules {
@@ -69,8 +74,15 @@ impl Rules {
         match self {
             Rules::Last => crate::hub::journal_restore::AT_91B,
             Rules::Recent => crate::hub::journal_restore::AT_4DCB,
+            Rules::Hidden => crate::hub::journal_restore::AT_8B5F,
             _ => 0,
         }
+    }
+
+    /// The rules of now, or of a head that differs from them only where the code itself
+    /// replays it ([`Rules::old`]).
+    fn now(self) -> bool {
+        matches!(self, Rules::Now | Rules::Hidden)
     }
 }
 
@@ -293,6 +305,15 @@ impl Machine {
             }
         }
     }
+    /// Whether `records` end at or before the journal's end and are, past `from`, the journal's
+    /// own records (`journal_restore.rs` `holds_as_is`; not under 8b5f3063's rules).
+    fn holds_as_is(&self, from: u64, records: &[Rec]) -> bool {
+        !crate::hub::journal_restore::rules_of_8b5f()
+            && records.last().is_some_and(|r| r.seq <= self.end())
+            && records.iter().filter(|r| r.seq > from).all(|r| {
+                self.journal.iter().any(|h| h.seq == r.seq && (h.at, h.kind) == (r.at, r.kind))
+            })
+    }
     /// Where the run of recovery records at its journal's end begins (the seq before it).
     fn recovery_tail(&self) -> Option<u64> {
         let mut from = None;
@@ -500,6 +521,13 @@ impl Machine {
                 recovery: true,
                 ..Rec::default()
             });
+            // And its continuation's records (a notice, a subagent settled): a recovery as long
+            // as what the owner's copy holds past where it began (review at 8b5f3063, F2).
+            for _ in 0..1 + seq % 2 {
+                let (seq, at) = (self.end() + 1, self.tick());
+                let kind = "agent_message_chunk";
+                self.journal.push(Rec { seq, at, kind, recovery: true, ..Rec::default() });
+            }
         }
         for p in self.pending() {
             if !self.queue.contains(&p) {
@@ -569,9 +597,12 @@ impl Machine {
             }
         }
         // The recovery at its journal's end goes when the copy holds what was there (F1).
+        // A copy that holds that recovery as it is, and nothing past it, leaves it (F2 at
+        // 8b5f3063).
         if !self.recent
             && let Some(from) = self.recovery_tail()
             && records.last().is_some_and(|r| r.seq > from)
+            && !self.holds_as_is(from, records)
         {
             if after > from {
                 self.recovered_from = Some(from);
@@ -769,7 +800,7 @@ impl World {
                 last: rules == Rules::Last,
                 holding: false,
                 pending: false,
-                recent: rules != Rules::Now,
+                recent: !rules.now(),
                 recovered_from: None,
                 admitted: vec![],
                 with_file: HashSet::new(),
@@ -823,7 +854,7 @@ impl World {
             let pinned = (key.0.as_str(), key.1.as_str(), generation);
             match self.rules {
                 // The hook's work (`Hub::proof_written`).
-                Rules::Now | Rules::Last | Rules::Recent => {
+                Rules::Now | Rules::Hidden | Rules::Last | Rules::Recent => {
                     let _ = od::take_written(&self.outbox, pinned, &records, link);
                 }
                 // 98b4575a: the peer's link when the write's hook runs.
@@ -945,7 +976,7 @@ impl World {
         if !self.calm && self.rng.chance(5) {
             self.note(format!("link {} flips between the gate and the send", self.link));
             self.flip();
-            if self.rules != Rules::Now && self.up {
+            if !self.rules.now() && self.up {
                 // 4dcbe192: the send went on whatever link was up, its restore not decided.
                 LOST.with(|l| {
                     l.borrow_mut().push(format!(
@@ -1105,26 +1136,36 @@ impl World {
         if self.task.as_ref().is_some_and(|t| t.link != link) {
             self.task = None;
         }
-        let rows = (self.machine.generation, self.machine.end());
+        // The row: where the journal ends, and where its own recovery at the end began
+        // (`recoveredAfter`, review at 8b5f3063, F2), which the copy goes back from
+        // (`Hub::journal_ends`); 8b5f3063 compared with where it ends alone.
+        let end = (self.machine.generation, self.machine.end());
+        let recovered =
+            self.machine.recovery_tail().filter(|_| !crate::hub::journal_restore::rules_of_8b5f());
+        let rows = (end.0, recovered.map_or(end.1, |from| from.min(end.1)));
         let task = self.task.get_or_insert(RestoreTask {
             link,
             rows,
             ahead: None,
             tries: 0,
-            ends: HashMap::from([(MUX.to_owned(), rows)]),
+            ends: HashMap::from([(MUX.to_owned(), end)]),
         });
         if task.ahead.is_none() {
             let (generation, last) = task.rows;
             let rows = vec![(MUX.to_owned(), generation, last)];
-            let (ahead, since) = self.store.ahead(PEER, rows.clone());
+            let (ahead, since) =
+                self.store.ahead(PEER, rows.clone()).expect("the simulated disk reads");
             let ahead = match self.rules {
-                Rules::Now | Rules::Prior | Rules::Last | Rules::Recent => {
+                Rules::Now | Rules::Hidden | Rules::Prior | Rules::Last | Rules::Recent => {
                     let proofs = od::proofs_past(&self.outbox, PEER, &rows, &since);
                     restore::with_proofs(ahead, proofs, &rows).0
                 }
                 Rules::Before => ahead,
             };
             let ahead = ahead.into_iter().next().map(|(_, _, after, records)| (after, records));
+            if ahead.is_none() {
+                self.check_not_hidden();
+            }
             self.task.as_mut().unwrap().ahead = Some(ahead);
             return;
         }
@@ -1220,6 +1261,28 @@ impl World {
         self.redeliver(&ends);
     }
 
+    /// Nothing goes back: then the copy holds no record past where the machine's own recovery at
+    /// its journal's end began that the recovery wrote over (review at 8b5f3063, F2: a recovery
+    /// as long as the copy hid it, and the turn's own end was lost to its unknown outcome).
+    fn check_not_hidden(&mut self) {
+        let Some(from) = self.machine.recovery_tail() else { return };
+        let Some((_, records)) = self.copy() else { return };
+        let hidden = records.range(from + 1..).map(|(_, r)| Rec::of(r)).find(|r| {
+            self.machine
+                .journal
+                .iter()
+                .any(|h| h.seq == r.seq && h.recovery && (h.at, h.kind) != (r.at, r.kind))
+        });
+        if let Some(r) = hidden {
+            LOST.with(|l| {
+                l.borrow_mut().push(format!(
+                    "hidden: the machine's recovery wrote over seq {} the copy holds, and the copy did not go back",
+                    r.seq
+                ))
+            });
+        }
+    }
+
     /// A copy went on a refusal: every record of it of the machine's generation must be on the
     /// machine, unless the machine holds another record at one of its seqs (it wrote its own
     /// there first: another history, which the copy cannot go back into).
@@ -1248,7 +1311,7 @@ impl World {
             let Some(pin) = d.pin.clone() else { continue };
             // A proof of an earlier owner start waits for a link numbered past its own, though
             // its machine holds it (review at 4dcbe192, F6).
-            if self.rules != Rules::Now
+            if !self.rules.now()
                 && od::step(&d, now, link, ends) == od::Step::Wait
                 && let Some(proof) = &d.proof
                 && proof.incarnation != od::incarnation()
@@ -1267,7 +1330,7 @@ impl World {
                 });
             }
             let step = match self.rules {
-                Rules::Now | Rules::Prior | Rules::Last | Rules::Recent => {
+                Rules::Now | Rules::Hidden | Rules::Prior | Rules::Last | Rules::Recent => {
                     match od::step(&d, now, link, ends) {
                         // The machine's journal read on this link (`Hub::proof_held`); the link may
                         // flip first.
@@ -1688,6 +1751,7 @@ fn failures_in(
                 "file",
                 "unheld",
                 "stuck",
+                "hidden",
             ];
             let kind = if known.contains(&kind) { kind } else { "other" };
             if seen.insert(kind) {
@@ -1708,6 +1772,7 @@ fn move_sim_seeds_hold_the_move_invariants() {
             Ok("prior") => Rules::Prior,
             Ok("last") => Rules::Last,
             Ok("recent") => Rules::Recent,
+            Ok("hidden") => Rules::Hidden,
             _ => Rules::Now,
         };
         let (verdict, trace) = run(seed, rules);
@@ -1801,4 +1866,21 @@ fn move_sim_finds_the_losses_of_the_rules_of_4dcbe192() {
     for kind in ["raced", "file", "stuck"] {
         assert!(kinds.contains_key(kind), "no seed found {kind}");
     }
+}
+
+/// Under the rules of 8b5f3063 (review at 8b5f3063, F2) some seeds come back on a disk taken
+/// mid-turn whose log a restart reads: its recovery writes as many records as the owner's copy
+/// holds past where it began, the copy is no longer past the machine's `lastSeq`, and nothing
+/// goes back (`hidden`). At least 2000 seeds: a copy that ends within the recovery's length is
+/// rare. Prints which seeds.
+#[test]
+fn move_sim_finds_the_losses_of_the_rules_of_8b5f3063() {
+    let range = seeds();
+    let range = range.start..range.end.max(range.start + 2000);
+    let (n, failed, kinds) = failures_in(Rules::Hidden, range);
+    eprintln!("move sim, the rules of 8b5f3063: {n} seeds, {} failed {kinds:?}", failed.len());
+    for f in failed.iter().take(10) {
+        eprintln!("  {f}");
+    }
+    assert!(kinds.contains_key("hidden"), "no seed found hidden");
 }

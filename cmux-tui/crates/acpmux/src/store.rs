@@ -197,6 +197,14 @@ pub struct SessionMeta {
     /// that, since one bump past the value it read is all a client asks of it.
     #[serde(default)]
     pub transcript_seq: u64,
+    /// Where the records this machine's own recovery wrote at the end of the journal begin (the
+    /// seq before the first of them, `hub/restore_writer.rs` `is_recovery`), while they end it:
+    /// any other record appended after them clears it, as does a restore that takes them back.
+    /// The summary's `recoveredAfter`, so the owner restores from there a copy that ends at or
+    /// before `last_seq` (review of #37284 at 8b5f3063, F2). Saved with the meta, so a machine
+    /// that restarts again before its owner reconnects still says it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovered_after: Option<u64>,
     #[serde(default)]
     pub parent_id: Option<String>,
     #[serde(default)]

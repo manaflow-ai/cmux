@@ -85,6 +85,19 @@ pub(super) fn is_recovery(record: &EventRecord) -> bool {
     record.msg.get(RECOVERY_MARK) == Some(&Value::Bool(true))
 }
 
+/// What `record`, as its chat's journal holds it at the journal's end, makes of where the
+/// journal's own recovery begins (`SessionMeta::recovered_after`, review of #37284 at 8b5f3063,
+/// F2): a recovery record goes on with it, or begins it just before itself; any other record
+/// ends it. The same rule `journal_restore.rs` `recovery_tail` reads the journal by, kept as the
+/// records go in, so a list names it without reading the journal.
+pub(super) fn note_recovery(meta: &mut SessionMeta, record: &EventRecord) {
+    meta.recovered_after = if is_recovery(record) {
+        meta.recovered_after.or(Some(record.seq.saturating_sub(1)))
+    } else {
+        None
+    };
+}
+
 /// The token of restore try `n` of `session` on this thread while it lives: only this thread
 /// writes the chat's journal meanwhile.
 pub(super) struct RestoreWriter {

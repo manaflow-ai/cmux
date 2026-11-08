@@ -58,20 +58,23 @@ pub const MAX_RECORDS: usize = 4096;
 
 /// Tests only: the rules of an earlier head, which a review of #37284 found losing prompts or
 /// history, for the tests and the move simulation to replay (0: the rules of now). Each later
-/// head's fixes are missing from an earlier one too. 77f91e5a's: the eighteenth review's F1.
-pub(crate) const AT_77F9: u8 = 1;
+/// head's fixes are missing from an earlier one too. 8b5f3063's: the nineteenth review's F1 to
+/// F3.
+pub(crate) const AT_8B5F: u8 = 1;
+/// 77f91e5a's (the eighteenth review's F1 is missing too).
+pub(crate) const AT_77F9: u8 = 2;
 /// a088585e's (the sixteenth review's F1 to F3 are missing too).
-pub(crate) const AT_A088: u8 = 2;
+pub(crate) const AT_A088: u8 = 3;
 /// 07f76930's (the fourteenth review's F1 and F2 are missing too).
-pub(crate) const AT_07F7: u8 = 3;
+pub(crate) const AT_07F7: u8 = 4;
 /// ff3da306's (the twelfth review's F1 and F2 are missing too).
-pub(crate) const AT_FF3D: u8 = 4;
+pub(crate) const AT_FF3D: u8 = 5;
 /// c4a6f4e7's (the eleventh review's F1 to F3 are missing too).
-pub(crate) const AT_C4A6: u8 = 5;
+pub(crate) const AT_C4A6: u8 = 6;
 /// 4dcbe192's (the tenth review's F1 to F6 are missing too).
-pub(crate) const AT_4DCB: u8 = 6;
+pub(crate) const AT_4DCB: u8 = 7;
 /// 91b1343d's (the ninth review's F1 to F5 are missing too).
-pub(crate) const AT_91B: u8 = 7;
+pub(crate) const AT_91B: u8 = 8;
 
 #[cfg(test)]
 thread_local! {
@@ -106,6 +109,11 @@ impl Hub {
     #[cfg(test)]
     pub(crate) fn replay_rules(&self, rules: u8) {
         self.old_rules.store(rules, Ordering::SeqCst);
+    }
+
+    /// Whether this hub replays the rules of 8b5f3063 (tests only; never in a build).
+    pub(crate) fn at_8b5f(&self) -> bool {
+        self.old_rules() >= AT_8B5F
     }
 
     /// Whether this hub replays the rules of 77f91e5a (tests only; never in a build).
@@ -155,6 +163,11 @@ fn thread_rules() -> u8 {
 /// copies' store and the restore's merge, which tests drive on their own thread.
 pub(crate) fn rules_of_91b() -> bool {
     thread_rules() >= AT_91B
+}
+
+/// Whether this thread replays the rules of 8b5f3063 (tests only; never in a build).
+pub(crate) fn rules_of_8b5f() -> bool {
+    thread_rules() >= AT_8B5F
 }
 
 /// Whether this thread replays the rules of 77f91e5a (tests only; never in a build).
@@ -332,6 +345,9 @@ impl Hub {
             let mut at = session.seq.load(Ordering::SeqCst);
             // Where the recovery it takes back begins, once it is decided.
             let mut take_back = None;
+            // Whether the journal's own recovery at its end is settled by this restore: taken
+            // back, or held by the owner's copy as it is.
+            let mut settled = false;
             // What this machine's own recovery wrote after a restart, at the end of its journal
             // (review of #37284 at 4dcbe192, F1): the owner's copy holds what was there. The
             // restore takes the copy from where the recovery began; those records go, and the
@@ -340,20 +356,31 @@ impl Hub {
                 && let Some(from) = self.recovery_tail(session, at)?
                 && records.last().is_some_and(|r| r.seq > from)
             {
-                if after > from {
-                    return Err(refused(
-                        "recovered",
-                        "this journal's end is its own recovery",
-                        session,
-                    )
-                    .with_data(json!({"reason": "recovered", "afterSeq": from, "lastSeq": at})));
-                }
-                if old {
-                    self.take_back_recovery(session, from)?;
+                settled = true;
+                // A copy that holds the recovery's own records and nothing past them (its pages
+                // saw them; the owner restores from `recoveredAfter`, review of #37284 at
+                // 8b5f3063, F2) brings nothing back: the journal stays as it is, and its turn is
+                // not continued again.
+                if !self.at_8b5f() && self.holds_as_is(session, (from, at), records)? {
+                    tracing::info!(session = %session.id, from, at, "journal restore: the owner's copy holds this journal's own recovery as it is");
                 } else {
-                    take_back = Some(from);
+                    if after > from {
+                        return Err(refused(
+                            "recovered",
+                            "this journal's end is its own recovery",
+                            session,
+                        )
+                        .with_data(
+                            json!({"reason": "recovered", "afterSeq": from, "lastSeq": at}),
+                        ));
+                    }
+                    if old {
+                        self.take_back_recovery(session, from)?;
+                    } else {
+                        take_back = Some(from);
+                    }
+                    at = from;
                 }
-                at = from;
             }
             tracing::info!(
                 session = %session.id,
@@ -403,6 +430,10 @@ impl Hub {
             }
             let mut failed = None;
             for (n, record) in records.iter().filter(|r| r.seq > at).enumerate() {
+                #[cfg(test)]
+                if n > 0 {
+                    test_between_records(&session.id);
+                }
                 let appended = if test_fails_here(&session.id, n > 0) {
                     // As a real append can: the line is written, then the call fails.
                     self.store.append(&session.id, record).and_then(|()| {
@@ -429,8 +460,18 @@ impl Hub {
                 Err(e) => return Err(stopped(session, &e)),
             };
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            // Its own recovery, settled (taken back, or held by the copy as it is), is named to
+            // the owner no more; the records put back say where a recovery among them ends the
+            // journal now (review of #37284 at 8b5f3063, F2).
+            let note = !self.at_8b5f();
+            if note && settled {
+                meta.recovered_after = None;
+            }
             for record in &durable {
                 count_restored(&mut meta, record);
+                if note {
+                    super::restore_writer::note_recovery(&mut meta, record);
+                }
             }
             let last = durable.iter().map(|r| r.seq).max().unwrap_or(at);
             meta.last_seq = last;
@@ -498,7 +539,11 @@ impl Hub {
     /// back from `at` a page at a time, however long it is (review of #37284 at c4a6f4e7, F2: a
     /// recovery writes a record per open subagent, so no fixed window holds it); c4a6f4e7 read
     /// only the last 256 records.
-    fn recovery_tail(&self, session: &Session, at: u64) -> Result<Option<u64>, RpcError> {
+    pub(super) fn recovery_tail(
+        &self,
+        session: &Session,
+        at: u64,
+    ) -> Result<Option<u64>, RpcError> {
         const PAGE: u64 = 256;
         let mut from = None;
         let mut end = at;
@@ -522,10 +567,43 @@ impl Hub {
         Ok(from)
     }
 
+    /// Whether `records` hold nothing past `at` and are, at each seq past `from` they hold, the
+    /// record `session`'s journal holds there (by time and kind, as a restore compares): the
+    /// recovery's own records from `from` to `at`, as the owner's copy saw them on a link before.
+    fn holds_as_is(
+        &self,
+        session: &Session,
+        (from, at): (u64, u64),
+        records: &[EventRecord],
+    ) -> Result<bool, RpcError> {
+        if records.last().is_none_or(|r| r.seq > at) {
+            return Ok(false);
+        }
+        let held = self
+            .store
+            .events(&session.id, from, usize::try_from(at - from).unwrap_or(usize::MAX))
+            .map_err(|e| RpcError::internal(e.to_string()))?;
+        let held: HashMap<u64, (u64, &str)> =
+            held.iter().map(|e| (e.seq, (e.at, e.kind.as_str()))).collect();
+        Ok(records
+            .iter()
+            .filter(|r| r.seq > from)
+            .all(|r| held.get(&r.seq) == Some(&(r.at, r.kind.as_str()))))
+    }
+
     /// Leaves out of `session`'s journal every record past `from` (its own recovery's, read by
     /// [`Self::recovery_tail`]): its end is `from` again. The caller holds `append_lock`.
     fn take_back_recovery(&self, session: &Session, from: u64) -> Result<(), RpcError> {
+        // The lowered end is on disk before the cut (review of #37284 at 8b5f3063, F3): a crash
+        // after the cut, between the records put back, left the saved end at the recovery's,
+        // past the journal's; a restart that found no cut turn trusted it, and the owner sent
+        // only what was past that false end. Saved first, a restart counts whatever the journal
+        // holds past `from` (`catch_up_locked`): the recovery when no cut ran, the records put
+        // back when it did. 8b5f3063 lowered the end in memory only, after the cut.
+        let was =
+            if self.at_8b5f() { None } else { Some(self.save_end_before_cut(session, from)?) };
         let mut done = false;
+        let mut error = None;
         // A store that wrote a record back meanwhile (`journal_store.rs`) refuses one try.
         for _ in 0..3 {
             match self.store.truncate_after(&session.id, from) {
@@ -534,14 +612,24 @@ impl Hub {
                     break;
                 }
                 Ok(false) => {}
-                Err(e) => return Err(stopped(session, &e)),
+                Err(e) => {
+                    error = Some(e);
+                    break;
+                }
             }
         }
         if !done {
-            return Err(stopped(
-                session,
-                &anyhow::anyhow!("its own recovery could not be taken back"),
-            ));
+            // The journal still holds the recovery: its end and count are as they were. A save
+            // that does not land is safe too, as a crash before the cut is.
+            if let Some((last_seq, event_count)) = was {
+                let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                (meta.last_seq, meta.event_count) = (last_seq, event_count);
+                drop(meta);
+                self.save_meta(session);
+            }
+            let e = error
+                .unwrap_or_else(|| anyhow::anyhow!("its own recovery could not be taken back"));
+            return Err(stopped(session, &e));
         }
         tracing::info!(session = %session.id, from, "a restore takes back what this machine's recovery wrote");
         session.seq.store(from, Ordering::SeqCst);
@@ -549,6 +637,29 @@ impl Hub {
         // The message ids it holds may be of records gone (`recover_message_events`).
         *session.message_ids.lock().unwrap_or_else(|e| e.into_inner()) = None;
         Ok(())
+    }
+
+    /// Saves `session`'s end as `from`, and its count without the records past it, before a
+    /// [`Self::take_back_recovery`] cuts them, and waits until that is durable: the saved end is
+    /// never past the journal's, whenever a crash comes. A restart before the cut counts those
+    /// records again (`catch_up_locked`). Answers the end and count it had; a save that fails
+    /// puts them back and stops the try, with nothing cut. The caller holds `append_lock`.
+    fn save_end_before_cut(&self, session: &Session, from: u64) -> Result<(u64, u64), RpcError> {
+        let (taken, _) =
+            self.store.tail_after(&session.id, from).map_err(|e| stopped(session, &e))?;
+        let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        let was = (meta.last_seq, meta.event_count);
+        meta.last_seq = from;
+        meta.event_count = meta.event_count.saturating_sub(taken);
+        drop(meta);
+        if let Err(e) = self.save_meta_answered(session) {
+            let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            (meta.last_seq, meta.event_count) = was;
+            drop(meta);
+            let e = anyhow::anyhow!("its end before the cut was not saved: {}", e.message);
+            return Err(stopped(session, &e));
+        }
+        Ok(was)
     }
 }
 
@@ -911,6 +1022,34 @@ pub(super) fn test_after_drain(id: &str) {
     };
     if let Some(change) = change {
         std::thread::spawn(change).join().unwrap();
+    }
+}
+
+/// Tests only: what runs once a restore of chat `id` put its first record back, before its
+/// second: a crash there, as a test copies what the disk holds then.
+#[cfg(test)]
+static BETWEEN_RECORDS: std::sync::Mutex<Option<(String, Gap)>> = std::sync::Mutex::new(None);
+
+#[cfg(test)]
+pub(crate) fn between_records_once(id: &str, crash: Gap) {
+    *BETWEEN_RECORDS.lock().unwrap_or_else(|e| e.into_inner()) = Some((id.to_owned(), crash));
+}
+
+/// Runs [`between_records_once`]'s crash of chat `id`, on the restore's thread.
+#[cfg(test)]
+fn test_between_records(id: &str) {
+    let crash = {
+        let mut armed = BETWEEN_RECORDS.lock().unwrap_or_else(|e| e.into_inner());
+        match armed.take() {
+            Some((at, crash)) if at == id => Some(crash),
+            other => {
+                *armed = other;
+                None
+            }
+        }
+    };
+    if let Some(crash) = crash {
+        crash();
     }
 }
 

@@ -19,7 +19,7 @@
 //! [`GATE_WITHIN`], then they fail): a prompt the fresh machine ran first would take the seqs the
 //! restore needs. Only a positive answer releases them: the copies read and none ahead, or each
 //! one taken back whole (or refused as another history). A read that fails (the store's queue
-//! full, its thread gone, no answer) is "maybe ahead": it is read again ([`READ_WAITS`]), and
+//! full, its thread gone, no answer, the disk or a copy that does not read) is "maybe ahead": it is read again ([`READ_WAITS`]), and
 //! past them every prompt to the peer fails visibly until it reconnects. A copy not taken back
 //! holds its own session the same way. Then, with nothing held, the deliveries the peer
 //! accepted and may have lost with its disk are delivered again under their own prompt ids
@@ -34,10 +34,11 @@ use crate::hub::open_delivery as od;
 use crate::rpc::RpcError;
 use tokio::sync::Notify;
 
-/// A peer's row: its session id, its generation and its journal's `lastSeq`.
+/// A peer's row: its session id, its generation, and where a copy goes back from: its journal's
+/// `lastSeq`, or its `recoveredAfter` when that is lower (`Hub::journal_ends`).
 pub(crate) type Row = (String, u64, u64);
-/// A copy ahead of its peer: the session id, its generation, the peer's `lastSeq`, and the
-/// records past it.
+/// A copy ahead of its peer: the session id, its generation, where its row says it goes back
+/// from (the restore's `afterSeq`), and the records past it.
 pub(crate) type Ahead = (String, u64, u64, Vec<Value>);
 
 /// The waits after each try of one copy's restore that did not take it whole; past them it waits
@@ -147,7 +148,8 @@ fn held_error(peer: &str) -> RpcError {
 impl PeerSnapshots {
     /// The copies of `peer`'s chats that hold records past where `rows` say its journals end;
     /// None when it could not be read (the queue full, the store's thread gone, no answer within
-    /// [`ANSWER_WITHIN`]): that is "maybe ahead", never "none".
+    /// [`ANSWER_WITHIN`], the disk or a copy that does not read: `Store::ahead`): that is "maybe
+    /// ahead", never "none".
     fn ahead(&self, peer: &str, rows: Vec<Row>) -> Option<(Vec<Ahead>, od::Since)> {
         #[cfg(debug_assertions)]
         if test_unknown(peer) {
@@ -168,7 +170,7 @@ impl PeerSnapshots {
         if !sent {
             return None;
         }
-        blocking(|| rx.recv_timeout(ANSWER_WITHIN)).ok()
+        blocking(|| rx.recv_timeout(ANSWER_WITHIN)).ok().flatten()
     }
 
     fn restored(&self, (peer, mux): (&str, &str), at: (Link, u64), last: Option<u64>) {
@@ -198,11 +200,18 @@ impl Store {
         // A copy that starts past where the peer's journal ends stays too: the records between
         // are gone everywhere, and its own are only here (review of #37284, the move
         // simulation): they go back with that gap, never dropped.
-        let seen = page.host_last_seq.or(page.through);
-        seen.is_some_and(|s| s < c.head.last_seq)
+        page.seen().is_some_and(|s| s < c.head.last_seq)
     }
 
-    pub(super) fn ahead(&mut self, peer: &str, rows: Vec<Row>) -> (Vec<Ahead>, od::Since) {
+    /// The copies of `peer`'s sessions past where `rows` say its journals end, with where each
+    /// copy's open deliveries' proofs begin; None while that is not known (review of #37284 at
+    /// 8b5f3063, F1): the disk is not read yet and does not read now (what an earlier run kept
+    /// there is not in `copies`), or a copy ahead did not read. 8b5f3063 answered both as no
+    /// copy ahead, and the gate let prompts take the seqs of the newer history on disk.
+    pub(super) fn ahead(&mut self, peer: &str, rows: Vec<Row>) -> Option<(Vec<Ahead>, od::Since)> {
+        if !self.scanned && !self.scan() && !crate::hub::journal_restore::rules_of_8b5f() {
+            return None;
+        }
         let mut out = Vec::new();
         let mut since = od::Since::new();
         for (mux, generation, last) in rows {
@@ -213,8 +222,13 @@ impl Store {
             }
             // Past where the peer's journal ends, with a gap or not (`keeps_ahead`).
             let ahead = |c: &Kept| c.head.generation == Some(generation) && last < c.head.last_seq;
-            if !self.copies.get(&key).is_some_and(ahead) || !self.load(&key) {
+            if !self.copies.get(&key).is_some_and(ahead) {
                 continue;
+            }
+            match self.read_in(&key, true) {
+                Loaded::Yes => {}
+                Loaded::Gone => continue,
+                Loaded::Unread => return None,
             }
             let Some(records) = self.copies.get(&key).and_then(|c| c.records.as_ref()) else {
                 continue;
@@ -225,7 +239,7 @@ impl Store {
                 out.push((key.1, generation, last, past));
             }
         }
-        (out, since)
+        Some((out, since))
     }
 
     /// The peer's answer to a restore of `key`: it ends at `last` now (its pages join again), or
@@ -249,7 +263,7 @@ impl Hub {
     /// ahead of its journals go back to it, then what it accepted and may have lost is delivered
     /// again.
     pub(in crate::hub) fn restore_peer_journals(self: &Arc<Self>, peer: &str, generation: u64) {
-        let rows = self.journal_ends(peer);
+        let (rows, lasts) = self.journal_ends(peer);
         // The link this decides: the one the peer is on as its `Connected` is handled.
         let Some(link) = self
             .peer(peer)
@@ -300,9 +314,10 @@ impl Hub {
             // since a resend could take the seqs its records need. One past what a restore
             // takes is held from the start.
             let (ahead, mut held) = with_proofs(ahead, proofs, &rows);
-            // Where each journal ends once this link's restores ran (`redeliver_open`).
-            let mut ends: HashMap<String, (u64, u64)> =
-                rows.iter().map(|(s, g, l)| (s.clone(), (*g, *l))).collect();
+            // Where each journal ends once this link's restores ran (`redeliver_open`): its
+            // `lastSeq`, not where its recovery began, so a proof the restore did not give back
+            // is read against what the journal holds there, as before.
+            let mut ends = lasts;
             for (mux, created_at, mut after, records) in ahead {
                 let Some(mut through) = records.iter().filter_map(seq_of).max() else { continue };
                 let files = restore_files(&hub.outbox, (&peer, &mux, created_at));
@@ -525,15 +540,36 @@ fn refused(e: &RpcError) -> bool {
 }
 
 impl Hub {
-    /// Each listed session of `peer`: its id, its generation and its journal's `lastSeq`.
-    fn journal_ends(&self, peer: &str) -> Vec<Row> {
+    /// Each listed session of `peer`: its id, its generation and where a copy goes back from
+    /// ([`Row`]); and where each journal ends (session: generation, `lastSeq`).
+    ///
+    /// A journal that ends with what the peer's own recovery wrote after a restart names where
+    /// that began (`recoveredAfter`, `hub/journal_restore.rs`): the copy goes back from there,
+    /// however far the recovery went (review of #37284 at 8b5f3063, F2). 8b5f3063 compared the
+    /// copy with `lastSeq` alone: a recovery that wrote as many records as the copy held past
+    /// where it began hid the copy, and the turn's own end was lost to its unknown outcome. The
+    /// copy (and the proofs) past that point go back as any copy ahead does (`Store::ahead`,
+    /// `od::proofs_past`); one that ends at or before it has nothing to give back.
+    fn journal_ends(&self, peer: &str) -> (Vec<Row>, HashMap<String, (u64, u64)>) {
+        let old = self.at_8b5f();
         let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
-        map.of_peer(peer)
-            .filter_map(|(_, r)| {
-                let created = r.summary.get("createdAt").and_then(Value::as_u64)?;
-                let last = r.summary.get("lastSeq").and_then(Value::as_u64)?;
-                Some((r.receipt.mux_session_id.clone(), created, last))
-            })
-            .collect()
+        let mut rows = Vec::new();
+        let mut lasts = HashMap::new();
+        for (_, r) in map.of_peer(peer) {
+            let mux = &r.receipt.mux_session_id;
+            let Some((row, last)) = row_of(mux, &r.summary, old) else { continue };
+            lasts.insert(mux.clone(), (row.1, last));
+            rows.push(row);
+        }
+        (rows, lasts)
     }
+}
+
+/// Session `mux`'s [`Row`] from its listed `summary`, and its journal's `lastSeq`; None when the
+/// summary names no generation or end. `old`: 8b5f3063's rules, by `lastSeq` alone.
+pub(crate) fn row_of(mux: &str, summary: &Value, old: bool) -> Option<(Row, u64)> {
+    let u64_of = |key: &str| summary.get(key).and_then(Value::as_u64);
+    let (created, last) = (u64_of("createdAt")?, u64_of("lastSeq")?);
+    let from = u64_of("recoveredAfter").filter(|_| !old).map_or(last, |f| f.min(last));
+    Some(((mux.to_owned(), created, from), last))
 }

@@ -748,3 +748,266 @@ async fn a_machine_holds_an_upload_only_once_it_is_finished_there() {
                        "uploads": [{"uploadId": "../x", "fileName": "big.log"}]});
     assert!(hub.attachments_held(&other).await.is_err());
 }
+
+/// A memory store that a crash stops: from `crashed` on it writes nothing, as a daemon killed
+/// then writes nothing, and a hub opened on the same `inner` reads what it held then.
+struct CrashingStore {
+    inner: Arc<dyn crate::store::Store>,
+    crashed: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl CrashingStore {
+    fn alive(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(!self.crashed.load(Ordering::SeqCst), "test: the daemon crashed");
+        Ok(())
+    }
+}
+
+impl crate::store::Store for CrashingStore {
+    fn list(&self) -> anyhow::Result<Vec<crate::store::SessionMeta>> {
+        self.inner.list()
+    }
+    fn load(&self, id: &str) -> anyhow::Result<Option<crate::store::SessionMeta>> {
+        self.inner.load(id)
+    }
+    fn save(&self, meta: &crate::store::SessionMeta) -> anyhow::Result<()> {
+        self.alive()?;
+        self.inner.save(meta)
+    }
+    fn append(&self, id: &str, record: &EventRecord) -> anyhow::Result<()> {
+        self.alive()?;
+        self.inner.append(id, record)
+    }
+    fn flush_session(&self, id: &str) -> anyhow::Result<()> {
+        self.alive()?;
+        self.inner.flush_session(id)
+    }
+    fn truncate_after(&self, id: &str, after: u64) -> anyhow::Result<bool> {
+        self.alive()?;
+        self.inner.truncate_after(id, after)
+    }
+    fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<EventRecord>> {
+        self.inner.events(id, after, limit)
+    }
+    fn delete(&self, id: &str) -> anyhow::Result<()> {
+        self.alive()?;
+        self.inner.delete(id)
+    }
+}
+
+/// A hub on `inner` through a [`CrashingStore`], replaying the rules `rules` (0: now).
+fn crashing_hub(
+    inner: &Arc<dyn crate::store::Store>,
+    rules: u8,
+) -> (Arc<Hub>, Arc<std::sync::atomic::AtomicBool>) {
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", fake]}},
+        "defaultHarness": "fake",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let crashed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let store = CrashingStore { inner: inner.clone(), crashed: crashed.clone() };
+    let hub = Hub::new(cfg, Box::new(store));
+    hub.replay_rules(rules);
+    (hub, crashed)
+}
+
+/// What a restart after a crash inside a restore makes of the chat. A chat cut mid-turn whose
+/// log a restart read: its recovery ends the journal, and its end is saved. The owner's copy
+/// ends the turn (`turn_result`), queues a prompt and goes on past the recovery's end; the
+/// daemon crashes once the restore took the recovery back and put the copy's first record in.
+/// After the next start the owner sends what its copy holds past the `lastSeq` the chat says, as
+/// its row reads it. The `lastSeq` the restarted chat said, the journal's end then, and at the
+/// end whether the journal holds every seq of the copy, and the copy's queued prompt.
+async fn crashed_between_records(rules: u8) -> (u64, u64, bool, bool) {
+    let inner: Arc<dyn crate::store::Store> = Arc::new(crate::store::MemoryStore::default());
+    let (hub, crashed) = crashing_hub(&inner, rules);
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let session = hub.new_session(req).await.unwrap();
+    hub.append(&session, "mux", "turn_started", json!({"turnId": "t1", "promptId": "p1"}));
+    let cut = session.seq.load(Ordering::SeqCst);
+    *session.log_load.lock().unwrap() = false;
+    session.log_loaded.store(false, Ordering::SeqCst);
+    hub.load_session_log(&session);
+    // The recovery's end on disk, as its own save, or any later one, leaves it.
+    hub.save_meta_answered(&session).unwrap();
+    let end = session.seq.load(Ordering::SeqCst);
+    assert!(end > cut + 1, "the restart's recovery wrote fewer than two records");
+    let mut copy = vec![
+        json!({"seq": cut + 1, "at": 1, "dir": "mux", "kind": "turn_result",
+               "msg": {"turnId": "t1", "promptId": "p1", "status": "ok"}}),
+        json!({"seq": cut + 2, "at": 2, "dir": "mux", "kind": "queued",
+               "msg": {"promptId": "p2", "turnId": "t2", "text": "next", "prompt": words("next")}}),
+    ];
+    copy.extend((cut + 3..=end + 2).map(|seq| chunk(seq, seq)));
+    let mut params = restore_params(&session, Value::from(copy.clone()));
+    params["afterSeq"] = json!(cut);
+    let id = session.id.clone();
+    let stop = crashed.clone();
+    super::journal_restore::between_records_once(
+        &id,
+        Box::new(move || stop.store(true, Ordering::SeqCst)),
+    );
+    let first = hub.journal_restore(&params).await;
+    assert!(first.is_err(), "the crash did not stop the restore: {first:?}");
+    assert!(crashed.load(Ordering::SeqCst), "it never reached its second record");
+    // The next start, on what the store held at the crash.
+    let (hub, _) = crashing_hub(&inner, rules);
+    let meta = inner.load(&id).unwrap().expect("the chat is gone");
+    hub.install_stored_session(meta, false, false);
+    let session = hub.sessions.lock().unwrap().get(&id).cloned().unwrap();
+    hub.load_session_log(&session);
+    let said = session.meta().last_seq;
+    let real = hub.events(&id, 0, 10_000).unwrap().last().map_or(0, |e| e.seq);
+    // The owner gives back what its copy holds past the end the chat says.
+    let past: Vec<Value> =
+        copy.iter().filter(|r| r["seq"].as_u64().is_some_and(|s| s > said)).cloned().collect();
+    let mut again = restore_params(&session, Value::from(past));
+    again["afterSeq"] = json!(said);
+    hub.journal_restore(&again).await.unwrap();
+    let events = hub.events(&id, cut, 10_000).unwrap();
+    let seqs: Vec<u64> = events.iter().map(|e| e.seq).collect();
+    let whole = seqs == (cut + 1..=end + 2).collect::<Vec<_>>();
+    let queued =
+        events.iter().any(|e| e.kind == "queued" && e.msg.get("promptId") == Some(&json!("p2")));
+    (said, real, whole, queued)
+}
+
+/// Review of #37284 at 8b5f3063, F3: a restore that takes back the machine's recovery saves the
+/// lowered end before it cuts, so a crash between the records it puts back leaves a saved end
+/// the journal holds; the next start says the journal's own end, and the owner's next try fills
+/// the rest, no record or prompt skipped. Under 8b5f3063's rules the end was lowered in memory
+/// only: the next start said the recovery's end, past the journal's, and the owner sent only what
+/// was past it, so the records between (the queued prompt among them) were lost for good.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_crash_between_restored_records_skips_no_record_after_a_restart() {
+    let (said, real, whole, queued) =
+        crashed_between_records(super::journal_restore::AT_8B5F).await;
+    assert!(said > real, "8b5f3063 said the journal's own end: {said}, {real}");
+    assert!(!whole && !queued, "8b5f3063 skipped nothing");
+    let (said, real, whole, queued) = crashed_between_records(0).await;
+    assert_eq!(said, real, "the restarted chat said an end past its journal's");
+    assert!(whole, "a record of the copy is missing from the restored journal");
+    assert!(queued, "the copy's queued prompt was skipped");
+}
+
+/// A chat cut mid-turn whose log a restart reads (a fresh machine on a disk taken mid-turn), and
+/// an owner's copy that holds the rest of that turn, its end included, in `extra` more records
+/// than the recovery wrote (0: just as many; it ends at the machine's `lastSeq`). Replaying
+/// `rules`: where the owner's row says the copy goes back from (`restore.rs` `row_of`), the
+/// restore of what the copy holds past it (None: nothing is past it, so none goes), whether the
+/// log holds an unknown outcome then, whether it holds the copy's own turn result, how many
+/// prompts wait in its queue, and the row's `recoveredAfter` after.
+async fn a_recovery_as_long_as_the_copy(
+    rules: u8,
+    extra: u64,
+) -> (u64, Option<Result<Value, RpcError>>, bool, bool, u64, Option<u64>) {
+    let (hub, session) = hub_at(rules).await;
+    hub.append(&session, "mux", "turn_started", json!({"turnId": "t1", "promptId": "p1"}));
+    let cut = session.seq.load(Ordering::SeqCst);
+    *session.log_load.lock().unwrap() = false;
+    session.log_loaded.store(false, Ordering::SeqCst);
+    hub.load_session_log(&session);
+    let end = session.seq.load(Ordering::SeqCst);
+    assert!(end > cut, "the restart's recovery wrote nothing");
+    // The copy: the turn's output, then its result, at the recovery's last seq or past it.
+    let through = end + extra;
+    let mut copy: Vec<Value> = (cut + 1..through).map(|seq| chunk(seq, seq)).collect();
+    copy.push(json!({"seq": through, "at": through, "dir": "mux", "kind": "turn_result",
+                     "msg": {"turnId": "t1", "promptId": "p1", "status": "ok"}}));
+    let summary = hub.session_summary(&session);
+    let row = super::peer_snapshot::row_of(&session.id, &summary, hub.at_8b5f());
+    let ((_, _, from), last) = row.expect("the row names its generation and end");
+    assert_eq!(last, end);
+    let past: Vec<Value> =
+        copy.iter().filter(|r| r["seq"].as_u64().is_some_and(|s| s > from)).cloned().collect();
+    let answer = if past.is_empty() {
+        None
+    } else {
+        let mut params = restore_params(&session, Value::from(past));
+        params["afterSeq"] = json!(from);
+        Some(hub.journal_restore(&params).await)
+    };
+    let events = hub.events(&session.id, 0, 10_000).unwrap();
+    let unknown = events
+        .iter()
+        .any(|e| e.msg.get("detail").and_then(Value::as_str) == Some("outcome_unknown"));
+    let result =
+        events.iter().any(|e| e.seq == through && e.kind == "turn_result" && e.at == through);
+    let after = hub.session_summary(&session).get("recoveredAfter").and_then(Value::as_u64);
+    (from, answer, unknown, result, session.queued(), after)
+}
+
+/// Review of #37284 at 8b5f3063, F2: a fresh machine whose startup recovery wrote as many records
+/// as the owner's copy holds past where that recovery began names where it began
+/// (`recoveredAfter`), and the copy goes back from there though it is not past the machine's
+/// `lastSeq`: the turn keeps its own result at its own seq, with no unknown outcome and nothing
+/// continued again. Under 8b5f3063's rules the owner compared with `lastSeq` alone, nothing went
+/// back, and the turn's result was lost to its unknown outcome.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_recovery_as_long_as_the_copy_still_takes_the_copy_back() {
+    let (from, answer, unknown, result, _, _) =
+        a_recovery_as_long_as_the_copy(super::journal_restore::AT_8B5F, 0).await;
+    assert!(answer.is_none(), "8b5f3063 gave back the copy from {from}");
+    assert!(unknown && !result, "8b5f3063 kept the turn's result");
+    let (from, answer, unknown, result, queued, after) = a_recovery_as_long_as_the_copy(0, 0).await;
+    let answer = answer.expect("the copy did not go back");
+    assert!(answer.is_ok(), "a restore from {from}: {answer:?}");
+    assert!(!unknown, "the turn's result was lost to its unknown outcome");
+    assert!(result, "the copy's turn result is not at its own seq");
+    assert_eq!(queued, 0, "the turn is continued again");
+    // Only a recovery of the restored log may be named now, never the one taken back.
+    assert!(after.is_none_or(|a| a > from), "the recovery taken back is still named");
+    // And a copy past the recovery's end goes back from where it began too.
+    let (_, answer, unknown, result, ..) = a_recovery_as_long_as_the_copy(0, 2).await;
+    assert!(answer.is_some_and(|a| a.is_ok()) && !unknown && result);
+}
+
+/// A chat whose recovery at its journal's end the owner's copy saw as it is (its pages read
+/// it): restored from `recoveredAfter` with those same records, and with only the first of
+/// them. The answers, whether the recovery's records are still at their seqs after each, and the
+/// row's `recoveredAfter` after.
+async fn a_copy_within_the_recovery() -> (Vec<Result<Value, RpcError>>, bool, Option<u64>) {
+    let (hub, session) = hub_at(0).await;
+    hub.append(&session, "mux", "turn_started", json!({"turnId": "t1", "promptId": "p1"}));
+    let cut = session.seq.load(Ordering::SeqCst);
+    *session.log_load.lock().unwrap() = false;
+    session.log_loaded.store(false, Ordering::SeqCst);
+    hub.load_session_log(&session);
+    let end = session.seq.load(Ordering::SeqCst);
+    let summary = hub.session_summary(&session);
+    assert_eq!(summary.get("recoveredAfter").and_then(Value::as_u64), Some(cut));
+    let recovery = hub.events(&session.id, cut, 10_000).unwrap();
+    let as_seen: Vec<Value> = recovery.iter().map(|e| serde_json::to_value(e).unwrap()).collect();
+    let mut answers = Vec::new();
+    for records in [vec![as_seen[0].clone()], as_seen.clone()] {
+        let mut params = restore_params(&session, Value::from(records));
+        params["afterSeq"] = json!(cut);
+        answers.push(hub.journal_restore(&params).await);
+    }
+    let now = hub.events(&session.id, cut, 10_000).unwrap();
+    let kept = session.seq.load(Ordering::SeqCst) == end
+        && now
+            .iter()
+            .map(|e| (e.seq, e.at, &e.kind))
+            .eq(recovery.iter().map(|e| (e.seq, e.at, &e.kind)));
+    let after = hub.session_summary(&session).get("recoveredAfter").and_then(Value::as_u64);
+    (answers, kept, after)
+}
+
+/// Review of #37284 at 8b5f3063, F2: a copy that ends at or before the end of the machine's own
+/// recovery and holds only what that recovery wrote gives nothing back: the restore leaves the
+/// journal as it is (its turn is not continued again, no seq is written twice), answers its end,
+/// so nothing is held, and the row names the recovery no more.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_copy_within_its_machines_recovery_gives_nothing_back() {
+    let (answers, kept, after) = a_copy_within_the_recovery().await;
+    for answer in &answers {
+        let answer = answer.as_ref().expect("the restore was refused");
+        assert_eq!(answer["restored"], json!(false), "{answer}");
+    }
+    assert!(kept, "the journal's own recovery was taken back for the same records");
+    assert_eq!(after, None, "the row still names a recovery the copy holds");
+}

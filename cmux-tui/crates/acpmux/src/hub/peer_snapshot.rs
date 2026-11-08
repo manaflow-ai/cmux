@@ -65,6 +65,9 @@ pub(crate) use disk::tests::thread_allocations;
 use disk::{Head, Key, Writer, record_bytes, seq_of};
 #[cfg(debug_assertions)]
 pub(crate) use restore::reads_fail;
+/// A listed row as the owner compares its copy with it (`journal_restore_tests.rs`).
+#[cfg(test)]
+pub(crate) use restore::row_of;
 
 /// Records and bytes one peer session keeps; more than an attach page (400).
 pub(crate) const SESSION_EVENTS: usize = if cfg!(test) { 40 } else { 1000 };
@@ -133,6 +136,20 @@ pub(crate) struct Page {
 }
 
 impl Page {
+    /// How far the peer's journal is the history the copy saw: its `lastSeq` with the page (or
+    /// `through`), or where its own startup recovery began when its row says that is lower
+    /// (`recoveredAfter`). A fresh machine's recovery past that point is not the copy's history:
+    /// 8b5f3063 compared `lastSeq` alone, and a page of a recovery that went as far as the copy
+    /// joined it, over the records the restore gives back (review of #37284 at 8b5f3063, F2).
+    fn seen(&self) -> Option<u64> {
+        let seen = self.host_last_seq.or(self.through);
+        let from = self.row.as_ref().and_then(|r| r.get("recoveredAfter")).and_then(Value::as_u64);
+        match from.filter(|_| !crate::hub::journal_restore::rules_of_8b5f()) {
+            Some(from) => seen.map(|s| s.min(from)),
+            None => seen,
+        }
+    }
+
     /// The seqs the page covers (every record of them it was asked for), when any: an events
     /// page after `A` covers `A+1` to its last record (to `through` when it holds all there is);
     /// a page of the newest records covers its first record (the first seq, when it holds all
@@ -212,7 +229,7 @@ enum Op {
     Ahead {
         peer: String,
         rows: Vec<restore::Row>,
-        reply: mpsc::SyncSender<(Vec<restore::Ahead>, crate::hub::open_delivery::Since)>,
+        reply: mpsc::SyncSender<Option<(Vec<restore::Ahead>, crate::hub::open_delivery::Since)>>,
     },
     /// The peer's answer to a restore of generation `generation`, on link `link`: taken (its
     /// journal ends at `last`) or refused (None, and the copy goes), only while `link` is the
@@ -600,6 +617,27 @@ impl Kept {
             fresh_link: None,
         }
     }
+}
+
+/// What `Store::read_in` made of a copy.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Loaded {
+    /// Its records are in.
+    Yes,
+    /// There is none (it was never kept, its file is gone, or what it holds does not read).
+    Gone,
+    /// Its file did not read (an I/O error): it stays, unread, and is read again later.
+    Unread,
+}
+
+/// Whether `e` is the filesystem not reading a file, rather than what the file holds: a copy
+/// cut, past its bound, not of its session or not this user's is never read whole, however
+/// often it is read again.
+fn unread(e: &anyhow::Error) -> bool {
+    e.chain().any(|c| {
+        c.downcast_ref::<std::io::Error>()
+            .is_some_and(|e| e.kind() != std::io::ErrorKind::InvalidData)
+    })
 }
 
 /// What a page does to the copy it is of.
@@ -999,7 +1037,7 @@ impl Store {
     /// the copy on: its journal went back (a VM resumed from an older disk, or this daemon
     /// restarted). On the link that joined it, a lower `lastSeq` is only a reply that came late.
     fn behind(c: &Kept, page: &Page, to: Option<u64>) -> bool {
-        let seen = page.host_last_seq.or(page.through).or(to);
+        let seen = page.seen().or(to);
         c.joined != Some(page.link)
             && seen.is_some_and(|s| s < c.head.host_last_seq.max(c.head.last_seq))
     }
@@ -1294,9 +1332,16 @@ impl Store {
     /// Reads `key`'s records in when they are only on disk; a copy that does not read goes.
     /// Answers whether its records are loaded.
     fn load(&mut self, key: &Key) -> bool {
-        let Some(c) = self.copies.get(key) else { return false };
+        self.read_in(key, false) == Loaded::Yes
+    }
+
+    /// [`Self::load`], and with `keep`, a copy whose file the filesystem did not read (an I/O
+    /// error, not what it holds) stays as it is, unread (review of #37284 at 8b5f3063, F1): its
+    /// records may be past where the peer's journal ends.
+    fn read_in(&mut self, key: &Key, keep: bool) -> Loaded {
+        let Some(c) = self.copies.get(key) else { return Loaded::Gone };
         if c.records.is_some() {
-            return true;
+            return Loaded::Yes;
         }
         let read = match disk::path(&self.root, key) {
             Some(_) if c.disk > FILE_BYTES => Err(anyhow::anyhow!("past its bound")),
@@ -1329,14 +1374,18 @@ impl Store {
                     self.wake_by(due);
                 }
                 self.trim_memory(Some(key));
-                true
+                Loaded::Yes
+            }
+            Err(e) if keep && !crate::hub::journal_restore::rules_of_8b5f() && unread(&e) => {
+                tracing::warn!(peer = %key.0, session = %key.1, "peer snapshot: a copy did not read; it stays: {e:#}");
+                Loaded::Unread
             }
             other => {
                 if let Err(e) = other {
                     tracing::warn!(peer = %key.0, session = %key.1, "peer snapshot: a copy that does not read goes: {e:#}");
                 }
                 self.remove(key);
-                false
+                Loaded::Gone
             }
         }
     }
@@ -1366,7 +1415,20 @@ impl Store {
     /// Every copy on disk, by its head; anything else there goes. Until it reads, nothing is
     /// written or removed (what the disk holds is not known), and it is tried again with backoff.
     fn scan(&mut self) -> bool {
-        let found = match disk::scan(&self.root) {
+        // A head the filesystem did not read (an I/O error, not what the file holds) is a disk
+        // that does not read, as a directory is (review of #37284 at 8b5f3063, F1): 8b5f3063
+        // removed its copy as a stray, and with it records past where the peer's journal ends.
+        let found = disk::scan(&self.root).and_then(|mut found| {
+            let heads = std::mem::take(&mut found.copies).into_iter().map(|(key, path, bytes)| {
+                let head = disk::read_head(&path, &key);
+                match head {
+                    Err(e) if !crate::hub::journal_restore::rules_of_8b5f() && unread(&e) => Err(e),
+                    head => Ok((key, path, bytes, head.ok().flatten())),
+                }
+            });
+            Ok((heads.collect::<anyhow::Result<Vec<_>>>()?, found))
+        });
+        let (heads, found) = match found {
             Ok(found) => found,
             Err(e) => {
                 let wait = backoff(self.scan_retry.map(|(_, d)| d));
@@ -1387,9 +1449,9 @@ impl Store {
             // Only while empty: a copy written in it meanwhile stays (a removed peer added again).
             let _ = std::fs::remove_dir(dir);
         }
-        for (key, path, bytes) in found.copies {
-            match disk::read_head(&path, &key) {
-                Ok(Some(head)) if bytes <= FILE_BYTES && self.admits(&key, head.generation) => {
+        for (key, path, bytes, head) in heads {
+            match head {
+                Some(head) if bytes <= FILE_BYTES && self.admits(&key, head.generation) => {
                     self.insert(key, Kept::new(head, bytes));
                 }
                 _ => self.unlink(path, bytes),

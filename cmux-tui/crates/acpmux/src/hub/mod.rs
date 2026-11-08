@@ -1389,7 +1389,12 @@ impl Hub {
         if let Ok((extra, last)) = self.store.tail_after(&session.id, last_seq)
             && extra > 0
         {
+            // Where its own recovery at the log's end begins, read from the log: the saved one
+            // is of before that tail (review of #37284 at 8b5f3063, F2). Unread, it names none,
+            // and the owner compares by `lastSeq` alone.
+            let recovered = self.recovery_tail(session, last).ok().flatten();
             let mut meta = session.meta.lock().unwrap();
+            meta.recovered_after = recovered;
             meta.event_count += extra;
             meta.last_seq = last;
             // Whether the tail held a transcript record is not read here: say it may have.
@@ -2182,6 +2187,8 @@ impl Hub {
         if !(dir == "mux" && kind == usage_view::RECORD_KIND) {
             self.touch(session);
         }
+        // A stub goes in without the record's recovery mark (`restore_writer.rs`).
+        let stub = matches!(kept, log_deferral::Kept::Stub(_)) && !fenced;
         let appended = match kept {
             // A fenced record keeps its receipt.
             log_deferral::Kept::Stub(msg) if !fenced => self.store.append(
@@ -2219,6 +2226,12 @@ impl Hub {
             }
             if record.dir == "mux" && record.kind == "turn_result" {
                 m.harness_failures.observe(&record.msg, record.seq, record.at);
+            }
+            // Where the journal's own recovery at its end begins, as the list names it.
+            if stub {
+                m.recovered_after = None;
+            } else {
+                restore_writer::note_recovery(&mut m, &record);
             }
         }
         if matches!(

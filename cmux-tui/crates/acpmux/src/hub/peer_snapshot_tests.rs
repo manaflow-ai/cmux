@@ -507,7 +507,7 @@ fn a_page_continues_a_copy_only_where_it_joins_it() {
     // record past where the peer is, and goes back to it (`restore.rs`).
     put(&mut store, "m1", attach(7, 2, true, recs(8..=9)));
     assert_eq!(seqs(&mut store, "m1"), (5..=12).collect::<Vec<_>>());
-    let (ahead, _) = store.ahead(PEER, vec![("m1".into(), 7, 9)]);
+    let (ahead, _) = store.ahead(PEER, vec![("m1".into(), 7, 9)]).unwrap();
     let back: Vec<u64> = ahead[0].3.iter().filter_map(seq_of).collect();
     assert_eq!((ahead.len(), ahead[0].2, back), (1, 9, vec![10, 11, 12]));
     // The peer refused them (another history): the copy goes, and its next page starts one.
@@ -604,6 +604,83 @@ fn a_peer_behind_what_the_copy_saw_replaces_it_and_older_history_is_left_out() {
     assert!(!store.copies[&key("m1")].head.from_start);
 }
 
+/// Review of #37284 at 8b5f3063, F1: a disk that does not read yet, and a copy ahead whose file
+/// does not read, are "maybe ahead", never "none ahead"; the copy stays for a later read. Under
+/// 8b5f3063's rules both answered no copy ahead, and the gate let prompts take the seqs of the
+/// newer history still on disk.
+#[cfg(unix)]
+#[test]
+fn a_disk_or_a_copy_that_does_not_read_is_never_none_ahead() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    keep(&mut store, "m1", 1..=5);
+    store.write_due(None, When::Last);
+    let rows = || vec![("m1".to_owned(), 7, 2)];
+    let root = disk::root(dir.path());
+    // A restart whose disk does not read: what the earlier run kept is not in the store yet.
+    let unscanned = read_only(&root, || {
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let mut again = Store::new(root.clone(), Arc::default(), Arc::default());
+        let now = again.ahead(PEER, rows()).map(|(a, _)| a.len());
+        crate::hub::journal_restore::OLD_RULES
+            .with(|r| r.set(crate::hub::journal_restore::AT_8B5F));
+        let before = again.ahead(PEER, rows()).map(|(a, _)| a.len());
+        crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
+        (now, before)
+    });
+    if let Some((now, before)) = unscanned {
+        assert_eq!(now, None, "a disk not read is maybe ahead");
+        assert_eq!(before, Some(0), "8b5f3063 answered none ahead");
+    }
+    // A restart whose copy's file does not read (an I/O error): the disk does not read yet, and
+    // the file stays; once it reads, the copy goes back.
+    let path = file(dir.path(), "m1");
+    let mode =
+        |m: u32| std::fs::set_permissions(&path, std::fs::Permissions::from_mode(m)).unwrap();
+    // SAFETY: getuid has no preconditions.
+    let root_user = unsafe { libc::getuid() } == 0;
+    let mut again = Store::new(root.clone(), Arc::default(), Arc::default());
+    mode(0o000);
+    if !root_user {
+        assert!(again.ahead(PEER, rows()).is_none(), "a head not read is a disk not read");
+        assert!(!again.scanned && path.exists(), "and its file stays");
+    }
+    mode(0o600);
+    let (ahead, _) = again.ahead(PEER, rows()).expect("read once its file reads");
+    let back: Vec<u64> = ahead[0].3.iter().filter_map(seq_of).collect();
+    assert_eq!(back, vec![3, 4, 5]);
+    // Read in, its head only, then its records do not read: maybe ahead, and the copy stays.
+    let mut again = store_at(dir.path());
+    assert!(again.copies[&key("m1")].records.is_none());
+    mode(0o000);
+    if !root_user {
+        assert!(again.ahead(PEER, rows()).is_none(), "a copy not read is maybe ahead");
+        assert!(again.copies.contains_key(&key("m1")) && path.exists(), "and it stays");
+    }
+    mode(0o600);
+    assert_eq!(again.ahead(PEER, rows()).map(|(a, _)| a[0].3.len()), Some(3));
+    // A copy that is cut is not its records however often it is read: it goes, and that is known.
+    let mut cut = Store::new(root.clone(), Arc::default(), Arc::default());
+    let text = std::fs::read(&path).unwrap();
+    std::fs::write(&path, &text[..text.len() - 2]).unwrap();
+    assert_eq!(cut.ahead(PEER, rows()).map(|(a, _)| a.len()), Some(0));
+    assert!(!cut.copies.contains_key(&key("m1")));
+    // Under 8b5f3063's rules a copy whose file did not read went, answered as none ahead.
+    let mut old = store_at(dir.path());
+    keep(&mut old, "m1", 1..=5);
+    old.write_due(None, When::Last);
+    let mut again = store_at(dir.path());
+    mode(0o000);
+    if !root_user {
+        crate::hub::journal_restore::OLD_RULES
+            .with(|r| r.set(crate::hub::journal_restore::AT_8B5F));
+        assert_eq!(again.ahead(PEER, rows()).map(|(a, _)| a.len()), Some(0));
+        crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
+        assert!(!again.copies.contains_key(&key("m1")));
+    }
+}
+
 #[test]
 fn an_empty_page_from_a_peer_gone_back_keeps_the_copy_until_the_peer_takes_it_back() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
@@ -616,7 +693,7 @@ fn an_empty_page_from_a_peer_gone_back_keeps_the_copy_until_the_peer_takes_it_ba
     empty.host_last_seq = Some(0);
     put(&mut store, "m1", empty);
     assert_eq!(seqs(&mut store, "m1"), vec![1, 2, 3]);
-    assert_eq!(store.ahead(PEER, vec![("m1".into(), 7, 0)]).0[0].3.len(), 3);
+    assert_eq!(store.ahead(PEER, vec![("m1".into(), 7, 0)]).unwrap().0[0].3.len(), 3);
     // Taken back, the peer's journal ends where the copy does, and its pages join it.
     store.take(Op::Restored { key: key("m1"), link: (1, 2), generation: 7, last: Some(3) });
     put(&mut store, "m1", attach(7, 2, true, recs(4..=5)));
@@ -1417,7 +1494,7 @@ fn a_proof_outlives_the_copy_and_goes_back_whole_or_not_at_all() {
     // reported it (review at 91b1343d, F1): the copy saw every record only from past it, so
     // whether p1 left its queue meanwhile is not known, and nothing of p1 goes back.
     let rows = vec![("m1".to_owned(), 7, 3)];
-    let (ahead, since) = store.ahead(PEER, rows.clone());
+    let (ahead, since) = store.ahead(PEER, rows.clone()).unwrap();
     assert_eq!(since["m1"], (7, 6));
     let proofs = od::proofs_past(&outbox, PEER, &rows, &since);
     assert!(proofs.is_empty());
@@ -1427,7 +1504,7 @@ fn a_proof_outlives_the_copy_and_goes_back_whole_or_not_at_all() {
     // The captures' queue overflowed: the copy went, so whether p1 left its queue since is not
     // known: nothing of it goes back (it would run again), and it stays open.
     store.take(Op::LostPeer(PEER.into()));
-    let (_, since) = store.ahead(PEER, rows.clone());
+    let (_, since) = store.ahead(PEER, rows.clone()).unwrap();
     assert!(od::proofs_past(&outbox, PEER, &rows, &since).is_empty());
     // Its removal from the queue came in its proof before: then all of it goes back.
     od::take_written(&outbox, (PEER, "m1", 7), &[life("m1", 9, "queue_removed", "p1")], (1, 1));
@@ -1610,7 +1687,7 @@ fn back_after_a_cut_removal(rules_of_91b: bool) -> Vec<u64> {
         od::take_written(&outbox, (PEER, "m1", 7), &records, (1, 1));
     }
     let rows = vec![("m1".to_owned(), 7, 3)];
-    let (_, since) = store.ahead(PEER, rows.clone());
+    let (_, since) = store.ahead(PEER, rows.clone()).unwrap();
     let back = od::proofs_past(&outbox, PEER, &rows, &since);
     crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
     back.get("m1").map_or(vec![], |r| r.iter().flatten().filter_map(seq_of).collect())
@@ -1841,7 +1918,7 @@ fn a_proof_whose_save_failed(rules: u8) -> bool {
     let mut store = Store::new(disk::root(dir.path()), Arc::default(), Arc::default());
     store.scan();
     let rows = vec![("m1".to_owned(), 7, 3)];
-    let (_, since) = store.ahead(PEER, rows.clone());
+    let (_, since) = store.ahead(PEER, rows.clone()).unwrap();
     let back = od::proofs_past(&on_disk, PEER, &rows, &since);
     crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
     !back.is_empty()
@@ -1994,4 +2071,60 @@ fn an_upload_prompt_goes_only_once_its_machine_holds_the_upload() {
     assert_eq!(ask["uploads"], json!([{"uploadId": id, "fileName": "big.log"}]));
     assert_eq!(ask["sessionId"], "m1");
     assert!(od::proof_files(&d).is_empty() && od::proof_images(&d).is_empty());
+}
+
+/// Review of #37284 at 8b5f3063, F2: a peer whose journal ends with what its own recovery wrote
+/// names where that began (`recoveredAfter`). A copy past that point goes back from there,
+/// though it ends at or before the peer's `lastSeq`; one that ends at or before it has nothing to
+/// give back, and holds nothing. Under 8b5f3063's rules the row named `lastSeq` alone, and the
+/// copy that ended there was not ahead.
+#[test]
+fn a_copy_goes_back_from_where_the_peers_own_recovery_began() {
+    use crate::hub::open_delivery as od;
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    keep(&mut store, "m1", 1..=12);
+    keep(&mut store, "m2", 1..=9);
+    // Both journals end at 12, the last three records their own recovery's.
+    let summary = json!({"sessionId": "m1", "createdAt": 7, "lastSeq": 12, "recoveredAfter": 9});
+    let row = |mux: &str, old: bool| restore::row_of(mux, &summary, old).unwrap();
+    assert_eq!(row("m1", true), (("m1".to_owned(), 7, 12), 12), "8b5f3063 compared with lastSeq");
+    let (ahead, _) = store.ahead(PEER, vec![row("m1", true).0]).unwrap();
+    assert!(ahead.is_empty(), "8b5f3063 found the copy ahead");
+    assert_eq!(row("m1", false), (("m1".to_owned(), 7, 9), 12));
+    let rows = vec![row("m1", false).0, row("m2", false).0];
+    let (ahead, since) = store.ahead(PEER, rows.clone()).unwrap();
+    let outbox = crate::hub::outbox::Outbox::default();
+    let proofs = od::proofs_past(&outbox, PEER, &rows, &since);
+    let (back, held) = restore::with_proofs(ahead, proofs, &rows);
+    assert_eq!(back.len(), 1, "only the copy past the recovery's start goes back");
+    let seqs: Vec<u64> = back[0].3.iter().filter_map(seq_of).collect();
+    assert_eq!((back[0].0.as_str(), back[0].2, seqs), ("m1", 9, vec![10, 11, 12]));
+    assert!(held.is_empty(), "a copy within the recovery held its session");
+    // A row with no recovery, or one at its end, is compared with `lastSeq`.
+    let plain = json!({"createdAt": 7, "lastSeq": 12, "recoveredAfter": 40});
+    assert_eq!(restore::row_of("m1", &plain, false).unwrap().0.2, 12);
+    // A page of that machine on a new link, before its restore: its recovery's records past 9
+    // never join the copy over the copy's own, which go back (8b5f3063 compared `lastSeq`
+    // alone, and they joined).
+    list(&mut store, &[("m1", 7)]);
+    let recovery = || {
+        let mut page = attach(7, 2, true, recs(10..=12));
+        for r in &mut page.records {
+            r["msg"]["text"] = json!("the machine's own recovery");
+        }
+        page.row = Some(summary.clone());
+        page
+    };
+    let text = |store: &mut Store| {
+        store.load(&key("m1"));
+        let records = store.copies[&key("m1")].records.as_ref().unwrap();
+        records[&11]["msg"]["text"].clone()
+    };
+    put(&mut store, "m1", recovery());
+    assert_eq!(seqs(&mut store, "m1"), (1..=12).collect::<Vec<_>>());
+    assert_eq!(text(&mut store), json!("line 11"), "the copy keeps its own records");
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(crate::hub::journal_restore::AT_8B5F));
+    assert!(store.copies[&key("m1")].head.last_seq >= recovery().seen().unwrap());
+    crate::hub::journal_restore::OLD_RULES.with(|r| r.set(0));
 }
