@@ -56,6 +56,8 @@ public struct BrowserImportedCookie: Sendable, Equatable {
     ///
     /// - Parameters:
     ///   - schemaVersion: The cookie database's `PRAGMA user_version`.
+    ///   - containerIDs: The `userContextId` of each container being imported;
+    ///     `0` stands for the cookies outside any container.
     ///   - now: The time before which an expiry means the cookie has expired.
     /// - Returns: The cookie to import, or `nil` when the row is not imported.
     public static func firefox(
@@ -69,6 +71,7 @@ public struct BrowserImportedCookie: Sendable, Equatable {
         sameSite: Int64,
         originAttributes: String,
         schemaVersion: Int64,
+        containerIDs: Set<Int> = [0],
         now: Date = Date()
     ) -> BrowserImportedCookie? {
         guard !name.isEmpty else { return nil }
@@ -130,7 +133,7 @@ public struct BrowserImportedCookie: Sendable, Equatable {
     }
 
     /// The query that reads a Firefox-family `moz_cookies` table with the given
-    /// columns, in the order ``firefox(host:name:value:path:expiry:isSecure:isHTTPOnly:sameSite:originAttributes:schemaVersion:now:)``
+    /// columns, in the order ``firefox(host:name:value:path:expiry:isSecure:isHTTPOnly:sameSite:originAttributes:schemaVersion:containerIDs:now:)``
     /// takes them.
     public static func firefoxCookiesQuery(columns: Set<String>) -> String {
         // Cookie schema 8 added `originAttributes` and schema 9 `sameSite`.

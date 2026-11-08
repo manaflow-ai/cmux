@@ -159,6 +159,35 @@ struct BrowserImportedCookieTests {
         return columns
     }
 
+    @Test("imports only the cookies of the selected Firefox containers", arguments: [
+        ("", [0], true),
+        ("", [6], false),
+        ("", [6, 7], false),
+        ("^userContextId=6", [0], false),
+        ("^userContextId=6", [6], true),
+        ("^userContextId=6", [7], false),
+        ("^userContextId=7", [0, 6, 7], true),
+        ("^userContextId=16", [6], false),
+        ("^userContextId=%37", [7], true),
+    ] as [(String, Set<Int>, Bool)])
+    func firefoxContainer(originAttributes: String, containerIDs: Set<Int>, imported: Bool) {
+        let cookie = BrowserImportedCookie.firefox(
+            host: ".example.test",
+            name: "session",
+            value: "abc",
+            path: "/",
+            expiry: expiryMilliseconds,
+            isSecure: true,
+            isHTTPOnly: false,
+            sameSite: 0,
+            originAttributes: originAttributes,
+            schemaVersion: 17,
+            containerIDs: containerIDs,
+            now: now
+        )
+        #expect((cookie != nil) == imported)
+    }
+
     @Test("keeps a Chromium cookie HttpOnly")
     func chromiumHTTPOnly() throws {
         let cookie = try #require(chromiumRow(isHTTPOnly: true)?.makeHTTPCookie())
