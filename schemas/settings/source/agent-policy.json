@@ -1264,6 +1264,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Whether cmux's own pages open developer tools, which read and change their live content: the person's call.",
+      "keys": [
+        "developerTools.appPages"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "On, a key is taken from every other app system-wide.",
       "keys": [
         "app.globalHotKey",

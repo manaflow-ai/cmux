@@ -173,11 +173,11 @@ public enum CloudStrings {
     }
 
     public static func templateBody(_ id: String) -> String {
-        String(format: String(localized: "cloud.result.templateBody", defaultValue: "Template %@ is ready. Start a machine from it with Restore Cloud Machine.", table: "Cloud", bundle: .module), id)
+        String(format: String(localized: "cloud.result.templateBody", defaultValue: "Template %@ is being saved. Once it is ready, start a machine from it with Restore Cloud Machine.", table: "Cloud", bundle: .module), id)
     }
 
     public static func snapshotBody(_ id: String) -> String {
-        String(format: String(localized: "cloud.result.snapshotBody", defaultValue: "Snapshot %@ is ready. Restore it with Restore Cloud Machine.", table: "Cloud", bundle: .module), id)
+        String(format: String(localized: "cloud.result.snapshotBody", defaultValue: "Snapshot %@ is being taken. Once it is ready, restore it with Restore Cloud Machine.", table: "Cloud", bundle: .module), id)
     }
 }
 
