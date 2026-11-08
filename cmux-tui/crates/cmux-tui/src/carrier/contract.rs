@@ -13,8 +13,10 @@ pub(super) const DEFAULT_DEADLINE: Duration = Duration::from_secs(180);
 pub(super) const MAX_DEADLINE_MS: u64 = 600_000;
 /// The first backoff ceiling between attempts, doubled after each failure.
 pub(super) const INITIAL_BACKOFF: Duration = Duration::from_millis(250);
-/// The largest backoff ceiling.
-pub(super) const MAX_BACKOFF: Duration = Duration::from_secs(10);
+/// The largest backoff ceiling: the machine link's own park between redial
+/// bursts (`ReconnectPolicy::maximum_delay`), so a dial after a long outage
+/// waits no longer than an established link would.
+pub(super) const MAX_BACKOFF: Duration = Duration::from_secs(5);
 /// The usage `error_code` (exit 64).
 pub(super) const BAD_REQUEST: &str = "bad_request";
 /// The longest `error_detail`, in bytes.
