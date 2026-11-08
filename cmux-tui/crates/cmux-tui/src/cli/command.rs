@@ -27,6 +27,12 @@ pub(super) enum CommandPlan {
     ProviderAuthority(ProviderAuthorityPlan),
     RawCommand(super::raw::RawCommandPlan),
     Attention(super::attention::AttentionPlan),
+    /// `cmux agent list`: `agent.list` with the shared status
+    /// (`cli/agent_list.rs`).
+    AgentList(super::agent_list::AgentListPlan),
+    /// `cmux pane <pane> move`: a composite of `tab.move` steps
+    /// (`cli/pane_move.rs`).
+    PaneMove(super::pane_move::MoveRequest),
     /// `cmux identify`: where this process runs (`cli/pane_identify.rs`).
     Identify,
     /// `cmux skill show`: the agent guide (`cli/skill.rs`).
@@ -977,6 +983,30 @@ fn parse_pane_strings(
             add_size(&mut params, flags)?;
             request(ResourceOperation::PaneRun, selectors, flags, params)
         }
+        [selector, "move"] => {
+            // The command resolves its own selectors from one snapshot
+            // (names, unique id prefixes, `focused`), so they stay raw here;
+            // a nested path would name parents it does not read.
+            if !selectors.values.is_empty() {
+                return Err(UsageError::new(
+                    "pane move takes the pane alone: cmux pane <pane> move ...",
+                ));
+            }
+            let new_screen = flags.boolean("new-screen");
+            let new_tab = flags.boolean("new-tab");
+            let _ = flags.boolean("no-focus");
+            let move_flags = super::pane_move::MoveFlags {
+                to_pane: flags.take("to-pane"),
+                to_tab: flags.take("to-tab"),
+                to_workspace: flags.take("to-workspace"),
+                split: flags.take("split"),
+                name: flags.take("name"),
+                new_screen: new_screen || new_tab,
+                focus: flags.boolean("focus"),
+                idempotency_key: flags.take("idempotency-key"),
+            };
+            super::pane_move::request(selector, move_flags).map(CommandPlan::PaneMove)
+        }
         [selector, "tab", tail @ ..] => {
             selectors.insert("pane", "pane", selector)?;
             parse_tab_strings(tail, selectors, flags)
@@ -1640,15 +1670,27 @@ fn parse_agent(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
                 validate_prefixed_id("terminal", "term", &terminal)?;
                 params.insert("terminal_id".into(), Value::String(terminal));
             }
-            if let Some(state) = flags.take("state") {
-                validate_one_of(
-                    "--state",
-                    &state,
-                    &["working", "blocked", "idle", "done", "unknown"],
-                )?;
-                params.insert("state".into(), Value::String(state));
+            // `--state` takes the shared status words (`done` is a finished
+            // turn nobody has viewed; `ended` a session that ended). The
+            // daemon filters by its own state, the CLI then by status
+            // (cli/agent_list.rs).
+            let status = match flags.take("state") {
+                Some(state) => {
+                    validate_one_of("--state", &state, &super::agent_list::STATUS_WORDS)?;
+                    super::agent_list::STATUS_WORDS.iter().copied().find(|word| *word == state)
+                }
+                None => None,
+            };
+            if let Some(status) = status {
+                let state = super::agent_list::daemon_state_for_status(status);
+                params.insert("state".into(), Value::String(state.to_owned()));
             }
-            request(ResourceOperation::AgentList, &selectors, flags, params)
+            let CommandPlan::Protocol(list) =
+                request(ResourceOperation::AgentList, &selectors, flags, params)?
+            else {
+                unreachable!("request() makes a protocol plan");
+            };
+            Ok(CommandPlan::AgentList(super::agent_list::AgentListPlan { request: list, status }))
         }
         ["hook", "emit"] => {
             const MAX_NATIVE_PAYLOAD_BYTES: u64 = 1024 * 1024;
@@ -2988,7 +3030,7 @@ pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_instal
     if result.failed {
         let error = json!({
             "code": "local.agent_hooks",
-            "message": "one or more coding-agent hook operations failed",
+            "message": agent_hooks_failure_message(&result.value),
             "details": result.value,
             "retryable": false,
         });
@@ -2996,6 +3038,23 @@ pub(super) fn run_agent_hooks(global: GlobalArgs, plan: crate::agent_hook_instal
     } else {
         super::wire::print_local_success(&result.value, global.output)
     }
+}
+
+/// What `cmux agent|sidebar plugin list` prints when no plugin is installed.
+#[allow(dead_code)] // Red stub: an empty list prints nothing; the fix prints this line.
+fn no_plugins_line(
+    kind: crate::plugin_manager::PluginKind,
+    catalog: &crate::localization::Catalog,
+) -> String {
+    let _ = (kind, catalog);
+    String::new()
+}
+
+/// The message of a failed `agent hook install|uninstall|status`.
+fn agent_hooks_failure_message(value: &Value) -> String {
+    // Red stub: the old fixed message; the fix names each cause.
+    let _ = value;
+    "one or more coding-agent hook operations failed".to_owned()
 }
 
 pub(super) fn run_provider_authority(global: GlobalArgs, plan: ProviderAuthorityPlan) -> i32 {
@@ -3254,6 +3313,37 @@ fn reset_error_starts_with(error: &anyhow::Error, prefixes: &[&str]) -> bool {
 mod tests {
     use super::*;
 
+    /// `cmux agent hook status` text output said only "one or more
+    /// coding-agent hook operations failed" (bench round 3); the cause was
+    /// in `--json` alone.
+    #[test]
+    fn w4j_a_hook_failure_message_names_each_cause() {
+        let value = json!({"errors": ["copilot: ~/.copilot/config.json is not valid JSON"]});
+        assert_eq!(
+            agent_hooks_failure_message(&value),
+            "coding-agent hook operations failed: copilot: ~/.copilot/config.json is not valid JSON"
+        );
+        assert_eq!(
+            agent_hooks_failure_message(&json!({"errors": []})),
+            "one or more coding-agent hook operations failed"
+        );
+    }
+
+    /// An empty `plugin list` printed nothing at all (bench round 3).
+    #[test]
+    fn w4j_an_empty_plugin_list_says_how_to_install_one() {
+        use crate::plugin_manager::PluginKind;
+        let english = crate::localization::catalog_for_locale("en_US.UTF-8");
+        assert_eq!(
+            no_plugins_line(PluginKind::Agent, english),
+            "No plugins are installed. cmux agent plugin install <git-url> installs one."
+        );
+        let japanese = crate::localization::catalog_for_locale("ja_JP.UTF-8");
+        let line = no_plugins_line(PluginKind::Sidebar, japanese);
+        assert!(line.contains("cmux sidebar plugin install <git-url>"), "{line}");
+        assert_ne!(line, no_plugins_line(PluginKind::Sidebar, english));
+    }
+
     fn strings(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_string()).collect()
     }
@@ -3346,6 +3436,7 @@ mod tests {
     fn protocol(values: &[&str]) -> RequestPlan {
         match parse(&strings(values)).unwrap() {
             CommandPlan::Protocol(plan) => plan,
+            CommandPlan::AgentList(plan) => plan.request,
             _ => panic!("expected protocol plan"),
         }
     }
@@ -4285,12 +4376,54 @@ mod tests {
         );
     }
 
+    /// `screen create` keeps the focus unless `--focus` (bench round 3,
+    /// T8); `--workspace` places the screen in another workspace.
+    #[test]
+    fn w4j_screen_create_sends_focus_only_when_asked_and_takes_a_workspace() {
+        let plain = protocol(&["screen", "create", "--name", "build"]).params;
+        assert!(plain.get("focus").is_none(), "{plain}");
+        let quiet = protocol(&["screen", "create", "--no-focus"]).params;
+        assert!(quiet.get("focus").is_none(), "{quiet}");
+        let focused = protocol(&["screen", "create", "--focus"]).params;
+        assert_eq!(focused["focus"], true);
+        let workspace = "ws_00000000000000000000000000000004";
+        let placed = protocol(&["screen", "create", "--workspace", workspace]).params;
+        assert_eq!(placed["workspace"], workspace);
+    }
+
+    /// `--state` takes the shared status words: `done` and `idle` both ask
+    /// the daemon for `idle` (the unread marker tells them apart), `ended`
+    /// asks for the daemon's `done` (a session that ended).
+    #[test]
+    fn w4j_agent_list_state_takes_the_shared_status_words() {
+        const TERMINAL: &str = "term_55555555555555555555555555555555";
+        for (status, daemon) in [
+            ("done", "idle"),
+            ("idle", "idle"),
+            ("ended", "done"),
+            ("working", "working"),
+            ("blocked", "blocked"),
+            ("unknown", "unknown"),
+        ] {
+            let CommandPlan::AgentList(list) =
+                parse(&strings(&["agent", "list", "--terminal", TERMINAL, "--state", status]))
+                    .unwrap()
+            else {
+                panic!("agent list is an agent list plan");
+            };
+            assert_eq!(list.request.params["state"], daemon, "--state {status}");
+            assert_eq!(list.status, Some(status));
+        }
+        assert!(parse(&strings(&["agent", "list", "--state", "busy"])).is_err());
+    }
+
     #[test]
     fn agent_commands_use_canonical_public_states() {
         const TERMINAL: &str = "term_55555555555555555555555555555555";
+        // agent list --state takes the shared status words and maps them
+        // (w4j_agent_list_state_takes_the_shared_status_words); agent report
+        // takes the daemon state.
         for state in ["working", "blocked", "idle", "done", "unknown"] {
-            let list = protocol(&["agent", "list", "--terminal", TERMINAL, "--state", state]);
-            assert_eq!(list.params["state"], state);
             let report = protocol(&[
                 "agent",
                 "report",
@@ -4662,7 +4795,15 @@ mod tests {
             (vec!["screen", "list"], "screen.list"),
             (vec!["screen", SCREEN, "show"], "screen.get"),
             (
-                vec!["screen", "create", "--name", "build", "--correlation-key", "create-42"],
+                vec![
+                    "screen",
+                    "create",
+                    "--name",
+                    "build",
+                    "--focus",
+                    "--correlation-key",
+                    "create-42",
+                ],
                 "screen.create",
             ),
             (vec!["screen", SCREEN, "rename", "--name", "tests"], "screen.rename"),

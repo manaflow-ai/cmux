@@ -4,10 +4,12 @@
 //! is deliberately isolated in `cli/wire.rs`, so public commands cannot
 //! accidentally fall back to the private command protocol.
 
+mod agent_list;
 mod attention;
 mod command;
 mod lifecycle;
 mod pane_identify;
+mod pane_move;
 mod raw;
 mod shorthand;
 mod skill;
@@ -253,6 +255,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             }
             CommandPlan::RawCommand(command) => raw::run(global, command),
             CommandPlan::Attention(plan) => attention::run(global, plan),
+            CommandPlan::AgentList(plan) => agent_list::run(global, plan),
+            CommandPlan::PaneMove(request) => pane_move::run(global, request),
             CommandPlan::Identify => pane_identify::run(&global),
             CommandPlan::SkillShow => skill::run(&global),
         },
@@ -1011,6 +1015,28 @@ mod tests {
         assert!(
             scope_help_for("server stats", crate::localization::catalog()).contains("server stats")
         );
+    }
+
+    /// `pane <p> move --new-screen --help` prints the pane move help:
+    /// `--new-screen` takes no value, so it does not swallow `--help`, and
+    /// `--json` after it is the output mode.
+    #[test]
+    fn w4j_pane_move_help_is_the_pane_move_help() {
+        for args in [
+            &["pane", "current", "move", "--new-screen", "--help"][..],
+            &["pane", "move", "--new-tab", "--help"],
+            &["pane", "pane_1", "move", "--to-pane", "x", "--focus", "--help"],
+        ] {
+            let Ok(ParsedCommand::Help(Some(topic))) = parse(&strings(args)) else {
+                panic!("{args:?} is not help");
+            };
+            assert_eq!(topic, "action:pane <selector> move", "{args:?}");
+            let help = scope_help_for(&topic, crate::localization::catalog());
+            assert!(help.contains("--to-pane"), "{help}");
+        }
+        let (global, _) =
+            parse_globals(&strings(&["pane", "move", "--new-screen", "--json"])).unwrap();
+        assert_eq!(global.output, OutputMode::Json);
     }
 
     #[test]

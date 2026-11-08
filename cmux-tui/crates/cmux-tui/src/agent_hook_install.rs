@@ -2741,6 +2741,29 @@ mod tests {
         }
     }
 
+    /// One provider's unreadable config made the whole read-only `agent hook
+    /// status` fail (bench round 3: `~/.copilot/config.json is not valid
+    /// JSON`). It is that provider's row now; the others still answer.
+    #[test]
+    fn w4j_status_reports_an_unreadable_config_on_its_own_row() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let copilot = context.home.join(".copilot/config.json");
+        fs::create_dir_all(copilot.parent().unwrap()).unwrap();
+        fs::write(&copilot, b"{ not json").unwrap();
+        let plan =
+            Plan { action: Action::Status, providers: vec!["copilot".into(), "claude".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(!result.failed, "{}", result.value);
+        let rows = result.value["providers"].as_array().unwrap();
+        let row = |id: &str| rows.iter().find(|row| row["provider"] == id).unwrap();
+        assert_eq!(row("copilot")["state"], "unavailable", "{}", result.value);
+        assert_eq!(row("copilot")["reason"], "unreadable", "{}", result.value);
+        assert!(row("copilot")["detail"].as_str().is_some_and(|detail| !detail.is_empty()));
+        assert_ne!(row("claude")["state"], "unavailable", "{}", result.value);
+        assert_eq!(result.value["errors"], json!([]));
+    }
+
     #[cfg(unix)]
     #[test]
     fn hermes_command_obeys_its_execution_deadline() {
