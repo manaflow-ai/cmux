@@ -59,6 +59,7 @@ on:
       - cmux-tui/relays/cloudflare-do/**
       - cmux-tui/crates/cmux-remote-protocol/**
       - .github/actions/setup-cmux-tui-rust/**
+      - .github/actions/runner-cargo-home/**
       - .github/workflows/cloudflare-relay.yml
   push:
     branches:
@@ -68,6 +69,7 @@ on:
       - cmux-tui/relays/cloudflare-do/**
       - cmux-tui/crates/cmux-remote-protocol/**
       - .github/actions/setup-cmux-tui-rust/**
+      - .github/actions/runner-cargo-home/**
       - .github/workflows/cloudflare-relay.yml
   workflow_dispatch:
     inputs:
