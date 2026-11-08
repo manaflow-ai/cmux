@@ -164,34 +164,6 @@ pub enum ReloadOp {
     Reload,
 }
 
-/// `{"op":"link.cloud_event","event":"removed"|"upsert","host":...,
-/// "revision":N}`: a Cloud machine event that cmux-cloud forwards to the
-/// link (cloud-client-contract.md 1.7 cache rules 1 and 4). `removed` drops
-/// the record and closes open links to that host; `upsert` drops a record
-/// older than `revision`. The reply is `{"ok":true}`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CloudEventRequest {
-    pub op: CloudEventOp,
-    pub event: CloudEvent,
-    pub host: String,
-    #[serde(default)]
-    pub revision: Option<u64>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CloudEventOp {
-    #[serde(rename = "link.cloud_event")]
-    CloudEvent,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CloudEvent {
-    Removed,
-    Upsert,
-}
-
 /// The first line on an overlay link stream: `{"service":"daemon"}` to a
 /// paired peer, `{"service":...,"link_token":...,"epoch":...}` to a Cloud
 /// host (the host checks the token before it serves anything).

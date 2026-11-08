@@ -218,6 +218,170 @@
           ]
         },
         {
+          "key": "agentPane.display.senderIcon.lead",
+          "name": "senderIconLead",
+          "note": "A sender's icon (webviews subagents/SenderIcon.tsx, senderIconLook.ts): the model family's mark with a small badge in the session's own color (Leo, 2026-11-05: \"you either have the model family be the big one or the small one, and then you have the, like, colored either robot symbol or the sort of, you know, the diamond symbol, which I kind of personally like\"). Which of the two is big.",
+          "title": {
+            "key": "settings.agentPane.display.senderIcon.lead",
+            "text": "Sender Icon Emphasis"
+          },
+          "help": {
+            "key": "settings.agentPane.display.senderIcon.lead.help",
+            "text": "Which is big in a sender's icon: the model family's mark, or the session's own colored badge."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "family",
+              "title": {
+                "key": "settings.choice.senderIconFamily",
+                "text": "Model Family Big"
+              }
+            },
+            {
+              "value": "session",
+              "title": {
+                "key": "settings.choice.senderIconSession",
+                "text": "Session Badge Big"
+              }
+            }
+          ],
+          "default": "family",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "sender",
+            "icon",
+            "mark",
+            "badge",
+            "model",
+            "family",
+            "session",
+            "agent",
+            "big",
+            "small"
+          ]
+        },
+        {
+          "key": "agentPane.display.senderIcon.badge",
+          "name": "senderIconBadge",
+          "note": "The small glyph in the session's color on a sender's icon (webviews subagents/SenderIcon.tsx); none draws the mark alone.",
+          "title": {
+            "key": "settings.agentPane.display.senderIcon.badge",
+            "text": "Sender Badge"
+          },
+          "help": {
+            "key": "settings.agentPane.display.senderIcon.badge.help",
+            "text": "The small colored glyph on a sender's icon that tells sessions of one model family apart."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "diamond",
+              "title": {
+                "key": "settings.choice.diamond",
+                "text": "Diamond Icon"
+              }
+            },
+            {
+              "value": "robot",
+              "title": {
+                "key": "settings.choice.robot",
+                "text": "Robot Icon"
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              }
+            }
+          ],
+          "default": "diamond",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "sender",
+            "icon",
+            "badge",
+            "diamond",
+            "sparkle",
+            "robot",
+            "bot",
+            "color",
+            "session",
+            "agent"
+          ]
+        },
+        {
+          "key": "agentPane.display.senderIcon.corner",
+          "name": "senderIconCorner",
+          "note": "Where the badge sits on a sender's icon (webviews subagents/SenderIcon.tsx).",
+          "title": {
+            "key": "settings.agentPane.display.senderIcon.corner",
+            "text": "Sender Badge Corner"
+          },
+          "help": {
+            "key": "settings.agentPane.display.senderIcon.corner.help",
+            "text": "Where the small glyph sits on a sender's icon."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "bottom-right",
+              "title": {
+                "key": "settings.choice.bottomRight",
+                "text": "Bottom Right"
+              }
+            },
+            {
+              "value": "bottom-left",
+              "title": {
+                "key": "settings.choice.bottomLeft",
+                "text": "Bottom Left"
+              }
+            },
+            {
+              "value": "top-right",
+              "title": {
+                "key": "settings.choice.topRight",
+                "text": "Top Right"
+              }
+            },
+            {
+              "value": "top-left",
+              "title": {
+                "key": "settings.choice.topLeft",
+                "text": "Top Left"
+              }
+            }
+          ],
+          "default": "bottom-right",
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "reading",
+            "sender",
+            "icon",
+            "badge",
+            "corner",
+            "left",
+            "right",
+            "top",
+            "bottom",
+            "position"
+          ]
+        },
+        {
           "key": "agentPane.display.font.preset",
           "name": "fontPreset",
           "title": {
