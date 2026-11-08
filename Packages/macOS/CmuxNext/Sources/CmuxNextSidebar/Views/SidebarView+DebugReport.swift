@@ -9,7 +9,7 @@ extension SidebarViewComponents {
         let (rows, selection, dragging) = debugRows()
         return [
             "selection": selection, "dragging": dragging, "drag_active": debugDragActive(),
-            "drop": debugDropProbe().map(Self.probe) ?? NSNull(), "paging": debugPaging(), "items": debugLayoutItemsReport(),
+            "drop": debugDropProbe().map(Self.probe) ?? NSNull(), "paging": debugPaging(), "items": debugLayoutItemsReport(), "dbg": debugBlocksReport(),
             // Section headers the band or a list block draws (an empty custom section has no item to aim a drop at).
             "sections": debugSectionHeaders().map { ["id": $0.id, "title": Self.opt($0.title), "window_frame": Self.rect($0.frame)] },
             // Every shown section's arrangement (align, gap) and item count: reads alignment, spacing and reset edits back.
