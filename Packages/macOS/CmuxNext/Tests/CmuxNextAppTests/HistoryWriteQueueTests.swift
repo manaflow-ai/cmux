@@ -186,7 +186,8 @@ import Testing
         let command = TerminalCommand(id: 7, machine: "ssh-box", terminal: "term_1", command: "make test", cwd: "/src", exitCode: 0,
                                       startedAt: Date().addingTimeInterval(-30), duration: 1)
         var mirror = TerminalCommandMirror(machine: "ssh-box")
-        #expect(mirror.apply([command], version: "v1", truncated: false, after: nil))
+        let applied = mirror.apply([command], version: "v1", truncated: false, after: nil)
+        #expect(applied)
         services.history.commands.mirrors["ssh-box"] = mirror
         #expect(services.history.daemonHistory == nil)
         let read = await services.history.read(HistoryQuery())
