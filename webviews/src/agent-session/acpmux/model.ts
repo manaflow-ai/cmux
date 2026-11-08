@@ -44,6 +44,7 @@ import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
 import type { IncomingMessage, IncomingPrompt } from "./conversation/incomingMessage";
 import type { InboxNotice } from "./conversation/inboxNotice";
+import { MEMORY_OFFER, memoryCardState, type MemoryOffer } from "./conversation/memoryInbox";
 import type { TurnCopyPart } from "./conversation/turnCopy";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
@@ -438,6 +439,8 @@ export type AcpmuxRow = {
   recap?: AcpmuxRecap;
   /// A plan build row's builds (planBuild/PlanBuildCard.tsx): what a plan approval started off this chat.
   planBuild?: PlanBuild;
+  /// A memory inbox row's offer (conversation/memoryInbox.ts): facts for the instructions file.
+  memory?: MemoryOffer;
   /// A background turn's line (conversation/backgroundTurns.ts): the turn it stands for.
   background?: AcpmuxBackgroundTurn;
   /// A row a background turn made: that turn's id, so its line can fold it (backgroundTurns.ts).
@@ -756,6 +759,8 @@ export type AcpmuxRow = {
     promptIds: readonly string[];
     fromSession?: string;
     fromHarness?: string;
+    /// acpmux could not verify its sender (conversation/senderIdentity.ts).
+    unverified?: true;
   };
   laneNoticeBatch?: {
     kind: "report" | "inbox";
@@ -2193,6 +2198,22 @@ function fallbackRowHeight(
         Math.max(1, Math.ceil((row.recap?.text.length ?? 0) / Math.max(24, Math.floor(width / 8) - 6))) *
           metrics().lineHeight,
     );
+  // A memory offer (conversation/MemoryOfferCard.tsx): its file line, a 24px diff line per open fact
+  // and the heading's, Accept all under two or more, in its 1px edges and 8px of row margins; settled,
+  // its one 24px note.
+  if (row.kind === MEMORY_OFFER && row.memory) {
+    const card = memoryCardState(row.memory);
+    if (card.settled) return finish(8 + 24);
+    return finish(
+      8 +
+        2 +
+        16 +
+        24 +
+        (card.pending + (card.heading ? 1 : 0)) * 24 +
+        (card.pending > 1 ? 32 : 0) +
+        (card.error ? 22 : 0),
+    );
+  }
   // A session start draws nothing (rows/SessionStartRow.tsx): no height, no gap.
   if (row.kind === "sessionStart") return finish(0);
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).

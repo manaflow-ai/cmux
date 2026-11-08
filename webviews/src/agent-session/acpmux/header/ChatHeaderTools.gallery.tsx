@@ -479,6 +479,8 @@ const noCall = async () => undefined;
 const noStop = async () => true;
 const noLive = () => ({ session: undefined, running: false });
 const galleryT = translate;
+/// A fixed now for the paused rows' delete date, so the gallery's captures do not drift.
+const GALLERY_NOW = Date.UTC(2026, 10, 8);
 const withMachine = (machine: ChatMenuItem[]): ChatMenuItem[] => {
   const rows = menuRows();
   const archive = rows.findIndex((row) => row !== "separator" && row.key === "archive");
@@ -1161,7 +1163,7 @@ export default componentEntry<HeaderToolsProps>({
     },
     "menu-cloud-machine-running": {
       height: 860,
-      note: "A chat on a running Cloud machine (Labs > Preview features): Pause Machine sits before the tools rows (cloudMachineMenu.ts).",
+      note: "A chat on a running Cloud machine (Labs > Preview features): Pause Machine and Delete Machine… sit before the tools rows (cloudMachineMenu.ts).",
       props: {
         ...base,
         menu: () =>
@@ -1199,9 +1201,53 @@ export default componentEntry<HeaderToolsProps>({
       },
       play: openMenu,
     },
+    "menu-cloud-machine-paused-deletes-soon": {
+      height: 900,
+      note: "A paused Cloud machine the server deletes within the week (cmux-platform evict_at): the date row turns to a warning.",
+      props: {
+        ...base,
+        menu: () =>
+          withMachine(
+            cloudMachineRows(
+              { id: "vm_1", name: "dev-vm-2", stage: "paused", evictAt: GALLERY_NOW + 3 * 24 * 60 * 60 * 1000 },
+              false,
+              galleryT,
+              noCall,
+              noop,
+              noLive,
+              noStop,
+              undefined,
+              GALLERY_NOW,
+            ),
+          ),
+      },
+      play: openMenu,
+    },
+    "menu-cloud-machine-paused-deletes-later": {
+      height: 900,
+      note: "A paused Cloud machine with weeks left before the server deletes it: a quiet date row.",
+      props: {
+        ...base,
+        menu: () =>
+          withMachine(
+            cloudMachineRows(
+              { id: "vm_1", name: "dev-vm-2", stage: "paused", evictAt: GALLERY_NOW + 24 * 24 * 60 * 60 * 1000 },
+              false,
+              galleryT,
+              noCall,
+              noop,
+              noLive,
+              noStop,
+              undefined,
+              GALLERY_NOW,
+            ),
+          ),
+      },
+      play: openMenu,
+    },
     "menu-cloud-machine-paused": {
       height: 860,
-      note: "A chat on a paused Cloud machine: Resume Machine.",
+      note: "A chat on a paused Cloud machine: what pausing means, Resume Machine and Delete Machine….",
       props: {
         ...base,
         menu: () =>

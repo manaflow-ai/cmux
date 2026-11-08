@@ -84,8 +84,14 @@ PYPI_RUST_TARGETS = {
     "manylinux_2_17_aarch64.manylinux2014_aarch64": "aarch64-unknown-linux-musl",
     "musllinux_1_2_aarch64": "aarch64-unknown-linux-musl",
 }
+# The agent screen-detection plugin of the macOS and Linux packages, under the
+# exact name the daemon runs beside its own executable.
+SCREEN_DETECTION_BINARY = "cmux-agent-screen-detection"
 NPM_PLATFORM_FILES = frozenset(
-    {"package.json", NPM_LICENSE_FILE, "bin/cmux-tui", "bin/cmux-tui-hook", NPM_SSH_MANIFEST, NOTICE_FILE}
+    {
+        "package.json", NPM_LICENSE_FILE, "bin/cmux-tui", "bin/cmux-tui-hook",
+        f"bin/{SCREEN_DETECTION_BINARY}", NPM_SSH_MANIFEST, NOTICE_FILE,
+    }
 )
 NPM_LAUNCHER_FILES = frozenset({"package.json", NPM_LICENSE_FILE, "bin/cmux.js"})
 NPM_RELAY_PLATFORM_FILES = frozenset(
@@ -116,7 +122,7 @@ def npm_executable_files(include_windows: bool = False) -> tuple[str, ...]:
             for path in _target_binary_paths(
                 target,
                 ("cmux-tui", "cmux-tui-hook")
-                + (("cmux-tui-host",) if target.os == "win32" else ()),
+                + (("cmux-tui-host",) if target.os == "win32" else (SCREEN_DETECTION_BINARY,)),
             )
         )
         + tuple(
@@ -144,6 +150,7 @@ PYPI_WHEEL_FILES = frozenset(
         "cmux_tui/_main.py",
         "cmux_tui/bin/cmux-tui",
         "cmux_tui/bin/cmux-tui-hook",
+        "cmux_tui/bin/" + SCREEN_DETECTION_BINARY,
         "{dist_info}/WHEEL",
         "{dist_info}/METADATA",
         "{dist_info}/licenses/LICENSE",
@@ -453,8 +460,10 @@ def validate_npm_tree(
         # The Windows package also ships cmux-tui-host.exe, the small
         # per-terminal host the daemon spawns instead of re-exec'ing the large
         # cmux-tui.exe (cx-1vlzr). Windows only; macOS/Linux re-exec cmux-tui.
-        host_binaries = ("cmux-tui-host",) if target.os == "win32" else ()
-        host_files = {"bin/cmux-tui-host.exe"} if target.os == "win32" else set()
+        # macOS and Linux packages ship the agent screen-detection plugin
+        # instead, which the daemon runs from beside its own executable.
+        host_binaries = ("cmux-tui-host",) if target.os == "win32" else (SCREEN_DETECTION_BINARY,)
+        host_files = {"bin/cmux-tui-host.exe"} if target.os == "win32" else {f"bin/{SCREEN_DETECTION_BINARY}"}
         _validate_package_files(
             packages_dir / target.name,
             target,
@@ -568,6 +577,7 @@ def validate_wheel(path: Path, version: str, notices_dir: Path | None = None) ->
         executable_names = {
             "cmux_tui/bin/cmux-tui",
             "cmux_tui/bin/cmux-tui-hook",
+            "cmux_tui/bin/" + SCREEN_DETECTION_BINARY,
         }
         for name in names:
             mode = _wheel_mode(wheel.getinfo(name))

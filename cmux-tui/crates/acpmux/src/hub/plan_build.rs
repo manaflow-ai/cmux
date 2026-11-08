@@ -283,6 +283,8 @@ impl Hub {
                 effort: None,
                 cwd: None,
                 worktree: true,
+                owner_authorized_race: false,
+                race_id: None,
                 fork: false,
                 force_admit: false,
                 local,

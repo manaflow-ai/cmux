@@ -138,3 +138,14 @@ fn ls_takes_no_name_and_a_vm_is_named_one_way() {
     assert_eq!(ls(&["vm", "ls", "--json"]), None);
     assert_eq!(ls(&["vm", "pause", "dev"]), None);
 }
+
+/// Leo, 2026-11-08: "how would I be able to shut it down?" `vm shutdown` is `vm pause`, with the
+/// app and without it; `vm stop` stays the VM API's own verb.
+#[test]
+fn shutdown_is_pause() {
+    let shutdown = parse(&words(&["vm", "shutdown", "dev"])).unwrap();
+    let pause = parse(&words(&["vm", "pause", "dev"])).unwrap();
+    assert_eq!(shutdown, pause);
+    assert_eq!(parse(&words(&["cloud", "shutdown"])).unwrap().cloud_verb, "pause-machine");
+    assert_eq!(parse(&words(&["vm", "stop", "dev"])), None);
+}
