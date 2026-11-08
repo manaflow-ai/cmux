@@ -86,7 +86,6 @@ async function until(ready: () => boolean, what: string) {
   }
 }
 
-
 const harnesses = [
   { harness: "codex", optionId: "reasoning_effort", model: "gpt-6.1-sol", modelName: "GPT-6.1 Sol" },
   { harness: "claude", optionId: "effort", model: "claude-opus-5-5", modelName: "Opus 5.5" },
@@ -148,9 +147,7 @@ async function renderPicker(entry: (typeof harnesses)[number], sent: string[]) {
   return render;
 }
 
-const tuneRows = () => [
-  ...(menus()[0]?.querySelectorAll<HTMLElement>('.acpmux-cols-tune [role="radio"]') ?? []),
-];
+const tuneRows = () => [...(menus()[0]?.querySelectorAll<HTMLElement>('.acpmux-cols-tune [role="radio"]') ?? [])];
 const checked = () =>
   tuneRows()
     .filter((row) => row.getAttribute("aria-checked") === "true")
