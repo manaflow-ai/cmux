@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42496643718",
+  "recorded_at": "2026-11-08T15:54:57Z",
+  "reason": "cmux-tui 571b1bc07236 changes the image's cmux-tui (pinned f428f84a8500)",
+  "dry_run": false,
+  "cmux_tui": "571b1bc07236f5815d7723b246f6e3bb6ed4bd16",
+  "fixes": [
+    {
+      "sha": "571b1bc07236f5815d7723b246f6e3bb6ed4bd16",
+      "mergedAt": "2026-11-08T07:32:34-08:00",
+      "subject": "NEXT Cloud: Delete Machine… in the chat menu, pause notes, close toast, vm shutdown (#38469)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T15:54:57Z",
+    "snapshot_id": "sh-d7201619238f4728aecded4c49e0c6bb",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42496643718): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d5946805ee67d6821f1d0cedb50685c4e35fd67e",
+    "image": "cloud-native-auto-571b1bc0-42496643718-1",
+    "revision": "ci-42496643718-1",
+    "at": "2026-11-08T15:54:57Z"
+  },
+  "rolled_back": false
+}
