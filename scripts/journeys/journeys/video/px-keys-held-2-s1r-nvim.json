@@ -394,6 +394,55 @@
     "appearance.surfaces",
     "sidebar.hoverCards"
    ]
+  },
+  {
+   "do": "hid_key",
+   "key": "escape",
+   "title": "after: Escape (nvim normal mode)"
+  },
+  {
+   "do": "type",
+   "text": ":qa!",
+   "enter": true,
+   "mark": "ctrlc",
+   "title": "after: quit nvim"
+  },
+  {
+   "do": "expect",
+   "title": "after: the shell's prompt is back (the fixture ended)",
+   "since": "ctrlc",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_prompt": true
+    },
+    {
+     "app_prompt": true
+    }
+   ]
+  },
+  {
+   "do": "type",
+   "text": "echo rv-done-${nonce}",
+   "enter": true,
+   "mark": "after"
+  },
+  {
+   "do": "expect",
+   "title": "p0 echoes the line: app, daemon and frame",
+   "since": "after",
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "rv-done-${nonce}"
+    },
+    {
+     "app_text_line": "rv-done-${nonce}"
+    },
+    {
+     "frame_text": "rv-done-${nonce}"
+    }
+   ]
   }
  ],
  "finally": [
