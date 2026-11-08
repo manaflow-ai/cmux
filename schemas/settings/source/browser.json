@@ -294,6 +294,30 @@
             "dismissed",
             "reset"
           ]
+        },
+        {
+          "key": "browser.import.cookieSync",
+          "title": {
+            "key": "settings.browser.importCookieSync",
+            "text": "Keep Imported Cookies in Sync"
+          },
+          "help": {
+            "key": "settings.browser.importCookieSync.help",
+            "text": "After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it."
+          },
+          "kind": "toggle",
+          "swift_owner": "BrowserCookieSyncSetting",
+          "default": true,
+          "keywords": [
+            "import",
+            "cookies",
+            "sync",
+            "keep",
+            "chrome",
+            "sign in",
+            "login",
+            "signed in"
+          ]
         }
       ]
     },
