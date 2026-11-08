@@ -466,6 +466,26 @@ fn w3h_start_in_a_session_with_no_pane_opens_a_workspace_for_the_agent() {
     assert_eq!(daemon.sent("tab.close")[0]["tab"], "tab_5e115e115e115e115e115e115e115e11");
 }
 
+/// Real-build check: the daemon answers `pane.split` and `pane.run` with a
+/// mutation receipt whose created path is under `value`, and `agent start`
+/// failed with "the session did not report the new terminal".
+#[test]
+fn w3h_the_created_path_is_read_from_the_mutation_receipt() {
+    let receipt = json!({
+        "generation": "g", "replayed": false, "revision": "3",
+        "value": created(
+            "pane_33333333333333333333333333333333",
+            "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0",
+            NEW,
+        ),
+    });
+    let found = super::placement::Created::from_result(&receipt).expect("the receipt's path");
+    assert_eq!(found.pane, "pane_33333333333333333333333333333333");
+    assert_eq!(found.tab, "tab_b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0");
+    assert_eq!(found.terminal, NEW);
+    assert_eq!(found.workspace.as_deref(), Some("ws_f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1"));
+}
+
 #[test]
 fn w3h_a_name_that_a_running_tab_has_is_refused() {
     let mut snapshot = snapshot();

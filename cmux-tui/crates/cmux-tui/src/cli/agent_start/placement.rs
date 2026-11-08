@@ -47,9 +47,15 @@ pub(in crate::cli) struct Created {
 }
 
 impl Created {
-    /// The created path of a `pane.split` or `pane.run` result.
+    /// The created path of a `pane.split` or `pane.run` result: the
+    /// mutation receipt's `value` (`{generation, revision, value: {pane_id,
+    /// tab_id, terminal_id, ...}}`), a `path`, or the record itself.
     pub(in crate::cli) fn from_result(result: &Value) -> Result<Self, Failure> {
-        let path = if result["path"].is_object() { &result["path"] } else { result };
+        let path = ["value", "path"]
+            .into_iter()
+            .filter_map(|key| result.get(key))
+            .find(|inner| inner.is_object())
+            .unwrap_or(result);
         let text = |key: &str| path[key].as_str().map(str::to_owned);
         match (text("pane_id"), text("tab_id"), text("terminal_id")) {
             (Some(pane), Some(tab), Some(terminal)) => Ok(Self {
