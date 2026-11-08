@@ -37,6 +37,9 @@ const VARIANTS: Record<string, string> = {
   rowsMaxWidth: ".acpmux-cols-list > * { max-width: 100% !important; box-sizing: border-box !important; }",
   listContain: ".acpmux-cols-list { contain: inline-size !important; }",
   noMinWidth: "",
+  literalWidth: ".acpmux-cols-list[data-cmux-card-scroll]::-webkit-scrollbar { width: 8px !important; }",
+  relayout: "",
+  scrollerVar7: ".acpmux-cols-list[data-cmux-card-scroll] { --cmux-card-scroller: 7px !important; }",
 };
 
 for (const engine of ["webkit", "chromium"])
@@ -63,6 +66,15 @@ for (const engine of ["webkit", "chromium"])
       await page.waitForFunction(() => document.querySelector('button[aria-haspopup][aria-label="Model"]')?.getAttribute("aria-expanded") === "true");
       await page.waitForTimeout(800);
       if (0) console.log(`PROBE-DOM ${engine} ${variant} ${await page.evaluate(() => [...new Set([...document.querySelectorAll('[role^="menuitem"], [role="option"]')].map((r) => `${r.getAttribute("role")}<${r.parentElement?.className}>`))].join(" | "))}`);
+      if (variant === "relayout")
+        await page.evaluate(() => {
+          for (const el of document.querySelectorAll<HTMLElement>(".acpmux-cols-list")) {
+            el.style.overflowY = "hidden";
+            void el.offsetWidth;
+            el.style.overflowY = "";
+            void el.offsetWidth;
+          }
+        });
       if (variant === "noMinWidth")
         await page.evaluate(() => {
           for (const el of document.querySelectorAll<HTMLElement>("[style*=min-width]")) el.style.minWidth = "";
