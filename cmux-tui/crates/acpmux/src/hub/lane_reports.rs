@@ -1227,6 +1227,27 @@ mod tests {
         }
     }
 
+    /// A report that comes once a shutdown began (a lane turn Quit Everything cut ends, and its
+    /// report reaches an idle parent the shutdown has not ended yet) starts no turn: no agent may
+    /// start from then on, and the parent's log takes no prompt it never ran.
+    #[tokio::test]
+    async fn an_idle_parent_takes_no_report_once_the_shutdown_began() {
+        let hub = test_hub();
+        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+        let parent = hub.new_session(start()).await.unwrap();
+        let lane = hub.new_session(start()).await.unwrap();
+        hub.lane_link(&parent.id, &lane.id, false);
+        hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(queued_report(&lane.id)));
+        let due = hub.lane_take_due(&lane.id, now_ms()).unwrap();
+        hub.begin_shutdown();
+        hub.lane_hand_over(&lane.id, due).await;
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert_eq!(parent.meta().turn_count, 0, "a report went in once the shutdown began");
+        for s in [&lane, &parent] {
+            hub.kill(s, true).await.unwrap();
+        }
+    }
+
     #[tokio::test]
     async fn a_report_queued_behind_a_busy_parent_that_then_closes_never_runs() {
         let hub = test_hub();

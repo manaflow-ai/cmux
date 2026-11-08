@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextWindowRules
 
 // Whole-group moves: reorder in the strip, new split, new column, another
 // or a new workspace, and a new window.
@@ -10,14 +11,11 @@ extension TabGroupHandlers {
         bind("tabGroup.moveRight") { reorder($0, forward: true, ctx) }
         bind("tabGroup.moveToNewSplit") { invocation in
             guard let (group, pane) = group(invocation, ctx) else { return }
-            // The chat dock never splits (ChatDockRules), from any entrypoint.
-            guard !ChatDockRules.isChatDock(pane, services: ctx.services) else { return ctx.refuse(RefusalStrings.chatDockCannotSplit) }
-            let edge: PaneEdge = switch invocation["direction"]?.stringValue {
-            case "left": .left
-            case "up": .top
-            case "down": .bottom
-            default: .right
-            }
+            // The chat dock never splits (ChatDockRules), from any entrypoint (Rust's `tabs::move_to_split`).
+            let move = WindowRules().moveToSplit(WindowRules.MoveToSplitFacts(direction: invocation["direction"]?.stringValue, group: true,
+                                                                              chatDock: ChatDockRules.isChatDock(pane, services: ctx.services)))
+            guard let move, move.decision != "refuse" else { return ctx.refuse(RefusalStrings.chatDockCannotSplit) }
+            let edge = move.edge.flatMap(PaneEdge.init(rawValue:)) ?? .right
             let handle = pane.handle
             run("move-tab-group-to-split", pane: pane, ctx) { c, t in
                 _ = try await c.moveTabGroupToSplit(group, pane: handle, edge: edge, transaction: t)

@@ -14,7 +14,8 @@ import { ChevronRight, ToolGroup } from "./icons";
 import { CmuxExecDetails, McpCallDetails, McpCallRows } from "./McpCallRows";
 import { mcpCall, mcpLabel, mcpRawName } from "./mcpCalls";
 import { ToolLabel, ToolVerbColumn } from "./ToolVerb";
-import { TranscriptDisclosureProvider, resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 
 type Look = "before" | "after" | "running";
 type Props = { look: Look; mode: "light" | "dark" };
@@ -103,16 +104,12 @@ function BeforeRow({ item, open }: { item: AcpmuxActivity; open: boolean }) {
     <>
       <button type="button" className="cv-tool is-toggle is-strong" aria-expanded={open}>
         <span className="cv-tool__icon">
-          <ToolGroup size={16} strokeWidth={1.2} />
+          <ToolGroup size={16} />
         </span>
         <span className="cv-tool__text">
           <ToolLabel text={mcpLabel(t, [call], new Map())} />
         </span>
-        <ChevronRight
-          size={14}
-          strokeWidth={1.2}
-          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
-        />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {open && (
         <McpCallDetails

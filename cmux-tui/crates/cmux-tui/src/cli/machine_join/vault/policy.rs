@@ -6,8 +6,6 @@
 //! - `env`: the real value in the agents' environment, as before. Any agent can read it
 //!   and send it anywhere, so the CLI always labels it weaker.
 
-use std::sync::LazyLock;
-
 use serde_json::{Value, json};
 
 use crate::cli::UsageError;
@@ -16,18 +14,48 @@ use crate::cli::UsageError;
 pub(super) const MAX_HOSTS: usize = 16;
 
 /// A lowercase DNS name, optionally `*.` (subdomains only) and `:port`; no scheme, path,
-/// IP literal, userinfo or trailing dot. The platform validates with the same pattern.
-static HOST: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(
-        r"^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}(:[1-9][0-9]{0,4})?$",
-    )
-    .expect("the host pattern compiles")
-});
+/// IP literal, userinfo or trailing dot. The platform validates with the pattern
+/// `^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}(:[1-9][0-9]{0,4})?$`;
+/// this checks the same by hand, so no pattern build can fail at run time (the tests hold
+/// the two equal): one or more labels and a last label, each 1 to 63 of `a-z`, `0-9` and
+/// `-`; a label neither starts nor ends with `-`, the last label starts with `a-z`; a port
+/// is 1 to 5 digits with no leading zero.
+pub(super) fn host_pattern_ok(host: &str) -> bool {
+    let (name, port) = match host.split_once(':') {
+        Some((name, port)) => (name, Some(port)),
+        None => (host, None),
+    };
+    if let Some(port) = port
+        && !((1..=5).contains(&port.len())
+            && !port.starts_with('0')
+            && port.bytes().all(|b| b.is_ascii_digit()))
+    {
+        return false;
+    }
+    let name = name.strip_prefix("*.").unwrap_or(name);
+    let Some((labels, last)) = name.rsplit_once('.') else {
+        return false;
+    };
+    labels.split('.').all(label_ok)
+        && last.starts_with(|c: char| c.is_ascii_lowercase())
+        && label_chars_ok(last)
+}
+
+/// `[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?`
+fn label_ok(label: &str) -> bool {
+    label_chars_ok(label) && !label.starts_with('-') && !label.ends_with('-')
+}
+
+/// `[a-z0-9-]{1,63}`
+fn label_chars_ok(label: &str) -> bool {
+    (1..=63).contains(&label.len())
+        && label.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
 
 /// Whether `host` is an allowed-host pattern the platform accepts.
 pub(super) fn host_ok(host: &str) -> bool {
     host.len() <= 260
-        && HOST.is_match(host)
+        && host_pattern_ok(host)
         && host
             .rsplit_once(':')
             .is_none_or(|(_, port)| port.parse::<u32>().is_ok_and(|p| p <= 65535))

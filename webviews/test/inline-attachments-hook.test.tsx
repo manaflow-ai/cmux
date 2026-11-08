@@ -15,7 +15,7 @@ import { JSDOM } from "jsdom";
 import { act, createRef, useRef, useState } from "react";
 import type { Root } from "react-dom/client";
 import { inlineToken, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
-import type { PendingAttachment } from "../src/agent-session/acpmux/composer/attachmentIntake";
+import type { PendingAttachment } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
 import { setChipHost } from "../src/agent-session/acpmux/chips/host";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import type { MarkdownFieldHandle } from "../src/agent-session/acpmux/MarkdownField";

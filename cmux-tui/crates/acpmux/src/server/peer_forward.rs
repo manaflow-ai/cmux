@@ -4,6 +4,29 @@
 
 use super::*;
 
+/// Optional top-level peer selection for a trust question before its chat exists. A client
+/// must see this extension on its own daemon before sending the selector to it.
+pub(super) const TRUST_PEER_EXTENSION: &str = "acp.trust.peer-v1";
+
+/// Peer aliases belong to this daemon's local caller, not to another daemon's clients. A
+/// forwarded request has already consumed its selector; it cannot select a third machine.
+pub(super) fn refuse_peer_selector(
+    origin: Origin,
+    m: &str,
+    params: &Value,
+) -> Result<(), RpcError> {
+    let selects = match m {
+        method::ACP_TRUST_GET | method::ACP_TRUST_SET => params.get("peer").is_some(),
+        method::SESSION_NEW => params.pointer("/_meta/acpmux/peer").is_some(),
+        _ => false,
+    };
+    if origin == Origin::Peer && selects {
+        return Err(RpcError::invalid_params("a peer cannot select another peer on this daemon")
+            .with_data(json!({"reason": "peer.forward_refused"})));
+    }
+    Ok(())
+}
+
 /// Methods that name no session, or that this daemon answers itself even
 /// for a peer's session.
 const SESSION_SCOPED_EXCLUDED: &[&str] = &[
@@ -106,7 +129,16 @@ fn name_sender(hub: &Arc<Hub>, conn: &Arc<Conn>, p: &mut Value) {
         meta.remove("messageSender");
     }
     if conn.origin != Origin::Peer {
+        // A relay on this machine's unix socket (no proven session) keeps its relay record, read
+        // again so only well-formed relay fields go on as this daemon's word
+        // (`prompt_provenance::FROM_RELAY`); anything else a client wrote is dropped.
+        let relay = (conn.origin == Origin::Local && conn.caller().is_none())
+            .then(|| crate::prompt_provenance::relay_sender(p))
+            .flatten();
         crate::prompt_provenance::drop_sender_fields(p);
+        if let Some(relay) = relay {
+            crate::hub::merge_mux_meta(p, relay.mux_fields());
+        }
     }
     if conn.is_person() {
         return;
@@ -162,6 +194,23 @@ fn name_peer(mut e: RpcError, peer: &str) -> RpcError {
         obj.insert("peer".into(), Value::String(peer.to_owned()));
     }
     e
+}
+
+/// A pending chat has no session yet. Its trust question can name one existing peer instead;
+/// mixing that selector with a session is ambiguous and never chooses either machine.
+pub(super) fn trust_peer<'a>(m: &str, params: &'a Value) -> Result<Option<&'a str>, RpcError> {
+    if !matches!(m, method::ACP_TRUST_GET | method::ACP_TRUST_SET) {
+        return Ok(None);
+    }
+    let Some(value) = params.get("peer") else { return Ok(None) };
+    let peer = value
+        .as_str()
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| RpcError::invalid_params("peer must be a nonempty peer name"))?;
+    if ["sessionId", "session", "name"].iter().any(|key| params.get(*key).is_some()) {
+        return Err(RpcError::invalid_params("peer trust cannot also name a session"));
+    }
+    Ok(Some(peer))
 }
 
 /// How long a file upload for a peer's chat waits for that peer's link to come back before it is
@@ -220,6 +269,18 @@ pub(super) async fn forward(
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
     let reply = forward_inner(hub, conn, m, params).await.transpose();
+    // A message this daemon handed to a peer's session is a cross-host send (`xhost_audit.rs`).
+    if matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE) && matches!(reply, Some(Ok(_)))
+    {
+        let mut fields = crate::xhost_audit::prompt_fields(params);
+        let peer = session_key(params)
+            .ok()
+            .and_then(|key| hub.resolve_remote(key))
+            .map(|r| r.0.name.clone());
+        fields.set("via", json!("peer"));
+        fields.set("toHost", json!(peer));
+        crate::xhost_audit::record("sent", fields);
+    }
     // A client waits on a peer that is down (a chat it opens): the peer reconnects within
     // seconds (`peer_wanted.rs`). A peer daemon's connection is no client waiting here. A
     // message for a session there, from any connection (a peer daemon's forward and this
@@ -300,6 +361,35 @@ async fn forward_inner(
     {
         return Err(super::remote_guard::refuse_cloud_mobile_forward());
     }
+    if let Some(name) = trust_peer(m, params)? {
+        let peer = hub
+            .peer_by_name(name)
+            .ok_or_else(|| RpcError::not_found(format!("no peer {name:?}")))?;
+        if !peer.connected.load(Ordering::SeqCst) {
+            return Err(peer.unreachable_error());
+        }
+        // The new selector is consumed here; the destination only needs the existing trust
+        // protocol, but it must advertise that support even for a local unix caller.
+        if !peer.supports_trust_gate() {
+            return Err(super::trust_gate::peer_unsupported(&peer.name));
+        }
+        let mut forwarded = params.clone();
+        if let Some(object) = forwarded.as_object_mut() {
+            // This selects the next hop only. Keeping it would ask that daemon to find another
+            // peer by our local alias, or loop back to us if it happens to have the same alias.
+            object.remove("peer");
+        }
+        super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut forwarded);
+        super::remote_guard::attest_person(
+            &mut forwarded,
+            super::requests::person_admitted(conn, params),
+        );
+        let mut result = peer.request(m, forwarded).await?;
+        if let Some(object) = result.as_object_mut() {
+            object.insert("peer".into(), Value::String(peer.name.clone()));
+        }
+        return Ok(Some(result));
+    }
     // Trust answers for a remote session belong to the daemon that owns it.
     if matches!(m, method::ACP_TRUST_GET | method::ACP_TRUST_SET)
         && let Ok(key) = session_key(params)
@@ -314,6 +404,10 @@ async fn forward_inner(
             object.insert("sessionId".into(), Value::String(id));
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut forwarded);
+        super::remote_guard::attest_person(
+            &mut forwarded,
+            super::requests::person_admitted(conn, params),
+        );
         let mut result = peer.request(m, forwarded).await?;
         if let Some(object) = result.as_object_mut() {
             object.insert("peer".into(), Value::String(peer.name.clone()));
@@ -368,6 +462,10 @@ async fn forward_inner(
             {
                 let mut header = json!({"sessionId": id});
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut header);
+                super::remote_guard::attest_person(
+                    &mut header,
+                    super::requests::person_admitted(conn, params),
+                );
                 let mut result =
                     crate::hub::file_uploads::forward_put(&peer, header, params).await?;
                 result.set("peer", json!(peer.name));
@@ -450,7 +548,7 @@ async fn forward_inner(
         if resume_link == Some(None) {
             let build = peer.remote_build().unwrap_or_else(|| "unknown".into());
             return Err(RpcError::method_not_found(&format!(
-                "{m} (peer {} runs acpmux build {build}, whose resume replays the chat; run `acpmux host update {}`)",
+                "{m} (peer {} runs acpmux build {build}, whose resume replays the chat; run `acpmux machine update {}`)",
                 peer.name, peer.name
             ))
             .with_data(json!({"reason": "sessionResume.unsupported", "peer": peer.name})));
@@ -482,7 +580,13 @@ async fn forward_inner(
             obj.remove("name");
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
-        super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+        super::remote_guard::mark_forwarded_with_person(
+            conn.origin,
+            conn.auth,
+            params,
+            &mut p,
+            super::requests::person_admitted(conn, params),
+        );
         // A held prompt names its hold to the peer: a link guest's waits with `approval` left
         // off here, which a peer that reads only `approval` would run unapproved.
         if held
@@ -495,6 +599,7 @@ async fn forward_inner(
             super::requests::person_stop::mark(conn, params, &peer, &mut p);
         }
         bound_page(m, params, &mut p);
+        drop_local_kinds(&mut p);
         // This connection's own reopen hears the chat's messages again; the replay comes over
         // the link every viewer here shares (`MessageNotices`).
         if matches!(m, method::SESSION_LOAD | method::SESSION_RESUME) {
@@ -764,10 +869,10 @@ async fn forward_inner(
             {
                 crate::hub::file_uploads::peer_unsupported(&peer)
             } else if e.message.contains("Method not found") {
-                            RpcError::internal(format!("peer {} does not support {m}; it runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::build(), peer.name))
+                            RpcError::internal(format!("peer {} does not support {m}; it runs acpmux build {} (this daemon: {}); run `acpmux machine update {}`", peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::build(), peer.name))
                                 .with_data(json!({
                                     "reason": "peer_version_skew",
-                                    "try": format!("acpmux host update {}", peer.name),
+                                    "try": format!("acpmux machine update {}", peer.name),
                                     "peer": peer.name,
                                     "method": m,
                                 }))
@@ -905,6 +1010,15 @@ pub const PEER_HOPS_FIELD: &str = "peerHops";
 /// answer back and forth without end.
 pub const MAX_PEER_HOPS: u64 = 4;
 
+/// The sudo card's record kinds (`hub/elevation.rs`) stay off a forwarded read: a peer chat never
+/// has one (elevation is this daemon's own chats only), and a peer on an older build refuses an
+/// attach or read naming more than 8 kinds, which a phone asking for them would then hit.
+fn drop_local_kinds(forwarded: &mut Value) {
+    if let Some(kinds) = forwarded.get_mut("kinds").and_then(Value::as_array_mut) {
+        kinds.retain(|k| !matches!(k.as_str(), Some("elevation_request" | "elevation_decision")));
+    }
+}
+
 /// A history read (`attach`, `events`) goes to the peer with the byte limit this daemon would
 /// page to: a peer on an older build has no limit of its own and answers in one reply however
 /// large, and one of 32.8 MB reset the link with its 29 chats (2026-10-21).
@@ -954,6 +1068,29 @@ pub(super) fn strip_new_meta(p: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A phone's read of a peer chat keeps within the kinds an older peer takes: the sudo card's
+    /// kinds, which a peer chat never has, are dropped (review F1 of cc3c3cf).
+    #[test]
+    fn a_forwarded_read_leaves_the_sudo_card_kinds_here() {
+        let kinds = [
+            "transcript",
+            "queue_updated",
+            "queue_order",
+            "queue_paused",
+            "queue_resumed",
+            "claude.system.api_retry",
+            "bookmarks",
+            "elevation_request",
+            "elevation_decision",
+        ];
+        let mut p = json!({"sessionId": "s", "kinds": kinds});
+        drop_local_kinds(&mut p);
+        assert_eq!(p["kinds"], json!(&kinds[..7]));
+        let mut none = json!({"sessionId": "s"});
+        drop_local_kinds(&mut none);
+        assert_eq!(none, json!({"sessionId": "s"}));
+    }
 
     /// An explicit peer removal must release *every* upload waiting for the
     /// reconnect. The old waiter listened only to completed connection attempts,

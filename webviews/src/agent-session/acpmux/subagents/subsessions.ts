@@ -10,6 +10,7 @@ import { createContext, useContext, useMemo, useSyncExternalStore } from "react"
 import type { StringKey, Translate } from "../i18n";
 import type { RetryState } from "./retryState";
 import { cloudHost, listed, type AcpmuxSessionEntry, type SessionWaiting } from "../sessionList";
+import { resolveSenderIdentity, type SenderIdentity, type SenderReference } from "../senderIdentity";
 
 /// What a sub-session is doing: its turn runs, it waits on the person (a permission or a question),
 /// its turn failed or its agent went away, or it is done until it is sent more.
@@ -54,10 +55,11 @@ export type SubsessionInfo = {
 /// The user-facing name for a session. Keep the raw id in `session.name` for matching and
 /// diagnostics, but never expose an opaque optchat id as the identity in a row.
 export function subsessionDisplayName(t: Translate, session: Pick<SubsessionInfo, "name" | "sessionId">): string {
-  return session.name === session.sessionId || /(?:^|\/)optchat-[0-9a-f]{8,}(?:-[0-9a-f]+)*$/iu.test(session.name)
-    ? t("tray.kind.subagent")
-    : session.name;
+  return session.name === session.sessionId || OPAQUE_ID.test(session.name) ? t("tray.kind.subagent") : session.name;
 }
+
+/// An optchat session id, which names nothing.
+const OPAQUE_ID = /(?:^|\/)optchat-[0-9a-f]{8,}(?:-[0-9a-f]+)*$/iu;
 
 /// A subagent's name as a line shows it: until a record names it (history paged in after its spawn
 /// carries none), its name is its raw `<session>/<tool call>` id, which the fold keeps for routing
@@ -65,11 +67,14 @@ export function subsessionDisplayName(t: Translate, session: Pick<SubsessionInfo
 /// 01a15779-…/toolu_01H9…": "this needs to be rendered better"). A raw id is Claude's
 /// `<session>/<tool call>` or Codex's bare thread UUID; a name equal to any other id is a real
 /// name a record gave it, so it stays.
+/// `child`: the name a sub-session's own chat gives it (`subsessionName`), before "Subagent": a
+/// finished sub-session's fold record often names nothing, while its chat has a title.
 export function subagentDisplayName(
   t: Translate,
   agent: { id: string; name: string; task?: string; kind?: string; prompt?: string },
+  child?: string,
 ): string {
-  return namedBy(agent, agent.name) ?? fallbackName(agent) ?? t("tray.kind.subagent");
+  return namedBy(agent, agent.name) ?? fallbackName(agent) ?? child ?? t("tray.kind.subagent");
 }
 
 /// A subagent's label on the running tray's line: what it was asked to do (Claude's Agent
@@ -79,8 +84,19 @@ export function subagentDisplayName(
 export function subagentTaskLabel(
   t: Translate,
   agent: { id: string; name: string; task?: string; kind?: string; prompt?: string },
+  child?: string,
 ): string {
-  return namedBy(agent, firstLine(agent.task)) ?? subagentDisplayName(t, agent);
+  return namedBy(agent, firstLine(agent.task)) ?? subagentDisplayName(t, agent, child);
+}
+
+/// What a sub-session's own chat calls it: its title, else its name unless that is only its id
+/// (an opaque optchat id names nothing); undefined when neither names it.
+export function subsessionName(
+  session: Pick<SubsessionInfo, "name" | "sessionId" | "title"> | undefined,
+): string | undefined {
+  if (!session) return undefined;
+  if (session.title?.trim()) return session.title.trim();
+  return session.name === session.sessionId || OPAQUE_ID.test(session.name) ? undefined : session.name;
 }
 
 /// `text` when it names the subagent: not empty and not one of its raw ids.
@@ -213,6 +229,7 @@ export class SubsessionStore {
   private readonly listeners = new Set<() => void>();
 
   private entries = new Map<string, AcpmuxSessionEntry>();
+  private senders = new Map<string, AcpmuxSessionEntry>();
   /// Every listed chat's id by its names (its name, its short name; not its title, which can be
   /// "New chat"), and by id its harness and the other machine it runs on: another agent's message
   /// names its sender, which a card marks with its harness and opens, its tooltip naming that
@@ -232,6 +249,8 @@ export class SubsessionStore {
   private ids = new Set<string>();
   private namedKey = "";
   private readonly nameListeners = new Set<() => void>();
+
+  senderEntries = (): ReadonlyMap<string, AcpmuxSessionEntry> => this.senders;
 
   /// Replaces the views with those of the sub-sessions among `sessions`; one whose content did not
   /// change keeps its object. The pane sends the list with every snapshot, reusing the entry of a
@@ -306,12 +325,26 @@ export class SubsessionStore {
       sorted(runs),
       sorted(machines),
       [...ids].sort(),
+      [...sessions]
+        .sort((a, b) => (a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0))
+        .map(({ sessionId, name, shortName, peer, harness, host, hostKind, startedBy, spawnedBy }) => [
+          sessionId,
+          name,
+          shortName,
+          peer,
+          harness,
+          host,
+          hostKind,
+          startedBy,
+          spawnedBy,
+        ]),
     ]);
     const renamed = namedKey !== this.namedKey;
     this.named = named;
     this.ids = ids;
     this.harnesses = harnesses;
     this.hosts = hosts;
+    if (renamed) this.senders = new Map(sessions.map((entry) => [entry.sessionId, entry]));
     if (renamed) this.places = places;
     if (renamed) this.runs = runs;
     if (renamed) this.machines = machines;
@@ -361,6 +394,10 @@ export class SubsessionStore {
     return this.harnesses.get(sessionId);
   }
 
+  sender(sessionId: string): AcpmuxSessionEntry | undefined {
+    return this.senders.get(sessionId);
+  }
+
   /// The model and effort listed chat `sessionId` runs on, when the list names them.
   run(sessionId: string): SenderRun | undefined {
     return this.runs.get(sessionId);
@@ -401,6 +438,9 @@ export type Subsessions = {
   /// Opens the chat that sent this one a message (its received line's chip): any listed chat, not
   /// only this chat's family; `open` when absent.
   openSender?(sessionId: string): void;
+  /// Says the sender a received line's chip names is no chat acpmux lists (App.tsx: a notice line),
+  /// so the click is never a silent no-op.
+  senderMissing?(name: string): void;
 };
 export const SubsessionContext = createContext<Subsessions | null>(null);
 
@@ -458,7 +498,8 @@ export function useSenderChat(
   sessionId: string | undefined,
 ): { sessionId?: string; harness?: string; host?: string; run?: SenderRun } {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
-  const readId = () => sessionId ?? store.find(name);
+  // `name` may be the chat's id itself (a sender acpmux proved, incomingMessage.ts `lookup`).
+  const readId = () => sessionId ?? (store.has(name.trim()) ? name.trim() : store.find(name));
   const id = useSyncExternalStore(store.subscribeNames, readId, readId);
   const readHarness = () => (id ? store.harness(id) : undefined);
   const harness = useSyncExternalStore(store.subscribeNames, readHarness, readHarness);
@@ -474,4 +515,36 @@ export function useMachineChats(host: string): readonly MachineChat[] {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
   const read = () => store.chatsOn(host);
   return useSyncExternalStore(store.subscribeNames, read, read);
+}
+
+/** One identity path for preview cards and session lists. No body-text inference. */
+export function useSenderIdentity(sender: SenderReference, viewerSessionId?: string): SenderIdentity {
+  const store = useContext(SubsessionContext)?.store ?? EMPTY;
+  const readId = () => sender.sessionId ?? store.find(sender.name);
+  const id = useSyncExternalStore(store.subscribeNames, readId, readId);
+  const read = () => (id ? store.sender(id) : undefined);
+  const entry = useSyncExternalStore(store.subscribeNames, read, read);
+  return useMemo(
+    () =>
+      resolveSenderIdentity(
+        { name: sender.name, sessionId: sender.sessionId, relation: sender.relation },
+        entry,
+        viewerSessionId,
+      ),
+    [sender.name, sender.sessionId, sender.relation, entry, viewerSessionId],
+  );
+}
+
+/** A batch follows the same live session metadata and resolver as each message it contains. */
+export function useSenderIdentities(senders: readonly SenderReference[], viewerSessionId?: string): SenderIdentity[] {
+  const store = useContext(SubsessionContext)?.store ?? EMPTY;
+  const entries = useSyncExternalStore(store.subscribeNames, store.senderEntries, store.senderEntries);
+  return useMemo(
+    () =>
+      senders.map((sender) => {
+        const id = sender.sessionId ?? store.find(sender.name);
+        return resolveSenderIdentity(sender, id ? entries.get(id) : undefined, viewerSessionId);
+      }),
+    [senders, viewerSessionId, store, entries],
+  );
 }

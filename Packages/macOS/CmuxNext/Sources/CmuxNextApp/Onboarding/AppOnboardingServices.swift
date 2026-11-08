@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAccounts
 import CmuxNextAgentActivity
 import CmuxNextActions
 import CmuxNextBrowser
@@ -23,7 +24,7 @@ final class AppOnboardingServices: OnboardingServices {
         self.owner = owner
     }
 
-    /// Folder grants (Debug Settings `browserImport.folderGrant`).
+    /// Folder grants: a browser's profiles are read only after the person picked its folder.
     private let folderAccess = BrowserFolderAccess()
 
     /// None while `browser.import.enabled` is off: nothing reads another browser's folders.
@@ -75,7 +76,7 @@ final class AppOnboardingServices: OnboardingServices {
             hold?.release()
             throw error
         }
-        owner.browserImportOffer.importFinished(summary)
+        owner.browserImportOffer.importFinished(summary.counts)
         await owner.historySync.reconcile()
         ImportedTabsOpener.open(summary, services: services)
         if let engine = summary.searchEngine, let settings = services.settings { await BrowserOmnibarSetting.applyImported(engine.setting(builtIn: BrowserSearchEngine.templates), in: settings) }
@@ -115,6 +116,9 @@ final class AppOnboardingServices: OnboardingServices {
         // Turned off by policy (DisabledFeatures): no step and no prompts.
         services.registry.disabledFeatures.contains(.computerUse) ? nil : computerUseSource
     }
+
+    /// The first-run Agents step's harnesses (`OnboardingService.signInHarnesses`).
+    var agentSignIns: (any AgentSignInSource)? { owner.signInHarnesses }
 
     private lazy var computerUseSource: any ComputerUsePermissionSource = {
         #if DEBUG

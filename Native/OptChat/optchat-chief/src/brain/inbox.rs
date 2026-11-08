@@ -123,10 +123,13 @@ impl Brain {
         }
     }
 
-    /// Spec 5a.2: an edit or a retraction of a message the log holds is
-    /// logged as a note that names its line (`edit of <id>: <text>`,
-    /// `retracted <id>`), so the next turn's delta carries it and the next
-    /// re-render folds it in. A reaction on the Chief's own messages goes to
+    /// Spec 5a.2: an edit or a deletion (the owner's retraction) of a message
+    /// the log holds is logged as a note that names its line (`edit of <id>:
+    /// <text>`, `deleted <id>`), so the next turn's delta carries it and the
+    /// next re-render folds it in. A deleted message's own text becomes the
+    /// memory's tombstone at once (`delete_from_memory`), so the Memory
+    /// Inspector and the next view no longer show its line; the summaries
+    /// above it are built again by the change book's worker. A reaction on the Chief's own messages goes to
     /// `on_chief_reactions` (reaction_wake.rs); another update logs nothing. A message still queued
     /// takes the edited text, or leaves the queue when retracted. The note's key
     /// names the change, so a replayed update is logged once.
@@ -156,7 +159,9 @@ impl Brain {
         let (text, change) = match (&message.retracted_at, &message.edited_at) {
             (Some(_), _) => {
                 self.reply_not_needed(std::slice::from_ref(&message.id));
-                (optchat_core::retracted(target), "retracted".to_owned())
+                // The key stays `:retracted`, so a deletion an older build
+                // logged is not logged again.
+                (optchat_core::deleted(target), "retracted".to_owned())
             }
             (None, Some(at)) => (
                 optchat_core::edit_of(target, &message_text(message)),
@@ -171,6 +176,28 @@ impl Brain {
         if let Err(e) = self.chat.append_with(&[entry], |_| Vec::new()) {
             (self.log)(&format!(
                 "logging the change of message {target} failed: {e}"
+            ));
+        }
+        if message.retracted_at.is_some() {
+            self.delete_from_memory(target);
+        }
+    }
+
+    /// Writes logged message `target` over with the tombstone through the
+    /// memory's change book (backup, journal, stale summaries built again on
+    /// the editor's worker), before the next turn renders. Once per message:
+    /// a replay or a catch-up does not delete again a message the owner put
+    /// back in the inspector, and a write that failed is tried again then.
+    fn delete_from_memory(&self, target: u64) {
+        let Some(editor) = &self.memory_editor else {
+            return;
+        };
+        if editor.has_deleted(target) {
+            return;
+        }
+        if let Err((code, why)) = editor.delete_message(target) {
+            (self.log)(&format!(
+                "deleting message {target} from the memory failed ({code}): {why}"
             ));
         }
     }
@@ -293,6 +320,18 @@ impl Brain {
                 }
                 self.summary = Some(summary);
                 self.handled = from;
+                // A deletion made while the brain was not listening (a restart,
+                // a lost connection): the newest page's retracted messages go
+                // through the live path, which writes each one once.
+                let me = &self.settings.membership.participant;
+                let retracted: Vec<Message> = messages
+                    .iter()
+                    .filter(|m| m.seq <= from && m.retracted_at.is_some() && &m.author != me)
+                    .cloned()
+                    .collect();
+                for message in &retracted {
+                    self.on_message_updated(message);
+                }
                 for message in pending {
                     self.handle(message);
                 }

@@ -28,6 +28,36 @@ pub enum Probe {
     Incomplete,
 }
 
+/// Wait until repository synchronization is complete, or until `timeout`.
+///
+/// Hook callers use this as a synchronous pre-tool gate. The returned read
+/// lease is intentionally released before the caller executes the tool; a
+/// caller that must serialize the write itself should retain [`Ready`] from
+/// [`probe`] through its mutation instead.
+pub fn wait_ready(path: &Path, timeout: Duration) -> io::Result<()> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match probe(path)? {
+            Probe::Ready(ready) => {
+                drop(ready);
+                return Ok(());
+            }
+            Probe::Incomplete => {
+                return Err(io::Error::other("repository synchronization failed; retry the sync"));
+            }
+            Probe::Syncing => {
+                if Instant::now() >= deadline {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "repository synchronization did not finish",
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+    }
+}
+
 fn marker(folder: &Path) -> io::Result<PathBuf> {
     let parent = folder.parent().ok_or_else(|| io::Error::other("sync root has no parent"))?;
     let name = folder.file_name().ok_or_else(|| io::Error::other("sync root has no name"))?;

@@ -1,5 +1,5 @@
 import { Icon } from "../../agent-session/acpmux/icons/Icon";
-import { useIcons } from "../../agent-session/acpmux/icons/IconsContext";
+import { useIcons } from "../../agent-session/acpmux/icons/iconsContextModel";
 import { bundledIconPack, MISSING_ICON } from "../../agent-session/acpmux/icons/iconPack";
 import { sceneText } from "./sceneStyle";
 

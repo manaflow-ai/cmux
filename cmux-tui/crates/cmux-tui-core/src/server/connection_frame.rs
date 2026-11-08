@@ -127,6 +127,13 @@ pub(super) fn handle_connection_frame(
         Err(error) => return send_bad_request(writer, message, &error),
     };
     request.remote_line = incognito_remote::line_to_recheck(mux, client, message);
+    // Key-press flows: the reader parsed the key's line. With `daemon.send.write` on the dispatcher it separates the
+    // wait in the connection's queue from the wait before the line was read (`CMUX_TRACE_FLOWS` only).
+    if let Command::Send(send) = &request.cmd
+        && let Some(flow) = send.flow
+    {
+        cmux_flow_trace::hop("daemon.send.read", flow, "");
+    }
     // A liveness or identity ask is answered here, on the connection's reader: queued, it waited
     // behind every slower request the connection sent before it (a Cloud start, a terminal
     // create), and the app's read barrier and heartbeat timed out on a loaded Mac (#32724).
@@ -209,7 +216,16 @@ pub(super) fn handle_request_with_cancellation(
     };
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
     let (mut reason, mut retryable, mut details) = (None, None, None);
-    let response = match handle_command_with_cancellation(mux, client, cmd, writer, cancellation) {
+    // Under `dx serve --hot-patch` every request runs the newest patched code.
+    #[cfg(feature = "hotpatch")]
+    let result = crate::hotpatch::call(
+        handle_command_with_cancellation,
+        (mux, client, cmd, writer, cancellation),
+    )
+    .and_then(|result| result);
+    #[cfg(not(feature = "hotpatch"))]
+    let result = handle_command_with_cancellation(mux, client, cmd, writer, cancellation);
+    let response = match result {
         Ok(data) => Response {
             id,
             ok: true,

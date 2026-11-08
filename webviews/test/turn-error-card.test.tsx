@@ -239,6 +239,78 @@ test("capacity puts Retry first, Switch model after it", async () => {
   expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(false);
 });
 
+// Leo 2026-11-03, on a card that led with Switch model when the model's server could not be reached:
+// "this ui is pretty awkward looking". Which action leads, per error kind.
+const leadLabels = () =>
+  [...card().querySelectorAll(".cv-turn-error__actions > button")].map((element) => element.textContent);
+const isPrimary = (label: string) => button(label)!.classList.contains("cv-turn-error__primary");
+
+test("a server that cannot be reached leads with Retry, Switch model after it", async () => {
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ retry: () => undefined, switchModel: () => undefined }}>
+        <TurnFooter row={failed("API Error: Connection error.")} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(card().getAttribute("data-failure-kind")).toBe("unreachable");
+  expect(leadLabels()).toEqual(["Retry", "Switch model"]);
+  expect(isPrimary("Retry")).toBe(true);
+  expect(isPrimary("Switch model")).toBe(false);
+});
+
+test("an unreachable card with no Retry keeps Switch model outlined, never the filled lead", async () => {
+  // An earlier turn (or one a retry already went on from) has no prompt of its own to send again.
+  const earlier = { ...failed("connect ECONNREFUSED 127.0.0.1:443"), prompt: undefined, retryRowId: undefined };
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ retry: () => undefined, switchModel: () => undefined }}>
+        <TurnFooter row={earlier} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(card().getAttribute("data-failure-kind")).toBe("unreachable");
+  expect(leadLabels()).toEqual(["Switch model"]);
+  expect(isPrimary("Switch model")).toBe(false);
+});
+
+test("Retry on an unreachable card goes through acpmux's turn retry and waits while it is in flight", async () => {
+  const calls: string[] = [];
+  let settle: () => void = () => undefined;
+  const retryFailed = (rowId: string | undefined, prompt: string | undefined) => {
+    calls.push(`${rowId}:${prompt}`);
+    return new Promise<undefined>((resolve) => (settle = () => resolve(undefined)));
+  };
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ retryFailed, switchModel: () => undefined }}>
+        <TurnFooter row={{ ...failed("fetch failed"), retryable: true }} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(leadLabels()).toEqual(["Retry", "Switch model"]);
+  expect(isPrimary("Retry")).toBe(true);
+  await act(async () => button("Retry")!.click());
+  expect(calls).toEqual(["user-1:Run the sidebar tests and fix what fails"]);
+  expect(button("Retry")!.hasAttribute("disabled")).toBe(true);
+  await act(async () => settle());
+  expect(button("Retry")!.hasAttribute("disabled")).toBe(false);
+});
+
+test("a failure about the model's route still leads with Switch model, Retry after it", async () => {
+  await act(async () =>
+    root.render(
+      <TurnActionsContext.Provider value={{ retry: () => undefined, switchModel: () => undefined }}>
+        <TurnFooter row={failed("invalid x-api-key")} />
+      </TurnActionsContext.Provider>,
+    ),
+  );
+  expect(card().getAttribute("data-failure-kind")).toBe("invalid-key");
+  expect(leadLabels()).toEqual(["Switch model", "Retry"]);
+  expect(isPrimary("Switch model")).toBe(true);
+  expect(isPrimary("Retry")).toBe(false);
+});
+
 test("the typed reason reaches the card", async () => {
   await act(async () =>
     root.render(

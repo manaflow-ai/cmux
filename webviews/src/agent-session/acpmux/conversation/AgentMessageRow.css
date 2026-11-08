@@ -159,7 +159,7 @@ button.cv-agentmsg__name:focus-visible {
 /* It fades as a tool row's does (conversation.css, #23769); from the keyboard it comes in at once. */
 @media (prefers-reduced-motion: no-preference) {
   .cv-agentmsg__line:focus-within .cv-command__ok {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-ease);
+    transition: none;
   }
 }
 /* The opened message: a compact glass card at the row's text indent (the icon's 16px, less its
@@ -294,7 +294,19 @@ button.cv-agentmsg__name:focus-visible {
 .cv-received .cv-disclosure__label {
   flex-shrink: 1000;
 }
+/* At rest a message line (sent, received, a group's or a run's head) reads in the activity tone the
+   other finished tool rows rest at; it lights to the text tone only under the pointer or keyboard
+   focus (Leo, 2026-11-03, on "Received 6 messages" / "Sent 2 messages" after #34464 drew them in the
+   text tone at rest: "these are now too lit up by default? they should only be this bright when u
+   hover over it"). A session chip that has the pointer or focus lights alone (AgentTag.css). The
+   opened message's own card keeps the text tone. */
 .acpmux-row .cv-tool:is(.cv-sent, .cv-agentmsg__line, .cv-message-group__head, [data-message-run]),
+.acpmux-row .cv-received > .cv-disclosure__line {
+  color: var(--cv-activity-text);
+}
+.acpmux-row .cv-tool:is(.cv-sent, .cv-agentmsg__line, .cv-message-group__head, [data-message-run]):is(:hover, :focus-visible, :has(:focus-visible)):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))),
+.acpmux-row .cv-received > .cv-disclosure__line:is(:hover, :has(:focus-visible)):not(:has(.cv-agent-tag.is-open:is(:hover, :focus))),
+.acpmux-row .cv-tool.cv-message-group__head:is([aria-expanded="true"], :has([data-popup-open])),
 .acpmux-row .cv-agentmsg__card {
   color: var(--cv-text);
 }
@@ -307,4 +319,89 @@ button.cv-agentmsg__name:focus-visible {
 }
 .acpmux-row :is(.cv-agentmsg__preview, .cv-message-group__senders, .cv-msgline__preview, .cv-sent__more) {
   color: var(--cv-text-muted);
+}
+/* A group of sent messages (SentMessageLine.tsx `SentMessageGroup`): its head is a message group's
+   (MessageGroupHead.css), the group its narrow-pane container; opened, its messages sit on the
+   head's icon and text columns, flush, as an opened "Received N messages" row's do. */
+.cv-sent-group {
+  container-type: inline-size;
+  min-width: 0;
+}
+/* A sent message (SentMessageLine.tsx) draws as a received one (ask-64e107ccf0; Leo, 2026-11-07:
+   "it's just not good, compared to the normal ones"): the received line and card above, with "Sent
+   to" before the recipient's chip. The chip follows those words at the sender span's gap, so it
+   keeps no pull into the mark's gap that a first-word sender takes. */
+.cv-sent-msg .cv-received__sender > .cv-agent-tag,
+.cv-sent-msg .cv-received__sender > .cv-agent-tag.is-open {
+  margin-inline-start: 0;
+}
+.cv-sent__words {
+  flex: none;
+  white-space: nowrap;
+}
+/* The line never runs past its pane (cmux#37879 review: "Read at its next step" for a long
+   recipient drew past the transcript at a narrow pane). Its status keeps its room
+   (`.cv-command__meta`, flex: none), and so does the chevron; the first line gives way first, then
+   the recipient's machine and name behind their ellipses (`.cv-received__host`, `.cv-received__from`),
+   as a received line's sender does. The received sender's shrink of 0.0001 lets its name keep its
+   room beside a first line, but a factor sum under 1 also absorbs only that share of what is left
+   once the first line is gone (CSS Flexbox 9.7), so the status was pushed out; here the sender
+   shrinks at 1 and the toggle at 1000, the same order with the whole overflow taken. */
+.cv-sent-msg > .cv-disclosure__line > .cv-received__sender {
+  flex-shrink: 1;
+}
+.cv-sent-msg > .cv-disclosure__line > .cv-disclosure__toggle {
+  flex-shrink: 1000;
+  /* The chevron's own width (ChevronRight size 14): the toggle gives way down to it, never under. */
+  min-width: 14px;
+}
+.cv-sent-msg > .cv-disclosure__line > .cv-disclosure__toggle > .cv-rotor {
+  flex: none;
+}
+.cv-sent-msg .cv-received__mark.cv-tool__failed {
+  color: var(--agent-status-failure);
+}
+.cv-sent-msg .cv-sent__preview {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--ds-space-1);
+}
+.cv-sent-msg .cv-sent__preview > .cv-sent__file {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Raw's call: the plain command row at the card's text column, no inset of its own. */
+.cv-sent__raw-body > .cv-tools,
+.cv-sent__call > .cv-tools {
+  margin: 0;
+}
+/* Gallery arms (sentMessageLook.experiment.ts). Plain: the words under the line with no card. */
+.cv-sent-msg.look-plain .cv-disclosure__panel {
+  background: none;
+  box-shadow: none;
+  padding-block: 0;
+}
+/* Raw on hover: the link shows while the pointer or focus is in the card, or while Raw is open. It
+   follows the pointer's dwell as a message's hover row does (conversation.css --cv-actions-*): in
+   for as long as the pointer stays, out a little faster; keyboard focus shows it at once. */
+.cv-sent-msg.look-hover .cv-sent__raw > .cv-received__more[aria-expanded="false"] {
+  opacity: 0;
+}
+.cv-sent-msg.look-hover .cv-disclosure__panel:hover .cv-sent__raw > .cv-received__more,
+.cv-sent-msg.look-hover .cv-disclosure__panel:has([data-popup-open]) .cv-sent__raw > .cv-received__more,
+.cv-sent-msg.look-hover .cv-disclosure__panel:focus-within .cv-sent__raw > .cv-received__more {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-sent-msg.look-hover .cv-sent__raw > .cv-received__more {
+    transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
+  }
+  .cv-sent-msg.look-hover .cv-disclosure__panel:hover .cv-sent__raw > .cv-received__more,
+  .cv-sent-msg.look-hover .cv-disclosure__panel:has([data-popup-open]) .cv-sent__raw > .cv-received__more {
+    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
+  }
+  .cv-sent-msg.look-hover .cv-disclosure__panel:focus-within .cv-sent__raw > .cv-received__more {
+    transition: none;
+  }
 }

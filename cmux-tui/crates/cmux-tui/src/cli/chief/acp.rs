@@ -240,20 +240,43 @@ fn initialize() -> Value {
     })
 }
 
+/// The name a prompt acpmux could not attribute goes to the Chief under
+/// (`_meta.acpmux.sender` with no name, acpmux `prompt_provenance::unverified`).
+const UNVERIFIED_SENDER: &str = "unverified";
+
 /// The agent acpmux says sent a prompt (`_meta.acpmux.sender`, from
 /// another session's `acpmux send` or task): its message goes to the Chief
-/// as that agent's, never as the owner's. None for the person's prompt.
+/// as that agent's, never as the owner's. A prompt acpmux could not
+/// attribute goes as an unverified sender's, never as the owner's either. A
+/// peer that passed it on is named beside the sender, not in its place. None
+/// for the person's prompt (no `sender`).
 fn prompt_sender(params: &Value) -> Option<AgentSender> {
     let sender = params.pointer("/_meta/acpmux/sender")?;
     let field = |key: &str| sender.get(key).and_then(Value::as_str);
-    let name = field("name")?;
+    let Some(name) = field("name") else {
+        let unverified = AgentSender::new(UNVERIFIED_SENDER, field("class"), field("threadId"))?;
+        return Some(unverified.with_display(messages().unverified_sender, forwarder(sender)));
+    };
     // Another Chief's turn: shown as that Chief (`[from chief:codex-chief]`),
     // the way local Chiefs name each other.
     let name = match sender_chief(params) {
         Some(_) => format!("chief:{}", handle(name)),
         None => name.to_owned(),
     };
-    AgentSender::new(&name, field("class"), field("threadId"))
+    let named = AgentSender::new(&name, field("class"), field("threadId"))?;
+    Some(match forwarder(sender) {
+        Some(by) => {
+            let shown = named.name.clone();
+            named.with_display(&shown, Some(by))
+        }
+        None => named,
+    })
+}
+
+/// Who passed a prompt on (`_meta.acpmux.sender.forwardedBy`), as label words.
+fn forwarder(sender: &Value) -> Option<&'static str> {
+    let by = sender.get("forwardedBy")?;
+    (by.get("actor").and_then(Value::as_str) == Some("peer")).then_some("via peer")
 }
 
 /// The chat this adapter serves: the default Chief's, or with `--chief` that
@@ -540,6 +563,26 @@ mod tests {
         let sender = prompt_sender(&params).expect("sender");
         assert_eq!(sender, AgentSender::new("lane-a", Some("question"), Some("t1")).unwrap());
         assert_eq!(prompt_sender(&json!({"sessionId": "s", "prompt": []})), None);
+    }
+
+    #[test]
+    fn a_prompt_acpmux_could_not_attribute_is_never_the_owners() {
+        let params = json!({"sessionId": "s", "prompt": [],
+            "_meta": {"acpmux": {"sender": {"verified": false, "transport": "unix"}}}});
+        let sender = prompt_sender(&params).expect("an unverified sender, not the owner");
+        assert_eq!(sender.name, UNVERIFIED_SENDER);
+        assert_eq!(sender.shown(), messages().unverified_sender);
+        assert_eq!(reply_route(&sender, None, "agent_mux", "Chief"), None);
+    }
+
+    #[test]
+    fn a_forwarded_prompt_keeps_its_sender_and_names_the_peer_beside_it() {
+        let params = json!({"sessionId": "s", "prompt": [],
+            "_meta": {"acpmux": {"sender": {"name": "lane-a", "verified": false,
+                "transport": "peer", "forwardedBy": {"actor": "peer"}}}}});
+        let sender = prompt_sender(&params).expect("sender");
+        assert_eq!(sender.name, "lane-a");
+        assert_eq!(sender.shown(), "lane-a › via peer");
     }
 
     #[test]

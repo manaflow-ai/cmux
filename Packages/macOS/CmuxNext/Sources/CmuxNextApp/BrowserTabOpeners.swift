@@ -145,6 +145,12 @@ final class BrowserTabOpeners {
         openerOf.removeAll()
     }
 
+    /// A foreground page tab (the GitHub page) a link made outside ``place``: Chrome's foreground rule, so its close selects `opener`.
+    func adopt(_ child: SurfaceID, opener: SurfaceID) {
+        forgetAll()
+        openerOf[child] = opener
+    }
+
     /// Tabs the pane no longer shows (closed, moved away) leave the tree;
     /// their children take their opener (`FixOpeners`).
     private func reconcile(with order: [SurfaceID]) {

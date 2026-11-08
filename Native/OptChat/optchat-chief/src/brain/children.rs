@@ -57,8 +57,8 @@ impl Brain {
                     self.flush_outbox();
                 }
                 self.reconcile_home_approvals();
-                // Restore the watchdog for every hidden pending request,
-                // including cards delivered before the host restarted.
+                // Restore the watchdog for every hidden pending request with
+                // no Allow button: a delivered Home card or a workspace waits.
                 let pending: Vec<String> = self
                     .state
                     .spawns
