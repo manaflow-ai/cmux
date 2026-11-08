@@ -59,7 +59,9 @@ const outboxNote = {
 /// Opens the group of waiting messages, which shows collapsed; one waiting message is its own line.
 const openGroup: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-pending__toggle, .cv-pending--one"));
-  ctx.document.querySelector<HTMLButtonElement>(".cv-pending__toggle")?.click();
+  // A real pointer's click, as the person's: the group opens every message whole, and the rows
+  // after it move by the person's own hand, not on their own.
+  if (ctx.document.querySelector(".cv-pending__toggle")) await ctx.click({ selector: ".cv-pending__toggle" });
   await ctx.waitFor(() => ctx.document.querySelector(".cv-received__from"));
 };
 

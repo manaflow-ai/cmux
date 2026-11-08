@@ -93,7 +93,7 @@ impl App {
             !self.deferred_input.is_empty() || self.pending_pointer_motion.is_some();
         while !self.quit
             && !crate::shutdown_requested()
-            && !self.session.daemon_shutdown_requested()
+            && !self.daemon_departure_ends_event_loop()
             && !self.owner_shutdown_requested()
         {
             if replay_ready {

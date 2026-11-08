@@ -154,6 +154,12 @@ public nonisolated struct KeyBindingDefaults {
     /// user's Ghostty config still wins over them. In a web page, the Markdown
     /// viewer and other surfaces with their own Back / Forward, the more
     /// specific catalog entry on the same key comes later and wins.
+    ///
+    /// Ctrl-- / Ctrl-Shift-- (VS Code's Go Back / Forward, the catalog keys before Opt-Cmd-, /
+    /// Opt-Cmd-.) stay everywhere but a focused terminal, where Ctrl-_ is readline/emacs undo.
+    /// The catalog keys Opt-Cmd-, / Opt-Cmd-. run the titlebar's Back / Forward in every pane, a web
+    /// page and a terminal included (Lawrence 2026-11-07: "we need a new shortcut for back and forth
+    /// by default for top left one not browser one").
     public static let focusHistoryAliases: [KeyBinding] = RustActionCatalog.shared.bindings["focus_history_aliases"] ?? []
     /// Cmd-Shift-= (Cmd-+ on a US layout) is the markdown viewer's Zoom In too, as Cmd-= is: the
     /// key a person reads as "Command plus". The action needs `markdownFocused`, so a terminal or a
@@ -184,8 +190,7 @@ public nonisolated struct KeyBindingDefaults {
     /// Shift-Cmd-P, Cmd-Q, Cmd-comma, Shift-Cmd-T) are not here.
     public static let yieldsToCodeEditor: Set<ActionID> = Set(RustActionCatalog.shared.idLists["yields_to_code_editor"] ?? [])
 
-    /// Actions whose default key a terminal program also uses (Ctrl-_ is
-    /// readline/emacs undo): their default binding applies everywhere but a
+    /// Actions whose default key a terminal program also uses: their default binding applies everywhere but a
     /// focused terminal (`notTerminal`, like Ctrl-Tab under K-T1;
     /// PANE-FOCUS-RESIZE-KEYS-AND-GHOSTTY-KEYBINDS amendment 3). A user
     /// binding keeps its own `when`.
