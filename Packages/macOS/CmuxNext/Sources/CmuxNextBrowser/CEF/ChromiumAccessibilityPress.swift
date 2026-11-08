@@ -17,14 +17,18 @@ nonisolated enum ChromiumAccessibilityPress {
     /// `-[NSAccessibility accessibilityPerformPress]`, the press of the current API.
     static let performPress = #selector(NSAccessibilityProtocol.accessibilityPerformPress)
     /// `-[NSObject accessibilityPerformAction:]`, the press of the older API (with `AXPress`).
-    static let performAction = NSSelectorFromString("accessibilityPerformAction:")
+    static let performAction = #selector(NSObject.accessibilityPerformAction(_:))
 
     private typealias Press = @convention(c) (AnyObject, Selector) -> Bool
     private typealias Action = @convention(c) (AnyObject, Selector, AnyObject?) -> Void
+    private typealias WindowGetter = @convention(c) (AnyObject, Selector) -> AnyObject?
+    private typealias FrameGetter = @convention(c) (AnyObject, Selector) -> CGRect
+    private static let windowGetter = #selector(NSAccessibilityElement.accessibilityWindow)
+    private static let frameGetter = #selector(NSAccessibilityElement.accessibilityFrame)
 
     /// A method only an installed class has: the mark that makes a second install a no-op, kept on
     /// the class itself (`class_addMethod` adds it once).
-    static let installedMark = NSSelectorFromString("cmux_accessibilityPressTellsGesture")
+    static let installedMark = #selector(InstalledMark.cmuxAccessibilityPressTellsGesture)
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
 
@@ -74,16 +78,22 @@ nonisolated enum ChromiumAccessibilityPress {
         return install(on: elementClass, pressed: pressed)
     }
 
-    /// Read by key (the element's own properties), only when it answers them: an element that
-    /// does not is no window and no frame.
+    /// The element's own getter, called through its implementation (not through a protocol that
+    /// would tie the call to the main actor), only when it answers it.
     private static func window(of element: AnyObject) -> NSWindow? {
-        guard let element = element as? NSObject, element.responds(to: NSSelectorFromString("accessibilityWindow")) else { return nil }
-        return element.value(forKey: "accessibilityWindow") as? NSWindow
+        guard element.responds(to: windowGetter), let imp = class_getMethodImplementation(type(of: element), windowGetter) else { return nil }
+        return unsafeBitCast(imp, to: WindowGetter.self)(element, windowGetter) as? NSWindow
     }
 
     private static func frame(of element: AnyObject) -> CGRect? {
-        guard let element = element as? NSObject, element.responds(to: NSSelectorFromString("accessibilityFrame")),
-              let frame = (element.value(forKey: "accessibilityFrame") as? NSValue)?.rectValue, !frame.isEmpty else { return nil }
-        return frame
+        guard element.responds(to: frameGetter), let imp = class_getMethodImplementation(type(of: element), frameGetter) else { return nil }
+        let frame = unsafeBitCast(imp, to: FrameGetter.self)(element, frameGetter)
+        return frame.isEmpty ? nil : frame
     }
+}
+
+/// Only the name of ``ChromiumAccessibilityPress/installedMark``: the method itself is added to an
+/// installed element class, never called here.
+private final class InstalledMark: NSObject {
+    @objc func cmuxAccessibilityPressTellsGesture() -> Bool { true }
 }
