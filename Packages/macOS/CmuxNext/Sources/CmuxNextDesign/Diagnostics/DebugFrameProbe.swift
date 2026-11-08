@@ -47,7 +47,8 @@ public final class DebugFrameProbe {
 
     public init() {}
 
-    /// `action`: "start", "stop", "reset", or anything else to read the record; `raw` adds the per-frame arrays.
+    /// `action`: "start", "stop", "reset", "close_variant ..." (the CLOSE VARIANTS film selector, ``FilmCloseVariant/select(_:)``),
+    /// or anything else to read the record; `raw` adds the per-frame arrays.
     public func handle(action: String?, raw: Bool) -> [String: Any] {
         switch action ?? "read" {
         case "start":
@@ -58,6 +59,10 @@ public final class DebugFrameProbe {
             return stats
         case "reset":
             clear()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        case let film where film.hasPrefix("close_variant"):
+            return FilmCloseVariant.select(film)
+        #endif
         default:
             break
         }

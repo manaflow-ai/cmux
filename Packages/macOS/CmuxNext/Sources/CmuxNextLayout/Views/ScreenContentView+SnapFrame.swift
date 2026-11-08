@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 
 /// CLOSE MOTION 3 (film cm-b-split-reduce, 120 Hz): a structural change whose frames snap (Reduce Motion, pane
 /// animations off) showed its terminals torn for one refresh: each pane took its new frame in the change's turn, each
@@ -26,7 +27,17 @@ extension ScreenContentView {
                 .pixelEdges(scale)
             guard placed.size != host.frame.size else { continue }
             resized = true
-            host.drawAhead(sizeChange: CGSize(width: placed.width - host.frame.width, height: placed.height - host.frame.height), keyPress: false)
+            let change = CGSize(width: placed.width - host.frame.width, height: placed.height - host.frame.height)
+            host.drawAhead(sizeChange: change, keyPress: false)
+            #if DEBUG || CMUX_BENCH_HOOKS
+            // CLOSE VARIANTS film snap (never ships): the final grid goes to the PTY now, in the close's turn, before its
+            // commit, straight to each terminal in the host. Through `drawAhead` alone (build 91816749) the grid still went
+            // at the next tick (key + 35-46 ms): the presenter's `applyAhead` did not send it (counters: `close_variant`).
+            if DesignSettings.shared.filmClose.snapSendsGrid {
+                FilmCloseVariant.count("snap_hosts")
+                host.content.filmSendSnapGrids(sizeChange: change)
+            }
+            #endif
         }
         guard resized else { return false }
         (frameInput.snapWaitsForContent, frameInput.presentationWaiting) = (true, true)

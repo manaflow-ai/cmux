@@ -12,6 +12,32 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### READY_PROGRAM means the program redrew the whole new grid (ghostty-next)
+
+- Fork PR #88 (`resize-p0-13-ready`, head `8e881185b`, stacked on #87 `2db2ea423`); the pin is the release branch
+  `release/cmux-538a3e2e-resize-p0-13` at `8e881185b` until #86, #87 and #88 merge to fork `main`.
+- What: `Terminal.program_redraw` replaces `output_since_grid_change`. A picture begins at BSU (mode 2026), a CUP home
+  (outside a synchronized update: when no picture is open, it went past the grid, or it scrolled), a full clear, or a
+  line feed with no picture open (a scrolled picture). It is whole at ESU, or at the end of a PTY read outside a
+  synchronized update, when it reached the last row and the last column (an erase to the end counts) and did not go
+  past the grid (a CUP past the grid, a print past the last column, or a line feed that scrolls the whole screen).
+  `drew_grid` then stamps `Target.program_fresh`, so `hostFrame(false)` returns `.ready_program` only for that frame.
+- Conflict notes: `src/terminal/Terminal.zig` (`program_redraw`, `programIndex` from `index()`), `src/termio/Termio.zig`
+  (end of read), `src/termio/stream_handler.zig` (BSU/ESU), `src/renderer/generic.zig`, `src/renderer/metal/Target.zig`.
+
+### Host frames say whether the program drew at their grid (ghostty-next)
+
+- Fork PR #87 (`resize-p0-12-hold`, head `2db2ea423`, stacked on #86 `538a3e2ef`); the pin is the release branch
+  `release/cmux-538a3e2e-resize-p0-12` at `2db2ea423` until #86 and #87 merge to fork `main`.
+- What: `Terminal.output_since_grid_change` (cleared by `Terminal.resize` when the grid changes, set by
+  `Termio.processOutputLocked` on parsed output); `generic.zig` stamps `Target.program_fresh` for cells built from the
+  live terminal at the frame's size after that output; `Metal.zig` `hostFrame(false)` returns `.ready_program` (C
+  `GHOSTTY_HOST_FRAME_READY_PROGRAM = 7`) for such a kept frame and `.ready` for a frame of the size only. While the
+  embedder presents host sizes, a program-fresh frame also goes through the main queue, so the embedder's pre-commit
+  observer presents it in that refresh. cmux uses it for the resize hold (`TerminalFramePresenter`, RESIZE P0 12).
+- Conflict notes: touches `src/renderer/Metal.zig` next to #86's `hostFrameWaits`, `src/apprt/structs.zig` `HostFrame`
+  and `include/ghostty.h` `ghostty_host_frame_e`.
+
 ### An update draws at once while a host size's frame waits for the embedder's present (ghostty-next)
 
 - Fork PR #86 (`fix/renderer-draws-now-for-a-waiting-host-frame`, head `538a3e2ef`, on `1740c4452`); the pin is the fix

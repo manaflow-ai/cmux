@@ -72,9 +72,44 @@ public final class TerminalSurfaceView: NSView {
     /// unless the owner already has it.
     func reportFinalGrid(_ grid: TerminalGridSize) {
         defer { updateReflowPreview() }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // CLOSE VARIANTS V6 (film only): the close owns the survivor's grid from this send to the landing at it, so the
+        // growth's layout passes send nothing more (1 SIGWINCH). Any other selection: a newer final grid ends a snap's.
+        frameOwnership.filmSnapGrid = DesignSettings.shared.filmClose.growsAndFades ? grid : nil
+        frameOwnership.filmSentEpoch = window.map(TerminalFramePresenter.forWindow)?.currentEpoch
+        #endif
         guard surface != nil, let report = geometry.finalSized(grid) else { return }
         gridReports.now(report)
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// CLOSE VARIANTS film snap (``FilmCloseVariant/snapSendsGrid``; DEBUG and bench builds only, never merged): the grid a
+    /// view of `pixels` fits goes to the PTY owner now, in the close's turn before its commit, so the program redraws at
+    /// its final grid before the tick that shows the final size. The landing at that size then reports nothing more (the
+    /// policy already has it as reported).
+    func reportFilmSnapGrid(pixels: NSSize, on surface: ghostty_surface_t) {
+        var columns: UInt16 = 0, rows: UInt16 = 0
+        guard ghostty_surface_fit_grid(surface, UInt32(pixels.width), UInt32(pixels.height), &columns, &rows), columns > 0, rows > 0,
+              let report = geometry.viewSized(TerminalGridSize(columns: Int(columns), rows: Int(rows))) else { return }
+        FilmCloseVariant.count("grid_sent")
+        frameOwnership.filmSnapGrid = report
+        frameOwnership.filmSentEpoch = window.map(TerminalFramePresenter.forWindow)?.currentEpoch
+        gridReports.now(report)
+    }
+
+    /// A film snap's grid went in the close's turn: the close owns the PTY's grid until the view lands at it, and a
+    /// layout pass at the old bounds sends nothing. The landing at that grid ends it and sends nothing either (the policy
+    /// already has it as reported).
+    func filmSnapHolds(_ desired: TerminalGridSize) -> Bool {
+        guard let sent = frameOwnership.filmSnapGrid else { return false }
+        guard desired != sent else {
+            frameOwnership.filmSnapGrid = nil
+            return false
+        }
+        FilmCloseVariant.count("old_grid_held")
+        return true
+    }
+    #endif
 
     /// The pane's layout spring landed: the final grid no longer stands in for the view's, and the surface
     /// takes its host's area again (a landing at another size reports that grid). The reflow preview is
@@ -514,10 +549,14 @@ public final class TerminalSurfaceView: NSView {
         // frame was on screen, and every drawn-ahead frame showed the program's picture of the previous grid, clipped or
         // banded at the new edge (diag 2b50b18e, cmux21, macOS 26, 1x 120 Hz, px-keys-held-2-s1r: 35 of 37 judged edge
         // frames). A retarget can leave one such grid unshown; the next refresh sends the grid it asks for. Elsewhere it
-        // is the grid the view's committed bounds fit (a drag's goes once its size shows; a split's, close's or zoom's
-        // spring holds its grid to the landing), and the landing calls this again with the new bounds (``frameDidLand()``).
+        // is the grid the view's committed bounds fit (a split's, close's or zoom's spring holds its grid to the landing),
+        // and the landing calls this again with the new bounds (``frameDidLand()``). A divider drag follows the same rule
+        // as a key resize (RESIZE P0 12, m55): its grid goes with the size asked, and the presenter holds that size's
+        // frame for the program's redraw (``programHoldTicks``). It went only once its size showed (cmux-ad m29), so the
+        // program redrew a refresh after the divider and every drag frame showed its previous picture clipped.
         let keyResize = followsKeyResize
-        let reported = keyResize ? Self.grid(fitting: size) : shownGrid(on: surface, fallback: size)
+        let asksGrid = keyResize || isFollowingResizeGesture
+        let reported = asksGrid ? Self.grid(fitting: size) : shownGrid(on: surface, fallback: size)
         guard let desired = reported else { return publish(size: size, grid: nil) }
         publish(size: size, grid: desired)
         // A pane on a layout spring (Cmd-Shift-Enter zoom, split, close) resizes this view on every display
@@ -525,14 +564,19 @@ public final class TerminalSurfaceView: NSView {
         // spring lands (`paneMotionDidSettle`), one PTY resize instead of one per frame. A key resize whose host
         // follows its pane (cmux-ad m18) and a drag (its release's spring too, cmux-ad m29) are live instead: their
         // grids go coalesced (``TerminalGridReporter``), at most once per refresh (the first at once, RESIZE P0 7), ending at the landing's.
-        let live = keyResize || isFollowingResizeGesture
+        let live = asksGrid
         // A size whose frame is not drawn yet and is no longer the one wanted (FRAME OWNER S4: the pane
         // moved on, or its spring landed, while the frame waited) reports nothing: the wanted size
         // reports its grid when its frame lands. The landing's release sized from such a size and sent its stale grid,
         // then the final grid again (review of #35470, F1).
         let stale = frameOwnership.inFlight.map { $0 != frameOwnership.wanted?.size } ?? false
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let filmHolds = filmSnapHolds(desired)
+        #else
+        let filmHolds = false
+        #endif
         let report = geometry.viewSized(desired, force: forceReport,
-                                        holding: stale || (!forceReport && isInPaneMotion && !live))
+                                        holding: stale || filmHolds || (!forceReport && isInPaneMotion && !live))
         // In the same main-thread turn as set_size: the frame of the new size draws at the next display pass, already
         // reflowed. A held or coalesced grid is reported later: the preview draws it meanwhile.
         updateReflowPreview(reporting: report != nil || geometry.held || gridReports.isWaiting)
@@ -543,11 +587,8 @@ public final class TerminalSurfaceView: NSView {
         }
         if forceReport || !live {
             gridReports.now(report)
-        } else if isFollowingResizeGesture {
-            // A drag's grid goes once its size shows: now with the bounds, or when the presenter shows it (`frameDidLand`).
-            gridReports.drag(report, shownNow: frameOwnership.inFlight == nil)
         } else {
-            // A key spring's grid: the size asked of Ghostty, coalesced; a just-shown view's waits for the refresh.
+            // A key spring's or a drag's grid: the size asked of Ghostty, coalesced; a just-shown view's waits for the refresh.
             gridReports.coalesced(report, waitsForRefresh: justShown, replacesUnshown: replacingAhead)
         }
     }
@@ -555,8 +596,8 @@ public final class TerminalSurfaceView: NSView {
     /// Whether a key resize drives this view's size (``updateSurfaceSize(forceReport:justShown:drawingAhead:)``): its host
     /// follows its pane's key hold, or the key's turn drew the press's first size ahead or the hold's end asked its final
     /// size (``TerminalHostView`` `aheadOfKeyResize`, never a snapped split's, close's or zoom's) and that size is with
-    /// Ghostty. A drag that began meanwhile keeps its own rule (its grid goes when its size shows).
-    private var followsKeyResize: Bool {
+    /// Ghostty. A drag that began meanwhile is not a key resize (it sends the same asked grid, ``isFollowingResizeGesture``).
+    var followsKeyResize: Bool {
         guard !isFollowingResizeGesture, let host = superview as? TerminalHostView else { return false }
         return host.surfaceFollowsArea
             || (host.aheadOfKeyResize && (frameOwnership.ahead != nil || frameOwnership.inFlight != nil))
@@ -772,3 +813,34 @@ public final class TerminalSurfaceView: NSView {
 extension TerminalSurfaceView: ParkingObserver {
     public func parkingDidChange() { syncWindowState() }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+/// CLOSE VARIANTS film snap (``FilmCloseVariant/snapSendsGrid``; DEBUG and bench builds only, never merged): the grid of the
+/// size this surface takes at the snap's tick goes to the PTY owner now, in the close's turn before its commit.
+extension TerminalSurfaceView: FilmSnapGridSending {
+    public func filmSendSnapGrid(sizeChange: CGSize) {
+        guard isShown, !isFollowingResizeGesture, let surface else { return }
+        let size: CGSize
+        if let host = superview as? TerminalHostView {
+            let basis = host.paneMotionBasisSize
+            size = host.surfaceSize(forHostSize: CGSize(width: max(0, basis.width + sizeChange.width),
+                                                        height: max(0, basis.height + sizeChange.height)))
+        } else {
+            size = CGSize(width: max(0, bounds.width + sizeChange.width), height: max(0, bounds.height + sizeChange.height))
+        }
+        let pixels = convertToBacking(size)
+        guard pixels.width >= 1, pixels.height >= 1 else { return }
+        FilmCloseVariant.count("snap_surfaces")
+        // As applyAhead does (it never ran for a snap in build 7f3101b1: surface_drawAhead 1, applyAhead_* 0): Ghostty
+        // renders the final size now, so the frame for it is ready when the snap's tick shows that size.
+        if frameOwnership.inFlight == nil, size != bounds.size {
+            frameOwnership.pendingAhead = nil
+            frameOwnership.ahead = size
+            setSurfacePixels(pixels, on: surface)
+            FilmCloseVariant.count("snap_ahead")
+        }
+        reportFilmSnapGrid(pixels: pixels, on: surface)
+        updateReflowPreview()
+    }
+}
+#endif

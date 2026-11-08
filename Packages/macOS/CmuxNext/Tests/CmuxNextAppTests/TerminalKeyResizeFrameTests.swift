@@ -466,7 +466,10 @@ struct TerminalKeyResizeFrameTests {
         var ios: [ScriptedTerminalIO] = []
         private let drew: Bool
 
-        init(axis: SplitAxis = .horizontal, announcesGrids: Bool = false) async throws {
+        /// `redraws`: each terminal's program answers each grid its PTY gets with this output, a few ms later
+        /// (``AnnouncingTerminalIO``; needs `announcesGrids`).
+        init(axis: SplitAxis = .horizontal, announcesGrids: Bool = false,
+             redraws: (@Sendable (_ cols: Int, _ rows: Int) -> Data)? = nil) async throws {
             _ = NSApplication.shared
             TunableStore.shared.activate(file: nil)
             TunableStore.shared.register(TerminalDragTunables.all)
@@ -488,7 +491,7 @@ struct TerminalKeyResizeFrameTests {
             let text = Array(repeating: line, count: 400).joined(separator: "\r\n")
             for pane: PaneID in ["p1", "p2"] {
                 let io = ScriptedTerminalIO()
-                let owner: any TerminalIO = announcesGrids ? AnnouncingTerminalIO(io) : io
+                let owner: any TerminalIO = announcesGrids ? AnnouncingTerminalIO(io, redraws: redraws) : io
                 let session = TerminalSession(io: owner)
                 ios.append(io)
                 guard session.surfaceView.surface != nil, let content = provider.views[pane] else {
@@ -613,9 +616,15 @@ struct TerminalKeyResizeFrameTests {
 /// mirror and clips or pads its lines; the mirror never reflows on its own.
 nonisolated final class AnnouncingTerminalIO: TerminalIO {
     let scripted: ScriptedTerminalIO
+    /// The program's redraw at each grid its PTY gets (a full-screen program's answer to SIGWINCH), sent
+    /// ``redrawDelay`` after the announcement; nil: the program prints nothing.
+    let redraws: (@Sendable (_ cols: Int, _ rows: Int) -> Data)?
+    /// A program's output parsed about 3 ms after the send (P0 9, cmux21).
+    static let redrawDelay: Duration = .milliseconds(3)
 
-    init(_ scripted: ScriptedTerminalIO) {
+    init(_ scripted: ScriptedTerminalIO, redraws: (@Sendable (_ cols: Int, _ rows: Int) -> Data)? = nil) {
         self.scripted = scripted
+        self.redraws = redraws
     }
 
     var events: AsyncStream<TerminalIOEvent> { scripted.events }
@@ -628,6 +637,12 @@ nonisolated final class AnnouncingTerminalIO: TerminalIO {
     func resize(cols: Int, rows: Int, pixelWidth: Int, pixelHeight: Int) async {
         await scripted.resize(cols: cols, rows: rows, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
         scripted.send(.resize(cols: cols, rows: rows))
+        guard let redraws else { return }
+        let scripted = scripted
+        Task.detached {
+            try? await Task.sleep(for: Self.redrawDelay)
+            scripted.send(.output(redraws(cols, rows)))
+        }
     }
 
     @MainActor func appliesViewGrid(reporting: Bool) -> Bool { true }

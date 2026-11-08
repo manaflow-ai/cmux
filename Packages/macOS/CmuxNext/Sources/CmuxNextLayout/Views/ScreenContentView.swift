@@ -44,6 +44,12 @@ final class ScreenContentView: NSView {
     var holdsContentForKeyResize = false
     /// A close waits for `syncScroll` to place its camera, then takes its first frame (`leadIfPending`).
     var leadsFrame = false
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// CLOSE VARIANTS film selector (never ships): a V0/V2 close moving its frames on a CURVE SET curve (``FilmCurveRun``).
+    var filmCurveRun: FilmCurveRun?
+    /// V6 pictures fading out above the panes, each on its own progress (``FilmFade``).
+    var filmFades: [FilmFade] = []
+    #endif
     /// A split's or a close's panes spring to their new sizes: their terminals keep their grids
     /// until every pane landed (`LayoutViewContext.gridHoldScreens`, the PTY resizes once at rest).
     /// A press during the motion (rapid Cmd-D) keeps the hold, so the grids go once for the whole chain.
@@ -289,7 +295,18 @@ final class ScreenContentView: NSView {
         // An animated width or ratio change (a preset, an equalize) is carried too: its camera may re-anchor (M8).
         // A viewport resize under a spring (`rebasing`) is not: each frame moves with its target, and putting it
         // back where it showed (`settleCarried`) would undo that and leave it chasing the moved target.
-        let carried = !arrivals.isEmpty || departing || returning || (animate && !structural && !rebasing)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // CLOSE VARIANTS film selector (never ships): V1, V3, V4 and V5 put the survivors at their final frames now. Not
+        // carried: `settleCarried` would put each survivor back where it showed and spring it from there (the 00:4xZ films:
+        // the survivor slid on the close spring beside the window colour, and its grid went out only when it landed). A
+        // snapped close takes the held-snap path (`holdsSnapForContent`): the sizes are drawn ahead in this turn, the old
+        // picture (the closed pane included, `snapDeparted`) stays until the next tick, then the final layout in one pass.
+        let film = departing ? filmCloseVariant : nil
+        let filmSnaps = film != nil
+        #else
+        let filmSnaps = false
+        #endif
+        let carried = (!arrivals.isEmpty || departing || returning || (animate && !structural && !rebasing)) && !filmSnaps
         // Strip springs run in strip coordinates and fixed ones in the view's: a moved strip origin (a dock
         // that came or went) or a pane changing sides (a zoom shows its pane fixed) keeps it where it showed.
         let offset = scroll.value
@@ -299,7 +316,7 @@ final class ScreenContentView: NSView {
         closingPanes.carry(drift: drift, viewShift: carried ? baseGeometry.viewShift(offset: offset) : nil)
         // A release seeds only the layout it made (`releasedDivider` from this gesture, not a stale one).
         if let released = releasedDivider, CACurrentMediaTime() - released.time > 0.5 { releasedDivider = nil }
-        let animateFrames = animate && (!structural || carried || inFlight) && (releasedDivider == nil || splits)
+        let animateFrames = animate && (!structural || carried || inFlight) && (releasedDivider == nil || splits) && !filmSnaps
         // A structural change that snaps may show at the next tick, its terminals drawn ahead (CLOSE MOTION 3).
         let holdsSnap = snapWaitsForFrame && structural && !animateFrames
         if structural, !inFlight { (arriving, newDockColumns) = (Set(arrivals.keys), PaneArrival.newDocks(arrivals, from: before, to: baseGeometry)) }
@@ -350,6 +367,14 @@ final class ScreenContentView: NSView {
         }
         // Out of a zoom: the covered panes it kept that this layout did not take back (closed while zoomed) go now.
         if structural, !zoomed { context.releaseRetired(of: screenID, until: .zoom) }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if let film {
+            playFilmClose(paneFrames.keys.filter { baseGeometry.panes[$0] == nil && !context.livePanes.contains($0) }, variant: film,
+                          before: before, after: baseGeometry)
+        } else if departing, DesignSettings.shared.filmClose.growsAndFades {
+            addFilmFades(paneFrames.keys.filter { baseGeometry.panes[$0] == nil && !context.livePanes.contains($0) })
+        }
+        #endif
         var closing: [(pane: PaneID, frame: AnimatedFrame?)] = []
         for pane in paneFrames.keys where baseGeometry.panes[pane] == nil {
             let frame = paneFrames.removeValue(forKey: pane)
@@ -451,6 +476,9 @@ final class ScreenContentView: NSView {
         // A close's neighbours start covering the closed pane's space in the frame it leaves:
         // no frame shows the hole before they move (`leadIfPending`, after `syncScroll`).
         leadsFrame = departing && animateFrames && !covering && !wasMoving
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if departing, animateFrames, !covering { startFilmCurve() }
+        #endif
         // A split's or a close's terminals no longer keep their grids until the spring lands (Lawrence
         // 2026-10-23: they resize at the start): each resized pane hears its final size in the step that
         // starts or retargets its spring (`PaneHostView.announceRest`, `PaneMotionTargeting`).
@@ -461,7 +489,13 @@ final class ScreenContentView: NSView {
         // drag step, an equalize) moves only the panes whose frames changed, and every per-pane input (frame,
         // alpha, clip range, covers, divider clips) is compared in the pass (`applyPresentation`).
         if structural { forcesPresentation = true }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        DesignSettings.shared.filmClose.snapSendsGrid = filmSnaps && holdsSnap
+        #endif
         if holdsSnap, !holdsSnapForContent() { releaseSnapDeparted() }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        DesignSettings.shared.filmClose.snapSendsGrid = false
+        #endif
         if presents { applyPresentation() }
         let moving = animate && hasMotion
         if !(moving && holdsGrids) { holdsGrids = false }
