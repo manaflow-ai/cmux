@@ -384,6 +384,7 @@ fn a_hold_that_starts_during_staging_holds_the_flip() {
 /// A new machine is a restore of the bake's snapshot: `realtime - boottime`
 /// jumps by the stopped time, which starts the connect hold before the
 /// supervisor's `Resumed` arrives; a clock sync's drift does not.
+#[cfg(target_os = "linux")]
 #[test]
 fn a_snapshot_restore_counts_from_the_clock_offset_not_a_sync() {
     let second = 1_000_000_000_i128;
