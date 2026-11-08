@@ -1554,7 +1554,7 @@ if [[ -z "${CMUX_NEXT_MOBILE_HOST_BIN:-}" && -x "$PWD/scripts/cmux-next/build-mo
 fi
 [[ -n "${CMUX_NEXT_MOBILE_HOST_BIN:-}" ]] && echo "==> cmux-next: bundling cmux-mobile-host from $CMUX_NEXT_MOBILE_HOST_BIN"
 
-# The web bundles (agent pane, pages, Agent Activity, palette ranker, webviews
+# The web bundles (agent pane, pages, Agent Activity, webviews
 # app) are build output, not committed: they are built from the sources before
 # the compile, so the app never ships a stale or missing copy (cx-vn5). A warm
 # tree skips the build in about a second. The Xcode "Verify web bundles" phase

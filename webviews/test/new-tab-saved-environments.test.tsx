@@ -132,7 +132,7 @@ async function mount({
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   const { SignInContext } = await import("../src/agent-session/acpmux/signIn");
   const { newTabScreenActions } = await import("../src/agent-session/acpmux/newtab/screenActions");
-  const { newWorktree, pickFolder } = await import("../src/agent-session/acpmux/startFolder");
+  const { newWorktree, pickFolder } = await import("../src/agent-session/acpmux/startFolderModel");
   const calls: Call[] = [];
   const callNative = async (method: string, params?: Record<string, unknown>) => {
     calls.push({ method, ...(params ? { params } : {}) });

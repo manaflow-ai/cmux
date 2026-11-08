@@ -91,6 +91,7 @@ pub async fn platform(
     status: Arc<AtomicU16>,
     asked: Arc<AtomicUsize>,
     teams: Teams,
+    keys: Keys,
 ) -> SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -101,6 +102,7 @@ pub async fn platform(
             let daemon_key = daemon_key.clone();
             let asked = asked.clone();
             let teams = teams.clone();
+            let keys = keys.clone();
             let status = status.load(Ordering::SeqCst);
             tokio::spawn(async move {
                 let mut reader = tokio::io::BufReader::new(&mut stream);
@@ -129,6 +131,7 @@ pub async fn platform(
                 reader.read_exact(&mut body).await.unwrap();
                 let request: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
                 teams.lock().unwrap().push(team);
+                keys.lock().unwrap().push(request["noise_key"].as_str().map(str::to_owned));
                 let n = asked.fetch_add(1, Ordering::SeqCst);
                 assert_eq!(path, format!("/v1/cloud/machines/{MACHINE}/carrier"));
                 let (code, answer) = if status != 200 || !authorized {
@@ -188,10 +191,18 @@ pub async fn fake_mux(path: &Path) {
 
 /// The `x-cmux-team` header of each platform request (`None` when absent).
 pub type Teams = Arc<Mutex<Vec<Option<String>>>>;
+/// The `noise_key` of each platform request (`None` for a ticket-only ask).
+pub type Keys = Arc<Mutex<Vec<Option<String>>>>;
 
 pub struct World {
     pub platform: SocketAddr,
     pub teams: Teams,
+    pub keys: Keys,
+    /// The relay the platform's answers name.
+    pub relay: SocketAddr,
+    /// The daemon key the platform answers (as `world_full`'s `key` says).
+    pub daemon_key: Option<String>,
+    signer: Arc<Signer>,
     /// What the platform answers next (200 grants, anything else refuses).
     pub status: Arc<AtomicU16>,
     pub dir: tempfile::TempDir,
@@ -244,9 +255,10 @@ pub fn world_signed(
     let mux = dir.path().join("mux.sock");
     let state = dir.path().join("daemon");
     let teams = Teams::default();
+    let keys = Keys::default();
     let shared_status = Arc::new(AtomicU16::new(status));
     let answered = shared_status.clone();
-    let (platform, registration) = runtime.block_on(async {
+    let (platform, registration, relay, signer, daemon_key) = runtime.block_on(async {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let relay_address = listener.local_addr().unwrap();
         let relay = Relay::new(RelayConfig { allow_open: true, ..RelayConfig::default() }).unwrap();
@@ -254,6 +266,7 @@ pub fn world_signed(
         tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
 
         let signer = Arc::new(Signer::generate(service, vmk));
+        let answered_signer = signer.clone();
         std::fs::create_dir_all(&state).unwrap();
         let auth = AuthDatabase::load_or_create(&state, "carrier-dial-test", false).unwrap();
         let verifier =
@@ -279,29 +292,59 @@ pub fn world_signed(
             let local = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
             local.block_on(services.run(accepted));
         });
+        let daemon_key = match key {
+            DaemonKey::Real => Some(URL_SAFE_NO_PAD.encode(auth.identity().public_key())),
+            DaemonKey::Missing => None,
+            DaemonKey::Malformed => Some("not-a-key".into()),
+            DaemonKey::Other => Some(URL_SAFE_NO_PAD.encode([9_u8; 32])),
+        };
         let platform = platform(
             signer,
             relay_address,
-            match key {
-                DaemonKey::Real => Some(URL_SAFE_NO_PAD.encode(auth.identity().public_key())),
-                DaemonKey::Missing => None,
-                DaemonKey::Malformed => Some("not-a-key".into()),
-                DaemonKey::Other => Some(URL_SAFE_NO_PAD.encode([9_u8; 32])),
-            },
+            daemon_key.clone(),
             answered,
             asked,
             teams.clone(),
+            keys.clone(),
         )
         .await;
-        (platform, registration)
+        (platform, registration, relay_address, answered_signer, daemon_key)
     });
     World {
         platform,
         teams,
+        keys,
+        relay,
+        daemon_key,
+        signer,
         status: shared_status,
         dir,
         _registration: registration,
         _runtime: runtime,
+    }
+}
+
+/// The jti of handed-over grants: apart from the platform's, each its own.
+static HANDED_OVER: AtomicUsize = AtomicUsize::new(1_000_000);
+
+impl World {
+    /// A create's `carrier` for the device whose Noise key is `noise_key`
+    /// (base64url), as the dial or serve takes it on a line:
+    /// `{"carrier_answer":{…}}`, with the platform's `daemon_key` when
+    /// `with_daemon_key`.
+    pub fn answer_line(&self, noise_key: &str, with_daemon_key: bool) -> String {
+        let key: [u8; 32] = URL_SAFE_NO_PAD.decode(noise_key).unwrap().try_into().unwrap();
+        let mut value = json!({
+            "relay": format!("relay+ws://{}", self.relay),
+            "slot": SLOT,
+            "ticket": "open-client-ticket",
+            "expires_at": now() + 300,
+            "grant": self.signer.grant(&key, HANDED_OVER.fetch_add(1, Ordering::SeqCst)),
+        });
+        if with_daemon_key && let Some(daemon_key) = &self.daemon_key {
+            value["daemon_key"] = json!(daemon_key);
+        }
+        format!("{}\n", json!({ "carrier_answer": value }))
     }
 }
 

@@ -248,6 +248,14 @@ final class PaneToolbar {
             previousWasSeparator = item.isSeparatorItem
         }
         while menu.items.last?.isSeparatorItem == true { menu.removeItem(at: menu.items.count - 1) }
+        // New ▸ Kind ▸ place, the pane menu's rows (a Terminal, Browser, Agent Chat or New Tab Page at any of Fork To's places).
+        if let paneTarget, let folder = ContextMenuCatalog.shared.newPlacementFolder() {
+            if !menu.items.isEmpty { menu.addItem(.separator()) }
+            for item in registry.makeContextMenu(for: .pane, target: paneTarget, entries: [folder], customize: false, machineID: machineID()).items {
+                item.menu?.removeItem(item)
+                menu.addItem(item)
+            }
+        }
         let own = contentMenu()
         if !own.isEmpty, !menu.items.isEmpty { menu.insertItem(.separator(), at: 0) }
         for (index, item) in own.enumerated() { menu.insertItem(item, at: index) }

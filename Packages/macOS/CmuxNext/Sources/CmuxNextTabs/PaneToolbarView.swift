@@ -49,6 +49,7 @@ public final class PaneToolbarView: NSView {
     public weak var strip: TabStripView? {
         didSet {
             strip?.onCrowdedChange = { [weak self] _ in self?.applyRest() }
+            strip?.onMovedInWindow = { [weak self] in self?.updateTopRowAlignment() }
             applyRest()
         }
     }
@@ -442,7 +443,8 @@ public final class PaneToolbarView: NSView {
         // Fixed slots from the trailing end: "…" in the last (kept while it hides), the buttons before it
         // in order, so Search Tabs keeps its place whichever tab is selected and fewer pins leave room
         // only at the leading end.
-        let y = Self.edgeInset(height: bounds.height)
+        let y = buttonTop
+        appliedButtonTop = y
         moreButton.frame = moreFrame()
         let allButtons = buttons + nativeButtons
         let trailingSlot = hasMore || reservedCount > allButtons.count ? 1 : 0
@@ -474,8 +476,7 @@ public final class PaneToolbarView: NSView {
     /// opacity, so the glyph and its hit target stay aligned throughout the fade.
     func moreFrame() -> NSRect {
         let side = TitlebarBandButton.side
-        return NSRect(x: max(0, bounds.width - Self.trailingGap - side), y: Self.edgeInset(height: bounds.height),
-                      width: side, height: side)
+        return NSRect(x: max(0, bounds.width - Self.trailingGap - side), y: buttonTop, width: side, height: side)
     }
 
     /// The last button's gap to the trailing edge: its center on the pane's trailing control column,
@@ -486,6 +487,28 @@ public final class PaneToolbarView: NSView {
     /// the trailing edge, so it rests evenly in the pane's corner as the first tab does.
     static func edgeInset(height: CGFloat) -> CGFloat {
         max(0, ((height - TitlebarBandButton.side) / 2).rounded())
+    }
+
+    /// The buttons' top: ``edgeInset(height:)``, or in a minimal window's top row the top that centers them on the
+    /// row's shared line with the tabs, the traffic lights and the sidebar's + (`TopRowLine`, Leo 2026-11-07).
+    /// Measured where the pane will rest (the strip's ``TabStripView/restingDrop``), as the tabs are.
+    var buttonTop: CGFloat {
+        let side = TitlebarBandButton.side
+        guard TopRowLineLook.tunable.value != .off, let window, let content = window.contentView else { return Self.edgeInset(height: bounds.height) }
+        let resting = convert(bounds, to: nil).offsetBy(dx: 0, dy: -(strip?.restingDrop ?? 0))
+        guard WindowTitlebar.isInTopRow(resting, in: window), let line = WindowTitlebar.topRowLine(in: window) else { return Self.edgeInset(height: bounds.height) }
+        let viewTop = content.bounds.maxY - resting.maxY
+        return min(max(0, line.controlTop(side: side, scale: window.backingScaleFactor) - viewTop), max(0, bounds.height - side))
+    }
+
+    /// The buttons' top the last layout applied; a move in the window that changes ``buttonTop`` lays out again.
+    private var appliedButtonTop: CGFloat?
+
+    /// Re-checks the buttons' place on the top row's line after the pane moved in its window without a
+    /// resize (the strip's ``TabStripView/onMovedInWindow``); lays out only when it changes.
+    func updateTopRowAlignment() {
+        guard let appliedButtonTop, buttonTop != appliedButtonTop else { return }
+        needsLayout = true
     }
 
     override public func viewDidChangeEffectiveAppearance() {

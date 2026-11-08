@@ -14,6 +14,7 @@ import CmuxNextTabs
 import CmuxNextTerminal
 import Observation
 import CmuxNextFocus
+import CmuxNextWakeups
 
 /// Mirrors one daemon pane into a tab strip and shows the selected tab's
 /// content. Tab selection is client-local (`WindowState.selection`); every
@@ -39,7 +40,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var pendingDock = PendingDockChats() // chats bound for a new chat dock, never in this strip (NewChatPlacement)
     /// A tab this app just created or reopened here, selected once the daemon reports it (`selectWhenReported*`).
     var pendingSelect = PendingTabSelect()
-    var lastPlacement: ActionWork? // this pane's last new tab's move into its slot: the next reads its slot after it (NewTabSlot)
+    let placements = WorkLine<ActionWorkFailure?>() // this pane's new tabs' moves into their slots, in press order: each reads its slot after the last (NewTabSlot)
     private var observation: Task<Void, Never>?
     /// One observation per daemon tab's strip item and focus kind (`focusPane` reads it; I1, I2).
     private lazy var tabItems = ObservedItems<TabModel, (StripTabItem, FocusTopology.Kind)>(
@@ -224,7 +225,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             let page = services.cache.existingBrowser(tab.id)?.tab.state
             let title = page?.title.flatMap { $0.isEmpty ? nil : $0 } ?? page?.url?.host() ?? Strings.untitledBrowser
             var item = StripTabItem(id: StripTabID(tab.id), title: title, subtitle: page?.url?.absoluteString,
-                                    icon: .icon(.browser))
+                                    icon: .browser)
             item.isDormant = services.cache.dormantTabs.contains(tab.id)
             browserIcon(key: tab.id, recordFavicon: nil).apply(to: &item)
             local.append(item)
@@ -293,7 +294,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if tab.kind == .remoteTerminal {
             // Its terminal runs on another machine: that machine's name.
             (item.machineBadge, item.machineName) = services.remoteTerminals.badge(for: tab)
-            item.icon = .icon(.terminal)
+            item.icon = .terminal
         } else if tab.kind != .browser {
             (item.machineBadge, item.machineName) = (machine, machine.flatMap { _ in services.machines.machineName(daemon.machineID) })
             item.themeBadge = services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
@@ -316,7 +317,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url, known: (tab, incognito)).apply(to: &item)
             item.audio = BrowserTabAudio.badge(services.cache.existingBrowser(tab.id)?.tab.state)
         }
-        item.agentTone = tab.userIcon == nil ? SubagentTabTitles.shared.tone(ofTab: tab.id) : nil; TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: daemon))
+        item.agentTone = tab.userIcon == nil ? SubagentTabTitles.shared.tone(ofTab: tab.id) : nil; TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: daemon)); if let sub = SubagentTabTitles.shared.facts(ofTab: tab.id) { item.showSubagent(state: sub.state.rawValue, since: sub.since, model: sub.model, spins: DesignSettings.shared.statusIndicator.showsAgentWorkingOnTabs) }
         return item
     }
 
@@ -632,7 +633,7 @@ extension PaneController {
             let title = page?.title.flatMap { $0.isEmpty ? nil : $0 } ?? (tab.title.isEmpty ? nil : tab.title)
                 ?? page?.url?.host() ?? Strings.untitledBrowser
             var item = StripTabItem(id: StripTabID(id), title: title, subtitle: page?.url?.absoluteString ?? tab.url,
-                                    icon: .icon(.browser))
+                                    icon: .browser)
             item.isDormant = services.cache.dormantTabs.contains(id)
             let image = services.browserFavicon(key: id, recordFavicon: tab.faviconURL)
             let url = page?.url ?? tab.url.flatMap(URL.init(string:))

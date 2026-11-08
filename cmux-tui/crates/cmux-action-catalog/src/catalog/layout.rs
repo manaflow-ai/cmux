@@ -446,7 +446,7 @@ pub static ACTIONS: &[Action] = &[
     Action {
         id: "layout.toggleStripScrollbar",
         group: GROUP,
-        title: t("LayoutActions", "action.layout.toggleStripScrollbar", "Toggle Column Scroll Bar"),
+        title: t("LayoutActions", "action.layout.toggleStripScrollbar", "Column Scroll Bar"),
         keywords: &["scrollbar", "column", "strip", "visible range", "overview"],
         category: "settings",
         symbol: "scroll",
@@ -598,6 +598,18 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         targets: &["window"],
         cli_name: "home open-chief-dock",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "home.undockChief",
+        group: GROUP,
+        title: t("LayoutActions", "action.home.undockChief", "Undock Chief"),
+        keywords: &["chief", "dock", "undock", "unpin", "float", "panel", "window", "home", "chat", "side", "left"],
+        category: "window",
+        symbol: "sidebar.left",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        targets: &["window"],
+        cli_name: "home undock-chief",
         ..Action::DEFAULT
     },
     Action {

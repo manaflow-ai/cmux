@@ -153,3 +153,17 @@ fn on_names_the_place_without_the_lookup() {
     assert_eq!(no_lookup("vm:new").unwrap_err()["code"], "chat_target.no_route");
     assert_eq!(no_lookup("cloud").unwrap_err()["code"], "chat_target.no_route");
 }
+
+/// `--timeout 0` is refused as `cloud start-chat` refuses it: a send with no time would run on the machine and
+/// only then answer that the time ran out (the seventh review of #37159).
+#[test]
+fn a_zero_timeout_is_refused() {
+    for words in [&["s-1", "--timeout", "0", "hi"][..], &["s-1", "--timeout=0", "hi"]] {
+        let refused = parse(&strings(words), true);
+        assert!(
+            matches!(&refused, Err(error) if format!("{error:?}").contains("--timeout")),
+            "{words:?}: {refused:?}"
+        );
+    }
+    assert_eq!(sent(&["s-1", "--timeout", "5", "hi"], true).timeout, Some(Duration::from_secs(5)));
+}

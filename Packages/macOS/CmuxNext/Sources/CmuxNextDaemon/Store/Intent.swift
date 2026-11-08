@@ -81,6 +81,19 @@ public enum Intent: Sendable, Hashable {
     /// records drop it or the close fails. Leo 2026-11-03: "i should be able to just close immedeiately".
     case closeStandInPane(pane: PaneID, paneID: String?, workspace: WorkspaceKey?)
 
+    /// The stand-in tab a creation shows under a provisional id until the daemon's tab takes its place: a new tab, a new
+    /// workspace's first tab, a conversation split's tab, a dock's fresh tab. A terminal split's tab is not one: it shows
+    /// under the id the daemon keeps.
+    var standInTab: TabSnapshot? {
+        switch self {
+        case .createTab(_, let provisional): provisional
+        case .createWorkspace(let provisional, _): provisional.tab
+        case .splitPane(_, _, _, let provisional): provisional.tab
+        case .dockTab(_, _, _, _, let standIn): standIn
+        default: nil
+        }
+    }
+
     /// The provisional pane a split or a dock shows until the daemon's pane with its public id.
     var provisionalPane: ProvisionalPane? {
         switch self {

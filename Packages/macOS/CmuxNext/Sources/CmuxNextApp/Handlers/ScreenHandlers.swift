@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextWindowRules
 
 /// Screen actions (windows inside a workspace). Screens have no
 /// chrome until a workspace holds two or more; then the bottom screen bar
@@ -41,15 +42,14 @@ enum ScreenHandlers {
             guard let ref = ctx.screen(invocation) else { return }
             ScreenCommands.close([ref.screen], in: ref.workspace, daemon: ref.daemon, services: ctx.services)
         })
-        let closeVariants: [(ActionID, (ScreenRef) -> [ScreenModel])] = [
-            ("screen.closeOthers", { ref in ref.workspace.screens.filter { $0 !== ref.screen && !$0.pinned } }),
-            ("screen.closeToRight", { ref in Array(ref.workspace.screens.dropFirst(ref.index + 1)) }),
-            ("screen.closeToLeft", { ref in Array(ref.workspace.screens.prefix(ref.index)).filter { !$0.pinned } }),
-        ]
-        for (id, pick) in closeVariants {
+        // Which screens each takes is Rust's (cmux-window-rules `workspaces::screen_close`).
+        let closeVariants: [(ActionID, WindowRules.ScreenClose)] = [("screen.closeOthers", .others), ("screen.closeToRight", .toRight),
+                                                                    ("screen.closeToLeft", .toLeft)]
+        for (id, verb) in closeVariants {
             registry.bind(id, invoke: { invocation in
                 guard let ref = ctx.screen(invocation) else { return }
-                let screens = pick(ref)
+                let all = ref.workspace.screens
+                let screens = WindowRules().screenClose(verb, index: ref.index, pinned: all.map(\.pinned)).filter(all.indices.contains).map { all[$0] }
                 guard !screens.isEmpty else { return ctx.refuse(ScreenStrings.noOtherScreens) }
                 ScreenCommands.close(screens, in: ref.workspace, daemon: ref.daemon, services: ctx.services)
             })
@@ -69,9 +69,10 @@ enum ScreenHandlers {
             guard let content = ctx.content(invocation) else { return }
             guard let number = invocation["index"]?.intValue ?? ctx.refuse(RefusalStrings.indexRequired) else { return }
             let screens = content.layoutModel.screens
-            // 9 is always the last screen, as Cmd-9 is the last tab.
-            let index = number == 9 ? screens.count - 1 : number - 1
-            guard screens.indices.contains(index) else { return ctx.refuse(RefusalStrings.screenCount(screens.count)) }
+            // 9 is always the last screen, as Cmd-9 is the last tab; past the end picks none.
+            guard let index = WindowRules().ordinal(number, count: screens.count, pastEnd: .refuse), screens.indices.contains(index) else {
+                return ctx.refuse(RefusalStrings.screenCount(screens.count))
+            }
             ScreenCommands.select(screens[index].id, in: content)
         })
         registry.bind("screen.selectLast", invoke: { invocation in
@@ -91,8 +92,9 @@ enum ScreenHandlers {
         for (id, offset) in [("screen.moveLeft", -1), ("screen.moveRight", 1)] as [(ActionID, Int)] {
             registry.bind(id, invoke: { invocation in
                 guard let ref = ctx.screen(invocation), ctx.require(DaemonCapability.screenMetadata.rawValue, on: ref.daemon) else { return }
-                let target = ref.index + offset
-                guard ref.workspace.screens.indices.contains(target) else { return ctx.refuse(ScreenStrings.screenAtEdge) }
+                guard let target = WindowRules().screenMove(ref.index, by: offset, count: ref.workspace.screens.count) else {
+                    return ctx.refuse(ScreenStrings.screenAtEdge)
+                }
                 ScreenCommands.move(ref.screen, to: target, daemon: ref.daemon)
             })
         }

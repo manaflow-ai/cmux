@@ -2,6 +2,7 @@
 import CmuxAgentQuestion
 import CmuxMobileDesign
 import CmuxMobileMarkdown
+import CmuxSpinner
 import SwiftUI
 
 /// SPEC 6.7 plan card with live step glyphs.
@@ -169,7 +170,7 @@ public struct PermissionActionBar: View {
                     // phone's approval key (verify/phone-approvals.md), with no prompt.
                     HStack(spacing: 6) {
                         if option.id == approvingOptionID {
-                            ProgressView().controlSize(.small).tint(option.kind == .allowOnce ? Color.cmuxMobileOnAccent : Color.primary).accessibilityHidden(true)
+                            CmuxSpinner(tint: option.kind == .allowOnce ? Color.cmuxMobileOnAccent : Color.primary).controlSize(.small).accessibilityHidden(true)
                             Text(Self.sendingAllow).lineLimit(2).multilineTextAlignment(.center)
                         } else {
                             Text(request.label(for: option)).multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.9)

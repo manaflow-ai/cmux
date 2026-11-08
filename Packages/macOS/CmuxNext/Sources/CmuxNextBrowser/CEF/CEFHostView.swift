@@ -526,9 +526,10 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         }
     }
 
-    /// The pane's layout spring landed (a split's new pane grown in, a close, a zoom): the shown
-    /// page is placed and clipped at the landed frame (`CEFPaneHost.paneMotionSettled`).
+    /// The pane's layout spring landed (a split's new pane grown in, a close, a zoom): the page's spring motion ends
+    /// (``endPaneSpring()``) and the shown page is placed and clipped at the landed frame (`CEFPaneHost.paneMotionSettled`).
     func paneMotionDidSettle() {
+        endPaneSpring()
         guard let tab, tab.host.hostView.superview === self else { return }
         tab.host.paneMotionSettled(tab)
     }

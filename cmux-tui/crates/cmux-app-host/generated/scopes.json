@@ -589,6 +589,18 @@
       "scope": "conversation:write",
       "class": "mutation"
     },
+    "diff.comments.delete": {
+      "scope": "diff:write",
+      "class": "mutation"
+    },
+    "diff.comments.list": {
+      "scope": "diff:read",
+      "class": "read"
+    },
+    "diff.comments.save": {
+      "scope": "diff:write",
+      "class": "mutation"
+    },
     "diffs.cycle_variant": {
       "scope": "diffs:write",
       "class": "mutation"
@@ -760,6 +772,10 @@
     "git.worktree.remove": {
       "scope": "git:execute",
       "class": "mutation"
+    },
+    "git.worktree.setup": {
+      "scope": "git:read",
+      "class": "read"
     },
     "github.issue.comment": {
       "scope": "github:external",

@@ -100,6 +100,7 @@ export type AppAction =
   | { type: "replace-items"; items: DiffItem[]; renames?: readonly { oldId: string; newId: string }[] }
   | { type: "reset-diff"; status: DiffViewerStatus }
   | { type: "remove-comment"; id: string }
+  | { type: "remove-comments"; ids: readonly string[] }
   | { type: "rename-item"; oldId: string; newId: string }
   | { type: "set-active-item"; itemId: string; treePath?: string }
   | { type: "replace-comments"; comments: DiffCommentRecord[] }
@@ -176,7 +177,7 @@ export function initialAppState(config: DiffViewerConfig, initialStatus: DiffVie
 
 /**
  * The display options before any stored pref. In cmux NEXT (the page host; its config's transport
- * is `page`) they are the defaults of the `diff.*` settings (DiffViewerSettingsSchema.swift), and
+ * is `page`) they are the defaults of the `diff.*` settings (schemas/settings/source/diff-viewer.json), and
  * diff-option-defaults.test.ts holds every key here to the exported schema. Word changes are on
  * there (Leo, 2026-10-20). The classic viewer and the dev server embed their config and keep word
  * changes off.
@@ -436,6 +437,16 @@ export function reducer(state: AppState, action: AppAction): AppState {
       };
     case "remove-comment": {
       const comments = state.comments.filter((comment) => comment.id !== action.id);
+      return {
+        ...state,
+        comments,
+        items: applyCommentAnnotations(state.items, comments, state.draft),
+      };
+    }
+    case "remove-comments": {
+      // Sent comments leave the page together, in one frame; a draft being written stays.
+      const sent = new Set(action.ids);
+      const comments = state.comments.filter((comment) => !sent.has(comment.id));
       return {
         ...state,
         comments,

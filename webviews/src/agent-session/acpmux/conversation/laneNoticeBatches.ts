@@ -1,5 +1,5 @@
 import { isLineRow, LANE_NOTICE_BATCH, type AcpmuxRow } from "../model";
-import { inboxText, type InboxNotice } from "./inboxNotice";
+import { inboxText, senderKey, type InboxNotice } from "./inboxNotice";
 import { laneNotice, type LaneNotice, type LaneNoticeKind, type LaneNoticeThread } from "./laneReport";
 type LaneNoticeVerdict = NonNullable<LaneNotice["verdict"]>;
 
@@ -11,14 +11,17 @@ const inboxLaneNotice = (notice: InboxNotice): LaneNotice => {
   const threads: LaneNoticeThread[] = notice.threads.map((thread) => {
     const messages = thread.messages?.map((message) => ({
       sender: message.from,
+      ...(message.sender && { lookup: senderKey(message.from, message.sender) }),
       text: message.text,
       ...(message.promptId ? { promptId: message.promptId } : {}),
     }));
     const sender = messages?.at(-1)?.sender ?? thread.from.at(-1) ?? "inbox";
+    const lookup = messages?.length ? messages.at(-1)!.lookup : thread.sender && senderKey(sender, thread.sender);
     const preview = messages?.at(-1)?.text ?? thread.preview;
     return {
       id: thread.threadId,
       sender,
+      ...(lookup && { lookup }),
       ...(preview ? { preview } : {}),
       ...(messages?.length ? { messages } : {}),
       ...(thread.label ? { label: thread.label } : {}),
@@ -108,12 +111,15 @@ function threadList(rows: readonly AcpmuxRow[]): readonly { id: string; sender: 
 
 const bodyKey = (sender: string, text: string): string => `${sender.trim().toLocaleLowerCase()}\u0000${text.trim()}`;
 
-const inboxDeliveries = (thread: LaneNoticeThread): readonly { sender: string; text: string; promptId?: string }[] =>
+const inboxDeliveries = (
+  thread: LaneNoticeThread,
+): readonly { sender: string; lookup?: string; text: string; promptId?: string }[] =>
   thread.messages?.length
     ? thread.messages
     : [
         {
           sender: thread.sender,
+          ...(thread.lookup && { lookup: thread.lookup }),
           text: thread.preview ?? "",
           ...(thread.promptIds?.length === 1 ? { promptId: thread.promptIds[0] } : {}),
         },
@@ -134,6 +140,7 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
         text: delivery.text,
         untyped: true,
         inboxDelivery: true,
+        inboxSource: row.id,
         ...(row.steer ? { steer: row.steer } : {}),
         ...(!thread.messages?.length
           ? {
@@ -153,6 +160,7 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
           kind: "message",
           message: {
             name: delivery.sender,
+            ...(delivery.lookup && { lookup: delivery.lookup }),
             text: delivery.text,
             raw: delivery.text,
             threadId: thread.id,

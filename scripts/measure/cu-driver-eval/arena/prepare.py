@@ -70,15 +70,22 @@ def build_apps(work, grants):
     app = work / "Arena.app"
     shutil.rmtree(app, ignore_errors=True)
     (app / "Contents" / "MacOS").mkdir(parents=True)
-    run("swiftc", "-O", "-o", app / "Contents" / "MacOS" / "Arena", HERE / "arena_app.swift")
+    (work / "bin").mkdir(exist_ok=True)
+    builds = [("arena_app", app / "Contents" / "MacOS" / "Arena")]
+    builds += [(name, work / "bin" / name.replace("_", "-")) for name in ("arena_probe", "arena_desktop")]
+    # Every file is compiled before any failure is raised, so one run reports every compile error.
+    errors = []
+    for name, out in builds:
+        done = run("swiftc", "-O", "-o", out, HERE / f"{name}.swift", check=False)
+        if done.returncode != 0:
+            errors.append(f"{name}.swift: " + "\n".join(
+                line for line in (done.stderr or done.stdout).splitlines() if "error:" in line)[:2000])
+    if errors:
+        raise RuntimeError("swiftc failed:\n" + "\n".join(errors))
     with open(app / "Contents" / "Info.plist", "wb") as f:
         plistlib.dump(ARENA_PLIST, f)
     sign(app)
-    (work / "bin").mkdir(exist_ok=True)
-    for name in ("arena_probe", "arena_desktop"):
-        out = work / "bin" / name.replace("_", "-")
-        run("swiftc", "-O", "-o", out, HERE / f"{name}.swift")
-        grants.append(str(out))
+    grants.extend(str(out) for _, out in builds[1:])
 
 
 def arm_cmux_cua(work, drivers, grants, **_):
@@ -89,6 +96,7 @@ def arm_cmux_cua(work, drivers, grants, **_):
     grants.append(binary)
     state = work / "cmux-cua"
     state.mkdir(exist_ok=True)
+    state.chmod(0o700)  # its serve refuses a runtime directory others can read ("unsafe permissions")
     sock, token = str(state / "cua.sock"), secrets.token_hex(16)
     # Its daemon with ComputerUseHelperDaemon's environment, its MCP server with agent_tools.rs's.
     return {

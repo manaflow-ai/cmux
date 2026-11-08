@@ -62,11 +62,12 @@ html[data-cmux-page="machines"] body {
   min-width: 0;
 }
 
-/* A name too long for its column wraps whole, at a hyphen where it can; it is never cut mid-word. */
+/* A name too long for its column wraps at its spaces and hyphens (lane-vm-3, ip-10-0-0-12); only one
+   piece longer than the whole column breaks inside, so nothing is cut or runs past the edge. */
 .machines-name {
   min-width: 0;
   color: var(--page-text-2);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 .machines-row[data-connected] .machines-name,
 .machines-joined .machines-name { color: var(--page-text); }
@@ -123,12 +124,14 @@ html[data-cmux-page="machines"] body {
   background: transparent;
   color: var(--page-text-2);
   opacity: 0;
-  transition: opacity var(--cmux-motion-micro) var(--cmux-ease-out);
+  transition: var(--cmux-hover-reveal-out-transition);
 }
 .machines-row:hover .machines-action,
 .machines-row:has([data-popup-open]) .machines-action,
 .machines-row:focus-within .machines-action,
-.machines-row[data-menu-open] .machines-action { opacity: 1; }
+.machines-row[data-menu-open] .machines-action { opacity: 1; transition: var(--cmux-hover-reveal-in-transition); }
+/* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
+.machines-row:has(:focus-visible) .machines-action { transition: none; }
 .machines-action:hover:not(:disabled),
 .machines-row[data-menu-open] .machines-more { background: var(--page-hover); }
 .machines-action:disabled { color: var(--page-text-disabled); }
@@ -154,3 +157,49 @@ html[data-cmux-page="machines"] body {
 }
 .machines-add:hover { color: var(--page-text); }
 .machines-add .machines-icon { color: inherit; }
+
+/* Remove's question, inside the section's own slot: the page's text, the danger ink on Remove. */
+.machines-dialog {
+  position: fixed;
+  inset-inline: var(--ds-space-3);
+  top: var(--ds-space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-4);
+  /* The glass rim is its edge: no border of its own over it; the sheet role's veil, radius and depth (ui/popupSurface.css .ui-dialog.ui-glass). */
+  border: var(--cmux-hairline) solid transparent;
+  color: var(--page-text);
+}
+/* The shared glass (ui-glass), never a solid fill; Reduce Transparency makes it solid. */
+.machines-dialog.ui-glass { background: var(--glass-tint); }
+.machines-dialog-title {
+  margin: 0;
+  font: inherit;
+  font-weight: var(--weight-emphasis);
+  overflow-wrap: break-word;
+}
+.machines-dialog-body {
+  margin: 0;
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+}
+.machines-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--ds-space-2);
+  margin-top: var(--ds-space-2);
+}
+.machines-dialog-button {
+  min-height: var(--ds-control-compact);
+  padding: 0 var(--ds-space-3);
+  border: 0;
+  border-radius: var(--ds-radius-control);
+  background: var(--page-hover);
+  color: var(--page-text);
+}
+.machines-dialog-button[data-danger] { color: var(--ds-color-danger); }
+.machines-dialog-button:focus-visible {
+  outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
+  outline-offset: 0;
+}
