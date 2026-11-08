@@ -65,7 +65,7 @@ pub fn live_route(
 /// The SDK's rule for a session name in a socket path: one non-empty path
 /// component without separators or control characters.
 fn validate_session_name(name: &str) -> Result<(), String> {
-    let invalid = name.trim().is_empty()
+    let invalid = name.is_empty()
         || matches!(name, "." | "..")
         || name.chars().any(|character| {
             matches!(character, '/' | '\\' | '\0' | '\u{0085}' | '\u{2028}' | '\u{2029}')

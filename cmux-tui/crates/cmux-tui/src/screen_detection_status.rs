@@ -12,7 +12,8 @@ use serde_json::{Value, json};
 /// The screen-detection state of one daemon.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ScreenDetection {
-    /// The bundled plugin at `path` runs.
+    /// The bundled plugin is at `path`. A daemon started before it was put
+    /// there runs it from its next start.
     Installed { path: PathBuf },
     /// No executable plugin at any of `looked_in`.
     NotInstalled { looked_in: Vec<PathBuf> },
@@ -67,7 +68,7 @@ impl ScreenDetection {
                 "message": text.screen_detection_replaced.replace("{id}", id),
             }),
             Self::Unreadable => {
-                json!({"state": "off", "message": text.screen_detection_unreadable})
+                json!({"state": "unreadable", "message": text.screen_detection_unreadable})
             }
             Self::Unsupported => {
                 json!({"state": "unsupported", "message": text.screen_detection_unsupported})

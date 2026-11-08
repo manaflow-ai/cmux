@@ -171,7 +171,8 @@ pub(in crate::cli) fn reply_after(lines: &[String], message: &str) -> Reply {
 ///
 /// `before` is the screen before the message was typed, and `screen` the
 /// last screen read: without the echo, the reply is what `lines` hold after
-/// the last lines of `before`, else `screen` alone.
+/// the last lines of `before`, else `screen` alone. Without `before` it is
+/// all of `lines`, as [`reply_after`] answers.
 pub(in crate::cli) fn reply_since(
     lines: &[String],
     message: &str,
@@ -181,10 +182,9 @@ pub(in crate::cli) fn reply_since(
     if let Some(start) = anchor(lines, message) {
         return Reply { text: tidy(without_footer(&lines[start..])), anchored: true };
     }
-    let start = before.and_then(|before| after_before(lines, before));
-    let body = match start {
-        Some(start) => &lines[start..],
-        None => screen,
+    let body = match before {
+        None => lines,
+        Some(before) => after_before(lines, before).map_or(screen, |start| &lines[start..]),
     };
     Reply { text: tidy(without_footer(body)), anchored: false }
 }
