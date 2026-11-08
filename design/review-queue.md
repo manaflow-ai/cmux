@@ -40,7 +40,7 @@ moves through them and answers this Mac's approvals and pull requests without op
 | Return | open the chat in this tab, as History's own rows and the sidebar do (`chat.select`; another machine's chat by its listed row) |
 | Allow Once shortcut (⌥⌘1 by default) | allow once (a plan: approve; a pull request: accept) |
 | Deny shortcut (⌥⌘3 by default) | deny once (a pull request: open Request changes) |
-| x | export the audit trail (`_acpmux/audit`, every page) to the clipboard as JSON |
+| x | export the audit trail (`_acpmux/audit`, every page) to the clipboard as JSON; a refused copy says it failed |
 
 A chord (Cmd, Ctrl, Alt or Shift) is the app's, never the queue's. Answers take the app's
 permission shortcuts, not plain letters: a permission answer needs the person's own click or that
@@ -91,6 +91,8 @@ also covers 300 asks, an unreached machine, loading, empty and older.
   - `_acpmux/audit`: `since`, `until`, `sessionId`, `limit`, `cursor`
   - `_acpmux/review_verdict`: `prUrl`, `sessionId`, `verdict`, `comment`
 
-  `_acpmux/review_verdict` requires a gesture. None of the params carries a command.
+  `_acpmux/review_verdict` requires a gesture, and it follows the source rule (`source_scoped`):
+  for a chat outside the pane's scope it takes the click's scope credit, so a click spent attaching
+  another chat cannot also send this one a verdict. None of the params carries a command.
 - Rows are memoized, so moving the cursor redraws two rows. Rows past the viewport skip layout
   and paint (`content-visibility: auto`), so a frame costs the visible rows whatever the length of the queue.
