@@ -16,23 +16,22 @@
 //! [`write`] returns a [`Written`] guard: dropping it removes the record, so a startup that fails
 //! after the write leaves none, and the daemon drops it first thing in its shutdown, while its
 //! listener is still bound (the record is gone before the port is freed). A crash leaves the
-//! record; a reader refuses it, as below. The write goes through the lost-home fence
+//! record; a reader refuses it, as below: no live listener holds a dead daemon's key. The write goes through the lost-home fence
 //! (`config::refuse_lost_home`): a home replaced under the daemon never gets its record.
 //!
 //! A reader ([`connect_live`]) trusts the record only when all of these hold, and otherwise sends
 //! nothing:
 //! - the file is this user's;
-//! - the record's process still runs, with the start time the record names (a reused pid has
-//!   another) and this reader's uid;
 //! - the listener at the recorded address answers a fresh random challenge with its HMAC-SHA256
-//!   under the record's key. The key is in the record only (mode 0600), so a process of another
-//!   user cannot answer, and an answer it saw once is useless for the next challenge: a service
-//!   that binds the port after the daemon cannot pass, whatever it watched before.
+//!   under the record's key. The key is drawn per daemon process and kept only in its memory
+//!   and in this record (mode 0600), so only the daemon that wrote the record can answer. A
+//!   process of another user cannot read the key, an answer seen once is useless for the next
+//!   challenge, and a service that binds the port after the daemon (or after a crash) cannot
+//!   pass, whatever it watched before. No process is inspected: cmux-next never scans processes.
 //!
 //! Format (mode 0600, replaced through a temp file and a rename):
-//! `{"version":2,"listen":"127.0.0.1:52341","pid":1234,"start":[1794120000,123456],"key":"<64 hex>"}`.
-//! `start` is the OS start time of `pid`: on macOS `proc_bsdinfo` seconds and microseconds, on
-//! Linux `/proc/<pid>/stat` field 22 (clock ticks since boot) and 0.
+//! `{"version":2,"listen":"127.0.0.1:52341","pid":1234,"key":"<64 hex>"}`. `pid` only tells
+//! the writer its own record when it removes it; readers do not use it.
 //!
 //! The probe is one request head, so the listener's reader (`server/ws_peek.rs`) reads it whole:
 //! `ACPMUX-LINK/2 <challenge: 64 hex>\r\n\r\n`, answered with `ACPMUX-LINK/2 <hmac: 64 hex>\n`.
@@ -63,7 +62,6 @@ struct Record {
     version: u32,
     listen: SocketAddr,
     pid: u32,
-    start: (u64, u64),
     key: String,
 }
 
@@ -78,7 +76,7 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 fn unhex(text: &str) -> Option<Vec<u8>> {
-    if text.len() % 2 != 0 {
+    if !text.len().is_multiple_of(2) {
         return None;
     }
     (0..text.len())
@@ -148,9 +146,8 @@ fn write_fenced(
     fence(&path)?;
     let listen = dialable(listen);
     let pid = std::process::id();
-    let (start, _) = process_identity(pid)?;
     let key = key().ok_or_else(|| io::Error::other("no randomness for the listener key"))?;
-    let record = Record { version: VERSION, listen, pid, start, key: hex(key) };
+    let record = Record { version: VERSION, listen, pid, key: hex(key) };
     let text = serde_json::to_vec(&record).map_err(io::Error::other)?;
     let temp = home.join(format!(".{FILE_NAME}.{pid}.tmp"));
     let written = (|| {
@@ -205,11 +202,10 @@ pub enum NotLive {
     NoRecord,
     /// The record's address is not on loopback, or its port is 0.
     NotLoopback,
-    /// The record's process ended, or its pid now names another process (start time or uid).
-    Stale,
     /// Nothing listens at the recorded address.
     Unreachable,
-    /// The listener there did not answer the challenge under the record's key.
+    /// The listener there did not answer the challenge under the record's key: it is not the
+    /// daemon that wrote the record (that daemon ended, or another process holds the port).
     WrongListener,
 }
 
@@ -220,10 +216,6 @@ pub async fn connect_live(home: &Path, bound: Duration) -> Result<TcpStream, Not
     let record = read(home).ok_or(NotLive::NoRecord)?;
     if !record.listen.ip().is_loopback() || record.listen.port() == 0 {
         return Err(NotLive::NotLoopback);
-    }
-    match process_identity(record.pid) {
-        Ok((start, uid)) if start == record.start && uid == effective_uid() => {}
-        _ => return Err(NotLive::Stale),
     }
     let key = unhex(&record.key).ok_or(NotLive::NoRecord)?;
     let challenge = random().ok_or(NotLive::WrongListener)?;
@@ -261,59 +253,9 @@ fn effective_uid() -> u32 {
     unsafe { libc::geteuid() }
 }
 
-#[cfg(not(unix))]
-fn effective_uid() -> u32 {
-    0
-}
-
-/// `pid`'s OS start time and uid: what tells a live daemon from a reused pid.
-#[cfg(target_os = "macos")]
-fn process_identity(pid: u32) -> io::Result<((u64, u64), u32)> {
-    let pid = libc::c_int::try_from(pid).map_err(io::Error::other)?;
-    // SAFETY: proc_bsdinfo is plain C data; the out-buffer has its exact size.
-    let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
-    let size = libc::c_int::try_from(std::mem::size_of::<libc::proc_bsdinfo>())
-        .map_err(io::Error::other)?;
-    // SAFETY: info is writable for `size` bytes, as this flavor needs.
-    let written =
-        unsafe { libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, (&raw mut info).cast(), size) };
-    if written != size {
-        return Err(io::Error::new(io::ErrorKind::NotFound, "no such process"));
-    }
-    Ok(((info.pbi_start_tvsec, info.pbi_start_tvusec), info.pbi_uid))
-}
-
-/// `pid`'s OS start time and uid: what tells a live daemon from a reused pid.
-#[cfg(any(target_os = "linux", target_os = "android"))]
-fn process_identity(pid: u32) -> io::Result<((u64, u64), u32)> {
-    use std::os::unix::fs::MetadataExt as _;
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat"))?;
-    let uid = std::fs::metadata(format!("/proc/{pid}"))?.uid();
-    let start = linux_start(&stat).ok_or_else(|| io::Error::other("unreadable /proc stat"))?;
-    Ok(((start, 0), uid))
-}
-
-/// Field 22 (starttime) of `/proc/<pid>/stat`; the command name may hold spaces and ')'.
-#[cfg(any(target_os = "linux", target_os = "android", test))]
-fn linux_start(stat: &str) -> Option<u64> {
-    let (_, fields) = stat.rsplit_once(')')?;
-    fields.split_whitespace().nth(19)?.parse().ok()
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "android", target_os = "macos")))]
-fn process_identity(_pid: u32) -> io::Result<((u64, u64), u32)> {
-    Err(io::Error::new(io::ErrorKind::Unsupported, "no process identity on this OS"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_start_time_is_field_22_after_the_command_name() {
-        let stat = "42 (a ) b) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 777 20";
-        assert_eq!(linux_start(stat), Some(777));
-    }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
@@ -470,11 +412,32 @@ mod tests {
     fn another_daemons_record_is_left_alone() {
         let home = tempfile::tempdir().unwrap();
         let other = format!(
-            r#"{{"version":2,"listen":"127.0.0.1:1","pid":1,"start":[1,0],"key":"{}"}}"#,
+            r#"{{"version":2,"listen":"127.0.0.1:1","pid":1,"key":"{}"}}"#,
             hex(&[1u8; SECRET_BYTES])
         );
         std::fs::write(home.path().join(FILE_NAME), other).unwrap();
+        assert!(read(home.path()).is_some(), "a well-formed record");
         remove_if_owned(home.path());
         assert!(home.path().join(FILE_NAME).exists());
+    }
+
+    /// A daemon that crashed left its record; a live listener now at that address (here: one
+    /// that answers with this process's key, as a newer daemon would) fails its challenge.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[tokio::test]
+    async fn a_dead_daemons_record_fails_the_challenge() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let bound = listener.local_addr().unwrap();
+        answering(listener, |head| probe_answer(head).unwrap()).await;
+        let home = tempfile::tempdir().unwrap();
+        let dead = format!(
+            r#"{{"version":2,"listen":"{bound}","pid":1,"key":"{}"}}"#,
+            hex(&[1u8; SECRET_BYTES])
+        );
+        std::fs::write(home.path().join(FILE_NAME), dead).unwrap();
+        assert!(matches!(
+            connect_live(home.path(), Duration::from_secs(5)).await,
+            Err(NotLive::WrongListener)
+        ));
     }
 }

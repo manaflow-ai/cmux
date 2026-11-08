@@ -406,58 +406,41 @@ fn an_unrelated_listener_on_a_stale_saved_port_gets_no_peer_bytes() {
     });
 }
 
-/// `listener.json` as this process would write it for `listen`, with `pid` in place of its own.
-fn record_with_pid(home: &std::path::Path, listen: SocketAddr, pid: u32) {
-    // Once its pid is another's, the guard leaves the record in place.
+/// `listener.json` naming `listen`, as a daemon that has since ended left it: another pid and
+/// a key no live process holds. This process's guard leaves it in place.
+fn dead_daemons_record(home: &std::path::Path, listen: SocketAddr) {
     let written = acpmux::listener_record::write(home, listen).unwrap();
     let path = home.join(acpmux::listener_record::FILE_NAME);
     let mut record: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
-    record["pid"] = json!(pid);
+    record["pid"] = json!(1);
+    record["key"] = json!("01".repeat(32));
     std::fs::write(&path, record.to_string()).unwrap();
     drop(written);
     assert!(path.exists());
 }
 
 #[test]
-fn a_record_whose_pid_is_dead_is_refused() {
+fn a_record_left_by_an_ended_daemon_is_refused() {
     use acpmux::listener_record::NotLive;
     run(async {
-        let (address, seen) = unrelated_listener().await;
-        let mut child = std::process::Command::new("true").spawn().unwrap();
-        let dead = child.id();
-        child.wait().unwrap();
-        let home = tempfile::tempdir().unwrap();
-        record_with_pid(home.path(), address, dead);
-        assert_eq!(
-            peer_stream(&live(&home)).await,
-            Err(InboundRefused::AcpmuxNotLive(NotLive::Stale))
-        );
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(received(&seen).is_empty(), "{:?}", received(&seen));
-    });
-}
-
-#[test]
-fn a_record_whose_pid_now_names_another_process_is_refused() {
-    use acpmux::listener_record::NotLive;
-    run(async {
-        // The real acpmux listener is up; the record names it, but its pid is now an unrelated
-        // live process (a reused pid): its start time is not the recorded one.
+        // The record outlived its daemon (a crash). Whatever now listens at its address, the
+        // real acpmux listener of a newer daemon or an unrelated service, cannot answer the
+        // challenge under the dead daemon's key, so no peer byte goes there.
         let (address, _peer_token, listener, _acpmux_home) = acpmux_listener().await;
         let (spy, seen) = unrelated_listener().await;
-        let mut other = std::process::Command::new("sleep").arg("30").spawn().unwrap();
         for target in [address, spy] {
             let home = tempfile::tempdir().unwrap();
-            record_with_pid(home.path(), target, other.id());
+            dead_daemons_record(home.path(), target);
             assert_eq!(
                 peer_stream(&live(&home)).await,
-                Err(InboundRefused::AcpmuxNotLive(NotLive::Stale))
+                Err(InboundRefused::AcpmuxNotLive(NotLive::WrongListener))
             );
         }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(received(&seen).is_empty(), "{:?}", received(&seen));
-        let _ = other.kill();
-        let _ = other.wait();
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        let got = received(&seen);
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert!(got[0].starts_with("ACPMUX-LINK/2 ") && got[0].ends_with("\r\n\r\n"), "{got:?}");
+        assert!(!got[0].contains("peer-secret"), "{got:?}");
         listener.abort();
     });
 }
