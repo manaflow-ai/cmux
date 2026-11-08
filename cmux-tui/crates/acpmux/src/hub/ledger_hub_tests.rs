@@ -48,3 +48,28 @@ async fn appended_turns_reach_the_ledger_and_a_pull_request_names_the_repo() {
     assert_eq!(row["repo"], "acme/widgets");
     assert_eq!(reply["rollups"]["pr"][0]["label"], "acme/widgets#3");
 }
+
+/// A fork's meta counts the parent's turns it copied; its first-start seed counts only the turns
+/// after its `forked` record, the ones its own totals paid for.
+#[tokio::test]
+async fn a_forks_seed_counts_only_its_own_turns() {
+    let mut cfg: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    let mut m = meta("fork");
+    m.parent_id = Some("parent".into());
+    let fork = hub.insert_test_session(m);
+    for _ in 0..3 {
+        hub.append(&fork, "mux", "turn_result", json!({"status": "completed"}));
+    }
+    hub.append(&fork, "mux", "forked", json!({"parentId": "parent"}));
+    hub.append(&fork, "mux", "turn_result", json!({"status": "completed"}));
+    let mut m = fork.meta();
+    assert_eq!(hub.fork_own_turns(&m), Some(1));
+    m.turn_count = 4;
+    m.totals = Some(crate::store::TurnUsage { cost_usd: Some(2.0), ..Default::default() });
+    let seed = ledger::Seed::of(&m, hub.fork_own_turns(&m));
+    assert_eq!(seed.turns, 1);
+    // Not a fork: the meta's own count.
+    assert_eq!(hub.fork_own_turns(&meta("plain")), None);
+}

@@ -235,21 +235,50 @@ impl Writer {
     }
 }
 
-/// Starts the writer thread for `path` (`size` bytes now); it ends when the ledger is dropped.
+/// The writer thread and the channel that closes when it ends.
+pub(crate) struct WriterThread {
+    handle: std::thread::JoinHandle<()>,
+    ended: Receiver<()>,
+}
+
+impl WriterThread {
+    /// Waits up to `within` for the thread to end (its queue closed first); true when it did.
+    pub(crate) fn join_within(self, within: std::time::Duration) -> bool {
+        match self.ended.recv_timeout(within) {
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                let _ = self.handle.join();
+                true
+            }
+            _ => {
+                tracing::warn!("ledger: the writer did not finish within {within:?}");
+                false
+            }
+        }
+    }
+}
+
+/// Starts the writer thread for `path` (`size` bytes now); it ends when its queue closes, after
+/// writing everything queued before.
 pub(crate) fn spawn_writer(
     dir: PathBuf,
     path: PathBuf,
     size: u64,
     compact_bytes: u64,
     state: Arc<Mutex<State>>,
-) -> Sender<Work> {
+) -> Option<(Sender<Work>, WriterThread)> {
     let (tx, rx) = std::sync::mpsc::channel();
+    let (end_tx, ended) = std::sync::mpsc::sync_channel::<()>(0);
     let writer =
         Writer { dir, path, file: None, size, compact_bytes, floor: 0, written_upto: 0, state };
-    let spawned =
-        std::thread::Builder::new().name("acpmux-ledger".into()).spawn(move || writer.run(rx));
-    if let Err(e) = spawned {
-        tracing::warn!("ledger: no writer thread: {e}");
+    let spawned = std::thread::Builder::new().name("acpmux-ledger".into()).spawn(move || {
+        let _end = end_tx;
+        writer.run(rx);
+    });
+    match spawned {
+        Ok(handle) => Some((tx, WriterThread { handle, ended })),
+        Err(e) => {
+            tracing::warn!("ledger: no writer thread: {e}");
+            None
+        }
     }
-    tx
 }

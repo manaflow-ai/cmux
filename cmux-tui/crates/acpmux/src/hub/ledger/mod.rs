@@ -330,7 +330,10 @@ pub(crate) enum Work {
 
 pub struct Ledger {
     pub(crate) state: Arc<Mutex<State>>,
-    writer: Option<Mutex<std::sync::mpsc::Sender<Work>>>,
+    /// The writer thread's queue; `None` in memory, and once [`Ledger::close`] ran.
+    writer: Mutex<Option<std::sync::mpsc::Sender<Work>>>,
+    /// The writer thread, and the channel its end closes (`close` waits on it).
+    thread: Mutex<Option<store::WriterThread>>,
     /// The person every session on this machine runs for.
     person: String,
 }
@@ -360,15 +363,45 @@ impl Ledger {
 
     pub(crate) fn open_with(dir: Option<PathBuf>, compact_bytes: u64, person: String) -> Self {
         let state = Arc::new(Mutex::new(State::default()));
-        let writer = dir.map(|dir| {
+        let mut repos = Vec::new();
+        let spawned = dir.and_then(|dir| {
             let path = dir.join(store::FILE);
             let size = {
                 let mut s = state.lock().unwrap_or_else(PoisonError::into_inner);
-                store::fold(&path, &mut s)
+                let size = store::fold(&path, &mut s);
+                // Folded sessions with no repository yet: their folder's origin, once.
+                let ids: Vec<Arc<str>> = s.sessions.keys().cloned().collect();
+                for id in ids {
+                    let cwd = s.sessions.get(&id).and_then(|row| row.cwd.clone());
+                    if s.wants_repo(&id)
+                        && let Some(cwd) = cwd
+                    {
+                        repos.push(Work::Repo { sid: id.to_string(), cwd: PathBuf::from(cwd) });
+                    }
+                }
+                size
             };
-            Mutex::new(store::spawn_writer(dir, path, size, compact_bytes, Arc::clone(&state)))
+            store::spawn_writer(dir, path, size, compact_bytes, Arc::clone(&state))
         });
-        Self { state, writer, person }
+        let (writer, thread) = match spawned {
+            Some((tx, thread)) => (Some(tx), Some(thread)),
+            None => (None, None),
+        };
+        let ledger = Self { state, writer: Mutex::new(writer), thread: Mutex::new(thread), person };
+        for work in repos {
+            ledger.send(work);
+        }
+        ledger
+    }
+
+    /// Shutdown (`Hub::flush`): closes the writer's queue and waits up to `within` for it to
+    /// write what it holds and end. True when it ended; later lines are kept in memory only.
+    pub fn close(&self, within: std::time::Duration) -> bool {
+        drop(self.writer.lock().unwrap_or_else(PoisonError::into_inner).take());
+        let Some(thread) = self.thread.lock().unwrap_or_else(PoisonError::into_inner).take() else {
+            return true;
+        };
+        thread.join_within(within)
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
@@ -378,17 +411,12 @@ impl Ledger {
     /// Hands `line` to the writer, under the state lock so lines keep their order.
     fn emit(&self, state: &mut State, line: Line) {
         state.seq += 1;
-        if let Some(tx) = &self.writer {
-            let _ = tx
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .send(Work::Line(state.seq, Box::new(line)));
-        }
+        self.send(Work::Line(state.seq, Box::new(line)));
     }
 
     fn send(&self, work: Work) {
-        if let Some(tx) = &self.writer {
-            let _ = tx.lock().unwrap_or_else(PoisonError::into_inner).send(work);
+        if let Some(tx) = self.writer.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
+            let _ = tx.send(work);
         }
     }
 
@@ -530,6 +558,12 @@ impl Ledger {
 
     /// First start with no ledger file: each loaded session's running totals, on the day it was
     /// last active. Sessions the ledger already holds are left alone. Runs once.
+    /// True until [`Ledger::seed`] has run or a ledger file was found.
+    pub(crate) fn wants_seed(&self) -> bool {
+        let s = self.lock();
+        !s.existed && !s.seeded
+    }
+
     pub(crate) fn seed(&self, sessions: impl IntoIterator<Item = Seed>) {
         let mut s = self.lock();
         if s.existed || s.seeded {
@@ -539,10 +573,8 @@ impl Ledger {
         let version = crate::pricing::table().version.clone();
         let mut repos = Vec::new();
         for seed in sessions {
-            if s.sessions.contains_key(seed.id.as_str())
-                || seed.turns == 0
-                || seed.totals.is_empty()
-            {
+            // A session with turns and no reported usage counts them as unpriced.
+            if s.sessions.contains_key(seed.id.as_str()) || seed.turns == 0 {
                 continue;
             }
             let model = seed.ctx.model.clone().unwrap_or_else(|| "unknown".into());
@@ -576,7 +608,7 @@ impl Ledger {
     #[cfg(test)]
     pub(crate) fn flush(&self) {
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
-        if self.writer.is_some() {
+        if self.writer.lock().unwrap_or_else(PoisonError::into_inner).is_some() {
             self.send(Work::Flush(tx));
             let _ = rx.recv();
         }
@@ -626,15 +658,16 @@ pub(crate) struct Seed {
 }
 
 impl Seed {
-    pub(crate) fn of(m: &crate::store::SessionMeta) -> Option<Self> {
-        let totals = m.totals.clone()?;
-        Some(Self {
+    /// `own_turns`: a fork's turns since it was made (its meta's count includes the parent's
+    /// turns it copied, which count once, in the parent); None counts the meta's.
+    pub(crate) fn of(m: &crate::store::SessionMeta, own_turns: Option<u64>) -> Self {
+        Self {
             id: m.id.clone(),
             at: m.updated_at,
-            turns: m.turn_count,
-            totals,
+            turns: own_turns.unwrap_or(m.turn_count),
+            totals: m.totals.clone().unwrap_or_default(),
             ctx: TurnContext::of(m),
-        })
+        }
     }
 }
 

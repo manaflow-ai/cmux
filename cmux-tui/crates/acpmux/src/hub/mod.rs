@@ -1300,7 +1300,12 @@ impl Hub {
         self.settle_legacy_grants(&mut metas);
         self.store_load.total.store(metas.len(), Ordering::SeqCst);
         // A first start with no ledger file: each session's running totals (`hub/ledger`).
-        self.ledger.seed(metas.iter().filter_map(ledger::Seed::of));
+        if self.ledger.wants_seed() {
+            // Forks' own turns are read first, so the ledger's lock waits on no log read.
+            let seeds: Vec<_> =
+                metas.iter().map(|m| ledger::Seed::of(m, self.fork_own_turns(m))).collect();
+            self.ledger.seed(seeds);
+        }
         for meta in metas {
             let hosted = hosted.contains(&meta.id);
             self.install_stored_session(meta, deferred, hosted);
