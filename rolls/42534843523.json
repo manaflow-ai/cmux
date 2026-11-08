@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42534843523",
+  "recorded_at": "2026-11-08T23:29:56Z",
+  "reason": "cmux-tui 4f3a060e666d changes the image's cmux-tui (pinned a481a748be31)",
+  "dry_run": false,
+  "cmux_tui": "4f3a060e666d35072e6b69222b03f069d4057784",
+  "fixes": [
+    {
+      "sha": "4f3a060e666d35072e6b69222b03f069d4057784",
+      "mergedAt": "2026-11-08T15:04:47-08:00",
+      "subject": "cmux-link: one lock decides which process holds this machine's WireGuard key (#38314)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T23:29:56Z",
+    "snapshot_id": "sh-07c567a2b38b4652b685e18cb98a11da",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42534843523): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "0da8caa7908ddaa912440a68961e0ba3de122674",
+    "image": "cloud-native-auto-4f3a060e-42534843523-1",
+    "revision": "ci-42534843523-1",
+    "at": "2026-11-08T23:29:56Z"
+  },
+  "rolled_back": false
+}
