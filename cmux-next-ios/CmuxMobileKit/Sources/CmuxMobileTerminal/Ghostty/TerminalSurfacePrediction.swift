@@ -54,7 +54,8 @@ final class TerminalSurfacePrediction {
     /// What the overlay draws now, nil while hidden (tests and benchmarks).
     var drawnLayout: PredictionLayout? { overlay.isHidden ? nil : overlay.layout }
 
-    /// One write Ghostty encoded for the remote (`io_write_cb`), before it goes out.
+    /// One write of the person's input Ghostty encoded for the remote
+    /// (`io_write_cb`), once the session took it to go out.
     func sent(_ bytes: Data) {
         if engine.sent(bytes: bytes, nowUs: Self.now()) || !overlay.isHidden { refresh() }
     }
@@ -72,6 +73,14 @@ final class TerminalSurfacePrediction {
 
     /// The grid or the font changed under the glyphs: start over.
     func gridChanged() {
+        _ = engine.missedOutput(nowUs: Self.now())
+        refresh()
+    }
+
+    /// Input the session refused or dropped (a disconnect, a reattach that
+    /// gave up), or the link went down with keys on it: their echoes may
+    /// never come, so nothing in flight can stand.
+    func inputDropped() {
         _ = engine.missedOutput(nowUs: Self.now())
         refresh()
     }
