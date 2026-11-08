@@ -52,26 +52,26 @@ struct AcpmuxCloudTunnelTests {
     @Test func aLineWithoutThePersonProofNeverSeesTheToken() async {
         let line = Line(isPerson: false)
         await #expect(throws: AcpmuxCloudTunnel.Refusal.self) {
-            try await Self.tunnel(line).run(.rekey, token: "person-token")
+            _ = try await Self.tunnel(line).run(.rekey, token: "person-token")
         }
         #expect(line.calls.isEmpty)
         #expect(line.closed)
         await #expect(throws: AcpmuxCloudTunnel.Refusal.self) {
-            try await Self.tunnel(nil).run(.attach, token: "person-token")
+            _ = try await Self.tunnel(nil).run(.attach, token: "person-token")
         }
     }
 
     @Test func aRefusalSaysTheDaemonsOwnWords() async {
         let line = Line(isPerson: true, reply: nil, lastError: "a rekey of this Mac's WireGuard key is already running")
         do {
-            try await Self.tunnel(line).run(.rekey, token: "person-token")
+            _ = try await Self.tunnel(line).run(.rekey, token: "person-token")
             Issue.record("a refused rekey returned")
         } catch {
             #expect(error.localizedDescription == "a rekey of this Mac's WireGuard key is already running")
         }
         let silent = Line(isPerson: true, reply: nil)
         do {
-            try await Self.tunnel(silent).run(.detach, token: "person-token")
+            _ = try await Self.tunnel(silent).run(.detach, token: "person-token")
             Issue.record("a refused detach returned")
         } catch {
             #expect(error.localizedDescription == "no daemon")
