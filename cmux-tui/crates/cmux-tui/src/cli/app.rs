@@ -761,6 +761,15 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
 /// that does not answer as the cmux app is `socket.wrong_kind`; neither
 /// tries another socket.
 pub(super) fn connect_command(global: &GlobalArgs) -> Result<UnixStream, Value> {
+    connect_command_within(global, None)
+}
+
+/// [`connect_command`] for an optional read that must never hold up a command: with `probe`, the
+/// `--socket` kind probe (`system.ping`) has that hard deadline instead of waiting out a busy app.
+pub(super) fn connect_command_within(
+    global: &GlobalArgs,
+    probe: Option<Duration>,
+) -> Result<UnixStream, Value> {
     let socket = command_socket(global)?;
     let Some(flag) = socket.named_by else {
         return connect(&socket.path).map_err(|message| typed("app.unreachable", message, None));
@@ -783,7 +792,10 @@ pub(super) fn connect_command(global: &GlobalArgs) -> Result<UnixStream, Value> 
         // An app's refusal is an object with a code (a classic app in
         // older password-mode app refuses ping before `auth.login`; a daemon's
         // refusal of the unknown line is a plain string.
-        let pong = exchange(&mut stream, "system.ping", json!({}), READ_TIMEOUT);
+        let pong = match probe {
+            Some(timeout) => exchange_within(&mut stream, "system.ping", json!({}), timeout),
+            None => exchange(&mut stream, "system.ping", json!({}), READ_TIMEOUT),
+        };
         let is_app = match &pong {
             Ok(Ok(result)) => result.get("pong") == Some(&Value::Bool(true)),
             Ok(Err(error)) => error.get("code").is_some_and(Value::is_string),

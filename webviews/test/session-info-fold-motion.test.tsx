@@ -84,6 +84,10 @@ function List() {
       <button type="button" aria-expanded={all} onClick={() => fold.toggle(!all, setAll)}>
         fold
       </button>
+      {/* A reveal from outside (SessionInfo's own reveal path): sets the state without toggle. */}
+      <button type="button" className="reveal" onClick={() => setAll(true)}>
+        reveal
+      </button>
     </>
   );
 }
@@ -94,7 +98,8 @@ async function render() {
   await act(async () => root!.render(<List />));
   const list = container.querySelector("ul")!;
   const button = container.querySelector("button")!;
-  return { list, button };
+  const reveal = container.querySelector<HTMLButtonElement>("button.reveal")!;
+  return { list, button, reveal };
 }
 
 test("a Show less keeps its rows drawn and its box clipped while it closes, then lands closed", async () => {
@@ -106,6 +111,41 @@ test("a Show less keeps its rows drawn and its box clipped while it closes, then
   expect(list.dataset.folding).toBe("");
   await act(async () => animations[0]!.onfinish?.());
   expect(list.children.length).toBe(2);
+  expect(list.dataset.folding).toBeUndefined();
+});
+
+test("the host's Reduce Motion (a zero move duration) folds at once", async () => {
+  dom!.window.document.documentElement.dataset.agentMove = "instant";
+  const { list, button } = await render();
+  await act(async () => button.click());
+  expect(animations.length).toBe(0);
+  expect(list.children.length).toBe(2);
+  expect(list.dataset.folding).toBeUndefined();
+  const css = readFileSync(
+    path.join(import.meta.dir, "../src/agent-session/acpmux/session-info/sessionInfo.css"),
+    "utf8",
+  );
+  expect(css.match(/\[data-agent-move="instant"\]\)/g)?.length).toBe(2);
+});
+
+test("a reveal from outside during Show less stops the close, so the reopened box is never left clipped", async () => {
+  const { list, button, reveal } = await render();
+  await act(async () => button.click());
+  expect(list.dataset.folding).toBe("");
+  const closing = animations[0]!;
+  let cancelled = false;
+  const cancel = closing.cancel.bind(closing);
+  closing.cancel = () => {
+    cancelled = true;
+    cancel();
+  };
+  await act(async () => reveal.click());
+  expect(cancelled).toBe(true);
+  expect(list.children.length).toBe(5);
+  expect(list.dataset.folding).toBeUndefined();
+  // The stale close finishing late (a real animation's fill: forwards would hold its height) settles nothing.
+  await act(async () => closing.onfinish?.());
+  expect(list.children.length).toBe(5);
   expect(list.dataset.folding).toBeUndefined();
 });
 

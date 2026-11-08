@@ -12,13 +12,16 @@ public final class FirstOutcome<Value: Sendable>: Sendable {
 
     public init() {}
 
-    public func resolve(_ value: Value) {
-        let waiter: CheckedContinuation<Value, Never>? = phase.withLock { phase in
-            guard case .pending(let waiter) = phase else { return nil }
+    /// False when an earlier `resolve` won.
+    @discardableResult
+    public func resolve(_ value: Value) -> Bool {
+        let (won, waiter): (Bool, CheckedContinuation<Value, Never>?) = phase.withLock { phase in
+            guard case .pending(let waiter) = phase else { return (false, nil) }
             phase = .done(value)
-            return waiter
+            return (true, waiter)
         }
         waiter?.resume(returning: value)
+        return won
     }
 
     public func value() async -> Value {

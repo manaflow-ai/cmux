@@ -431,10 +431,10 @@ extension AppOnboardingServices {
             if saved.pinned, local.supports(DaemonCapability.workspacePin.rawValue) {
                 _ = try await connection.setWorkspaceMetadata(key, pinned: true)
             }
-            if let session = store.registryID, case let group = saved.groupID.flatMap({ groups[$0] }), group != nil || store.personal.workspace(session: session, key: key.rawValue)?.group != nil {
+            if let session = store.registryID, store.servesStateResources, case let group = saved.groupID.flatMap({ groups[$0] }) {
                 try await connection.state.placePersonalWorkspace(session: session, key: key, resource: store.personalStateID(session: session, key: key), group: group.map { .set($0) } ?? .clear,
                                                                   index: group.flatMap { store.personal.index(afterLastMemberOf: $0, moving: key.rawValue, session: session) })
-                await local.appliedThroughReply(on: connection, after: "classic group") // the next member's index reads this row (#28425); a loose one leaves its create's group (#37161)
+                await local.appliedThroughReply(on: connection, after: "classic group") // the next member's index reads this row (#28425); a loose one always leaves its create's group (#37161): the store can trail that row
             }
         } catch {
             services.daemon.logger.error("classic workspace look not kept: \(String(describing: error), privacy: .public)")

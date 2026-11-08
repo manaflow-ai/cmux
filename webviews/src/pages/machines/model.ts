@@ -121,6 +121,13 @@ export function platformText(platform: string): string {
   }
 }
 
+/** The caption of a joined row whose last change failed. */
+const FAILED_KEY: Record<JoinedMachineChange, string> = {
+  revoke: "machines.joined.revokeFailed",
+  rotate: "machines.joined.rotateFailed",
+  remove: "machines.joined.removeFailed",
+};
+
 /** A joined machine's caption: the failure of its last change, else its state, platform and who
  * made its line. */
 export function joinedCaption(
@@ -128,7 +135,7 @@ export function joinedCaption(
   failed: JoinedMachineChange | undefined,
   strings: Strings,
 ): string {
-  if (failed) return strings.t(failed === "revoke" ? "machines.joined.revokeFailed" : "machines.joined.rotateFailed");
+  if (failed) return strings.t(FAILED_KEY[failed]);
   const parts = [strings.t(`machines.joined.${machine.state}`)];
   if (machine.platform) parts.push(platformText(machine.platform));
   if (machine.mintedBy) parts.push(strings.format("machines.joined.mintedBy", machine.mintedBy));
@@ -146,9 +153,15 @@ export type SectionItem =
   | { type: "add"; key: string; gap: boolean };
 
 /** The section's lines: each group's header, then its rows, then Add Machine…. */
-export function sectionItems(snapshot: Pick<MachinesSnapshot, "rows" | "style">, strings: Strings): SectionItem[] {
+export function sectionItems(
+  snapshot: Pick<MachinesSnapshot, "rows" | "style">,
+  strings: Strings,
+  removed: ReadonlySet<string> = new Set(),
+): SectionItem[] {
   const items: SectionItem[] = [];
-  for (const group of groups(snapshot.rows, snapshot.style)) {
+  // A row the person just removed leaves at once; the host's next snapshot has it gone too.
+  const rows = removed.size ? snapshot.rows.filter((row) => !removed.has(row.id)) : snapshot.rows;
+  for (const group of groups(rows, snapshot.style)) {
     const title = groupTitle(group.kind, strings);
     if (title) items.push({ type: "header", key: `h:${group.id}`, title, first: items.length === 0 });
     group.rows.forEach((row, index) => {

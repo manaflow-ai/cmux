@@ -56,7 +56,12 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
-import { renderVmGuestModelPlaneEnvFile, VM_GUEST_MODEL_PLANE_ENV_PATH, vmEdgeAliasDomain, vmGuestModelPlaneEnv } from "../../services/coderouter/vmGuestEnv";
+import {
+  renderVmGuestModelPlaneEnvFile,
+  VM_GUEST_MODEL_PLANE_ENV_PATH,
+  vmEdgeAliasDomain,
+  vmGuestModelPlaneEnv,
+} from "../../services/coderouter/vmGuestEnv";
 import {
   cmuxTuiAcpmuxLinkCommand,
   cmuxTuiInstallCommand,
@@ -79,16 +84,58 @@ import {
   devboxTerminfoInstallCommand,
   devboxWaitForDaemonCommand,
 } from "../devbox-image-common";
-import { devTreeCredentialCheckCommand, devTreeLock, devTreeSizes, devTreeUserPaths, setUpDevTree, uploadDevTreeScript, DEV_TREE_SCRIPT, FIRST_BUILD } from "./dev-tree";
+import {
+  devTreeCredentialCheckCommand,
+  devTreeLock,
+  devTreeSizes,
+  devTreeUserPaths,
+  setUpDevTree,
+  uploadDevTreeScript,
+  DEV_TREE_SCRIPT,
+  FIRST_BUILD,
+} from "./dev-tree";
 import { GITHUB_SHIM_DIR, githubAuthFiles, githubAuthLinkCommand } from "./github-auth";
-import { AGENT_TOOLS_PROFILE, agentToolsDaemonEnv, agentToolsFiles, agentToolsLinkCommand, browserRoleBakePhases, daemonEnvLines, RD_SOCKET, RD_SOCKET_UNIT, rdHostPath, rdSetupCommand } from "./agent-tools";
+import {
+  AGENT_TOOLS_PROFILE,
+  agentToolsDaemonEnv,
+  agentToolsFiles,
+  agentToolsLinkCommand,
+  browserRoleBakePhases,
+  daemonEnvLines,
+  RD_SOCKET,
+  RD_SOCKET_UNIT,
+  rdHostPath,
+  rdSetupCommand,
+} from "./agent-tools";
 import { BROWSER_ROLE } from "./browser-probe";
 import { daemonIdentifyCommand, parseDaemonIdentify } from "./identify";
 import { DNS_CHECK_PATH, dnsCheckScript, resolverBakeCommand } from "./dns";
 import { MACHINE_HEALTH_ARM_COMMAND, machineHealthBakeCommand, machineHealthFiles } from "./machine-health";
-import { argValue, createVm, deleteVm, firstExec, freestyleClient, hasFlag, Ledger, run, StepLog, type Vm } from "./guest";
+import {
+  argValue,
+  createVm,
+  deleteVm,
+  firstExec,
+  freestyleClient,
+  hasFlag,
+  Ledger,
+  run,
+  StepLog,
+  type Vm,
+} from "./guest";
 import { aptUpdateCommand } from "./apt-update";
-import { baseInputTree, cachedInstallCommand, imagePackagesCommand, layerLabel, isAppProgram, layerKeys, layerName, overlayPrepareCommand, overlayPruneCommand, type LayerName } from "./layers";
+import {
+  baseInputTree,
+  cachedInstallCommand,
+  imagePackagesCommand,
+  layerLabel,
+  isAppProgram,
+  layerKeys,
+  layerName,
+  overlayPrepareCommand,
+  overlayPruneCommand,
+  type LayerName,
+} from "./layers";
 import { HOST_CLI, HOST_CONFIG_PATH, HOST_UNIT, SELF_UPDATE_OFF, hostConfig, hostUnit } from "./host-agent";
 import {
   METADATA_GUARD_FILE,
@@ -98,7 +145,20 @@ import {
   metadataGuardRules,
   metadataGuardUnit,
 } from "../../services/vms/images/metadataGuard";
-import { cronAtAllowCommand, cronAtAllowProblems, SSH_LOGIN_GROUP, SSH_SYNC_UNIT, SSHD_DROP_IN, sshdBakeCommand, sshdDropIn, sshdListenProblems, sshdPamProblems, sshdPolicyProblems, splitSshdBakeOutput, sshSyncUnit } from "./sshd";
+import {
+  cronAtAllowCommand,
+  cronAtAllowProblems,
+  SSH_LOGIN_GROUP,
+  SSH_SYNC_UNIT,
+  SSHD_DROP_IN,
+  sshdBakeCommand,
+  sshdDropIn,
+  sshdListenProblems,
+  sshdPamProblems,
+  sshdPolicyProblems,
+  splitSshdBakeOutput,
+  sshSyncUnit,
+} from "./sshd";
 import {
   aptClosureProblems,
   bakedPrograms,
@@ -794,6 +854,29 @@ async function writeModelPlane(ctx: Ctx): Promise<void> {
   for (const file of AGENT_SIGN_IN_FILES) await writeGuestFile(vm, file.path, devboxFileBytes(file.name), 0o644);
   await L.step(vm, "agent-sign-in", agentSignInCheckCommand());
   await L.step(vm, "model-plane-env", `sh -n ${VM_GUEST_MODEL_PLANE_ENV_PATH} && bash -n /etc/cmux/agent-config.sh && ! grep -q crt_ ${VM_GUEST_MODEL_PLANE_ENV_PATH} && grep -q "^export OPENAI_BASE_URL='https://" ${VM_GUEST_MODEL_PLANE_ENV_PATH} && echo model-plane-env-baked`);
+  await L.step(vm, "acpmux-login-env", acpmuxLoginEnvRefreshCommand());
+}
+
+/**
+ * acpmux (started in wireCmuxTui) read the login shell before the model plane existed, and a clone resumes that
+ * process from the snapshot. Its cache's fingerprint (the startup files) cannot see the model-plane file they source,
+ * so nothing re-reads it: Codex started without the edge's placeholder key (gateway-e2e run 42382330319). Drop the
+ * cache and restart acpmux so the snapshot holds a daemon that read the final login shell; clean.py then drops the
+ * cache this read writes, so a cold boot reads its own. `grep -q` checks the key's name only, never a value.
+ */
+export function acpmuxLoginEnvRefreshCommand(): string {
+  const user = 'XDG_RUNTIME_DIR="/run/user/$(id -u "$CMUX_TUI_USER")" setpriv --reuid="$CMUX_TUI_USER" --regid="$CMUX_TUI_USER" --init-groups env HOME="$CMUX_TUI_HOME" USER="$CMUX_TUI_USER" LOGNAME="$CMUX_TUI_USER"';
+  return [
+    cmuxTuiLayoutSelector(),
+    'if [ "$CMUX_TUI_LAYOUT" != user ]; then echo acpmux-login-env-no-service; exit 0; fi',
+    'cache="$CMUX_TUI_HOME/.acpmux/login-env.json"',
+    'rm -f "$cache"',
+    `${user} systemctl --user restart acpmux.service`,
+    'i=0; while [ "$i" -lt 60 ] && [ ! -s "$cache" ]; do i=$((i + 1)); sleep 1; done',
+    'test -s "$cache" || { echo "acpmux did not read the login shell after its restart" >&2; exit 1; }',
+    'grep -q OPENAI_API_KEY "$cache" || { echo "acpmux login environment lacks OPENAI_API_KEY" >&2; exit 1; }',
+    "echo acpmux-login-env-fresh",
+  ].join(" && ");
 }
 
 async function finalizeAndCollect(ctx: Ctx): Promise<void> {
@@ -810,7 +893,7 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
   result.npmCacheMb = Number((await L.step(vm, "npm-cache-size", npmCacheSizeCommand())).trim());
   // The SBOM and file manifest: here, or after the snapshot on the same builder (--defer-inventory).
   if (!options.deferInventory) await collectInventory(vm, L, options, lock, result, name);
-  await L.step(vm, "tmp-empty", `rm -rf /tmp/cmux-out /tmp/cmux-syft /root/.cache && ${TMP_LEFTOVERS} | head -5; test -z "$(${TMP_LEFTOVERS})"`);
+  await L.step(vm, "tmp-empty", `rm -rf /tmp/cmux-out /tmp/cmux-out-syft /root/.cache && ${TMP_LEFTOVERS} | head -5; test -z "$(${TMP_LEFTOVERS})"`);
   result.dfAfterClean = (await L.step(vm, "df-after-clean", "df -B1 --output=used,iused / | tail -1")).trim();
   result.fstrim = (await L.step(vm, "fstrim", "fstrim -v / 2>&1 || true")).trim();
   result.pageCache = (await L.step(vm, "drop-cache-warm-bind-path", warmBindPathCommand())).trim();
@@ -823,33 +906,45 @@ async function finalizeAndCollect(ctx: Ctx): Promise<void> {
  * With --defer-inventory it runs on the builder right after the snapshot (inventory.ts, beside the smoke), so the
  * tree it reads is the snapshot's: nothing else runs on the builder in between.
  */
-export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOptions, "devTree" | "outDir">, lock: InputsLock, result: Record<string, unknown>, name: string): Promise<void> {
+/** The error the collect throws when a step rejected, if any: a step that ran and failed wins over the other step's
+ * cut connection, so inventory.ts never retries past a guest failure. */
+export function inventoryFailure(settled: ReadonlyArray<PromiseSettledResult<unknown>>): unknown {
+  const failed = settled.filter((s): s is PromiseRejectedResult => s.status === "rejected").map((s) => s.reason as unknown);
+  return failed.find((reason) => /\bstep \S+ failed\b/.test(String(reason))) ?? failed[0];
+}
+
+export async function collectInventory(vm: Vm, L: StepLog, options: Pick<BakeOptions, "devTree" | "outDir">, lock: InputsLock, result: Record<string, unknown>, name: string, out = "/tmp/cmux-out"): Promise<void> {
   const syft = lock.tools.syft;
-  await L.step(vm, "out-dir", "mkdir -p /tmp/cmux-out");
-  await writeGuestFile(vm, "/tmp/cmux-out/manifest.py", readFileSync(path.join(GUEST_DIR, "manifest.py")), 0o755);
+  await L.step(vm, "out-dir", `mkdir -p ${out}`);
+  await writeGuestFile(vm, `${out}/manifest.py`, readFileSync(path.join(GUEST_DIR, "manifest.py")), 0o755);
   // The dev tree is the recorded commit, public crates and toolchains (result.devTree), not hashed or catalogued file by file.
   const skip = options.devTree ? devTreeUserPaths(devTreeLock(lock)) : [];
-  // Both read the final tree and write only under /tmp (which both exclude), so they run at once.
-  const [manifest, sbomOut] = await Promise.all([L.step(vm, "file-manifest", `python3 /tmp/cmux-out/manifest.py /tmp/cmux-out/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9 /tmp/cmux-out/manifest.tsv`), L.step(vm, "sbom", [
-    `mkdir -p /tmp/cmux-syft && curl -fsSL --retry 3 -o /tmp/cmux-syft/syft.tgz ${sq(syft.url)}`,
-    `printf '%s  %s\\n' ${syft.sha256} /tmp/cmux-syft/syft.tgz | sha256sum -c --quiet -`,
-    `test "$(stat -c %s /tmp/cmux-syft/syft.tgz)" = ${syft.size}`,
-    "tar -xzf /tmp/cmux-syft/syft.tgz -C /tmp/cmux-syft syft",
+  // Both read the final tree and write only under /tmp (which both exclude), so they run at once. A retry (inventory.ts)
+  // passes its own OUT, so a cut-off try still running on the guest never shares its files.
+  // allSettled: neither step is left running here when this throws.
+  const settled = await Promise.allSettled([L.step(vm, "file-manifest", `python3 ${out}/manifest.py ${out}/manifest.tsv ${skip.map(sq).join(" ")} && gzip -9f ${out}/manifest.tsv`), L.step(vm, "sbom", [
+    `mkdir -p ${out}-syft && curl -fsSL --retry 3 -o ${out}-syft/syft.tgz ${sq(syft.url)}`,
+    `printf '%s  %s\\n' ${syft.sha256} ${out}-syft/syft.tgz | sha256sum -c --quiet -`,
+    `test "$(stat -c %s ${out}-syft/syft.tgz)" = ${syft.size}`,
+    `tar -xzf ${out}-syft/syft.tgz -C ${out}-syft syft`,
     "t=$(date +%s)",
-    `cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=/tmp/cmux-syft timeout 280 /tmp/cmux-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=/tmp/cmux-out/sbom.cdx.json -q`,
+    `cd / && SYFT_CHECK_FOR_APP_UPDATE=false HOME=${out}-syft timeout 280 ${out}-syft/syft scan dir:/ --select-catalogers +javascript-package-cataloger --exclude './proc/**' --exclude './sys/**' --exclude './dev/**' --exclude './run/**' --exclude './tmp/**' ${skip.map((p) => `--exclude ${sq(`.${p}/**`)}`).join(" ")} -o cyclonedx-json=${out}/sbom.cdx.json -q`,
     "echo syft-secs $(( $(date +%s) - t ))",
-    "gzip -9 /tmp/cmux-out/sbom.cdx.json",
+    `gzip -9f ${out}/sbom.cdx.json`,
   ].join(" && "))]);
+  const failed = inventoryFailure(settled);
+  if (failed !== undefined) throw failed;
+  const [manifest, sbomOut] = settled.map((s) => (s as PromiseFulfilledResult<string>).value);
   result.manifest = manifest.trim();
   result.syft = sbomOut.trim();
   const sbomFile = path.join(options.outDir, `sbom-${name}.cdx.json`);
   const manifestFile = path.join(options.outDir, `manifest-${name}.tsv`);
   Object.assign(result, { sbomFile, manifestFile });
-  writeFileSync(sbomFile, gunzipSync(Buffer.from(await vm.fs.readFile("/tmp/cmux-out/sbom.cdx.json.gz"))));
-  writeFileSync(manifestFile, gunzipSync(Buffer.from(await vm.fs.readFile("/tmp/cmux-out/manifest.tsv.gz"))));
+  writeFileSync(sbomFile, gunzipSync(Buffer.from(await vm.fs.readFile(`${out}/sbom.cdx.json.gz`))));
+  writeFileSync(manifestFile, gunzipSync(Buffer.from(await vm.fs.readFile(`${out}/manifest.tsv.gz`))));
   const sbom = JSON.parse(readFileSync(sbomFile, "utf8")) as { components?: unknown[] };
   result.sbomComponents = sbom.components?.length ?? 0;
-  await L.step(vm, "inventory-tmp-clean", "rm -rf /tmp/cmux-out /tmp/cmux-syft");
+  await L.step(vm, "inventory-tmp-clean", `rm -rf ${out} ${out}-syft`);
 }
 
 /** Every step of a full bake, from the provider base to the finalized tree (before the snapshot). */

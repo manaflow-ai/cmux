@@ -44,8 +44,14 @@ const SHAPES = new Set([
   ".acpmux-session-info-context__bar",
   // The workflow card's progress bar and its phase segments (4ad2cc9c8eff, #27019): 4 px bars.
   ".acpmux-workflow-card__progress",
+  // The pull request card's 6 px file-kind bar and its segments (PullRequestCard.tsx), drawn like the workflow card's.
+  ".acpmux-pr-card__kindBar",
+  ".acpmux-pr-card__barPart",
   ".acpmux-workflow-card__phases > span",
   ".acpmux-pdf-sheet-lines i",
+  // The dictation waveform's pill (DictationListening.tsx): Leo, 2026-11-08, asked for the
+  // waveform to sit in a black pill; it holds no text and takes no clicks.
+  ".acpmux-dictation-pill",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-model .acpmux-picker-button",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-effort .acpmux-picker-button",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-access .acpmux-picker-button",

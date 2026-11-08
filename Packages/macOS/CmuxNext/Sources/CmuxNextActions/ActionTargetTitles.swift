@@ -32,6 +32,16 @@ public enum ActionTargetTitles {
         registry.register(action)
     }
 
+    /// Sets whether a bound on/off setting is on (Focus Ring, Pane Borders, Match Terminal Background):
+    /// a run flips it between its two values, so its palette row flips in place, as a Settings row does.
+    /// A preset or choice (Density: Compact) uses ``setPaletteState(_:in:_:)`` and closes the palette.
+    public static func setPaletteSettingState(_ id: ActionID, in registry: ActionRegistry, _ state: @escaping @MainActor () -> Bool) {
+        guard var action = registry.action(for: id) else { return }
+        action.paletteState = state
+        action.paletteStateIsSetting = true
+        registry.register(action)
+    }
+
     /// Sets why a bound action's palette row is disabled for the focused object (its run would
     /// refuse with that reason). `reason` must not refuse (no HUD while the palette builds its rows).
     public static func setPaletteReason(_ id: ActionID, in registry: ActionRegistry, _ reason: @escaping @MainActor () -> String?) {

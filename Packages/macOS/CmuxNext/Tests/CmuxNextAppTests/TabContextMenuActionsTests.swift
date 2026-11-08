@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 @testable import CmuxNextTabs
 import Foundation
@@ -237,6 +238,8 @@ struct TabContextMenuActionsTests {
                 return "no duplicate right after the tab: \(order)"
             }
             let copy = order[index + 1]
+            // In a group the copy stays in it, right after the original (Chrome's Duplicate).
+            if let group = tab?.tabGroup, pane.tab(copy)?.tabGroup != group { return "the duplicate right after the tab is not in its group \(group): \(order)" }
             switch kind {
             case .terminal: if pane.tab(copy)?.kind != .pty { return "the duplicate is a \(String(describing: pane.tab(copy)?.kind)), not a terminal" }
             case .browser: if pane.tab(copy)?.kind != .browser { return "the duplicate is a \(String(describing: pane.tab(copy)?.kind)), not a browser" }
@@ -301,10 +304,14 @@ struct TabContextMenuActionsTests {
         try await PinnedPageTests.until({ stage.pane.tab(stage.subject)?.name != nil })
     }
 
-    /// One row on a fresh stage: nil when it works, else what is wrong.
+    /// What a test does to a fresh stage before its rows run (pin the tab, group it, make its chat another Mac's).
+    typealias Setup = @MainActor (Stage, AppServices, DaemonConnection) async throws -> Void
+
+    /// One row on a fresh stage (readied by `setup`): nil when it works, else what is wrong.
     private static func exercise(_ row: Row, _ kind: Kind, _ services: AppServices, _ connection: DaemonConnection,
-                                 _ recorder: Recorder) async throws -> (outcome: String, failure: String?) {
+                                 _ recorder: Recorder, setup: Setup? = nil) async throws -> (outcome: String, failure: String?) {
         let stage = try await Self.stage(kind, services, connection, recorder)
+        try await setup?(stage, services, connection)
         if let id = row.run?.id { try await prepare(id, stage, connection) }
         let limit = needsTheRealApp[row.run?.id.rawValue ?? row.label]
         guard let current = Self.rows(Self.menu(stage)).first(where: row.matches) else {
@@ -332,7 +339,77 @@ struct TabContextMenuActionsTests {
         if let id, unobservable.contains(id) { return ("ran", nil) }
         guard changed() else { return ("no effect", "enabled, but the click changed nothing") }
         if let id, let wrong = check(id, kind, stage, services, recorder) { return ("wrong effect", wrong) }
+        if id == "tabGroup.addTab", let run = current.run, let failure = try await pick(run, stage, services, recorder) {
+            return ("refused the pick", failure)
+        }
         return ("works", nil)
+    }
+
+    /// Add Tab to Group… asked for a group: the first one it could list is picked, as the palette's step does. Nil when
+    /// the tab joins it, else what is wrong (a row that asks and then refuses the answer is clickable and then refuses).
+    private static func pick(_ run: (id: ActionID, target: ActionTargetRef?, arguments: [String: ActionValue]), _ stage: Stage,
+                             _ services: AppServices, _ recorder: Recorder) async throws -> String? {
+        guard case let (tab, pane)? = services.locateTab(stage.subject.rawValue),
+              let group = TabGroupWrites.joinable(by: tab, in: services.daemon(for: pane).store).first else { return "no group to pick" }
+        let refusals = recorder.refusals.count
+        var arguments = run.arguments
+        arguments["group"] = .target(ActionTargetRef(kind: .tabGroup, id: group.id.rawValue))
+        _ = services.registry.perform(run.id, invocation: ActionInvocation(target: run.target, arguments: arguments))
+        let joined = { services.locateTab(stage.subject.rawValue)?.0.tabGroup == group.id }
+        let deadline = ContinuousClock.now + .seconds(8)
+        while !joined(), recorder.refusals.count == refusals, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
+        if recorder.refusals.count > refusals { return "asked for a group, then refused the pick: \(recorder.refusals[refusals])" }
+        return joined() ? nil : "the tab did not join the group it was given"
+    }
+
+    /// Every row of `ids` in the menu of a fresh `kind` tab readied by `setup`; the failures, and the report.
+    private static func exercise(_ ids: Set<ActionID>, of kind: Kind, setup: @escaping Setup, _ services: AppServices,
+                                 _ connection: DaemonConnection, _ recorder: Recorder) async throws -> (failures: [String], report: [String]) {
+        let stage = try await Self.stage(kind, services, connection, recorder)
+        try await setup(stage, services, connection)
+        let rows = Self.rows(Self.menu(stage)).filter { $0.run.map { ids.contains($0.id) } ?? false }
+        try #require(!rows.isEmpty, "the menu shows none of \(ids)")
+        var failures: [String] = [], report: [String] = []
+        for row in rows {
+            let (outcome, failure) = try await Self.exercise(row, kind, services, connection, recorder, setup: setup)
+            report.append("\(kind.rawValue) | \(row.label) | \(row.run?.id.rawValue ?? "-") | \(outcome)")
+            if let failure { failures.append("\(row.label): \(failure)") }
+        }
+        print("tab-menu-rows:\n" + report.joined(separator: "\n"))
+        return (failures, report)
+    }
+
+    /// The tab pinned, beside a group of the left tab it could join if it were not pinned.
+    private static let pinBesideAGroup: Setup = { stage, services, connection in
+        #expect(services.registry.perform("tabGroup.create", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: stage.left.rawValue))))
+        try await PinnedPageTests.until({ stage.pane.tab(stage.left)?.tabGroup != nil })
+        let tab = try #require(stage.pane.tab(stage.subject))
+        _ = try await connection.setTabPinned(tab.surface, true)
+        try await PinnedPageTests.until({ stage.pane.tab(stage.subject)?.pinned == true })
+    }
+
+    /// The agent chat is another Mac's: this Mac's install id changes under it, so the chat's host is no longer this
+    /// Mac (a fresh id each time, as the next stage's chat is made under the one before).
+    private static let chatOfAnotherMac: Setup = { stage, services, _ in
+        let host = try #require(services.agentTabs.lookup(stage.subject.rawValue)?.record.host)
+        services.agentTabs.localHost = "install:another-mac-\(UUID().uuidString.prefix(8))"
+        #expect(services.agentTabs.lookup(stage.subject.rawValue)?.record.host == host)
+    }
+
+    /// A group of the left tab, the tab and the right tab, in that order (each joins at the end).
+    private static let groupAllThree: Setup = { stage, services, _ in
+        let registry = services.registry
+        #expect(registry.perform("tabGroup.create", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: stage.left.rawValue))))
+        try await PinnedPageTests.until({ stage.pane.tab(stage.left)?.tabGroup != nil })
+        let group = try #require(stage.pane.tab(stage.left)?.tabGroup)
+        for id in [stage.subject, stage.right] {
+            #expect(registry.perform("tabGroup.addTab", invocation: ActionInvocation(
+                target: ActionTargetRef(kind: .tab, id: id.rawValue),
+                arguments: ["group": .target(ActionTargetRef(kind: .tabGroup, id: group.rawValue))])))
+            try await PinnedPageTests.until({ stage.pane.tab(id)?.tabGroup == group }, report: { "\(id) is not in \(group)" })
+        }
+        try await PinnedPageTests.until({ stage.pane.orderedIDs.prefix(3) == [stage.left, stage.subject, stage.right] },
+                                        report: { "\(stage.pane.orderedIDs)" })
     }
 
     // MARK: Tests
@@ -366,6 +443,40 @@ struct TabContextMenuActionsTests {
             }
             print("tab-menu-rows:\n" + report.joined(separator: "\n"))
             #expect(failures.isEmpty, "\(kind.rawValue) tab menu rows that do not work:\n\(failures.joined(separator: "\n"))\n\nall rows:\n\(report.joined(separator: "\n"))")
+        }
+    }
+
+    /// Add Tab to Group… and New Tab Group on a pinned tab (Leo 2026-11-07, ask-b8d1047179): a pinned tab never joins a
+    /// group, so each row is disabled with the reason, never clickable and then refused.
+    @Test func theGroupRowsOfAPinnedTabWorkOrSayWhy() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let recorder = Self.install(services)
+            let (failures, report) = try await Self.exercise(["tabGroup.create", "tabGroup.addTab"], of: .terminal, setup: Self.pinBesideAGroup,
+                                                             services, connection, recorder)
+            #expect(report.contains { $0.contains("tabGroup.addTab") }, "a pinned tab's menu has no Add Tab to Group…: \(report)")
+            #expect(failures.isEmpty, "pinned tab group rows that do not work:\n\(failures.joined(separator: "\n"))\n\nall rows:\n\(report.joined(separator: "\n"))")
+        }
+    }
+
+    /// Duplicate Tab on a chat another Mac runs: its session never leaves that Mac, so the row is disabled with the
+    /// reason, never clickable and then refused.
+    @Test func duplicateTabOnAnotherMacsChatWorksOrSaysWhy() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let recorder = Self.install(services)
+            let (failures, report) = try await Self.exercise(["duplicateTab"], of: .agent, setup: Self.chatOfAnotherMac,
+                                                             services, connection, recorder)
+            #expect(failures.isEmpty, "Duplicate Tab on another Mac's chat:\n\(failures.joined(separator: "\n"))\n\nall rows:\n\(report.joined(separator: "\n"))")
+        }
+    }
+
+    /// Duplicate Tab on a tab inside a group: the copy lands right after the tab, in its group, not at the group's end.
+    @Test(arguments: Kind.allCases)
+    func duplicateTabInAGroupLandsRightAfterTheTab(_ kind: Kind) async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let recorder = Self.install(services)
+            let (failures, report) = try await Self.exercise(["duplicateTab"], of: kind, setup: Self.groupAllThree,
+                                                             services, connection, recorder)
+            #expect(failures.isEmpty, "Duplicate Tab in a group:\n\(failures.joined(separator: "\n"))\n\nall rows:\n\(report.joined(separator: "\n"))")
         }
     }
 

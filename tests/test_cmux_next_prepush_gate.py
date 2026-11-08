@@ -216,6 +216,7 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/merge-pbxproj.py",
             "scripts/merge-baseline.py",
             "scripts/merge-daemon-capabilities.py",
+            "scripts/merge-insertions.py",
             "scripts/ci/merge_main_resolver.py",
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
@@ -984,6 +985,10 @@ let package = Package(
 )
 """
 
+    # A list of two entries, one per line under the checker's marker (check-package-dependency-lists.py).
+    TWO_DEPS = ('dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py\n'
+                '                "CmuxNextApp",\n                "CmuxNextKit",\n            ]')
+
     def test_push_that_adds_an_undeclared_local_import_is_refused_with_the_fix(self):
         # 2026-10-29: a63986a4 and e875485c each pushed a test import their target did not declare, and the CI step
         # "Package dependency lists sorted" was red on every pull request after them.
@@ -1005,7 +1010,7 @@ let package = Package(
         self.assertIn('Fix: add "CmuxNextApp" to the dependencies of CmuxNextKitTests', output)
 
         self.write(f"{PKG}/Package.swift",
-                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', 'dependencies: ["CmuxNextKit", "CmuxNextApp"]'))
+                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', self.TWO_DEPS))
         self.commit("declare it")
         declared = self.push()
         self.assertEqual(declared.returncode, 0, declared.stdout + declared.stderr)
@@ -1033,7 +1038,7 @@ let package = Package(
         # Review of 6d8b96f: the gate's trees held only the changed files, so a manifest edit that dropped a
         # dependency an untouched source imports passed. A manifest change now brings the package's Swift sources.
         self.write(f"{PKG}/Package.swift",
-                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', 'dependencies: ["CmuxNextKit", "CmuxNextApp"]'))
+                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', self.TWO_DEPS))
         self.write(f"{PKG}/Tests/CmuxNextKitTests/AppTests.swift", "import CmuxNextKit\n@testable import CmuxNextApp\n")
         self.commit("a test target that declares what it imports")
         self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
@@ -1316,7 +1321,7 @@ let package = Package(
         self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
         self.git("fetch", "--quiet", "origin")
         self.write(f"{PKG}/Package.swift",
-                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', 'dependencies: ["CmuxNextApp", "CmuxNextKit"]'))
+                   self.DEPS_PACKAGE.replace('dependencies: ["CmuxNextKit"]', self.TWO_DEPS))
         self.write(f"{PKG}/Tests/CmuxNextKitTests/TryTests.swift", self.with_try("TryTests"))
         self.commit("a manifest edit and a test with try!")
 

@@ -12,7 +12,7 @@ import { Disclosure } from "../../../ui/Disclosure";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { useReorder } from "./SessionInfoGroup";
+import { useReorder } from "./sessionInfoGroupModel";
 import { movable } from "./sectionOrder";
 import type { SessionInfoSectionId } from "./sessionInfoState";
 

@@ -55,3 +55,31 @@ export const hatDoneLook = defineExperiment({
   },
   defaultArm: "check",
 });
+
+/// How a line joins and leaves the open hat (SubagentTray.tsx `TrayRow`). Leo, 2026-11-07: "when you
+/// have your hat in the expandable state, right? Like, the things coming, they shouldn't just, like,
+/// pop in, burst in, like, appear instantly, and, like, disappear instantly." Compare them in the
+/// gallery's `agent-pane.composer-hat-linger`.
+export const hatRowMotionLook = defineExperiment({
+  id: "composer-hat-row-motion",
+  title: "Composer hat: a line joining and leaving",
+  description:
+    "How a line enters and leaves the open hat: its height and opacity together, so the lines around it move with it; the same with a short rise; or a fade in place, the lines around it closing up after.",
+  arms: {
+    height: {
+      label: "Height and fade",
+      description:
+        "Grows from 0 height as it fades in, folds to 0 as it fades out, on the pane's move duration; the lines around it move with it. Picked: no jump at either end.",
+    },
+    slide: {
+      label: "Height, fade and rise",
+      description: "As Height and fade, with the line rising a few points in as it joins and up as it leaves.",
+    },
+    fade: {
+      label: "Fade only",
+      description:
+        "Fades in and out in place without its height moving; the lines around it jump once when it is gone.",
+    },
+  },
+  defaultArm: "height",
+});

@@ -134,6 +134,7 @@ use machine_server::ServerRoute;
 pub(crate) use machine_server::is_lifecycle_scope;
 #[cfg(unix)]
 mod mcp;
+mod older_daemon;
 mod raw;
 #[cfg(unix)]
 mod remote_host;
@@ -210,6 +211,7 @@ const REMOTE_COMMANDS: &[&str] = &[
     "connect",
     "ssh",
     "forward",
+    "dial-tcp",
     "browser-proxy",
     "rpc",
     "enroll",
@@ -231,6 +233,7 @@ pub(super) fn remote_action_command(action: &str) -> Option<&'static str> {
         "connect" => Some("connect"),
         "ssh" => Some("ssh"),
         "forward" => Some("forward"),
+        "dial-tcp" => Some("dial-tcp"),
         "browser-proxy" => Some("browser-proxy"),
         "rpc" => Some("rpc"),
         "enroll" => Some("enroll"),
