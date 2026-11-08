@@ -11,7 +11,7 @@
 // usage read before a sign-out no longer belongs to anyone signed in. Remove asks first, in the row
 // (as a team's Delete does): it takes the account out of cmux's list, and its login folder and the
 // CLI's own sign-in stay where they are.
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { PlanUsageCardBody } from "../../../agent-session/acpmux/PlanUsageCard";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
@@ -67,6 +67,14 @@ function AccountRow({
   const switchId = useId();
   const [renaming, setRenaming] = useState<string | null>(null);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
+  const cancelRemoveRef = useRef<HTMLButtonElement>(null);
+  // The question takes focus when it opens (the Remove button it replaces is gone), so Escape closes it.
+  useEffect(() => {
+    if (confirmingRemove) cancelRemoveRef.current?.focus();
+  }, [confirmingRemove]);
+  const escapeRemove = (event: KeyboardEvent) => {
+    if (event.key === "Escape") setConfirmingRemove(false);
+  };
   const folder = accountFolderText(account, all);
   // acpmux keeps no file for the Claude Code login, so it has no name of its own to change.
   const renamable = account.id !== "claude-login";
@@ -187,18 +195,15 @@ function AccountRow({
           )}
         </div>
         {!account.builtin && confirmingRemove && (
-          <div
-            className="accounts-form"
-            data-account-remove-confirm=""
-            role="alertdialog"
-            aria-labelledby={nameId}
-          >
-            <span className="row-help">{t(
+          <div className="accounts-form" data-account-remove-confirm="" role="alertdialog" aria-labelledby={nameId}>
+            <span className="row-help">
+              {t(
                 account.key
                   ? "settingsWindow.harnesses.accounts.removeConfirmKey"
                   : "settingsWindow.harnesses.accounts.removeConfirm",
                 account.name,
-              )}</span>
+              )}
+            </span>
             <div className="accounts-buttons">
               <Button
                 danger
@@ -206,6 +211,7 @@ function AccountRow({
                 className="button danger"
                 data-account-action="confirmRemove"
                 disabled={busy}
+                onKeyDown={escapeRemove}
                 onClick={() => {
                   setConfirmingRemove(false);
                   run({ action: "accountRemove", account: account.id });
@@ -217,6 +223,8 @@ function AccountRow({
                 type="button"
                 className="button"
                 data-account-action="cancelRemove"
+                ref={cancelRemoveRef}
+                onKeyDown={escapeRemove}
                 onClick={() => setConfirmingRemove(false)}
               >
                 {t("settingsWindow.cancel")}

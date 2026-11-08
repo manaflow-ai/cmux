@@ -228,7 +228,7 @@ test("Make Default, Rename, Sign Out and Remove each ask the host for their acco
   page.unmount();
 });
 
-test("Remove's confirm cancels with Cancel and sends nothing", async () => {
+test("Remove's confirm cancels with Cancel or Escape and sends nothing", async () => {
   const page = await withAccounts();
   const row = () => card(page.container).querySelector<HTMLElement>('[data-account="codex-2"]')!;
   const confirm = () => row().querySelector<HTMLElement>("[data-account-remove-confirm]");
@@ -238,6 +238,14 @@ test("Remove's confirm cancels with Cancel and sends nothing", async () => {
   // Remove gives way to the question while it is open.
   expect(row().querySelector('[data-account-action="remove"]')).toBeNull();
   await act(async () => row().querySelector<HTMLButtonElement>('[data-account-action="cancelRemove"]')!.click());
+  expect(confirm()).toBeNull();
+  // Opening it again puts focus on Cancel, and Escape there closes it.
+  await act(async () => row().querySelector<HTMLButtonElement>('[data-account-action="remove"]')!.click());
+  const cancel = row().querySelector<HTMLButtonElement>('[data-account-action="cancelRemove"]')!;
+  expect(document.activeElement).toBe(cancel);
+  await act(async () => {
+    cancel.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
   expect(confirm()).toBeNull();
   await settle();
   expect(page.provider.harnessRuns.length).toBe(runs);
