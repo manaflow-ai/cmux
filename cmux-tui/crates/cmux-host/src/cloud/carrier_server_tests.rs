@@ -806,13 +806,18 @@ fn a_register_right_after_a_resume_is_noted_does_not_get_the_old_ticket() {
 /// - one request per want: no more `Wanted` requests than wants, and none
 ///   while a kept or answered ticket already satisfies the want;
 /// - at most one request of the current generation is on its way;
-/// - no ticket asked for on an older binding's client is handed out.
+/// - no ticket asked for on an older binding's client is handed out;
+/// - a resume acts only on the latest binding's client: one picked before a
+///   bind and acted on after it neither resumes nor asks on the old one.
 ///
 /// The fetch thread's own clients (the bound one, the spare a request
 /// leaves behind when the transport can make one, and a resume that waits
 /// for a client) are modelled as `Hands`, with the spare failing at random,
 /// so a resume can find no client and a bind can land before the request
-/// it waits for comes back.
+/// it waits for comes back. A job that acts on a resume (`Job::Resume`, or
+/// a `Job::Done` that a waiting resume takes) is acted on in a later step
+/// than its pick, as the fetch thread acts on it after the lock is
+/// released, so binds and resumes land in between.
 mod model {
     use std::time::{Duration, Instant};
 
@@ -874,6 +879,11 @@ mod model {
         stale_replies: u64,
         /// Resumes that found no client and acted once one came back.
         waited_resumes: u64,
+        /// A job that acts on a resume, picked and not yet acted on.
+        picked: Option<Job<(u64, bool), u64>>,
+        /// Resumes picked with a bind or another resume landing before
+        /// they were acted on.
+        overtaken_resumes: u64,
         trace: Vec<String>,
     }
 
@@ -894,6 +904,8 @@ mod model {
                 refused_stale: 0,
                 stale_replies: 0,
                 waited_resumes: 0,
+                picked: None,
+                overtaken_resumes: 0,
                 trace: Vec::new(),
             }
         }
@@ -984,8 +996,20 @@ mod model {
 
         /// `Fetcher::resume`.
         fn resume(&mut self, seed: u64, rng: &mut Rng, generation: u64) {
-            if self.hands.for_resume().is_none() {
+            if !self.core.resume_holds(generation) {
+                return;
+            }
+            let Some(&binding) = self.hands.for_resume() else {
                 return self.core.defer_resume(generation);
+            };
+            if binding != self.binds {
+                self.fail(
+                    seed,
+                    &format!(
+                        "a resume of generation {generation} acted on binding {binding}'s client under binding {}",
+                        self.binds
+                    ),
+                );
             }
             if self.hands.prefetch {
                 self.start(seed, rng, Task::ticket("prefetched after resume", false), generation);
@@ -1005,7 +1029,28 @@ mod model {
         }
 
         fn fetch_step(&mut self, seed: u64, rng: &mut Rng) {
-            match self.core.next_job(self.hands.view(), self.now_ms) {
+            if let Some(job) = self.picked.take() {
+                return self.act(seed, rng, job);
+            }
+            let job = self.core.next_job(self.hands.view(), self.now_ms);
+            // The fetch thread acts on a job after the lock is released: a
+            // job that acts on a resume waits a step, so a bind or another
+            // resume can land in between.
+            if matches!(job, Job::Resume(_) | Job::Done(_, Back { resume: true, .. }, _)) {
+                self.picked = Some(job);
+                return;
+            }
+            self.act(seed, rng, job);
+        }
+
+        fn act(&mut self, seed: u64, rng: &mut Rng, job: Job<(u64, bool), u64>) {
+            if let Job::Resume(generation) | Job::Done(_, Back { resume: true, .. }, generation) =
+                &job
+                && *generation != self.core.generation
+            {
+                self.overtaken_resumes += 1;
+            }
+            match job {
                 Job::Bind(bind, generation) => {
                     let (binding, prefetch) = *bind;
                     self.hands.bound(binding, prefetch);
@@ -1067,19 +1112,21 @@ mod model {
     #[test]
     fn random_interleavings_keep_one_request_per_want_and_no_older_ticket() {
         let (mut handed, mut refused, mut wanted, mut stale, mut waited) = (0, 0, 0, 0, 0);
+        let mut overtaken = 0;
         for seed in 0..SEEDS {
             let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
             let mut model = Model::new();
             for _ in 0..STEPS {
                 let step = rng.below(12);
                 model.trace.push(format!(
-                    "step {step}: generation {} want {} fetching {} warm {} answered {} in flight {}",
+                    "step {step}: generation {} want {} fetching {} warm {} answered {} in flight {} picked {}",
                     model.core.generation,
                     model.core.want,
                     model.core.fetching,
                     model.core.warm.is_some(),
                     model.core.answered.is_some(),
-                    model.in_flight.len()
+                    model.in_flight.len(),
+                    model.picked.is_some()
                 ));
                 match step {
                     0 if model.asker.is_none() && model.pending.is_none() => {
@@ -1108,6 +1155,7 @@ mod model {
             wanted += model.wanted;
             stale += model.stale_replies;
             waited += model.waited_resumes;
+            overtaken += model.overtaken_resumes;
         }
         // Every path the invariants guard was driven, many times over.
         let reached = [
@@ -1116,6 +1164,7 @@ mod model {
             ("ticket requests for asks", wanted),
             ("requests answered after their generation ended", stale),
             ("resumes that waited for a client", waited),
+            ("resumes a bind or another resume overtook before they were acted on", overtaken),
         ];
         for (what, count) in reached {
             assert!(count >= SEEDS / 10, "the model reached {what} only {count} times");
