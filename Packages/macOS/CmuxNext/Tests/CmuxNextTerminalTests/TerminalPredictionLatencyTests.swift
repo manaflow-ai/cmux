@@ -13,7 +13,7 @@ import Testing
 /// where Ghostty parses it and then the engine sees it. A key is shown at the first frame the surface's layer presents
 /// after its echo was parsed (one display refresh later when the run has no display and nothing presents), or, with
 /// prediction, when the overlay draws its glyph. "Before" is the same session with the engine turned off.
-@MainActor @Suite(.serialized, .enabled(if: TerminalEchoPrediction.isAvailable, "the app FFI has no prediction C ABI"))
+@MainActor @Suite(.serialized)
 struct TerminalPredictionLatencyTests {
     /// A line editor on the far side of the link.
     @MainActor final class Remote {

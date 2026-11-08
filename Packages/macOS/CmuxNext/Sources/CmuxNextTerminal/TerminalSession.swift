@@ -193,7 +193,7 @@ public final class TerminalSession {
         input = TerminalInputSink(continuation: continuation)
 
         view = TerminalHostView()
-        echo = io.predictsEcho && TerminalEchoPrediction.isAvailable
+        echo = io.predictsEcho
             ? TerminalEchoPredictor(engine: TerminalEchoPrediction(enabled: true, remote: true)) : nil
         surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, prediction: echo?.engine)
         surfaceView.bridge.takeUnretainedValue().installLinkFilter(nil)
