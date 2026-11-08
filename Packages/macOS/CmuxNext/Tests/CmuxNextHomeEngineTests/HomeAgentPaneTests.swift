@@ -60,6 +60,18 @@ import Testing
         #expect(!pane.isShown && pane.selected == nil)
     }
 
+    /// Closing the selected agent tab selects the tab before it, as every tab close does
+    /// (`FocusAfterClose.tab`, Lawrence 2026-11-08); the first tab's close selects the one after it.
+    @Test func closingTheSelectedAgentTabSelectsTheTabBefore() {
+        let pane = HomeAgentPane(conversation: ConversationID("c"), threads: Threads())
+        for peer in ["a1", "a2", "a3"] { pane.open(peer) }
+        pane.open("a2")
+        pane.close("a2")
+        #expect(pane.tabs == ["a1", "a3"] && pane.selected == "a1")
+        pane.close("a3") // not selected: the selection stays
+        #expect(pane.tabs == ["a1"] && pane.selected == "a1")
+    }
+
     @Test func theChatStartsWithTheTaskSentViaChiefThenHowLongItWorked() {
         let content = HomeAgentChatContent(Self.thread("a1", title: "Fix the sidebar"), now: .distantFuture)
         #expect(content.title == "Fix the sidebar")
