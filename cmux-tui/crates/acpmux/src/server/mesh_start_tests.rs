@@ -477,3 +477,23 @@ async fn a_version_2_body_is_taken_only_for_a_marked_start() {
     assert!(b.resolve("bare").is_err());
     b.shutdown_all().await;
 }
+
+/// Review of #38377: B could not save the start's trust mark (twice), so it removes the chat and
+/// refuses the start, rather than keep a chat whose relayed prompts would pass ungated after a
+/// restart.
+#[tokio::test]
+async fn a_start_whose_trust_mark_cannot_be_saved_is_refused_and_leaves_no_chat() {
+    let (dir, root, cwd) = project();
+    let b = machine_b(&root);
+    let gates = tempfile::tempdir().unwrap();
+    let paths = gate(&b, gates.path());
+    crate::trust::set(&paths, cwd.to_str().unwrap(), "trusted").unwrap();
+    crate::hub::FAIL_HUB_VIA_SAVES.lock().unwrap().push("unsaved".into());
+    let a = machine_a(Arc::new(Loopback::new(&b, dir.path(), Some("person-1"))));
+    let refused = Client::app(&a)
+        .call("session/new", new_params(&cwd, "machine-b", "unsaved"), &mut Vec::new())
+        .await;
+    assert_eq!(refused["error"]["data"]["reason"], "mesh.start_unsaved", "{refused}");
+    assert!(b.resolve("unsaved").is_err(), "the chat whose mark was not saved is still there");
+    b.shutdown_all().await;
+}

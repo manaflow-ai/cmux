@@ -111,7 +111,7 @@ async fn start(
                 let why = receipt.detail.unwrap_or_else(|| "no reason given".into());
                 // The machine's folder-trust gate keeps its reason, so the pane says it as a
                 // linked peer's refusal.
-                let reason = ["trust.pending", "trust.untrusted"]
+                let reason = ["trust.pending", "trust.untrusted", "mesh.start_unsaved"]
                     .into_iter()
                     .find(|r| why.contains(r))
                     .unwrap_or("mesh.start_refused");

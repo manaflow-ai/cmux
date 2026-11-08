@@ -104,6 +104,8 @@ pub mod media_handles;
 pub mod media_read;
 mod mesh_book;
 mod mesh_rows;
+#[cfg(test)]
+pub(crate) use mesh_rows::FAIL_HUB_VIA_SAVES;
 pub(crate) mod native_history;
 pub(crate) mod subagent_transcript;
 mod team_information;

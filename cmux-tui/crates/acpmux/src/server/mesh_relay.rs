@@ -806,7 +806,21 @@ async fn run_control(hub: &Arc<Hub>, message: &InMessage) -> Option<Ack> {
             let detail =
                 result.get("sessionId").and_then(serde_json::Value::as_str).map(str::to_owned);
             if let (Some(id), Some(via)) = (detail.as_deref(), via.as_deref()) {
-                hub.mark_hub_via(id, via);
+                // Fail closed: a mark kept only in memory is gone after a restart, and the
+                // chat's relayed prompts would then pass ungated. One retry, then the chat goes.
+                let saved = hub.mark_hub_via(id, via).or_else(|_| hub.mark_hub_via(id, via));
+                if let Err(why) = saved {
+                    if let Ok(session) = hub.resolve(id) {
+                        let gone = crate::heap_future::heap(|| hub.kill(&session, true)).await;
+                        if let Err(e) = gone {
+                            tracing::warn!(session = %id, "removing an unmarked hub start: {e:?}");
+                        }
+                    }
+                    return Some(Ack::refused(format!(
+                        "mesh.start_unsaved: this machine could not save the chat's trust mark \
+                         ({why}), so it did not keep the chat"
+                    )));
+                }
             }
             Some(Ack::delivered(&message.message_id, detail))
         }
