@@ -56,7 +56,7 @@ const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
-const { takeBackSteer } = await import("../src/agent-session/acpmux/conversation/PendingSteer");
+const { takeBackSteer } = await import("../src/agent-session/acpmux/conversation/pendingSteerModel");
 
 afterAll(() => {
   dom.window.close();

@@ -75,11 +75,11 @@ import Testing
         let settings = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: UnreachableEngine())
         let restart = TerminalRestartButton()
         let placeholder = RemoteTerminalPlaceholderView(frame: .zero)
-        let dialog = CmuxDialogView(spec: CmuxDialogSpec(title: "Move Tab", fields: [
-            .choice(id: "window", label: nil, options: [.init(label: "Window A", value: "a")], selected: "a"),
-        ], buttons: [.ok()]))
+        // A native card's choice picker (Move Tab's window list); cmux dialogs themselves draw on the overlay page.
+        let picker = ThemedPopUpButton(frame: .zero, pullsDown: false)
+        picker.addItem(withTitle: "Window A")
         let invite = HomeInviteSheet(pending: [])
-        let views: [NSView] = [settings, restart, placeholder, dialog, invite.view]
+        let views: [NSView] = [settings, restart, placeholder, picker, invite.view]
         for view in views { scope.root(view) }
 
         // The sheets' factory-made buttons keep the system's automatic style, so they are named.

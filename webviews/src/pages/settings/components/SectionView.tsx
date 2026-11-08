@@ -30,6 +30,7 @@ import { WebUpdatesCard } from "./WebUpdatesCard";
 import { VoiceInputCard } from "./VoiceInputCard";
 import { ContextMenusCard } from "./ContextMenusCard";
 import { ServerCard } from "./ServerCard";
+import { SharedLinksCard } from "./SharedLinksCard";
 import { SectionActions } from "./SectionActions";
 import {
   ACCENT_KEY,
@@ -75,6 +76,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   notices: () => <NoticesCard />,
   server: () => <ServerCard />,
   cloudEnvironments: () => <CloudEnvironmentsCard />,
+  sharedLinks: (_focus, _workspace, reveal) => <SharedLinksCard reveal={reveal} />,
   contextMenus: (focus) => <ContextMenusCard focus={focus} />,
   personalization: (focus, workspace) => <PersonalizationCard focus={focus} workspace={workspace} />,
 };
