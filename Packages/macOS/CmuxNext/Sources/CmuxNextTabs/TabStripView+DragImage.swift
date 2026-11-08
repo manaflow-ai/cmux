@@ -11,6 +11,11 @@ extension TabStripView {
     public func dragImage(of id: TabID, size: CGSize) -> (image: TabImage?, onGlass: Bool)? {
         guard let item = model.tab(id), size.width > 0, size.height > 0 else { return nil }
         let cell = TabCell(item: item)
+        // The strip's cells sit under a flipped view, and their text and icons draw for that; a lone
+        // cell needs a flipped parent too, or its title and icon come out upside down.
+        let flippedHost = CALayer()
+        flippedHost.isGeometryFlipped = true
+        flippedHost.addSublayer(cell.layer)
         cell.style = model.style
         cell.metrics = metrics
         cell.titleFont = Typography.tabTitle
