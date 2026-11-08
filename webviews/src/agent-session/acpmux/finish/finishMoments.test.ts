@@ -73,6 +73,14 @@ test("only the ended turn's own Worked for row shows the turn moment", () => {
   expect(isFinishedTurnRow(undefined, 499_400)).toBe(false);
 });
 
+test("a resumed turn's row, whose prompt came long before its latest start, still shows the turn moment (review F1)", () => {
+  const moment = { kind: "turn" as const, id: 1, turnStartedAt: 500_000 };
+  // Prompted at 300 s, cut, resumed at 500 s, ended at 560 s: its span holds the start.
+  expect(isFinishedTurnRow(moment, 300_000, 560_000)).toBe(true);
+  // An older turn that ended before this one began does not.
+  expect(isFinishedTurnRow(moment, 200_000, 290_000)).toBe(false);
+});
+
 test("a moment clears itself after its time; a hidden page gets none", () => {
   jest.useFakeTimers();
   expect(startFinishMoment({ kind: "turn", session: "s", turnStartedAt: 1 }, false)).toBe(false);

@@ -77,6 +77,20 @@ test("the ended turn's Worked for row draws its check over the chevron; an older
   expect(doc.querySelectorAll("[data-finish], .cv-finish-check").length).toBe(0);
 });
 
+test("a stopped or failed turn's row gets no success check (review F2)", () => {
+  const row = (status: string) =>
+    ({ id: status, version: 1, at: 499_500, kind: "worked", durationMs: 45_000, status }) as unknown as AcpmuxRow;
+  const doc = draw(
+    <>
+      {["cancelled", "interrupted", "failed", "error"].map((status) => (
+        <WorkedFor key={status} row={row(status)} expanded={false} onToggle={() => undefined} />
+      ))}
+    </>,
+  );
+  act(() => void startFinishMoment({ kind: "turn", session: "s", turnStartedAt: 500_000 }, true));
+  expect(doc.querySelectorAll("[data-finish], .cv-finish-check").length).toBe(0);
+});
+
 const pullRequest: HeaderPullRequest = {
   url: "https://github.com/o/r/pull/9",
   number: 9,

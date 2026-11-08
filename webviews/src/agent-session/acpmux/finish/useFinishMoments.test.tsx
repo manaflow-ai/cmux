@@ -88,6 +88,19 @@ test("a quick turn and a switch to another chat start nothing", () => {
   expect(sounds).toEqual([]);
 });
 
+test("a long turn the person stopped ends with no moment and no sound (review F2)", () => {
+  setChatDisplay({ [FINISH_SOUND_KEY]: true });
+  render({ session: "s", working: true, turnStartedAtMs: Date.now() - 60_000 });
+  render({ session: "s", working: true, turnStartedAtMs: Date.now() - 60_000, stopping: true });
+  render({ session: "s", working: false });
+  expect(finishMoment()).toBeUndefined();
+  expect(sounds).toEqual([]);
+  // The next turn, not stopped, has its moment again.
+  render({ session: "s", working: true, turnStartedAtMs: Date.now() - 40_000 });
+  render({ session: "s", working: false });
+  expect(finishMoment()?.kind).toBe("turn");
+});
+
 test("green checks then a merge each start their moment on the chip's pull request, with their sounds", () => {
   setChatDisplay({ [FINISH_SOUND_KEY]: true });
   render({ session: "s", working: false, pullRequest: pr("open", "pending") });

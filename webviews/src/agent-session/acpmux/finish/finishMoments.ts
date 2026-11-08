@@ -69,11 +69,14 @@ export function pullRequestFinish(
   return next.checks.state === "passing" && (was === "pending" || was === "failing") ? "ci" : undefined;
 }
 
-/// Whether `row` (a "Worked for" row: its `at` is its prompt's, in the session's clock) is the turn a
-/// `turn` moment is about. The ended turn's row starts at its prompt, a moment before the daemon's
-/// turn start; an older turn's row ended before this one began.
-export function isFinishedTurnRow(moment: FinishMoment | undefined, rowAt: number): boolean {
-  return moment?.kind === "turn" && moment.turnStartedAt !== undefined && rowAt >= moment.turnStartedAt - 2_000;
+/// Whether a "Worked for" row (its `at` is its prompt's and `endAt` its end, in the session's clock) is
+/// the turn a `turn` moment is about: the row whose span holds the ended turn's start. A resumed
+/// turn's row keeps its first prompt, long before its latest start; an older turn's row ended
+/// before this one began. A row with no end yet is matched by its start alone.
+export function isFinishedTurnRow(moment: FinishMoment | undefined, rowAt: number, endAt?: number): boolean {
+  if (moment?.kind !== "turn" || moment.turnStartedAt === undefined) return false;
+  const start = moment.turnStartedAt;
+  return endAt === undefined ? rowAt >= start - 2_000 : rowAt <= start + 2_000 && endAt >= start - 2_000;
 }
 
 let current: FinishMoment | undefined;
@@ -118,10 +121,10 @@ const subscribe = (listener: () => void) => {
   return () => void listeners.delete(listener);
 };
 
-/// Whether the "Worked for" row of the turn that started at `rowAt` shows a `turn` moment now. A
+/// Whether the "Worked for" row from `rowAt` to `endAt` shows a `turn` moment now. A
 /// boolean, so only that row draws again when a moment starts or ends.
-export function useFinishedTurn(rowAt: number): boolean {
-  const read = () => isFinishedTurnRow(current, rowAt);
+export function useFinishedTurn(rowAt: number, endAt?: number): boolean {
+  const read = () => isFinishedTurnRow(current, rowAt, endAt);
   return useSyncExternalStore(subscribe, read, read);
 }
 

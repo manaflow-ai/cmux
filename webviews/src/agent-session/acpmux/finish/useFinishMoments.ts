@@ -33,12 +33,17 @@ export function useFinishMoments({
   working,
   turnStartedAtMs,
   clockOffsetMs,
+  stopping,
   pullRequest,
-}: TurnFinishState & { clockOffsetMs?: number; pullRequest?: HeaderPullRequest }): void {
+}: TurnFinishState & { clockOffsetMs?: number; stopping?: boolean; pullRequest?: HeaderPullRequest }): void {
   const lastTurn = useRef<TurnFinishState>({ session, working, turnStartedAtMs });
   const lastPullRequest = useRef(pullRequest);
+  // The person pressed Stop on the running turn (the snapshot's `stopping`): its end is no success.
+  const stopped = useRef(false);
   useEffect(() => {
     const last = lastTurn.current;
+    const wasStopped = stopped.current;
+    stopped.current = working && (stopping === true || (last.working && wasStopped));
     // A running turn keeps the start it was first seen with, should a later render leave it out.
     const start = working ? (turnStartedAtMs ?? (last.working ? last.turnStartedAtMs : undefined)) : undefined;
     lastTurn.current = { session, working, turnStartedAtMs: start };
@@ -47,11 +52,11 @@ export function useFinishMoments({
       return;
     }
     const started = longTurnEnded(last, { session, working }, Date.now(), clockOffsetMs);
-    if (started === undefined) return;
+    if (started === undefined || wasStopped || stopping === true) return;
     startFinishMoment({ kind: "turn", session, turnStartedAt: started });
     // An ended turn the person is not looking at already has the Agent Finished notification's sound.
     if (shown()) playFinishSound("turn");
-  }, [session, working, turnStartedAtMs, clockOffsetMs]);
+  }, [session, working, turnStartedAtMs, clockOffsetMs, stopping]);
   useEffect(() => {
     const kind = pullRequestFinish(lastPullRequest.current, pullRequest);
     lastPullRequest.current = pullRequest;

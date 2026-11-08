@@ -8821,6 +8821,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     working: snapshot.isWorking,
     turnStartedAtMs: snapshot.turnStartedAtMs,
     clockOffsetMs: snapshot.clockOffsetMs,
+    stopping: snapshot.stopping === true,
     pullRequest: headerPullRequest,
   });
   // A floating chat's panel that held this chat before the page loaded (a tab moved there, a reload)
