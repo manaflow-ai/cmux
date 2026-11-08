@@ -734,3 +734,93 @@ fn failed_reads_then_an_attached_session_start_the_connect_hold() {
     let left = until.saturating_duration_since(Instant::now());
     assert!(left > role::CONNECT_HOLD - Duration::from_secs(5), "{left:?}");
 }
+
+/// Review P1s of #38483 at b82f2bf1: the connect hold and the pending
+/// restart live in the state dir (`gate::Gate`, one flock-guarded file), not
+/// in a process's memory, so `cmux host update check` (its own process),
+/// the guard and the service all see them. Two handles on one root stand in
+/// for the service and the CLI.
+fn gate_handles() -> (tempfile::TempDir, gate::Gate, gate::Gate) {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    (dir, gate::Gate::new(&paths), gate::Gate::new(&paths))
+}
+
+const T0_MS: u64 = 1_794_000_000_000;
+
+/// (a) The CLI's check sees the service's connect hold and doesn't flip;
+/// once the hold ends it does.
+#[test]
+fn a_cli_check_sees_the_service_connect_hold_and_does_not_flip() {
+    use std::time::Duration;
+
+    let (_dir, service, cli) = gate_handles();
+    assert!(service.hold(T0_MS, gate::CONNECT_HOLD), "a bind with no restart pending goes");
+    let mut ran = false;
+    let held = cli.run(T0_MS + 60_000, true, |_| ran = true);
+    assert!(held.is_err_and(|left| left == gate::CONNECT_HOLD - Duration::from_secs(60)));
+    assert!(!ran, "the CLI flipped during the service's connect hold");
+    assert_eq!(cli.held_left(T0_MS + 60_000), Some(gate::CONNECT_HOLD - Duration::from_secs(60)));
+
+    let after = T0_MS + gate::CONNECT_HOLD.as_millis() as u64;
+    assert_eq!(cli.held_left(after), None);
+    assert!(cli.run(after, true, |_| ran = true).is_ok());
+    assert!(ran, "past the hold the CLI flips");
+}
+
+/// (b) A restart the CLI queued is pending for the service: a bind there
+/// refuses until the restarted service clears the mark at its start.
+#[test]
+fn a_cli_queued_restart_refuses_binds_until_the_service_restarts() {
+    let (_dir, service, cli) = gate_handles();
+    assert!(cli.run(T0_MS, true, |queued| queued()).is_ok());
+    assert!(
+        !service.hold(T0_MS + 1_000, gate::CONNECT_HOLD),
+        "a bind went out with a restart pending"
+    );
+    assert!(!service.hold(T0_MS + 30_000, gate::CONNECT_HOLD), "still pending 30 s on");
+    // The restarted cmux-host clears the mark before it accepts binds.
+    service.service_started();
+    assert!(service.hold(T0_MS + 31_000, gate::CONNECT_HOLD), "the restarted service binds");
+}
+
+/// (c) The pending mark lasts at most RESTART_PENDING_FOR: a restart that
+/// never came can't block binds for ever.
+#[test]
+fn a_pending_restart_mark_expires_after_its_bound() {
+    let (_dir, service, cli) = gate_handles();
+    assert!(cli.run(T0_MS, false, |queued| queued()).is_ok(), "a rollback runs under no hold too");
+    let bound = gate::RESTART_PENDING_FOR.as_millis() as u64;
+    assert!(!service.hold(T0_MS + bound - 1, gate::CONNECT_HOLD));
+    assert!(service.hold(T0_MS + bound, gate::CONNECT_HOLD), "the mark outlived its bound");
+}
+
+/// A bind in the service that lands while the CLI's gate runs waits on the
+/// flock until the CLI queued its restart, then refuses; a rollback (which
+/// the hold doesn't stop) is serialized the same way.
+#[test]
+fn a_bind_waits_for_another_process_gate_and_sees_its_restart() {
+    use std::sync::mpsc;
+    use std::time::{Duration, Instant};
+
+    for honor_hold in [true, false] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_owned();
+        let (in_window, window) = mpsc::channel::<()>();
+        let cli = std::thread::spawn(move || {
+            gate::Gate::new(&Paths::new(&root)).run(T0_MS, honor_hold, |queued| {
+                in_window.send(()).unwrap();
+                std::thread::sleep(Duration::from_millis(200));
+                queued();
+                Instant::now()
+            })
+        });
+        window.recv().unwrap();
+        let may_bind =
+            gate::Gate::new(&Paths::new(dir.path())).hold(T0_MS + 100, gate::CONNECT_HOLD);
+        let bind_done = Instant::now();
+        let queued_at = cli.join().unwrap().unwrap();
+        assert!(bind_done >= queued_at, "the bind did not wait for the gate");
+        assert!(!may_bind, "a bind went out between the flip and the restart");
+    }
+}
