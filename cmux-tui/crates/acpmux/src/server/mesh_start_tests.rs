@@ -331,7 +331,7 @@ async fn a_started_chat_is_listed_until_the_book_has_it() {
         last_seen_at: 1,
     };
     a.set_mesh_book(hosts(), vec![row]);
-    assert_eq!(a.mesh_book_resolve("one").as_deref(), Some("s-1"));
+    assert_eq!(a.mesh_book_resolve("machine-b/one").as_deref(), Some("s-1"));
     // The book drops it again: it was the book's, so it leaves.
     a.set_mesh_book(hosts(), vec![]);
     assert_eq!(a.mesh_book_host("s-1"), None);
