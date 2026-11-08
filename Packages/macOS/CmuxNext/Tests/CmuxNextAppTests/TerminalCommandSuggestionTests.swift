@@ -72,6 +72,8 @@ struct TerminalCommandSuggestionTests {
         "curl -u bob:pw https://example.com", "curl --user bob:pw https://example.com", "curl -ubob:pw https://example.com",
         "npm config set //registry.npmjs.org/:_authToken abc", "echo abc | gh auth login --with-token",
         "mysql -pSECRET -u root", "mysql -u root -pSECRET", "mariadb -h db -pSECRET",
+        "/usr/bin/mysql -pSECRET", "/opt/homebrew/bin/mariadb -u root -pSECRET", "mysqldump -pSECRET db",
+        "mariadb-dump -u root -pSECRET db",
     ])
     func refusesCredentialArguments(_ text: String) {
         var store = TerminalCommandSuggestionStore()
@@ -80,7 +82,8 @@ struct TerminalCommandSuggestionTests {
     }
 
     @Test("still suggests commands with a bare -p or a plain -u", arguments: [
-        "mkdir -p x", "mysql -p -u root", "git push -u origin main", "pnpm --filter web test",
+        "mkdir -p x", "mysql -p -u root", "mysql -u root --skip-pager", "git push -u origin main",
+        "pnpm --filter web test",
     ])
     func allowsOrdinaryFlags(_ text: String) {
         var store = TerminalCommandSuggestionStore()

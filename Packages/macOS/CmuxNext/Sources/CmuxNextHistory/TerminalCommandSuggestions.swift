@@ -132,11 +132,12 @@ public nonisolated struct TerminalCommandSuggestionStore: Sendable {
 
     /// Credentials passed as arguments rather than `key=value`: a credential flag with its value
     /// (`--password X`, `--token=X`), `-u`/`--user` with `user:password` (curl), and a MySQL or
-    /// MariaDB password glued to `-p` (`mysql -pSECRET`). A bare `-p` (`mkdir -p x`) stays allowed.
+    /// MariaDB client's password glued to `-p` (`mysql -pSECRET`, `/usr/bin/mysqldump -pSECRET`). A bare
+    /// `-p` (`mkdir -p x`) stays allowed.
     static let credentialArgumentPatterns = [
         #"(?:^|\s)--?(?:password|passwd|pass|token|auth-token|access-token|secret|client-secret|private-key)(?:[=\s]|$)"#,
         #"(?:^|\s)(?:-u|--user)(?:\s+|=)?['"]?[^\s:'"]+:\S"#,
-        #"(?:^|[\s;&|(])(?:mysql|mariadb)\b.*\s-p\S"#,
+        #"(?:^|[\s;&|(])(?:\S*/)?(?:mysql|mariadb)[\w-]*\s(?:.*\s)?-p\S"#,
     ]
 
     private static func hasURLCredentials(in text: String) -> Bool {
