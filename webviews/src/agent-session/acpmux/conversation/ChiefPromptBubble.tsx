@@ -2,15 +2,7 @@ import { type ReactNode, useState } from "react";
 import { useChiefFace } from "../chiefFace";
 import { useT } from "../i18n";
 import { useTranscriptChief } from "./sentFrom";
-
-/// More than this many lines, or characters, and a Chief prompt opens collapsed.
-const COLLAPSED_LINES = 6;
-const COLLAPSED_CHARS = 600;
-
-/// Whether a prompt is long enough to open collapsed.
-export const isLongPrompt = (text: string) =>
-  text.length > COLLAPSED_CHARS || text.split("\n").length > COLLAPSED_LINES;
-
+import { isLongPrompt } from "./chiefPromptBubbleModel";
 /// The line over a prompt the Chief sent on the person's behalf, as ChatGPT marks a message its
 /// agent sent: the Chief's existing avatar (chiefFace.ts) and a muted "Sent from <Chief>",
 /// right-aligned with the bubble (Leo, 2026-11-02: "this is what the chatgpt dot does").

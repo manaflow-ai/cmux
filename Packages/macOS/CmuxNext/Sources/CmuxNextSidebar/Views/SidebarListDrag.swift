@@ -33,6 +33,12 @@ final class SidebarListDrag {
     /// The top section the rows would join (drop-to-pin), while the
     /// pointer is over the band above the list; the list keeps its order.
     var pinTarget: SidebarRegionDrop?
+    /// The empty sections whose drop zone the drag can open, made at the lift, and the one it opened (a document
+    /// section id; `SidebarDocStore.pinnedSection` for Pinned, on the document or not) (`SidebarEmptyZones`).
+    var zones: [SidebarEmptyZones.Zone] = []
+    var openZone: String?
+    /// The drag empties the list's Pinned: its header and zone stay for the whole drag, so it can go back there.
+    var keepsPinned = false
     var target: DropTarget? {
         didSet { if case let .position(position)? = target { lastPosition = position } }
     }
@@ -79,6 +85,9 @@ final class SidebarListDrag {
     var restShaped = true
     /// One card drags only: a group keeps its block shape.
     var morphs = false
+    /// The drag's base layout and drop rules, made once per row set and look (`SidebarListView.dragBase`), not per move;
+    /// a workspace drag's look is spliced from it (`look`).
+    var base: (key: SidebarDragBaseKey, layout: SidebarLayout, rules: DropResolver.DragRules?, look: SidebarDragLook?)?
     /// The last drop probe (debug.sidebar_rows "drop"): the card edge that
     /// decided, the row it hit in the base layout and where in that row.
     var probe: SidebarDropProbe?
@@ -109,12 +118,10 @@ final class SidebarListDrag {
     /// The drop for the card at `card` (list coordinates, as drawn over
     /// `displayed`), or nil to keep the last target; records the probe.
     /// Spec 1780d02: the card's centre decides over a loose row, the leading
-    /// edge elsewhere (DropResolver.resolveDrag).
-    func resolve(card: CGRect, displayed: SidebarLayout, base: SidebarLayout, sections: [SidebarSection],
-                 ungroupedFirst: Bool) -> DropTarget?? {
+    /// edge elsewhere (DropResolver.DragRules).
+    func resolve(card: CGRect, displayed: SidebarLayout, base: SidebarLayout, rules: DropResolver.DragRules?) -> DropTarget?? {
         let leading = movingUp ? card.minY : card.maxY
-        guard let resolved = DropResolver.resolveDrag(centreY: card.midY, leadingY: leading, gapY: displayed.gapY, gapHeight: displayed.gapShift,
-                                                      payload: payload, base: base, sections: sections, ungroupedFirst: ungroupedFirst) else {
+        guard let resolved = rules?.resolve(centreY: card.midY, leadingY: leading, gapY: displayed.gapY, gapHeight: displayed.gapShift) else {
             noteProbe(nil, card: card, displayed: displayed, base: base)
             return nil
         }

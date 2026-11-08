@@ -37,6 +37,8 @@ public final class NativePopupHost {
     public private(set) var isClosing = false
     /// Bumped by every show and hide: a close whose fade ends after a new show keeps the panel.
     private var generation = 0
+    /// The dismiss rules run before the popup shows (``watchBeforeShowing(_:)``).
+    private var isArmed = false
     private var observers: [NSObjectProtocol] = []
     /// The menus AppKit tracks while the popup shows (``MenuTracking``), for ``childMenus``.
     private var menus: MenuTracking?
@@ -173,6 +175,7 @@ public final class NativePopupHost {
             side = placed.side
         }
         generation += 1
+        isArmed = false
         // A fresh open, or a reopen during the close (whose fade runs on the card, not the alpha).
         let opening = !panel.isVisible || isClosing
         isClosing = false
@@ -196,6 +199,7 @@ public final class NativePopupHost {
 
     /// Closes the popup (fading toward its anchor) without calling ``onDismiss``.
     public func hide() {
+        isArmed = false
         unwatch()
         guard panel.isVisible, !isClosing else { return }
         generation += 1
@@ -226,9 +230,17 @@ public final class NativePopupHost {
         panel.close()
     }
 
+    /// Runs the dismiss rules over `window` while the popup's content is still getting ready to
+    /// show (a page measuring itself): a dismiss before ``show`` calls ``onDismiss``, so the owner
+    /// drops the pending open instead of showing it later.
+    public func watchBeforeShowing(_ window: NSWindow) {
+        isArmed = true
+        watch(dismissalWindow ?? window)
+    }
+
     /// Closes the popup by a dismiss rule: ``hide()``, then ``onDismiss``.
     public func dismiss(reason: String = "outside") {
-        guard isShown else { return unwatch() }
+        guard isShown || isArmed else { return unwatch() }
         dismissalReason = reason
         hide()
         onDismiss?()
@@ -265,6 +277,12 @@ public final class NativePopupHost {
         // Escape in the popup closes it (a text field in it would otherwise take it as cancel);
         // with a menu of the popup open, Escape closes only that menu.
         let escape = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
+            // Escape while the popup is still getting ready (the keys are still the window's)
+            // drops the open.
+            if let self, self.isArmed, !self.isShown, event.keyCode == 53 {
+                self.dismiss(reason: "escape")
+                return nil
+            }
             guard let self, event.window === self.panel, event.keyCode == 53, self.isShown, self.childMenus.isEmpty else { return event }
             // The input method owns Escape while cancelling marked text. Closing the popup
             // here would discard the composition before the editor sees the key.

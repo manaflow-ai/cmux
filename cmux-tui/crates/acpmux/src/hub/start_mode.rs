@@ -92,8 +92,8 @@
 //! under a starter that asks). A mode the start names is held by
 //! `start_gate.rs` (a mode that does not ask needs the starter's exact mode
 //! or the person), and a sub-session by `subsession_guard.rs`. A policy the
-//! start names is not held to the starter (`hub/person.rs`: open to the unix
-//! socket since before this).
+//! start names is held to the starter unless the starter runs in full access
+//! (`full_access_children.rs`).
 
 use super::*;
 use cmux_json::JsonSet as _;

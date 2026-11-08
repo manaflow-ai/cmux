@@ -1,17 +1,12 @@
 public import Foundation
 
 /// Which workspaces are idle enough to archive, and when to look again
-/// (plans/cmux-next/auto-archive-DESIGN.md). Pure: the App gathers one ``Candidate`` per placed
-/// workspace and the groups' rules, reads the clock once, and performs the ``Plan``. The planner
-/// never archives anything that is pinned, shown in a window, running a command or an agent turn,
-/// or asking for the person (unread, waiting, error), and never a workspace whose nearest group says
-/// Never.
-///
-/// ```swift
-/// let plan = AutoArchivePlanner().plan(candidates, rules: rules, policy: host.autoArchivePolicy(),
-///                                      trigger: .background, now: clock.now)
-/// store.setArchived(plan.due.map(\.item), archived: true, title: ...)
-/// ```
+/// (plans/cmux-next/auto-archive-DESIGN.md). The rules live in Rust (`cmux-layout-reducer`
+/// `auto_archive`, op `auto_archive_plan`); this is the app's side of the call. The App gathers one
+/// ``Candidate`` per placed workspace and the groups' rules, reads the clock once, and performs the
+/// ``Plan``. The planner never archives anything that is pinned, shown in a window, running a
+/// command or an agent turn, or asking for the person (unread, waiting, error), and never a
+/// workspace whose nearest group says Never. One call per background pass, sweep or review list.
 public nonisolated struct AutoArchivePlanner: Sendable {
     public init() {}
 
@@ -56,7 +51,7 @@ public nonisolated struct AutoArchivePlanner: Sendable {
     }
 
     /// What asks for the plan.
-    public nonisolated enum Trigger: Hashable, Sendable {
+    public nonisolated enum Trigger: String, Hashable, Sendable, Encodable {
         /// The background pass (launch, a deadline, a setting change): obeys the style.
         case background
         /// Archive Idle Workspaces: the person asked, so it runs under every style, and uses the
@@ -70,45 +65,85 @@ public nonisolated struct AutoArchivePlanner: Sendable {
         public var due: [Candidate]
         /// When the next kept-for-age workspace comes due; nil when none will without a change.
         public var nextCheck: Date?
+        /// Workspaces with no activity and no ledger sight: the ledger records them at `now`.
+        public var firstSight: [String]
+        /// The suggestion card is snoozed (Not Now): nothing is due, and the ledger is kept as is.
+        public var snoozed: Bool
 
-        public init(due: [Candidate] = [], nextCheck: Date? = nil) {
+        public init(due: [Candidate] = [], nextCheck: Date? = nil, firstSight: [String] = [], snoozed: Bool = false) {
             self.due = due
             self.nextCheck = nextCheck
+            self.firstSight = firstSight
+            self.snoozed = snoozed
         }
     }
 
-    /// Never look again sooner than this after a pass: a burst of wakes stays one pass a minute.
-    public static let minimumRecheck: TimeInterval = 60
+    /// The plan for `candidates` at `now`. `seen` is the activity ledger's last sight by workspace
+    /// (the newer of it and `lastActive` counts); `rules` holds each group's own rule by item id;
+    /// `snoozedUntil` is the suggestion card's Not Now. A refused call plans nothing (archives nothing).
+    public func plan(_ candidates: [Candidate], seen: [String: Date] = [:], rules: [String: SidebarDocAutoArchiveRule],
+                     policy: AutoArchivePolicy, trigger: Trigger, now: Date, snoozedUntil: Date? = nil) -> Plan {
+        let request = Request(
+            candidates: candidates.map { candidate in
+                Request.Candidate(lastActive: candidate.lastActive?.timeIntervalSince1970,
+                                  seen: seen[candidate.workspace]?.timeIntervalSince1970, groups: candidate.groups,
+                                  pinned: candidate.pinned, archived: candidate.archived, shown: candidate.shown,
+                                  running: candidate.running, needsAttention: candidate.needsAttention)
+            },
+            rules: rules.mapValues(Request.Rule.init),
+            policy: Request.Policy(style: policy.style.rawValue, idleDays: policy.idleDays),
+            trigger: trigger, now: now.timeIntervalSince1970, snoozedUntil: snoozedUntil?.timeIntervalSince1970)
+        guard let reply = RustSidebarClient.call("auto_archive_plan", request, as: Reply.self) else { return Plan() }
+        let pick = { (indices: [Int]) in indices.compactMap { candidates.indices.contains($0) ? candidates[$0] : nil } }
+        return Plan(due: pick(reply.due), nextCheck: reply.nextCheck.map(Date.init(timeIntervalSince1970:)),
+                    firstSight: pick(reply.firstSight).map(\.workspace), snoozed: reply.snoozed)
+    }
 
-    /// The plan for `candidates` at `now`. `rules` holds each group's own rule by item id.
-    public func plan(_ candidates: [Candidate], rules: [String: SidebarDocAutoArchiveRule], policy: AutoArchivePolicy,
-                     trigger: Trigger, now: Date) -> Plan {
-        if trigger == .background, policy.style == .off || policy.style == .manual { return Plan() }
-        var due: [(Candidate, TimeInterval)] = []
-        var next: Date?
-        for candidate in candidates where !candidate.archived && !candidate.pinned && !candidate.shown
-            && !candidate.running && !candidate.needsAttention {
-            guard let idle = idleSeconds(for: candidate, rules: rules, policy: policy, trigger: trigger),
-                  let lastActive = candidate.lastActive else { continue }
-            let deadline = lastActive.addingTimeInterval(idle)
-            if deadline <= now {
-                due.append((candidate, now.timeIntervalSince(lastActive)))
-            } else if next.map({ deadline < $0 }) ?? true {
-                next = deadline
+    // MARK: - Wire (`auto_archive::Request` and `Plan`)
+
+    private struct Request: Encodable {
+        struct Candidate: Encodable {
+            var lastActive: Double?
+            var seen: Double?
+            var groups: [String]
+            var pinned, archived, shown, running, needsAttention: Bool
+            enum CodingKeys: String, CodingKey {
+                case lastActive = "last_active", seen, groups, pinned, archived, shown, running, needsAttention = "needs_attention"
             }
         }
-        let floor = now.addingTimeInterval(Self.minimumRecheck)
-        return Plan(due: due.sorted { $0.1 > $1.1 }.map(\.0), nextCheck: next.map { max($0, floor) })
+
+        struct Policy: Encodable {
+            var style: String
+            var idleDays: Double
+            enum CodingKeys: String, CodingKey { case style, idleDays = "idle_days" }
+        }
+
+        /// `"never"` or whole hours, as the document stores it.
+        struct Rule: Encodable {
+            var rule: SidebarDocAutoArchiveRule
+            func encode(to encoder: any Encoder) throws {
+                var container = encoder.singleValueContainer()
+                switch rule {
+                case .never: try container.encode("never")
+                case let .afterHours(hours): try container.encode(hours)
+                }
+            }
+        }
+
+        var candidates: [Candidate]
+        var rules: [String: Rule]
+        var policy: Policy
+        var trigger: Trigger
+        var now: Double
+        var snoozedUntil: Double?
+        enum CodingKeys: String, CodingKey { case candidates, rules, policy, trigger, now, snoozedUntil = "snoozed_until" }
     }
 
-    /// Seconds `candidate` must stay idle, or nil when nothing archives it: the nearest group with a
-    /// rule decides (Never: nil). Without one, the setting's days, except the Groups style, which only
-    /// archives where a group set a rule (the person's sweep still uses the days).
-    func idleSeconds(for candidate: Candidate, rules: [String: SidebarDocAutoArchiveRule], policy: AutoArchivePolicy,
-                     trigger: Trigger) -> TimeInterval? {
-        let ruled = trigger == .sweep || policy.style != .off
-        if ruled, let rule = candidate.groups.lazy.compactMap({ rules[$0] }).first { return rule.idleSeconds }
-        if trigger == .background, policy.style == .groups { return nil }
-        return policy.idleSeconds
+    private struct Reply: Decodable {
+        var due: [Int]
+        var nextCheck: Double?
+        var firstSight: [Int]
+        var snoozed: Bool
+        enum CodingKeys: String, CodingKey { case due, nextCheck = "next_check", firstSight = "first_sight", snoozed }
     }
 }

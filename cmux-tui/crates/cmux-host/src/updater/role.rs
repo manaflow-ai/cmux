@@ -27,8 +27,11 @@ use crate::daemon_spec::{WORK_HOME, WORK_USER};
 
 /// The first check after `cmux host run` starts (a boot or an update's restart).
 const BOOT_DELAY: Duration = Duration::from_secs(30);
-/// Every few minutes while the machine runs.
-const INTERVAL: Duration = Duration::from_secs(300);
+/// Every minute while the machine runs: a merged fix reaches an idle machine
+/// within about a minute of the channel moving, not five. One check is a GET
+/// of the small signed channel file (served uncached, max-age 60) and a
+/// signature check; it logs only when its outcome changes.
+const INTERVAL: Duration = Duration::from_secs(60);
 /// An update waiting for a turn to end looks again this soon.
 const BUSY_RETRY: Duration = Duration::from_secs(60);
 /// No flip or restart this long after the role starts (a boot or an update's
@@ -550,12 +553,8 @@ fn acpmux(args: &[&str]) -> Option<(bool, String)> {
     Some((output.status.success(), String::from_utf8_lossy(&output.stdout).into_owned()))
 }
 
-/// What a restart would cut: the relay chats this cmux-host runs, then
-/// [`acpmux_busy_sessions`]. Empty only when both are idle.
+/// What a restart would cut: [`acpmux_busy_sessions`]. Empty only when it is idle.
 fn busy_sessions() -> Result<Vec<String>, String> {
-    if let Some(chats) = super::relay_chats_busy(crate::cloud::relay::running_chats()) {
-        return Ok(vec![chats]);
-    }
     acpmux_busy_sessions()
 }
 

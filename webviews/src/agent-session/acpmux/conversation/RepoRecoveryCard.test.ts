@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { repoRecoveryFor } from "./RepoRecoveryCard";
+import { repoRecoveryFor } from "./repoRecoveryCardModel";
 
 describe("repository tool recovery", () => {
   test("recognizes needs_github and keeps retry contract", () => {

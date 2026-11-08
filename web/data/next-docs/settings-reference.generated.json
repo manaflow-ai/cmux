@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 599,
+  "count": 613,
   "sections": [
     {
       "id": "general",
@@ -29,6 +29,31 @@
           "values": [
             "context",
             "planUsage"
+          ]
+        },
+        {
+          "key": "agentPane.dictationShortcut",
+          "title": "Dictation App Shortcut",
+          "help": "The shortcut the dictation button sends to the app it dictates with, such as ctrl+opt+space, when you set that app to one other than its default. Leave it empty for the app's default.",
+          "kind": "text",
+          "default": "",
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.dictationSource",
+          "title": "Dictate With",
+          "help": "What the dictation button uses: cmux's own dictation, or the dictation app you already use. An app's button sends that app's shortcut.",
+          "kind": "choice",
+          "default": "cmux",
+          "group": "Agent Chat",
+          "values": [
+            "cmux",
+            "macos",
+            "chatgpt",
+            "claude",
+            "gemini",
+            "wisprFlow",
+            "superwhisper"
           ]
         },
         {
@@ -203,6 +228,27 @@
           }
         },
         {
+          "key": "agents.cacheCompact.enabled",
+          "title": "Compact Before the Cache Expires",
+          "help": "When a Claude chat sits idle, compact it while its prompt cache is still warm, so the next message doesn't reread the whole context uncached. Costs one model call per compaction, read from the cache.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Prompt Cache"
+        },
+        {
+          "key": "agents.cacheCompact.minContextPercent",
+          "title": "Only Above Context Used (%)",
+          "help": "Chats using less of their context window than this are left as they are.",
+          "kind": "number",
+          "default": 50,
+          "group": "Prompt Cache",
+          "range": {
+            "min": 10,
+            "max": 95,
+            "unit": "count"
+          }
+        },
+        {
           "key": "agents.chats.discovery",
           "title": "Discover Chat Folders",
           "help": "Find harness chat folders automatically. When off, only the listed folders are used.",
@@ -278,6 +324,27 @@
           "kind": "toggle",
           "default": true,
           "group": "Guidance and Skills"
+        },
+        {
+          "key": "agents.hiddenChats.discard",
+          "title": "Release Hidden Agent Chats",
+          "help": "A chat you have not looked at for a while gives back its memory, and comes back where you left it when you open it. Chats that are working, waiting on you or holding a draft are never released.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Hibernation"
+        },
+        {
+          "key": "agents.hiddenChats.discardAfterMinutes",
+          "title": "Release Hidden Chats After",
+          "help": "How many minutes a chat stays out of sight before its memory is given back. When the Mac runs low on memory, it happens sooner.",
+          "kind": "number",
+          "default": 15,
+          "group": "Hibernation",
+          "range": {
+            "min": 1,
+            "max": 1440,
+            "unit": "minutes"
+          }
         },
         {
           "key": "agents.modelRouter.model",
@@ -421,10 +488,9 @@
           "title": "When Quitting",
           "help": "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
           "kind": "choice",
-          "default": "ask",
+          "default": "keep",
           "group": "Quitting",
           "values": [
-            "ask",
             "keep",
             "end-keep-layout",
             "end-everything"
@@ -551,6 +617,14 @@
             "top",
             "bottom"
           ]
+        },
+        {
+          "key": "chat.on",
+          "title": "Default Chat Target",
+          "help": "Where cmux chat starts a chat when neither --on nor CMUX_ON names one: here, cloud, vm:new, vm:NAME, or a device name. Empty is here.",
+          "kind": "text",
+          "default": "",
+          "group": "Chats"
         },
         {
           "key": "computerUse.driver",
@@ -1925,6 +1999,45 @@
           ]
         },
         {
+          "key": "agentPane.display.senderIcon.badge",
+          "title": "Sender Badge",
+          "help": "The small colored glyph on a sender's icon that tells sessions of one model family apart.",
+          "kind": "choice",
+          "default": "diamond",
+          "group": "Agent Chat",
+          "values": [
+            "diamond",
+            "robot",
+            "none"
+          ]
+        },
+        {
+          "key": "agentPane.display.senderIcon.corner",
+          "title": "Sender Badge Corner",
+          "help": "Where the small glyph sits on a sender's icon.",
+          "kind": "choice",
+          "default": "bottom-right",
+          "group": "Agent Chat",
+          "values": [
+            "bottom-right",
+            "bottom-left",
+            "top-right",
+            "top-left"
+          ]
+        },
+        {
+          "key": "agentPane.display.senderIcon.lead",
+          "title": "Sender Icon Emphasis",
+          "help": "Which is big in a sender's icon: the model family's mark, or the session's own colored badge.",
+          "kind": "choice",
+          "default": "family",
+          "group": "Agent Chat",
+          "values": [
+            "family",
+            "session"
+          ]
+        },
+        {
           "key": "agentPane.display.sessionInfo.placement",
           "title": "Session Info",
           "help": "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
@@ -2271,7 +2384,7 @@
           "title": "Window Style",
           "help": "The look of the window: whether panes sit in one rounded card, and where lines are drawn. Separation, Sidebar Background and the sidebar border still win when you set them.",
           "kind": "choice",
-          "default": "flat-sidebar-line",
+          "default": "flat",
           "group": "Panes",
           "values": [
             "default",
@@ -2282,7 +2395,8 @@
             "bare",
             "panes",
             "two-tone",
-            "floating"
+            "floating",
+            "blocks"
           ]
         },
         {
@@ -3571,6 +3685,20 @@
           ]
         },
         {
+          "key": "sidebar.groupGradient",
+          "title": "Group Gradient",
+          "help": "The gradient that Group Colors set to Gradient steps through: each colored group takes the color at its place in the list, so neighbors step through it and a group you move recolors.",
+          "kind": "choice",
+          "default": "sunset",
+          "group": "Sidebar",
+          "values": [
+            "sunset",
+            "aurora",
+            "lagoon",
+            "twoTone"
+          ]
+        },
+        {
           "key": "sidebar.groupHeader.background",
           "title": "Group Background",
           "help": "How a group's background draws in the sidebar. Glass lets the window's background show through; Solid is opaque. Automatic uses cmux's own group look, which is glass. A group always has a visible background, also when it has no color.",
@@ -3598,6 +3726,22 @@
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.groupPalette",
+          "title": "Group Colors",
+          "help": "Where workspace group colors come from. Glass gives a new group no color. App Theme, Wallpaper, Grayscale and Vibrant draw every colored group from that palette and give each new group the palette's next color. A color you pick for a group stays picked. Gradient colors each group by its place in the list, from Group Gradient.",
+          "kind": "choice",
+          "default": "glass",
+          "group": "Sidebar",
+          "values": [
+            "glass",
+            "theme",
+            "wallpaper",
+            "grayscale",
+            "vibrant",
+            "gradient"
+          ]
         },
         {
           "key": "sidebar.hoverCards.delay",
@@ -5071,6 +5215,14 @@
           "group": "Import"
         },
         {
+          "key": "browser.import.cookieSync",
+          "title": "Keep Imported Cookies in Sync",
+          "help": "After you import cookies from Chrome or another Chromium browser, cmux brings over the sites whose cookies changed there, so you stay signed in. It reads only the profile you imported from, on this Mac; nothing leaves it.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Import"
+        },
+        {
           "key": "browser.import.enabled",
           "title": "Import from Other Browsers",
           "help": "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays.",
@@ -5337,6 +5489,14 @@
           "key": "browser.openLinksInCmuxBrowser",
           "title": "Open Links in cmux Browser",
           "help": "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Opening Links"
+        },
+        {
+          "key": "browser.openPullRequestsInGitHubPage",
+          "title": "Open Pull Requests in cmux GitHub Page",
+          "help": "A GitHub pull request link you click in an agent chat opens cmux's own GitHub page. When off, it opens github.com in a cmux browser tab. Right-click the link to open it the other way.",
           "kind": "toggle",
           "default": true,
           "group": "Opening Links"
@@ -5719,7 +5879,7 @@
         {
           "key": "home.chiefDock.edge",
           "title": "Dock Edge",
-          "help": "The window edge the Chief docks to when you press Cmd-I or open a workspace from the Chief. The rest of the window shows the workspace you pick.",
+          "help": "The window edge the Chief goes to when you dock it. The rest of the window shows the workspace you pick.",
           "kind": "choice",
           "default": "left",
           "group": "Chief Dock",
@@ -5732,10 +5892,10 @@
         },
         {
           "key": "home.chiefDock.openBeside",
-          "title": "Keep Chief Docked When Opening Workspaces",
-          "help": "A workspace, tab or agent link clicked in the Chief opens beside it. The Chief stays docked with your draft and scroll position.",
+          "title": "Show Chief When Opening Workspaces",
+          "help": "A workspace, tab or agent link clicked in the Chief opens that workspace with the Chief floating over it. Press Esc or Cmd-I to hide it.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Chief Dock"
         },
         {

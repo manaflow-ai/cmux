@@ -46,7 +46,7 @@ public import AppKit
                 let row = commands?.item(.openChat(chat.id), title: chat.title)
                     ?? NSMenuItem(title: chat.title, action: nil, keyEquivalent: "")
                 row.image = chatImage(chat)
-                row.toolTip = chat.title
+                row.toolTip = chat.title // tooltip-native-allow: an NSMenuItem (commands.item returns one), native to menus
                 menu.addItem(row)
             case .command(let command, let title, let symbol):
                 let row = commands?.item(command, title: title) ?? NSMenuItem(title: title, action: nil, keyEquivalent: "")

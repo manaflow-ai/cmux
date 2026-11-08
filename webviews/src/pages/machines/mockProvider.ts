@@ -75,7 +75,22 @@ export class MockMachinesProvider implements PageClient {
   private listeners = new Set<(snapshot: MachinesSnapshot) => void>();
   readonly calls: { op: string; params: unknown }[] = [];
 
+  /** What `remove` answers (a test sets false for a refused Remove). */
+  removeAnswer = true;
+  /** Holds `remove`'s answer until `release` (a test reads the list while the host is still busy). */
+  private hold?: Promise<void>;
+  private release?: () => void;
+
   constructor(private snapshot: MachinesSnapshot = sampleSnapshot) {}
+
+  /** Holds the next Remove until `finishRemove`. */
+  holdRemove(): void {
+    this.hold = new Promise((resolve) => (this.release = resolve));
+  }
+
+  finishRemove(): void {
+    this.release?.();
+  }
 
   async call<R>(op: string, params: unknown): Promise<R> {
     this.calls.push({ op, params });
@@ -87,6 +102,9 @@ export class MockMachinesProvider implements PageClient {
         return { ran: true } as R;
       case MachinesOps.menu:
         return {} as R;
+      case MachinesOps.remove:
+        await this.hold;
+        return { removed: this.removeAnswer } as R;
       default:
         throw pageError("cmux.op.unknown", op);
     }

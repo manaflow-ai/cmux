@@ -39,6 +39,8 @@ fn config() -> Config {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
         "defaultHarness": "fake",
+        // A failed turn's held prompts wait for Resume (`queue.rs` `waits_for_resume`).
+        "autoResumeDelaysMs": [],
         "permissionPolicy": "approve-all"
     }))
     .unwrap();
@@ -383,6 +385,39 @@ async fn a_relayed_message_names_its_sending_session_for_display() {
     assert_eq!(p["fromName"], "gcp-lane/lane-a", "{found}");
     assert_eq!(p["fromSessionId"], "s-remote-1", "{found}");
     assert!(p.get("fromHarness").is_none(), "{found}");
+    relay.stop().await;
+}
+
+/// A relayed message's sender claim reaches the chat as the sender's own word: a `checked` it
+/// carries is the sending daemon's, which this one cannot confirm, so it is dropped.
+#[tokio::test]
+async fn a_relayed_message_keeps_its_senders_claim_as_self_reported() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("dep-land").await;
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    let mut sent = message("msg-claim", "dep-land", Kind::Prompt);
+    sent.from.claim = Some(json!({
+        "harness": "claude-code", "entrypoint": "claude-desktop",
+        "checked": {"harness": "claude-code", "app": "Claude.app"},
+    }));
+    fake.lease(sent);
+    fake.until("the ack", |s| !s.acked("msg-claim").is_empty()).await;
+    let mut claim = Value::Null;
+    for _ in 0..600 {
+        let events = hub.events(&session, 0, 1000).unwrap();
+        if let Some(e) = events.iter().find(|e| e.kind == "sender_claim") {
+            claim = e.msg.clone();
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(claim["promptId"], "msg-claim", "{claim}");
+    assert_eq!(claim["claimed"]["harness"], "claude-code", "{claim}");
+    assert_eq!(claim["claimed"]["entrypoint"], "claude-desktop", "{claim}");
+    assert_eq!(claim["claimed"]["selfReported"], true, "{claim}");
+    assert!(claim.get("checked").is_none(), "{claim}");
     relay.stop().await;
 }
 
@@ -1132,6 +1167,38 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
     let from = fake.with(|s| s.sent.last().unwrap().from.clone());
     assert_eq!(from.name.as_deref(), Some("lane-a"), "{from:?}");
     assert_eq!(from.session_id.as_deref(), Some(lane.as_str()), "{from:?}");
+}
+
+/// A send through the hub carries its sender claim on the wire, so the receiving machine can
+/// show where it came from.
+#[tokio::test]
+async fn a_send_through_the_hub_carries_its_sender_claim() {
+    let a = hub();
+    let fake = Arc::new(FakeHub::default());
+    let row = SessionRow {
+        name: "dep-land".into(),
+        session_id: "s-b".into(),
+        harness: "fake".into(),
+        state: "ready".into(),
+        stuck_reason: None,
+        team_address: None,
+    };
+    fake.with(|s| {
+        s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
+    });
+    let _ = a.mesh.set(fake.clone());
+    let mut client = Client::local(&a);
+    client.call("initialize", json!({"protocolVersion": 1})).await;
+    let mut request = send_queue("dep-land", "prompt-claim-2");
+    request["request"]["_meta"]["acpmux"]["senderHarness"] =
+        json!({"harness": "claude-code", "entrypoint": "claude-desktop", "bogus": "x"});
+    let queued = client.call("_acpmux/send_queue", request).await;
+    assert!(queued.pointer("/result/deliveryId").is_some(), "{queued}");
+    let from = fake.with(|s| s.sent.last().unwrap().from.clone());
+    let claim = from.claim.unwrap_or_default();
+    assert_eq!(claim["harness"], "claude-code", "{claim}");
+    assert_eq!(claim["entrypoint"], "claude-desktop", "{claim}");
+    assert!(claim.get("bogus").is_none() && claim.get("checked").is_none(), "{claim}");
 }
 
 #[tokio::test]

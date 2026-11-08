@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86. */
+/* cmux-tui mux protocol 12, IR 7cf0bbe1fdc7bd30769aabb11f653fbba0df0bb42dd01b16153d07d320ec1d16. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "e4a1ecdbb2d02067e00dcbd99c1fee0b9cdcca541c3d10095377224592fa0a86" as const;
+export const SDK_IR_SHA256 = "7cf0bbe1fdc7bd30769aabb11f653fbba0df0bb42dd01b16153d07d320ec1d16" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3170,6 +3170,10 @@ export const COMMAND_METADATA = {
       "keep_layout": {
         "since": 12,
         "capability": "end-terminals-keep-layout-v1"
+      },
+      "restart": {
+        "since": 12,
+        "capability": null
       }
     },
     "stream": null,
@@ -3179,7 +3183,8 @@ export const COMMAND_METADATA = {
       "Clients must require daemon-handoff-force-v1 before sending force:true.",
       "end_terminals:true ends every terminal and removes its tabs before the handoff; without it terminal hosts stay alive for the next owner. Clients must require terminal-reap-v1 before sending end_terminals:true.",
       "keep_layout:true (with end_terminals:true) ends every terminal but keeps the tabs of placed terminals, so the next owner shows the same screens, splits and tabs, each dead until a frontend starts a new shell in it; keep_layout without end_terminals is refused. Clients must require end-terminals-keep-layout-v1 before sending keep_layout:true.",
-      "The daemon exits only after the success response is queued."
+      "The daemon exits only after the success response is queued.",
+      "restart is repeated on the daemon-shutdown event, so an attached TUI reconnects after a restart and exits after a stop."
     ]
   },
   "sidebar-plugin": {
@@ -4266,6 +4271,14 @@ export const EVENT_METADATA = {
       "subscribe",
       "attach-byte",
       "attach-render"
+    ],
+    "emission": "emitted"
+  },
+  "stash-changed": {
+    "since": 12,
+    "capability": "stash-v1",
+    "streams": [
+      "subscribe"
     ],
     "emission": "emitted"
   },
@@ -27230,6 +27243,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "scalar",
             "name": "uint32"
           }
+        },
+        "restart": {
+          "constraints": [
+            "true when a replacement daemon follows (`server restart`), false when the session stops (`server stop`). The daemon repeats it as `restart` on the daemon-shutdown event; omit it (or send null) when unknown."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
         }
       },
       "kind": "object"
@@ -30436,6 +30461,19 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "kind": "literal",
           "value": "daemon-shutdown"
         }
+      },
+      "restart": {
+        "capability": "daemon-shutdown-restart-v1",
+        "constraints": [
+          "The restart the shutdown-daemon requester sent: true when a replacement daemon follows, false when the session stops. Sent only to a client that negotiated daemon-shutdown-restart-v1 in set-client-info, and absent when the requester did not say (session.shutdown, an older CLI)."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
       }
     },
     "kind": "object"
@@ -31931,6 +31969,28 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "stash-changed": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "stash-changed"
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },

@@ -855,12 +855,12 @@ final class BrowserHibernation {
             }
             guard case .string(let json) = value, let data = json.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return unanswered(tab) }
-            // Media the tab's mute silences still plays (cx-d0d.24): hibernating would drop the mute.
-            let muted = tab.state.isAudioMuted && tab.state.media?.isPlaying == true
+            // The tab's speaker (sound outside the document too, issue 38062), or media its mute silences (cx-d0d.24).
+            let sounding = tab.state.media.map { $0.isSounding || ($0.isPlaying && tab.state.isAudioMuted) } ?? false
             // A video in Picture in Picture plays on in its floating window, paused or muted alike.
             let floating = tab.state.media?.isPictureInPicture == true
             // The recorder knows the person's edits (`BrowserPageBusy`); a page loaded before it compares every field.
-            return PageProbe(playingMedia: muted || floating || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
+            return PageProbe(playingMedia: sounding || floating || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
                              capturing: busy.capturing, webAudio: busy.audio, beforeUnload: busy.beforeUnload,
                              unloadHandler: busy.unloadHandler, webRTC: busy.webRTC,
                              connectedDevice: busy.connectedDevice, unreadableFrame: busy.unreadableFrame)
@@ -876,7 +876,7 @@ final class BrowserHibernation {
     /// WebKit's own camera and microphone state is the planner's `isCapturing`; Chromium reports none to the app.
     static func unanswered(_ tab: any BrowserTab) -> PageProbe {
         let media = tab.state.media
-        let playing = media.map { $0.isAudible || ($0.isPlaying && tab.state.isAudioMuted) || $0.isPictureInPicture } ?? false
+        let playing = media.map { $0.isSounding || ($0.isPlaying && tab.state.isAudioMuted) || $0.isPictureInPicture } ?? false
         return PageProbe(playingMedia: playing, answered: false)
     }
 }

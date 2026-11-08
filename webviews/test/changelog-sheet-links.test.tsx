@@ -130,3 +130,25 @@ test("the shared PR chip leaves a private repository's pull request as plain tex
     act(() => root.unmount());
   }
 });
+
+test("a raw change's row shows its description's first paragraph, not the paragraphs after it", async () => {
+  const { sheetRows } = await import("../src/pages/changelog/SheetPage");
+  const { releaseView } = await import("../src/pages/changelog/model");
+  const raw = {
+    build: "2",
+    shortVersion: "1.0.0-nightly.2",
+    date: "2026-11-07",
+    highlights: [],
+    changes: [],
+    items: [
+      {
+        title: "Sidebar rows keep their place when a workspace closes",
+        pr: 37002,
+        description:
+          "Nothing jumps when a row goes.\nIts neighbours stay put.\n\nThe store now keeps a tombstone per row.",
+      },
+    ],
+  };
+  const rows = sheetRows(releaseView(raw, "en"));
+  expect(rows.map((r) => r.line)).toEqual(["Nothing jumps when a row goes. Its neighbours stay put."]);
+});

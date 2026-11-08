@@ -28,6 +28,8 @@ pub(super) enum OperationOwner {
     Stash,
     /// `conductor_import.*` (state/conductor_import_router.rs).
     ConductorImport,
+    /// `palette.rank` (resource_router/palette_rank.rs): stateless.
+    PaletteRank,
 }
 
 pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
@@ -146,7 +148,11 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::GitWorktreeCreate
         | ResourceOperation::GitWorktreeApply
         | ResourceOperation::GitWorktreeRemove
-        | ResourceOperation::GitStatus => OperationOwner::Git,
+        | ResourceOperation::GitWorktreeSetup
+        | ResourceOperation::GitStatus
+        | ResourceOperation::DiffCommentsList
+        | ResourceOperation::DiffCommentsSave
+        | ResourceOperation::DiffCommentsDelete => OperationOwner::Git,
         ResourceOperation::HistoryEntriesList
         | ResourceOperation::HistoryEntriesRemove
         | ResourceOperation::HistorySiteRemove
@@ -172,6 +178,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         ResourceOperation::ConductorImportPlan | ResourceOperation::ConductorImportRecord => {
             OperationOwner::ConductorImport
         }
+        ResourceOperation::PaletteRank => OperationOwner::PaletteRank,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
         | ResourceOperation::WorkspaceAgentStartGet

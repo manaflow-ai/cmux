@@ -103,5 +103,12 @@ extension SettingDescriptor {
         row.palette = .hidden(reason)
         return row
     }
+
+    /// This row, kept off the Settings page for `reason` and still in the palette (another card draws it).
+    public func keptOffSettingsPage(_ reason: String) -> SettingDescriptor {
+        var row = self
+        row.page = .hidden(reason)
+        return row
+    }
 }
 

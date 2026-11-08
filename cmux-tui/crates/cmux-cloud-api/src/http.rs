@@ -3,7 +3,8 @@
 
 use std::time::Duration;
 
-use serde_json::{Map, Value, json};
+use cmux_cloud_machine::error::{self, ApiError};
+use serde_json::{Value, json};
 use zeroize::Zeroizing;
 
 use super::Request;
@@ -337,58 +338,20 @@ pub(crate) fn base_url(raw: &str) -> Result<reqwest::Url, String> {
     Ok(url)
 }
 
-/// Classic's refusal body (`web/services/vms/routeHelpers.ts` `vmErrorResponse`: `{error,
-/// message, action, traceId, ui: {message, traceId}}`, or the Worker's nested `{ok: false,
-/// error: {code, message}}`); a refusal a paid plan lifts is [`Failure::PlanRequired`].
+/// Classic's refusal body, or the Worker's nested `{ok: false, error: {code, message}}`, read by
+/// the app's own rule ([`cmux_cloud_machine::error::from_response`]); a refusal a paid plan lifts
+/// is [`Failure::PlanRequired`].
 pub(crate) fn vm_error(status: u16, body: &[u8], header_code: Option<&str>) -> Failure {
-    let object: Option<Map<String, Value>> =
-        serde_json::from_slice::<Value>(body).ok().and_then(|v| v.as_object().cloned());
-    let field = |value: Option<&Value>| {
-        value.and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned)
-    };
-    let get = |name: &str| object.as_ref().and_then(|o| o.get(name));
-    let ui = get("ui").and_then(Value::as_object);
-    let nested = get("error").and_then(Value::as_object);
-    let code = header_code
-        .map(str::to_owned)
-        .or_else(|| field(get("error")))
-        .or_else(|| field(nested.and_then(|n| n.get("code"))));
-    let message = field(ui.and_then(|u| u.get("message")))
-        .or_else(|| field(get("message")))
-        .or_else(|| field(nested.and_then(|n| n.get("message"))));
-    if let Some(object) = &object
-        && let Some(plan) = lifting_plan(object, code.as_deref())
-    {
-        return Failure::PlanRequired { message, upgrade_url: upgrade_url(object), plan };
+    match error::from_response(i64::from(status), body, header_code) {
+        ApiError::PlanRequired { message, upgrade_url, plan } => {
+            Failure::PlanRequired { message, upgrade_url, plan }
+        }
+        ApiError::Http { code, message, action, trace_id, .. } => {
+            Failure::Http { status, code, message, action, trace_id }
+        }
+        // `from_response` reads a response, so it answers one of the two above.
+        _ => Failure::http(status, None, None),
     }
-    Failure::Http {
-        status,
-        code,
-        message,
-        action: field(get("action")),
-        trace_id: field(get("traceId")).or_else(|| field(ui.and_then(|u| u.get("traceId")))),
-    }
-}
-
-/// The plan an `upgradeRequired` refusal names (`upgradePlanId`, else `pro`); none for a plan
-/// cmux does not sell here, or for a credits top-up (a purchase, not a plan).
-fn lifting_plan(object: &Map<String, Value>, code: Option<&str>) -> Option<String> {
-    if object.get("upgradeRequired") != Some(&Value::Bool(true))
-        || code == Some("vm_create_credits_insufficient")
-    {
-        return None;
-    }
-    let plan = object.get("upgradePlanId").and_then(Value::as_str).unwrap_or("pro");
-    matches!(plan, "pro" | "max").then(|| plan.to_owned())
-}
-
-/// The refusal's `upgradeUrl`, only an https cmux.com link.
-fn upgrade_url(object: &Map<String, Value>) -> Option<String> {
-    let text = object.get("upgradeUrl")?.as_str()?;
-    let url = reqwest::Url::parse(text).ok()?;
-    let host = url.host_str()?;
-    (url.scheme() == "https" && (host == "cmux.com" || host.ends_with(".cmux.com")))
-        .then(|| text.to_owned())
 }
 
 /// The Worker's refusal: `{error: {code, message}}`.

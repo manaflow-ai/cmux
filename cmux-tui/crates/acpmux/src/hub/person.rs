@@ -253,7 +253,9 @@
 //! - A token dies with its daemon run: a harness that outlives a restart
 //!   (an agent host) inherits nothing until the next spawn.
 //! - `session/new` with a `policy` other than ask or deny-all is open to the
-//!   unix socket (it predates this check); a mode is not.
+//!   unix socket (it predates this check); a mode is not. A proven caller
+//!   session below full access names none wider than its own
+//!   (`full_access_children.rs`).
 //! - Open question (cx-wx93i): while the person's start mode is full
 //!   access (the default), a unix socket client that is no proven session,
 //!   such as `acpmux new` from a script, or an agent of a session that asks
@@ -988,7 +990,10 @@ impl Hub {
         params: &Value,
     ) -> Result<(), RpcError> {
         match m {
-            method::SESSION_NEW if starts_modes => self.session_new_check(caller, params).await,
+            method::SESSION_NEW if starts_modes => {
+                self.named_policy_check(caller, params).await?;
+                self.session_new_check(caller, params).await
+            }
             // Who may sign an allow is the person's own choice (`approvers.rs`).
             method::MUX_APPROVERS_SET | method::MUX_APPROVERS => {
                 Err(person_required("changing or reading trusted approvers"))

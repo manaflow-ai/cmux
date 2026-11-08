@@ -177,15 +177,16 @@ fn quick_start_commands_parse() {
             .filter(|line| {
                 (line.starts_with("cmux vm ") || line.starts_with("cmux chat "))
                     && !line.contains('<')
+                    && !line.contains(" | ")
             })
             // These run in this CLI, not through the app's catalog; `cloud env` lines parse in
             // `cloud_environment.rs` (`the_help_env_lines_parse`).
             .filter(|line| !line.contains("secret") && !line.contains("client-session"))
             .filter(|line| !line.starts_with("cmux vm env "))
             .collect::<Vec<_>>();
-        // Two `cmux chat --on vm:` lines, the `cmux chat send` follow-up and five machine lines;
-        // the quick start's create is `cmux machine new`. No line is a `vm start-chat` or `vm chat`.
-        assert_eq!(commands.len(), 8, "{commands:?}");
+        // Two `cmux chat --on vm:` lines, the `cmux chat send` follow-up and seven machine lines,
+        // most of them short verbs, and `vm new`. No line is a `vm start-chat` or `vm chat`.
+        assert_eq!(commands.len(), 10, "{commands:?}");
         assert!(commands[0].starts_with("cmux chat --on vm:"), "the chat leads: {commands:?}");
         assert!(!text.contains("vm start-chat") && !text.contains("vm chat"), "{text}");
         for command in commands {
@@ -210,6 +211,21 @@ fn quick_start_commands_parse() {
                         Ok(crate::cli::chat_start::Parsed::Run(_))
                     ),
                     "quick start command does not parse: {command}"
+                );
+                continue;
+            }
+            // A short verb (`vm pause dev`) runs the app's Cloud verb (vm_short.rs).
+            let words = shell_words(command);
+            if let Some(short) = crate::cli::vm_short::parse(&words[1..]) {
+                assert!(find(short.cloud_verb).is_some(), "{command}");
+                continue;
+            }
+            // `vm new` is the app's Cloud create when the app is here (vm.rs `new_route`).
+            if words.get(2).map(String::as_str) == Some("new") {
+                assert_eq!(
+                    crate::cli::vm::new_route(&words[3..], true),
+                    crate::cli::vm::NewRoute::App,
+                    "{command}"
                 );
                 continue;
             }
@@ -239,17 +255,18 @@ fn quick_start_commands_parse() {
     }
 }
 
-/// `cloud new-machine` is `cmux machine new`'s old name: the overview shows
-/// only the new one, and the old verb's own help names it.
+/// `cloud new-machine` is `cmux vm new`'s old name: the overview shows
+/// only `vm new`, and the old verb's own help names it.
 #[test]
 fn renamed_verbs_are_hidden_and_point_at_their_new_name() {
     for japanese in [false, true] {
         let text = overview(japanese);
         assert!(!text.lines().any(|line| line.starts_with("  new-machine ")), "{text}");
         assert!(!text.contains("cmux vm new-machine"), "{text}");
-        assert!(text.contains("cmux machine new"), "{text}");
+        // The quick start makes a Cloud VM with `vm new` (the app's create, as `machine new` was).
+        assert!(text.contains("cmux vm new --size"), "{text}");
         let help = verb_help("new-machine", japanese).unwrap();
-        assert!(help.contains("cmux machine new"), "{help}");
+        assert!(help.contains("cmux vm new"), "{help}");
         assert!(help.contains("cmux vm new-machine [--size"), "{help}");
     }
     for (old, _) in HIDDEN {
@@ -263,7 +280,7 @@ fn start_chat_help_is_its_usage_and_its_examples_parse() {
     for japanese in [false, true] {
         assert_eq!(verb_help(START_CHAT, japanese).as_deref(), Some(START_CHAT_USAGE));
     }
-    assert!(START_CHAT_USAGE.starts_with("usage: cmux cloud start-chat --prompt TEXT"));
+    assert!(START_CHAT_USAGE.starts_with("usage: cmux cloud start-chat [--prompt TEXT]"));
     // The start matrix runs its no-name row only on a build whose help names new_machine (cmuxterm-hq#7406).
     assert!(START_CHAT_USAGE.contains("new_machine: true"));
     let examples = START_CHAT_USAGE
@@ -271,7 +288,7 @@ fn start_chat_help_is_its_usage_and_its_examples_parse() {
         .map(str::trim)
         .filter(|line| line.starts_with("cmux cloud start-chat "))
         .collect::<Vec<_>>();
-    assert_eq!(examples.len(), 2, "{examples:?}");
+    assert_eq!(examples.len(), 3, "{examples:?}");
     for example in examples {
         let words =
             shell_words(example).into_iter().skip(3).filter(|w| w != "--json").collect::<Vec<_>>();

@@ -12,15 +12,15 @@ import { MockMachinesProvider, joinedRows, sampleRows, sampleSnapshot, thisMac }
 import { MachinesStore } from "./store";
 import type { MachineRow, MachinesSnapshot } from "./types";
 
-type Props = { snapshot?: MachinesSnapshot };
+type Props = { snapshot?: MachinesSnapshot; asking?: string };
 
-function MachinesGallery({ snapshot = sampleSnapshot }: Props) {
+function MachinesGallery({ snapshot = sampleSnapshot, asking }: Props) {
   const [store] = useState(() => new MachinesStore(new MockMachinesProvider(snapshot)));
   const [strings] = useState(() => createStrings(table));
   useEffect(() => {
-    void store.start();
+    void store.start().then(() => asking && store.askRemove(asking));
     return () => store.stop();
-  }, [store]);
+  }, [store, asking]);
   return <MachinesSection store={store} strings={strings} />;
 }
 
@@ -69,6 +69,17 @@ export default componentEntry<Props>({
           openMenu: "m_mini",
         },
       },
+    },
+    "remove-question": {
+      note: "Remove on lane-vm-3 asks first, inside the section: Cancel (Escape) or Remove (Return, danger ink). Remove takes the row out at once; the host revokes it if it still can join and takes it off every machine list.",
+      props: {
+        snapshot: { rows: [thisMac, ...joinedRows], style: "compact", busy: [], failed: {} },
+        asking: "ssh-lane",
+      },
+    },
+    "remove-failed": {
+      note: "A Remove the host refused: the row is back and its caption says so.",
+      props: { snapshot: { rows: [thisMac, ...joinedRows], style: "compact", busy: [], failed: { m_lane: "remove" } } },
     },
     "long-name": {
       note: "A name too long for its column wraps whole and its row grows; the rows below move down.",

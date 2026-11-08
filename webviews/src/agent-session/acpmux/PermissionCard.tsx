@@ -1,9 +1,12 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Markdown } from "./conversation/Markdown";
-import { toolIcon } from "./conversation/ToolRow";
+import { toolIcon } from "./conversation/toolRowModel";
 import { useT } from "./i18n";
 import { Keycap } from "./Keycap";
 import type { AcpmuxPermission } from "./model";
+import { postNative } from "./native";
+import { NativeError } from "./nativeError";
+import "./permissions/externalAccess.css";
 import { ProposedEdits } from "./permissions/ProposedEdits";
 import {
   alwaysAllowScope,
@@ -19,8 +22,6 @@ import {
   type PermissionKeyAction,
 } from "./permissions/prompt";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
-
-export { permissionOptionKind } from "./permissions/prompt";
 
 type PermissionOption = AcpmuxPermission["options"][number];
 
@@ -177,8 +178,10 @@ export function PermissionCard({
   const t = useT();
   const command = permissionCommand(permission);
   const preview = useMemo(() => commandPreview(command), [command]);
-  const title = permissionTitle(permission, t);
-  const detail = permissionDetail(permission);
+  const external = permission.externalAccess;
+  const [settingsError, setSettingsError] = useState<{ id: string; message: string }>();
+  const title = external ? t("permission.external.title", { target: external.target }) : permissionTitle(permission, t);
+  const detail = external ? t("permission.external.detail") : permissionDetail(permission);
   const {
     allowOnce,
     allowAlways,
@@ -186,7 +189,7 @@ export function PermissionCard({
     others,
   } = useMemo(() => permissionAnswers(permission.options), [permission.options]);
   const alwaysScope = allowAlways && alwaysAllowScope(permission, allowAlways);
-  const scopeText = permissionScopeText(permission, t);
+  const scopeText = external ? undefined : permissionScopeText(permission, t);
   /// The one scope line: the target the ask covers, then the Always allow rule.
   const scopeLine = [scopeText, alwaysScope].filter(Boolean).join(" · ") || undefined;
   const targetId = React.useId();
@@ -204,7 +207,7 @@ export function PermissionCard({
       return label;
     });
   }, [others, t, allowAlwaysLabel]);
-  const feedback = Boolean(onDenyWithFeedback && permission.pending && denyOption);
+  const feedback = Boolean(!external && onDenyWithFeedback && permission.pending && denyOption);
   const plan = permission.plan;
   const claude = harness === "claude" || harness?.startsWith("claude-");
   const feedbackPlaceholder = plan
@@ -460,7 +463,9 @@ export function PermissionCard({
           <span className="acpmux-permission-request-icon" aria-hidden="true">
             {toolIcon(permission.kind ?? (command ? "execute" : undefined))}
           </span>
-          <div className="acpmux-permission-request-label">{title}</div>
+          <div className="acpmux-permission-request-label" data-external-access={external ? "" : undefined}>
+            {title}
+          </div>
         </div>
         {waiting > 0 && <p className="acpmux-permission-waiting">{t("permission.moreWaiting", { n: waiting })}</p>}
         {detail && <p className="acpmux-permission-request-description">{detail}</p>}
@@ -516,13 +521,36 @@ export function PermissionCard({
           })}
           {denyOption && (
             <PermissionActionButton
-              label={plan ? t("permission.plan.keepPlanning") : t("permission.deny")}
+              label={
+                plan ? t("permission.plan.keepPlanning") : t(external ? "permission.external.skip" : "permission.deny")
+              }
               shortcut={shortcuts ? denyShortcut : undefined}
               cardKey={shortcuts ? DENY_KEY : undefined}
               aria-describedby={scopeText ? targetId : undefined}
               className="acpmux-permission-deny"
               data-feedback-opener=""
               onClick={() => deny()}
+            />
+          )}
+          {external && (
+            <PermissionActionButton
+              label={t("permission.external.openSettings")}
+              onClick={() => {
+                const id = permission.permissionId;
+                setSettingsError(undefined);
+                void postNative("externalAccess.openSettings", { kind: external.kind }).catch((error: unknown) => {
+                  if (shown.current === id)
+                    setSettingsError({
+                      id,
+                      message:
+                        error instanceof NativeError && error.code === "remote.unsupported"
+                          ? t("permission.external.remote")
+                          : error instanceof Error
+                            ? error.message
+                            : t("error.nativeUnavailable"),
+                    });
+                });
+              }}
             />
           )}
           {(allowAlways || allowOnce) && (
@@ -553,6 +581,11 @@ export function PermissionCard({
             </span>
           )}
         </div>
+      )}
+      {settingsError?.id === permission.permissionId && (
+        <p className="acpmux-permission-refused" role="alert">
+          {settingsError.message}
+        </p>
       )}
       {writing && (
         <form

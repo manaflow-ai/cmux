@@ -351,8 +351,10 @@ export function addedLine(title: string, line: string | undefined): string | und
 /** A raw change's description as its row's line: no work-stream codes, no filler ("This build brings
     fixes and improvements."), its first paragraph. */
 function fallbackLine(description: string | undefined): string | undefined {
-  const plain = description ? withoutWorkCodes(description) : "";
-  return plain && !isFiller(plain) ? firstParagraph(plain) : undefined;
+  // The paragraph first: withoutWorkCodes folds line breaks, which would join every paragraph.
+  const paragraph = description ? firstParagraph(description) : undefined;
+  const plain = paragraph ? withoutWorkCodes(paragraph) : "";
+  return plain && !isFiller(plain) ? plain : undefined;
 }
 
 /** A description in full as one line: its first paragraph, its line breaks as spaces ("A link

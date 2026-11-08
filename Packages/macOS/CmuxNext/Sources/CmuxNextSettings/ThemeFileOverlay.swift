@@ -40,7 +40,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     /// Look keys that are no part of a look: the theme file itself, the star list and its rotation,
     /// per-machine and per-display maps, and the saved custom densities.
     static let excludedKeys: Set<String> = [
-        ThemeFileSetting.path.joined(separator: "."), "appearance.favoriteThemes", "appearance.rotateFavoriteThemes",
+        ThemeFileSetting.configPath.joined(separator: "."), "appearance.favoriteThemes", "appearance.rotateFavoriteThemes",
         "appearance.machineColors", "appearance.displayBackgrounds", "appearance.displayBackgroundRotations",
         "appearance.customDensities",
     ]
@@ -158,7 +158,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         /// (missing, unreadable) is `path` "": cmux-next.json's `appearance.themeFile` names it.
         private mutating func refuse(_ path: String, _ value: JSONValue?, _ message: String) {
             guard !path.isEmpty else {
-                return diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: ThemeFileSetting.path.joined(separator: "."), message: message))
+                return diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: ThemeFileSetting.configPath.joined(separator: "."), message: message))
             }
             diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: path, message: message, file: file, value: value?.compactText))
         }
@@ -166,7 +166,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
         /// `colors` and `ghostty` as `appearance.themeEdits` of the terminal theme the file (or `base`)
         /// names, over `base`'s edits; then the contrast guard over every theme the file colors.
         private mutating func readColors(_ members: [String: JSONValue], base: JSONValue) {
-            let editsPath = ThemeEditsSetting().configPath
+            let editsPath = ThemeEditsSetting.configPath
             let ownEdits = values.first { $0.path == editsPath }?.value.objectValue ?? [:]
             var colors: [String: String] = [:]
             if let ghostty = members["ghostty"] { readGhostty(ghostty, into: &colors) }
@@ -174,7 +174,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
             var themes = Set(ownEdits.keys.compactMap { key in key.lastIndex(of: "/").map { String(key[..<$0]) } })
             var edits = (base.value(at: editsPath)?.objectValue ?? [:]).merging(ownEdits) { $1 }
             if !colors.isEmpty {
-                let themePath = AppThemeSetting().configPath
+                let themePath = AppThemeSetting.configPath
                 let theme = values.first { $0.path == themePath }?.value.stringValue ?? base.value(at: themePath)?.stringValue
                 if let theme, let spec = ThemeSpec(theme) {
                     for name in Set([spec.light, spec.dark]) {
@@ -238,7 +238,7 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
             let fixed = AppTheme.hex(AppTheme.derive(background: background, foreground: foreground, palette: (0..<16).map { color(String($0)) })[.text])
             let ratio = (foreground.contrast(with: background) * 10).rounded() / 10
             diagnostics.append(SettingsDiagnostic(
-                kind: .correctedValue, path: ThemeFileSetting.path.joined(separator: "."),
+                kind: .correctedValue, path: ThemeFileSetting.configPath.joined(separator: "."),
                 message: "\(theme)'s foreground \(written) is \(ratio):1 on its background, so cmux shows \(fixed) (4.5:1 or more)",
                 file: file, value: JSONValue.string(written).compactText))
             edits[ThemeEditsSetting.key(theme: theme, token: "foreground")] = .string(fixed)

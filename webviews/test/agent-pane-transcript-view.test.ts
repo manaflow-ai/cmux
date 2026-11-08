@@ -349,12 +349,14 @@ await requireBrowserLane("agent-pane-transcript-view.test.ts", async () => {
         reply: await reply.isVisible(),
       };
 
+      // Closed, the second test run is the one call in sight: its step also made the edit, which the
+      // turn's edits card draws, and the run keeps its own row after the reply (turns.ts lineWork).
       expect({ normal, thinking, verbose, closedByHand, backToNormal }).toEqual({
-        normal: { worked: "false", thoughts: 0, commands: 0, reply: true },
+        normal: { worked: "false", thoughts: 0, commands: 1, reply: true },
         thinking: { worked: "true", thoughts: true, commands: true, someClosed: true },
         verbose: { open: true },
         closedByHand: { worked: "false", fewer: true },
-        backToNormal: { worked: "false", thoughts: 0, commands: 0, reply: true },
+        backToNormal: { worked: "false", thoughts: 0, commands: 1, reply: true },
       });
       await page.close();
     });

@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 import { createStrings } from "../../shared/i18n";
 import { ConversationList, type ConversationListProps } from "./ConversationList";
 import { ME, sampleConversations } from "./fixtures";
+import { listMetrics } from "./layout";
 import { listModel } from "./model";
 
 let dom: JSDOM | undefined;
@@ -121,4 +122,31 @@ test("a click opens; a Command-click only selects", async () => {
     row.dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true, metaKey: true }));
   });
   expect(calls).toEqual(["select:c-design", "open:c-design", "select:c-design"]);
+});
+
+// Leo 2026-11-07, on the sidebar's drag to pin: "it's super weird how when you drag ANY workspace, it shifts
+// imediately due to that". A row's lift here opened a tile slot in the grid when it was pressed near the grid, and
+// every row moved down at once.
+test("a row's drag start moves no row; the grid opens as the pointer goes up into it", async () => {
+  const { element } = await mount(3);
+  const tiles = () => element.querySelectorAll("[data-pinned-tile]").length;
+  const rowIds = () => [...element.querySelectorAll("[data-list-row]")].map((row) => row.getAttribute("data-list-row"));
+  const pinned = tiles();
+  const rows = rowIds();
+  const row = element.querySelector<HTMLElement>("[data-list-row]")!;
+  const top = listMetrics(320).pinnedHeight(pinned);
+  const pointer = (type: string, y: number, target: EventTarget) =>
+    act(async () => {
+      const event = new dom!.window.MouseEvent(type, { bubbles: true, clientX: 160, clientY: y, button: 0 });
+      Object.defineProperty(event, "pointerId", { value: 1 });
+      target.dispatchEvent(event);
+    });
+  await pointer("pointerdown", top + 2, row);
+  await pointer("pointermove", top + 8, dom!.window);
+  expect(tiles()).toBe(pinned);
+  expect(rowIds()).toEqual(rows);
+  await pointer("pointermove", 10, dom!.window);
+  // In the grid the row is a tile at its target: it leaves the rows.
+  expect(rowIds()).toEqual(rows.filter((id) => id !== row.getAttribute("data-list-row")));
+  await pointer("pointerup", 10, dom!.window);
 });

@@ -129,6 +129,7 @@ fn request(origin: &str, cache: &std::path::Path, op: Op) -> Request {
         route: RouteChoice::Auto,
         app_version: None,
         local_only: false,
+        max_bytes: None,
     }
 }
 
@@ -1002,4 +1003,146 @@ fn directory_json_spools_preserve_empty_lists_and_bound_output_writes() {
         let value: Value = serde_json::from_slice(&output.0).unwrap();
         assert_eq!(value["body"]["entries"].as_array().unwrap().len(), size / 16);
     }
+}
+
+// MARK: review follow-ups (#37350)
+
+/// A server that answers every request with `head` and then `body`, then closes.
+fn raw(head: &'static str, body: &'static str) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut chunk = [0_u8; 65536];
+            let _ = stream.read(&mut chunk);
+            let _ = stream.write_all(head.as_bytes());
+            let _ = stream.write_all(body.as_bytes());
+        }
+    });
+    origin
+}
+
+#[test]
+fn a_cut_off_or_malformed_2xx_proxy_answer_is_a_failure_not_a_null_body() {
+    let dir = tempfile::tempdir().unwrap();
+    let cut = raw(
+        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 100\r\n\r\n",
+        "{\"ok\"",
+    );
+    let req = Request { route: RouteChoice::Proxy, ..request(&cut, dir.path(), Op::Stat) };
+    let (route, answer) = go(&req, T0);
+    assert_eq!(
+        (route, answer.status, answer.code.as_deref()),
+        (Route::Proxy, 0, Some("transport"))
+    );
+
+    let (malformed, _seen) = fake(|_| (200, "not json".into()));
+    let req = Request { route: RouteChoice::Proxy, ..request(&malformed, dir.path(), Op::Stat) };
+    let (route, answer) = go(&req, T0);
+    assert_eq!((route, answer.status, answer.code.as_deref()), (Route::Proxy, 0, Some("decoding")));
+
+    let (empty, _seen) = fake(|_| (200, String::new()));
+    let req = Request { route: RouteChoice::Proxy, ..request(&empty, dir.path(), Op::Remove) };
+    let (_, answer) = go(&req, T0);
+    assert_eq!((answer.status, answer.body), (200, Value::Null), "an empty 2xx stays one");
+
+    let (refused, _seen) = fake(|_| (502, "<html>bad gateway</html>".into()));
+    let req = Request { route: RouteChoice::Proxy, ..request(&refused, dir.path(), Op::Stat) };
+    let (_, answer) = go(&req, T0);
+    assert_eq!(answer.status, 502, "a refusal keeps its status whatever its body");
+}
+
+#[test]
+fn a_direct_read_past_max_bytes_stops_at_its_first_chunk() {
+    if !python_here() {
+        eprintln!("skipped: no python3");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("big.bin");
+    std::fs::write(&path, vec![7_u8; direct::READ_CHUNK as usize * 2 + 3]).unwrap();
+    let cell = Arc::new(Mutex::new(String::new()));
+    let c = Arc::clone(&cell);
+    let (origin, seen) =
+        fake(move |s| if s.is_mint() { minted(&c.lock().unwrap()) } else { run_here(s) });
+    *cell.lock().unwrap() = origin.clone();
+    let req = Request {
+        path: Some(path.display().to_string()),
+        max_bytes: Some(1024),
+        ..request(&origin, &dir.path().join("cache"), Op::Read)
+    };
+    let (route, answer) = go(&req, T0);
+    assert_eq!((route, answer.code.as_deref()), (Route::Direct, Some("too_large")), "{answer:?}");
+    assert!(answer.file.is_none());
+    assert_eq!(count(&seen, Seen::is_exec_await), 1, "one chunk read, then refused");
+    assert_eq!(count(&seen, Seen::is_proxy), 0);
+}
+
+#[test]
+fn a_direct_listing_past_max_bytes_is_refused_while_it_is_listed() {
+    if !cfg!(target_os = "linux") || !python_here() {
+        eprintln!("skipped: no python3");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("listing");
+    std::fs::create_dir(&root).unwrap();
+    for n in 0..200 {
+        std::fs::write(root.join(format!("{n:06}")), []).unwrap();
+    }
+    let cell = Arc::new(Mutex::new(String::new()));
+    let c = Arc::clone(&cell);
+    let (origin, seen) =
+        fake(move |s| if s.is_mint() { minted(&c.lock().unwrap()) } else { run_here(s) });
+    *cell.lock().unwrap() = origin.clone();
+    let req = Request {
+        path: Some(root.display().to_string()),
+        max_bytes: Some(2048),
+        ..request(&origin, &dir.path().join("cache"), Op::Dir)
+    };
+    let (route, answer) = go(&req, T0);
+    assert_eq!((route, answer.code.as_deref()), (Route::Direct, Some("too_large")), "{answer:?}");
+    assert!(answer.file.is_none());
+    assert_eq!(count(&seen, Seen::is_proxy), 0);
+    let whole = Request { max_bytes: None, ..req };
+    let (_, answer) = go(&whole, T0);
+    assert_eq!(answer.status, 200, "without a limit the same listing is whole");
+}
+
+// MARK: review follow-ups (#37526)
+
+#[test]
+fn a_listing_exactly_at_max_bytes_is_whole_and_one_byte_under_is_refused() {
+    if !cfg!(target_os = "linux") || !python_here() {
+        eprintln!("skipped: no python3");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("listing");
+    std::fs::create_dir(&root).unwrap();
+    for n in 0..40 {
+        std::fs::write(root.join(format!("{n:06}")), []).unwrap();
+    }
+    let cell = Arc::new(Mutex::new(String::new()));
+    let c = Arc::clone(&cell);
+    let (origin, _seen) =
+        fake(move |s| if s.is_mint() { minted(&c.lock().unwrap()) } else { run_here(s) });
+    *cell.lock().unwrap() = origin.clone();
+    let base = Request {
+        path: Some(root.display().to_string()),
+        ..request(&origin, &dir.path().join("cache"), Op::Dir)
+    };
+    let size = |answer: &Answer| match answer.file.as_ref() {
+        Some(Spool::Json(file)) => file.metadata().unwrap().len(),
+        other => panic!("no listing: {other:?}"),
+    };
+    let (_, whole) = go(&base, T0);
+    let exact = size(&whole);
+    let (_, at) = go(&Request { max_bytes: Some(exact), ..base.clone() }, T0);
+    assert_eq!((at.status, size(&at)), (200, exact), "exactly the limit is whole");
+    let (_, under) = go(&Request { max_bytes: Some(exact - 1), ..base.clone() }, T0);
+    assert_eq!(under.code.as_deref(), Some("too_large"));
+    let (_, tiny) = go(&Request { max_bytes: Some(13), ..base }, T0);
+    assert_eq!(tiny.code.as_deref(), Some("too_large"), "not even the wrapper fits");
 }
