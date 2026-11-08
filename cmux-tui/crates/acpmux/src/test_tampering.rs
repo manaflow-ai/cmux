@@ -365,16 +365,19 @@ fn test_language(path: &str) -> Option<Language> {
         _ => None,
     }
 }
-fn pattern(slot: &'static OnceLock<Regex>, text: &str) -> &'static Regex {
-    slot.get_or_init(|| Regex::new(text).expect("fixed test-tampering pattern"))
+fn pattern(
+    slot: &'static OnceLock<Result<Regex, regex::Error>>,
+    text: &str,
+) -> Option<&'static Regex> {
+    slot.get_or_init(|| Regex::new(text)).as_ref().ok()
 }
 fn test_markers(language: Language, code: &str) -> usize {
-    static RUST: OnceLock<Regex> = OnceLock::new();
-    static TS: OnceLock<Regex> = OnceLock::new();
-    static PY: OnceLock<Regex> = OnceLock::new();
-    static GO: OnceLock<Regex> = OnceLock::new();
-    static SWIFT: OnceLock<Regex> = OnceLock::new();
-    let re = match language {
+    static RUST: OnceLock<Result<Regex, regex::Error>> = OnceLock::new();
+    static TS: OnceLock<Result<Regex, regex::Error>> = OnceLock::new();
+    static PY: OnceLock<Result<Regex, regex::Error>> = OnceLock::new();
+    static GO: OnceLock<Result<Regex, regex::Error>> = OnceLock::new();
+    static SWIFT: OnceLock<Result<Regex, regex::Error>> = OnceLock::new();
+    let Some(re) = (match language {
         Language::Rust => pattern(&RUST, r"#\[\s*(?:test|(?:[\w]+::)+test)(?:\s*\]|\s*\()"),
         Language::TypeScript => {
             pattern(&TS, r"\b(?:test|it|xit|xtest)(?:\.(?:only|skip|todo|each))?\s*\(")
@@ -382,16 +385,18 @@ fn test_markers(language: Language, code: &str) -> usize {
         Language::Python => pattern(&PY, r"(?m)^\s*(?:async\s+)?def\s+test_\w*\s*\("),
         Language::Go => pattern(&GO, r"\bfunc\s+Test\w+\s*\([^)]*\*testing\.T\b"),
         Language::Swift => pattern(&SWIFT, r"@Test\b|\bfunc\s+test\w*\s*\("),
+    }) else {
+        return 0;
     };
     re.find_iter(code).count()
 }
 fn skips(language: Language, code: &str) -> usize {
-    static RUST: OnceLock<Regex> = OnceLock::new();
-    static TS: OnceLock<Regex> = OnceLock::new();
-    static PY: OnceLock<Regex> = OnceLock::new();
-    static GO: OnceLock<Regex> = OnceLock::new();
-    static SWIFT: OnceLock<Regex> = OnceLock::new();
-    let re = match language {
+    static RUST: OnceLock<Result<Regex, regex::Error>> = OnceLock::new();
+    static TS: OnceLock<Result<Regex, regex::Error>> = OnceLock::new();
+    static PY: OnceLock<Result<Regex, regex::Error>> = OnceLock::new();
+    static GO: OnceLock<Result<Regex, regex::Error>> = OnceLock::new();
+    static SWIFT: OnceLock<Result<Regex, regex::Error>> = OnceLock::new();
+    let Some(re) = (match language {
         Language::Rust => pattern(&RUST, r"#\[\s*ignore(?:\s*\]|\s*[=(])"),
         Language::TypeScript => pattern(
             &TS,
@@ -403,6 +408,8 @@ fn skips(language: Language, code: &str) -> usize {
         ),
         Language::Go => pattern(&GO, r"\b(?:t|tb)\.Skip(?:Now|f)?\s*\("),
         Language::Swift => pattern(&SWIFT, r"\bXCTSkip(?:If|Unless)?\s*\(|\.disabled\s*\("),
+    }) else {
+        return 0;
     };
     re.find_iter(code).count()
 }
@@ -447,10 +454,12 @@ fn compact(text: &str) -> String {
     text.chars().filter(|ch| !ch.is_whitespace()).collect()
 }
 fn move_signature(language: Language, code: &str) -> String {
-    static NAME: OnceLock<Regex> = OnceLock::new();
+    static NAME: OnceLock<Result<Regex, regex::Error>> = OnceLock::new();
     // Renaming a function doesn't change the behavior of a moved test.
-    let mut normalized =
-        compact(&pattern(&NAME, r"\b(fn|def|func)\s+\w+").replace_all(code, "$1 _"));
+    let Some(name) = pattern(&NAME, r"\b(fn|def|func)\s+\w+") else {
+        return compact(code);
+    };
+    let mut normalized = compact(&name.replace_all(code, "$1 _"));
     // Assertion syntax can change while the test itself moves (for example,
     // Rust's assert_eq!(value, expected) to assert!(value == expected)).
     // Preserve the subject and strength so those equivalent moves remain quiet.
@@ -461,12 +470,12 @@ fn move_signature(language: Language, code: &str) -> String {
     normalized
 }
 fn test_names(language: Language, code: &str) -> Vec<String> {
-    static RUST_NAME: OnceLock<Regex> = OnceLock::new();
-    static PYTHON_NAME: OnceLock<Regex> = OnceLock::new();
-    static GO_NAME: OnceLock<Regex> = OnceLock::new();
-    static SWIFT_NAME: OnceLock<Regex> = OnceLock::new();
-    static TS_NAME: OnceLock<Regex> = OnceLock::new();
-    let mut names = match language {
+    static RUST_NAME: OnceLock<Result<Regex, regex::Error>> = OnceLock::new();
+    static PYTHON_NAME: OnceLock<Result<Regex, regex::Error>> = OnceLock::new();
+    static GO_NAME: OnceLock<Result<Regex, regex::Error>> = OnceLock::new();
+    static SWIFT_NAME: OnceLock<Result<Regex, regex::Error>> = OnceLock::new();
+    static TS_NAME: OnceLock<Result<Regex, regex::Error>> = OnceLock::new();
+    let Some(name_pattern) = (match language {
         Language::Rust => pattern(
             &RUST_NAME,
             r"#\[\s*(?:(?:[A-Za-z_][\w]*::)*test)[^\]]*\]\s*(?:async\s+)?fn\s+([A-Za-z_]\w*)",
@@ -478,22 +487,27 @@ fn test_names(language: Language, code: &str) -> Vec<String> {
             r"(?:@Test(?:\([^)]*\))?\s+func\s+([A-Za-z_]\w*)\s*\(|\bfunc\s+(test\w*)\s*\()",
         ),
         Language::TypeScript => pattern(&TS_NAME, r"$^"),
-    }
-    .captures_iter(code)
-    .filter_map(|capture| {
-        capture.iter().skip(1).flatten().next().map(|name| name.as_str().to_owned())
-    })
-    .collect::<Vec<_>>();
+    }) else {
+        return Vec::new();
+    };
+    let mut names = name_pattern
+        .captures_iter(code)
+        .filter_map(|capture| {
+            capture.iter().skip(1).flatten().next().map(|name| name.as_str().to_owned())
+        })
+        .collect::<Vec<_>>();
     if language == Language::TypeScript {
-        static JS_NAME: OnceLock<Regex> = OnceLock::new();
-        names.extend(
-            pattern(
-                &JS_NAME,
-                r#"\b(?:test|it|xtest|xit)(?:\.(?:only|skip|todo|each))?\s*\(\s*['"`\x60]([^'"`\x60]+)['"`\x60]"#,
-            )
-                .captures_iter(code)
-                .filter_map(|capture| capture.get(1).map(|name| name.as_str().to_owned())),
-        );
+        static JS_NAME: OnceLock<Result<Regex, regex::Error>> = OnceLock::new();
+        if let Some(js_pattern) = pattern(
+            &JS_NAME,
+            r#"\b(?:test|it|xtest|xit)(?:\.(?:only|skip|todo|each))?\s*\(\s*['"`\x60]([^'"`\x60]+)['"`\x60]"#,
+        ) {
+            names.extend(
+                js_pattern
+                    .captures_iter(code)
+                    .filter_map(|capture| capture.get(1).map(|name| name.as_str().to_owned())),
+            );
+        }
     }
     names
 }
@@ -758,7 +772,7 @@ fn code_only(text: &str, language: Language) -> String {
             index += 1;
         }
     }
-    String::from_utf8(output).expect("code preserves UTF-8")
+    String::from_utf8_lossy(&output).into_owned()
 }
 
 #[cfg(test)]
