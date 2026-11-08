@@ -303,7 +303,9 @@ def show_tab(run, workspace, pane, kinds):
     # With focus: tab.focus reveals only under the run's view-change permission, which focus=False withholds
     # (TabHandlers.reveal); the measured workspace is the shown one, so focusing in it moves nothing else.
     stress.action("tab.focus", target=f"tab:{tab}")
-    if not STRESS.wait(lambda: any(t.get("id") == tab and t.get("selected") for t in stress.tabs(workspace, pane)), 10, step=0.05):
+    # The pane carries its shown tab as `selected_tab`; tabs have no selected flag (ControlTopology+JSON.swift).
+    shown = lambda: next((p.get("selected_tab") for p in stress.panes(stress.workspace(workspace)) if p.get("id") == pane), None)
+    if not STRESS.wait(lambda: shown() == tab, 10, step=0.05):
         raise RuntimeError(f"pane {pane} never showed its {sorted(kinds)} tab {tab}: {stress.refusals[-2:]}")
 
 
@@ -334,17 +336,24 @@ def fill(run, workspace, pane, content, chats):
 
 
 def background(run, count, measured):
-    """Makes the window hold exactly `count` workspaces, `measured` among them: the others (the launch workspace is
-    one) each run a terminal that prints a line every 20 ms; extra ones are closed, missing ones made. Checks the
-    count before the cell is measured."""
+    """Makes the window hold exactly `count` workspaces besides Home, `measured` among them: the others each run a
+    terminal that prints a line every 20 ms; extra ones are closed, missing ones made. Checks the count before the
+    cell is measured. Home can't be closed and the topology carries no home flag, so a workspace whose close is
+    refused is remembered as Home and left out of the count (it stays idle, as a user's Home does)."""
     stress = run.stress
     busy = getattr(run, "busy_workspaces", set())
+    home = getattr(run, "home_workspaces", set())
+    run.home_workspaces = home
     for _ in range(count + 8):
-        others = [w["id"] for w in stress.workspaces() if w["id"] != measured]
+        others = [w["id"] for w in stress.workspaces() if w["id"] != measured and w["id"] not in home]
         if len(others) > count - 1:
             extra = next((w for w in others if w not in busy), others[-1])
-            stress.action("closeWorkspace", {"confirm": True}, target=f"workspace:{extra}", focus=False)
+            reply = stress.action("closeWorkspace", {"confirm": True}, target=f"workspace:{extra}", focus=False)
             if not STRESS.wait(lambda: stress.workspace(extra) is None, 15, step=0.1):
+                if isinstance(reply, dict) and reply.get("error") and extra not in home:
+                    home.add(extra)  # refused: Home (the launch workspace)
+                    busy.discard(extra)
+                    continue
                 raise RuntimeError(f"closeWorkspace left {extra}: {stress.refusals[-2:]}")
             busy.discard(extra)
         elif len(others) < count - 1:
@@ -367,7 +376,7 @@ def background(run, count, measured):
         stress.make_busy(tab)
         busy.add(workspace)
     run.busy_workspaces = busy
-    have = len(stress.workspaces())
+    have = len([w for w in stress.workspaces() if w["id"] not in home])
     if have != count:
         raise RuntimeError(f"the cell has {have} workspaces, not {count}")
     stress.show(measured)
