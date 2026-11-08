@@ -28,7 +28,7 @@ extension Metrics {
     /// 10 pt on macOS 11 through 15. Lawrence 2026-11-07: "we are not concentric with macos window
     /// ... make it all concentric with macos windows by default".
     public static func standardWindowCornerRadius(macOSMajor: Int) -> CGFloat {
-        16
+        macOSMajor >= 26 ? 16 : 10
     }
 
     /// The radius of the rounded card whose top-leading corner a top-row pane's tab strip sits

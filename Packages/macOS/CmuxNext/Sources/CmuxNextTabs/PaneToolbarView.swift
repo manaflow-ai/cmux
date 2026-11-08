@@ -488,7 +488,8 @@ public final class PaneToolbarView: NSView {
     /// radius, less the inset), as the first tab is with the top-leading corner. Lawrence 2026-11-07
     /// on the window's top-right ⋮: "needs to be concentric (related to window concentricity)".
     static func moreCornerRadius(inset: CGFloat) -> CGFloat {
-        Metrics.itemCornerRadius
+        Metrics.cornerRadius(nestedIn: Metrics.tabStripCardRadius ?? Metrics.corners.outer, inset: inset,
+                             size: CGSize(width: TitlebarBandButton.side, height: TitlebarBandButton.side))
     }
 
     /// The last button's gap to the trailing edge: its center on the pane's trailing control column,

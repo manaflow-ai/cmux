@@ -107,8 +107,9 @@ extension Metrics {
     /// Metrics.windowConcentricCornerRadius(windowCornerRadius: 16, edgeInset: 6, setting: 20)  // 16
     /// ```
     public static func windowConcentricCornerRadius(windowCornerRadius: CGFloat, edgeInset: CGFloat, setting: CGFloat?) -> CGFloat {
-        let radius = max(0, setting ?? cornerRadius)
-        return windowCornerRadius > 0 ? min(radius, windowCornerRadius) : radius
+        if let setting { return windowCornerRadius > 0 ? min(max(0, setting), windowCornerRadius) : max(0, setting) }
+        let window = windowCornerRadius > 0 ? windowCornerRadius : standardWindowCornerRadius
+        return ConcentricCorners(outer: window, padding: 0).nested(in: window, inset: edgeInset)
     }
     /// How far the main pane stays inside a window edge it meets: `inset`, and at least the window's
     /// lit rim (``PaneTabRowRim/height``, the edge highlight the window's glass draws just inside its

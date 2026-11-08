@@ -40,7 +40,7 @@ public nonisolated enum TopRowLineLook: String, Sendable, CaseIterable, Hashable
     public static let tunable = Tunable<TopRowLineLook>.choice(
         "chrome.topRowLine", .sidebar, "Top row line",
         help: "The line the traffic lights, the toolbar band, the sidebar's + and the top row's tabs share (Leo 2026-11-07).",
-        default: .lights, code: "TopRowLineLook.tunable")
+        default: .concentric, code: "TopRowLineLook.tunable")
 }
 
 /// The top row's line, from the window's top edge, and where a top-row strip puts its pills on it.
@@ -59,7 +59,7 @@ public nonisolated struct TopRowLine: Equatable, Sendable {
         switch look {
         case .lights, .off: TopRowLine(centerY: lightsCenterY)
         case .tabs: TopRowLine(centerY: tabsCenterY)
-        case .concentric: TopRowLine(centerY: lightsCenterY)
+        case .concentric: TopRowLine(centerY: concentricCardTop + tabsCenterY)
         case .titlebar: TopRowLine(centerY: titlebarHeight / 2)
         }
     }
@@ -98,7 +98,7 @@ extension WindowTitlebar {
     /// own cards, which sit the gutter and a pane padding down.
     public static func topRowLine(in window: NSWindow, look: TopRowLineLook = TopRowLineLook.tunable.value) -> TopRowLine? {
         guard let target = targetTopRowLine(in: window, look: look) else { return nil }
-        guard look != .off else { return target }
+        guard look != .off, look != .concentric else { return target }
         let scale = window.backingScaleFactor
         let row = topRowMetrics(scale: scale)
         if Metrics.floatingPanes {
@@ -114,7 +114,7 @@ extension WindowTitlebar {
     /// line variant other than `off`, and no floating panes (each of those pills centers in its own card).
     public static func topRowEvensPillGaps(in window: NSWindow) -> Bool {
         let look = TopRowLineLook.tunable.value
-        return look != .off && !Metrics.floatingPanes && targetTopRowLine(in: window, look: look) != nil
+        return look != .off && look != .concentric && !Metrics.floatingPanes && targetTopRowLine(in: window, look: look) != nil
     }
 
     /// The variant's line before the card's limits (``topRowLine(in:look:)``): what the card's top aims for.
@@ -145,6 +145,7 @@ extension WindowTitlebar {
                                      look: TopRowLineLook = TopRowLineLook.tunable.value) -> CGFloat {
         guard !Metrics.floatingPanes else { return gutter }
         // Concentric: the gutter on top as at the sides, so the card's corner shares the window's center.
+        guard look != .concentric else { return Metrics.windowEdgeInset(gutter, in: window) }
         let scale = window.backingScaleFactor
         guard look != .off else {
             return Metrics.windowEdgeInset(min(gutter, PaneChromeMetrics.current.cardTopKeepingStripCentering(centeringPillOn: centerY, scale: scale)), in: window)
