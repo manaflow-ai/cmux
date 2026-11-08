@@ -14,7 +14,11 @@ export default componentEntry<{ path: string }>({
     function GalleryPlanScopeDrift(props: { path: string }) {
       return (
         <PlanScopeDriftCard
-          drift={{ sessionId: "gallery", path: props.path, area: props.path.split("/")[0] ?? props.path }}
+          drift={{
+            sessionId: "gallery",
+            path: props.path,
+            area: props.path.split("/")[0] ?? props.path,
+          }}
           onStop={() => undefined}
         />
       );
