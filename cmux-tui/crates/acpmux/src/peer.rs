@@ -1089,12 +1089,26 @@ impl Peer {
 
     /// Chat `id`'s attach went into the queue of link `link`, under `attach_order`: the peer's
     /// subscription for it there streams what its `kinds` filter lets through.
-    pub(crate) fn note_attach_queued(&self, id: &str, params: &Value, link: u64) {
+    /// Answers the attach's number among the chat's queued ones ([`Self::note_attach_failed`]).
+    pub(crate) fn note_attach_queued(&self, id: &str, params: &Value, link: u64) -> u64 {
         let every = crate::hub::EventFilter::parse(params.get("kinds")).is_ok_and(|f| f.is_all());
         let mut filters = self.attach_filters.lock_or_recover();
         let filter = filters.entry(id.to_owned()).or_default();
         filter.narrowed = !every;
         filter.streamed_on = Some(link);
+        filter.queued += 1;
+        filter.queued
+    }
+
+    /// Chat `id`'s attach number `queued` failed (the peer refused it, or it was never
+    /// answered): unless a later attach of it went into the queue since, the peer is not known
+    /// to stream anything of it.
+    fn note_attach_failed(&self, id: &str, queued: u64) {
+        if let Some(filter) = self.attach_filters.lock_or_recover().get_mut(id)
+            && filter.queued == queued
+        {
+            filter.streamed_on = None;
+        }
     }
 
     /// Forget the replay baseline of an attachment whose first baseline request failed. The
@@ -1326,10 +1340,12 @@ impl Peer {
         // An attach goes into the queue and notes its filter under one lock, so the filter
         // noted last is the one the peer applies last.
         let order = if attach.is_some() { Some(self.attach_order.lock().await) } else { None };
+        let mut queued_attach = None;
         match tokio::time::timeout_at(deadline, self.out.send(frame)).await {
             Ok(Ok(())) => {
                 if let Some((coming, params)) = attach {
-                    self.note_attach_queued(&coming.id, &params, tag);
+                    let queued = self.note_attach_queued(&coming.id, &params, tag);
+                    queued_attach = Some((coming.id.clone(), queued));
                     drop(coming);
                 }
                 drop(order);
@@ -1344,6 +1360,24 @@ impl Peer {
         // across that drop; a forwarder whose client left drops it (`server/peer_forward.rs`).
         let answer =
             if turn_wait { Ok(rx.await) } else { tokio::time::timeout_at(deadline, rx).await };
+        let result = Self::answer_result(&self.name, started, answer);
+        if let Some((id, queued)) = queued_attach
+            && result.is_err()
+        {
+            self.note_attach_failed(&id, queued);
+        }
+        result
+    }
+
+    /// A request's answer as its caller gets it.
+    fn answer_result(
+        name: &str,
+        started: tokio::time::Instant,
+        answer: Result<
+            Result<Result<Value, RpcError>, oneshot::error::RecvError>,
+            tokio::time::error::Elapsed,
+        >,
+    ) -> Result<Value, RpcError> {
         match answer {
             // A full disk the peer reports is the peer's, not this machine's (`recovery.rs`).
             // No display line of the peer's own reaches this daemon's clients, on any route that
@@ -1354,18 +1388,15 @@ impl Peer {
                     result
                 })
                 .map_err(|mut e| {
-                    crate::recovery::annotate_peer(&mut e, &self.name);
+                    crate::recovery::annotate_peer(&mut e, name);
                     if let Some(data) = e.data.as_mut() {
                         crate::hub::drop_display_lines(data);
                     }
                     e
                 }),
-            Ok(Err(_)) => {
-                Err(RpcError::internal(format!("peer {} dropped the request", self.name)))
-            }
+            Ok(Err(_)) => Err(RpcError::internal(format!("peer {name} dropped the request"))),
             Err(_) => Err(RpcError::internal(format!(
-                "peer {} timed out after {}s",
-                self.name,
+                "peer {name} timed out after {}s",
                 started.elapsed().as_secs()
             ))),
         }
@@ -2845,8 +2876,11 @@ struct AttachFilter {
     /// The latest attach that went into the queue named a `kinds` filter.
     narrowed: bool,
     /// The link epoch whose queue the latest attach went into: on any other link, nothing of
-    /// the chat streams until an attach reaches it.
+    /// the chat streams until an attach reaches it. None again once that attach failed.
     streamed_on: Option<u64>,
+    /// How many attaches of it went into the queue: an attach's failure clears `streamed_on`
+    /// only when no later one went in since.
+    queued: u64,
     /// Attaches of it on their way to the queue.
     coming: u32,
 }
