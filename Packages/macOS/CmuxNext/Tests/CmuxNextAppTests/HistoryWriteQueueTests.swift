@@ -427,11 +427,14 @@ import Testing
         #expect(deletes.selections.isEmpty, "a clear without an end went to the remote after the click")
     }
 
-    /// Queues one `history.clear` as the client sends it to a daemon that takes `until_ms` (`bounded`) or not.
-    static func enqueueClear(_ queue: HistoryWriteQueue<Daemon>, bounded: Bool, gate: HistoryClearGate, sentParams: Params? = nil) {
-        queue.enqueue { client, key in
-            try await DaemonHistoryClient.sendClear(kinds: [.page, .agent], since: nil, until: Date(timeIntervalSince1970: 1_700_000_000), profile: nil,
-                                                    bounded: bounded, gate: gate) { params in
+    /// Queues one `history.clear` made at a click, as the app does (``HistoryWriteQueue/enqueueClear(live:_:_:done:)``):
+    /// `live` is the daemon when it is connected at the click and cannot take `until_ms`. The write sends what the client would
+    /// (``DaemonHistoryClient/sendClear(kinds:since:until:profile:bounded:unbounded:_:)``) to a daemon that takes `until_ms`
+    /// (`bounded`) or not.
+    static func enqueueClear(_ queue: HistoryWriteQueue<Daemon>, live: Daemon?, bounded: Bool, sentParams: Params? = nil) {
+        queue.enqueueClear(live: live, "history.clear") { client, key, unbounded in
+            try await DaemonHistoryClient.sendClear(kinds: [.page, .agent], since: nil, until: Date(timeIntervalSince1970: 1_700_000_000),
+                                                    profile: nil, bounded: bounded, unbounded: unbounded) { params in
                 await sentParams?.record(params)
                 try await client.send(key: key) { $0.append("clear") }
             }
@@ -443,40 +446,144 @@ import Testing
         func record(_ params: [String: JSONValue]) { sent.append(params) }
     }
 
+    /// Holds a write in flight until ``release()``.
+    @MainActor final class Hold {
+        private var held: CheckedContinuation<Void, Never>?
+        private var entered: CheckedContinuation<Void, Never>?
+
+        func hold() async {
+            await withCheckedContinuation { held = $0; entered?.resume(); entered = nil }
+        }
+
+        func untilHeld() async {
+            if held != nil { return }
+            await withCheckedContinuation { entered = $0 }
+        }
+
+        func release() {
+            held?.resume()
+            held = nil
+        }
+    }
+
     /// cmux#38186 review (F3): a daemon with `history-v1` but without `history-clear-until-v1` clears until its own now. A clear
     /// queued while it was away is therefore not sent when it reconnects (it would delete visits and agent activity made
     /// after the click); it is dropped, and the writes behind it still go.
     @Test func anOfflineClearOnADaemonWithoutClearUntilIsNotSentAfterTheReconnect() async {
         let daemon = Daemon()
         let queue = Self.queue(daemon)
-        Self.enqueueClear(queue, bounded: false, gate: HistoryClearGate(open: false))
+        Self.enqueueClear(queue, live: nil, bounded: false)
         daemon.reconnect()
         await Self.sent(queue) { client, key in try await client.send(key: key) { $0.append("after") } }
         #expect(daemon.stored == ["after"], "a clear with no click-time end went to the daemon after it reconnected")
         #expect(queue.count == 0)
     }
 
-    /// The same daemon connected at the click gets the clear once, as before the queue: a retry after a lost reply is
-    /// dropped (it might land after newer activity). A daemon that takes `until_ms` gets the clear with it, even after
-    /// being away at the click.
-    @Test func anUnboundedClearGoesOnceOnTheLinkUpAtTheClickAndABoundedOneAlwaysGoes() async {
+    /// cmux#38186 review (F4): an unbounded clear clicked while a write is in flight on a connected daemon's queue never waits for
+    /// it (commands and agents made meanwhile would go too): it is dropped at the click, never sent.
+    @Test func anUnboundedClearClickedWhileAWriteIsInFlightIsDropped() async {
+        let daemon = Daemon()
+        daemon.up = true
+        let queue = Self.queue(daemon)
+        let hold = Hold()
+        queue.enqueue { client, key in
+            await hold.hold()
+            try await client.send(key: key) { $0.append("first") }
+        }
+        await hold.untilHeld()
+        Self.enqueueClear(queue, live: daemon, bounded: false)
+        hold.release()
+        await Self.sent(queue) { client, key in try await client.send(key: key) { $0.append("after") } }
+        #expect(daemon.stored == ["first", "after"], "an unbounded clear waited behind a write in flight and went late")
+    }
+
+    /// cmux#38186 review (F4): a read holding the queue (the omnibox seed) is ahead too: an unbounded clear clicked then is dropped.
+    @Test func anUnboundedClearClickedWhileAReadHoldsTheQueueIsDropped() async {
+        let daemon = Daemon()
+        daemon.up = true
+        daemon.stored = ["https://a.example/"]
+        let queue = Self.queue(daemon)
+        let seeded: [String] = await withCheckedContinuation { seeded in
+            queue.read({ await $0.list() }, use: { seeded.resume(returning: $0) })
+            Self.enqueueClear(queue, live: daemon, bounded: false)
+        }
+        await Self.sent(queue) { client, key in try await client.send(key: key) { $0.append("after") } }
+        #expect(seeded == ["https://a.example/"])
+        #expect(daemon.stored == ["https://a.example/", "after"], "an unbounded clear waited behind a read and went late")
+    }
+
+    /// cmux#38186 review (F4): on an idle connected queue the unbounded clear goes at once on the link up at the click, even if
+    /// the link drops right after (it never waits for a reconnect), and exactly once: a lost reply is not sent again.
+    @Test func anUnboundedClearOnAnIdleConnectedQueueGoesAtOnceExactlyOnce() async {
         let daemon = Daemon()
         daemon.up = true
         daemon.lostReplies = 1
         let queue = Self.queue(daemon)
-        Self.enqueueClear(queue, bounded: false, gate: HistoryClearGate(open: true))
-        await Self.sent(queue) { client, key in try await client.send(key: key) { $0.append("after") } }
-        #expect(daemon.stored == ["clear", "after"])
-        #expect(daemon.attempts == 2, "an unbounded clear was sent again after a lost reply")
+        Self.enqueueClear(queue, live: daemon, bounded: false)
+        daemon.up = false
+        #expect(queue.count == 1)
+        for _ in 0..<1_000 where queue.count > 0 { await Task.yield() }
+        #expect(queue.count == 0, "the clear waited for a reconnect")
+        #expect(daemon.stored == ["clear"])
+        #expect(daemon.attempts == 1, "an unbounded clear was sent again after a lost reply")
+    }
 
-        let bounded = Daemon()
+    /// The bounded clear (the daemon takes `until_ms`) still waits its turn while the daemon is away and goes after the
+    /// reconnect, carrying the click as its end.
+    @Test func aBoundedClearWaitsItsTurnAndGoesAfterTheReconnect() async {
+        let daemon = Daemon()
         let params = Params()
-        let boundedQueue = Self.queue(bounded)
-        Self.enqueueClear(boundedQueue, bounded: true, gate: HistoryClearGate(open: false), sentParams: params)
-        bounded.reconnect()
-        await Self.sent(boundedQueue) { client, key in try await client.send(key: key) { $0.append("after") } }
-        #expect(bounded.stored == ["clear", "after"])
+        let queue = Self.queue(daemon)
+        queue.enqueue(visit: true) { client, key in try await client.send(key: key) { $0.append("visit") } }
+        Self.enqueueClear(queue, live: nil, bounded: true, sentParams: params)
+        #expect(queue.count == 2)
+        daemon.reconnect()
+        await Self.sent(queue) { client, key in try await client.send(key: key) { $0.append("after") } }
+        #expect(daemon.stored == ["visit", "clear", "after"])
         #expect(params.sent.first?["until_ms"] == .string("1700000000000"))
+    }
+
+    /// cmux#38186 review (F4), the app's wiring on a remote with only the direct command delete: a clear clicked while a removal
+    /// is still queued for it is dropped, not sent after the removal (the direct delete has no end).
+    @Test func aCommandClearClickedBehindAQueuedRemovalIsDropped() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let remote = "ssh-box"
+        let rows = [3, 4].map { TerminalCommand(id: UInt64($0), machine: remote, terminal: "term_1", command: "ls", cwd: nil, exitCode: 0,
+                                                startedAt: Date().addingTimeInterval(-60), duration: 1) }
+        var mirror = TerminalCommandMirror(machine: remote)
+        let applied = mirror.apply(rows, version: "v1", truncated: false, after: nil)
+        #expect(applied)
+        services.history.commands.mirrors[remote] = mirror
+        let deletes = DirectDeletes()
+        services.history.commands.route = { machine in machine == remote ? .direct { await deletes.record($0) } : nil }
+        services.history.commands.delete(rows[0])
+        services.history.commands.delete(since: nil, until: Date())
+        for _ in 0..<1_000 where services.history.commands.mirrors[remote]?.pending.isEmpty == false { await Task.yield() }
+        #expect(services.history.commands.mirrors[remote]?.pending.isEmpty == true, "the deletions never settled")
+        #expect(deletes.selections == [.ids(["3"])], "the clear waited behind the removal and went with no end")
+    }
+
+    /// cmux#38186 review (F4): on an idle remote with only the direct delete, the clear goes at once on the link up at the click,
+    /// even when that link goes away right after; it never waits for a reconnect.
+    @Test func aCommandClearOnAnIdleRemoteGoesAtOnce() async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        let remote = "ssh-box"
+        let row = TerminalCommand(id: 3, machine: remote, terminal: "term_1", command: "ls", cwd: nil, exitCode: 0,
+                                  startedAt: Date().addingTimeInterval(-60), duration: 1)
+        var mirror = TerminalCommandMirror(machine: remote)
+        let applied = mirror.apply([row], version: "v1", truncated: false, after: nil)
+        #expect(applied)
+        services.history.commands.mirrors[remote] = mirror
+        let deletes = DirectDeletes()
+        let link = Link()
+        services.history.commands.route = { machine in machine == remote && link.up ? .direct { await deletes.record($0) } : nil }
+        services.history.commands.delete(since: nil, until: Date())
+        link.up = false
+        for _ in 0..<1_000 where services.history.commands.mirrors[remote]?.pending.isEmpty == false { await Task.yield() }
+        #expect(services.history.commands.mirrors[remote]?.pending.isEmpty == true, "the clear waited for a reconnect")
+        #expect(deletes.selections == [.all])
     }
 
     static func location(_ tab: String, incognito: Bool = false) -> HistoryLocation {
