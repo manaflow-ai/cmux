@@ -86,31 +86,27 @@ public final class AcpmuxChatWindows {
         /// Called with the rows after each message of this window acpmux sends for its current spec
         /// (its first rows, then each diff), for a reader that is not a view (the New Tab page's
         /// cards, the palette's chats page): only this window's messages call it.
-        @ObservationIgnored private var followers: [(owner: () -> AnyObject?, changed: @MainActor ([AcpmuxChat]) -> Void)] = []
+        @ObservationIgnored private var followers = OwnedCallbacks<@MainActor ([AcpmuxChat]) -> Void>()
 
         /// Called when acpmux will not answer this window's current request (it refused it, busy, or the
         /// connection dropped while it was in flight), while their owner lives.
-        @ObservationIgnored private var refusals: [(owner: () -> AnyObject?, refused: @MainActor () -> Void)] = []
+        @ObservationIgnored private var refusals = OwnedCallbacks<@MainActor () -> Void>()
 
-        /// Calls `changed` with the rows after each message of this window, while `owner` lives. Followers whose
-        /// owner is gone are dropped here too, so one query per key never grows the list.
+        /// Calls `changed` with the rows after each message of this window, while `owner` lives.
         public func follow(_ owner: AnyObject, _ changed: @escaping @MainActor ([AcpmuxChat]) -> Void) {
-            followers.removeAll { $0.owner() == nil }
-            followers.append(({ [weak owner] in owner }, changed))
+            followers.add(owner, changed)
         }
 
         /// Calls `refused` when acpmux will not answer this window's current request, while `owner` lives.
         public func followRefusal(_ owner: AnyObject, _ refused: @escaping @MainActor () -> Void) {
-            refusals.removeAll { $0.owner() == nil }
-            refusals.append(({ [weak owner] in owner }, refused))
+            refusals.add(owner, refused)
         }
 
         /// The followers whose owner lives, and the entries held (live and not yet dropped), for tests.
-        var followerCounts: (live: Int, held: Int) { (followers.count { $0.owner() != nil }, followers.count) }
+        var followerCounts: (live: Int, held: Int) { (followers.live, followers.held) }
 
         fileprivate func refused() {
-            refusals.removeAll { $0.owner() == nil }
-            for refusal in refusals { refusal.refused() }
+            for refusal in refusals.callbacks() { refusal() }
         }
 
         fileprivate func set(rows: [AcpmuxChat], total: Int? = nil, hasMore: Bool = false) {
@@ -121,8 +117,8 @@ public final class AcpmuxChatWindows {
 
         fileprivate func answered() {
             if !hasAnswered { hasAnswered = true }
-            followers.removeAll { $0.owner() == nil }
-            for follower in followers { follower.changed(rows) }
+            guard !followers.isEmpty else { return }
+            for follower in followers.callbacks() { follower(rows) }
         }
     }
 
@@ -178,7 +174,7 @@ public final class AcpmuxChatWindows {
     /// Windows whose request acpmux answered `ready: false` (its index has not started): they fill when it does.
     private var notReady: Set<String> = []
     /// Called when acpmux can answer again (``followAvailability(_:_:)``).
-    private var availability: [(owner: () -> AnyObject?, changed: @MainActor () -> Void)] = []
+    private var availability = OwnedCallbacks<@MainActor () -> Void>()
     /// The rows the last applied message installed (decoded values taken), for tests and the
     /// debug counters: one changed chat is one row.
     public private(set) var lastTouchedRows = 0
@@ -264,13 +260,11 @@ public final class AcpmuxChatWindows {
     /// Calls `changed` when acpmux can answer again (a connection came, or an index that was not ready filled a
     /// window), while `owner` lives.
     public func followAvailability(_ owner: AnyObject, _ changed: @escaping @MainActor () -> Void) {
-        availability.removeAll { $0.owner() == nil }
-        availability.append(({ [weak owner] in owner }, changed))
+        availability.add(owner, changed)
     }
 
     private func becameAvailable() {
-        availability.removeAll { $0.owner() == nil }
-        for observer in availability { observer.changed() }
+        for changed in availability.callbacks() { changed() }
     }
 
     /// acpmux answered window `id`'s request with an error: a busy daemon is asked again at the next
@@ -335,5 +329,42 @@ public final class AcpmuxChatWindows {
     private func ask(_ spec: Spec) {
         guard let send, awaitingFull.insert(spec.window).inserted else { return }
         send("_acpmux/chats_window", spec.params(generation: generations[spec.window] ?? 0))
+    }
+}
+
+/// Callbacks that run while their owner lives (a weak owner per callback). Adding one is O(1) amortized
+/// (entries whose owner is gone are dropped once they could be half of what is held, not on every add),
+/// and running them costs the live callbacks plus the dead entries it drops once. The held entries stay
+/// bounded by the live owners, so a window's diffs (``AcpmuxChatWindows/apply(_:)``, one run per message)
+/// cost what its live readers cost, not every reader it ever had.
+@MainActor
+struct OwnedCallbacks<Callback> {
+    private struct Entry {
+        weak var owner: AnyObject?
+        let callback: Callback
+    }
+
+    private var entries: [Entry] = []
+    /// The held count at which the next add drops the entries whose owner is gone.
+    private var sweepAt = 16
+
+    var isEmpty: Bool { entries.isEmpty }
+    var held: Int { entries.count }
+    var live: Int { entries.reduce(0) { $1.owner == nil ? $0 : $0 + 1 } }
+
+    mutating func add(_ owner: AnyObject, _ callback: Callback) {
+        if entries.count >= sweepAt {
+            entries.removeAll { $0.owner == nil }
+            sweepAt = max(16, entries.count * 2)
+        }
+        entries.append(Entry(owner: owner, callback: callback))
+    }
+
+    /// The callbacks whose owner lives, in the order they were added (a copy: a callback may add another).
+    /// The same pass drops the entries whose owner is gone.
+    mutating func callbacks() -> [Callback] {
+        guard !entries.isEmpty else { return [] }
+        entries.removeAll { $0.owner == nil }
+        return entries.map(\.callback)
     }
 }
