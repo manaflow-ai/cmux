@@ -24,9 +24,12 @@ pub(super) enum AcpmuxTarget {
     /// This link serves no `acpmux` stream.
     #[cfg_attr(not(test), allow(dead_code))]
     Off,
-    /// The `websocket.listen` of acpmux's `config.json` at this path, read
-    /// for each stream, so a listener that moved port is still found.
-    Config(PathBuf),
+    /// The listener of the acpmux daemon whose home is this directory, read
+    /// for each stream, so a listener that moved port is still found: the
+    /// address the running daemon recorded (`listener.json`, which a DEV
+    /// build's free port goes to), else `websocket.listen` of its
+    /// `config.json`.
+    Home(PathBuf),
     /// A fixed listener address.
     #[cfg_attr(not(test), allow(dead_code))]
     Fixed(SocketAddr),
@@ -36,7 +39,7 @@ impl AcpmuxTarget {
     /// The acpmux home this user's daemon runs from (`ACPMUX_HOME`, else
     /// `~/.acpmux`).
     pub(super) fn from_acpmux_home() -> Self {
-        Self::Config(acpmux::config::home().join("config.json"))
+        Self::Home(acpmux::config::home())
     }
 
     /// The listener to connect to, if acpmux names one on loopback.
@@ -44,8 +47,18 @@ impl AcpmuxTarget {
         match self {
             Self::Off => None,
             Self::Fixed(address) => loopback(*address),
-            Self::Config(path) => {
-                let bytes = tokio::fs::read(path).await.ok()?;
+            Self::Home(home) => {
+                let recorded = {
+                    let home = home.clone();
+                    tokio::task::spawn_blocking(move || acpmux::listener_handoff::read_live(&home))
+                        .await
+                        .ok()
+                        .flatten()
+                };
+                if let Some(address) = recorded.and_then(loopback) {
+                    return Some(address);
+                }
+                let bytes = tokio::fs::read(home.join("config.json")).await.ok()?;
                 listen_address(&bytes)
             }
         }
@@ -111,13 +124,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_running_daemons_recorded_port_wins_over_config_json() {
+        let home = tempfile::tempdir().unwrap();
+        let target = AcpmuxTarget::Home(home.path().to_path_buf());
+        // A DEV build: `--listen 127.0.0.1:0` is never saved, config.json has no listener.
+        std::fs::write(home.path().join("config.json"), r#"{"peers":{}}"#).unwrap();
+        assert_eq!(target.websocket().await, None);
+        let bound: SocketAddr = "127.0.0.1:52341".parse().unwrap();
+        acpmux::listener_handoff::write(home.path(), bound).unwrap();
+        assert_eq!(target.websocket().await, Some(bound));
+        // A saved listener is still read when the daemon recorded none.
+        acpmux::listener_handoff::remove_if_owned(home.path());
+        std::fs::write(
+            home.path().join("config.json"),
+            r#"{"websocket":{"listen":"127.0.0.1:7788"}}"#,
+        )
+        .unwrap();
+        assert_eq!(target.websocket().await, "127.0.0.1:7788".parse().ok());
+    }
+
+    #[tokio::test]
     async fn no_listener_refuses_the_stream() {
         let (_peer, link_side) = tokio::io::duplex(64);
         assert_eq!(
             hand_to_acpmux(link_side, &AcpmuxTarget::Off).await,
             Err(InboundRefused::AcpmuxUnavailable)
         );
-        let missing = AcpmuxTarget::Config(PathBuf::from("/nonexistent/acpmux/config.json"));
+        let missing = AcpmuxTarget::Home(PathBuf::from("/nonexistent/acpmux"));
         let (_peer, link_side) = tokio::io::duplex(64);
         assert_eq!(
             hand_to_acpmux(link_side, &missing).await,

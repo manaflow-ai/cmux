@@ -10,6 +10,7 @@ const TOKEN: &str = "wireguard-test-listener-token";
 
 fn peer(key: String, endpoint: SocketAddr, address: SocketAddr) -> PeerConfig {
     PeerConfig {
+        link_host: None,
         url: "ws://127.0.0.1:1".into(),
         wireguard: Some(StaticPeer { public_key: key, endpoint: endpoint.to_string(), address }),
         token: Some(TOKEN.into()),

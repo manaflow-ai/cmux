@@ -159,6 +159,13 @@ impl Hub {
         {
             peer.set_wireguard(transport.clone(), address);
         }
+        // The cmux link's `acpmux` service, when this peer is one of its paired installs.
+        if let Some(host) = pc.link_host.clone().or_else(|| {
+            pc.wireguard.as_ref().and_then(|wg| crate::peer::paired_install(&wg.public_key))
+        }) {
+            peer.set_link_host(host);
+        }
+        peer.set_last_good(self.peer_paths.clone());
         peer.set_vm_boundary(pc.vm_boundary);
         peer.set_github_broker(pc.github_broker);
         peer.set_github_app(self.github_app.clone());
@@ -254,6 +261,7 @@ impl Hub {
             let github_broker =
                 github_broker.unwrap_or_else(|| same.is_some_and(|old| old.github_broker));
             let pc = crate::config::PeerConfig {
+                link_host: None,
                 wireguard: same.and_then(|old| old.wireguard.clone()),
                 url: url.to_owned(),
                 token,
@@ -1674,6 +1682,7 @@ mod tests {
         let hub = Hub::new(cfg, store);
         let url = "ws://127.0.0.1:9/m";
         let lent = |url: &str| PeerConfig {
+            link_host: None,
             wireguard: None,
             url: url.into(),
             token: None,
@@ -2036,6 +2045,7 @@ mod tests {
         );
         let fence = old.remote_rows_epoch.load(std::sync::atomic::Ordering::Acquire);
         let pc = crate::config::PeerConfig {
+            link_host: None,
             wireguard: None,
             url: "ws://127.0.0.1:9".into(),
             token: None,

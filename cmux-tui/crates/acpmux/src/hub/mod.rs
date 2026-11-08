@@ -561,6 +561,8 @@ pub struct Hub {
     pub(crate) workflow_runs: crate::workflow_runs::Service,
     pub config: RwLock<Config>,
     pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
+    /// Each peer's last-known-good path (`peer_last_good.rs`), beside the peer caches.
+    pub(crate) peer_paths: Arc<crate::peer_last_good::LastGood>,
     pub(super) store: Box<dyn Store>,
     pub(super) mailbox: Mailbox,
     /// The forum log (`forum.rs`, `hub/forum.rs`).
@@ -953,6 +955,7 @@ impl Hub {
             start_mode_state::StartModeCell::load(start_mode_state::state_file(&config).as_deref());
         // Beside the peer caches, in the home they are in; a memory store keeps neither.
         let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
+        let peer_paths = Arc::new(crate::peer_last_good::LastGood::open(home.as_deref()));
         let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let usage_limits = StdMutex::new(config.usage_warnings.limits());
@@ -961,6 +964,7 @@ impl Hub {
             config: RwLock::new(config),
             usage_limits,
             wireguard,
+            peer_paths,
             store,
             mailbox,
             forum: std::sync::OnceLock::new(),

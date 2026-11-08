@@ -89,6 +89,7 @@ pub mod launch_credential;
 pub mod launch_policy;
 #[cfg(target_os = "linux")]
 pub(crate) mod linux_sandbox;
+pub mod listener_handoff;
 pub mod live_models;
 pub mod local_stream;
 pub mod login_env;
@@ -114,7 +115,9 @@ pub mod pairing;
 pub mod parent_watch;
 pub mod path_canon;
 pub mod peer;
+pub mod peer_last_good;
 pub mod peer_link;
+pub mod peer_paths;
 pub mod peer_states;
 pub mod placement;
 #[cfg(not(unix))]

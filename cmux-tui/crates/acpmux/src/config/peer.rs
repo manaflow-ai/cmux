@@ -11,6 +11,11 @@ pub struct PeerConfig {
     /// Optional encrypted route. Tokens and application authorization are unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wireguard: Option<crate::wireguard::StaticPeer>,
+    /// `linkHost`: the paired install (`inst_...`) this machine's cmux link reaches the peer
+    /// at, for the link's `acpmux` service (`peer_carriers.rs`). Unset, the link's pairing
+    /// whose key is `wireguard.publicKey` is used, when it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_host: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
     /// The peer daemon's peer token (`server/peer_auth.rs`), for a `ws://`
