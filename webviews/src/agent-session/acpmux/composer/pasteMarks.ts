@@ -10,7 +10,7 @@
 // someone else's words. A paste the person edited is theirs too, no longer found as it was; acpmux
 // still notes one that reads as another agent's (`agentText`).
 import { type ComposerAttachment, INLINE_ATTACHMENT_MARK, inlineToken } from "../attachments";
-import { pastedTextAttachment } from "../pastedText";
+import { isLargePaste, pastedTextAttachment } from "../pastedText";
 import { readsAsAgent } from "../agentText";
 
 /// A paste of at least this many characters, or more than one line, goes as a block of its own.
@@ -73,4 +73,28 @@ export function markPastes(
   }
   if (!added.length) return prompt;
   return { text: runs.map((run) => run.text).join(""), attachments: [...prompt.attachments, ...added] };
+}
+
+/// A prompt coming back to the composer (refused, taken back, a steer withdrawn, edited from the
+/// queue) with each placed paste chip `markPastes` made at its send put back in its place as text,
+/// and that text in `pastes` to remember, so the next send marks it as pasted again. Only a paste
+/// past the chip's limit (pastedText.ts `isLargePaste`) comes back as a chip, as it went in: a
+/// dictation-length paste was text in the draft, and coming back it stays text, never a "Pasted
+/// text · 1.2K characters" chip (ask-14d16a6247).
+export function unmarkPastes(prompt: { text: string; attachments: ComposerAttachment[] }): {
+  text: string;
+  attachments: ComposerAttachment[];
+  pastes: string[];
+} {
+  const pastes: string[] = [];
+  let text = prompt.text;
+  const attachments = prompt.attachments.filter((chip) => {
+    if (chip.kind !== "pasted" || chip.text === undefined || isLargePaste(chip.text)) return true;
+    const token = inlineToken(chip.id);
+    if (!text.includes(token)) return true;
+    text = text.replace(token, () => chip.text!);
+    pastes.push(chip.text);
+    return false;
+  });
+  return pastes.length ? { text, attachments, pastes } : { ...prompt, pastes };
 }

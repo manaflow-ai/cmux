@@ -437,6 +437,34 @@ test("a short message with a paste draws no fold and no card", () => {
   expect(bubble.querySelectorAll(".cv-user__more").length).toBe(0);
 });
 
+// Leo, 2026-11-08: a ChatGPT dictation pasted into the composer, about 1,200 characters of one
+// paragraph, showed as "Pasted text · 1.2K characters". The composer sends it as a placed paste
+// (pasteMarks.ts); the bubble draws it as the message's own words, with no label, size or control.
+test("a 1,200-character dictation paste draws inline in the sent message, no chip or label", () => {
+  const dictation = part("dictated", 1_200);
+  expect(dictation).not.toContain("\n");
+  const typed = "One more thing: ";
+  const inlineParts = [
+    { kind: "text", text: typed },
+    { kind: "pasted", placed: true, name: "Pasted text", text: dictation },
+  ];
+  const bubble = render({
+    id: "dictation",
+    version: 1,
+    at: Date.now(),
+    kind: "user",
+    text: `${typed}\n${dictation}`,
+    inlineParts,
+  } as Row);
+  expect(bubble.querySelectorAll(INNER).length).toBe(0);
+  expect(bubble.querySelectorAll("[aria-expanded]").length).toBe(0);
+  expect(bubble.textContent).not.toContain("Pasted text");
+  expect(bubble.textContent).not.toContain("characters");
+  const drawn = bodies(bubble);
+  expect(drawn.length).toBe(1);
+  expect(drawn[0]!.textContent).toBe(`${typed}${dictation}`);
+});
+
 afterAll(() => {
   act(() => root.unmount());
   for (const [key, had, value] of saved) {

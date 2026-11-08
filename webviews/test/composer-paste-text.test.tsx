@@ -310,6 +310,43 @@ test("a dictation-length paste stays inline text, never a Pasted text chip", asy
   }
 });
 
+// Leo, 2026-11-08, of a ChatGPT dictation pasted into the composer: it came back as a "Pasted text ·
+// 1.2K characters" chip. The paste is text in the draft, and goes as a placed paste chip
+// (pasteMarks.ts) so the agent reads it as pasted; a prompt put back in the composer (a send
+// refused, a steer taken back, a queued prompt edited) has that paste as its text again, never a
+// chip, and sends it again as pasted.
+test("a 1,200-character dictation pasted, sent and put back stays inline text, never a chip", async () => {
+  const sentence = "So when I dictate a long thought into the composer it should just read as my message, not a card. ";
+  const dictation = sentence.repeat(13).slice(0, 1_200).trim();
+  expect(dictation.length).toBeGreaterThan(1_150);
+  expect(dictation).not.toContain("\n");
+  const sent: Sent[] = [];
+  const composer = await openComposer(sent);
+  await typeDraft("one thing: ");
+  await paste(dictation);
+  expect(chips(composer)).toEqual([]);
+  expect(placed()).toEqual([]);
+  await act(async () => {
+    composer.current!.send();
+  });
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.attachments.map((chip) => chip.kind)).toEqual(["pasted"]);
+  await act(async () => composer.current!.restore(sent[0]!.text, sent[0]!.attachments));
+  await settle();
+  expect(chips(composer)).toEqual([]);
+  expect(placed()).toEqual([]);
+  expect(field().querySelector(".acpmux-text-card")).toBeNull();
+  expect(field().textContent).not.toContain("characters");
+  expect(words()).toContain(dictation);
+  // Sent again, it still goes as the person's paste, marked, with the same words.
+  await act(async () => {
+    composer.current!.send();
+  });
+  expect(sent).toHaveLength(2);
+  expect(sent[1]!.attachments.map((chip) => chip.kind)).toEqual(["pasted"]);
+  expect(promptBlocks(sent[1]!.text, sent[1]!.attachments)).toEqual(promptBlocks(sent[0]!.text, sent[0]!.attachments));
+});
+
 test("Paste as Plain Text (⌘⇧V) keeps a large paste as raw text in the prompt", async () => {
   const composer = await openComposer();
   await act(async () => {
