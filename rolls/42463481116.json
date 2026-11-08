@@ -1,0 +1,92 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42463481116",
+  "recorded_at": "2026-11-08T08:40:57Z",
+  "reason": "cmux-tui b67ca25af697 changes the image's cmux-tui (pinned 23556a830084)",
+  "dry_run": false,
+  "cmux_tui": "b67ca25af697ed2af6bf8563d8caf45334df9d1b",
+  "fixes": [
+    {
+      "sha": "0d70f11d71ee73d0ff790a327eee4b5c08ac249b",
+      "mergedAt": "2026-11-08T08:15:07Z",
+      "subject": "fix(tabs): closing the selected tab selects the tab before it (Rust rule, daemon, cmux-tui) (#38316)"
+    },
+    {
+      "sha": "c90770dcb7d92bbbd99cd1046e5e3b1dfa4ad47e",
+      "mergedAt": "2026-11-08T00:11:53-08:00",
+      "subject": "cmux-tui: the daemon-restart and older-daemon paths read JSON without panicking indexing (panic ratchet 833 > 831) (#38276)"
+    },
+    {
+      "sha": "59e07bac8de1c9db7f9ca976e0a9fbc32cc98777",
+      "mergedAt": "2026-11-08T00:08:53-08:00",
+      "subject": "cmux-tui: a pane's cmux knows its place, has session/client and an agent guide; the TUI reconnects after daemon restart (#38290)"
+    },
+    {
+      "sha": "94068b60274293165310bbbe72f6386e1d7233ec",
+      "mergedAt": "2026-11-08T00:07:17-08:00",
+      "subject": "Cloud repo sync: a head-ready barrier state; a Claude start goes ahead at the head (#38084)"
+    },
+    {
+      "sha": "cf0c0e9a2c0e03a70cfe3f3de9859f085a03eb43",
+      "mergedAt": "2026-11-07T23:59:13-08:00",
+      "subject": "cmux-tui: agent state clears after a dismissed dialog; agent list is session-scoped (#38265)"
+    },
+    {
+      "sha": "85ffed6efea95b576cf47dc085ad56b76b17fc68",
+      "mergedAt": "2026-11-07T23:35:56-08:00",
+      "subject": "Cloud carrier cut: delete the JSON relay, native link and Cloud mesh (#37210)"
+    },
+    {
+      "sha": "9ec940eee0abdb318e2a28150252b92e6bed51b6",
+      "mergedAt": "2026-11-07T23:35:15-08:00",
+      "subject": "acpmux: cache compaction ends on a compaction, rereads its threshold, waits for background work, is not auto-resumed (#38287)"
+    },
+    {
+      "sha": "621d2d7ef77b4f942d8d9677a0fbc937be6a6542",
+      "mergedAt": "2026-11-07T23:18:30-08:00",
+      "subject": "cmux-tui: jump to the next tab that needs you, attention list, host notification passthrough (#38284)"
+    },
+    {
+      "sha": "2966afd9b3904c0dbbd4d5b1046ad980b1f06aff",
+      "mergedAt": "2026-11-07T23:16:19-08:00",
+      "subject": "acpmux: a queued send keeps its unproven caller; the owner's CLI text reads no sender label (#38260 F1, F2) (#38272)"
+    },
+    {
+      "sha": "66f74a46bad539f725f9b31cdc5323b74c12f0e0",
+      "mergedAt": "2026-11-07T22:50:12-08:00",
+      "subject": "acpmux: sender chips reach the chat for kept prompts, inbox notices and sends between machines (#38231)"
+    },
+    {
+      "sha": "43e398f6b488114bb3a679503ead95e055f66a2c",
+      "mergedAt": "2026-11-07T22:43:51-08:00",
+      "subject": "acpmux: cache compaction waits while any composer holds unsent text (#38205)"
+    },
+    {
+      "sha": "eed8b8b1bedabd69416b4e55178cc0cbe4ae9459",
+      "mergedAt": "2026-11-07T22:31:10-08:00",
+      "subject": "Cloud sign-out: revoke credentials before erasing peer tails (#38254)"
+    },
+    {
+      "sha": "0e22948eceef9782bfee92b9c8298005480770de",
+      "mergedAt": "2026-11-07T22:19:27-08:00",
+      "subject": "acpmux sim: a message read inside the settle check's call breaks the settled streak (#38264)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T08:40:57Z",
+    "snapshot_id": "sh-77e1e92869d7400ba73b836036c01e29",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42463481116): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "b24750bfe0aa2e2d12717df0de1489c75be3517a",
+    "image": "cloud-native-auto-b67ca25a-42463481116-1",
+    "revision": "ci-42463481116-1",
+    "at": "2026-11-08T08:40:57Z"
+  },
+  "rolled_back": false
+}
