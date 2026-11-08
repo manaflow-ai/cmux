@@ -91,6 +91,19 @@ import Testing
         #expect(try await settings.file.value(at: ChromeStyleSetting.configPath) == .string("flat-sidebar-line"))
     }
 
+    /// A null the first builds of this change stored for a default write goes once; a set value stays.
+    @Test func strayNullsGoOnce() async throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let settings = try await controller(#"{ "appearance": { "chromeStyle": null }, "diff": { "layout": "split" } }"#)
+        let marker = try marker()
+
+        #expect(try await settings.dropStrayNulls(marker: marker) == ["appearance.chromeStyle"])
+        #expect(try await settings.file.value(at: ["appearance"]) == nil)
+        #expect(try await settings.file.value(at: ["diff", "layout"]) == .string("split"))
+        try await settings.file.set(.null, at: ChromeStyleSetting.configPath)
+        #expect(try await settings.dropStrayNulls(marker: marker).isEmpty)
+    }
+
     /// Every former default names a schema key and differs from its current default.
     @Test func formerDefaultsNameSchemaKeys() {
         for (key, values) in SettingsSchema.formerDefaults {

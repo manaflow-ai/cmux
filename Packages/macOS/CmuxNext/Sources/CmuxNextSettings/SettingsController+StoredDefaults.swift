@@ -31,6 +31,7 @@ extension SettingsController {
         _ = try? await importClassicPreferences(marker: marker)
         // Last, so a value the steps above moved counts too.
         _ = try? await forgetStoredDefaults(marker: marker)
+        _ = try? await dropStrayNulls(marker: marker)
     }
 
     /// The UserDefaults key that records the pass ran on this channel (a later pass with other
@@ -72,19 +73,39 @@ extension SettingsController {
                 "before": .string(try await file.source()),
             ])
             try await file.writeBeside(suffix: "defaults-forgotten.json", text: record.prettyText() + "\n")
-            let paths = SettingsSchema.all.filter { report.dropped[$0.id] != nil }.map(\.path)
-            try await file.apply(paths.map { (path: $0, value: nil) })
-            // Deepest first, so an object a removal empties goes before its parent is checked.
-            for parent in Set(paths.flatMap { path in (1..<path.count).map { Array(path.prefix($0)) } })
-                .sorted(by: { $0.count > $1.count }) {
-                try await pruneEmpty(parent)
-            }
-            await reloadAfterWrite()
+            try await removeAll(SettingsSchema.all.filter { report.dropped[$0.id] != nil }.map(\.path))
         }
         let dropped = report.dropped.keys.sorted().joined(separator: ", "), kept = report.kept.keys.sorted().joined(separator: ", ")
         Logger(subsystem: "com.cmuxterm.app.next", category: "settings").info(
             "stored defaults: dropped [\(dropped, privacy: .public)]; kept [\(kept, privacy: .public)]")
         marker.set(true, forKey: Self.storedDefaultsForgottenKey)
         return report
+    }
+
+    /// The UserDefaults key that records `dropStrayNulls` ran on this channel.
+    static let strayNullsDroppedKey = "settingsStrayNullsDropped.1"
+
+    /// Removes, once (`marker` records it), each schema key whose stored value is JSON null and
+    /// that refuses null. #38119's first builds stored null for a write of a default (a `nil` literal
+    /// typed as `JSONValue` is `.null`); it loads as the default, with a diagnostic. Returns the keys.
+    @discardableResult
+    public func dropStrayNulls(marker: UserDefaults) async throws -> [String] {
+        guard !marker.bool(forKey: Self.strayNullsDroppedKey) else { return [] }
+        let root = try await file.document()
+        let stray = SettingsSchema.all.filter { root.value(at: $0.path) == .null && !$0.accepts(.null) && managedKeys[$0.id] == nil }
+        if !stray.isEmpty { try await removeAll(stray.map(\.path)) }
+        marker.set(true, forKey: Self.strayNullsDroppedKey)
+        return stray.map(\.id)
+    }
+
+    /// Removes `paths` in one atomic write, then each object the removals emptied, and reloads.
+    private func removeAll(_ paths: [[String]]) async throws {
+        try await file.apply(paths.map { (path: $0, value: JSONValue?.none) })
+        // Deepest first, so an object a removal empties goes before its parent is checked.
+        for parent in Set(paths.flatMap { path in (1..<path.count).map { Array(path.prefix($0)) } })
+            .sorted(by: { $0.count > $1.count }) {
+            try await pruneEmpty(parent)
+        }
+        await reloadAfterWrite()
     }
 }
