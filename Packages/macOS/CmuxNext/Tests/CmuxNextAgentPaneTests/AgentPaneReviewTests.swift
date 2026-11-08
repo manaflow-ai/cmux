@@ -5,7 +5,7 @@ import Testing
 /// The Review queue's verdicts (`review.accept`, `review.send`, ``AgentPaneReview``): only from the
 /// Review page, on the person's own key or click, to a chat on this Mac's acpmux, writing only the
 /// `review.done` tag; a send tags only once acpmux took the prompt.
-private let reviewSocket = "/tmp/acpmux-main.sock"
+private nonisolated let reviewSocket = "/tmp/acpmux-main.sock"
 
 @MainActor
 struct AgentPaneReviewTests {
