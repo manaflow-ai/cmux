@@ -112,11 +112,12 @@ pub fn names(clues: &[Clues]) -> Vec<String> {
         *counts.entry(name.clone()).or_default() += 1;
     }
     for (name, clue) in names.iter_mut().zip(clues) {
-        if counts[name.as_str()] > 1 && clue.custom.is_none() {
-            if let Some(branch) = clue.branch.as_ref().filter(|branch| *branch != name) {
-                name.push_str(" · ");
-                name.push_str(branch);
-            }
+        if counts[name.as_str()] > 1
+            && clue.custom.is_none()
+            && let Some(branch) = clue.branch.as_ref().filter(|branch| *branch != name)
+        {
+            name.push_str(" · ");
+            name.push_str(branch);
         }
     }
     let mut seen: HashMap<String, usize> = HashMap::new();

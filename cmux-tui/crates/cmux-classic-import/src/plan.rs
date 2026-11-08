@@ -194,10 +194,11 @@ pub fn plan(
                 }
             }
             coming.push(workspace.clone());
-            if let Some(group) = workspace.group_id.as_deref() {
-                if by_id.contains_key(group) && !needed.contains(&group) {
-                    needed.push(group);
-                }
+            if let Some(group) = workspace.group_id.as_deref()
+                && by_id.contains_key(group)
+                && !needed.contains(&group)
+            {
+                needed.push(group);
             }
         }
         // A pinned group comes over even with no member in this run, once.
