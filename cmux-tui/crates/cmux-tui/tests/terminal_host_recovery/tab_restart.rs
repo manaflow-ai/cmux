@@ -126,9 +126,10 @@ fn a_manual_restart_brings_back_a_kept_process_exit() {
 
 /// b2. The automatic respawn reopened the row and its launch failed (no
 /// free PTY after a reboot or a kill of everything): the terminal reads
-/// exited with `restart_failed` and no incarnation. Restart Shell Here, and
-/// the app's start of a parked tab on show, must still bring it back; they
-/// were refused as `tab-restart-unavailable` forever.
+/// exited with `restart_failed` and no incarnation, and its tab is parked
+/// (`relaunch.on_show`) so the app starts it on the next show. Restart Shell
+/// Here, and that start on show, must bring it back; both were refused as
+/// `tab-restart-unavailable` forever.
 #[test]
 fn a_manual_restart_brings_back_a_terminal_whose_respawn_launch_failed() {
     let _exclusive = exclusive_process_test();
@@ -152,6 +153,7 @@ fn a_manual_restart_brings_back_a_terminal_whose_respawn_launch_failed() {
         std::thread::sleep(Duration::from_millis(25));
     };
     assert_eq!(dead["dead"], true, "{dead}");
+    assert_eq!(dead["relaunch"]["on_show"], true, "the tab without a PTY is not parked: {dead}");
 
     let restarted = restart_tab(&harness, dead["tab_resource_id"].clone());
     assert_eq!(restarted["ok"], true, "{restarted}");
@@ -160,6 +162,7 @@ fn a_manual_restart_brings_back_a_terminal_whose_respawn_launch_failed() {
 
     let tab = tab_named(&harness, "failed");
     assert_eq!(tab["dead"], false, "{tab}");
+    assert!(tab["relaunch"].is_null(), "the restarted tab stays parked: {tab}");
     assert_eq!(tab["tab_resource_id"], dead["tab_resource_id"], "the restart made a new tab");
     let surface = tab["surface"].as_u64().expect("the restarted tab has a surface");
     let text = wait_for_screen(&harness.socket, surface, "before-failed-respawn-marker");
