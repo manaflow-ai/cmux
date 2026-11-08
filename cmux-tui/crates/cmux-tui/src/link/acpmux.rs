@@ -22,6 +22,7 @@ const CONNECT_BOUND: Duration = Duration::from_secs(10);
 #[derive(Debug, Clone)]
 pub(super) enum AcpmuxTarget {
     /// This link serves no `acpmux` stream.
+    #[cfg_attr(not(test), allow(dead_code))]
     Off,
     /// The `websocket.listen` of acpmux's `config.json` at this path, read
     /// for each stream, so a listener that moved port is still found.
@@ -88,10 +89,6 @@ where
     let _ = tokio::io::copy_bidirectional(&mut stream, &mut local).await;
     Ok(())
 }
-
-#[cfg(test)]
-#[path = "acpmux_tests.rs"]
-mod e2e_tests;
 
 #[cfg(test)]
 mod tests {

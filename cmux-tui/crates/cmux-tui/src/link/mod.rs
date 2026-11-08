@@ -32,6 +32,8 @@ mod state;
 mod sync_cli;
 
 #[cfg(test)]
+mod acpmux_tests;
+#[cfg(test)]
 mod e2e_tests;
 #[cfg(test)]
 mod outgoing_revocation_tests;
