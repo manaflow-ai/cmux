@@ -2,7 +2,7 @@ public import AppKit
 public import CmuxNextActions
 public import CmuxNextBrowserImport
 import CmuxNextCompat
-import CmuxNextDaemon
+import struct CmuxNextDaemon.ConductorImportDetection
 import CmuxNextDesign
 public import CmuxNextImportSuggestions
 import CmuxNextOnboarding
