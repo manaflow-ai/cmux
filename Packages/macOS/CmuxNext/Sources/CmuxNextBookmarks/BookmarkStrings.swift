@@ -43,6 +43,8 @@ public nonisolated enum BookmarkStrings {
     public static var showInFolder: String { t("verb.showInFolder", "Show in Folder") }
     public static var setIcon: String { t("verb.setIcon", "Set Icon…") }
     public static var removeIcon: String { t("verb.removeIcon", "Remove Icon") }
+    /// The page asked to open a bookmark without the person's click or key in it.
+    static var personOnlyFromPage: String { t("page.personOnly", "Only you can start this, with a click or key in the page.") }
 
     public static func openAll(_ count: Int) -> String {
         String(format: t("verb.openAll", "Open All (%lld)"), count)
