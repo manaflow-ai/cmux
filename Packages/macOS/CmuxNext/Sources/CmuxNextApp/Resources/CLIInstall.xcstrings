@@ -1,6 +1,137 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "cli.button.install" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Install"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تثبيت"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instaliraj"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installer"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installieren"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instalar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installa"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "インストール"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ដំឡើង"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "설치"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installer"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zainstaluj"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instalar"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установить"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ติดตั้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kur"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Встановити"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cài đặt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安装"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "安裝"
+          }
+        }
+      }
+    },
     "cli.button.replace" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -128,6 +259,268 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "取代"
+          }
+        }
+      }
+    },
+    "cli.button.repoint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Repoint"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "إعادة التوجيه"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preusmjeri"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Peg igen"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neu verknüpfen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reapuntar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Repointer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reindirizza"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "向け直す"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ចង្អុលឡើងវិញ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "다시 연결"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pek på nytt"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wskaż ponownie"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reapontar"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перенаправить"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ชี้ใหม่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeniden yönlendir"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перенаправити"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trỏ lại"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新指向"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新指向"
+          }
+        }
+      }
+    },
+    "cli.error.bundleNotInstalled" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux is running from its disk image (%@). Move it to Applications, open it from there, and try again."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يعمل cmux من صورة القرص الخاصة به (%@). انقله إلى مجلد التطبيقات، وافتحه من هناك، ثم حاول مرة أخرى."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux se pokreće sa svoje disk slike (%@). Premjestite ga u Applications, otvorite ga odatle i pokušajte ponovo."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux kører fra sit diskbillede (%@). Flyt det til Programmer, åbn det derfra, og prøv igen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux läuft von seinem Disk-Image (%@). Verschiebe es in den Ordner „Programme“, öffne es von dort und versuche es erneut."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux se está ejecutando desde su imagen de disco (%@). Muévelo a Aplicaciones, ábrelo desde allí e inténtalo de nuevo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux s'exécute depuis son image disque (%@). Déplacez-le dans Applications, ouvrez-le depuis là et réessayez."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux è in esecuzione dalla sua immagine disco (%@). Spostalo in Applicazioni, aprilo da lì e riprova."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux はディスクイメージ (%@) から実行されています。アプリケーションフォルダに移動し、そこから開いて、もう一度お試しください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux កំពុងដំណើរការពីឌីស image របស់វា (%@)។ ផ្លាស់ទីវាទៅ Applications បើកវាពីទីនោះ ហើយសាកល្បងម្ដងទៀត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux가 디스크 이미지(%@)에서 실행 중입니다. 응용 프로그램 폴더로 옮기고 거기서 열어 다시 시도하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux kjører fra diskbildet sitt (%@). Flytt det til Programmer, åpne det derfra og prøv igjen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux działa z obrazu dysku (%@). Przenieś go do Programów, otwórz stamtąd i spróbuj ponownie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O cmux está sendo executado a partir da imagem de disco (%@). Mova-o para Aplicativos, abra-o de lá e tente novamente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux запущен из образа диска (%@). Переместите его в «Программы», откройте оттуда и повторите попытку."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux กำลังทำงานจากดิสก์อิมเมจ (%@) ย้ายไปที่โฟลเดอร์ Applications เปิดจากที่นั่น แล้วลองอีกครั้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux disk görüntüsünden (%@) çalışıyor. Uygulamalar klasörüne taşıyın, oradan açın ve tekrar deneyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux запущено з образу диска (%@). Перемістіть його до «Програм», відкрийте звідти й повторіть спробу."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux đang chạy từ ảnh đĩa (%@). Hãy chuyển nó vào Applications, mở từ đó rồi thử lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 正从其磁盘映像 (%@) 运行。请将其移到“应用程序”文件夹，从那里打开后再试一次。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 正從其磁碟映像檔 (%@) 執行。請將其移到「應用程式」檔案夾，從那裡開啟後再試一次。"
           }
         }
       }
@@ -1442,6 +1835,530 @@
         }
       }
     },
+    "cli.offer.classic" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` in Terminal runs cmux classic (%1$@). Replace makes it run this app; classic stays installed."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يشغّل `cmux` في Terminal النسخة cmux classic (%1$@). سيجعله الاستبدال يشغّل هذا التطبيق، وتبقى classic مثبّتة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` u Terminalu pokreće cmux classic (%1$@). Zamjena će ga natjerati da pokreće ovu aplikaciju; classic ostaje instaliran."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` i Terminal kører cmux classic (%1$@). Erstat får den til at køre denne app; classic forbliver installeret."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` im Terminal startet cmux classic (%1$@). Mit „Ersetzen“ startet es diese App; classic bleibt installiert."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` en Terminal ejecuta cmux classic (%1$@). Reemplazar hace que ejecute esta app; classic sigue instalada."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` dans Terminal lance cmux classic (%1$@). Remplacer lui fait lancer cette app ; classic reste installée."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` nel Terminale esegue cmux classic (%1$@). Sostituisci lo fa eseguire questa app; classic resta installata."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal の `cmux` は cmux classic (%1$@) を実行します。「置き換える」を選ぶとこのアプリを実行するようになります。classic はインストールされたままです。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` នៅក្នុង Terminal ដំណើរការ cmux classic (%1$@)។ ជំនួស នឹងធ្វើឱ្យវាដំណើរការកម្មវិធីនេះ ហើយ classic នៅតែបានដំឡើង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "터미널의 `cmux`는 cmux classic(%1$@)을 실행합니다. 대체하면 이 앱을 실행하게 되며, classic은 그대로 설치되어 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` i Terminal kjører cmux classic (%1$@). Erstatt får den til å kjøre denne appen; classic forblir installert."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` w Terminalu uruchamia cmux classic (%1$@). Zastąp sprawi, że uruchomi tę aplikację; classic pozostaje zainstalowany."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` no Terminal executa o cmux classic (%1$@). Substituir faz com que ele execute este app; o classic continua instalado."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` в Терминале запускает cmux classic (%1$@). «Заменить» заставит его запускать это приложение; classic останется установленным."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` ใน Terminal เรียกใช้ cmux classic (%1$@) การแทนที่จะทำให้เรียกใช้แอปนี้แทน ส่วน classic ยังคงติดตั้งอยู่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal'deki `cmux`, cmux classic'i (%1$@) çalıştırıyor. Değiştir bunu bu uygulamayı çalıştıracak şekilde ayarlar; classic kurulu kalır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` у Терміналі запускає cmux classic (%1$@). «Замінити» змусить його запускати цю програму; classic залишиться встановленим."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` trong Terminal chạy cmux classic (%1$@). Thay thế sẽ khiến nó chạy ứng dụng này; classic vẫn được giữ nguyên."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "终端中的 `cmux` 运行的是 cmux classic (%1$@)。选择“替换”后它将运行此应用；classic 仍保持安装。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "終端機中的 `cmux` 執行的是 cmux classic (%1$@)。選擇「取代」後它會執行此 App；classic 仍保持安裝。"
+          }
+        }
+      }
+    },
+    "cli.offer.dangling" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` at %1$@ links to an app that is gone (%2$@). Point it at this app?"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يرتبط `cmux` في %1$@ بتطبيق لم يعد موجودًا (%2$@). هل تريد توجيهه إلى هذا التطبيق؟"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` na %1$@ povezan je s aplikacijom koje više nema (%2$@). Usmjeriti ga na ovu aplikaciju?"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` på %1$@ peger på en app, der ikke findes mere (%2$@). Vil du pege den på denne app?"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` unter %1$@ verweist auf eine App, die nicht mehr existiert (%2$@). Auf diese App umstellen?"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` en %1$@ enlaza a una app que ya no existe (%2$@). ¿Apuntarlo a esta app?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` dans %1$@ pointe vers une app qui n'existe plus (%2$@). Le faire pointer vers cette app ?"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` in %1$@ punta a un'app che non esiste più (%2$@). Puntarlo a questa app?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ の `cmux` は存在しないアプリにリンクしています (%2$@)。このアプリを指すようにしますか？"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` នៅ %1$@ ភ្ជាប់ទៅកម្មវិធីដែលលែងមានហើយ (%2$@)។ ចង្អុលវាទៅកម្មវិធីនេះទេ?"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@의 `cmux`가 더 이상 없는 앱에 연결되어 있습니다(%2$@). 이 앱을 가리키게 할까요?"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` i %1$@ peker til en app som ikke finnes lenger (%2$@). Vil du peke den til denne appen?"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` w %1$@ wskazuje na aplikację, której już nie ma (%2$@). Wskazać na tę aplikację?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` em %1$@ aponta para um app que não existe mais (%2$@). Apontá-lo para este app?"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` в %1$@ ссылается на приложение, которого больше нет (%2$@). Перенаправить на это приложение?"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` ที่ %1$@ ลิงก์ไปยังแอปที่ไม่มีอยู่แล้ว (%2$@) ต้องการให้ชี้ไปที่แอปนี้หรือไม่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ konumundaki `cmux`, artık var olmayan bir uygulamaya bağlı (%2$@). Bu uygulamayı göstersin mi?"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` у %1$@ посилається на програму, якої вже немає (%2$@). Спрямувати на цю програму?"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` tại %1$@ liên kết tới một ứng dụng không còn tồn tại (%2$@). Trỏ nó tới ứng dụng này?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ 处的 `cmux` 链接的应用已不存在 (%2$@)。要让它指向此应用吗？"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ 的 `cmux` 連結的 App 已不存在 (%2$@)。要讓它指向此 App 嗎？"
+          }
+        }
+      }
+    },
+    "cli.offer.missing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No `cmux` command in Terminal. Install the cmux CLI in PATH?"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لا يوجد أمر `cmux` في Terminal. هل تريد تثبيت cmux CLI في PATH؟"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nema naredbe `cmux` u Terminalu. Instalirati cmux CLI u PATH?"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der er ingen `cmux`-kommando i Terminal. Vil du installere cmux CLI i PATH?"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Im Terminal gibt es keinen `cmux`-Befehl. cmux CLI im PATH installieren?"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No hay ningún comando `cmux` en Terminal. ¿Instalar la CLI de cmux en el PATH?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucune commande `cmux` dans Terminal. Installer la CLI cmux dans le PATH ?"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nessun comando `cmux` nel Terminale. Installare la CLI di cmux nel PATH?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal に `cmux` コマンドがありません。cmux CLI を PATH にインストールしますか？"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "មិនមានពាក្យបញ្ជា `cmux` នៅក្នុង Terminal ទេ។ ដំឡើង cmux CLI ក្នុង PATH ទេ?"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "터미널에 `cmux` 명령이 없습니다. cmux CLI를 PATH에 설치할까요?"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ingen `cmux`-kommando i Terminal. Vil du installere cmux CLI i PATH?"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Brak polecenia `cmux` w Terminalu. Zainstalować cmux CLI w PATH?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Não há comando `cmux` no Terminal. Instalar a CLI do cmux no PATH?"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В Терминале нет команды `cmux`. Установить cmux CLI в PATH?"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ไม่มีคำสั่ง `cmux` ใน Terminal ติดตั้ง cmux CLI ใน PATH หรือไม่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal'de `cmux` komutu yok. cmux CLI, PATH'e kurulsun mu?"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "У Терміналі немає команди `cmux`. Встановити cmux CLI у PATH?"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal không có lệnh `cmux`. Cài cmux CLI vào PATH?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "终端中没有 `cmux` 命令。要将 cmux CLI 安装到 PATH 中吗？"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "終端機中沒有 `cmux` 指令。要將 cmux CLI 安裝到 PATH 中嗎？"
+          }
+        }
+      }
+    },
+    "cli.offer.otherApp" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` in Terminal runs another cmux app (%1$@, from %2$@). Make it run this app?"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يشغّل `cmux` في Terminal تطبيق cmux آخر (%1$@، من %2$@). هل تريد جعله يشغّل هذا التطبيق؟"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` u Terminalu pokreće drugu cmux aplikaciju (%1$@, iz %2$@). Postaviti da pokreće ovu aplikaciju?"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` i Terminal kører en anden cmux-app (%1$@, fra %2$@). Vil du få den til at køre denne app?"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` im Terminal startet eine andere cmux-App (%1$@, aus %2$@). Soll es diese App starten?"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` en Terminal ejecuta otra app de cmux (%1$@, de %2$@). ¿Hacer que ejecute esta app?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` dans Terminal lance une autre app cmux (%1$@, depuis %2$@). Lui faire lancer cette app ?"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` nel Terminale esegue un'altra app cmux (%1$@, da %2$@). Farle eseguire questa app?"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal の `cmux` は別の cmux アプリ (%1$@、%2$@ 内) を実行します。このアプリを実行するようにしますか？"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` នៅក្នុង Terminal ដំណើរការកម្មវិធី cmux ផ្សេង (%1$@ ពី %2$@)។ ធ្វើឱ្យវាដំណើរការកម្មវិធីនេះទេ?"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "터미널의 `cmux`는 다른 cmux 앱(%1$@, %2$@ 소속)을 실행합니다. 이 앱을 실행하게 할까요?"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` i Terminal kjører en annen cmux-app (%1$@, fra %2$@). Vil du få den til å kjøre denne appen?"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` w Terminalu uruchamia inną aplikację cmux (%1$@, z %2$@). Ustawić, aby uruchamiał tę aplikację?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` no Terminal executa outro app do cmux (%1$@, de %2$@). Fazer com que execute este app?"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` в Терминале запускает другое приложение cmux (%1$@, из %2$@). Сделать так, чтобы он запускал это приложение?"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` ใน Terminal เรียกใช้แอป cmux อื่น (%1$@ จาก %2$@) ต้องการให้เรียกใช้แอปนี้หรือไม่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Terminal'deki `cmux`, başka bir cmux uygulamasını (%1$@, %2$@ içinden) çalıştırıyor. Bu uygulamayı çalıştırsın mı?"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` у Терміналі запускає іншу програму cmux (%1$@, із %2$@). Зробити так, щоб він запускав цю програму?"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "`cmux` trong Terminal chạy một ứng dụng cmux khác (%1$@, từ %2$@). Cho nó chạy ứng dụng này?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "终端中的 `cmux` 运行的是另一个 cmux 应用 (%1$@，来自 %2$@)。要让它运行此应用吗？"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "終端機中的 `cmux` 執行的是另一個 cmux App (%1$@，來自 %2$@)。要讓它執行此 App 嗎？"
+          }
+        }
+      }
+    },
     "cli.toast.failed" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1831,6 +2748,661 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "已安裝為 %1$@。另一個 App 的 cmux CLI 仍在 %2$@。"
+          }
+        }
+      }
+    },
+    "cli.toast.installedBesideClassic" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installed as %1$@. cmux classic's CLI stays at %2$@, so `cmux` still runs classic."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تم التثبيت باسم %1$@. تبقى واجهة CLI الخاصة بـ cmux classic في %2$@، لذا لا يزال `cmux` يشغّل النسخة classic."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instalirano kao %1$@. CLI za cmux classic ostaje u %2$@, pa `cmux` i dalje pokreće classic."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installeret som %1$@. CLI'en til cmux classic bliver i %2$@, så `cmux` kører stadig classic."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Als %1$@ installiert. Die CLI von cmux classic bleibt unter %2$@, daher startet `cmux` weiterhin classic."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instalada como %1$@. La CLI de cmux classic sigue en %2$@, así que `cmux` sigue ejecutando classic."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installée sous %1$@. La CLI de cmux classic reste dans %2$@, donc `cmux` lance toujours classic."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installata come %1$@. La CLI di cmux classic resta in %2$@, quindi `cmux` continua a eseguire classic."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ としてインストールしました。cmux classic の CLI は %2$@ に残るため、`cmux` は引き続き classic を実行します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បានដំឡើងជា %1$@។ CLI របស់ cmux classic នៅតែនៅ %2$@ ដូច្នេះ `cmux` នៅតែដំណើរការ classic។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@(으)로 설치함. cmux classic의 CLI는 %2$@에 그대로 있으므로 `cmux`는 계속 classic을 실행합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installert som %1$@. CLI-en til cmux classic blir værende i %2$@, så `cmux` kjører fortsatt classic."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zainstalowano jako %1$@. CLI cmux classic pozostaje w %2$@, więc `cmux` nadal uruchamia classic."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instalada como %1$@. A CLI do cmux classic continua em %2$@, então `cmux` ainda executa o classic."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установлен как %1$@. CLI cmux classic остаётся в %2$@, поэтому `cmux` по-прежнему запускает classic."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ติดตั้งเป็น %1$@ แล้ว CLI ของ cmux classic ยังอยู่ที่ %2$@ ดังนั้น `cmux` จะยังคงเรียกใช้ classic"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ olarak kuruldu. cmux classic'in CLI'ı %2$@ konumunda kalıyor, bu yüzden `cmux` hâlâ classic'i çalıştırıyor."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Встановлено як %1$@. CLI cmux classic залишається в %2$@, тому `cmux` і далі запускає classic."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đã cài thành %1$@. CLI của cmux classic vẫn ở %2$@, nên `cmux` vẫn chạy classic."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已安装为 %1$@。cmux classic 的 CLI 仍在 %2$@，因此 `cmux` 仍会运行 classic。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已安裝為 %1$@。cmux classic 的 CLI 仍在 %2$@，因此 `cmux` 仍會執行 classic。"
+          }
+        }
+      }
+    },
+    "cli.toast.notOnPath" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installed at %@, but its folder is not on your shell's PATH."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تم التثبيت في %@، لكن مجلده ليس ضمن PATH الخاص بالصدفة لديك."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instalirano u %@, ali njegov folder nije u PATH-u vašeg shella."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installeret i %@, men dens mappe er ikke i din shells PATH."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unter %@ installiert, aber der Ordner befindet sich nicht im PATH deiner Shell."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instalada en %@, pero su carpeta no está en el PATH de tu shell."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installée dans %@, mais son dossier n'est pas dans le PATH de votre shell."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installata in %@, ma la sua cartella non è nel PATH della tua shell."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ にインストールしましたが、そのフォルダはシェルの PATH に含まれていません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បានដំឡើងនៅ %@ ប៉ុន្តែថតរបស់វាមិនស្ថិតនៅក្នុង PATH នៃ shell របស់អ្នកទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@에 설치했지만 해당 폴더가 셸의 PATH에 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installert i %@, men mappen ligger ikke i PATH for skallet ditt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zainstalowano w %@, ale jego folder nie znajduje się w PATH Twojej powłoki."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instalada em %@, mas a pasta dela não está no PATH do seu shell."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установлен в %@, но его папки нет в PATH вашей оболочки."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ติดตั้งที่ %@ แล้ว แต่โฟลเดอร์ของมันไม่อยู่ใน PATH ของเชลล์ของคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ konumuna kuruldu, ancak klasörü kabuğunuzun PATH'inde değil."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Встановлено в %@, але його теки немає в PATH вашої оболонки."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đã cài tại %@, nhưng thư mục của nó không nằm trong PATH của shell."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已安装到 %@，但其所在文件夹不在你的 shell PATH 中。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已安裝到 %@，但其所在檔案夾不在你的 shell PATH 中。"
+          }
+        }
+      }
+    },
+    "cli.toast.repointed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux CLI installed at %1$@. It linked to an app that is gone (%2$@)."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تم تثبيت cmux CLI في %1$@. كان مرتبطًا بتطبيق لم يعد موجودًا (%2$@)."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux CLI je instaliran u %1$@. Bio je povezan s aplikacijom koje više nema (%2$@)."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux CLI er installeret i %1$@. Den pegede på en app, der ikke findes mere (%2$@)."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux CLI unter %1$@ installiert. Sie war mit einer App verknüpft, die nicht mehr existiert (%2$@)."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CLI de cmux instalada en %1$@. Enlazaba a una app que ya no existe (%2$@)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CLI cmux installée dans %1$@. Elle pointait vers une app qui n'existe plus (%2$@)."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CLI di cmux installata in %1$@. Puntava a un'app che non esiste più (%2$@)."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux CLI を %1$@ にインストールしました。以前は存在しないアプリにリンクしていました (%2$@)。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បានដំឡើង cmux CLI នៅ %1$@។ វាបានភ្ជាប់ទៅកម្មវិធីដែលលែងមានហើយ (%2$@)។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux CLI를 %1$@에 설치함. 이전에는 더 이상 없는 앱에 연결되어 있었습니다(%2$@)."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux CLI er installert i %1$@. Den pekte til en app som ikke finnes lenger (%2$@)."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zainstalowano cmux CLI w %1$@. Wskazywało na aplikację, której już nie ma (%2$@)."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "CLI do cmux instalada em %1$@. Ela apontava para um app que não existe mais (%2$@)."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux CLI установлен в %1$@. Он ссылался на приложение, которого больше нет (%2$@)."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ติดตั้ง cmux CLI ที่ %1$@ แล้ว ก่อนหน้านี้ลิงก์ไปยังแอปที่ไม่มีอยู่แล้ว (%2$@)"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux CLI %1$@ konumuna kuruldu. Artık var olmayan bir uygulamaya bağlıydı (%2$@)."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux CLI встановлено в %1$@. Воно посилалося на програму, якої вже немає (%2$@)."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đã cài cmux CLI tại %1$@. Trước đó nó liên kết tới một ứng dụng không còn tồn tại (%2$@)."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已将 cmux CLI 安装到 %1$@。它之前链接的应用已不存在 (%2$@)。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已將 cmux CLI 安裝到 %1$@。它先前連結的 App 已不存在 (%2$@)。"
+          }
+        }
+      }
+    },
+    "cli.toast.shadowed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installed at %1$@, but %2$@ comes first on PATH, so `cmux` runs that one."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تم التثبيت في %1$@، لكن %2$@ يأتي أولًا في PATH، لذا يشغّل `cmux` ذلك الملف."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instalirano u %1$@, ali %2$@ dolazi prvi u PATH-u, pa `cmux` pokreće taj."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installeret i %1$@, men %2$@ kommer først i PATH, så `cmux` kører den."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unter %1$@ installiert, aber %2$@ steht im PATH weiter vorn, daher startet `cmux` diese."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instalada en %1$@, pero %2$@ va primero en el PATH, así que `cmux` ejecuta esa."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installée dans %1$@, mais %2$@ passe en premier dans le PATH, donc `cmux` lance celle-là."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installata in %1$@, ma %2$@ viene prima nel PATH, quindi `cmux` esegue quella."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ にインストールしましたが、PATH では %2$@ が先にあるため、`cmux` はそちらを実行します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បានដំឡើងនៅ %1$@ ប៉ុន្តែ %2$@ មកមុននៅក្នុង PATH ដូច្នេះ `cmux` ដំណើរការមួយនោះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@에 설치했지만 PATH에서 %2$@이(가) 먼저 오므로 `cmux`는 그쪽을 실행합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installert i %1$@, men %2$@ kommer først i PATH, så `cmux` kjører den."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zainstalowano w %1$@, ale %2$@ jest w PATH wcześniej, więc `cmux` uruchamia tamtą wersję."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instalada em %1$@, mas %2$@ vem primeiro no PATH, então `cmux` executa aquela."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установлен в %1$@, но %2$@ стоит в PATH раньше, поэтому `cmux` запускает именно его."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ติดตั้งที่ %1$@ แล้ว แต่ %2$@ อยู่ก่อนใน PATH ดังนั้น `cmux` จะเรียกใช้ตัวนั้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ konumuna kuruldu, ancak PATH'te önce %2$@ geliyor, bu yüzden `cmux` onu çalıştırıyor."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Встановлено в %1$@, але %2$@ стоїть у PATH раніше, тому `cmux` запускає саме його."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đã cài tại %1$@, nhưng %2$@ đứng trước trong PATH, nên `cmux` chạy bản đó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已安装到 %1$@，但 PATH 中 %2$@ 排在前面，因此 `cmux` 会运行那一个。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已安裝到 %1$@，但 PATH 中 %2$@ 排在前面，因此 `cmux` 會執行那一個。"
+          }
+        }
+      }
+    },
+    "cli.toast.shadowedClassic" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installed at %1$@, but %2$@ comes first on PATH, so `cmux` still runs cmux classic."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تم التثبيت في %1$@، لكن %2$@ يأتي أولًا في PATH، لذا لا يزال `cmux` يشغّل cmux classic."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instalirano u %1$@, ali %2$@ dolazi prvi u PATH-u, pa `cmux` i dalje pokreće cmux classic."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installeret i %1$@, men %2$@ kommer først i PATH, så `cmux` kører stadig cmux classic."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unter %1$@ installiert, aber %2$@ steht im PATH weiter vorn, daher startet `cmux` weiterhin cmux classic."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instalada en %1$@, pero %2$@ va primero en el PATH, así que `cmux` sigue ejecutando cmux classic."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installée dans %1$@, mais %2$@ passe en premier dans le PATH, donc `cmux` lance toujours cmux classic."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installata in %1$@, ma %2$@ viene prima nel PATH, quindi `cmux` continua a eseguire cmux classic."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ にインストールしましたが、PATH では %2$@ が先にあるため、`cmux` は引き続き cmux classic を実行します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បានដំឡើងនៅ %1$@ ប៉ុន្តែ %2$@ មកមុននៅក្នុង PATH ដូច្នេះ `cmux` នៅតែដំណើរការ cmux classic។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@에 설치했지만 PATH에서 %2$@이(가) 먼저 오므로 `cmux`는 계속 cmux classic을 실행합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installert i %1$@, men %2$@ kommer først i PATH, så `cmux` kjører fortsatt cmux classic."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zainstalowano w %1$@, ale %2$@ jest w PATH wcześniej, więc `cmux` nadal uruchamia cmux classic."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Instalada em %1$@, mas %2$@ vem primeiro no PATH, então `cmux` ainda executa o cmux classic."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Установлен в %1$@, но %2$@ стоит в PATH раньше, поэтому `cmux` по-прежнему запускает cmux classic."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ติดตั้งที่ %1$@ แล้ว แต่ %2$@ อยู่ก่อนใน PATH ดังนั้น `cmux` จะยังคงเรียกใช้ cmux classic"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ konumuna kuruldu, ancak PATH'te önce %2$@ geliyor, bu yüzden `cmux` hâlâ cmux classic'i çalıştırıyor."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Встановлено в %1$@, але %2$@ стоїть у PATH раніше, тому `cmux` і далі запускає cmux classic."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đã cài tại %1$@, nhưng %2$@ đứng trước trong PATH, nên `cmux` vẫn chạy cmux classic."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已安装到 %1$@，但 PATH 中 %2$@ 排在前面，因此 `cmux` 仍会运行 cmux classic。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已安裝到 %1$@，但 PATH 中 %2$@ 排在前面，因此 `cmux` 仍會執行 cmux classic。"
           }
         }
       }
