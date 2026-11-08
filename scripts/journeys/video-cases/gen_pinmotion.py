@@ -122,7 +122,10 @@ def journey(jid, prefix, curve, view):
 
 def prof_journey(jid, runs, stress=False):
     """Step 3 (pin-motion-4): RUNS pin/unpin keys on w5 under one time profile (ext_pmprof), fixture colours, K6.
-    STRESS (pin-motion-5, lead 16:42Z: the rows-to-blocks gap light and STRESS) builds the full STRESS first."""
+    STRESS (pin-motion-5, lead 16:42Z: the rows-to-blocks gap light and STRESS) builds the full STRESS first. One
+    journey, one budget of 255 s: run.py refuses every journey when one is over 260 s, and STRESS and the keys must run in
+    the same app (film-pin.sh gives each journey its own lease and launch). Measured on cmux21: stress_full 18.1-18.4 s
+    (cp-term-full 1-4, 995e6aa0), pm-prof 41.5 s whole (f8606911), so the journey takes about 60-70 s."""
     check = [{"do": "type", "text": "echo pm-ready-${nonce}", "enter": True, "mark": "ready"},
              {"do": "expect", "title": "set-up check: the app types", "since": "ready", "timeout": 10,
               "all": [{"daemon_line": "pm-ready-${nonce}"}, {"app_text_line": "pm-ready-${nonce}"}, {"frame_text": "pm-ready-${nonce}"}]}]
@@ -140,7 +143,7 @@ def prof_journey(jid, runs, stress=False):
                "title": f"{runs} pin/unpin keys of w5 under one time profile"}]
     return {"id": jid, "priority": "P1", "title": f"PIN MOTION profile: {runs} sidebar pin/unpin keys under xctrace",
             "why": "pin-motion-4 step 3: name the work behind 1-2 missed refreshes per pin at 120 Hz.",
-            "source": "pin-motion task kit (video-cases/gen_pinmotion.py --prof)", "budget_seconds": 255 + (300 if stress else 0),
+            "source": "pin-motion task kit (video-cases/gen_pinmotion.py --prof)", "budget_seconds": 255,
             "recordings": [], "options": {"key_path": "real"}, "steps": steps, "finally": [UNBIND, X.settings_back()]}
 
 
