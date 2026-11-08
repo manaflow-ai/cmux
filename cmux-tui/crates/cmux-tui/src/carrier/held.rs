@@ -145,7 +145,7 @@ impl Slot {
     ) -> Result<Stream, Refused>
     where
         F: FnMut() -> Fut,
-        Fut: std::future::Future<Output = Result<Dialed, Failure>>,
+        Fut: Future<Output = Result<Dialed, Failure>>,
     {
         // A held session that turns out gone when its stream is refused is
         // dropped once and the next pass dials; a session retired while its

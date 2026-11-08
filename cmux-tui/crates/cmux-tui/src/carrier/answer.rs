@@ -262,7 +262,7 @@ impl HttpSource {
 pub(super) fn token_subject(token: &str) -> Option<String> {
     let payload = token.split('.').nth(1)?;
     let bytes = Zeroizing::new(URL_SAFE_NO_PAD.decode(payload.trim_end_matches('=')).ok()?);
-    let claims: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let claims: Value = serde_json::from_slice(&bytes).ok()?;
     claims.get("sub")?.as_str().filter(|sub| !sub.is_empty()).map(str::to_owned)
 }
 
