@@ -1,0 +1,314 @@
+//! Start a chat from a GitHub issue URL.
+//!
+//! The action deliberately works from an existing checkout. A link can make a
+//! worktree quickly, but it must never turn into an unannounced clone of a
+//! repository the person does not already have locally.
+
+use std::path::{Path, PathBuf};
+
+use serde_json::{Value, json};
+use tokio::process::Command;
+
+use super::{Conn, Origin};
+use crate::hub::Hub;
+use crate::rpc::RpcError;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GithubIssueLink {
+    pub owner: String,
+    pub repo: String,
+    pub number: u64,
+}
+
+/// Parse one canonical GitHub issue URL. Query parameters and a trailing slash
+/// are accepted; pull requests and GitHub's non-repository pages are not.
+pub fn parse_issue_url(input: &str) -> Result<GithubIssueLink, String> {
+    let input = input.trim();
+    let rest = input
+        .strip_prefix("https://github.com/")
+        .or_else(|| input.strip_prefix("https://www.github.com/"))
+        .ok_or_else(|| "url must be an https://github.com issue URL".to_owned())?;
+    let path = rest.split(['?', '#']).next().unwrap_or(rest).trim_end_matches('/');
+    let mut parts = path.split('/');
+    let owner =
+        parts.next().filter(|s| valid_segment(s)).ok_or_else(|| "missing owner".to_owned())?;
+    let repo =
+        parts.next().filter(|s| valid_segment(s)).ok_or_else(|| "missing repository".to_owned())?;
+    if parts.next() != Some("issues") {
+        return Err("url must point to a GitHub issue".to_owned());
+    }
+    let number = parts.next().ok_or_else(|| "missing issue number".to_owned())?;
+    if parts.next().is_some() || !number.bytes().all(|b| b.is_ascii_digit()) {
+        return Err("issue number must be a positive integer".to_owned());
+    }
+    let number = number.parse::<u64>().map_err(|_| "issue number is too large".to_owned())?;
+    if number == 0 {
+        return Err("issue number must be positive".to_owned());
+    }
+    Ok(GithubIssueLink { owner: owner.to_owned(), repo: repo.to_owned(), number })
+}
+
+pub fn branch_name(issue: &GithubIssueLink, title: &str) -> String {
+    let slug = crate::subsession_worktree::slug(title);
+    format!("fix/{}-{}", issue.number, if slug.is_empty() { "issue" } else { &slug })
+}
+
+#[derive(Debug)]
+struct IssueContext {
+    title: String,
+    body: String,
+    comments: Vec<String>,
+}
+
+pub async fn handle(
+    hub: &std::sync::Arc<Hub>,
+    conn: &std::sync::Arc<Conn>,
+    params: Value,
+) -> Result<Value, RpcError> {
+    if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+        return Err(RpcError::invalid_params(
+            "chat.fix_from_link is available only on this machine",
+        ));
+    }
+    let url = params
+        .get("url")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::invalid_params("url is required"))?;
+    let issue = parse_issue_url(url).map_err(RpcError::invalid_params)?;
+    let issue_context = fetch_issue(&issue, params.get("cwd").and_then(Value::as_str)).await?;
+    let requested_cwd = params.get("cwd").and_then(Value::as_str).map(PathBuf::from);
+    let checkout = find_checkout(&issue, requested_cwd).await?;
+    let name =
+        format!("{}-{}", issue.number, crate::subsession_worktree::slug(&issue_context.title));
+    let branch = branch_name(&issue, &issue_context.title);
+    let ensured = tokio::task::spawn_blocking({
+        let checkout = checkout.clone();
+        let name = name.clone();
+        let branch = branch.clone();
+        move || {
+            crate::subsession_worktree::ensure_worktree_with_branch(&checkout, &name, None, &branch)
+        }
+    })
+    .await
+    .map_err(|e| RpcError::internal(e.to_string()))?
+    .map_err(|e| RpcError::invalid_params(format!("no worktree: {e}")))?;
+
+    let harness = params.get("harness").and_then(Value::as_str).map(str::to_owned);
+    let model = params.get("model").and_then(Value::as_str).map(str::to_owned);
+    let mut new_params = json!({
+        "cwd": ensured.worktree.cwd,
+        "mcpServers": [],
+        "_meta": {"acpmux": {"name": name, "source": "github-issue"}}
+    });
+    if let Some(meta) = new_params.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+        if let Some(harness) = harness {
+            meta.insert("harness".into(), json!(harness));
+        }
+        if let Some(model) = model {
+            meta.insert("model".into(), json!(model));
+        }
+    }
+    let created = Box::pin(super::requests::dispatch_request(
+        hub,
+        conn,
+        crate::rpc::method::SESSION_NEW,
+        new_params,
+        None,
+    ))
+    .await?;
+    let session_id = created
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| RpcError::internal("session/new returned no sessionId"))?
+        .to_owned();
+    let session = hub.resolve(&session_id)?;
+    let prompt = issue_prompt(&issue, &issue_context);
+    let prompt_hub = hub.clone();
+    let prompt_conn = conn.clone();
+    let prompt_session = session.clone();
+    let prompt_for_send = prompt.clone();
+    tokio::spawn(async move {
+        if let Err(error) = prompt_hub
+            .prompt(
+                &prompt_session,
+                vec![json!({"type": "text", "text": prompt_for_send})],
+                &prompt_conn.label(),
+                false,
+            )
+            .await
+        {
+            tracing::warn!(session = %prompt_session.id, "fix-from-link prompt failed: {error}");
+        }
+    });
+    Ok(json!({
+        "sessionId": session_id,
+        "owner": issue.owner,
+        "repo": issue.repo,
+        "number": issue.number,
+        "title": issue_context.title,
+        "branch": ensured.worktree.branch,
+        "worktree": ensured.worktree.root,
+        "cwd": ensured.worktree.cwd,
+        "prompt": prompt,
+    }))
+}
+
+fn valid_segment(value: &str) -> bool {
+    !value.is_empty()
+        && value.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+}
+
+async fn fetch_issue(issue: &GithubIssueLink, cwd: Option<&str>) -> Result<IssueContext, RpcError> {
+    let endpoint = format!("repos/{}/{}/issues/{}", issue.owner, issue.repo, issue.number);
+    let issue_json = gh_api(&endpoint, cwd).await?;
+    let comments_json = gh_api(&format!("{endpoint}/comments?per_page=20"), cwd)
+        .await
+        .unwrap_or_else(|_| json!([]));
+    let title =
+        issue_json.get("title").and_then(Value::as_str).unwrap_or("GitHub issue").trim().to_owned();
+    let body = issue_json.get("body").and_then(Value::as_str).unwrap_or("").trim().to_owned();
+    let comments = comments_json
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|comment| {
+            let body = comment.get("body").and_then(Value::as_str)?.trim();
+            if body.is_empty() {
+                return None;
+            }
+            let author = comment.pointer("/user/login").and_then(Value::as_str).unwrap_or("user");
+            Some(format!("@{author}: {body}"))
+        })
+        .take(5)
+        .collect();
+    Ok(IssueContext { title, body, comments })
+}
+
+async fn gh_api(endpoint: &str, cwd: Option<&str>) -> Result<Value, RpcError> {
+    let mut command = Command::new("gh");
+    command.args(["api", endpoint]);
+    if let Some(cwd) = cwd {
+        command.current_dir(cwd);
+    }
+    let output = tokio::time::timeout(std::time::Duration::from_secs(30), command.output())
+        .await
+        .map_err(|_| RpcError::new(-32000, "gh api timed out"))?
+        .map_err(|e| RpcError::internal(format!("cannot run gh: {e}")))?;
+    if !output.status.success() {
+        return Err(RpcError::not_found(format!(
+            "gh api failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+    serde_json::from_slice(&output.stdout)
+        .map_err(|e| RpcError::internal(format!("gh returned invalid JSON: {e}")))
+}
+
+async fn find_checkout(
+    issue: &GithubIssueLink,
+    requested: Option<PathBuf>,
+) -> Result<PathBuf, RpcError> {
+    let issue = issue.clone();
+    tokio::task::spawn_blocking(move || {
+        let home = dirs::home_dir().ok_or_else(|| RpcError::not_found("no home folder"))?;
+        if let Some(path) = requested.as_deref()
+            && let Ok(root) = git_root(path)
+        {
+            // An explicit folder pick is authoritative even when a local fixture
+            // has no configured remote yet.
+            return Ok(root);
+        }
+        let mut candidates = Vec::new();
+        if let Some(path) = requested {
+            candidates.push(path);
+        }
+        candidates
+            .extend(crate::worktree_sessions::on_disk(&home, None).into_iter().map(|s| s.cwd));
+        for root in crate::worktree_sessions::default_roots(&home) {
+            candidates.push(root.clone());
+            if let Ok(entries) = std::fs::read_dir(&root) {
+                candidates.extend(entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()));
+            }
+        }
+        let mut seen = std::collections::HashSet::new();
+        for candidate in candidates {
+            let Ok(root) = git_root(&candidate) else { continue };
+            if !seen.insert(root.clone()) {
+                continue;
+            }
+            if repo_matches(&root, &issue) {
+                return Ok(root);
+            }
+        }
+        Err(RpcError::not_found(format!(
+            "no local checkout found for {}/{}; clone it first or choose its folder",
+            issue.owner, issue.repo
+        )))
+    })
+    .await
+    .map_err(|e| RpcError::internal(e.to_string()))?
+}
+
+fn git_root(path: &Path) -> Result<PathBuf, ()> {
+    let output = std::process::Command::new("git")
+        .args(["-C", path.to_str().ok_or(())?, "rev-parse", "--show-toplevel"])
+        .output()
+        .map_err(|_| ())?;
+    if !output.status.success() {
+        return Err(());
+    }
+    Ok(PathBuf::from(String::from_utf8_lossy(&output.stdout).trim()))
+}
+
+fn repo_matches(root: &Path, issue: &GithubIssueLink) -> bool {
+    let output = std::process::Command::new("git")
+        .args(["-C", root.to_str().unwrap_or_default(), "remote", "get-url", "origin"])
+        .output();
+    let Ok(output) = output else { return false };
+    let remote_text = String::from_utf8_lossy(&output.stdout);
+    let remote = remote_text.trim().trim_end_matches('/').trim_end_matches(".git");
+    remote.ends_with(&format!("/{}/{}", issue.owner, issue.repo))
+        || remote == format!("{}/{}", issue.owner, issue.repo)
+}
+
+fn issue_prompt(issue: &GithubIssueLink, context: &IssueContext) -> String {
+    let mut prompt = format!(
+        "Fix GitHub issue {}/{}#{}: {}\n\n",
+        issue.owner, issue.repo, issue.number, context.title
+    );
+    if !context.body.is_empty() {
+        prompt.push_str(&context.body);
+        prompt.push_str("\n\n");
+    }
+    if !context.comments.is_empty() {
+        prompt.push_str("Top comments:\n");
+        for comment in &context.comments {
+            prompt.push_str("- ");
+            prompt.push_str(comment);
+            prompt.push('\n');
+        }
+    }
+    prompt.push_str("\nInvestigate the issue, implement the fix, and report the validation.");
+    prompt
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_issue_links_and_rejects_pull_requests() {
+        assert_eq!(
+            parse_issue_url("https://github.com/acme/widget/issues/42").unwrap(),
+            GithubIssueLink { owner: "acme".into(), repo: "widget".into(), number: 42 }
+        );
+        assert!(parse_issue_url("https://github.com/acme/widget/pull/42").is_err());
+        assert!(parse_issue_url("https://github.com/acme/widget/issues/0").is_err());
+    }
+
+    #[test]
+    fn names_fix_branches_from_number_and_title() {
+        let issue = GithubIssueLink { owner: "acme".into(), repo: "widget".into(), number: 42 };
+        assert_eq!(branch_name(&issue, "Fix flaky upload!"), "fix/42-fix-flaky-upload");
+    }
+}

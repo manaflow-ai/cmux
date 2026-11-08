@@ -137,6 +137,7 @@ import type { SuggestionOrder } from "./suggestionOrder";
 import { newTabComposerTrailingGapArm } from "./composerGap.experiment";
 import { newTabIconColumnArm } from "./iconColumn.experiment";
 import { elementBox, reportToastAvoidance } from "../toastAvoidance";
+import { githubIssueLink } from "../../../githubReferences";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = NewTabCommandActions & {
@@ -158,6 +159,8 @@ export type NewTabScreenActions = NewTabCommandActions & {
     attachments?: ComposerAttachment[],
     saved?: { peer?: string },
   ): unknown;
+  /// A lone GitHub issue URL starts the core fix-from-link flow in a new worktree.
+  onFixFromLink?(url: string): void;
   onOpen(url: string): void;
   /// Open in Profile…'s pick (Lawrence 2026-11-05): `url` in the browser profile `id`.
   onOpenInProfile?(url: string, id: string): void;
@@ -922,6 +925,10 @@ export function NewTabScreen(props: Props) {
   const [dismissed, setDismissed] = useState<string>();
   const textRef = useRef(text);
   textRef.current = text;
+  const fixFromLink = useMemo(
+    () => (!shell && attachments.length === 0 ? githubIssueLink(text) : undefined),
+    [text, shell, attachments.length],
+  );
   /// The field's value is Markdown, which escapes typed punctuation (`http\:`, `\*`, `\[`) so it
   /// reads back as the same text. What the page acts on (a search, an address, a shell command, a
   /// prompt) is the text as typed, the way the chat composer sends it (`agentText`).
@@ -2167,6 +2174,18 @@ export function NewTabScreen(props: Props) {
               composer's (Leo 2026-10-22: "it's also 2 lines tall for some reason"). */}
             {split && pickers}
           </div>
+          {fixFromLink && props.onFixFromLink && (
+            <div className="nt-create-strip">
+              <button
+                type="button"
+                className="nt-create-strip-item nt-fix-chip"
+                onMouseDown={(event) => event.stopPropagation()}
+                onClick={() => props.onFixFromLink?.(fixFromLink.url)}
+              >
+                Fix in a new worktree
+              </button>
+            </div>
+          )}
           {/* What was pasted on the field or dropped on the page, as a chat's composer shows it, under
             the field: the box's top is where the page anchors it, so the strip grows away from the
             text and never moves it (Leo 2026-10-19: the composer kept "going to places"). */}

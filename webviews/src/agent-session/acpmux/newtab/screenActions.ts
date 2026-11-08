@@ -123,6 +123,10 @@ export function newTabScreenActions(deps: {
         } else start(deps.chatCwd);
       });
     },
+    onFixFromLink: (url) => {
+      deps.leave();
+      ignore(callNative("chat.fix_from_link", { url }));
+    },
     savedEnvironments: savedEnvironmentHost(callNative),
     onOpen: (url) => {
       if (url.startsWith("file://"))
