@@ -156,6 +156,10 @@ public final class AddMachineRuns {
         public var id: Int
         public var host: String
         public var name: String
+        /// What Add was asked for (the field's text and a picked agent peer), so Try Again sends
+        /// this run again whatever the card's fields show now.
+        public var destination: String?
+        public var peer: String?
         public var events: [Event] = []
         public var outcome: Outcome = .running
         public var machineID: String?
@@ -222,8 +226,11 @@ public final class AddMachineRuns {
     public func add(destination: String, name: String, peer: String? = nil) {
         guard request.mode == .add, let parsed = services.parse(destination) else { return }
         let name = Self.trimmed(name) ?? peer.flatMap(Self.trimmed) ?? parsed.shortName
-        if let peer { return addPeer(peer: Self.trimmed(peer) ?? parsed.host, host: parsed.host, name: name) }
-        start(host: parsed.host, name: name) { runs, services in
+        if let peer {
+            return addPeer(peer: Self.trimmed(peer) ?? parsed.host, host: parsed.host, name: name,
+                           asked: (destination, peer))
+        }
+        start(host: parsed.host, name: name, asked: (destination, nil)) { runs, services in
             var report = await runs.stream(.enroll(host: parsed.host, name: name))
             // Cancel can end the stream after it has parsed a report. Do not start the
             // app-install fallback from that retained report.
@@ -298,8 +305,8 @@ public final class AddMachineRuns {
 
     /// An agent peer the app does not have: enroll already ran for it, so the app connects it under
     /// `name` and runs doctor --fix (by its peer name) for the checklist and the rest of setup.
-    private func addPeer(peer: String, host: String, name: String) {
-        start(host: host, name: name) { runs, services in
+    private func addPeer(peer: String, host: String, name: String, asked: (destination: String, peer: String?)) {
+        start(host: host, name: name, asked: asked) { runs, services in
             guard let id = services.connect(host, name) else {
                 runs.note(.start(joined: false))
                 runs.note(.stop(AddMachineStrings.peerConnectFailed))
@@ -334,10 +341,12 @@ public final class AddMachineRuns {
     }
 
     /// Replaces the run in flight with a new one running `body`.
-    private func start(host: String, name: String, _ body: @escaping @MainActor (AddMachineRuns, AddMachineServices) async -> Void) {
+    /// `asked`: what Add sent (nil for a check), kept on the run for Try Again.
+    private func start(host: String, name: String, asked: (destination: String, peer: String?)? = nil,
+                       _ body: @escaping @MainActor (AddMachineRuns, AddMachineServices) async -> Void) {
         cancelRun()
         nextRun += 1
-        run = Run(id: nextRun, host: host, name: name)
+        run = Run(id: nextRun, host: host, name: name, destination: asked?.destination, peer: asked?.peer)
         let services = services
         // task-owner: one run; Cancel, a new run or a reopen cancels it
         task = Task { [weak self] in

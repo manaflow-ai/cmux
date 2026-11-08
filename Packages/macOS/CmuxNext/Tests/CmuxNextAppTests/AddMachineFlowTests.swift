@@ -155,6 +155,7 @@ import Testing
         #expect(host.commands == [.enroll(host: "leo@huge-blue.ts.net", name: "huge-blue")])
         #expect(outcome == .ready)
         #expect(runs.run?.name == "huge-blue")
+        #expect(runs.run?.destination == "leo@huge-blue.ts.net" && runs.run?.peer == nil, "Try Again sends this again")
         #expect(runs.run?.events.first == .start(joined: false))
         #expect(runs.run?.events.count == 1 + Self.okSteps.count + 1, "every line reaches the card")
         // Not connected by an install: the add connects it, records its health, and Open Workspace opens on it.
@@ -467,6 +468,7 @@ import Testing
         runs.begin()
         // The card passes the picked peer's name; the field holds its ssh destination.
         runs.add(destination: "huge-blue", name: "", peer: "hb")
+        #expect(runs.run?.destination == "huge-blue" && runs.run?.peer == "hb", "Try Again retries the peer")
         #expect(await runs.finished() == nil)
         // A picked peer gets the same setup an add does (approvals enrolled, profiles, peer-back),
         // not a check that leaves "run doctor --fix" warnings.

@@ -140,17 +140,21 @@ export class AddMachineStore {
     this.set({ ...this.snapshot, status });
   }
 
-  /** A new open: the fields as the opener filled them, the list read again for Add Machine. */
+  /** A new open: the fields as the opener filled them, or as the run in progress was added (a card
+   * remounted over its run), and the list read again for Add Machine. */
   private opened(status: AddMachineStatus) {
     this.seq = status.request.seq;
-    const destination = status.request.destination ?? "";
-    this.set({ ...EMPTY, status, destination, name: status.request.name ?? "" });
+    const run = status.request.mode.kind === "add" ? status.run : undefined;
+    const destination = (run ? run.destination : undefined) ?? status.request.destination ?? "";
+    const name = run?.destination !== undefined ? run.name : (status.request.name ?? "");
+    this.set({ ...EMPTY, status, destination, name });
     void this.parse(destination);
     if (status.request.mode.kind === "add" && !status.run) void this.loadCandidates();
   }
 
   setDestination(text: string): void {
-    this.set({ ...this.snapshot, destination: text });
+    // The old reading goes with the old text: Add waits for this text's parse.
+    this.set({ ...this.snapshot, destination: text, parsed: null });
     void this.parse(text);
   }
 
@@ -169,6 +173,7 @@ export class AddMachineStore {
     this.set({
       ...this.snapshot,
       destination: candidate.destination,
+      parsed: null,
       picked: candidate.alreadyPeer ? candidate : undefined,
     });
     void this.parse(candidate.destination);
@@ -183,8 +188,10 @@ export class AddMachineStore {
     try {
       switch (action) {
         case "add":
-        case "tryAgain":
           await this.add();
+          break;
+        case "tryAgain":
+          await this.retry();
           break;
         case "changeHost":
           await this.client.call(AddMachineOps.cancel, {});
@@ -230,8 +237,19 @@ export class AddMachineStore {
     return button ? this.perform(button.action) : Promise.resolve();
   }
 
+  /** Try Again sends the failed run's own request; a host without it (an older app) runs the fields. */
+  private async retry() {
+    const run = this.snapshot.status?.run;
+    if (run?.destination === undefined) return this.add();
+    await this.client!.call(AddMachineOps.add, {
+      destination: run.destination,
+      name: run.name,
+      ...(run.peer !== undefined ? { peer: run.peer } : {}),
+    });
+  }
+
   private async add() {
-    // Add and Try Again run the fields as they are (a failed add keeps them).
+    // Add runs the fields as they are.
     const { destination, name, picked, parsed } = this.snapshot;
     const peer = peerTarget(picked, destination, parsed);
     await this.client!.call(AddMachineOps.add, {

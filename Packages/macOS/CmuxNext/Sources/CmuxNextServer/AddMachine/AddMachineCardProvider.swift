@@ -126,6 +126,8 @@ public final class AddMachineCardProvider: WebCard {
             "outcome": .string(run.outcome.rawValue), "events": .array(run.events.map(event)),
         ]
         if let id = run.machineID { reply["machineID"] = .string(id) }
+        if let destination = run.destination { reply["destination"] = .string(destination) }
+        if let peer = run.peer { reply["peer"] = .string(peer) }
         return .object(reply)
     }
 
