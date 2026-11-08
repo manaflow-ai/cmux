@@ -159,9 +159,7 @@ import UniformTypeIdentifiers
         #expect(viewer.gallery.index == 0)
         #expect(viewer.handle(.compare))
         #expect(viewer.isComparing)
-        #expect(viewer.handle(.escape))
-        #expect(!viewer.isComparing)
-        #expect(closed == 0)
+        // One Esc closes, also from the comparison (the user, 2026-11-07: "i have to press esc twice").
         #expect(viewer.handle(.escape))
         #expect(closed == 1)
         await viewer.loaded()
