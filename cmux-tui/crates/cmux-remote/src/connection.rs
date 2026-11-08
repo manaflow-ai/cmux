@@ -451,10 +451,15 @@ impl ClientConnection {
         if self.session_unavailable() {
             return Err(ConnectionError::SessionUnavailable);
         }
+        // The published generation, not the session's: replay holds the
+        // session lock for its whole run, and a wait for it would outlive the
+        // deadline, then read the replayed generation and redial a link that
+        // just came back. Read before the state, so a recovery that publishes
+        // in between is either seen as connected or ends `recover_by` at once.
+        let generation = *self.generation.borrow();
         if *self.state.borrow() == ConnectionState::Connected {
             return Ok(());
         }
-        let generation = self.session.read().await.generation();
         self.recover_by(generation, Some(deadline)).await
     }
 
@@ -570,7 +575,10 @@ impl ClientConnection {
         payload: Bytes,
         flags: FrameFlags,
     ) -> Result<u64, ConnectionError> {
-        let _lane = self.lane_sends[lane as usize].lock().await;
+        // Another send may hold this lane through an unbounded recovery, and
+        // replay holds the session lock; a send with a deadline waits for
+        // neither past it.
+        let _lane = self.by_deadline(deadline, self.lane_sends[lane as usize].lock()).await?;
         loop {
             if self.closed.load(Ordering::Acquire) {
                 return Err(ConnectionError::Closed);
@@ -578,7 +586,7 @@ impl ClientConnection {
             if self.session_unavailable() {
                 return Err(ConnectionError::SessionUnavailable);
             }
-            let session = self.session.read().await.clone();
+            let session = self.by_deadline(deadline, self.session.read()).await?.clone();
             let generation = session.generation();
             if let Some(expected) = expected_generation
                 && expected != generation
@@ -602,7 +610,7 @@ impl ClientConnection {
                 }
                 Err(error) if reconnectable_session_error(&error) => {
                     self.recover_by(generation, deadline).await?;
-                    let actual = self.session.read().await.generation();
+                    let actual = *self.generation.borrow();
                     if expected_generation.is_some() || !lane.replays_across_generations() {
                         return Err(ConnectionError::GenerationChanged {
                             expected: expected_generation.unwrap_or(generation),
@@ -618,6 +626,30 @@ impl ClientConnection {
                     return Err(error.into());
                 }
             }
+        }
+    }
+
+    /// Await `wait`, but not past `deadline` when there is one: then the
+    /// answer is [`ConnectionError::ReconnectDeadlineExceeded`]. A caller
+    /// with a deadline that waits on a link that is not connected is an
+    /// action, so a parked recovery dials now.
+    async fn by_deadline<T>(
+        &self,
+        deadline: Option<tokio::time::Instant>,
+        wait: impl Future<Output = T>,
+    ) -> Result<T, ConnectionError> {
+        let Some(deadline) = deadline else { return Ok(wait.await) };
+        if *self.state.borrow() != ConnectionState::Connected {
+            self.actions.send_modify(|count| *count = count.wrapping_add(1));
+        }
+        // The deadline is polled first: a wait that is ready at or past it
+        // still loses, so nothing goes on after its deadline.
+        tokio::select! {
+            biased;
+            () = tokio::time::sleep_until(deadline) => {
+                Err(ConnectionError::ReconnectDeadlineExceeded { attempts: 0 })
+            }
+            value = wait => Ok(value),
         }
     }
 
@@ -668,12 +700,18 @@ impl ClientConnection {
     /// application frame or terminal error is deferred, which keeps liveness
     /// independent of caller polling without creating an unbounded side queue.
     async fn probe_liveness(&self, generation: u64, observed: Instant) -> bool {
-        let Ok(_receiving) = self.receiving.try_lock() else {
+        let _receiving = match self.receiving.try_lock() {
+            Ok(receiving) => receiving,
             // An application reader holds the receive side and consumes the
             // answer itself: any frame after the probe proves the link live.
-            // Waiting for its lock instead held every probe to its timeout.
-            self.received_after(observed).await;
-            return true;
+            // Waiting only for its lock held every probe to its timeout. A
+            // reader cancelled before the answer leaves it unread, so the
+            // probe takes the receive side over when that reader lets go.
+            Err(_) => tokio::select! {
+                biased;
+                () = self.received_after(observed) => return true,
+                receiving = self.receiving.lock() => receiving,
+            },
         };
         if self.closed.load(Ordering::Acquire)
             || self.session.read().await.generation() != generation
@@ -1135,6 +1173,13 @@ impl ClientConnection {
                         let next = tokio::select! {
                             biased;
                             _ = close_state.changed() => return Err(ConnectionError::Closed),
+                            // Discovery dials relay or peer transports too; one
+                            // on the network that went away is dropped, and the
+                            // new burst below dials the current group at once.
+                            _ = network.changed() => {
+                                network_moved = true;
+                                None
+                            }
                             next = async {
                                 if let Some(deadline) = recovery_deadline
                                     && tokio::time::Instant::now() >= deadline

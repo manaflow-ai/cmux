@@ -73,12 +73,13 @@ public struct CloudAPIClient: Sendable {
 
     // MARK: Files and SCP
 
-    /// Mints a short-lived private SCP route. The public key is the only key
-    /// material sent to the backend; the caller owns the corresponding secret.
+    /// Mints a short-lived private SCP route: cmux-platform's `POST /v1/cloud/machines/{id}/ssh-endpoint` on a
+    /// Worker machines client (``workerMachines(baseURL:accessToken:teamID:session:appVersion:machineIO:)``). The
+    /// public key is the only key material sent; the caller owns the secret.
     public func prepareSCP(_ id: String, publicKey: String) async throws -> CloudSCPEndpoint {
         // cmux-cloud-machine reads only a safe route (port 22, user cmux, an ed25519 host key, not
         // expired); any other answer throws ``CloudAPIError/decoding(_:)``.
-        try await send("POST", "/api/vm/\(id)/scp-endpoint", body: ["publicKey": publicKey],
+        try await send("POST", "\(machinePath)/\(id)/ssh-endpoint", body: ["publicKey": publicKey],
                        timeout: .seconds(100), as: CloudSCPEndpoint.self)
     }
 
