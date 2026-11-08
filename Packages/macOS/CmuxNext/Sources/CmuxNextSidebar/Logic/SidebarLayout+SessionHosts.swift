@@ -130,7 +130,9 @@ nonisolated extension SidebarLayout {
             guard root < starts.count, let id = ids[root], var bundle = bundles[starts[root]], !bundle.isEmpty else { return }
             let (fold, rollUp) = Self.treeFold(root, ids, tree: tree, children: children, states: agentState)
             bundle[0].content?.treeDepth = depth
-            if bundle[0].group == nil || fold != nil {
+            // Pinned and custom rows keep the base projection's fold: their lineage is left out of
+            // `parents` above, so a nil here means "not regrouped", not "no children".
+            if fold != nil || (bundle[0].group == nil && machineParents.contains(id)) {
                 bundle[0].content?.treeFold = fold
                 bundle[0].content?.rollUp = rollUp
             }
