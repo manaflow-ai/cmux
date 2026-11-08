@@ -27,10 +27,12 @@
 //! starts with [`TAG`], which no WireGuard or STUN message starts with: a
 //! peer without ultra mode hands it to boringtun, which refuses it, so turning
 //! the mode on never breaks an older peer, it only wastes the parity bytes.
-//! A peer that receives parity from the address its session last
-//! authenticated answers with the same mode, so one side's setting protects
-//! both directions. Parity itself is not authenticated; a forged parity can
-//! only produce a datagram that fails WireGuard's authentication.
+//! Parity itself is not authenticated, so a receiver acts on parity, and keeps
+//! data datagrams for rebuilding, only from an origin (path and address)
+//! WireGuard has already authenticated a datagram from. A peer that receives
+//! such parity answers with the same mode, so one side's setting protects
+//! both directions. A forged parity from a trusted origin can only produce a
+//! datagram that fails WireGuard's authentication.
 //!
 //! The mode is the `CMUX_WG_ULTRA` environment variable (`off`, `dup`,
 //! `dup3`, `fec`, `fec:8:2`), read when a tunnel starts.
@@ -59,6 +61,14 @@ const WG_DATA_HEADER: usize = 16;
 /// Received data datagrams kept for rebuilding. Parity follows its group
 /// within one pass, so a few groups' worth is enough.
 const KEEP: usize = 256;
+/// Longest ciphertext kept: a path MTU's worth with room to spare. Bigger
+/// datagrams are not kept, so the kept set stays under 512 KiB.
+const MAX_KEPT: usize = 2048;
+/// Parities waiting for a late (reordered) member, newest last.
+const PENDING: usize = 32;
+/// Origins WireGuard authenticated, newest last (paths of a multipath carrier,
+/// and the address after a roam).
+const TRUSTED: usize = 8;
 const MAX_GROUP: u8 = 32;
 const MAX_PARITY: u8 = 15;
 const MAX_COPIES: u8 = 4;
@@ -104,6 +114,18 @@ impl UltraMode {
         let (group, parity) = rest.split_once(':')?;
         let (group, parity): (u8, u8) = (group.parse().ok()?, parity.parse().ok()?);
         Self::fec(group, parity)
+    }
+
+    /// This mode within the limits [`UltraMode::parse`] accepts: a value
+    /// built in code with out-of-range fields becomes the nearest valid mode,
+    /// or off.
+    fn normalized(self) -> Self {
+        match self {
+            Self::Off => Self::Off,
+            Self::Duplicate { copies } if copies < 2 => Self::Off,
+            Self::Duplicate { copies } => Self::Duplicate { copies: copies.min(MAX_COPIES) },
+            Self::Fec { group, parity } => Self::fec(group, parity).unwrap_or(Self::Off),
+        }
     }
 
     fn fec(group: u8, parity: u8) -> Option<Self> {
@@ -274,6 +296,27 @@ fn widen(low: u32, near: u64) -> u64 {
         .unwrap_or(base)
 }
 
+/// What a parity can do with the members received so far.
+#[derive(Debug, PartialEq, Eq)]
+enum Rebuild {
+    /// Exactly one member was missing: here it is.
+    Done(Vec<u8>),
+    /// Nothing to do: every member arrived, or the parity is malformed.
+    Whole,
+    /// Two or more members are missing; a late one may still arrive.
+    Waiting,
+}
+
+impl Rebuild {
+    #[cfg(test)]
+    fn rebuilt(self) -> Option<Vec<u8>> {
+        match self {
+            Self::Done(datagram) => Some(datagram),
+            _ => None,
+        }
+    }
+}
+
 /// Received data ciphertexts, for rebuilding a lost one from parity.
 #[derive(Default)]
 struct Kept {
@@ -284,6 +327,9 @@ struct Kept {
 
 impl Kept {
     fn keep(&mut self, index: [u8; 4], counter: u64, ciphertext: &[u8]) {
+        if ciphertext.len() > MAX_KEPT {
+            return;
+        }
         let newest = self.newest.entry(index).or_insert(counter);
         *newest = (*newest).max(counter);
         if self.kept.insert((index, counter), ciphertext.to_vec()).is_none() {
@@ -300,11 +346,17 @@ impl Kept {
         }
     }
 
+    /// The first counter of `parity`'s group, once a member of its session
+    /// arrived.
+    fn first(&self, parity: &Parity<'_>) -> Option<u64> {
+        let near = *self.newest.get(&parity.index)?;
+        Some(widen(parity.first_low, near))
+    }
+
     /// The datagram rebuilt from `parity`, when exactly one member of its
     /// subgroup is missing.
-    fn rebuild(&self, parity: &Parity<'_>) -> Option<Vec<u8>> {
-        let near = *self.newest.get(&parity.index)?;
-        let first = widen(parity.first_low, near);
+    fn rebuild(&self, parity: &Parity<'_>) -> Rebuild {
+        let Some(first) = self.first(parity) else { return Rebuild::Waiting };
         let mut missing = None;
         let mut xor = parity.xor.to_vec();
         let mut lengths = parity.lengths;
@@ -318,20 +370,20 @@ impl Kept {
                     }
                 }
                 None if missing.is_none() => missing = Some(counter),
-                None => return None,
+                None => return Rebuild::Waiting,
             }
         }
-        let counter = missing?;
+        let Some(counter) = missing else { return Rebuild::Whole };
         let length = usize::from(lengths);
         if length < WG_DATA_HEADER || length > xor.len() {
-            return None;
+            return Rebuild::Whole;
         }
         let mut datagram = Vec::with_capacity(WG_DATA_HEADER + length);
         datagram.extend_from_slice(&[4, 0, 0, 0]);
         datagram.extend_from_slice(&parity.index);
         datagram.extend_from_slice(&counter.to_le_bytes());
         datagram.extend_from_slice(&xor[..length]);
-        Some(datagram)
+        Rebuild::Done(datagram)
     }
 }
 
@@ -345,6 +397,10 @@ pub(crate) struct UltraUnderlay {
     received: Kept,
     /// Rebuild from parity: on when this side sends FEC or the peer does.
     decoding: bool,
+    /// Parities still waiting for a member, with where they came from.
+    pending: VecDeque<(Vec<u8>, Origin)>,
+    /// Origins WireGuard authenticated a datagram from.
+    trusted: Vec<Origin>,
     rebuilt: VecDeque<(Vec<u8>, Origin)>,
     counters: Arc<UltraCounters>,
 }
@@ -355,12 +411,15 @@ impl UltraUnderlay {
         mode: UltraMode,
         counters: Arc<UltraCounters>,
     ) -> Self {
+        let mode = mode.normalized();
         Self {
             inner,
             decoding: matches!(mode, UltraMode::Fec { .. }),
             mode,
             group: None,
             received: Kept::default(),
+            pending: VecDeque::new(),
+            trusted: Vec::new(),
             rebuilt: VecDeque::new(),
             counters,
         }
@@ -371,6 +430,8 @@ impl UltraUnderlay {
         self.close_group();
         self.inner = inner;
         self.rebuilt.clear();
+        self.pending.clear();
+        self.trusted.clear();
     }
 
     fn forward(&mut self, datagram: &[u8], priority: Option<Priority>) {
@@ -449,29 +510,77 @@ impl UltraUnderlay {
         }
     }
 
+    fn trusts(&self, origin: Origin) -> bool {
+        self.trusted.contains(&origin)
+    }
+
     fn on_parity(&mut self, datagram: &[u8], origin: Origin) {
+        // Parity is not authenticated: from anyone else it could make this
+        // side buffer datagrams or spend bytes on parity of its own.
+        if !self.trusts(origin) {
+            return;
+        }
         let Some(parity) = parse_parity(datagram) else { return };
         UltraCounters::add(&self.counters.parity_received, 1);
-        if !self.decoding {
-            // Kept datagrams start now; this first group is not rebuilt.
-            self.decoding = true;
-        }
-        // Parity is not authenticated, so only the address WireGuard last
-        // authenticated may turn this side's parity on: anyone else could
-        // make it spend bytes.
+        // Kept datagrams start with the first trusted parity; that group is
+        // not rebuilt.
+        self.decoding = true;
         if self.mode == UltraMode::Off
-            && origin.addr.is_some()
-            && origin.addr == self.inner.peer_hint()
             && let Some(mode) = UltraMode::fec(parity.k, parity.m)
         {
             self.mode = mode;
         }
-        if let Some(rebuilt) = self.received.rebuild(&parity) {
-            if let Some((index, counter)) = data_id(&rebuilt) {
-                self.received.keep(index, counter, &rebuilt[WG_DATA_HEADER..]);
+        match self.received.rebuild(&parity) {
+            Rebuild::Done(rebuilt) => self.on_rebuilt(rebuilt, origin),
+            Rebuild::Whole => {}
+            Rebuild::Waiting => {
+                if self.pending.len() >= PENDING {
+                    self.pending.pop_front();
+                }
+                self.pending.push_back((datagram.to_vec(), origin));
             }
-            UltraCounters::add(&self.counters.recovered, 1);
-            self.rebuilt.push_back((rebuilt, origin));
+        }
+    }
+
+    fn on_rebuilt(&mut self, rebuilt: Vec<u8>, origin: Origin) {
+        if let Some((index, counter)) = data_id(&rebuilt) {
+            self.received.keep(index, counter, &rebuilt[WG_DATA_HEADER..]);
+        }
+        UltraCounters::add(&self.counters.recovered, 1);
+        self.rebuilt.push_back((rebuilt, origin));
+    }
+
+    /// A data datagram arrived from a trusted origin: keep it, and retry the
+    /// waiting parities whose subgroup it belongs to.
+    fn on_data(&mut self, index: [u8; 4], counter: u64, ciphertext: &[u8]) {
+        self.received.keep(index, counter, ciphertext);
+        if self.pending.is_empty() {
+            return;
+        }
+        let mut waiting = std::mem::take(&mut self.pending);
+        let mut done = Vec::new();
+        waiting.retain(|(datagram, origin)| {
+            let Some(parity) = parse_parity(datagram) else { return false };
+            let covers = parity.index == index
+                && self.received.first(&parity).is_some_and(|first| {
+                    let offset = counter.wrapping_sub(first);
+                    offset < parity.members as u64 && offset as usize % parity.parities == parity.j
+                });
+            if !covers {
+                return true;
+            }
+            match self.received.rebuild(&parity) {
+                Rebuild::Done(rebuilt) => {
+                    done.push((rebuilt, *origin));
+                    false
+                }
+                Rebuild::Whole => false,
+                Rebuild::Waiting => true,
+            }
+        });
+        self.pending = waiting;
+        for (rebuilt, origin) in done {
+            self.on_rebuilt(rebuilt, origin);
         }
     }
 }
@@ -535,15 +644,22 @@ impl Underlay for UltraUnderlay {
                 continue;
             }
             if self.decoding
+                && self.trusts(received.origin)
                 && let Some((index, counter)) = data_id(datagram)
             {
-                self.received.keep(index, counter, &datagram[WG_DATA_HEADER..]);
+                self.on_data(index, counter, &datagram[WG_DATA_HEADER..]);
             }
             return Poll::Ready(Ok(received));
         }
     }
 
     fn authenticated(&mut self, origin: Origin) {
+        if !self.trusts(origin) {
+            if self.trusted.len() >= TRUSTED {
+                self.trusted.remove(0);
+            }
+            self.trusted.push(origin);
+        }
         self.inner.authenticated(origin);
     }
 
@@ -622,7 +738,7 @@ mod tests {
             }
             let rebuilt: Vec<Vec<u8>> = parities
                 .iter()
-                .filter_map(|p| received.rebuild(&parse_parity(p).unwrap()))
+                .filter_map(|p| received.rebuild(&parse_parity(p).unwrap()).rebuilt())
                 .collect();
             assert_eq!(rebuilt, vec![sent[lost].clone()], "lost member {lost}");
         }
@@ -642,7 +758,144 @@ mod tests {
         let mut received = Kept::default();
         received.keep(index, 100, &sent[0][WG_DATA_HEADER..]);
         received.keep(index, 103, &sent[3][WG_DATA_HEADER..]);
-        assert!(received.rebuild(&parse_parity(parity).unwrap()).is_none());
+        assert_eq!(received.rebuild(&parse_parity(parity).unwrap()), Rebuild::Waiting);
+    }
+
+    /// A carrier that hands out queued datagrams and records what is sent.
+    struct Script {
+        inbox: VecDeque<(Vec<u8>, Origin)>,
+        sent: Arc<std::sync::Mutex<Vec<Vec<u8>>>>,
+    }
+
+    impl Underlay for Script {
+        fn send(&mut self, datagram: &[u8]) {
+            self.sent.lock().unwrap().push(datagram.to_vec());
+        }
+        fn poll_recv(
+            &mut self,
+            _cx: &mut Context<'_>,
+            buffer: &mut [u8],
+        ) -> Poll<io::Result<Received>> {
+            match self.inbox.pop_front() {
+                Some((datagram, origin)) => {
+                    buffer[..datagram.len()].copy_from_slice(&datagram);
+                    Poll::Ready(Ok(Received { len: datagram.len(), origin }))
+                }
+                None => Poll::Pending,
+            }
+        }
+        fn has_peer(&self) -> bool {
+            true
+        }
+    }
+
+    fn origin(port: u16) -> Origin {
+        Origin { path: PathId(0), addr: Some(SocketAddr::from(([127, 0, 0, 1], port))) }
+    }
+
+    /// An ultra underlay in `mode` that will receive `inbox`, and what it
+    /// handed the tunnel.
+    fn receive(
+        mode: UltraMode,
+        trusted: Option<Origin>,
+        inbox: Vec<(Vec<u8>, Origin)>,
+    ) -> (UltraUnderlay, Vec<Vec<u8>>, Arc<std::sync::Mutex<Vec<Vec<u8>>>>) {
+        let sent = Arc::default();
+        let script = Script { inbox: inbox.into(), sent: Arc::clone(&sent) };
+        let mut ultra = UltraUnderlay::new(Box::new(script), mode, Arc::default());
+        if let Some(origin) = trusted {
+            ultra.authenticated(origin);
+        }
+        let mut cx = Context::from_waker(std::task::Waker::noop());
+        let mut buffer = vec![0u8; 4096];
+        let mut out = Vec::new();
+        while let Poll::Ready(Ok(received)) = ultra.poll_recv(&mut cx, &mut buffer) {
+            out.push(buffer[..received.len].to_vec());
+        }
+        (ultra, out, sent)
+    }
+
+    fn group_of(index: [u8; 4], first: u64, n: u64) -> (Vec<Vec<u8>>, Vec<Vec<u8>>) {
+        let sent: Vec<Vec<u8>> = (0..n).map(|i| data(index, first + i, 80, i as u8)).collect();
+        let group = Group {
+            index,
+            first,
+            ciphertexts: sent.iter().map(|d| d[WG_DATA_HEADER..].to_vec()).collect(),
+            priority: None,
+        };
+        let parities = parity_datagrams(&group, n as u8, 1);
+        (sent, parities)
+    }
+
+    /// Parity from an origin WireGuard never authenticated turns nothing on:
+    /// no buffering, no rebuilding, no parity of our own.
+    #[test]
+    fn parity_from_an_unauthenticated_origin_is_ignored() {
+        let index = [5, 5, 5, 5];
+        let (sent, parities) = group_of(index, 10, 4);
+        let stranger = origin(9999);
+        let mut inbox: Vec<_> = parities.iter().map(|p| (p.clone(), stranger)).collect();
+        inbox.extend(sent.iter().skip(1).map(|d| (d.clone(), stranger)));
+        inbox.extend(parities.iter().map(|p| (p.clone(), stranger)));
+        let (mut ultra, out, wire) = receive(UltraMode::Off, Some(origin(1)), inbox);
+        assert_eq!(out.len(), 3, "data is still delivered, nothing is rebuilt");
+        assert!(!ultra.decoding, "an untrusted parity starts no buffering");
+        assert_eq!(ultra.mode, UltraMode::Off, "and does not turn our parity on");
+        assert_eq!(ultra.counters.snapshot().parity_received, 0);
+        ultra.send(&data(index, 1, 40, 0));
+        ultra.flush();
+        assert_eq!(wire.lock().unwrap().len(), 1, "no parity goes out");
+    }
+
+    /// From an authenticated origin, the same parity turns rebuilding and
+    /// mirroring on.
+    #[test]
+    fn parity_from_the_authenticated_origin_mirrors_and_rebuilds() {
+        let index = [6, 6, 6, 6];
+        let peer = origin(1);
+        let (first_group, first_parity) = group_of(index, 0, 4);
+        let (sent, parity) = group_of(index, 4, 4);
+        let mut inbox: Vec<_> = first_group.iter().map(|d| (d.clone(), peer)).collect();
+        inbox.push((first_parity[0].clone(), peer));
+        inbox.extend([0, 1, 3].map(|i| (sent[i].clone(), peer)));
+        inbox.push((parity[0].clone(), peer));
+        let (ultra, out, _) = receive(UltraMode::Off, Some(peer), inbox);
+        assert_eq!(out.last(), Some(&sent[2]), "the lost member is rebuilt");
+        assert_eq!(ultra.mode, UltraMode::Fec { group: 4, parity: 1 }, "the mode is mirrored");
+    }
+
+    /// A parity that arrives before a reordered member waits for it, and
+    /// rebuilds the member that is really lost once the late one lands.
+    #[test]
+    fn parity_waits_for_a_reordered_member() {
+        let index = [7, 7, 7, 7];
+        let peer = origin(1);
+        let (sent, parity) = group_of(index, 20, 4);
+        let mut inbox: Vec<_> = [0, 3].map(|i| (sent[i].clone(), peer)).to_vec();
+        inbox.push((parity[0].clone(), peer)); // members 1 and 2 still missing
+        inbox.push((sent[1].clone(), peer)); // 1 arrives late; 2 is lost
+        let (ultra, out, _) = receive(UltraMode::Fec { group: 4, parity: 1 }, Some(peer), inbox);
+        assert_eq!(out.last(), Some(&sent[2]), "rebuilt after the late member: {out:?}");
+        assert!(ultra.pending.is_empty());
+    }
+
+    #[test]
+    fn modes_built_in_code_are_brought_within_limits() {
+        assert_eq!(UltraMode::Duplicate { copies: 0 }.normalized(), UltraMode::Off);
+        assert_eq!(UltraMode::Duplicate { copies: 1 }.normalized(), UltraMode::Off);
+        assert_eq!(
+            UltraMode::Duplicate { copies: 9 }.normalized(),
+            UltraMode::Duplicate { copies: MAX_COPIES }
+        );
+        assert_eq!(UltraMode::Fec { group: 8, parity: 0 }.normalized(), UltraMode::Off);
+        assert_eq!(UltraMode::Fec { group: 0, parity: 1 }.normalized(), UltraMode::Off);
+        assert_eq!(UltraMode::Fec { group: 2, parity: 3 }.normalized(), UltraMode::Off);
+        let ultra = UltraUnderlay::new(
+            Box::new(Script { inbox: VecDeque::new(), sent: Arc::default() }),
+            UltraMode::Duplicate { copies: 0 },
+            Arc::default(),
+        );
+        assert_eq!(ultra.mode, UltraMode::Off);
     }
 
     #[test]
