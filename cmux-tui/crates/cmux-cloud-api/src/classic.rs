@@ -1,6 +1,7 @@
-//! Classic cmux.com's `/api/vm` routes the NEXT app still calls (tunnel, firewall, snapshots,
-//! restore, fork, resize, SCP, domains and publications): none has a NEXT route yet, so each is
-//! sent as it was, with the same body, deadline and answer.
+//! Classic cmux.com's `/api/vm` routes the NEXT app still calls (tunnel, firewall, SCP, domains
+//! and publications): none has a NEXT route yet, so each is sent as it was, with the same body,
+//! deadline and answer. A machine's resize, snapshots, restore and fork are the Cloud app server's
+//! `cloud.machine.resize` and `cloud.snapshot.*` ops, on cmux-platform.
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -18,68 +19,8 @@ pub(crate) async fn run(
     call: &str,
     args: &Map<String, Value>,
 ) -> Result<Value, Failure> {
-    let key = optional_text(args, "idempotencyKey");
     let secs = Duration::from_secs;
     match call {
-        "vm.resize" => {
-            let id = text(args, "id")?;
-            let body = pick(args, &["cpu", "memoryMb", "storageMb"]);
-            http.classic(
-                Method::POST,
-                &["api", "vm", id, "resize"],
-                &[],
-                Some(body),
-                None,
-                secs(120),
-            )
-            .await
-            .map(|_| Value::Null)
-        }
-        "vm.snapshot" => {
-            let id = text(args, "id")?;
-            let body = pick(args, &["name"]);
-            http.classic(
-                Method::POST,
-                &["api", "vm", id, "snapshot"],
-                &[],
-                Some(body),
-                key,
-                secs(300),
-            )
-            .await
-        }
-        "vm.snapshots" => {
-            let id = text(args, "id")?;
-            let list = http
-                .classic(Method::GET, &["api", "vm", id, "snapshots"], &[], None, None, DEFAULT)
-                .await?;
-            field(list, "snapshots", "/api/vm/snapshots")
-        }
-        "vm.delete_snapshot" => {
-            let (id, snapshot) = (text(args, "id")?, text(args, "snapshotId")?);
-            http.classic(
-                Method::DELETE,
-                &["api", "vm", id, "snapshots", snapshot],
-                &[],
-                None,
-                None,
-                secs(960),
-            )
-            .await
-            .map(|_| Value::Null)
-        }
-        "vm.restore" => {
-            let snapshot = text(args, "snapshotId")?;
-            let body = json!({ "snapshotId": snapshot });
-            http.classic(Method::POST, &["api", "vm", "restore"], &[], Some(body), key, secs(620))
-                .await
-        }
-        "vm.fork" => {
-            let id = text(args, "id")?;
-            let body = pick(args, &["name"]);
-            http.classic(Method::POST, &["api", "vm", id, "fork"], &[], Some(body), key, secs(620))
-                .await
-        }
         "vm.scp_endpoint" => {
             let id = text(args, "id")?;
             let body = json!({ "publicKey": text(args, "publicKey")? });

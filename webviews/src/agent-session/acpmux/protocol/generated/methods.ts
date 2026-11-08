@@ -69,6 +69,7 @@ export interface AcpmuxRequests {
   "_acpmux/workflows": { params: unknown; result: unknown };
   "_acpmux/app_reply": { params: AppReplyParams; result: unknown };
   "_acpmux/stats": { params: unknown; result: unknown };
+  "_acpmux/ledger": { params: unknown; result: unknown };
   "_acpmux/workspace_purge": { params: unknown; result: unknown };
   "_acpmux/github_action": { params: unknown; result: unknown };
   "_acpmux/github_app_lease": { params: unknown; result: unknown };
@@ -401,6 +402,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/workflows", kind: "request", acp: false, typed: false },
   { name: "_acpmux/app_reply", kind: "request", acp: false, typed: true },
   { name: "_acpmux/stats", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/ledger", kind: "request", acp: false, typed: false },
   { name: "_acpmux/workspace_purge", kind: "request", acp: false, typed: false },
   { name: "_acpmux/github_action", kind: "request", acp: false, typed: false },
   { name: "_acpmux/github_app_lease", kind: "request", acp: false, typed: false },
