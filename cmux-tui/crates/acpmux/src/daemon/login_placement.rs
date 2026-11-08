@@ -238,6 +238,16 @@ pub(crate) fn keyed_in_place_warning() -> String {
     )
 }
 
+/// The home of a daemon job from its `launchctl print`: the folder of its plist (`path = `),
+/// which a start writes as `<home>/daemon-login-session.plist`. None for any other plist.
+pub(crate) fn job_home(job_print: &str) -> Option<std::path::PathBuf> {
+    let plist = job_print.lines().find_map(|l| l.trim().strip_prefix("path = "))?;
+    let plist = Path::new(plist);
+    (plist.is_absolute() && plist.file_name()? == "daemon-login-session.plist")
+        .then(|| plist.parent().map(Path::to_path_buf))
+        .flatten()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -385,6 +395,14 @@ mod tests {
         assert_eq!(stale_job_program(&no_program, |_| false).as_deref(), Some(app));
         // Nothing to read the program from: kept.
         assert_eq!(stale_job_program("state = not running\n", |_| false), None);
+    }
+
+    #[test]
+    fn a_jobs_home_is_the_folder_of_the_plist_a_start_wrote() {
+        assert_eq!(job_home(JOB_PRINT).as_deref(), Some(Path::new("/Users/a/.acpmux/dev")));
+        let other = JOB_PRINT.replace("daemon-login-session.plist", "other.plist");
+        assert_eq!(job_home(&other), None);
+        assert_eq!(job_home("state = not running\n"), None);
     }
 
     #[test]

@@ -98,22 +98,44 @@ fn gui_domain_print(domain: &str) -> Option<String> {
 
 /// Boots out this user's daemon jobs (other homes' too) that ended and whose program is gone:
 /// each per-build home has its own label, so a deleted app copy's job would sit loaded, `not
-/// running`, forever. A job running, or whose program is there, is never touched; the job's
-/// own print is read just before its bootout, so one bootstrapped meanwhile reads running.
+/// running`, forever. A job running, or whose program is there, is never touched. The job's
+/// home's start lock is held (never waited for) from the recheck through the bootout, so no
+/// start of that home can bootstrap the label in between and lose its new daemon.
 fn sweep_stale_jobs(domain: &str, domain_print: &str, keep: &[&str]) {
-    use super::login_placement::{stale_daemon_labels, stale_job_program};
+    use super::login_placement::{job_home, stale_daemon_labels, stale_job_program};
+    let print = |target: &str| match launchctl(&["print", target], LAUNCHCTL_BUDGET) {
+        Ok((true, out)) => Some(out),
+        _ => None,
+    };
     for label in stale_daemon_labels(domain_print) {
         if keep.contains(&label.as_str()) {
             continue;
         }
         let target = format!("{domain}/{label}");
-        let Ok((true, print)) = launchctl(&["print", &target], LAUNCHCTL_BUDGET) else {
+        let Some(first) = print(&target) else { continue };
+        if stale_job_program(&first, |p| p.exists()).is_none() {
+            continue;
+        }
+        // No home to lock (its plist is not where a start writes it, or the home is gone):
+        // left alone, as a start of it could not be fenced off.
+        let Some(home) = job_home(&first) else { continue };
+        let Ok(lock) = crate::config::private_state_rw(&home.join("daemon-login-session.lock"))
+        else {
             continue;
         };
-        let Some(program) = stale_job_program(&print, |p| p.exists()) else { continue };
+        // SAFETY: flock on a descriptor this function owns; released when `lock` drops.
+        let fd = std::os::fd::AsRawFd::as_raw_fd(&lock);
+        if unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            continue; // That home is starting: its own start handles its job.
+        }
+        let Some(program) = print(&target).and_then(|p| stale_job_program(&p, |p| p.exists()))
+        else {
+            continue;
+        };
         if let Ok((true, _)) = launchctl(&["bootout", &target], LAUNCHCTL_BUDGET) {
             tracing::info!(%target, program = %program.display(), "booted out a stale daemon job");
         }
+        drop(lock);
     }
 }
 
