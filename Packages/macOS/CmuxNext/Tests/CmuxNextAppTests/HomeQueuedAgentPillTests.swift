@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 import CmuxNextActions
 @testable import CmuxNextHome
+import CmuxNextHomeEngine
 import CmuxNextTestSupport
 import Foundation
 @testable import MessagesLabHome
@@ -118,6 +119,28 @@ import Testing
         let shown = NSMenu()
         items.forEach(shown.addItem)
         shown.performActionForItem(at: index)
+        #expect(started == ["a7"])
+    }
+
+    /// A transcript that starts its own agents, with no Chief (the DEBUG fixture and Agent Messages Playground over
+    /// the mock owner), keeps the menu's Start now: the registered row runs the one action, which starts the agent
+    /// through the transcript's own `onStartAgent` (review of #38595: the playground lost its menu row).
+    @Test func aTranscriptThatStartsItsOwnAgentsKeepsStartNowInItsMenu() async throws {
+        let home = try await home()
+        defer { close(home) }
+        var started: [String] = []
+        home.view.onStartAgent = { peer in started.append(peer); return true }
+        let registry = ActionRegistry(catalog: ActionCatalog.all.filter { $0.id == HomeChiefHomes.startQueuedAgent })
+        let homes = HomeChiefHomes()
+        homes.bind(into: registry)
+        homes.startsOwnAgents(home.view)
+        let menu = try #require(home.view.transcript.agentPillMenu)
+        let items = menu("a7")
+        let index = try #require(items.firstIndex { $0.title == "Start now" }, "no Start now in \(items.map(\.title))")
+        let shown = NSMenu()
+        items.forEach(shown.addItem)
+        shown.performActionForItem(at: index)
+        for _ in 0..<100_000 where started.isEmpty { await Task.yield() }
         #expect(started == ["a7"])
     }
 }
