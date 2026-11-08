@@ -336,12 +336,21 @@ test("a right-click on the page's own menu stays in the menu, also under asChild
       </div>,
     ),
   );
-  await rightClick(container.querySelector<HTMLElement>("#target")!);
-  for (const at of [document.querySelector('[role="menuitem"]'), document.querySelector(".ui-context-menu-backdrop")]) {
-    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
-    act(() => void at!.dispatchEvent(event));
-    // The browser's own menu would open over the page's.
-    expect(event.defaultPrevented).toBe(true);
-  }
+  const target = container.querySelector<HTMLElement>("#target")!;
+  /// A real secondary click: pointerdown (button 2), then contextmenu, on the same element.
+  const secondary = (at: Element) => {
+    const press = new MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 2 });
+    const menu = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 });
+    act(() => void at.dispatchEvent(press));
+    act(() => void at.dispatchEvent(menu));
+    return menu;
+  };
+  await rightClick(target);
+  // On a row: the menu stays open and the browser's own menu never opens over it.
+  expect(secondary(document.querySelector('[role="menuitem"]')!).defaultPrevented).toBe(true);
   expect(document.querySelector(".ui-context-menu")).not.toBeNull();
+  // On the backdrop: the menu closes, as a click there does, and the browser's menu stays shut.
+  expect(secondary(document.querySelector(".ui-context-menu-backdrop")!).defaultPrevented).toBe(true);
+  expect(document.querySelector(".ui-context-menu")).toBeNull();
+  expect(target.hasAttribute("data-popup-open")).toBe(false);
 });

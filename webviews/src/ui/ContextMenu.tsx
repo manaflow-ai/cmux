@@ -354,12 +354,18 @@ export function ContextMenu({
             <div
               className="ui-context-menu-backdrop"
               style={{ position: "fixed", inset: 0, zIndex: "var(--layer-dropdown)" }}
-              onPointerDown={() => close(true)}
+              // A secondary press comes as pointerdown then contextmenu: closing on its pointerdown
+              // would take the backdrop away before contextmenu, and the browser's menu would open.
+              onPointerDown={(event) => {
+                if (event.button === 0 && !event.ctrlKey) close(true);
+              }}
               // A right-click on the open menu or its backdrop stays here: the browser's own menu
               // would open over it, and under `asChild` no host above the portal takes the event.
+              // On the backdrop it closes the menu, as a click there does.
               onContextMenu={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
+                if (event.target === event.currentTarget) close(true);
               }}
             >
               <div
