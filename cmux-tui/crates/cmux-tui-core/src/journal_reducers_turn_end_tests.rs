@@ -189,7 +189,7 @@ fn a_killed_harness_leaves_the_roster() {
     let mut rig = Rig::running_turn("claude");
     rig.screen(14_600, "done");
     assert!(!rig.roster.entries.contains_key(TERMINAL));
-    assert!(rig.roster.screen_evidence.get(TERMINAL).is_none());
+    assert!(!rig.roster.screen_evidence.contains_key(TERMINAL));
 }
 
 #[test]
@@ -227,13 +227,14 @@ fn a_prompt_the_plugin_never_saw_leave_does_not_end_a_hook_turn() {
     assert_eq!(rig.shown(), "working");
 }
 
-/// A prompt seen before the hook's latest report is older evidence.
+/// A prompt seen before the hook's latest state report (a late append) is
+/// older evidence.
 #[test]
 fn a_prompt_seen_before_the_hooks_report_does_not_end_the_turn() {
     let mut rig = Rig::new("claude");
-    rig.hook(10_000, "UserPromptSubmit");
+    rig.hook(10_000, "SessionStart");
     rig.screen(10_300, "working");
-    rig.hook(12_000, "PreToolUse");
+    rig.hook(12_000, "UserPromptSubmit");
     rig.prompt(11_900);
     assert_eq!(rig.shown(), "working");
 }
@@ -248,10 +249,11 @@ fn another_plugins_exit_does_not_remove_a_hook_row() {
     assert_eq!(rig.shown(), "working");
 }
 
-/// An exit observed before the hook's latest report is not this session's.
+/// An exit observed before the hook's latest state report (the turn's
+/// start) is not this run's.
 #[test]
 fn an_exit_seen_before_the_hooks_report_does_not_remove_it() {
     let mut rig = Rig::running_turn("claude");
-    rig.screen(13_400, "done");
+    rig.screen(10_900, "done");
     assert_eq!(rig.shown(), "working");
 }
