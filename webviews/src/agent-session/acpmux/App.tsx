@@ -6140,10 +6140,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     );
   }, [showsWhatItIs, drewKeptTail]);
   // While the chat shows, the page keeps its drawn copy for the next launch (chatSnapshot/live.ts):
-  // the visible window, written when it goes quiet and when the page hides.
+  // the visible window, written when it goes quiet and when the page hides. Only the shared page host
+  // keeps copies (`chat.snapshot.put`); the legacy WebKit host has no such op and would count each
+  // write as the person touching the page.
   const snapshotSession = showsWhatItIs && newTab === undefined && hostError === undefined ? shownSessionId : undefined;
   useEffect(() => {
-    if (!snapshotSession) return;
+    if (!snapshotSession || !pageHostClient()) return;
     return watchChatSnapshot(snapshotSession, (params) => callNative("chat.snapshot.put", params));
   }, [snapshotSession]);
   const summary = snapshot.summary;
