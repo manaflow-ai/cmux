@@ -299,20 +299,6 @@ public struct DaemonLauncher: Sendable {
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
     }
 
-    /// The user's per-user temp directory (`confstr(_CS_DARWIN_USER_TEMP_DIR)`),
-    /// independent of the process's `TMPDIR`. Falls back to `/tmp`.
-    public static func userTemporaryDirectory() -> URL {
-        let length = confstr(_CS_DARWIN_USER_TEMP_DIR, nil, 0)
-        if length > 0 {
-            var buffer = [CChar](repeating: 0, count: length)
-            if confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, length) > 0 {
-                let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-                if !path.isEmpty { return URL(fileURLWithPath: path, isDirectory: true) }
-            }
-        }
-        return URL(fileURLWithPath: "/tmp", isDirectory: true)
-    }
-
     // MARK: - Ensure
 
     /// Environment for `server ensure`: the provider's, plus the state
@@ -356,6 +342,8 @@ public struct DaemonLauncher: Sendable {
         // may lack the option; the daemon's own restore bound ends it.
         let progress = configuration.binaryIsBundled
         let arguments = Self.ensureArguments(configuration, reapGrace: await reapGrace, progress: progress)
+        let reports = progress ? ensureOutcome.restoreReporter() : nil
+        defer { reports?.end() }
         DaemonLaunchTimings.shared.mark("daemon.ensure_start")
         defer { DaemonLaunchTimings.shared.mark("daemon.ensure_end") }
         let result = try await ProcessRunner.run(
@@ -365,6 +353,7 @@ public struct DaemonLauncher: Sendable {
             stdin: configuration.installKey?.payload,
             timeout: progress ? Self.ensureRestoreCap : max(ensureTimeout, Self.ensureRestoreCap),
             progressIdle: progress ? ensureTimeout : nil,
+            stdoutLine: reports?.line,
             clock: clock
         )
         return try Self.parseEnsure(result)

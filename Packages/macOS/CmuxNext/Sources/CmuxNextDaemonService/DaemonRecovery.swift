@@ -1,6 +1,7 @@
 import CmuxNextCompat
 public import CmuxNextDaemon
 import CmuxNextWakeups
+import Foundation
 public import Observation
 import os
 
@@ -40,6 +41,12 @@ public final class DaemonRecovery {
     public private(set) var daemonNotAnswering = false
     /// The `server ensure` a not-answering daemon's heartbeat started (``noteDaemonAnswering(_:)``); nil when none runs.
     @ObservationIgnored private var ownerProbe: Task<Void, Never>?
+    /// The session owner is restoring while the app waits for it (``EnsureOutcome/restoring``), with
+    /// `waitedMs` counted from the first report of this restore: a later ensure on the same owner reports
+    /// from its own start, and the time shown never steps back. Nil once an ensure ends.
+    public private(set) var restoring: RestoreProgressReport?
+    /// When the restore ``restoring`` reports began, and its owner; nil after a start that worked.
+    @ObservationIgnored private var restoreBegan: (pid: Int32?, at: Date)?
     /// A Restart runs (up to 20 s of probe and stop, then the new owner's start).
     public private(set) var isRestarting = false
     /// Why the last Restart did not work (the refusal code or error, for Copy
@@ -105,6 +112,26 @@ public final class DaemonRecovery {
             noteStart(outcome.failure, failedInARow: outcome.failedInARow)
         }
         noteStart(outcome.failure, failedInARow: outcome.failedInARow)
+        outcome.observeRestoring { [weak self] in self?.noteRestoring(outcome.restoring) }
+        noteRestoring(outcome.restoring)
+    }
+
+    /// The running ensure's restore progress changed (nil: it ended).
+    func noteRestoring(_ report: RestoreProgressReport?) {
+        guard var report else {
+            if restoring != nil { restoring = nil }
+            return
+        }
+        let began = report.updatedAt.addingTimeInterval(-Double(report.waitedMs) / 1000)
+        if let earlier = restoreBegan, earlier.pid == report.pid {
+            restoreBegan = (report.pid, min(earlier.at, began))
+        } else {
+            restoreBegan = (report.pid, began)
+            let pid = report.pid.map { String($0) } ?? "unknown"
+            logger.notice("cmux-tui is restoring sessions (pid \(pid, privacy: .public)); the app waits for it")
+        }
+        report.waitedMs = UInt64(max(0, report.updatedAt.timeIntervalSince(restoreBegan?.at ?? began)) * 1000)
+        if restoring != report { restoring = report }
     }
 
     /// The connected daemon answers its heartbeat (true) or left one more ask unanswered while its connection stays
@@ -146,6 +173,7 @@ public final class DaemonRecovery {
         if startFailure != failure { startFailure = failure }
         if failure == nil {
             failingSince = nil
+            restoreBegan = nil
         } else if failingSince == nil {
             failingSince = now()
         }

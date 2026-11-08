@@ -1,7 +1,7 @@
 import { type ReactNode, useId, useState } from "react";
 import { DialogButton } from "../../ui/DialogButton";
 import { Notice } from "../../ui/Notice";
-import { HOST_ERROR_DEADLINE_MS } from "./hostRetry";
+import { HOST_ERROR_DEADLINE_MS, type HostRestoring, hostRecoveryLine } from "./hostRetry";
 import { useNow } from "./subagents/subagentGroupModel";
 import { useT } from "./i18n";
 import { waitedText } from "./hostErrorModel";
@@ -147,6 +147,37 @@ export function HostWaitingLine({
           {t(restarting ? "host.restartingService" : "host.restartService")}
         </DialogButton>
       )}
+    </output>
+  );
+}
+
+/// The quiet line while the pane gets its chat back on its own (hostRetry.ts `hostRecoveryLine`):
+/// "Restoring sessions… m:ss" while the host says acpmux restores its chats, "Reconnecting…" while
+/// a lost connection comes back. No button and no card: nothing waits on the person. Otherwise
+/// (`otherwise`) the host's other line, if any.
+export function HostRecoveringLine({
+  relinkingSince,
+  restoring,
+  otherwise = null,
+  now: fixedNow,
+}: {
+  relinkingSince?: number;
+  restoring?: HostRestoring;
+  otherwise?: ReactNode;
+  /// A fixed clock for the gallery and tests; the pane passes none and the line counts each second.
+  now?: number;
+}) {
+  const t = useT();
+  const ticking = useNow(fixedNow === undefined && (relinkingSince !== undefined || restoring !== undefined));
+  const line = hostRecoveryLine({ relinkingSince, restoring, now: fixedNow ?? ticking });
+  if (!line) return otherwise;
+  return (
+    <output className="acpmux-host-line" data-host-recovering={line.kind}>
+      <p className="acpmux-host-line-message">
+        {line.kind === "restoring"
+          ? t("host.restoringSessions", { time: waitedText(line.waitedMs) })
+          : t("host.reconnecting")}
+      </p>
     </output>
   );
 }

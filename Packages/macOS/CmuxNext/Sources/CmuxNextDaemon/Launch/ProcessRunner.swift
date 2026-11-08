@@ -36,6 +36,9 @@ public struct ProcessRunner {
         // Each stderr line as the child writes it (a CLI's progress lines), on a queue of its own;
         // the last one once the child exits. Nil reads stderr only after exit, as before.
         stderrLine: (@Sendable (String) -> Void)? = nil,
+        // Each stdout line the same way (`server ensure --restore-progress`'s progress lines). The
+        // reply is still in the result's `stdout`; the progress count above is unchanged.
+        stdoutLine: (@Sendable (String) -> Void)? = nil,
         clock: any Clock<Duration>
     ) async throws -> ProcessResult {
         if let outputTailBytes, outputTailBytes <= 0 { throw DaemonError.launchFailed("output tail must be positive") }
@@ -74,6 +77,8 @@ public struct ProcessRunner {
         // Stops at the child's exit (`finish`, below) or when this throws (`cancel`).
         let lines = stderrLine.map { StderrLines(watching: stderrFile.handle.fileDescriptor, onLine: $0) }
         defer { lines?.cancel() }
+        let outLines = stdoutLine.map { StderrLines(watching: stdoutFile.handle.fileDescriptor, onLine: $0) }
+        defer { outLines?.cancel() }
 
         let box = ProcessBox(process)
         // A cancelled caller kills the child, so the waiter below ends now
@@ -124,6 +129,7 @@ public struct ProcessRunner {
             box.cancel()
         }
         lines?.finish()
+        outLines?.finish()
         return ProcessResult(status: status, stdout: stdoutFile.contents(tailBytes: outputTailBytes), stderr: stderrFile.contents(tailBytes: outputTailBytes))
     }
 

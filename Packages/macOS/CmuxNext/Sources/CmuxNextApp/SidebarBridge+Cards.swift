@@ -2,6 +2,8 @@ import CmuxNextCompat
 import Foundation
 import CmuxNextActions
 import CmuxNextAgentLanes
+import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextNowPlaying
 import CmuxNextPages
 import CmuxNextSettings
@@ -18,7 +20,8 @@ extension SidebarBridge {
         let priority = SidebarPriorityFeed(services: services).start(container.sidebarView, approvals: SidebarApprovals(environment: services.feed.acpmuxEnvironment))
         let updateButton = SidebarCardFeed.followAvailableUpdate(container.sidebarView, updater: services.updater)
         let document: @MainActor @Sendable () -> SidebarDocStore? = { [weak services] in services?.sidebarDoc.store }
-        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, document: document, registry: services.registry, settings: services.settings, asks: services.machineAsks)
+        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, document: document, registry: services.registry, settings: services.settings, asks: services.machineAsks,
+                                                 restoring: { [weak services] in services?.daemon.recovery.restoring })
             .cancelling(nowPlaying).cancelling(priority).cancelling(updateButton)
     }
 }
@@ -26,7 +29,7 @@ extension SidebarBridge {
 /// The bottom-left cards: the staged update card (UPDATE-CARD), the "cmux
 /// Updated!" card and the shared notice card for every message to the user
 /// (the update status, the test-feed notice, announcements, the "Did you
-/// know" tip; What's New is the sidebar's top item). Card actions go back
+/// know" tip, this Mac's sessions restoring; What's New is the sidebar's top item). Card actions go back
 /// to their owners.
 @MainActor
 enum SidebarCardFeed {
@@ -38,23 +41,30 @@ enum SidebarCardFeed {
     static let useRealFeedActionID = "use-real-feed"
     /// Announcement cards are `announcement:<id>`.
     static let announcementPrefix = "announcement:"
+    /// The sessions-restoring status card (``restoringCard(_:)``).
+    static let restoringCardID = "restoring"
 
     /// The cards, and with `window` its top items (`SidebarModel.followTopItems`, over the app's own sidebar
     /// `document`): one task, so the bridge cancels both together. `registry` gives the tip card its action's shortcut.
     static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?,
                       document: @escaping @MainActor @Sendable () -> SidebarDocStore?, registry: ActionRegistry? = nil,
-                      settings: SettingsController? = nil, asks: SidebarAsks? = nil) -> Task<Void, Never> {
-        let cards = start(model: model, updater: updater, registry: registry, asks: asks)
+                      settings: SettingsController? = nil, asks: SidebarAsks? = nil,
+                      restoring: (@MainActor @Sendable () -> RestoreProgressReport?)? = nil) -> Task<Void, Never> {
+        let cards = start(model: model, updater: updater, registry: registry, asks: asks, restoring: restoring)
         guard window != nil else { return cards }
         let whatsNew = model.followTopItems(document: document)
         return Task { await withTaskCancellationHandler { await cards.value } onCancel: { cards.cancel(); whatsNew.cancel() } }
     }
 
-    static func start(model: SidebarModel, updater: UpdaterService, registry: ActionRegistry? = nil, asks: SidebarAsks? = nil) -> Task<Void, Never> {
+    /// `restoring`: this Mac's session owner restoring while the app waits for it (``DaemonRecovery/restoring``); its
+    /// status card takes the notice slot after a question that waits on the person.
+    static func start(model: SidebarModel, updater: UpdaterService, registry: ActionRegistry? = nil, asks: SidebarAsks? = nil,
+                      restoring: (@MainActor @Sendable () -> RestoreProgressReport?)? = nil) -> Task<Void, Never> {
         model.updatedCard = updatedCard(updater) // before the window's first frame (relaunch layout shifts)
         return Task {
             for await (card, updated, notice) in ObservationStream({ () -> (SidebarUpdateCard?, SidebarUpdatedCard?, SidebarNoticeCard?) in
-                (updateCard(updater), updatedCard(updater), asks?.card ?? noticeCard(updater, registry: registry))
+                (updateCard(updater), updatedCard(updater),
+                 asks?.card ?? restoring?().map(restoringCard) ?? noticeCard(updater, registry: registry))
             }) {
                 if model.updateCard != card { model.updateCard = card }
                 if model.updatedCard != updated { model.updatedCard = updated }
@@ -186,6 +196,16 @@ enum SidebarCardFeed {
                                  actions: [SidebarNoticeCard.Action(id: tryActionID, title: UpdaterService.announcementActionTitle)],
                                  shortcut: registry?.shortcutDisplay(for: ActionID(rawValue: tip.action)), dismissLabel: UpdaterService.tipMenuLabel,
                                  dismissMenu: UpdaterService.tipMenu.map { SidebarNoticeCard.Action(id: $0.id, title: $0.title) }, shownAction: UpdaterService.tipShownAction, hiddenAction: UpdaterService.tipHiddenAction)
+    }
+
+    /// This Mac's sessions restoring while the app waits for them (Leo, 2026-11-08: a 30-minute restore said only that
+    /// the background service isn't connected): "Restoring sessions… 4m 12s" as a quiet status card, the update status's
+    /// look (text at the card's padding, the bar's sweep), with no button and no x. It goes once the sessions connect.
+    static func restoringCard(_ report: RestoreProgressReport) -> SidebarNoticeCard {
+        var notice = SidebarNoticeCard(id: restoringCardID, title: RefusalStrings.restoringSessions(waitedMs: report.waitedMs),
+                                       progress: .indeterminate)
+        notice.leadingSpinner = false
+        return notice
     }
 
     /// The update status as a notice: one model (``UpdateCard``), its icon,
