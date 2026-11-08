@@ -100,10 +100,6 @@ final class SidebarAnswerButton: NSView {
         if bounds.contains(convert(event.locationInWindow, from: nil)) { onPress?() }
     }
 
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .pointingHand)
-    }
-
     override func layout() {
         super.layout()
         let t = title.naturalSize, k = keyLabel.naturalSize
