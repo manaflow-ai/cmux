@@ -43,12 +43,10 @@ enum TabMoves {
         })
     }
 
-    /// `tab` leaves its pane by this move, not a close (Leo 2026-11-07: "it's trying to play the close animation when there's no need to
-    /// play that at all"): its strip drops it with no close (`TabStripModel.departures`), marked now. `target` is the pane it moves into,
-    /// nil for one the move makes; `source` the controller of the pane it leaves when the caller has it. The returned step runs after the
-    /// move's intent: with `closesPane` (the destination shows in this turn) a pane whose store records then hold no tab, and whose strip
-    /// no app-local tab, leaves in this turn on the close's one motion (router review F1: not the strip's tabs, a turn late; a script
-    /// batch's held intents leave the records as they were). It returns `completion` behind the outcome: a refusal shows the pane again.
+    /// `tab` leaves its pane by this move, not a close (Leo 2026-11-07): its strip drops it with no close (`TabStripModel.departures`),
+    /// marked now. `target`: the pane it moves into (nil: one the move makes); `source`: the pane's controller when the caller has it.
+    /// The returned step runs after the move's intent: with `closesPane` a pane whose store records then hold no tab, and whose strip no
+    /// app-local tab, leaves in this turn on the close's one motion. It returns `completion` behind the outcome (a refusal shows it again).
     @MainActor static func depart(_ tab: TabModel, into target: PaneModel? = nil, from source: PaneController? = nil,
                                   services: AppServices) -> (_ closesPane: Bool, _ then: @escaping Completion) -> Completion {
         guard let pane = services.locateTab(model: tab)?.1, pane !== target, let source = source.flatMap({ $0.pane === pane ? $0 : nil }) ?? services.paneController(for: pane) else { return { $1 } }
@@ -321,8 +319,8 @@ enum TabMoves {
     static func join(_ tabs: ArraySlice<TabModel>, workspace key: WorkspaceKey, services: AppServices) async {
         guard let daemon = tabs.first.map(services.machines.daemon(forTab:)) else { return }
         if services.workspace(id: key.rawValue) == nil { await daemon.store.refresh() }
-        guard let handle = services.workspace(id: key.rawValue)?.handle else { return }
-        for surface in tabs.map(\.surface) { _ = await daemon.request("move-tab-to-workspace") { connection -> Void in _ = try await connection.moveTab(surface, toWorkspace: handle) } }
+        guard let target = services.workspace(id: key.rawValue) else { return }
+        for tab in tabs { toWorkspace(tab, workspace: target, services: services) }
     }
 
     /// `WorkspaceModel.id` of the workspace that holds `pane` (Move Pane to Dock); nil with no pane.
@@ -373,7 +371,7 @@ enum TabMoves {
             })
             return
         }
-        let completion = depart(tab, services: services)(false, completion)
+        let stays = services.locateTab(model: tab).map { daemon.store.workspace(containing: $0.1.handle) === workspace } ?? false, completion = stays ? completion : depart(tab, services: services)(false, completion)
         services.registry.track(Task {
             let ok = await daemon.request("move-tab-to-workspace") { connection -> Void in
                 _ = try await connection.moveTab(surface, toWorkspace: handle, transaction: echoes ? transaction : nil)

@@ -127,8 +127,10 @@ extension TabStripView {
         let ids = Set(ordered.map(\.id))
         let adding = ordered.contains { cells[$0.id] == nil }
         let removing = cells.keys.contains { !ids.contains($0) && !dying.contains($0) }
-        // A tab that moved to another pane is shown there: it leaves here with no close (`departures`).
-        let closing = cells.keys.contains { !ids.contains($0) && !dying.contains($0) && !model.departures.contains($0) }
+        // A tab that moved to another pane is shown there, and one handed to a drag (`detachedID`, a detached group)
+        // is under the pointer: either leaves here with no close (`departures`; review F2 on #37735).
+        let departing = model.departures.union(modelOrdered.lazy.filter { $0.id == self.detachedID || ($0.groupID != nil && $0.groupID == self.groups.detachedGroupID) }.map(\.id))
+        let closing = cells.keys.contains { !ids.contains($0) && !dying.contains($0) && !departing.contains($0) }
         // A pane's last tab never shrinks out: its pane (or its workspace) closes as one (close cases B, C, D).
         let closesLastTab = removing && ordered.isEmpty
         let structureAnimates = (!adding || Motion.tabs.animates(.newTab)) && !closesLastTab
@@ -145,7 +147,7 @@ extension TabStripView {
         // A cell handed to its successor stays on the strip as that successor.
         let successor = Dictionary(handed.map { ($0.value, $0.key) }, uniquingKeysWith: { first, _ in first })
         for (id, cell) in cells where !ids.contains(id) && !dying.contains(id) && !handed.values.contains(id) {
-            if cellsAnimate, !model.departures.contains(id) {
+            if cellsAnimate, !departing.contains(id) {
                 // Chrome: it shrinks to the close width with its left edge pinned to the previous
                 // tab's right edge (`relayout` pins x), no fade; it goes when the tween ends.
                 dying.insert(id)
