@@ -137,7 +137,7 @@ enum TabLifecycle {
         // "follows the tab bar" rule of cx-xt5k. New Workspace (Cmd-N) opens one in a new workspace.
         // The kind is Rust's (cmux-window-rules `tabs::new_tab_kind`); agent tabs and the page live in a
         // shown pane whose daemon holds agent tabs.
-        let facts = NewTabKind.facts(tab, id: selectedID, agent: onAgentTab, newTabPage: onAgentTab && selectedID.map(ctx.services.agentTabs.isNewTabPage) == true,
+        let facts = NewTabKind.facts(tab, id: selectedID, agent: onAgentTab, newTabPage: onAgentTab && selectedID.map { ctx.services.agentTabs.isNewTabPage($0) } == true,
                                      user: user, followsSetting: followsSetting, canHostAgent: controller.map { ctx.services.agentTabs.canHost(on: $0.daemon) } ?? false)
         // The position action's slot, else a person's setting (the +: `tabs.newTabButtonPosition`, else `tabs.newTabPosition`), else the end (NewTabSlot).
         let slot = NewTabSlot.target(current: tab, pane: pane.tabs, explicit: position, user: user, setting: invocation[StripNewTab.button]?.boolValue == true
