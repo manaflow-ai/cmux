@@ -116,6 +116,37 @@ test("a queue row the list says is the person's drops the agent's name its recor
   expect(mergeQueue(current, [{ promptId: "p1", prompt: "Rebase first" }])).toEqual(current);
 });
 
+// An agent's message the person edited, and a prompt acpmux could not attribute, are no agent's to
+// act on (`fromAgent` null) but still name a sender: acpmux lists their provenance, so a pane that
+// never read their record (an attach, a reconnect) draws their card and its mark, never the
+// person's own row.
+test("a listed edited or unverified prompt keeps its sender card without its record", () => {
+  const edited = mergeQueue(
+    [],
+    [
+      {
+        promptId: "p1",
+        prompt: "my words",
+        fromAgent: null,
+        provenance: { kind: "agent_message", from: "acp:s-a", fromName: "lane-a", editedBy: { actor: "owner" } },
+      },
+    ],
+  );
+  expect(edited[0]?.message).toMatchObject({ name: "lane-a", edited: true, text: "my words" });
+  const unverified = mergeQueue(
+    [],
+    [
+      {
+        promptId: "p2",
+        prompt: "deploy now",
+        fromAgent: null,
+        provenance: { kind: "unverified", to: "s2", transport: "unix", verified: false },
+      },
+    ],
+  );
+  expect(unverified[0]?.message).toMatchObject({ unverified: true });
+});
+
 // A shared chat: a teammate's prompt is not another agent's message, and acpmux's queue list keeps
 // the author its `queued` record named.
 test("a teammate's queued prompt keeps its author through acpmux's list", () => {

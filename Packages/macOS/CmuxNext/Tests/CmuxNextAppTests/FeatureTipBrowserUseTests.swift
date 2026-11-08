@@ -69,11 +69,11 @@ import Testing
     }
 
     /// History and Agent Activity open in a browser tab but are the app's own pages: no browser use.
-    @Test(arguments: [HistoryPageAddress.string, AgentActivityPageAddress.string])
+    @Test(arguments: [URL.historyPageString, AgentActivityPageAddress.string])
     func anAppPageIsNotBrowserUse(_ address: String) throws {
         let services = AppServices(environment: AppEnvironment.current([:]))
         let notes = counting(services.cache)
-        let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: address == HistoryPageAddress.string ? 7102 : 7103), kind: .browser,
+        let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: address == URL.historyPageString ? 7102 : 7103), kind: .browser,
                                        url: address, browserRenderer: "frontend", browserEngine: "webkit"))
         defer { services.cache.release(tab.id) }
         let entry = try #require(services.cache.appPage(for: tab, url: URL(string: address)))

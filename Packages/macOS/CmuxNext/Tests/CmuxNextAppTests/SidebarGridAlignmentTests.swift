@@ -423,7 +423,8 @@ extension SidebarGridAlignmentTests {
             let ink = try #require(item.glyphInkFrame)
             // Band rows own their outer inset: the row starts at the sidebar edge less the rail inset (0 here).
             let lead = Self.lead(comfortable) - origin + SidebarStyle.horizontalInset
-            #expect(abs(ink.minX - lead) <= 0.5)
+            // A band row's glyph centers its ink in the icon column (https://github.com/manaflow-ai/cmux/issues/38061).
+            #expect(abs(ink.midX - (lead + box / 2)) <= 0.5)
             #expect(abs(item.titleFrame.minX - (lead + box) - 8) <= 0.5)
         }
     }

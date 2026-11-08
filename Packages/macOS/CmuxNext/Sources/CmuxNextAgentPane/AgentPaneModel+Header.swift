@@ -260,6 +260,9 @@ extension AgentPaneModel {
         case .sessionInfoOverlays(let rects):
             sessionInfo.updateOverlays(rects)
             return AgentPaneReply.success()
+        case .toastAvoidance(let rect):
+            setToastAvoidance(rect)
+            return AgentPaneReply.success()
         case .hostGlass(let surfaces):
             // Drawn before the reply: the page shows a surface once this answers (hostGlass.ts).
             hostGlass.update(surfaces)
@@ -292,8 +295,8 @@ extension AgentPaneModel {
             state["moves"] = offeredMoves()
             state["moveTargets"] = header.moveTargets().map(\.reply)
             return AgentPaneReply.success(state)
-        case .sideChat(let fork):
-            return await AgentPaneSideChat.open(fork, in: self)
+        case .sideChat(let fork, let splitRight):
+            return await AgentPaneSideChat.open(fork, splitRight: splitRight, in: self)
         case .subagentPane(let agent, let focus, let title, let tone):
             // The chat's own subagent, in a pane of its own; not from a New Tab page. A refusal
             // answers `opened: false`, and the page shows the subagent in this pane instead.
@@ -358,11 +361,15 @@ enum AgentPaneSideChat {
         return RemoteAgentSessionLinks.shared.descends(session, from: chat, host: model.transport.remoteHostID)
     }
 
-    static func open(_ fork: String, in model: AgentPaneModel) async -> [String: Any] {
+    /// `splitRight`: `/side`'s side chat opens in a new split right of the chat, half its width,
+    /// whatever is on the right already: the chat's ``AgentSidePanes`` tracker marks it so, and the
+    /// app's open reads the mark (#38042: "/side just opens a side chat (forked) as a right split").
+    static func open(_ fork: String, splitRight: Bool = false, in model: AgentPaneModel) async -> [String: Any] {
         guard let sessionId = model.sessionId, model.newTab == nil, fork != sessionId, holds(fork, chat: sessionId, in: model),
               let header = model.header else {
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.sideChat")
         }
+        if splitRight { AgentSidePanes.chat(sessionId).splitRight(fork) }
         header.openSide(sessionId, fork)
         return AgentPaneReply.success()
     }
@@ -380,5 +387,14 @@ extension AgentPaneModel {
         }
         let moves: Set<String> = ["cloudMove", "cloudBringBack"]
         return ids(chatMenuItems?() ?? []).filter(moves.contains)
+    }
+}
+
+extension AgentPaneModel {
+    /// Keeps the page's bottom stack (`pane.toastAvoidance`); a change moves the window's toasts.
+    func setToastAvoidance(_ rect: CGRect?) {
+        guard rect != toastAvoidance else { return }
+        toastAvoidance = rect
+        onToastAvoidance?()
     }
 }

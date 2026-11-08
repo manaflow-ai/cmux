@@ -17,6 +17,7 @@ import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
 import { agentCall, type AgentCall } from "./agentCalls";
 import { isThought, mergeThoughts } from "./thoughts";
 import { finishedBackgroundPhrase, isFoldedRun } from "./toolRunSummary";
+import { commandGroupSaid } from "./commandActions";
 
 /// The kinds of call that group with their neighbors.
 export type ToolGroupKind = "commands" | "reads" | "edits" | "searches";
@@ -439,8 +440,8 @@ export function isDraftCall(tool: Tool): boolean {
     isRunning(tool) &&
     tool.kind === "execute" &&
     isBareShellName(tool, tool.title) &&
-    // A description alone is still nothing to show: the row reads as its command, never as Bash's
-    // description (toolPaths.ts toolLabel).
+    // A description alone is still nothing to show: a running row reads as its command, never as
+    // Bash's description (commandActions.ts commandSaid).
     !tool.output &&
     !tool.background &&
     !tool.diffs?.length &&
@@ -489,7 +490,14 @@ export function toolGroupLabel(
       // header does, joined as the run's sentence: "Finished 2 background tasks and ran 3 commands"
       // (toolRunSummary.ts).
       const finished = running ? undefined : finishedBackgroundPhrase(t, calls);
-      if (!finished) return t(running ? "tools.running" : "tools.ran", { n: calls.length });
+      // Commands that all did one thing say it, "Searched memory twice" (commandActions.ts).
+      if (!finished)
+        return (
+          commandGroupSaid(
+            t,
+            calls.map((item) => item.tool!),
+          ) ?? t(running ? "tools.running" : "tools.ran", { n: calls.length })
+        );
       const ran = calls.length === 1 ? t("toolRun.ran.one") : t("toolRun.ran.other", { n: calls.length });
       const text = [finished, ran].join(t("toolRun.and"));
       return text.charAt(0).toUpperCase() + text.slice(1);
@@ -556,6 +564,17 @@ export function runStretches(row: Pick<AcpmuxRow, "foldRun">, groups: readonly T
   close();
   if (row.foldRun !== true) for (const stretch of stretches) stretch.fold = false;
   return stretches;
+}
+
+/// How a run's stretch starts, one answer for ToolRows (TurnRows.tsx) to draw and for model.ts to
+/// estimate, so the two never drift apart. `lineOpen`: a folding stretch's summary line starts open
+/// (`runOpen`, a steered turn's opened Worked for). `groupsClosed`: the groups of a stretch a folded
+/// run keeps on their own lines start closed (ToolGroupRow `folded`), unless `runOpen` opens them too.
+export function stretchStart(row: AcpmuxRow, stretch: RunStretch): { lineOpen: boolean; groupsClosed: boolean } {
+  return {
+    lineOpen: stretch.fold && row.runOpen === true,
+    groupsClosed: row.foldRun === true && !stretch.fold && row.runOpen !== true,
+  };
 }
 
 /// An entry a folded run keeps in sight beside its summary lines: a coordination card (who else

@@ -44,7 +44,8 @@
 import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "./icons/Icon";
-import { QueuedImages, type QueuedVideo } from "./QueuedImages";
+import { QueuedImages } from "./QueuedImages";
+import type { QueuedVideo } from "./queuedImagesModel";
 import { framesNoteVideo } from "./composer/videoPrompt";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { ComposerAttachment } from "./attachments";

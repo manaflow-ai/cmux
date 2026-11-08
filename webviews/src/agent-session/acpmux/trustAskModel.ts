@@ -1,4 +1,4 @@
-import { projectName } from "./EmptyState";
+import { projectName } from "./emptyStateModel";
 import { type Translate } from "./i18n";
 import type { FolderTrustAsk } from "./useFolderTrustAsk";
 

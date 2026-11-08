@@ -1,5 +1,4 @@
 import { useRef, useState } from "react";
-
 import { useT } from "./i18n";
 import { isAgentHome } from "./sessionList";
 import type { FolderTrustAsk } from "./useFolderTrustAsk";

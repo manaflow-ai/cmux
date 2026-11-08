@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Combobox } from "../../ui/Combobox";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { Popover } from "../../ui/Popover";
-import { BrowseFailure, browseFailureMessage } from "./BrowseFailure";
+import { BrowseFailure } from "./BrowseFailure";
+import { browseFailureMessage } from "./browseFailureModel";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import { Spinner } from "./conversation/icons";
@@ -14,10 +15,8 @@ import {
   type RunRowDetails,
   type EnvironmentFaceStyle,
   type SavedEnvironmentRows,
-  SECTION_LABELS,
-  environmentStateLabel,
-  useMachineRefresh,
 } from "./EnvironmentPicker";
+import { SECTION_LABELS, environmentStateLabel, useMachineRefresh } from "./environmentPickerModel";
 import { machineColor } from "./machineColor";
 import {
   isCloudMachineRow,
@@ -50,7 +49,7 @@ import {
   type ExtraFolderRows,
 } from "./extraFolders";
 import type { BrowseRequest } from "./AddProjectPanel";
-import type { BrowseResult } from "./AddProjectPanel";
+import type { BrowseResult } from "./addProjectPanelModel";
 import type { Project } from "./ProjectChooser";
 import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";

@@ -586,9 +586,8 @@ section h3 {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border-radius: 12px;
+  /* The sheet role's veil, radius and depth (ui/popupSurface.css .ui-dialog.ui-glass). */
   color: var(--cmux-text, CanvasText);
-  --glass-elevation: var(--elevation-2);
 }
 
 .activity-viewer-dialog .viewer-stage {

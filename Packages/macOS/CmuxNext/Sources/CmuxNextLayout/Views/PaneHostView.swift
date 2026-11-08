@@ -341,10 +341,12 @@ final class PaneHostView: NSView, RestingPlacement {
     /// does not change size in a spring, so the area changes by the same amount. In the key's turn (T-KEYS 3) the hold
     /// has not begun: the press's first refresh begins it (``isOnLayoutSpring``), and the area that hold will hold tells
     /// the followers it will hand that refresh's size now, so the frame that shows the press has their frames drawn.
-    func drawAhead(sizeChange: CGSize) { // perf-hot: 1ms motion-frame
+    /// `keyPress`: false for a snapped structural change (``ScreenContentView`` `holdsSnapForContent`): its size goes to
+    /// the renderer only, and its grid at the landing.
+    func drawAhead(sizeChange: CGSize, keyPress: Bool) { // perf-hot: 1ms motion-frame
         if holdsUntilAfterLanding, let heldArea { return heldArea.drawAhead(sizeChange: sizeChange) }
         guard !holdsUntilAfterLanding, !isOnLayoutSpring, let area = (content as? PaneMotionHolding)?.paneMotionHoldArea else { return }
-        area.drawAheadOfHold(sizeChange: sizeChange)
+        area.drawAheadOfHold(sizeChange: sizeChange, keyPress: keyPress)
     }
 
     /// The held area rides the key hold's edges in each frame, and lets go when the hold ends, before the content hears
