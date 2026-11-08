@@ -1619,7 +1619,7 @@ mod checked_source_tests {
         let path = inside.join("app.toml");
         let meta = std::fs::symlink_metadata(&path).unwrap();
         let file = LocalFile {
-            source: Source::Checked(path.clone(), (meta.dev(), meta.ino())),
+            source: Source::Checked(path, (meta.dev(), meta.ino())),
             permissions: 0o644,
         };
         assert!(open(&file).is_ok());
