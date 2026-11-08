@@ -11,7 +11,8 @@ struct FloatingGlassStyleTests {
         ReduceTransparency(system: { on }, changes: NotificationCenter())
     }
 
-    /// The veil is gray, never a theme hue, and the rim is brighter at the top than the bottom.
+    /// The look's veil is gray (the toast paints it in the theme's tint, ``Palette/veil(of:)``),
+    /// and the rim is brighter at the top than the bottom.
     @Test(arguments: [false, true])
     func theLookIsNeutralWithATopLitRim(isDark: Bool) {
         for style in [FloatingGlassStyle.toast, .dialog, .card] {
