@@ -7,6 +7,7 @@ it was a new red on 9 of 40 sampled red pull request runs (2026-10-30). The hist
 so guards_new_reds.py --flaky keeps it a warning, while a test a push really broke stays the change's.
 """
 import io
+import itertools
 import json
 from pathlib import Path
 import re
@@ -261,7 +262,7 @@ class Fetch(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "h" / "history.json"
             done = subprocess.run([sys.executable, str(SCRIPT), "fetch", str(out), "--repo", "o/r", "--branch", "b"],
-                                  capture_output=True, text=True, env={"PATH": "/usr/bin:/bin",
+                                  capture_output=True, text=True, env={"PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin",
                                                                       "GITHUB_API_URL": "http://127.0.0.1:9"})
             self.assertEqual(done.returncode, 0, done.stderr)
             self.assertEqual(json.loads(out.read_text()), {"runs": []})
@@ -331,6 +332,35 @@ class Workflow(unittest.TestCase):
             block = job[job.index("    permissions:\n"):].split("\n    ", 3)
             self.assertEqual(block[1:3], ["  contents: read", "  actions: read"], name)
         self.assertNotIn("permissions:", self.job("react-apps-check-shard"))
+
+    def test_the_replay_fetches_the_history_unless_the_head_results_say_no_reds(self):
+        # Head results it cannot read are unknown, not "no reds": skipping the fetch then left the flaky list empty.
+        base = self.job("react-apps-base-check")
+        step = base[base.index("      - name: Restore the base's webview test history"):]
+        step = step[:step.index("\n      - name:", 10)]
+        body = step[step.index("        run: |\n") + len("        run: |\n"):].splitlines()
+        script = "\n".join(line[10:] for line in itertools.takewhile(lambda line: line.startswith(" " * 10), body))
+
+        def fetched(results):
+            with tempfile.TemporaryDirectory() as temp:
+                runner = Path(temp, "head-results/runner")
+                runner.mkdir(parents=True)
+                (runner / "webviews_test_results.py").write_text(
+                    (ROOT / "scripts/ci/webviews_test_results.py").read_text(encoding="utf-8"), encoding="utf-8")
+                (runner / "webviews_test_history.py").write_text(
+                    "import pathlib, sys\npathlib.Path(sys.argv[0]).with_name('fetched').touch()\n", encoding="utf-8")
+                head = Path(temp, "head-results/webviews-head-results.json")
+                if results is not None:
+                    head.write_text(results, encoding="utf-8")
+                subprocess.run(["bash", "-c", script], check=True, capture_output=True, env={
+                    "PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin", "RUNNER_TEMP": temp, "HEAD_RESULTS": str(head),
+                    "GITHUB_REPOSITORY": "manaflow-ai/cmux", "BASE_REF": "feat-cmux-next"})
+                return (runner / "fetched").exists()
+
+        self.assertFalse(fetched(json.dumps({f"{FILE} > a": True})))
+        self.assertTrue(fetched(json.dumps({f"{FILE} > a": False})))
+        self.assertTrue(fetched(None))  # missing
+        self.assertTrue(fetched("{not json"))  # unreadable
 
 
 if __name__ == "__main__":
