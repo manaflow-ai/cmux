@@ -1,25 +1,16 @@
-// Real Chromium from Playwright, against the gallery's mounted composer. The probe drives the
-// composition boundary for Korean 2-set, Japanese kana-kanji, Simplified Chinese pinyin and
-// Vietnamese Telex, then verifies one exact host prompt and one normal submit Return.
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+// cmux-web-test-timeout: 300
+// CDP changes Chromium's actual marked range: no replacing ProseMirror's DOM by hand.
+// These traces cover the browser boundary, not an installed OS input method's candidate UI.
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import type { ViteDevServer } from "vite";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
-import { requireBrowserLane } from "./support/requireBrowserLane";
-
-type PromptCall = { method: string; params?: { text?: unknown; prompt?: unknown } };
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("ime-composer-probes.browser.test.ts", async () => {
-  setDefaultTimeout(180_000);
-  try {
-    await (await chromium.launch({ headless: true })).close();
-  } catch {
-    console.warn("ime-composer-probes: skipping (run `bunx playwright install chromium`)");
-    describe.skip("IME composer probes", () => test("chromium", () => {}));
-    return;
-  }
-
+  setDefaultTimeout(60_000);
+  if (!(await probeEngineOrSkip("IME composer probes", "chromium", chromium))) return;
   let gallery: ViteDevServer | undefined;
   let browser: Browser | undefined;
 
@@ -33,108 +24,82 @@ await requireBrowserLane("ime-composer-probes.browser.test.ts", async () => {
     });
     await gallery.listen();
     browser = await chromium.launch({ headless: true });
-    await warmGalleryFrame(gallery, "agent-pane.composer", { browser, params: { variant: "idle" } });
-  });
+    await warmGalleryFrame(gallery, "agent-pane.composer-ime", { browser, params: { variant: "empty" } });
+  }, 180_000);
 
   afterAll(async () => {
     await browser?.close();
     await gallery?.close();
   });
 
-  const stageURL = () =>
-    `http://127.0.0.1:${(gallery!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.composer", {
-      variant: "idle",
-      width: 760,
-    })}`;
-
-  async function dispatchImeKey(page: Page, key: string, isComposing: boolean) {
-    await page.evaluate(
-      ({ key, isComposing }) => {
-        const target = document.activeElement ?? document.body;
-        const event = new KeyboardEvent("keydown", {
-          key,
-          code: key === "Enter" ? "Enter" : key,
-          keyCode: 229,
-          isComposing,
-          bubbles: true,
-          cancelable: true,
-        });
-        if (event.keyCode !== 229) Object.defineProperty(event, "keyCode", { get: () => 229 });
-        target.dispatchEvent(event);
-      },
-      { key, isComposing },
-    );
+  async function openComposer() {
+    const page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
+    const port = (gallery!.httpServer!.address() as { port: number }).port;
+    await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.composer-ime", { variant: "empty", width: 760 })}`);
+    await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+    await page.locator(".acpmux-md").focus();
+    return page;
   }
 
-  async function dispatchSubmitReturn(page: Page) {
+  async function sent(page: Page) {
+    return JSON.parse((await page.locator('output[aria-label="Sent prompts"]').textContent())!);
+  }
+
+  async function submit(page: Page, expected: string) {
+    expect(await page.locator(".acpmux-md").textContent()).toBe(expected);
+    expect(await sent(page)).toEqual([]);
     await page.locator(".acpmux-md").press("Enter");
+    await page.waitForFunction(() => document.querySelector('output[aria-label="Sent prompts"]')?.textContent !== "[]");
+    expect(await sent(page)).toEqual([expected]);
+    expect(await page.locator(".acpmux-md").textContent()).toBe("");
   }
 
-  async function compose(page: Page, preedit: string, committed: string, candidate = false) {
-    await page.focus(".acpmux-md");
-    await page.evaluate((data) => {
-      const field = document.querySelector<HTMLElement>(".acpmux-md")!;
-      field.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true, data: "" }));
-      field.dispatchEvent(new CompositionEvent("compositionupdate", { bubbles: true, data }));
-      field.textContent = data;
-      field.dispatchEvent(
-        new InputEvent("input", { bubbles: true, data, inputType: "insertCompositionText", isComposing: true }),
-      );
-    }, preedit);
-    if (candidate) {
-      await dispatchImeKey(page, "ArrowDown", true);
-      await dispatchImeKey(page, "Enter", true);
+  test("plain typing reaches the real composer send callback", async () => {
+    const page = await openComposer();
+    try {
+      await page.keyboard.insertText("hello");
+      await submit(page, "hello");
+    } finally {
+      await page.close();
     }
-    await page.evaluate((data) => {
-      const field = document.querySelector<HTMLElement>(".acpmux-md")!;
-      field.textContent = data;
-      field.dispatchEvent(
-        new InputEvent("input", { bubbles: true, data, inputType: "insertText", isComposing: false }),
-      );
-      field.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data }));
-    }, committed);
-    // WebKit sends the candidate-commit key after compositionend as keyCode 229.
-    if (candidate) await dispatchImeKey(page, "Enter", false);
-  }
+  });
 
   const probes = [
-    { name: "Korean 2-set", preedit: "annyeonghaseyo", committed: "안녕하세요", candidate: false },
-    { name: "Japanese kana-kanji", preedit: "nihongo", committed: "日本語", candidate: true },
-    { name: "Simplified Chinese pinyin", preedit: "nihao", committed: "你好", candidate: true },
-    { name: "Vietnamese Telex", preedit: "tieeng Vieetj", committed: "tiếng Việt", candidate: false },
-  ] as const;
+    { name: "korean", updates: ["ㅇ", "아", "안", "안ㄴ", "안녀", "안녕", "안녕ㅎ", "안녕하", "안녕하ㅅ", "안녕하세", "안녕하세ㅇ", "안녕하세여", "안녕하세요"], committed: "안녕하세요", candidate: false },
+    { name: "japanese", updates: ["に", "にほ", "にほん", "にほんご", "日本語"], committed: "日本語", candidate: true },
+    { name: "chinese", updates: ["n", "ni", "nih", "nihao", "你好"], committed: "你好", candidate: true },
+    { name: "vietnamese", updates: ["t", "ti", "tie", "tiê", "tiên", "tiêng", "tiếng", "tiếng V", "tiếng Vi", "tiếng Vie", "tiếng Viê", "tiếng Viêt", "tiếng Việt"], committed: "tiếng Việt", candidate: false },
+  ];
 
-  for (const probe of probes)
-    test(`${probe.name} composition commits once and one Enter sends it`, async () => {
-      const page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
-      await page.goto(stageURL());
-      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-      await compose(page, probe.preedit, probe.committed, probe.candidate);
-      await page.waitForFunction(
-        (expected) => document.querySelector(".acpmux-md")?.textContent === expected,
-        probe.committed,
-      );
-      if (process.env.FAST_CHECKS_OUT) {
-        await page.screenshot({ path: path.join(process.env.FAST_CHECKS_OUT, `ime-${probe.name}-composed.png`) });
+  for (const probe of probes) {
+    test(`${probe.name}: replacing preedit and committing preserves one exact prompt`, async () => {
+      const page = await openComposer();
+      const cdp = await page.context().newCDPSession(page);
+      try {
+        for (const text of probe.updates) {
+          await cdp.send("Input.imeSetComposition", { text, selectionStart: text.length, selectionEnd: text.length });
+          expect(await page.locator(".acpmux-md").textContent()).toBe(text);
+          expect(await sent(page)).toEqual([]);
+        }
+        if (probe.candidate) {
+          // Candidate navigation/confirmation belongs to the input method, not the composer.
+          await page.locator(".acpmux-md").evaluate((field) => {
+            for (const key of ["ArrowDown", "Enter"]) {
+              field.dispatchEvent(new KeyboardEvent("keydown", { key, keyCode: 229, isComposing: true, bubbles: true, cancelable: true }));
+            }
+          });
+          expect(await sent(page)).toEqual([]);
+        }
+        await cdp.send("Input.insertText", { text: probe.committed });
+        expect(await page.locator(".acpmux-md").textContent()).toBe(probe.committed);
+        if (process.env.FAST_CHECKS_OUT) {
+          await page.screenshot({ path: path.join(process.env.FAST_CHECKS_OUT, `ime-${probe.name}-composed.png`) });
+        }
+        await submit(page, probe.committed);
+      } finally {
+        await cdp.detach();
+        await page.close();
       }
-      await dispatchSubmitReturn(page);
-      await page.waitForFunction(() => {
-        const log = (window as unknown as { cmuxGalleryLog: PromptCall[] }).cmuxGalleryLog;
-        return log.some(({ method }) => method === "chat.send");
-      });
-      if (process.env.FAST_CHECKS_OUT) {
-        await page.screenshot({ path: path.join(process.env.FAST_CHECKS_OUT, `ime-${probe.name}-submitted.png`) });
-      }
-      const result = await page.evaluate(() => {
-        const log = (window as unknown as { cmuxGalleryLog: PromptCall[] }).cmuxGalleryLog;
-        const prompts = log.filter(({ method }) => method === "chat.send").map(({ params }) => params?.text ?? params?.prompt);
-        return {
-          prompts,
-          draft: document.querySelector<HTMLElement>(".acpmux-md")?.textContent ?? "",
-        };
-      });
-      await page.close();
-      expect(result.prompts).toEqual([probe.committed]);
-      expect(result.draft).toBe("");
     });
+  }
 });
