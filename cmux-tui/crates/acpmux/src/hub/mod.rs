@@ -61,6 +61,8 @@ mod peer_notice_cost_tests;
 #[cfg(test)]
 mod prompt_accept_tests;
 #[cfg(test)]
+mod sender_claim_tests;
+#[cfg(test)]
 mod shutdown_scan_tests;
 #[cfg(test)]
 mod shutdown_tests;
@@ -1397,6 +1399,8 @@ impl Hub {
         // A chat that moved away stays frozen after a restart: every prompt, queue, draft and
         // policy change refuses it as while it moved (`queue::moving_error`).
         let moving = meta.moved_to.as_ref().map(|_| transfer_out::MOVED_AWAY.to_owned());
+        // Every start of a session whose creator asked waits on its harness (`SessionMeta::wait_start`).
+        let wait_start = meta.wait_start;
         let session = Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
@@ -1467,7 +1471,7 @@ impl Hub {
             steering: AtomicBool::new(steering),
             backgrounds_work: AtomicBool::new(backgrounds_work),
             person: AtomicBool::new(false),
-            wait_start: AtomicBool::new(false),
+            wait_start: AtomicBool::new(wait_start),
             steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),

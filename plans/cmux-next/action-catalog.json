@@ -92998,6 +92998,75 @@
       "arguments" : [
 
       ],
+      "category" : "window",
+      "cliName" : "home undock-chief",
+      "computed" : {
+        "canonical_action_id" : "home.undockChief",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "LayoutActionCatalog",
+      "id" : "home.undockChief",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "chief",
+        "dock",
+        "undock",
+        "unpin",
+        "float",
+        "panel",
+        "window",
+        "home",
+        "chat",
+        "side",
+        "left"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "sidebar.left",
+      "targets" : [
+        "window"
+      ],
+      "title" : "Undock Chief",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
       "category" : "pane",
       "cliName" : "pane move-to-dock",
       "computed" : {
@@ -110925,10 +110994,26 @@
                   "string" : "home-dock"
                 }
               ]
+            },
+            {
+              "equals" : [
+                "topPage",
+                {
+                  "string" : "import-history"
+                }
+              ]
+            },
+            {
+              "equals" : [
+                "pageId",
+                {
+                  "string" : "cmux.import-history"
+                }
+              ]
             }
           ]
         },
-        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
       },
       {
         "argument" : null,
@@ -110971,10 +111056,26 @@
                   "string" : "home-dock"
                 }
               ]
+            },
+            {
+              "equals" : [
+                "topPage",
+                {
+                  "string" : "import-history"
+                }
+              ]
+            },
+            {
+              "equals" : [
+                "pageId",
+                {
+                  "string" : "cmux.import-history"
+                }
+              ]
             }
           ]
         },
-        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
       },
       {
         "argument" : null,
@@ -111016,10 +111117,26 @@
                   "string" : "home-dock"
                 }
               ]
+            },
+            {
+              "equals" : [
+                "topPage",
+                {
+                  "string" : "import-history"
+                }
+              ]
+            },
+            {
+              "equals" : [
+                "pageId",
+                {
+                  "string" : "cmux.import-history"
+                }
+              ]
             }
           ]
         },
-        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
       },
       {
         "argument" : null,
@@ -111061,10 +111178,26 @@
                   "string" : "home-dock"
                 }
               ]
+            },
+            {
+              "equals" : [
+                "topPage",
+                {
+                  "string" : "import-history"
+                }
+              ]
+            },
+            {
+              "equals" : [
+                "pageId",
+                {
+                  "string" : "cmux.import-history"
+                }
+              ]
             }
           ]
         },
-        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+        "when_text" : "topPage == home || surfaceKind == home || surfaceKind == home-dock || topPage == import-history || pageId == cmux.import-history"
       },
       {
         "argument" : null,

@@ -9,9 +9,7 @@ import { useT } from "../i18n";
 import { machineColor } from "../machineColor";
 import { useAvatarPicture } from "../../../pages/home-channels/avatars";
 import { initials, isGuest, type Participant } from "./participants";
-
-/// Faces the header shows before "+N".
-export const PRESENCE_STACK = 3;
+import { PRESENCE_STACK } from "./facesModel";
 
 /// An https picture the page could not load itself, as the host loaded it (`data:`), or null when the
 /// host would not: asked once per link for the page's life.

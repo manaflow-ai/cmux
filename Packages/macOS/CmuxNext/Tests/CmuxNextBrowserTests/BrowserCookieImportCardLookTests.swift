@@ -82,6 +82,30 @@ import Testing
         #expect(answers.count == 3, "a closing card answers nothing more")
     }
 
+    /// Keep in sync (Leo 2026-11-07: "we should be able to, like, just keep it in sync always"): a
+    /// checkbox under the detail, on by default; its state goes to the host with Import only.
+    @Test func keepInSyncGoesWithImportOnly() throws {
+        var kept: [Bool] = []
+        var offer = Self.offer
+        offer.keepInSyncTitle = "Keep in sync"
+        offer.onKeepInSync = { kept.append($0) }
+        let page = FakePage()
+        let card = Self.card(page, offer: offer)
+        let state = try #require(page.pushed.last)
+        #expect(state["keepInSyncTitle"] as? String == "Keep in sync")
+        #expect(state["keepInSync"] as? Bool == true, "on by default")
+        var answers: [BrowserCookieImportChoice] = []
+        card.onChoice = { answers.append($0) }
+        page.send("command", ["type": "notNow", "keepInSync": false, "revision": 1])
+        #expect(kept.isEmpty, "Not Now keeps the setting as it was")
+        page.send("command", ["type": "import", "keepInSync": false, "revision": 1])
+        #expect(kept == [false] && answers == [.notNow, .importCookies])
+
+        let plain = FakePage()
+        _ = Self.card(plain)
+        #expect(plain.pushed.last?["keepInSyncTitle"] == nil, "a browser whose cookies cannot be kept in sync shows no checkbox")
+    }
+
     @Test func theCardShowsAtTheHeightThePageMeasuredAndFollowsItsChanges() throws {
         let page = FakePage()
         let card = Self.card(page)

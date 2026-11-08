@@ -39,7 +39,7 @@ import PackageDescription
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
 //   CmuxNextRemoteLayer -> QuartzCore only (ObjC header: CALayerHost, the remote layer a layer-hosted
 //     Chromium page draws through; plans/cmux-next/cef-layer-hosting-DESIGN.md)
-//   CmuxNextBrowserImport -> system frameworks only (browser detection, parsers, importer; no UI)
+//   CmuxNextBrowserImport -> CCmuxAppFFI (imported cookies' sync), system frameworks (browser detection, parsers, importer; no UI)
 //   CmuxNextBrowserHistory -> Browser, Daemon, Compat (a browser tab's saved history across relaunches; no UI)
 //   CmuxNextOnboarding -> Design, Icons, BrowserImport (first-run window; the App supplies OnboardingServices)
 //   CmuxNextHomeModel -> DesignTokens, Icons, CmuxHomeCore, CmuxHomeRender (the Home models, tunables and their
@@ -666,6 +666,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextBrowserImport",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                // CCmuxAppFFI: imported cookies' sync (cmux-cookie-sync; ImportCookieSync).
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
             ],
