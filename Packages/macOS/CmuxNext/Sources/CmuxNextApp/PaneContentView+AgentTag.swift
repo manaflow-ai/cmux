@@ -23,11 +23,8 @@ extension PaneContentView {
     /// pane's header (a toolbar's buttons, a chat's header), the agent tag left of it.
     func layoutAgentTag() {
         let host = contentHost.frame, top = barPosition == .top && !isBandActive && stripView.frame.height > 0 && host.minY < stripView.frame.maxY ? stripView.frame.maxY : host.minY
-        if zoomIndicator == nil, stripView.model.zoomsSelected { // its first zoom (a zoom lays the pane out)
-            let indicator = PaneZoomIndicatorView(model: stripView.model)
-            addSubview(indicator, positioned: .above, relativeTo: agentTag)
-            zoomIndicator = indicator
-        }
+        if zoomIndicator == nil, stripView.model.zoomsSelected { zoomIndicator = PaneZoomIndicatorView(model: stripView.model) } // its first zoom lays the pane out
+        if let zoomIndicator, zoomIndicator.superview !== self { addSubview(zoomIndicator, positioned: .above, relativeTo: agentTag) }
         let trailing = zoomIndicator?.place(in: host, top: max(top, paneHeaderHeight)) ?? 0
         guard !agentTag.isHidden, !isBandActive else { agentTag.frame = .zero; return }
         agentTag.place(in: host, top: top, trailing: trailing)
