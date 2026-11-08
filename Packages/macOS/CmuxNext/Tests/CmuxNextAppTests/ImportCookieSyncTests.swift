@@ -29,6 +29,19 @@ import Testing
         }
     }
 
+    /// A Keychain that answers after half a second (a prompt the person is reading), counting its prompts.
+    private final class Slow: SafeStorageKeyProviding {
+        private let base: FixtureSafeStorage
+        private let count = OSAllocatedUnfairLock(initialState: 0)
+        var asked: Int { count.withLock { $0 } }
+        init(_ base: FixtureSafeStorage) { self.base = base }
+        func password(service: String) throws(CookieImportError) -> SecretBytes {
+            count.withLock { $0 += 1 }
+            Thread.sleep(forTimeInterval: 0.5)
+            return try base.password(service: service)
+        }
+    }
+
     /// What the sync told the person.
     private final class Said: Sendable {
         private let said = OSAllocatedUnfairLock<[String]>(initialState: [])
@@ -184,6 +197,25 @@ import Testing
         #expect(await sync.watched.isEmpty)
     }
 
+    /// Turned off while a change is importing (the Keychain prompt still up): nothing is written.
+    @Test func turningItOffMidImportWritesNothing() async throws {
+        let fixture = try await Self.fixture(hosts: [".one.example"])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let jar = Jar()
+        let keys = Slow(FixtureSafeStorage(passwords: ["Chrome Safe Storage": "fixture"]))
+        let sync = ImportCookieSync(store: fixture.store, grants: nil, destination: jar, keys: keys,
+                                    stateDirectory: fixture.root.appending(path: "state")) { _ in }
+        await sync.setTiming(debounce: 100, minimumInterval: 0)
+        await sync.setPaused(false)
+        await Self.until { await sync.stats.scans >= 1 }
+        try Self.cookies(fixture.file, hosts: [".one.example", ".two.example"])
+        await Self.until { keys.asked > 0 }
+        #expect(keys.asked == 1, "the change reached the Keychain read")
+        await sync.setPaused(true)
+        try await Task.sleep(for: .milliseconds(1_000))
+        #expect(await jar.hosts.isEmpty, "off mid-import, the import wrote cookies")
+    }
+
     @Test func theProfileFolderIsTheCookieFilesOwn() {
         let record = ImportSourceRecord(browser: .chrome, profileDirectory: "Profile 1", displayName: "Google Chrome",
                                         proposedProfileID: "p", targetProfileID: "p", profileName: "Work")
@@ -199,6 +231,9 @@ import Testing
         var bookmarksOnly = fixture.record
         bookmarksOnly.syncedCookieFile = nil
         try await fixture.store.save(ImportBatch(source: bookmarksOnly, kinds: [.bookmarks]))
+        #expect(await fixture.store.cookieSyncedSources().map(\.syncedCookieFile) == [fixture.file])
+        // A cookie import that wrote none (an empty or expired store) keeps it too.
+        try await fixture.store.save(ImportBatch(source: bookmarksOnly, kinds: [.cookies]))
         #expect(await fixture.store.cookieSyncedSources().map(\.syncedCookieFile) == [fixture.file])
         try await fixture.store.stopCookieSync(sourceKey: fixture.record.sourceKey)
         #expect(await fixture.store.cookieSyncedSources().isEmpty)
