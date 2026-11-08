@@ -10545,10 +10545,12 @@ enum BrowserDataImporter {
                     """
                 ) { statement in
                     let host = sqliteColumnText(statement, index: 0) ?? ""
+                    let name = sqliteColumnText(statement, index: 1) ?? ""
+                    guard !name.isEmpty else { return }
                     guard domainMatches(host: host, filters: domainFilters) else { return }
                     guard let imported = BrowserImportedCookie.firefox(
                         host: host,
-                        name: sqliteColumnText(statement, index: 1) ?? "",
+                        name: name,
                         value: sqliteColumnText(statement, index: 2) ?? "",
                         path: sqliteColumnText(statement, index: 3) ?? "/",
                         expiry: sqliteColumnInt64(statement, index: 4),
@@ -11042,6 +11044,8 @@ enum BrowserDataImporter {
         }
     }
 
+    /// The column names of `table` in the open database, or an empty set when
+    /// they cannot be read.
     private static func sqliteColumnNames(_ database: OpaquePointer, table: String) -> Set<String> {
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(database, "SELECT name FROM pragma_table_info(?1)", -1, &statement, nil) == SQLITE_OK,

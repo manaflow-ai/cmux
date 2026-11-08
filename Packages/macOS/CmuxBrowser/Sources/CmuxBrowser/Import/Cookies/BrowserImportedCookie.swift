@@ -142,6 +142,7 @@ public struct BrowserImportedCookie: Sendable, Equatable {
         )
     }
 
+    /// The Foundation policy for ``sameSite``; `nil` leaves the attribute unset.
     private var sameSitePolicy: HTTPCookieStringPolicy? {
         switch sameSite {
         case .none: nil
@@ -150,13 +151,16 @@ public struct BrowserImportedCookie: Sendable, Equatable {
         }
     }
 
-    // Cookie schema 16 moved `moz_cookies.expiry` from seconds to milliseconds.
+    /// The expiry date of a `moz_cookies.expiry` value, or `nil` for a session
+    /// cookie. Cookie schema 16 moved the column from seconds to milliseconds.
     private static func firefoxExpiryDate(_ expiry: Int64, schemaVersion: Int64) -> Date? {
         guard expiry > 0 else { return nil }
         let seconds = schemaVersion >= 16 ? Double(expiry) / 1_000.0 : Double(expiry)
         return Date(timeIntervalSince1970: seconds)
     }
 
+    /// The date of a Chromium `expires_utc` value, in microseconds since
+    /// 1601-01-01, or `nil` for a session cookie.
     private static func chromiumDate(fromWebKitMicroseconds rawValue: Int64) -> Date? {
         guard rawValue > 0 else { return nil }
         let unixSeconds = (Double(rawValue) / 1_000_000.0) - 11_644_473_600.0
