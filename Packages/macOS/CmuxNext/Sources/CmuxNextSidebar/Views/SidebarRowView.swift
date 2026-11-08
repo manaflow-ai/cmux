@@ -168,9 +168,31 @@ class SidebarRowView: NSView {
     /// it. Call from `updateLayer()` inside the theme scope.
     func paintFill(_ color: NSColor?) {
         paintsFill = color != nil
+        paintedFill = color
         guard let layer else { return }
-        ChromeHover.paint(layer, color, animated: fadesNextFill, clearing: .hoverOut)
+        let shown = flightGround.map { Self.opaque(color, on: $0) } ?? color
+        ChromeHover.paint(layer, shown, animated: fadesNextFill && flightGround == nil, clearing: .hoverOut)
         fadesNextFill = false
+    }
+
+    /// While the row flies (a pin's hand-off, `SidebarListView.raiseForFlight`), the opaque ground its fill is painted
+    /// on: a row it passes never shows through it. The fill stays the row's own (`paintFill` paints it over the ground,
+    /// opaque), so a later display pass keeps the ground (p1j films: the selection fill alone let titles print through).
+    var flightGround: NSColor? {
+        didSet {
+            guard flightGround != oldValue else { return }
+            effectiveAppearance.performAsCurrentDrawingAppearance { paintFill(paintedFill) }
+        }
+    }
+
+    /// The fill last painted (nil: none), painted again when the flight ground changes.
+    private var paintedFill: NSColor?
+
+    /// `fill` composited over `ground`, opaque. Resolve inside the theme scope.
+    static func opaque(_ fill: NSColor?, on ground: NSColor) -> NSColor {
+        let base = (ground.usingColorSpace(.sRGB) ?? ground).withAlphaComponent(1)
+        guard let fill = fill?.usingColorSpace(.sRGB), fill.alphaComponent > 0 else { return base }
+        return base.blended(withFraction: fill.alphaComponent, of: fill.withAlphaComponent(1)) ?? base
     }
 
     /// The row paints a fill now (`paintFill`); debug.sidebar_rows `fill`.
@@ -197,6 +219,8 @@ class SidebarRowView: NSView {
     /// The frame a row that left the list closes its slot to, until its close recycles it
     /// (`RowMotion`): a viewport re-anchor mid-close shifts it with the rows (cx-y2uf5).
     var closingEnd: NSRect?
+    /// When the row's close began (media time); read with `closingEnd` only, so a later close overwrites it.
+    var closingSince: CFTimeInterval = 0
 
     /// The frame as drawn now: the presentation mid-animation (debug).
     var shownFrame: CGRect { layer?.presentation()?.frame ?? frame }

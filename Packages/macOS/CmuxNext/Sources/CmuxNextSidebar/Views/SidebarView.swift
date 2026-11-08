@@ -143,6 +143,9 @@ public final class SidebarView: NSView {
     var lastSections: [SidebarSection] = []
     /// The bands' inputs changed since `updateBands` last ran (it runs in `layout`, only then).
     var bandsDirty = true
+    /// Each workspace the document's blocks hold, and whether the rows listed it when `updateBands` last ran (its item
+    /// waits while they do). A rows change that lists or drops one of them updates the blocks with the rows.
+    var docWorkspaceListing: [WorkspaceID: Bool] = [:]
     /// The size the bands were laid out for (app sections take a share of the height).
     private var bandsSize: CGSize?
     /// App section contributions the bands showed at the last update (`releaseAppSections`).

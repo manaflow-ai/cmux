@@ -84,6 +84,8 @@ class SidebarItemRowView: NSView {
         }
     }
     private let pin = DecorativeImageView() // a pinned row's leading pin; Pinned's header names it
+    /// The leading pin glyph (a pin's flight fades it in on the move, `SidebarPinFlight`); nil when the item draws none.
+    var pinGlyph: NSView? { pin.isHidden || pin.image == nil ? nil : pin }
     /// The leading icon column's box of the row's first glyph (the pin on a pinned row, else its own icon), in row
     /// coordinates; `.zero` for a text-only row or a look without a leading column (tests).
     private(set) var leadingColumnFrame: CGRect = .zero
@@ -141,6 +143,9 @@ class SidebarItemRowView: NSView {
         title.lineBreakMode = .byTruncatingTail
         title.maximumNumberOfLines = 1
         [pin, icon, title, badge, rowBadge, avatarView, activity].forEach(addSubview)
+        // The pin has its own layer from the start: a pin's flight fades it in on the move (`SidebarPinFlight.glyph`) in
+        // the turn that makes the item, before AppKit's first display pass would give the subview a layer of its own.
+        pin.wantsLayer = true
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         // Keyboard focus is the fill's next tonal step (`fill`), never the system's blue ring.

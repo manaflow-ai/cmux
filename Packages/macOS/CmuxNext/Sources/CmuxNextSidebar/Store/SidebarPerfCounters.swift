@@ -28,6 +28,11 @@ import Foundation
 ///   (realized, in the realization rect, or reopened), never every listed row (m23, sidebar row insert and remove).
 /// - `layout_rows`: rows `SidebarLayout.make` laid out (every listed row per full layout): a change that touches one row
 ///   lays out none, at 50 rows as at 200 (SIDEBAR INSERT: a create's row becoming its workspace's row).
+/// - `pin_one_apply`: pins whose rows and blocks reached the list in one apply (the row flies to its item at once).
+/// - `pin_rows_first`: pins whose rows came first, the block's item later taking over the closing row
+///   (`SidebarListView.pinFlightSources`); `pin_gap_us` sums the time from the rows' update to the blocks', and
+///   `pin_gaps_over_100ms` counts the gaps past 100 ms, where the row has closed before the item comes (lead 16:42Z:
+///   measure the real gap; a late update is fixed at its source, never by holding the row).
 nonisolated enum SidebarPerfCounters {
     enum Counter: String, CaseIterable, Sendable {
         case rebuilds
@@ -50,6 +55,10 @@ nonisolated enum SidebarPerfCounters {
         case spareRowViews = "spare_row_views"
         case rowFrames = "row_frames"
         case layoutRows = "layout_rows"
+        case pinOneApply = "pin_one_apply"
+        case pinRowsFirst = "pin_rows_first"
+        case pinGapMicroseconds = "pin_gap_us"
+        case pinGapsOver100ms = "pin_gaps_over_100ms"
     }
 
     private static let counts = Mutex<[Counter: Int]>([:])
