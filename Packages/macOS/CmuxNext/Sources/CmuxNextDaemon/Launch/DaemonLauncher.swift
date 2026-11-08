@@ -356,6 +356,9 @@ public struct DaemonLauncher: Sendable {
         // may lack the option; the daemon's own restore bound ends it.
         let progress = configuration.binaryIsBundled
         let arguments = Self.ensureArguments(configuration, reapGrace: await reapGrace, progress: progress)
+        // Each progress line shows while the owner restores (``EnsureOutcome/restoring``), cleared when this ends.
+        let reports = progress ? ensureOutcome.restoreReporter() : nil
+        defer { reports?.end() }
         DaemonLaunchTimings.shared.mark("daemon.ensure_start")
         defer { DaemonLaunchTimings.shared.mark("daemon.ensure_end") }
         let result = try await ProcessRunner.run(
@@ -365,6 +368,7 @@ public struct DaemonLauncher: Sendable {
             stdin: configuration.installKey?.payload,
             timeout: progress ? Self.ensureRestoreCap : max(ensureTimeout, Self.ensureRestoreCap),
             progressIdle: progress ? ensureTimeout : nil,
+            stdoutLine: reports?.line,
             clock: clock
         )
         return try Self.parseEnsure(result)

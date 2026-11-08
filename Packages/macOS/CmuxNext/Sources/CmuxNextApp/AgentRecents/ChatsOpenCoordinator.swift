@@ -87,12 +87,16 @@ final class ChatsOpenCoordinator {
     /// `page`: the New Tab page the row was clicked on; the chat replaces it in its tab. `watch`: View
     /// Only (an All chats row's menu, `agentChat.view`, `cmux agent view`): a tab that shows the chat
     /// and follows the app that runs it, without running it, until Take Over.
+    /// While this Mac's sessions are not ready (the session owner still restoring), the click waits and
+    /// opens once they are (``PendingSessionOpen``), never doing nothing.
     func open(_ key: String, inTerminal: Bool = false, watch: Bool = false, replacing page: String? = nil) {
-        guard let services, let environment = QuitAgents.environment(services) else { return }
+        guard let services else { return }
         // A chat a tab already shows (its agent chat, else the terminal running it) is shown there,
         // never opened again in a new workspace that then asks to Fork or Open Anyway. Open in
         // Terminal and an explicit View Only still open their own tab.
         if !inTerminal, !watch, revealRunning(key) { return }
+        if services.pendingSessionOpen.holds({ [weak self] in self?.open(key, inTerminal: inTerminal, watch: watch, replacing: page) }) { return }
+        guard let environment = QuitAgents.environment(services) else { return }
         // Every Open of an outside Claude Code or Codex chat is View Only unless the Debug toggle is off.
         let watch = watch || AgentPaneTunables.openOutsideChatsViewOnly.value
         Task { [weak self] in

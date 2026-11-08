@@ -537,6 +537,8 @@ final class AppServices {
     private(set) lazy var projectsImport = ProjectsImport(services: self)
     /// Shared Open Chat path for sidebar clicks and palette Return.
     private(set) lazy var chatsOpener = ChatsOpenCoordinator(services: self)
+    /// The one chat open clicked while this Mac's sessions restore, run once they are ready.
+    private(set) lazy var pendingSessionOpen = PendingSessionOpen(services: self)
     /// `agentTabs` once made: a tab close releases its view without starting acpmux.
     var madeAgentTabs: AgentTabStore?
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
