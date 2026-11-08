@@ -1085,6 +1085,7 @@ fn a_daemon_under_a_hand_written_unit_moves_to_acpmux_service_with_its_agents() 
     assert!(peer.exists(&format!("{UNITS}/{FOREIGN}.migrated")));
 }
 
+#[cfg(unix)]
 impl FakePeer {
     /// The daemon of [`FakePeer::under_foreign_unit`] is down and its unit
     /// stopped and disabled, with no `Restart=`: a Linux host whose daemon the

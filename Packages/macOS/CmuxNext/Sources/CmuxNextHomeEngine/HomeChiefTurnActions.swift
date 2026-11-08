@@ -32,6 +32,8 @@ public final class HomeChiefTurnActions {
         self.working = working
         self.control = available ? control : nil
         transcript?.onChiefRetry = self.control == nil ? nil : { [weak self] message in self?.retry(message) }
+        // `/` lists this Chief's skills when its host runs here: it reads the same folders (slash_skills.rs).
+        transcript?.slashSkillsHome = self.control?.brainHome
         refresh()
     }
 
