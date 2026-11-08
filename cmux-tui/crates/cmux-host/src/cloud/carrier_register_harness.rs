@@ -9,7 +9,7 @@
 //! ```
 //!
 //! The fake platform answers every request after 150 ms, a status report
-//! (`/v1/ops`) after 5 s and a GitHub token mint after 6 s. At each start
+//! (`/v1/ops`) after 8 s and a GitHub token mint after 6 s. At each start
 //! and each resume, three GitHub token asks arrive on the agent socket with
 //! the session host's ticket asks, as a machine's git and `gh` helpers do.
 //!
@@ -51,7 +51,7 @@ const INSTALL: &str = "inst_v0000000000000000004";
 const GRANT: &str = "grant_v000000000000000004";
 const INSTANCE: &str = "i-harness";
 const BASE_LATENCY: Duration = Duration::from_millis(150);
-const REPORT_LATENCY: Duration = Duration::from_secs(5);
+const REPORT_LATENCY: Duration = Duration::from_secs(8);
 const MINT_LATENCY: Duration = Duration::from_secs(6);
 const MINTS_PER_PHASE: usize = 3;
 /// `host cloud carrier-ticket`'s read of the agent's answer.
@@ -117,7 +117,10 @@ fn serve(stream: TcpStream) {
             "HTTP/1.1 {status} OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n",
             text.len()
         );
-        if writer.write_all(head.as_bytes()).and_then(|()| writer.write_all(text.as_bytes())).is_err()
+        if writer
+            .write_all(head.as_bytes())
+            .and_then(|()| writer.write_all(text.as_bytes()))
+            .is_err()
         {
             return;
         }
@@ -206,7 +209,7 @@ fn github_asks(root: &Path) {
     for _ in 0..MINTS_PER_PHASE {
         let root = root.to_owned();
         std::thread::spawn(move || {
-            let line = json!({ "github_token": { "repo": "acme/widgets" } }).to_string();
+            let line = json!({ "github_token": { "repo": "acme/widgets", "permissions": { "contents": "read" } } }).to_string();
             for _ in 0..50 {
                 let socket = Paths::new(&root).at(crate::cloud::wire::AGENT_SOCKET);
                 if let Ok(mut stream) = UnixStream::connect(socket) {
@@ -325,8 +328,7 @@ fn summary(name: &str, mut times: Vec<Duration>, failed: &[u32]) -> String {
 #[test]
 #[ignore = "before/after harness: about a minute a run; run on purpose"]
 fn carrier_register_harness() {
-    let runs: usize =
-        std::env::var("HARNESS_RUNS").ok().and_then(|n| n.parse().ok()).unwrap_or(10);
+    let runs: usize = std::env::var("HARNESS_RUNS").ok().and_then(|n| n.parse().ok()).unwrap_or(10);
     let profile = profile();
     let origin = platform();
     let (mut starts, mut start_failed, mut resumes, mut resume_failed) =

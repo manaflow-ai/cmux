@@ -41,6 +41,7 @@ import { relayEnvelope, withoutRelayEnvelope } from "./relayEnvelope";
 import {
   legacyNotice,
   noticeBody,
+  noticeMarkdown,
   noticeRowText,
   provenanceNotice,
   renderedNotice,
@@ -459,16 +460,22 @@ function promptOf(
       const notices = parts.flatMap((part) => (part.notice ? [part.notice] : []));
       if (notices.length && notices.length === parts.length) {
         const first = mostSevere(notices);
+        // Several: each notice under its own title, with its own links (noticeMarkdown), so no
+        // notice's links push out another's; the line's notice then carries none of its own.
         const body =
           parts.length === 1
             ? parts[0]!.text
-            : parts.map((part) => `**${escapeTitle(part.notice!.title)}**\n${part.text}`.trim()).join("\n\n");
+            : parts
+                .map((part) =>
+                  `**${escapeTitle(part.notice!.title)}**\n${noticeMarkdown(part.text, part.notice!.links)}`.trim(),
+                )
+                .join("\n\n");
         const more = notices.length - 1;
         return {
           kind: "message",
           message: {
             name: first.sender,
-            notice: { ...first, links: notices.flatMap((n) => n.links).slice(0, 16), ...(more && { more }) },
+            notice: more ? { ...first, links: [], more } : first,
             ...remote,
             text: body,
             raw: text,
@@ -828,6 +835,11 @@ function digestParts(text: string, messages: readonly unknown[]): DigestPart[] {
     const sent = (messages[index] as { provenance?: Record<string, unknown> } | null)?.provenance;
     const notice = sent?.kind === "notice" || sent?.kind === "who_else" ? provenanceNotice(sent) : undefined;
     if (notice) return { sender, notice, text: noticeBody(body) };
+    // A notice an older acpmux kept no provenance for, or tell-coordinator's page, sent at a shell
+    // (agentNotice.ts): read from its head, as a turn of its own reads it.
+    const named = !sent || (sent.kind === "agent_message" && sent.from === NAMED_SENDER);
+    const read = named ? (renderedNotice(body) ?? legacyNotice(body)) : undefined;
+    if (read && "notice" in read) return { sender, notice: read.notice, text: read.body };
     const signed = agentSigned(body, [sender]);
     return { sender: signed?.name ?? sender, text: signed?.text ?? body };
   });
