@@ -86,7 +86,7 @@ def v6_films(curve, tag, view, layouts):
     return steps, index
 
 
-def journey(jid, variant, curve, title, v_parts, m_parts):
+def journey(jid, variant, curve, title, v_parts, m_parts, view_only=False):
     select = {"do": "rpc", "method": "debug.frames", "params": {"action": f"close_variant {variant} {curve}"},
               "title": f"film selector: {variant} on {curve}", "required": True}
     check = [{"do": "type", "text": "echo cv-ready-${nonce}", "enter": True, "mark": "ready"},
@@ -97,7 +97,7 @@ def journey(jid, variant, curve, title, v_parts, m_parts):
     if v_parts:
         steps += [VIEW_SETTINGS] + v_parts[0]
         films_all += v_parts[1]
-    steps += [X.fixture_settings()] + m_parts[0]
+    steps += [VIEW_SETTINGS if view_only else X.fixture_settings()] + m_parts[0]
     films_all += m_parts[1]
     return {"id": jid, "priority": "P1", "title": title,
             "why": "cmux-ad m62-m65 (Lawrence 2026-11-08): close variants on the curve set, VIEW and MEASURE passes.",
@@ -119,16 +119,17 @@ def main():
     pairs = [x.split(":") for x in (o.accept or o.set).split(",") if x]
     lays = [x for x in o.layouts.split(",") if x]
     for curve in [c for c in o.v6.split(",") if c]:
-        jid = f"cv-{o.tag}-v6-{curve.lower()}"
-        v, m = v6_films(curve, jid, True, lays), v6_films(curve, jid, False, lays)
-        spec, _ = journey(jid, "V6", curve, f"CLOSE VARIANTS 2 m67: V6 grow + fade on {curve}, {'/'.join(lays)}, VIEW then MEASURE", v, m)
-        spec["budget_seconds"] = 480
-        with open(os.path.join(o.out, f"{jid}.json"), "w") as fh:
-            json.dump(spec, fh, indent=1)
-            fh.write("\n")
-        view_idx += v[1]
-        meas_idx += m[1]
-        print(jid, spec["recordings"])
+        # One lease holds at most 260 s: the VIEW pass and the MEASURE pass are two journeys.
+        for kind in ("view", "meas"):
+            jid = f"cv-{o.tag}-v6-{curve.lower()}-{kind}"
+            part = v6_films(curve, jid, kind == "view", lays)
+            spec, _ = journey(jid, "V6", curve, f"CLOSE VARIANTS 2 m67: V6 grow + fade on {curve}, {'/'.join(lays)}, {kind.upper()}",
+                              None, part, view_only=kind == "view")
+            with open(os.path.join(o.out, f"{jid}.json"), "w") as fh:
+                json.dump(spec, fh, indent=1)
+                fh.write("\n")
+            (view_idx if kind == "view" else meas_idx).extend(part[1])
+            print(jid, spec["recordings"])
     if o.accept:
         jid = f"cv-{o.tag}-acc"
         steps_all, idx_all = None, []

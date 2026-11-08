@@ -1,23 +1,17 @@
 {
- "id": "cv-f6-v6-k6",
+ "id": "cv-f6-v6-k11-meas",
  "priority": "P1",
- "title": "CLOSE VARIANTS 2 m67: V6 grow + fade on K6, S1/R2/R3/G4, VIEW then MEASURE",
+ "title": "CLOSE VARIANTS 2 m67: V6 grow + fade on K11, S1/R2/R3/G4, MEAS",
  "why": "cmux-ad m62-m65 (Lawrence 2026-11-08): close variants on the curve set, VIEW and MEASURE passes.",
  "source": "close-perf task kit (video-cases/gen_closevcurves.py)",
- "budget_seconds": 480,
+ "budget_seconds": 255,
  "recordings": [
-  "cf-v6-k6-s1-nvim-view",
-  "cf-v6-k6-s1-claude-view",
-  "cf-v6-k6-r2-nvim-view",
-  "cf-v6-k6-r2-claude-view",
-  "cf-v6-k6-r3-nvim-claude-view",
-  "cf-v6-k6-g4-nvim-claude-view",
-  "cf-v6-k6-s1-nvim-meas",
-  "cf-v6-k6-s1-claude-meas",
-  "cf-v6-k6-r2-nvim-meas",
-  "cf-v6-k6-r2-claude-meas",
-  "cf-v6-k6-r3-nvim-claude-meas",
-  "cf-v6-k6-g4-nvim-claude-meas"
+  "cf-v6-k11-s1-nvim-meas",
+  "cf-v6-k11-s1-claude-meas",
+  "cf-v6-k11-r2-nvim-meas",
+  "cf-v6-k11-r2-claude-meas",
+  "cf-v6-k11-r3-nvim-claude-meas",
+  "cf-v6-k11-g4-nvim-claude-meas"
  ],
  "options": {
   "key_path": "real"
@@ -33,7 +27,7 @@
   {
    "do": "new_terminal",
    "via": "key",
-   "name": "cv-f6-v6-k6"
+   "name": "cv-f6-v6-k11-meas"
   },
   {
    "do": "neutral_prompt"
@@ -127,917 +121,10 @@
    "do": "rpc",
    "method": "debug.frames",
    "params": {
-    "action": "close_variant V6 K6"
+    "action": "close_variant V6 K11"
    },
-   "title": "film selector: V6 on K6",
+   "title": "film selector: V6 on K11",
    "required": true
-  },
-  {
-   "do": "settings_file",
-   "title": "set-up: VIEW pass: the default theme, no close warning, no hover cards",
-   "set": {
-    "sidebar": {
-     "hoverCards": {
-      "enabled": false
-     }
-    },
-    "app": {
-     "warnBeforeClosingTab": false
-    },
-    "appearance": {
-     "appTheme": "followTerminal"
-    }
-   },
-   "unset": [
-    "appearance.theme",
-    "appearance.themeEdits",
-    "appearance.surfaces"
-   ]
-  },
-  {
-   "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (V6 K6 S1 nvim)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "v-v6k6-s1-nvim"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "type",
-   "text": "PATH=/opt/homebrew/bin:$PATH nvim -u NONE -c 'set wrap number' /tmp/jr-cv-long.txt",
-   "enter": true,
-   "title": "set-up: run `PATH=/opt/homebrew/bin:$PATH nvim -u NONE -c 'set wrap number' /tmp/jr-cv-long.txt`"
-  },
-  {
-   "do": "wait",
-   "seconds": 2.0,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "v-v6k6-s1-nvim",
-   "title": "set-up: focus v-v6k6-s1-nvim (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "splitLeft",
-   "title": "set-up: splitLeft from v-v6k6-s1-nvim (v-v6k6-s1-nvim-x)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "v-v6k6-s1-nvim-x"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "type",
-   "text": "sh /tmp/jr-cv-lines.sh",
-   "enter": true,
-   "title": "set-up: run `sh /tmp/jr-cv-lines.sh`"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.5,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.0,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cv_text",
-   "pane": "v-v6k6-s1-nvim",
-   "film": "cf-v6-k6-s1-nvim-view",
-   "tag": "before0",
-   "title": "screen text of v-v6k6-s1-nvim (before)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "v-v6k6-s1-nvim-x",
-   "title": "set-up: focus v-v6k6-s1-nvim-x (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "video_start",
-   "name": "cf-v6-k6-s1-nvim-view",
-   "seconds": 5.0,
-   "mbps": 24,
-   "rows": [],
-   "columns": [],
-   "require_hz": 120,
-   "lead": 0.8,
-   "title": "start the 120 Hz movie cf-v6-k6-s1-nvim-view"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cf-v6-k6-s1-nvim-view",
-   "i": 0,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.4,
-   "title": "Cmd-W (cf-v6-k6-s1-nvim-view)"
-  },
-  {
-   "do": "video_stop",
-   "name": "cf-v6-k6-s1-nvim-view",
-   "tail": 0.3,
-   "title": "the motion ends; stop the recording (cf-v6-k6-s1-nvim-view)"
-  },
-  {
-   "do": "cv_text",
-   "pane": "v-v6k6-s1-nvim",
-   "film": "cf-v6-k6-s1-nvim-view",
-   "tag": "after0",
-   "title": "screen text of v-v6k6-s1-nvim (after)"
-  },
-  {
-   "do": "rpc",
-   "method": "debug.frames",
-   "params": {
-    "action": "close_variant"
-   },
-   "title": "read the selector and the fork's grid counters after cf-v6-k6-s1-nvim-view"
-  },
-  {
-   "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (V6 K6 S1 claude)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "v-v6k6-s1-claude"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "type",
-   "text": "sh /tmp/jr-cv-claude.sh",
-   "enter": true,
-   "title": "set-up: run `sh /tmp/jr-cv-claude.sh`"
-  },
-  {
-   "do": "wait",
-   "seconds": 6.0,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "type",
-   "text": "!sh /tmp/jr-cv-lines.sh",
-   "enter": true,
-   "title": "set-up: run `!sh /tmp/jr-cv-lines.sh`"
-  },
-  {
-   "do": "wait",
-   "seconds": 3.0,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "v-v6k6-s1-claude",
-   "title": "set-up: focus v-v6k6-s1-claude (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "splitLeft",
-   "title": "set-up: splitLeft from v-v6k6-s1-claude (v-v6k6-s1-claude-x)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "v-v6k6-s1-claude-x"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "type",
-   "text": "sh /tmp/jr-cv-lines.sh",
-   "enter": true,
-   "title": "set-up: run `sh /tmp/jr-cv-lines.sh`"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.5,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.0,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cv_text",
-   "pane": "v-v6k6-s1-claude",
-   "film": "cf-v6-k6-s1-claude-view",
-   "tag": "before0",
-   "title": "screen text of v-v6k6-s1-claude (before)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "v-v6k6-s1-claude-x",
-   "title": "set-up: focus v-v6k6-s1-claude-x (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "video_start",
-   "name": "cf-v6-k6-s1-claude-view",
-   "seconds": 5.0,
-   "mbps": 24,
-   "rows": [],
-   "columns": [],
-   "require_hz": 120,
-   "lead": 0.8,
-   "title": "start the 120 Hz movie cf-v6-k6-s1-claude-view"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cf-v6-k6-s1-claude-view",
-   "i": 0,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.4,
-   "title": "Cmd-W (cf-v6-k6-s1-claude-view)"
-  },
-  {
-   "do": "video_stop",
-   "name": "cf-v6-k6-s1-claude-view",
-   "tail": 0.3,
-   "title": "the motion ends; stop the recording (cf-v6-k6-s1-claude-view)"
-  },
-  {
-   "do": "cv_text",
-   "pane": "v-v6k6-s1-claude",
-   "film": "cf-v6-k6-s1-claude-view",
-   "tag": "after0",
-   "title": "screen text of v-v6k6-s1-claude (after)"
-  },
-  {
-   "do": "rpc",
-   "method": "debug.frames",
-   "params": {
-    "action": "close_variant"
-   },
-   "title": "read the selector and the fork's grid counters after cf-v6-k6-s1-claude-view"
-  },
-  {
-   "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (V6 K6 R2 nvim)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "v-v6k6-r2-nvim"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "type",
-   "text": "PATH=/opt/homebrew/bin:$PATH nvim -u NONE -c 'set wrap number' /tmp/jr-cv-long.txt",
-   "enter": true,
-   "title": "set-up: run `PATH=/opt/homebrew/bin:$PATH nvim -u NONE -c 'set wrap number' /tmp/jr-cv-long.txt`"
-  },
-  {
-   "do": "wait",
-   "seconds": 2.0,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "v-v6k6-r2-nvim",
-   "title": "set-up: focus v-v6k6-r2-nvim (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "splitUp",
-   "title": "set-up: splitUp from v-v6k6-r2-nvim (v-v6k6-r2-nvim-x)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "v-v6k6-r2-nvim-x"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "type",
-   "text": "sh /tmp/jr-cv-lines.sh",
-   "enter": true,
-   "title": "set-up: run `sh /tmp/jr-cv-lines.sh`"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.5,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.0,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cv_text",
-   "pane": "v-v6k6-r2-nvim",
-   "film": "cf-v6-k6-r2-nvim-view",
-   "tag": "before0",
-   "title": "screen text of v-v6k6-r2-nvim (before)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "v-v6k6-r2-nvim-x",
-   "title": "set-up: focus v-v6k6-r2-nvim-x (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "video_start",
-   "name": "cf-v6-k6-r2-nvim-view",
-   "seconds": 5.0,
-   "mbps": 24,
-   "rows": [],
-   "columns": [],
-   "require_hz": 120,
-   "lead": 0.8,
-   "title": "start the 120 Hz movie cf-v6-k6-r2-nvim-view"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cf-v6-k6-r2-nvim-view",
-   "i": 0,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.4,
-   "title": "Cmd-W (cf-v6-k6-r2-nvim-view)"
-  },
-  {
-   "do": "video_stop",
-   "name": "cf-v6-k6-r2-nvim-view",
-   "tail": 0.3,
-   "title": "the motion ends; stop the recording (cf-v6-k6-r2-nvim-view)"
-  },
-  {
-   "do": "cv_text",
-   "pane": "v-v6k6-r2-nvim",
-   "film": "cf-v6-k6-r2-nvim-view",
-   "tag": "after0",
-   "title": "screen text of v-v6k6-r2-nvim (after)"
-  },
-  {
-   "do": "rpc",
-   "method": "debug.frames",
-   "params": {
-    "action": "close_variant"
-   },
-   "title": "read the selector and the fork's grid counters after cf-v6-k6-r2-nvim-view"
-  },
-  {
-   "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (V6 K6 R2 claude)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "v-v6k6-r2-claude"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "type",
-   "text": "sh /tmp/jr-cv-claude.sh",
-   "enter": true,
-   "title": "set-up: run `sh /tmp/jr-cv-claude.sh`"
-  },
-  {
-   "do": "wait",
-   "seconds": 6.0,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "type",
-   "text": "!sh /tmp/jr-cv-lines.sh",
-   "enter": true,
-   "title": "set-up: run `!sh /tmp/jr-cv-lines.sh`"
-  },
-  {
-   "do": "wait",
-   "seconds": 3.0,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "v-v6k6-r2-claude",
-   "title": "set-up: focus v-v6k6-r2-claude (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "splitUp",
-   "title": "set-up: splitUp from v-v6k6-r2-claude (v-v6k6-r2-claude-x)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "v-v6k6-r2-claude-x"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "type",
-   "text": "sh /tmp/jr-cv-lines.sh",
-   "enter": true,
-   "title": "set-up: run `sh /tmp/jr-cv-lines.sh`"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.5,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.0,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cv_text",
-   "pane": "v-v6k6-r2-claude",
-   "film": "cf-v6-k6-r2-claude-view",
-   "tag": "before0",
-   "title": "screen text of v-v6k6-r2-claude (before)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "v-v6k6-r2-claude-x",
-   "title": "set-up: focus v-v6k6-r2-claude-x (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "video_start",
-   "name": "cf-v6-k6-r2-claude-view",
-   "seconds": 5.0,
-   "mbps": 24,
-   "rows": [],
-   "columns": [],
-   "require_hz": 120,
-   "lead": 0.8,
-   "title": "start the 120 Hz movie cf-v6-k6-r2-claude-view"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cf-v6-k6-r2-claude-view",
-   "i": 0,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.4,
-   "title": "Cmd-W (cf-v6-k6-r2-claude-view)"
-  },
-  {
-   "do": "video_stop",
-   "name": "cf-v6-k6-r2-claude-view",
-   "tail": 0.3,
-   "title": "the motion ends; stop the recording (cf-v6-k6-r2-claude-view)"
-  },
-  {
-   "do": "cv_text",
-   "pane": "v-v6k6-r2-claude",
-   "film": "cf-v6-k6-r2-claude-view",
-   "tag": "after0",
-   "title": "screen text of v-v6k6-r2-claude (after)"
-  },
-  {
-   "do": "rpc",
-   "method": "debug.frames",
-   "params": {
-    "action": "close_variant"
-   },
-   "title": "read the selector and the fork's grid counters after cf-v6-k6-r2-claude-view"
-  },
-  {
-   "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (V6 K6 R3)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "v-v6k6-r3-nvim-claude-t"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "type",
-   "text": "PATH=/opt/homebrew/bin:$PATH nvim -u NONE -c 'set wrap number' /tmp/jr-cv-long.txt",
-   "enter": true,
-   "title": "set-up: run `PATH=/opt/homebrew/bin:$PATH nvim -u NONE -c 'set wrap number' /tmp/jr-cv-long.txt`"
-  },
-  {
-   "do": "wait",
-   "seconds": 2.0,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "v-v6k6-r3-nvim-claude-t",
-   "title": "set-up: focus v-v6k6-r3-nvim-claude-t (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "splitDown",
-   "title": "set-up: splitDown from v-v6k6-r3-nvim-claude-t (v-v6k6-r3-nvim-claude-b)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "v-v6k6-r3-nvim-claude-b"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "type",
-   "text": "sh /tmp/jr-cv-claude.sh",
-   "enter": true,
-   "title": "set-up: run `sh /tmp/jr-cv-claude.sh`"
-  },
-  {
-   "do": "wait",
-   "seconds": 6.0,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "type",
-   "text": "!sh /tmp/jr-cv-lines.sh",
-   "enter": true,
-   "title": "set-up: run `!sh /tmp/jr-cv-lines.sh`"
-  },
-  {
-   "do": "wait",
-   "seconds": 3.0,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "v-v6k6-r3-nvim-claude-t",
-   "title": "set-up: focus v-v6k6-r3-nvim-claude-t (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "splitDown",
-   "title": "set-up: splitDown from v-v6k6-r3-nvim-claude-t (v-v6k6-r3-nvim-claude-x)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "v-v6k6-r3-nvim-claude-x"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "type",
-   "text": "sh /tmp/jr-cv-lines.sh",
-   "enter": true,
-   "title": "set-up: run `sh /tmp/jr-cv-lines.sh`"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.5,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.0,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cv_text",
-   "pane": "v-v6k6-r3-nvim-claude-t",
-   "film": "cf-v6-k6-r3-nvim-claude-view",
-   "tag": "before0",
-   "title": "screen text of v-v6k6-r3-nvim-claude-t (before)"
-  },
-  {
-   "do": "cv_text",
-   "pane": "v-v6k6-r3-nvim-claude-b",
-   "film": "cf-v6-k6-r3-nvim-claude-view",
-   "tag": "before1",
-   "title": "screen text of v-v6k6-r3-nvim-claude-b (before)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "v-v6k6-r3-nvim-claude-x",
-   "title": "set-up: focus v-v6k6-r3-nvim-claude-x (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "video_start",
-   "name": "cf-v6-k6-r3-nvim-claude-view",
-   "seconds": 5.0,
-   "mbps": 24,
-   "rows": [],
-   "columns": [],
-   "require_hz": 120,
-   "lead": 0.8,
-   "title": "start the 120 Hz movie cf-v6-k6-r3-nvim-claude-view"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cf-v6-k6-r3-nvim-claude-view",
-   "i": 0,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.4,
-   "title": "Cmd-W (cf-v6-k6-r3-nvim-claude-view)"
-  },
-  {
-   "do": "video_stop",
-   "name": "cf-v6-k6-r3-nvim-claude-view",
-   "tail": 0.3,
-   "title": "the motion ends; stop the recording (cf-v6-k6-r3-nvim-claude-view)"
-  },
-  {
-   "do": "cv_text",
-   "pane": "v-v6k6-r3-nvim-claude-t",
-   "film": "cf-v6-k6-r3-nvim-claude-view",
-   "tag": "after0",
-   "title": "screen text of v-v6k6-r3-nvim-claude-t (after)"
-  },
-  {
-   "do": "cv_text",
-   "pane": "v-v6k6-r3-nvim-claude-b",
-   "film": "cf-v6-k6-r3-nvim-claude-view",
-   "tag": "after1",
-   "title": "screen text of v-v6k6-r3-nvim-claude-b (after)"
-  },
-  {
-   "do": "rpc",
-   "method": "debug.frames",
-   "params": {
-    "action": "close_variant"
-   },
-   "title": "read the selector and the fork's grid counters after cf-v6-k6-r3-nvim-claude-view"
-  },
-  {
-   "do": "action",
-   "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (V6 K6 G4)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "v-v6k6-g4-nvim-claude-tr"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "type",
-   "text": "PATH=/opt/homebrew/bin:$PATH nvim -u NONE -c 'set wrap number' /tmp/jr-cv-long.txt",
-   "enter": true,
-   "title": "set-up: run `PATH=/opt/homebrew/bin:$PATH nvim -u NONE -c 'set wrap number' /tmp/jr-cv-long.txt`"
-  },
-  {
-   "do": "wait",
-   "seconds": 2.0,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "v-v6k6-g4-nvim-claude-tr",
-   "title": "set-up: focus v-v6k6-g4-nvim-claude-tr (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "splitDown",
-   "title": "set-up: splitDown from v-v6k6-g4-nvim-claude-tr (v-v6k6-g4-nvim-claude-br)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "v-v6k6-g4-nvim-claude-br"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "type",
-   "text": "sh /tmp/jr-cv-claude.sh",
-   "enter": true,
-   "title": "set-up: run `sh /tmp/jr-cv-claude.sh`"
-  },
-  {
-   "do": "wait",
-   "seconds": 6.0,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "type",
-   "text": "!sh /tmp/jr-cv-lines.sh",
-   "enter": true,
-   "title": "set-up: run `!sh /tmp/jr-cv-lines.sh`"
-  },
-  {
-   "do": "wait",
-   "seconds": 3.0,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "v-v6k6-g4-nvim-claude-br",
-   "title": "set-up: focus v-v6k6-g4-nvim-claude-br (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "splitLeft",
-   "title": "set-up: splitLeft from v-v6k6-g4-nvim-claude-br (v-v6k6-g4-nvim-claude-bl)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "v-v6k6-g4-nvim-claude-bl"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "v-v6k6-g4-nvim-claude-tr",
-   "title": "set-up: focus v-v6k6-g4-nvim-claude-tr (cmux pane focus)"
-  },
-  {
-   "do": "action",
-   "action": "splitLeft",
-   "title": "set-up: splitLeft from v-v6k6-g4-nvim-claude-tr (v-v6k6-g4-nvim-claude-x)"
-  },
-  {
-   "do": "adopt_pane",
-   "as": "v-v6k6-g4-nvim-claude-x"
-  },
-  {
-   "do": "neutral_prompt"
-  },
-  {
-   "do": "type",
-   "text": "sh /tmp/jr-cv-lines.sh",
-   "enter": true,
-   "title": "set-up: run `sh /tmp/jr-cv-lines.sh`"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.5,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "wait",
-   "seconds": 1.0,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cv_text",
-   "pane": "v-v6k6-g4-nvim-claude-tr",
-   "film": "cf-v6-k6-g4-nvim-claude-view",
-   "tag": "before0",
-   "title": "screen text of v-v6k6-g4-nvim-claude-tr (before)"
-  },
-  {
-   "do": "cv_text",
-   "pane": "v-v6k6-g4-nvim-claude-bl",
-   "film": "cf-v6-k6-g4-nvim-claude-view",
-   "tag": "before1",
-   "title": "screen text of v-v6k6-g4-nvim-claude-bl (before)"
-  },
-  {
-   "do": "cv_text",
-   "pane": "v-v6k6-g4-nvim-claude-br",
-   "film": "cf-v6-k6-g4-nvim-claude-view",
-   "tag": "before2",
-   "title": "screen text of v-v6k6-g4-nvim-claude-br (before)"
-  },
-  {
-   "do": "rk_focus",
-   "pane": "v-v6k6-g4-nvim-claude-x",
-   "title": "set-up: focus v-v6k6-g4-nvim-claude-x (cmux pane focus)"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.8,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "video_start",
-   "name": "cf-v6-k6-g4-nvim-claude-view",
-   "seconds": 5.0,
-   "mbps": 24,
-   "rows": [],
-   "columns": [],
-   "require_hz": 120,
-   "lead": 0.8,
-   "title": "start the 120 Hz movie cf-v6-k6-g4-nvim-claude-view"
-  },
-  {
-   "do": "wait",
-   "seconds": 0.4,
-   "title": "the layout and the load settle (nothing observable to wait on)"
-  },
-  {
-   "do": "cp_close",
-   "film": "cf-v6-k6-g4-nvim-claude-view",
-   "i": 0,
-   "key": "w",
-   "modifiers": [
-    "cmd"
-   ],
-   "rest": 1.4,
-   "title": "Cmd-W (cf-v6-k6-g4-nvim-claude-view)"
-  },
-  {
-   "do": "video_stop",
-   "name": "cf-v6-k6-g4-nvim-claude-view",
-   "tail": 0.3,
-   "title": "the motion ends; stop the recording (cf-v6-k6-g4-nvim-claude-view)"
-  },
-  {
-   "do": "cv_text",
-   "pane": "v-v6k6-g4-nvim-claude-tr",
-   "film": "cf-v6-k6-g4-nvim-claude-view",
-   "tag": "after0",
-   "title": "screen text of v-v6k6-g4-nvim-claude-tr (after)"
-  },
-  {
-   "do": "cv_text",
-   "pane": "v-v6k6-g4-nvim-claude-bl",
-   "film": "cf-v6-k6-g4-nvim-claude-view",
-   "tag": "after1",
-   "title": "screen text of v-v6k6-g4-nvim-claude-bl (after)"
-  },
-  {
-   "do": "cv_text",
-   "pane": "v-v6k6-g4-nvim-claude-br",
-   "film": "cf-v6-k6-g4-nvim-claude-view",
-   "tag": "after2",
-   "title": "screen text of v-v6k6-g4-nvim-claude-br (after)"
-  },
-  {
-   "do": "rpc",
-   "method": "debug.frames",
-   "params": {
-    "action": "close_variant"
-   },
-   "title": "read the selector and the fork's grid counters after cf-v6-k6-g4-nvim-claude-view"
   },
   {
    "do": "settings_file",
@@ -1085,11 +172,11 @@
   {
    "do": "action",
    "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (V6 K6 S1 nvim)"
+   "title": "set-up: a new workspace (V6 K11 S1 nvim)"
   },
   {
    "do": "adopt_pane",
-   "as": "m-v6k6-s1-nvim"
+   "as": "m-v6k11-s1-nvim"
   },
   {
    "do": "neutral_prompt"
@@ -1107,17 +194,17 @@
   },
   {
    "do": "rk_focus",
-   "pane": "m-v6k6-s1-nvim",
-   "title": "set-up: focus m-v6k6-s1-nvim (cmux pane focus)"
+   "pane": "m-v6k11-s1-nvim",
+   "title": "set-up: focus m-v6k11-s1-nvim (cmux pane focus)"
   },
   {
    "do": "action",
    "action": "splitLeft",
-   "title": "set-up: splitLeft from m-v6k6-s1-nvim (m-v6k6-s1-nvim-x)"
+   "title": "set-up: splitLeft from m-v6k11-s1-nvim (m-v6k11-s1-nvim-x)"
   },
   {
    "do": "adopt_pane",
-   "as": "m-v6k6-s1-nvim-x"
+   "as": "m-v6k11-s1-nvim-x"
   },
   {
    "do": "neutral_prompt"
@@ -1140,15 +227,15 @@
   },
   {
    "do": "cv_text",
-   "pane": "m-v6k6-s1-nvim",
-   "film": "cf-v6-k6-s1-nvim-meas",
+   "pane": "m-v6k11-s1-nvim",
+   "film": "cf-v6-k11-s1-nvim-meas",
    "tag": "before0",
-   "title": "screen text of m-v6k6-s1-nvim (before)"
+   "title": "screen text of m-v6k11-s1-nvim (before)"
   },
   {
    "do": "rk_focus",
-   "pane": "m-v6k6-s1-nvim-x",
-   "title": "set-up: focus m-v6k6-s1-nvim-x (cmux pane focus)"
+   "pane": "m-v6k11-s1-nvim-x",
+   "title": "set-up: focus m-v6k11-s1-nvim-x (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -1157,14 +244,14 @@
   },
   {
    "do": "video_start",
-   "name": "cf-v6-k6-s1-nvim-meas",
+   "name": "cf-v6-k11-s1-nvim-meas",
    "seconds": 5.0,
    "mbps": 24,
    "rows": [],
    "columns": [],
    "require_hz": 120,
    "lead": 0.8,
-   "title": "start the 120 Hz movie cf-v6-k6-s1-nvim-meas"
+   "title": "start the 120 Hz movie cf-v6-k11-s1-nvim-meas"
   },
   {
    "do": "wait",
@@ -1173,27 +260,27 @@
   },
   {
    "do": "cp_close",
-   "film": "cf-v6-k6-s1-nvim-meas",
+   "film": "cf-v6-k11-s1-nvim-meas",
    "i": 0,
    "key": "w",
    "modifiers": [
     "cmd"
    ],
    "rest": 1.4,
-   "title": "Cmd-W (cf-v6-k6-s1-nvim-meas)"
+   "title": "Cmd-W (cf-v6-k11-s1-nvim-meas)"
   },
   {
    "do": "video_stop",
-   "name": "cf-v6-k6-s1-nvim-meas",
+   "name": "cf-v6-k11-s1-nvim-meas",
    "tail": 0.3,
-   "title": "the motion ends; stop the recording (cf-v6-k6-s1-nvim-meas)"
+   "title": "the motion ends; stop the recording (cf-v6-k11-s1-nvim-meas)"
   },
   {
    "do": "cv_text",
-   "pane": "m-v6k6-s1-nvim",
-   "film": "cf-v6-k6-s1-nvim-meas",
+   "pane": "m-v6k11-s1-nvim",
+   "film": "cf-v6-k11-s1-nvim-meas",
    "tag": "after0",
-   "title": "screen text of m-v6k6-s1-nvim (after)"
+   "title": "screen text of m-v6k11-s1-nvim (after)"
   },
   {
    "do": "rpc",
@@ -1201,16 +288,16 @@
    "params": {
     "action": "close_variant"
    },
-   "title": "read the selector and the fork's grid counters after cf-v6-k6-s1-nvim-meas"
+   "title": "read the selector and the fork's grid counters after cf-v6-k11-s1-nvim-meas"
   },
   {
    "do": "action",
    "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (V6 K6 S1 claude)"
+   "title": "set-up: a new workspace (V6 K11 S1 claude)"
   },
   {
    "do": "adopt_pane",
-   "as": "m-v6k6-s1-claude"
+   "as": "m-v6k11-s1-claude"
   },
   {
    "do": "neutral_prompt"
@@ -1239,17 +326,17 @@
   },
   {
    "do": "rk_focus",
-   "pane": "m-v6k6-s1-claude",
-   "title": "set-up: focus m-v6k6-s1-claude (cmux pane focus)"
+   "pane": "m-v6k11-s1-claude",
+   "title": "set-up: focus m-v6k11-s1-claude (cmux pane focus)"
   },
   {
    "do": "action",
    "action": "splitLeft",
-   "title": "set-up: splitLeft from m-v6k6-s1-claude (m-v6k6-s1-claude-x)"
+   "title": "set-up: splitLeft from m-v6k11-s1-claude (m-v6k11-s1-claude-x)"
   },
   {
    "do": "adopt_pane",
-   "as": "m-v6k6-s1-claude-x"
+   "as": "m-v6k11-s1-claude-x"
   },
   {
    "do": "neutral_prompt"
@@ -1272,15 +359,15 @@
   },
   {
    "do": "cv_text",
-   "pane": "m-v6k6-s1-claude",
-   "film": "cf-v6-k6-s1-claude-meas",
+   "pane": "m-v6k11-s1-claude",
+   "film": "cf-v6-k11-s1-claude-meas",
    "tag": "before0",
-   "title": "screen text of m-v6k6-s1-claude (before)"
+   "title": "screen text of m-v6k11-s1-claude (before)"
   },
   {
    "do": "rk_focus",
-   "pane": "m-v6k6-s1-claude-x",
-   "title": "set-up: focus m-v6k6-s1-claude-x (cmux pane focus)"
+   "pane": "m-v6k11-s1-claude-x",
+   "title": "set-up: focus m-v6k11-s1-claude-x (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -1289,14 +376,14 @@
   },
   {
    "do": "video_start",
-   "name": "cf-v6-k6-s1-claude-meas",
+   "name": "cf-v6-k11-s1-claude-meas",
    "seconds": 5.0,
    "mbps": 24,
    "rows": [],
    "columns": [],
    "require_hz": 120,
    "lead": 0.8,
-   "title": "start the 120 Hz movie cf-v6-k6-s1-claude-meas"
+   "title": "start the 120 Hz movie cf-v6-k11-s1-claude-meas"
   },
   {
    "do": "wait",
@@ -1305,27 +392,27 @@
   },
   {
    "do": "cp_close",
-   "film": "cf-v6-k6-s1-claude-meas",
+   "film": "cf-v6-k11-s1-claude-meas",
    "i": 0,
    "key": "w",
    "modifiers": [
     "cmd"
    ],
    "rest": 1.4,
-   "title": "Cmd-W (cf-v6-k6-s1-claude-meas)"
+   "title": "Cmd-W (cf-v6-k11-s1-claude-meas)"
   },
   {
    "do": "video_stop",
-   "name": "cf-v6-k6-s1-claude-meas",
+   "name": "cf-v6-k11-s1-claude-meas",
    "tail": 0.3,
-   "title": "the motion ends; stop the recording (cf-v6-k6-s1-claude-meas)"
+   "title": "the motion ends; stop the recording (cf-v6-k11-s1-claude-meas)"
   },
   {
    "do": "cv_text",
-   "pane": "m-v6k6-s1-claude",
-   "film": "cf-v6-k6-s1-claude-meas",
+   "pane": "m-v6k11-s1-claude",
+   "film": "cf-v6-k11-s1-claude-meas",
    "tag": "after0",
-   "title": "screen text of m-v6k6-s1-claude (after)"
+   "title": "screen text of m-v6k11-s1-claude (after)"
   },
   {
    "do": "rpc",
@@ -1333,16 +420,16 @@
    "params": {
     "action": "close_variant"
    },
-   "title": "read the selector and the fork's grid counters after cf-v6-k6-s1-claude-meas"
+   "title": "read the selector and the fork's grid counters after cf-v6-k11-s1-claude-meas"
   },
   {
    "do": "action",
    "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (V6 K6 R2 nvim)"
+   "title": "set-up: a new workspace (V6 K11 R2 nvim)"
   },
   {
    "do": "adopt_pane",
-   "as": "m-v6k6-r2-nvim"
+   "as": "m-v6k11-r2-nvim"
   },
   {
    "do": "neutral_prompt"
@@ -1360,17 +447,17 @@
   },
   {
    "do": "rk_focus",
-   "pane": "m-v6k6-r2-nvim",
-   "title": "set-up: focus m-v6k6-r2-nvim (cmux pane focus)"
+   "pane": "m-v6k11-r2-nvim",
+   "title": "set-up: focus m-v6k11-r2-nvim (cmux pane focus)"
   },
   {
    "do": "action",
    "action": "splitUp",
-   "title": "set-up: splitUp from m-v6k6-r2-nvim (m-v6k6-r2-nvim-x)"
+   "title": "set-up: splitUp from m-v6k11-r2-nvim (m-v6k11-r2-nvim-x)"
   },
   {
    "do": "adopt_pane",
-   "as": "m-v6k6-r2-nvim-x"
+   "as": "m-v6k11-r2-nvim-x"
   },
   {
    "do": "neutral_prompt"
@@ -1393,15 +480,15 @@
   },
   {
    "do": "cv_text",
-   "pane": "m-v6k6-r2-nvim",
-   "film": "cf-v6-k6-r2-nvim-meas",
+   "pane": "m-v6k11-r2-nvim",
+   "film": "cf-v6-k11-r2-nvim-meas",
    "tag": "before0",
-   "title": "screen text of m-v6k6-r2-nvim (before)"
+   "title": "screen text of m-v6k11-r2-nvim (before)"
   },
   {
    "do": "rk_focus",
-   "pane": "m-v6k6-r2-nvim-x",
-   "title": "set-up: focus m-v6k6-r2-nvim-x (cmux pane focus)"
+   "pane": "m-v6k11-r2-nvim-x",
+   "title": "set-up: focus m-v6k11-r2-nvim-x (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -1410,14 +497,14 @@
   },
   {
    "do": "video_start",
-   "name": "cf-v6-k6-r2-nvim-meas",
+   "name": "cf-v6-k11-r2-nvim-meas",
    "seconds": 5.0,
    "mbps": 24,
    "rows": [],
    "columns": [],
    "require_hz": 120,
    "lead": 0.8,
-   "title": "start the 120 Hz movie cf-v6-k6-r2-nvim-meas"
+   "title": "start the 120 Hz movie cf-v6-k11-r2-nvim-meas"
   },
   {
    "do": "wait",
@@ -1426,27 +513,27 @@
   },
   {
    "do": "cp_close",
-   "film": "cf-v6-k6-r2-nvim-meas",
+   "film": "cf-v6-k11-r2-nvim-meas",
    "i": 0,
    "key": "w",
    "modifiers": [
     "cmd"
    ],
    "rest": 1.4,
-   "title": "Cmd-W (cf-v6-k6-r2-nvim-meas)"
+   "title": "Cmd-W (cf-v6-k11-r2-nvim-meas)"
   },
   {
    "do": "video_stop",
-   "name": "cf-v6-k6-r2-nvim-meas",
+   "name": "cf-v6-k11-r2-nvim-meas",
    "tail": 0.3,
-   "title": "the motion ends; stop the recording (cf-v6-k6-r2-nvim-meas)"
+   "title": "the motion ends; stop the recording (cf-v6-k11-r2-nvim-meas)"
   },
   {
    "do": "cv_text",
-   "pane": "m-v6k6-r2-nvim",
-   "film": "cf-v6-k6-r2-nvim-meas",
+   "pane": "m-v6k11-r2-nvim",
+   "film": "cf-v6-k11-r2-nvim-meas",
    "tag": "after0",
-   "title": "screen text of m-v6k6-r2-nvim (after)"
+   "title": "screen text of m-v6k11-r2-nvim (after)"
   },
   {
    "do": "rpc",
@@ -1454,16 +541,16 @@
    "params": {
     "action": "close_variant"
    },
-   "title": "read the selector and the fork's grid counters after cf-v6-k6-r2-nvim-meas"
+   "title": "read the selector and the fork's grid counters after cf-v6-k11-r2-nvim-meas"
   },
   {
    "do": "action",
    "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (V6 K6 R2 claude)"
+   "title": "set-up: a new workspace (V6 K11 R2 claude)"
   },
   {
    "do": "adopt_pane",
-   "as": "m-v6k6-r2-claude"
+   "as": "m-v6k11-r2-claude"
   },
   {
    "do": "neutral_prompt"
@@ -1492,17 +579,17 @@
   },
   {
    "do": "rk_focus",
-   "pane": "m-v6k6-r2-claude",
-   "title": "set-up: focus m-v6k6-r2-claude (cmux pane focus)"
+   "pane": "m-v6k11-r2-claude",
+   "title": "set-up: focus m-v6k11-r2-claude (cmux pane focus)"
   },
   {
    "do": "action",
    "action": "splitUp",
-   "title": "set-up: splitUp from m-v6k6-r2-claude (m-v6k6-r2-claude-x)"
+   "title": "set-up: splitUp from m-v6k11-r2-claude (m-v6k11-r2-claude-x)"
   },
   {
    "do": "adopt_pane",
-   "as": "m-v6k6-r2-claude-x"
+   "as": "m-v6k11-r2-claude-x"
   },
   {
    "do": "neutral_prompt"
@@ -1525,15 +612,15 @@
   },
   {
    "do": "cv_text",
-   "pane": "m-v6k6-r2-claude",
-   "film": "cf-v6-k6-r2-claude-meas",
+   "pane": "m-v6k11-r2-claude",
+   "film": "cf-v6-k11-r2-claude-meas",
    "tag": "before0",
-   "title": "screen text of m-v6k6-r2-claude (before)"
+   "title": "screen text of m-v6k11-r2-claude (before)"
   },
   {
    "do": "rk_focus",
-   "pane": "m-v6k6-r2-claude-x",
-   "title": "set-up: focus m-v6k6-r2-claude-x (cmux pane focus)"
+   "pane": "m-v6k11-r2-claude-x",
+   "title": "set-up: focus m-v6k11-r2-claude-x (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -1542,14 +629,14 @@
   },
   {
    "do": "video_start",
-   "name": "cf-v6-k6-r2-claude-meas",
+   "name": "cf-v6-k11-r2-claude-meas",
    "seconds": 5.0,
    "mbps": 24,
    "rows": [],
    "columns": [],
    "require_hz": 120,
    "lead": 0.8,
-   "title": "start the 120 Hz movie cf-v6-k6-r2-claude-meas"
+   "title": "start the 120 Hz movie cf-v6-k11-r2-claude-meas"
   },
   {
    "do": "wait",
@@ -1558,27 +645,27 @@
   },
   {
    "do": "cp_close",
-   "film": "cf-v6-k6-r2-claude-meas",
+   "film": "cf-v6-k11-r2-claude-meas",
    "i": 0,
    "key": "w",
    "modifiers": [
     "cmd"
    ],
    "rest": 1.4,
-   "title": "Cmd-W (cf-v6-k6-r2-claude-meas)"
+   "title": "Cmd-W (cf-v6-k11-r2-claude-meas)"
   },
   {
    "do": "video_stop",
-   "name": "cf-v6-k6-r2-claude-meas",
+   "name": "cf-v6-k11-r2-claude-meas",
    "tail": 0.3,
-   "title": "the motion ends; stop the recording (cf-v6-k6-r2-claude-meas)"
+   "title": "the motion ends; stop the recording (cf-v6-k11-r2-claude-meas)"
   },
   {
    "do": "cv_text",
-   "pane": "m-v6k6-r2-claude",
-   "film": "cf-v6-k6-r2-claude-meas",
+   "pane": "m-v6k11-r2-claude",
+   "film": "cf-v6-k11-r2-claude-meas",
    "tag": "after0",
-   "title": "screen text of m-v6k6-r2-claude (after)"
+   "title": "screen text of m-v6k11-r2-claude (after)"
   },
   {
    "do": "rpc",
@@ -1586,16 +673,16 @@
    "params": {
     "action": "close_variant"
    },
-   "title": "read the selector and the fork's grid counters after cf-v6-k6-r2-claude-meas"
+   "title": "read the selector and the fork's grid counters after cf-v6-k11-r2-claude-meas"
   },
   {
    "do": "action",
    "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (V6 K6 R3)"
+   "title": "set-up: a new workspace (V6 K11 R3)"
   },
   {
    "do": "adopt_pane",
-   "as": "m-v6k6-r3-nvim-claude-t"
+   "as": "m-v6k11-r3-nvim-claude-t"
   },
   {
    "do": "neutral_prompt"
@@ -1613,17 +700,17 @@
   },
   {
    "do": "rk_focus",
-   "pane": "m-v6k6-r3-nvim-claude-t",
-   "title": "set-up: focus m-v6k6-r3-nvim-claude-t (cmux pane focus)"
+   "pane": "m-v6k11-r3-nvim-claude-t",
+   "title": "set-up: focus m-v6k11-r3-nvim-claude-t (cmux pane focus)"
   },
   {
    "do": "action",
    "action": "splitDown",
-   "title": "set-up: splitDown from m-v6k6-r3-nvim-claude-t (m-v6k6-r3-nvim-claude-b)"
+   "title": "set-up: splitDown from m-v6k11-r3-nvim-claude-t (m-v6k11-r3-nvim-claude-b)"
   },
   {
    "do": "adopt_pane",
-   "as": "m-v6k6-r3-nvim-claude-b"
+   "as": "m-v6k11-r3-nvim-claude-b"
   },
   {
    "do": "neutral_prompt"
@@ -1652,17 +739,17 @@
   },
   {
    "do": "rk_focus",
-   "pane": "m-v6k6-r3-nvim-claude-t",
-   "title": "set-up: focus m-v6k6-r3-nvim-claude-t (cmux pane focus)"
+   "pane": "m-v6k11-r3-nvim-claude-t",
+   "title": "set-up: focus m-v6k11-r3-nvim-claude-t (cmux pane focus)"
   },
   {
    "do": "action",
    "action": "splitDown",
-   "title": "set-up: splitDown from m-v6k6-r3-nvim-claude-t (m-v6k6-r3-nvim-claude-x)"
+   "title": "set-up: splitDown from m-v6k11-r3-nvim-claude-t (m-v6k11-r3-nvim-claude-x)"
   },
   {
    "do": "adopt_pane",
-   "as": "m-v6k6-r3-nvim-claude-x"
+   "as": "m-v6k11-r3-nvim-claude-x"
   },
   {
    "do": "neutral_prompt"
@@ -1685,22 +772,22 @@
   },
   {
    "do": "cv_text",
-   "pane": "m-v6k6-r3-nvim-claude-t",
-   "film": "cf-v6-k6-r3-nvim-claude-meas",
+   "pane": "m-v6k11-r3-nvim-claude-t",
+   "film": "cf-v6-k11-r3-nvim-claude-meas",
    "tag": "before0",
-   "title": "screen text of m-v6k6-r3-nvim-claude-t (before)"
+   "title": "screen text of m-v6k11-r3-nvim-claude-t (before)"
   },
   {
    "do": "cv_text",
-   "pane": "m-v6k6-r3-nvim-claude-b",
-   "film": "cf-v6-k6-r3-nvim-claude-meas",
+   "pane": "m-v6k11-r3-nvim-claude-b",
+   "film": "cf-v6-k11-r3-nvim-claude-meas",
    "tag": "before1",
-   "title": "screen text of m-v6k6-r3-nvim-claude-b (before)"
+   "title": "screen text of m-v6k11-r3-nvim-claude-b (before)"
   },
   {
    "do": "rk_focus",
-   "pane": "m-v6k6-r3-nvim-claude-x",
-   "title": "set-up: focus m-v6k6-r3-nvim-claude-x (cmux pane focus)"
+   "pane": "m-v6k11-r3-nvim-claude-x",
+   "title": "set-up: focus m-v6k11-r3-nvim-claude-x (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -1709,14 +796,14 @@
   },
   {
    "do": "video_start",
-   "name": "cf-v6-k6-r3-nvim-claude-meas",
+   "name": "cf-v6-k11-r3-nvim-claude-meas",
    "seconds": 5.0,
    "mbps": 24,
    "rows": [],
    "columns": [],
    "require_hz": 120,
    "lead": 0.8,
-   "title": "start the 120 Hz movie cf-v6-k6-r3-nvim-claude-meas"
+   "title": "start the 120 Hz movie cf-v6-k11-r3-nvim-claude-meas"
   },
   {
    "do": "wait",
@@ -1725,34 +812,34 @@
   },
   {
    "do": "cp_close",
-   "film": "cf-v6-k6-r3-nvim-claude-meas",
+   "film": "cf-v6-k11-r3-nvim-claude-meas",
    "i": 0,
    "key": "w",
    "modifiers": [
     "cmd"
    ],
    "rest": 1.4,
-   "title": "Cmd-W (cf-v6-k6-r3-nvim-claude-meas)"
+   "title": "Cmd-W (cf-v6-k11-r3-nvim-claude-meas)"
   },
   {
    "do": "video_stop",
-   "name": "cf-v6-k6-r3-nvim-claude-meas",
+   "name": "cf-v6-k11-r3-nvim-claude-meas",
    "tail": 0.3,
-   "title": "the motion ends; stop the recording (cf-v6-k6-r3-nvim-claude-meas)"
+   "title": "the motion ends; stop the recording (cf-v6-k11-r3-nvim-claude-meas)"
   },
   {
    "do": "cv_text",
-   "pane": "m-v6k6-r3-nvim-claude-t",
-   "film": "cf-v6-k6-r3-nvim-claude-meas",
+   "pane": "m-v6k11-r3-nvim-claude-t",
+   "film": "cf-v6-k11-r3-nvim-claude-meas",
    "tag": "after0",
-   "title": "screen text of m-v6k6-r3-nvim-claude-t (after)"
+   "title": "screen text of m-v6k11-r3-nvim-claude-t (after)"
   },
   {
    "do": "cv_text",
-   "pane": "m-v6k6-r3-nvim-claude-b",
-   "film": "cf-v6-k6-r3-nvim-claude-meas",
+   "pane": "m-v6k11-r3-nvim-claude-b",
+   "film": "cf-v6-k11-r3-nvim-claude-meas",
    "tag": "after1",
-   "title": "screen text of m-v6k6-r3-nvim-claude-b (after)"
+   "title": "screen text of m-v6k11-r3-nvim-claude-b (after)"
   },
   {
    "do": "rpc",
@@ -1760,16 +847,16 @@
    "params": {
     "action": "close_variant"
    },
-   "title": "read the selector and the fork's grid counters after cf-v6-k6-r3-nvim-claude-meas"
+   "title": "read the selector and the fork's grid counters after cf-v6-k11-r3-nvim-claude-meas"
   },
   {
    "do": "action",
    "action": "workspace.newAtBottom",
-   "title": "set-up: a new workspace (V6 K6 G4)"
+   "title": "set-up: a new workspace (V6 K11 G4)"
   },
   {
    "do": "adopt_pane",
-   "as": "m-v6k6-g4-nvim-claude-tr"
+   "as": "m-v6k11-g4-nvim-claude-tr"
   },
   {
    "do": "neutral_prompt"
@@ -1787,17 +874,17 @@
   },
   {
    "do": "rk_focus",
-   "pane": "m-v6k6-g4-nvim-claude-tr",
-   "title": "set-up: focus m-v6k6-g4-nvim-claude-tr (cmux pane focus)"
+   "pane": "m-v6k11-g4-nvim-claude-tr",
+   "title": "set-up: focus m-v6k11-g4-nvim-claude-tr (cmux pane focus)"
   },
   {
    "do": "action",
    "action": "splitDown",
-   "title": "set-up: splitDown from m-v6k6-g4-nvim-claude-tr (m-v6k6-g4-nvim-claude-br)"
+   "title": "set-up: splitDown from m-v6k11-g4-nvim-claude-tr (m-v6k11-g4-nvim-claude-br)"
   },
   {
    "do": "adopt_pane",
-   "as": "m-v6k6-g4-nvim-claude-br"
+   "as": "m-v6k11-g4-nvim-claude-br"
   },
   {
    "do": "neutral_prompt"
@@ -1826,34 +913,34 @@
   },
   {
    "do": "rk_focus",
-   "pane": "m-v6k6-g4-nvim-claude-br",
-   "title": "set-up: focus m-v6k6-g4-nvim-claude-br (cmux pane focus)"
+   "pane": "m-v6k11-g4-nvim-claude-br",
+   "title": "set-up: focus m-v6k11-g4-nvim-claude-br (cmux pane focus)"
   },
   {
    "do": "action",
    "action": "splitLeft",
-   "title": "set-up: splitLeft from m-v6k6-g4-nvim-claude-br (m-v6k6-g4-nvim-claude-bl)"
+   "title": "set-up: splitLeft from m-v6k11-g4-nvim-claude-br (m-v6k11-g4-nvim-claude-bl)"
   },
   {
    "do": "adopt_pane",
-   "as": "m-v6k6-g4-nvim-claude-bl"
+   "as": "m-v6k11-g4-nvim-claude-bl"
   },
   {
    "do": "neutral_prompt"
   },
   {
    "do": "rk_focus",
-   "pane": "m-v6k6-g4-nvim-claude-tr",
-   "title": "set-up: focus m-v6k6-g4-nvim-claude-tr (cmux pane focus)"
+   "pane": "m-v6k11-g4-nvim-claude-tr",
+   "title": "set-up: focus m-v6k11-g4-nvim-claude-tr (cmux pane focus)"
   },
   {
    "do": "action",
    "action": "splitLeft",
-   "title": "set-up: splitLeft from m-v6k6-g4-nvim-claude-tr (m-v6k6-g4-nvim-claude-x)"
+   "title": "set-up: splitLeft from m-v6k11-g4-nvim-claude-tr (m-v6k11-g4-nvim-claude-x)"
   },
   {
    "do": "adopt_pane",
-   "as": "m-v6k6-g4-nvim-claude-x"
+   "as": "m-v6k11-g4-nvim-claude-x"
   },
   {
    "do": "neutral_prompt"
@@ -1876,29 +963,29 @@
   },
   {
    "do": "cv_text",
-   "pane": "m-v6k6-g4-nvim-claude-tr",
-   "film": "cf-v6-k6-g4-nvim-claude-meas",
+   "pane": "m-v6k11-g4-nvim-claude-tr",
+   "film": "cf-v6-k11-g4-nvim-claude-meas",
    "tag": "before0",
-   "title": "screen text of m-v6k6-g4-nvim-claude-tr (before)"
+   "title": "screen text of m-v6k11-g4-nvim-claude-tr (before)"
   },
   {
    "do": "cv_text",
-   "pane": "m-v6k6-g4-nvim-claude-bl",
-   "film": "cf-v6-k6-g4-nvim-claude-meas",
+   "pane": "m-v6k11-g4-nvim-claude-bl",
+   "film": "cf-v6-k11-g4-nvim-claude-meas",
    "tag": "before1",
-   "title": "screen text of m-v6k6-g4-nvim-claude-bl (before)"
+   "title": "screen text of m-v6k11-g4-nvim-claude-bl (before)"
   },
   {
    "do": "cv_text",
-   "pane": "m-v6k6-g4-nvim-claude-br",
-   "film": "cf-v6-k6-g4-nvim-claude-meas",
+   "pane": "m-v6k11-g4-nvim-claude-br",
+   "film": "cf-v6-k11-g4-nvim-claude-meas",
    "tag": "before2",
-   "title": "screen text of m-v6k6-g4-nvim-claude-br (before)"
+   "title": "screen text of m-v6k11-g4-nvim-claude-br (before)"
   },
   {
    "do": "rk_focus",
-   "pane": "m-v6k6-g4-nvim-claude-x",
-   "title": "set-up: focus m-v6k6-g4-nvim-claude-x (cmux pane focus)"
+   "pane": "m-v6k11-g4-nvim-claude-x",
+   "title": "set-up: focus m-v6k11-g4-nvim-claude-x (cmux pane focus)"
   },
   {
    "do": "wait",
@@ -1907,14 +994,14 @@
   },
   {
    "do": "video_start",
-   "name": "cf-v6-k6-g4-nvim-claude-meas",
+   "name": "cf-v6-k11-g4-nvim-claude-meas",
    "seconds": 5.0,
    "mbps": 24,
    "rows": [],
    "columns": [],
    "require_hz": 120,
    "lead": 0.8,
-   "title": "start the 120 Hz movie cf-v6-k6-g4-nvim-claude-meas"
+   "title": "start the 120 Hz movie cf-v6-k11-g4-nvim-claude-meas"
   },
   {
    "do": "wait",
@@ -1923,41 +1010,41 @@
   },
   {
    "do": "cp_close",
-   "film": "cf-v6-k6-g4-nvim-claude-meas",
+   "film": "cf-v6-k11-g4-nvim-claude-meas",
    "i": 0,
    "key": "w",
    "modifiers": [
     "cmd"
    ],
    "rest": 1.4,
-   "title": "Cmd-W (cf-v6-k6-g4-nvim-claude-meas)"
+   "title": "Cmd-W (cf-v6-k11-g4-nvim-claude-meas)"
   },
   {
    "do": "video_stop",
-   "name": "cf-v6-k6-g4-nvim-claude-meas",
+   "name": "cf-v6-k11-g4-nvim-claude-meas",
    "tail": 0.3,
-   "title": "the motion ends; stop the recording (cf-v6-k6-g4-nvim-claude-meas)"
+   "title": "the motion ends; stop the recording (cf-v6-k11-g4-nvim-claude-meas)"
   },
   {
    "do": "cv_text",
-   "pane": "m-v6k6-g4-nvim-claude-tr",
-   "film": "cf-v6-k6-g4-nvim-claude-meas",
+   "pane": "m-v6k11-g4-nvim-claude-tr",
+   "film": "cf-v6-k11-g4-nvim-claude-meas",
    "tag": "after0",
-   "title": "screen text of m-v6k6-g4-nvim-claude-tr (after)"
+   "title": "screen text of m-v6k11-g4-nvim-claude-tr (after)"
   },
   {
    "do": "cv_text",
-   "pane": "m-v6k6-g4-nvim-claude-bl",
-   "film": "cf-v6-k6-g4-nvim-claude-meas",
+   "pane": "m-v6k11-g4-nvim-claude-bl",
+   "film": "cf-v6-k11-g4-nvim-claude-meas",
    "tag": "after1",
-   "title": "screen text of m-v6k6-g4-nvim-claude-bl (after)"
+   "title": "screen text of m-v6k11-g4-nvim-claude-bl (after)"
   },
   {
    "do": "cv_text",
-   "pane": "m-v6k6-g4-nvim-claude-br",
-   "film": "cf-v6-k6-g4-nvim-claude-meas",
+   "pane": "m-v6k11-g4-nvim-claude-br",
+   "film": "cf-v6-k11-g4-nvim-claude-meas",
    "tag": "after2",
-   "title": "screen text of m-v6k6-g4-nvim-claude-br (after)"
+   "title": "screen text of m-v6k11-g4-nvim-claude-br (after)"
   },
   {
    "do": "rpc",
@@ -1965,7 +1052,7 @@
    "params": {
     "action": "close_variant"
    },
-   "title": "read the selector and the fork's grid counters after cf-v6-k6-g4-nvim-claude-meas"
+   "title": "read the selector and the fork's grid counters after cf-v6-k11-g4-nvim-claude-meas"
   }
  ],
  "finally": [
