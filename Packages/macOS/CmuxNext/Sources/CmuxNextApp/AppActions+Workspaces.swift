@@ -151,8 +151,7 @@ extension AppActions {
         // Shown: the active window, or a new one when none is open. Not
         // shown (the CLI default): the most recent window lists it, or a new
         // window when none is open (a workspace never lives in no window).
-        // A control caller's (an agent's, a Chief turn's) goes to its own window instead: the Chief's, the
-        // window it was prompted from (#32989); not shown, it is filed there without showing.
+        // A control caller's goes to its own window (a Chief's: where it was prompted, #32989), filed there unshown.
         let hasOpenWindow = !windows.registry.value.openWindows.isEmpty
         let callerWindow = invocation.callerWindow.flatMap { windows.registry.value.window($0)?.isOpen == true ? $0 : nil }
         let target: String? = show || !hasOpenWindow ? windows.targetWindow(preferring: sourceID ?? callerWindow ?? sourceWindow?.state.id) : callerWindow

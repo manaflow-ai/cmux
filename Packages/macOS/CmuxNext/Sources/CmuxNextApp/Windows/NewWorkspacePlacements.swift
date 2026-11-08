@@ -63,7 +63,6 @@ enum NewWorkspacePlacements {
     /// A new workspace's key, placed like Cmd-N's on any machine: a create with no slot of its own never lands at its daemon's.
     static func placedKey(in windows: WindowManager, claimingFor caller: String? = nil, shows: Bool = false) -> WorkspaceKey {
         let key = WorkspaceKey.generate()
-        // A control caller's window (#32989): filed and placed there, else the window reconcile gives it.
         let window = windows.claims.claimForCaller(key.rawValue, window: caller, shows: shows, in: windows.registry.value) ? caller : nil
         expect(key.rawValue, in: window, byDefault: rule(for: window, in: windows), windows: windows)
         return key

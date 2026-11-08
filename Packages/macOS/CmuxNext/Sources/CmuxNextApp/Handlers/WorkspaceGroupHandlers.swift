@@ -189,11 +189,9 @@ enum WorkspaceGroupHandlers {
     /// New workspace in the window's room, made on the machine the group's workspaces run on
     /// (`GroupSpawnHost`: a group in a remote host's section stays on that host), then into
     /// personal group `id`. A remote host that is not connected refuses instead of making it here.
-    private static func newPersonalWorkspace(in id: WorkspaceGroupID, newTabPage: Bool, _ invocation: ActionInvocation,
-                                             _ context: AppActionContext) throws {
+    private static func newPersonalWorkspace(in id: WorkspaceGroupID, newTabPage: Bool, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
         let windows = context.services.windows
-        // A control caller's (a Chief turn's) in its own window, the one it was prompted from (#32989).
-        let target = windows.targetWindow(preferring: context.createWindow(invocation)?.state.id)
+        let target = windows.targetWindow(preferring: context.createWindow(invocation)?.state.id) // a caller's own window (#32989)
         let machines = context.services.machines, local = machines.local
         let homes = context.workspaces(inPersonalGroup: id).compactMap { member in
             machines.daemons.first { daemon in daemon.store.workspaces.contains { $0.id == member.id } }

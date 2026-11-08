@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextControl
 @testable import CmuxNextDaemon
+import CmuxNextHomeEngine
 import CmuxNextLayout
 import Foundation
 import Testing
@@ -193,14 +194,13 @@ struct CreateInCallerWindowTests {
             .init(id: id, title: id, participants: participants, lastSeq: 1, rev: 1, createdAt: "2026-11-06T00:00:00.000Z",
                   updatedAt: "2026-11-06T00:00:00.000Z", lastMessage: last)
         }
-        let lasts = HomeService.chiefLastMessages(in: [
+        let lasts = HomeChiefName.lastMessages(in: [
             summary("chief", [person, mux], last: message("asked", by: person.id, in: "chief")),
             summary("chief-replied", [person, mux], last: message("reply", by: mux.id, in: "chief-replied")),
             summary("channel", [person, friend, mux], last: message("hey", by: friend.id, in: "channel")),
             summary("dm", [person, friend], last: message("hi", by: person.id, in: "dm")),
         ], me: person.id)
-        #expect(lasts == ["chief": .init(message: "asked", byPerson: true), "chief-replied": .init(message: "reply", byPerson: false),
-                          "channel": .init(message: "hey", byPerson: false)])
+        #expect(lasts.map { "\($0.conversation)=\($0.message):\($0.byPerson)" }.sorted()
+            == ["channel=hey:false", "chief-replied=reply:false", "chief=asked:true"])
     }
 }
-

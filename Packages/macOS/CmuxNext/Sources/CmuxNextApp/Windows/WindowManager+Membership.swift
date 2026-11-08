@@ -550,10 +550,7 @@ extension WindowManager {
         guard daemon.store.onWorkspaceListChanged == nil else { return }
         daemon.store.onWorkspaceListChanged = { [weak self] in self?.reconcileMembership() }
         // A CLI create announced by `workspace.expect_window` opens in its window, not the most recent (#32989).
-        daemon.store.onResourceWorkspaceAdded = { [weak self] id, key in
-            guard let self else { return }
-            claims.claimExpected(id, key: key, in: registry.value)
-        }
+        daemon.store.onResourceWorkspaceAdded = { [weak self] id, key in _ = self.map { $0.claims.claimExpected(id, key: key, in: $0.registry.value) } }
     }
 
     /// True when `id` is known gone: its machine is loaded and lacks it, or
@@ -614,8 +611,7 @@ extension WindowManager {
     }
 }
 
-/// `workspace.expect_window` (``ControlWorkspaceWindowExpectation``, #32989): files an announced CLI create's
-/// workspace into the window it names once the daemon reports it.
+/// `workspace.expect_window` (``ControlWorkspaceWindowExpectation``, #32989): an announced CLI create's window.
 extension WindowManager {
     func expectWindowControlMethods() -> [ControlMethod] {
         [.mainActor(ControlWorkspaceWindowExpectation.method) { [weak self] call in

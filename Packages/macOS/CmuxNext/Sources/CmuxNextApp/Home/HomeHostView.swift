@@ -94,10 +94,9 @@ final class HomeHostView: PaneMotionFollowingView {
         service.debugHostViews.add(self)
         #endif
         transcript.linkScheme = services.linkScheme  // "Copy Link" names messages in this build's scheme
-        // A message to the Chief from this window: the workspaces its turn makes open here (#32989).
-        transcript.binding.onSend = { [weak self, weak services] _ in
-            guard let self, isChief, let services else { return }
-            if let id = window.flatMap(services.windows.owner(of:))?.state.id { services.windows.chiefPrompt.note(id, conversation: conversation) }
+        transcript.binding.onSend = { [weak self, weak services] _ in // the Chief's workspaces open where it was prompted (#32989)
+            guard let self, isChief, let services, let id = window.flatMap(services.windows.owner(of:))?.state.id else { return }
+            services.windows.chiefPrompt.note(id, conversation: conversation)
         }
         transcript.setNamePillHelp(HomeEngineStrings.pillHelp)
         // The header's name: the Chief's settings over a Chief; a DM's or group's info otherwise.

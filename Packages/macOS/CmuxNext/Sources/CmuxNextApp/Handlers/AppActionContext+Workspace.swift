@@ -12,28 +12,23 @@ extension AppActionContext {
     var store: DaemonStore { services.activeDaemon.store }
     var activeWindow: WindowController? { services.windows.active }
 
-    /// The window a control caller's new workspace opens in (#32989): its own (a Chief turn's, the window the
-    /// person prompted it from) while that window is open; nil for a person, or when it closed.
+    /// A control caller's own window while it is open (a Chief turn's: where it was prompted, #32989); nil for a person.
     func callerWindow(_ invocation: ActionInvocation) -> WindowController? {
-        guard let id = invocation.callerWindow, services.windows.registry.value.window(id)?.isOpen == true else { return nil }
-        return services.windows.controller(for: id)
+        invocation.callerWindow.flatMap { services.windows.registry.value.window($0)?.isOpen == true ? services.windows.controller(for: $0) : nil }
     }
 
-    /// The window a new workspace of `invocation` opens in: the caller's (``callerWindow(_:)``), else the active one.
+    /// The window a new workspace of `invocation` opens in: the caller's, else the active one.
     func createWindow(_ invocation: ActionInvocation) -> WindowController? { callerWindow(invocation) ?? activeWindow }
 
-    /// The workspace a create of `invocation` is placed next to: its target, else the one the caller's window
-    /// shows (a Chief's create goes where it was prompted, #32989), else the active window's. Nil when the
-    /// caller's window shows none: the create goes to that window (``createWindow(_:)``), never the active one's.
+    /// What a create is placed next to: its target, else what the caller's window shows (nil: none, so the create
+    /// goes to that window, never the active one's), else the active window's workspace.
     func createAnchorIfAny(_ invocation: ActionInvocation) throws -> WorkspaceModel? {
-        let targeted = (invocation.target ?? invocation["workspace"]?.targetValue)?.kind == .workspace
-        if !targeted, let caller = callerWindow(invocation) {
-            return caller.state.workspaceID.flatMap(services.workspace(id:)).flatMap { $0.key == nil ? nil : $0 }
+        guard (invocation.target ?? invocation["workspace"]?.targetValue)?.kind != .workspace, let caller = callerWindow(invocation) else {
+            return try workspace(invocation).model
         }
-        return try workspace(invocation).model
+        return caller.state.workspaceID.flatMap(services.workspace(id:)).flatMap { $0.key == nil ? nil : $0 }
     }
 
-    /// ``createAnchorIfAny(_:)`` for a create that needs an anchor; refused when there is none.
     func createAnchor(_ invocation: ActionInvocation) throws -> WorkspaceModel {
         guard let anchor = try createAnchorIfAny(invocation) else { throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn) }
         return anchor

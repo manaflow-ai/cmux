@@ -50,8 +50,7 @@ enum AgentTeamsLaunch: CaseIterable {
         guard let line = shellLine else { return }
         let logger = context.daemon.logger
         guard let pane = scope.pane else {
-            // No pane to open a tab in: a new workspace (cx-caoh). A control caller's (a Chief turn's) opens in its own
-            // window, the one it was prompted from (#32989).
+            // No pane to open a tab in: a new workspace (cx-caoh), in a control caller's own window (#32989).
             let windows = context.services.windows, caller = context.callerWindow(invocation)?.state.id
             let key = NewWorkspacePlacements.placedKey(in: windows, claimingFor: caller, shows: invocation.allowsViewChange)
             let claimed = caller.flatMap { windows.claims.pending[key.rawValue] == $0 ? $0 : nil }

@@ -83,10 +83,7 @@ enum AgentSessionWorkspace {
         }
         // A chat its tab would refuse (or, before localHost resolves, could not bind) makes no workspace: made first, its row listed and closed again (Leo, 2026-11-05).
         if let refusal = WorkspaceCreation.sessionTabRefusal(host: host, on: daemon, tabs: services.agentTabs) { throw ActionFailure(message: refusal) }
-        // The caller's window (a Chief subagent's: the window the Chief was prompted from), never the most recent
-        // one when another window asked (#32989). Filed there once the daemon reports it, shown only when the run may change the view.
         let claimedWindow = windows.claims.claimForCaller(key.rawValue, window: callerWindow, shows: focus, in: windows.registry.value) ? callerWindow : nil
-        // Its slot is read in the window it is filed in: `after current` anchors to that window's workspace, not the most recent window's.
         let placed = expectPlacement(key.rawValue, group: group, top: top, parent: parent, window: claimedWindow, windows: windows)
         // The lineage parent before the row lists, so the row nests under its caller from its first frame, never moves under it later.
         SidebarSessionTreeFeed.shared.recordedParents.record(parent, of: AgentSessionParents.identity(host: targetHost, session: session))
@@ -128,7 +125,6 @@ enum AgentSessionWorkspace {
                 logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in workspace \(key.rawValue, privacy: .public) tab \(tab, privacy: .public)")
                 return nil
             } catch let refusal as AgentTabRefusal {
-                // The caller's window no longer waits for a workspace that will not come.
                 if claimedWindow != nil { _ = windows.createFailed(key.rawValue, refusal) }
                 return ActionWorkFailure("agent.openSessionWorkspace: \(refusal.message)")
             } catch {

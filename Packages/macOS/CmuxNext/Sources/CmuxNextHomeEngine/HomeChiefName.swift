@@ -43,4 +43,13 @@ public nonisolated enum HomeChiefName {
 
     /// The local mux participant's id.
     static let muxID = "agent_mux"
+
+    /// Each Chief conversation's last message and whether `me` wrote it (where the Chief was prompted, #32989).
+    public static func lastMessages(in conversations: [CmuxNextDaemon.ConversationSummary],
+                                    me: String) -> [(conversation: String, message: String, byPerson: Bool)] {
+        conversations.compactMap { summary in
+            guard summary.participants.contains(where: { $0.id == muxID }), let last = summary.lastMessage else { return nil }
+            return (summary.id, last.id, last.author == me)
+        }
+    }
 }

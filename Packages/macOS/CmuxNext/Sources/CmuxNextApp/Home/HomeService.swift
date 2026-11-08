@@ -470,30 +470,19 @@ final class HomeService {
 // MARK: Where the Chief was prompted
 
 extension HomeService {
-    /// Feeds ``ChiefPromptWindow`` each local Chief conversation's newest message, so a message from the
-    /// person that no window's Home transcript sent (a phone, another Mac, New Message, an action) stops
-    /// naming a window as where the Chief was prompted (#32989).
+    /// Feeds ``ChiefPromptWindow`` each Chief conversation's last message: one no window sent clears it (#32989).
     fileprivate func watchPromptSources() {
         // task-owner: lives as long as the service; event-driven (Observation)
         promptWatch = Task { [weak self] in
             for await lasts in ObservationStream({ [weak self] in
-                self.map { Self.chiefLastMessages(in: $0.conversations, me: $0.homeSource.me.id.rawValue) } ?? [:]
+                self.map { HomeChiefName.lastMessages(in: $0.conversations, me: $0.homeSource.me.id.rawValue) }.map { lasts in
+                    Dictionary(lasts.map { ($0.conversation, ChiefPromptWindow.Last(message: $0.message, byPerson: $0.byPerson)) }) { a, _ in a }
+                } ?? [:]
             }) {
                 guard let self else { return }
                 services.windows.chiefPrompt.observe(lasts)
             }
         }
-    }
-
-    /// Each Chief conversation's last message (by conversation id), and whether `me` wrote it.
-    nonisolated static func chiefLastMessages(in conversations: [CmuxNextDaemon.ConversationSummary],
-                                              me: String) -> [String: ChiefPromptWindow.Last] {
-        var lasts: [String: ChiefPromptWindow.Last] = [:]
-        for summary in conversations where summary.participants.contains(where: { $0.id == HomeChiefAvatars.defaultChief }) {
-            guard let last = summary.lastMessage else { continue }
-            lasts[summary.id] = ChiefPromptWindow.Last(message: last.id, byPerson: last.author == me)
-        }
-        return lasts
     }
 }
 
