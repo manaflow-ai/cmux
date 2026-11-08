@@ -1371,7 +1371,7 @@
     },
     {
       "agent": "userOnly",
-      "why": "Claude's next-prompt suggestions make an extra model call per turn that counts toward the person's usage: their call, as `agents.autoRetry.enabled` is.",
+      "why": "Claude's and Codex's next-prompt suggestions make an extra model call per turn that counts toward the person's usage: their call, as `agents.autoRetry.enabled` is.",
       "keys": [
         "agents.promptSuggestions"
       ]
