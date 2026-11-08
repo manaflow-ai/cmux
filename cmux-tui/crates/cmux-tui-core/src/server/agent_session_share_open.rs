@@ -247,9 +247,16 @@ pub(super) fn invite_in(
         if invitee.state == InviteState::Invited {
             return if invitee.role == role { Ok((answer, false)) } else { Err("share.invited") };
         }
-        *invitee = Invitee { account, role, invited_at: now, state: InviteState::Invited };
+        *invitee = Invitee {
+            account: account.clone(),
+            role,
+            invited_at: now,
+            state: InviteState::Invited,
+        };
+        retire_link_guests(share, &account);
         return Ok((answer, true));
     }
+    retire_link_guests(share, &account);
     if share.invitees.len() >= MAX_INVITEES {
         // A removed account goes first, when room is needed.
         share.invitees.retain(|i| i.state == InviteState::Invited);
@@ -262,4 +269,18 @@ pub(super) fn invite_in(
         return Err("share.limit");
     }
     Ok((answer, true))
+}
+
+/// The account's guests that joined by the link end once it is invited: from then on it reaches
+/// the chat only as the invite's guest, with the role the owner chose (a viewer invite never
+/// leaves an earlier link guest able to send). Their connections close at the next `settle` and
+/// the room hears their end; their attempts answer nothing, so a retry joins by the invite.
+fn retire_link_guests(share: &mut LinkShare, account: &str) {
+    let joined_by_link = |g: &Guest| g.via.is_some() && g.account.as_deref() == Some(account);
+    for guest in share.guests.iter_mut().filter(|g| joined_by_link(g)) {
+        if guest.state == GuestState::Active {
+            guest.state = GuestState::Left;
+        }
+        guest.attempt_id_sha256 = String::new();
+    }
 }

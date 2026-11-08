@@ -1790,3 +1790,52 @@ fn an_invite_never_reuses_the_accounts_link_guest() {
     }
     assert_eq!(list(&mut owner)[0]["uses_left"], 2, "only the link join spent a use");
 }
+
+/// Inviting an account ends its guests that joined by the link, connected or not, whatever
+/// attempt it redeems with next: a viewer invite leaves it no way to send (review of #38102).
+#[test]
+fn an_invite_ends_the_accounts_link_guests_at_once() {
+    let fake = FakeAcpmux::start("share-invite-ends-link");
+    let mux = mux_with(&fake, "share-invite-ends-link");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-invite-ends-link-owner");
+    let share = create(&mut owner, surface, json!({"role":"view", "uses":3}));
+    let by_link = redeem_signed_in(&mut owner, &share, "sam@example.com", "s1");
+    assert_eq!(by_link["data"]["role"], "talk", "{by_link}");
+    let (mut talker, bound) = bind(&mux, &share, &by_link, "share-invite-ends-link-sam");
+    assert_eq!(bound["ok"], true, "{bound}");
+    assert_eq!(invite(&mut owner, &share, "sam@example.com", Some("view"))["ok"], true);
+    wait_unbound(&mux, 0);
+    assert!(talker.ends_within(WAIT), "the link guest's connection ends with the invite");
+    let (_again, rebound) = bind(&mux, &share, &by_link, "share-invite-ends-link-again");
+    assert_eq!(rebound["ok"], false, "its guest id binds no more: {rebound}");
+    let fresh = redeem_signed_in(&mut owner, &share, "sam@example.com", "s2");
+    assert_eq!(fresh["data"]["role"], "view", "a new attempt joins by the invite: {fresh}");
+}
+
+/// A redeem an older daemon recorded (a link join with the secret and an account, kept without
+/// the account) retried after an upgrade gets that guest again, with no use spent.
+#[test]
+fn a_link_join_recorded_before_the_upgrade_is_found_again() {
+    let directory = scratch("shares-pre-upgrade-retry");
+    let dir = Some(directory.as_path());
+    let shares = LinkShares::default();
+    let share = shares.insert(dir, "acp_x".into(), 1, ShareTerms { uses: 2, ..terms() }, false);
+    let share = share.unwrap();
+    let share_id = share["share_id"].as_str().unwrap().to_owned();
+    let join = |account: Option<&str>| Redeem {
+        share_id: share_id.clone(),
+        secret: share["secret"].as_str().unwrap().into(),
+        name: "Sam".into(),
+        attempt_id: "s1".into(),
+        account: account.map(str::to_owned),
+        avatar_url: None,
+    };
+    // As the older daemon kept it: the account dropped.
+    let old = shares.redeem(dir, join(None)).unwrap();
+    let again = shares.redeem(dir, join(Some("sam@example.com"))).unwrap();
+    assert_eq!(again["guest_id"], old["guest_id"], "{again}");
+    let all = shares.with(dir, |all, _| Ok((all.clone(), false))).unwrap();
+    assert_eq!(all[0].uses_left, 1, "the retry spent no use");
+    let _ = std::fs::remove_dir_all(&directory);
+}

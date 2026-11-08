@@ -965,6 +965,16 @@ impl LinkShares {
             if let Some(guest) =
                 share.guests.iter_mut().find(|g| same(&g.attempt_id_sha256, &attempt))
             {
+                // A link guest an older daemon recorded without its account (it kept none for
+                // a join by the link) is the same join retried by the link: that guest again.
+                let unrecorded = guest.account.is_none() && guest.via.is_none();
+                if unrecorded && via == Some(Via::Link) {
+                    return match guest.state {
+                        GuestState::Active => Ok((reply(guest), false)),
+                        GuestState::Kicked => Err("share.kicked"),
+                        GuestState::Left => Err("share.left"),
+                    };
+                }
                 // An attempt is one account's: another account (or a link guest) never gets it.
                 if guest.account != account {
                     return Err(if account.is_some() {
