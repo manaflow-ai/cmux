@@ -2888,6 +2888,13 @@ WEB_TEST_JOB = re.compile(r"web / react-apps-(base-)?check \((\d+)\)")
 WEB_SHARD = "web / react-apps-check ({})"
 WEB_SHARD_JOB = re.compile(r"web / react-apps-check \(\d+\)")
 WEB_BASE_JOB_READS = BASE_JOB_READS
+# The steps whose failure is a webview test red, as the jobs API shows them: every other step of these jobs that can
+# fail is continue-on-error (it reads as a success there) and is gathered by the job's own last step, 'Fail on the gate
+# checks' in a shard (bundles, type check, PR rules) or a head build step in a replay. A job with any other failed step
+# failed outside its tests, and a per-test match never excuses it (review F1 on #38380): a head shard is then judged
+# by its name and failed steps as before, and a replay, which has no base job of its name, is refused.
+WEB_TEST_STEPS = {"replay": frozenset({"Re-run the change's reds alone on the head", "Fail on the change's own reds"}),
+                  "shard": frozenset({"Test webviews"})}
 
 
 def web_base_runs(repo: str, base: str, workflow, github, base_runs: dict):
@@ -2925,6 +2932,14 @@ def web_test_verdict(repo: str, base: str, name: str, job: dict, head_log: str, 
     if repo != HOME_REPO or found is None:
         return None
     replay = bool(found.group(1))
+    failed = [step.get("name") or "" for step in job.get("steps") or []
+              if step.get("conclusion") not in (None, "success", "skipped")]
+    outside = [step for step in failed if step not in WEB_TEST_STEPS["replay" if replay else "shard"]]
+    if outside or not failed:
+        if not replay:
+            return None
+        raise Refused(f"'{name}' failed outside its webview test steps: {', '.join(outside) or 'no step failed'}; "
+                      f"a replay has no {base} job of its name to compare with, so it is never a base red")
     head_logs: list[str | None] = [head_log]
     if replay:
         shard = WEB_SHARD.format(found.group(2))

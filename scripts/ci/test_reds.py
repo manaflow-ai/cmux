@@ -1282,7 +1282,10 @@ def web_head(head_logs: list, job: str = "", base: str = "the base"):
         files = {name.split(" > ", 1)[0] for name in red.charged}
         # Replay annotations need not name an unhandled error that the head emitted
         # outside a test. Every head diagnostic in the charged files must be compared.
-        names = sorted(set(names) | {name for name in head.failed if name.split(" > ", 1)[0] in files})
+        # A named test the final verdict cleared (a warning: red on the merge parent too, flaky there, or passed alone
+        # on the head) is not the change's, though its file is charged for another test (review F2 on #38380).
+        names = sorted(set(names) | {name for name in head.failed if name.split(" > ", 1)[0] in files
+                                     and not (" > " in name and name in red.shared)})
     reasons = sorted(red.crashed | head.crashed)
     reasons += [f"{name} timed out (a cut-short run is never a base red)"
                 for name in sorted(red.timed_out | head.timed_out)]
