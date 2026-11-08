@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextDesign
 import Foundation
 
@@ -25,6 +26,14 @@ public final class CloudTeamFeature {
                                           activeTeam: { [weak host] in host?.cloudTeamID })
         self.store = store
         publisher = CloudTeamPublisher(host: host, store: store)
+        store.setTeam(host.cloudTeamID)
+        // task-owner: follows the account's active team for the app's life; the store drops the old team's rows.
+        Task { [weak host, weak store] in
+            for await team in ObservationStream({ host?.cloudTeamID }) {
+                guard let store else { return }
+                store.setTeam(team)
+            }
+        }
     }
 
     /// The person's Cloud chat started (CloudStartSession): the team hears of it now.

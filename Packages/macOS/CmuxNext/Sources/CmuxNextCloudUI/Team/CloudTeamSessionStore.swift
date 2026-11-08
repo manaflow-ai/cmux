@@ -64,6 +64,8 @@ public final class CloudTeamSessionStore {
     /// The active team's members, for Reassign to (``loadMembers()``).
     public private(set) var members: [CloudTeamMember] = []
     public private(set) var isLoading = false
+    /// The team the rows are of (the account's active team, ``setTeam(_:)``); the section reloads when it changes.
+    public private(set) var team: String?
     /// Why the last list failed, nil after one that answered.
     public private(set) var listError: CloudTeamError?
 
@@ -85,6 +87,18 @@ public final class CloudTeamSessionStore {
     }
 
     // MARK: Reads
+
+    /// The account switched teams (or signed out): the old team's rows and members go, and a list
+    /// of the old team still in flight is dropped when it answers.
+    public func setTeam(_ next: String?) {
+        guard next != team else { return }
+        team = next
+        listGeneration += 1
+        sessions = []
+        members = []
+        listError = nil
+        isLoading = false
+    }
 
     /// Shows `filter`'s rows: the ones already loaded that belong there on this turn, then the list.
     public func select(_ filter: Filter) async {

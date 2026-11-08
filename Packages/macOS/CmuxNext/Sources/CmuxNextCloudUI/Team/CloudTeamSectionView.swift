@@ -52,7 +52,8 @@ public struct CloudTeamSectionView: View {
                 .scrollIndicators(.automatic)
             }
         }
-        .task {
+        // Keyed by the team: a team switch cancels this load and lists the new team's.
+        .task(id: store.team) {
             await store.refresh()
             await loadMembers()
         }

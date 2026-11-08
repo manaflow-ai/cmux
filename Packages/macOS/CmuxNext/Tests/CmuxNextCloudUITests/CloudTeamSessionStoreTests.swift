@@ -249,6 +249,27 @@ import Testing
         #expect(store.row(Self.ref("s1"))?.followerCount == 3, "the list's row stays")
     }
 
+    @Test func aTeamSwitchDropsTheOldTeamsRowsAndItsInFlightList() async throws {
+        let worker = FakeWorker()
+        var active = Self.team
+        let store = CloudTeamSessionStore(transport: worker.transport, activeTeam: { active })
+        store.setTeam(active)
+        worker.replies = [.success(Self.list([Self.row("s1")]))]
+        await store.select(.team)
+        worker.holds = true
+        worker.replies = [.success(Self.list([Self.row("old")]))]
+        // task-owner: the old team's list, answered after the switch.
+        let stale = Task { await store.refresh() }
+        await worker.held(1)
+        active = "team_zzzzzzzzzzzzzzzzzzzz"
+        store.setTeam(active)
+        #expect(store.sessions.isEmpty && store.team == active)
+        worker.release()
+        await stale.value
+        #expect(store.sessions.isEmpty, "the old team's reply does not show under the new team")
+        #expect(!store.isLoading)
+    }
+
     @Test func guestsAndBillingMembersAreNotReassignTargets() {
         #expect(CloudTeamMember(user: "u", name: "n", role: "member").canBeAssigned)
         #expect(CloudTeamMember(user: "u", name: "n", role: "admin").canBeAssigned)
