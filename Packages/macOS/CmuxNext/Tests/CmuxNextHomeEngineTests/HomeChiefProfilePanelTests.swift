@@ -156,6 +156,22 @@ import Testing
         #expect(fillAlpha() == 0)
     }
 
+    /// The chat's computer popup opens the panel at Computer and hides while that tab is on show;
+    /// another tab or a closed panel brings it back (cmux issue 31488).
+    @Test func thePanelShowsTheComputerOnlyOnItsTab() {
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 600))
+        let panel = HomeChiefProfilePanel(settings: Self.card())
+        panel.install(in: host)
+        #expect(!panel.showsComputer)
+        panel.open(.computer)
+        #expect(panel.showsComputer)
+        panel.view.select(.details)
+        #expect(!panel.showsComputer)
+        panel.open(.computer)
+        panel.close(keyboardTo: host)
+        #expect(!panel.showsComputer)
+    }
+
     /// The capture scene's fixture computer keeps its control bar through the host's own reads.
     @Test func aPinnedControlBarIgnoresTheHostsComputer() {
         let panel = HomeChiefProfilePanel(settings: Self.card())
