@@ -18,8 +18,13 @@ cmux_agy_is_self_or_shim() {
         return 0
     fi
     case "$candidate" in
-        */cmux-cli-shims/*/agy|*/cmux-cli-shims/agy|*/Contents/Resources/bin/agy|*/Resources/bin/agy)
+        */cmux-cli-shims/*/agy|*/cmux-cli-shims/agy)
             return 0
+            ;;
+        */Resources/bin/agy)
+            # Another cmux bundle's wrapper sits beside that bundle's cmux CLI; an
+            # agy that another app ships in its own Resources/bin is still real.
+            [[ -x "${candidate%/agy}/cmux" ]] && return 0
             ;;
     esac
     return 1
