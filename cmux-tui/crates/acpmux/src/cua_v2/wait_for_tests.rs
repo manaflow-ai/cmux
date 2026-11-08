@@ -423,3 +423,39 @@ fn a_whole_tree_exactly_at_the_cap_is_whole() {
     assert_eq!(tree(&json!({"element_count": 5}), &json!({"max_elements": 5})), Tree::Cut);
     assert_eq!(tree(&json!({"element_count": 4}), &json!({})), Tree::Unknown);
 }
+
+/// Answers the first read, then never answers again.
+struct AnswersOnce {
+    first: Option<Result<Value, String>>,
+    abandoned: bool,
+}
+
+impl TreeReader for AnswersOnce {
+    async fn read(&mut self, _arguments: Value) -> Result<Value, String> {
+        match self.first.take() {
+            Some(answer) => answer,
+            None => std::future::pending().await,
+        }
+    }
+
+    fn abandon(&mut self) {
+        self.abandoned = true;
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_widened_read_that_never_answers_leaves_gone_unconfirmed() {
+    let mut reader = AnswersOnce { first: Some(state(json!([]))), abandoned: false };
+    let result = run(
+        &wait(json!({"pid": 123, "window_id": 4, "query": "Save", "gone": true,
+            "max_elements": 5, "timeout_ms": 1000})),
+        &mut reader,
+    )
+    .await;
+    let structured = &result["structuredContent"];
+    assert_eq!(structured["timed_out"], true, "{result}");
+    assert_eq!(structured["last_check_unanswered"], true);
+    assert_eq!(structured["gone_unconfirmed"], true);
+    assert_eq!(structured["widened"], true);
+    assert!(reader.abandoned);
+}

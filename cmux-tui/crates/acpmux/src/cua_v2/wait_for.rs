@@ -384,6 +384,9 @@ pub async fn run<R: TreeReader>(wait: &Wait, reader: &mut R) -> Value {
                     }
                 }
                 widened = true;
+                // Until the whole tree answers, this cut read is the last
+                // word: a widened read that times out leaves gone unconfirmed.
+                unconfirmed = true;
                 continue;
             }
             // Cut short with no time or bound left to widen: absence stays
