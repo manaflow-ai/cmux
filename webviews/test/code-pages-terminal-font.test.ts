@@ -46,6 +46,9 @@ describe("code pages follow the terminal font", () => {
   test("the code editor's font is the terminal's", () => {
     hostSends("Fira Code");
     expect(editorFamily().startsWith('"Fira Code",')).toBe(true);
+    expect(editorFamily()).toContain('"Symbols Nerd Font Mono"');
+    expect(editorFamily()).toContain('"Noto Sans Mono CJK JP"');
+    expect(editorFamily()).toContain('"Custom Symbols"');
   });
 
   test("without a named terminal face the pages keep their own defaults", () => {

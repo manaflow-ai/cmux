@@ -1,50 +1,45 @@
 import CoreText
 import Foundation
 
-/// A small, CI-runnable check for the metrics Ghostty uses for terminal cells.
-/// It intentionally measures the chosen face and CoreText's fallback face rather than an
-/// AppKit label: a fallback that draws a glyph but advances by a different number of cells is
-/// still a terminal rendering bug.
-public nonisolated struct GhosttyGlyphWidthProbe: Sendable {
-    public struct Sample: Sendable, Equatable {
-        public let name: String
-        public let text: String
-        public let expectedCells: Int
-
-        public init(name: String, text: String, expectedCells: Int) {
-            self.name = name
-            self.text = text
-            self.expectedCells = expectedCells
-        }
+/// A CI-runnable probe for the metrics Ghostty uses for terminal cells.
+/// It measures the chosen face and CoreText's fallback face rather than an AppKit label: a
+/// fallback that draws a glyph but advances by a different number of cells is still a rendering
+/// bug. Keeping this diagnostic in the test target prevents probe-only logic from shipping in the
+/// app binary.
+struct GhosttyGlyphWidthProbe: Sendable {
+    struct Sample: Sendable, Equatable {
+        let name: String
+        let text: String
+        let expectedCells: Int
     }
 
-    public struct Measurement: Sendable, Equatable {
-        public let sample: Sample
-        public let cellWidth: Double
-        public let advance: Double
-        public let missingGlyph: Bool
+    struct Measurement: Sendable, Equatable {
+        let sample: Sample
+        let cellWidth: Double
+        let advance: Double
+        let missingGlyph: Bool
 
-        public var expectedAdvance: Double { cellWidth * Double(sample.expectedCells) }
-        public var cellDelta: Double { advance - expectedAdvance }
-        public var overflowsCellGrid: Bool {
+        var expectedAdvance: Double { cellWidth * Double(sample.expectedCells) }
+        var cellDelta: Double { advance - expectedAdvance }
+        var overflowsCellGrid: Bool {
             abs(cellDelta) > max(0.5, cellWidth * 0.25)
         }
-        public var matchesCellGrid: Bool { !missingGlyph && !overflowsCellGrid }
+        var matchesCellGrid: Bool { !missingGlyph && !overflowsCellGrid }
     }
 
-    /// The fixed prompt/content probe: ASCII, CJK, Nerd Font private-use code points, and emoji.
-    public static let samples = [
+    /// Fixed prompt/content coverage: ASCII, CJK, Nerd Font private-use code points, and emoji.
+    static let samples = [
         Sample(name: "ASCII", text: "Aa", expectedCells: 2),
         Sample(name: "CJK", text: "日本語", expectedCells: 6),
         Sample(name: "Nerd Font", text: "\u{f007}\u{f120}", expectedCells: 2),
         Sample(name: "Emoji", text: "😀", expectedCells: 2),
     ]
 
-    public let family: String
-    public let size: Double
-    public let measurements: [Measurement]
+    let family: String
+    let size: Double
+    let measurements: [Measurement]
 
-    public init(family: String, size: Double, fallbackFamilies: [String] = GhosttyRuntime.knownFallbackFamilies) {
+    init(family: String, size: Double, fallbackFamilies: [String] = GhosttyRuntime.knownFallbackFamilies) {
         self.family = family
         self.size = size
         let pointSize = CGFloat(size.isFinite && size > 0 ? size : 13)
@@ -62,7 +57,7 @@ public nonisolated struct GhosttyGlyphWidthProbe: Sendable {
         }
     }
 
-    public var allSamplesMatchCellGrid: Bool { measurements.allSatisfy(\.matchesCellGrid) }
+    var allSamplesMatchCellGrid: Bool { measurements.allSatisfy(\.matchesCellGrid) }
 
     private static func measure(_ sample: Sample, primary: CTFont, fallbackFonts: [CTFont], cellWidth: Double) -> Measurement {
         let string = sample.text as NSString
