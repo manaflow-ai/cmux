@@ -1,3 +1,6 @@
+#if canImport(CmuxMobileLinkFFI)
+import CmuxMobileLinkFFI
+#endif
 import Foundation
 import Network
 
@@ -49,6 +52,10 @@ public final class NetworkPathMonitor: @unchecked Sendable {
         // Updates arrive on this one serial queue, so the filter needs no lock.
         let state = FilterBox()
         monitor.pathUpdateHandler = { path in
+            #if canImport(CmuxMobileLinkFFI)
+            // The next WireGuard dial picks its ultra mode with it (Rust `ultra_for_dial`).
+            setCellularPath(cellular: path.usesInterfaceType(.cellular))
+            #endif
             if let event = state.filter.update(satisfied: path.status == .satisfied, signature: Self.signature(path)) {
                 continuation.yield(event)
             }
