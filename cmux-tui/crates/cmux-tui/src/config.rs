@@ -434,6 +434,8 @@ struct RawSidebar {
     rail_glyph: Option<String>,
     /// Workspace row label template with `{index}` and `{name}`.
     workspace_label: Option<String>,
+    /// The workspace rail's agents section; `false` hides it.
+    agents: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
