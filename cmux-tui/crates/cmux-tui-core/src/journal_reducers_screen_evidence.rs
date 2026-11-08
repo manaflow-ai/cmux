@@ -11,14 +11,20 @@ use super::{
 };
 use crate::AgentState;
 
-/// The last state a userland plugin saw on a terminal's screen, kept whether
-/// or not that observation won source arbitration. A hook cannot say that a
+/// The last state a userland plugin child saw on a terminal's screen, kept
+/// whether or not that observation won source arbitration. The record names
+/// the child (`generation`): only the child that saw a blocker can say that
+/// it went away, and the child's exit drops its records. A hook cannot say that a
 /// dialog went away without an answer (Claude Code fires no hook when the
 /// person dismisses a permission dialog with Esc), so the roster keeps the
 /// screen's own record of the dialog ([`AgentRoster::note_screen_evidence`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct ScreenEvidence {
     producer: String,
+    /// The plugin child's generation (`normalized.plugin_generation`), when
+    /// the supervisor tagged it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    generation: Option<u64>,
     state: String,
 }
 
@@ -41,15 +47,18 @@ impl RosterEvent<'_> {
 }
 
 impl AgentRoster {
-    /// Record `producer`'s observation of `terminal_id` and return whether it
-    /// ends a blocker the same producer saw: its previous observation was
-    /// `blocked` and this one is `working` or `idle`. Repeated reports of the
+    /// Record the observation of `terminal_id` by `producer`'s child
+    /// `generation` and return whether it ends a blocker the same child saw:
+    /// its previous observation was `blocked` and this one is `working` or
+    /// `idle`. A new child's first report never does, whatever an earlier
+    /// child of the same plugin saw. Repeated reports of the
     /// same state change nothing, so the plugin's stable-blocker refreshes
     /// keep the record at `blocked`.
     pub(super) fn note_screen_evidence(
         &mut self,
         terminal_id: &str,
         producer: &str,
+        generation: Option<u64>,
         state: AgentState,
     ) -> bool {
         if state == AgentState::Done {
@@ -58,12 +67,27 @@ impl AgentRoster {
         }
         let previous = self.screen_evidence.insert(
             terminal_id.to_string(),
-            ScreenEvidence { producer: producer.to_string(), state: state.as_str().to_string() },
+            ScreenEvidence {
+                producer: producer.to_string(),
+                generation,
+                state: state.as_str().to_string(),
+            },
         );
         matches!(state, AgentState::Working | AgentState::Idle)
             && previous.is_some_and(|previous| {
-                previous.producer == producer && previous.state == AgentState::Blocked.as_str()
+                previous.producer == producer
+                    && previous.generation == generation
+                    && previous.state == AgentState::Blocked.as_str()
             })
+    }
+
+    /// Drop the screen records of `producer`'s exited child: the tagged
+    /// `generation`, or, for an untagged exit, every untagged record. A later
+    /// child starts with no evidence of a blocker.
+    pub(super) fn forget_screen_evidence_of(&mut self, producer: &str, generation: Option<u64>) {
+        self.screen_evidence.retain(|_, evidence| {
+            evidence.producer != producer || evidence.generation != generation
+        });
     }
 
     /// Whether a plugin observation replaces a hook-owned `blocked` row even
