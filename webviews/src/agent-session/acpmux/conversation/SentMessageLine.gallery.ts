@@ -250,7 +250,7 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector('[data-send-page="next"]'));
         await ctx.click({ selector: '[data-send-page="next"]' });
         await ctx.waitFor(() =>
-          [...ctx.document.querySelectorAll(".cv-sent-msg .cv-recipient")].some((node) => node.textContent === "docs-32"),
+          [...ctx.document.querySelectorAll(".cv-sent-msg .cv-recipient")].some((n) => n.textContent === "docs-32"),
         );
       },
     },
