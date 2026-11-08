@@ -339,13 +339,13 @@ async fn cancelling_a_pending_master_ends_its_ssh() {
     let fake = FakeSsh::new(Mode::Serve { delay_ms: 30_000 });
     let share = SshConnectionShare::new();
     let target = fake.target();
-    let open = share.client_arguments(&target);
-    tokio::pin!(open);
+    let mut open = Box::pin(share.client_arguments(&target));
     tokio::select! {
         _ = &mut open => panic!("the master cannot be ready yet"),
         () = wait_until(|| fake.master_pid().is_some()) => {}
     }
     let pid = fake.master_pid().unwrap();
+    // Dropping the boxed future cancels the open, as a timeout would.
     drop(open);
     wait_until(|| !process_running(pid)).await;
 }
