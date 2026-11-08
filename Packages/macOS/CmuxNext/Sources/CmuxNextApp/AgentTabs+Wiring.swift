@@ -568,20 +568,6 @@ extension AgentTabStore {
         }
         tabs.gitLink = { [weak tabs] key in tabs.flatMap { $0.gitLinkScoped?($0.tabKey(key)) } }
         tabs.remoteFolder = { [weak tabs] key in tabs.flatMap { $0.remoteFolderScoped?($0.tabKey(key)) } }
-        tabs.remoteFolders = { [weak tabs] key in
-            guard let tabs else { return [] }
-            return tabs.remoteFoldersScoped?(tabs.tabKey(key)) ?? []
-        }
-        tabs.remoteMachineFolders = { [weak tabs] key in
-            guard let tabs, let remoteMachineFoldersScoped = tabs.remoteMachineFoldersScoped else { return [] }
-            return await remoteMachineFoldersScoped(tabs.tabKey(key))
-        }
-        tabs.shareMachineWithMe = { [weak tabs] key in
-            guard let tabs, let shareMachineWithMeScoped = tabs.shareMachineWithMeScoped else {
-                return .refused(code: "unavailable", message: CloudShareStrings.notCloudMachine)
-            }
-            return await shareMachineWithMeScoped(tabs.tabKey(key))
-        }
         // task-owner: one read of this Mac's name, shown to Macs that see its tabs and on every
         // pane's location row (a pane's handshake awaits it)
         // A showcase run and a run under capture name the showcase Mac (AppEnvironment.namesShowcaseMac).

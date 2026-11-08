@@ -233,15 +233,12 @@ final class AgentTabStore {
     var remoteFolderScoped: (@MainActor (AgentTabKey) -> String?)?
     /// The folders of every workspace on the machine of tab `key` (its terminals' folders there),
     /// for the project list of a chat on that machine.
-    var remoteFolders: (@MainActor (String) -> [String])?
     var remoteFoldersScoped: (@MainActor (AgentTabKey) -> [String])?
     /// The folders the machine of tab `key` lists itself (`agent-session-folders`: its work folder,
     /// then the folders under it), for the same project list; none from an older daemon.
-    var remoteMachineFolders: (@MainActor (String) async -> [String])?
     var remoteMachineFoldersScoped: (@MainActor (AgentTabKey) async -> [String])?
     /// Share with Me on the refused start of tab `key`'s chat: grants the signed-in person chats on
     /// its Cloud machine (``CloudMachineShare/shareWithMe(_:cloud:)``).
-    var shareMachineWithMe: (@MainActor (String) async -> AgentPaneMachineShare)?
     var shareMachineWithMeScoped: (@MainActor (AgentTabKey) async -> AgentPaneMachineShare)?
     /// The Share dialog's op on tab `key`'s own chat (``AgentShareActions/pane(_:tab:host:)``).
     var shareOp: (@MainActor (String, AgentPaneShareOp, String?) async -> AgentPaneShareReply?)?
@@ -484,11 +481,8 @@ final class AgentTabStore {
     /// ``resolve(_:)`` for a new chat on another machine: its page's host keeps the provisional id
     /// it was made with, and the start runs at the first send, after the tree settled and dropped
     /// the provisional alias (cx-k21v: a remote New Tab page's send failed with unknown_tab).
-    func resolveRemote(_ key: String) -> String { aliases.onlyKey(ofTab: key).flatMap { aliases[$0] } ?? remoteAliases.onlyKey(ofTab: key).flatMap { remoteAliases[$0] } ?? key }
-
-    func resolveRemote(_ key: String, machine: String) -> String {
-        let scoped = AgentTabKey(machine: machine, key: key); return aliases[scoped] ?? remoteAliases[scoped] ?? key
-    }
+    func resolveRemote(_ key: String, machine: String) -> String { aliases[AgentTabKey(machine: machine, key: key)] ?? remoteAliases[AgentTabKey(machine: machine, key: key)] ?? key }
+    func resolvedRemoteKey(_ key: AgentTabKey) -> AgentTabKey { AgentTabKey(machine: key.machine, key: resolveRemote(key.key, machine: key.machine)) }
 
     /// The ``revealTurn(_:in:)`` value that scrolls to and marks message `id`, the harness message
     /// id an `agent/<harness>/<session>?message=<id>` link carries (the page's `MESSAGE_REVEAL`,
@@ -598,23 +592,15 @@ final class AgentTabStore {
             model.remoteChat = true
             model.onListRemoteProjects = { [weak self] query in
                 guard let self else { return [] }
-                let listed = remoteFoldersScoped?(resolvedKey(tabKey)) ?? remoteFolders?(resolveRemote(key)) ?? []
-                let machine: [String]
-                if let scopedFolders = remoteMachineFoldersScoped {
-                    machine = await scopedFolders(resolvedKey(tabKey))
-                } else {
-                    machine = await remoteMachineFolders?(resolveRemote(key)) ?? []
-                }
+                let listed = remoteFoldersScoped?(resolvedRemoteKey(tabKey)) ?? []
+                let machine = await remoteMachineFoldersScoped?(resolvedRemoteKey(tabKey)) ?? []
                 let folders = AgentTabRemoteStart.folders(listed: listed, machine: machine)
                 guard let query = query?.lowercased(), !query.isEmpty else { return folders }
                 return folders.filter { $0.lowercased().contains(query) }
             }
             model.onShareMachineWithMe = { [weak self] in
-                guard let self, let shareMachineWithMe else { return .refused(code: "unavailable", message: CloudShareStrings.notCloudMachine) }
-                if let scopedShare = shareMachineWithMeScoped {
-                    return await scopedShare(resolvedKey(tabKey))
-                }
-                return await shareMachineWithMe(resolveRemote(key))
+                guard let self, let shareMachineWithMeScoped else { return .refused(code: "unavailable", message: CloudShareStrings.notCloudMachine) }
+                return await shareMachineWithMeScoped(resolvedRemoteKey(tabKey))
             }
         }
         guard let view = makeView(model) else {

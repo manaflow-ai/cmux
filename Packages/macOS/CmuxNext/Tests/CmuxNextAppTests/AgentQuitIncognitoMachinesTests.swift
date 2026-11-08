@@ -46,8 +46,8 @@ struct AgentQuitIncognitoMachinesTests {
         tabs.wakeStates[lab] = AgentPaneWakeState(shell: true, shellText: "cat ~/.ssh/id_ed25519")
 
         // What the quit's prepareWindows step does (QuitCoordinator.quitSteps).
-        let incognito = AgentQuitFiles.incognitoTabs(tabs, isIncognito: services.cache.browserTabs.isIncognitoTab)
-        let saved = await AgentQuitFiles.composers(tabs, isIncognito: incognito.contains)
+        let incognito = AgentQuitFiles.incognitoTabs(tabs, isIncognito: { AgentQuitFiles.isIncognito($0, in: services) })
+        let saved = await AgentQuitFiles.composers(tabs, isIncognito: { AgentQuitFiles.contains(incognito, $0) })
         #expect(saved.values.compactMap(\.shellText) == ["make test"], "the quit wrote the wrong composers: \(saved)")
     }
 }

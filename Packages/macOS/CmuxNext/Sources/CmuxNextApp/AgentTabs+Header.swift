@@ -8,7 +8,7 @@ import CmuxNextTabs
 extension AgentTabStore {
     func wireHeader(_ model: AgentPaneModel, key provisional: String, machine: String? = nil) {
         let scoped = tabKey(provisional, machine: machine)
-        let actions = AgentChatTabActions(tab: { [weak self] in self?.resolve(provisional, machine: scoped.machine) ?? provisional },
+        let actions = AgentChatTabActions(tab: { [weak self] in self?.resolve(provisional, machine: scoped.machine) ?? provisional }, machine: scoped.machine.isEmpty ? nil : scoped.machine,
                                           registry: { [weak self] in self?.actionRegistry }, files: { [weak self] in self?.openFiles?(self?.resolve(provisional, machine: scoped.machine) ?? provisional, $0, $1) }, hidden: { [weak self] in guard let self else { return [] }; return CloudMove.hiddenMenuItems(self.record(for: self.resolvedKey(scoped))?.record) }, local: { [weak self] in self?.gitLinkScoped?(self?.resolvedKey(scoped) ?? scoped)?.isLocal == true }, openTool: { [weak self] kind, cwd in guard let self else { return false }; return self.openToolScoped?(self.resolvedKey(scoped), kind, cwd) ?? false })
         let toggles = AgentChatSplitToggles(), pullRequest = AgentChatPullRequest()
         let watch = AgentChatHeaderWatch(state: { [weak self] in
