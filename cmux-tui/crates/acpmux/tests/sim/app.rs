@@ -317,7 +317,7 @@ async fn session(app: &Shared, conn: &mut Conn, resend_flag: bool) -> std::io::R
                     Ok(msg) => conn.handle(app, &msg),
                     Err(e) if e.to_string() == QUIET_ERROR => {
                         let calm = app.borrow().ready_at.map(|r| r + app.borrow().calm_after);
-                        if !calm.is_some_and(|c| now() >= c) {
+                        if calm.is_none_or(|c| now() < c) {
                             // A fault may still hide the daemon: drop this connection, open
                             // another.
                             return Err(e);
