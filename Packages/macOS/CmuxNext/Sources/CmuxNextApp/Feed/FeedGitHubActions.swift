@@ -42,7 +42,7 @@ enum FeedGitHubActions {
     }
 
     /// Opens an item's source: its link (a pull request, a sign-in page) in the browser; else the
-    /// sign-in's own tab, or the tab or chat that asked; else the Feed's Inbox.
+    /// sign-in's own tab, or the tab or chat that asked; else the Feed's Inbox, on the item.
     static func open(_ item: FeedDaemonItem, services: AppServices) {
         if let url = item.url ?? item.prompt?.url.flatMap(URL.init(string:)) {
             services.externalOpen.openWebLink(url)
@@ -52,7 +52,7 @@ enum FeedGitHubActions {
         let at = item.context
         let tab = store.tab(reported: item.prompt?.browserTab ?? at?.browserTab ?? at?.tab, terminal: at?.terminal, agentSession: at?.acpSession)
         if let tab, services.revealTab(tab.id) { return }
-        try? services.feedPage.open(focus: true)
+        try? services.feedPage.open(focus: true, route: item.inboxRoute)
     }
 
     private static func perform(_ action: String, item: FeedDaemonItem, text: String?, services: AppServices) {

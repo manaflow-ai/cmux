@@ -68,6 +68,26 @@ export function parseRoute(hash: string, attributes: { surface?: string; style?:
   };
 }
 
+/**
+ * The item the app asks the Inbox to show (`#/inbox?surface=page&item=<id>`): Needs you's request
+ * whose own tab is gone opens the Inbox on it. It is a one-time request, not part of the route.
+ */
+export function routeItem(hash: string): string | undefined {
+  const [path = "", query = ""] = hash.replace(/^#/, "").split("?", 2);
+  if (path.replace(/^\//, "") !== "inbox") return undefined;
+  return new URLSearchParams(query).get("item") || undefined;
+}
+
+/** `hash` without its `item` request, so the same request sent again changes the fragment. */
+export function withoutRouteItem(hash: string): string {
+  const [path = "", query] = hash.replace(/^#/, "").split("?", 2);
+  if (query === undefined) return `#${path}`;
+  const params = new URLSearchParams(query);
+  params.delete("item");
+  const rest = params.toString();
+  return rest ? `#${path}?${rest}` : `#${path}`;
+}
+
 // MARK: - Inbox filter (client view state)
 
 /** `reports` shows the reports basket in place of the item list, so it filters no items. */

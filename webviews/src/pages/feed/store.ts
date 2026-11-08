@@ -21,6 +21,7 @@ import {
   parseRoute,
   reconcileReportSelection,
   reportReply,
+  routeItem,
   setOther,
   setReply,
   setScope,
@@ -138,6 +139,8 @@ export class FeedStore {
       reportDraft: "",
       reportSending: NO_SET,
     };
+    const item = routeItem(hash);
+    if (item) this.reveal(item);
   }
 
   getSnapshot = (): FeedSnapshot => this.snapshot;
@@ -224,8 +227,13 @@ export class FeedStore {
   applyRoute(hash: string): void {
     const route = parseRoute(hash, this.options.attributes);
     const before = this.snapshot.route;
-    if (JSON.stringify(route) === JSON.stringify(before)) return;
+    const item = routeItem(hash);
+    if (JSON.stringify(route) === JSON.stringify(before)) {
+      if (item) this.reveal(item);
+      return;
+    }
     this.set({ route });
+    if (item) this.reveal(item);
     if (route.view !== before.view || route.limit !== before.limit) void this.reload();
     // A page that opened on the list or Needs you and moves to the Inbox starts the Reports basket.
     if (route.view === "inbox" && before.view !== "inbox" && this.stops.length) {
@@ -340,6 +348,24 @@ export class FeedStore {
   select(id: string | undefined): void {
     if (id !== this.snapshot.selection) this.set({ selection: id, now: this.clock() });
     if (id) this.markRead([id]);
+  }
+
+  /** The app asks the Inbox to show an item (`#/inbox?item=<id>`: Needs you's request whose own
+   * tab is gone). It is selected in a new Inbox and in one already open. When the Inbox's filter
+   * hides it (the GitHub tab, Reports, a category or a search), the Inbox goes back to the Feed's
+   * every item, where Needs you's requests are; a first read no longer picks GitHub over it. */
+  reveal(id: string): void {
+    this.pickedConnection = true;
+    const filter = this.snapshot.filter;
+    const shown = filter.connection !== "reports" && this.item(id) !== undefined;
+    const refilter =
+      !shown &&
+      (filter.connection !== DEFAULT_FILTER.connection ||
+        filter.category !== DEFAULT_FILTER.category ||
+        filter.query !== DEFAULT_FILTER.query);
+    this.set({ selection: id, now: this.clock(), ...(refilter ? { filter: DEFAULT_FILTER } : {}) });
+    if (shown) this.markRead([id]);
+    if (refilter) void this.reload();
   }
 
   /** A person opened an item (double click, Return, Open, Sign In): select, read, and hand its

@@ -11,6 +11,7 @@ import { subscribePageStreams } from "../shared/pageStreams";
 import { languageDirection, UiProvider } from "../../ui/UiProvider";
 import { FeedPage, rejectText } from "./FeedPage";
 import table from "./generated/strings.json";
+import { routeItem, withoutRouteItem } from "./model";
 import { MockFeedProvider } from "./mockProvider";
 import { FeedStore } from "./store";
 import "../shared/pageBase.css";
@@ -30,6 +31,12 @@ export function mountFeedPage(
   });
   const surface = () => (document.documentElement.dataset.feedSurface = store.getSnapshot().route.surface);
   surface();
+  // The app's request to show an item (`item=<id>`) is used once: dropped from the fragment, the same
+  // request sent again (the person selected another item meanwhile) changes it and arrives.
+  const consumeItem = () => {
+    if (routeItem(location.hash)) history.replaceState(history.state, "", withoutRouteItem(location.hash));
+  };
+  consumeItem();
   // The app's key dispatcher sends page commands (Cmd-F is `find`); the page never reads chords.
   if (client) {
     void subscribePageStreams(client, {
@@ -44,6 +51,7 @@ export function mountFeedPage(
   // The host moves an open page to another view or surface by setting the fragment.
   window.addEventListener("hashchange", () => {
     store.applyRoute(location.hash);
+    consumeItem();
     surface();
   });
   document.title = strings.t(store.getSnapshot().route.view === "inbox" ? "feed.inboxTitle" : "feed.title");

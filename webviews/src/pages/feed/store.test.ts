@@ -7,6 +7,7 @@ import { formatString } from "../shared/i18n";
 import generated from "./generated/strings.json";
 import { rejectText } from "./FeedPage";
 import { feedRefusal, MockFeedProvider, sampleFeed, type MockItem } from "./mockProvider";
+import { routeItem, withoutRouteItem } from "./model";
 import { FeedStore, rejectOf } from "./store";
 import { canChange } from "./context";
 import { ACTION_RUN, FeedOps, type FeedIntentParams, type FeedView, type FeedViewParams, type ViewItem } from "./types";
@@ -293,6 +294,50 @@ describe("intents", () => {
       action: "openSettings",
       args: { section: "notifications", setting: "feed.github.enabled" },
     });
+  });
+});
+
+describe("opening the Inbox on an item", () => {
+  // Review of #37378: Needs you's request whose own tab is gone opens the Inbox; the app names the
+  // item in the route (`item=<id>`) and the Inbox selects it, new or already open.
+  test("a new Inbox opens on the item, on the Feed tab even with GitHub on", async () => {
+    const { provider, store } = setup({ githubEnabled: true }, "#/inbox?surface=page&item=fi_codex_question");
+    await store.start();
+    await settle();
+    expect(reads(provider).map((read) => read.filter?.connection)).toEqual(["feed"]);
+    expect(store.getSnapshot().selection).toBe("fi_codex_question");
+    expect(store.item("fi_codex_question")).toBeDefined();
+  });
+
+  test("an open Inbox selects the item, and leaves a filter that hides it", async () => {
+    const { provider, store } = setup();
+    await store.start();
+    store.select("fi_status_run");
+    store.applyRoute("#/inbox?surface=page&item=fi_claude_choice");
+    expect(store.getSnapshot().selection).toBe("fi_claude_choice");
+    // The same request again after the person moved on (the page drops `item` once it is used).
+    store.select("fi_build_done");
+    store.applyRoute("#/inbox?surface=page");
+    store.applyRoute("#/inbox?surface=page&item=fi_claude_choice");
+    expect(store.getSnapshot().selection).toBe("fi_claude_choice");
+    store.setConnection("reports");
+    store.setQuery("deploy");
+    await settle();
+    const before = reads(provider).length;
+    store.applyRoute("#/inbox?surface=page&item=fi_codex_question");
+    expect(store.getSnapshot().filter).toEqual({ connection: "feed", category: "all", query: "" });
+    expect(store.getSnapshot().selection).toBe("fi_codex_question");
+    await settle();
+    expect(reads(provider)).toHaveLength(before + 1);
+    expect(store.item("fi_codex_question")).toBeDefined();
+  });
+
+  test("an item request names the Inbox only, and is dropped from the fragment once used", () => {
+    expect(routeItem("#/inbox?surface=page&item=fi_a")).toBe("fi_a");
+    expect(routeItem("#/needs-you?item=fi_a")).toBeUndefined();
+    expect(routeItem("#/inbox")).toBeUndefined();
+    expect(withoutRouteItem("#/inbox?surface=page&item=fi_a")).toBe("#/inbox?surface=page");
+    expect(withoutRouteItem("#/inbox?item=fi_a")).toBe("#/inbox");
   });
 });
 

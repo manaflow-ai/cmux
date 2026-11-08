@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextIcons
+import CmuxNextPages
 import Foundation
 
 extension InternalPageID {
@@ -19,13 +20,12 @@ final class FeedPageService: InternalPageProvider {
         self.services = services
     }
 
-    /// Opens the Inbox in the active window without activating it for agent
-    /// or socket callers when `focus` is false.
-    func open(focus: Bool) throws {
-        guard let window = services.windows.active else { throw ActionFailure(message: RefusalStrings.noWindowOpen) }
-        guard services.pages.show(.inbox, in: window, focus: focus) != nil else {
+    /// Opens the Inbox in the active window (unfocused when `focus` is false), on an item's `route`.
+    func open(focus: Bool, route: String? = nil) throws {
+        guard let window = services.windows.active, let view = services.pages.show(.inbox, in: window, focus: focus) else {
             throw ActionFailure(message: RefusalStrings.noWindowOpen)
         }
+        if let route { (view.content as? PageWebView)?.open(route: route) }
     }
 
     var page: InternalPageID { .inbox }
