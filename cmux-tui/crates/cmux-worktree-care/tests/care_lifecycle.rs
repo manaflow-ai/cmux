@@ -767,11 +767,71 @@ fn care_a_worktree_git_cannot_remove_from_aside_goes_back_to_its_path() {
         Some(&*still),
     )
     .unwrap_err();
-    assert!(error.ends_with("it stays"), "{error}");
+    assert!(error.contains("; it stays;"), "{error}");
     // Back at its own path, with its work, and git knows it there: nothing hidden aside.
     assert_eq!(std::fs::read_to_string(wt.join("notes.txt")).unwrap(), "not pushed\n");
     let listed = git(&main, &["worktree", "list", "--porcelain"]);
     assert!(listed.contains(&format!("worktree {}", wt.display())), "{listed}");
     assert!(!listed.contains("cmux-discard"), "{listed}");
-    assert!(store.list().is_empty());
+    // git began its removal: whether it deleted anything is not known, so the archive stays.
+    let kept = store.list();
+    assert_eq!(kept.len(), 1);
+    assert!(error.contains(&format!("its archive {}", kept[0].id)), "{error}");
+}
+
+#[cfg(unix)]
+#[test]
+fn care_a_worktree_git_removes_only_part_of_keeps_its_archive_and_comes_back() {
+    use std::os::unix::fs::PermissionsExt;
+    let (base, main) = repository("aside-partial");
+    let wt = base.join("wt-c");
+    git(&main, &["worktree", "add", "-q", "-b", "feat/c", wt.to_str().unwrap()]);
+    for i in 0..20 {
+        write(&wt.join(format!("work/{i:02}/notes.txt")), &format!("draft {i}\n"));
+    }
+    // A read-only folder deep in the tree: git deletes what it can reach, then fails here.
+    let stuck = wt.join("work/zz/deep/ro");
+    write(&stuck.join("kept.txt"), "deep draft\n");
+    let repo = scan(&main);
+    let (worktree, facts) = facts_of(&repo, &wt);
+    let store = Store::open(base.join("store")).unwrap();
+    let made = inode(&wt);
+    let still: Arc<cmux_worktree_care::procs::Still> =
+        Arc::new(
+            move |_, at| {
+                if inode(at) == made { Ok(()) } else { Err("another folder".into()) }
+            },
+        );
+    let lock = stuck.clone();
+    let read_only: Arc<Open> = Arc::new(move |_| {
+        std::fs::set_permissions(&lock, std::fs::Permissions::from_mode(0o555)).unwrap();
+        Ok(None)
+    });
+    let error = archive::reclaim(
+        &repo,
+        worktree,
+        facts,
+        Action::Archive,
+        "test",
+        &store,
+        &*nothing(),
+        &*read_only,
+        Some(&*still),
+    )
+    .unwrap_err();
+    let rest = std::fs::read_dir(wt.join("work")).map(|d| d.count()).unwrap_or(0);
+    assert!(rest < 21, "git deleted part of it first ({rest} of 21 left)");
+    // Its archive is the only copy of what went: it stays, and the error names it.
+    let manifest = store.find("feat/c").expect("its archive stays");
+    assert!(error.contains(&format!("its archive {}", manifest.id)), "{error}");
+    // What is left goes, and the archive puts all of it back.
+    std::fs::set_permissions(&stuck, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::remove_dir_all(&wt).unwrap();
+    git(&main, &["worktree", "prune"]);
+    restore(&store, &manifest, None).unwrap();
+    for i in 0..20 {
+        let notes = std::fs::read_to_string(wt.join(format!("work/{i:02}/notes.txt"))).unwrap();
+        assert_eq!(notes, format!("draft {i}\n"));
+    }
+    assert_eq!(std::fs::read_to_string(stuck.join("kept.txt")).unwrap(), "deep draft\n");
 }

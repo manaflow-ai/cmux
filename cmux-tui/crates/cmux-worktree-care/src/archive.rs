@@ -160,18 +160,25 @@ pub fn reclaim(
             ["worktree".as_ref(), "remove".as_ref(), "--force".as_ref(), path.as_os_str()];
         git::write(&main, None, &args, Bound::Unbounded).map(|_| ())
     };
+    // git may have deleted part of the folder before it failed: its archive stays, the only
+    // copy of what went (`acpmux worktree restore <id>`).
+    let kept = |why: String| format!("{why}; its archive {id} keeps what it held");
     match still {
-        None => remove(&worktree.path)?,
+        None => remove(&worktree.path).map_err(kept)?,
         Some(still) => {
             let repair = |at: &Path| {
                 let args: [&OsStr; 3] = ["worktree".as_ref(), "repair".as_ref(), at.as_os_str()];
                 git::write(&main, None, &args, Bound::Unbounded).map(|_| ())
             };
-            if let Err(why) = remove_aside(&worktree.path, &id, still, repair, remove) {
+            match remove_aside(&worktree.path, &id, still, repair, remove) {
+                Ok(()) => {}
                 // Its archive's ref is the repository's, dropped from the main checkout: the
                 // folder at the worktree's path may not be the worktree now.
-                discard(&main, store, &manifest);
-                return Err(why);
+                Err(Aside::Untouched(why)) => {
+                    discard(&main, store, &manifest);
+                    return Err(why);
+                }
+                Err(Aside::Removing(why)) => return Err(kept(why)),
             }
         }
     }
@@ -191,14 +198,14 @@ fn remove_aside(
     still: &procs::Still,
     repair: impl Fn(&Path) -> Result<(), String>,
     remove: impl Fn(&Path) -> Result<(), String>,
-) -> Result<(), String> {
+) -> Result<(), Aside> {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let aside = path.with_file_name(format!(".{name}.cmux-discard-{id}"));
     if aside.symlink_metadata().is_ok() {
-        return Err(format!("{} is in the way; it stays", aside.display()));
+        return Err(Aside::Untouched(format!("{} is in the way; it stays", aside.display())));
     }
     std::fs::rename(path, &aside)
-        .map_err(|e| format!("could not move it aside ({e}); it stays"))?;
+        .map_err(|e| Aside::Untouched(format!("could not move it aside ({e}); it stays")))?;
     let back = |why: String| {
         if path.symlink_metadata().is_err() && std::fs::rename(&aside, path).is_ok() {
             format!("{why}; it stays")
@@ -207,26 +214,33 @@ fn remove_aside(
         }
     };
     if let Err(why) = still(path, &aside) {
-        return Err(back(why));
+        return Err(Aside::Untouched(back(why)));
     }
     if let Err(error) = repair(&aside) {
-        return Err(back(format!("git could not follow it aside ({error})")));
+        return Err(Aside::Untouched(back(format!("git could not follow it aside ({error})"))));
     }
     // git could not remove it: it goes back where it was, and git follows it there, so a worktree
     // that stays is never left under a hidden name.
     remove(&aside).map_err(|error| {
         if path.symlink_metadata().is_ok() || std::fs::rename(&aside, path).is_err() {
-            return format!("{error}; it stays at {}", aside.display());
+            return Aside::Removing(format!("{error}; it stays at {}", aside.display()));
         }
-        match repair(path) {
+        Aside::Removing(match repair(path) {
             Ok(()) => format!("{error}; it stays"),
             // Back at its path, but git still names the aside folder for it: say both.
             Err(repair) => format!(
                 "{error}; it is back at {}, but git could not follow it there ({repair})",
                 path.display()
             ),
-        }
+        })
     })
+}
+
+/// Why `remove_aside` stopped: before git touched the folder, or once its removal began, when
+/// part of it may be gone already.
+enum Aside {
+    Untouched(String),
+    Removing(String),
 }
 
 /// Whether the worktree is still what was archived: the same status and
@@ -453,9 +467,11 @@ mod care_tests {
             repairs.set(repairs.get() + 1);
             if repairs.get() == 1 { Ok(()) } else { Err("gitdir is not writable".to_owned()) }
         };
-        let error =
+        let Err(Aside::Removing(error)) =
             remove_aside(&path, "1-wt", &*still, repair, |_| Err("it is locked".to_owned()))
-                .unwrap_err();
+        else {
+            panic!("a failed removal is one that began");
+        };
         assert!(error.contains(&format!("back at {}", path.display())), "{error}");
         assert!(error.contains("gitdir is not writable"), "{error}");
         assert!(!error.contains("cmux-discard"), "names no folder that is gone: {error}");
