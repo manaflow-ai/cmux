@@ -239,12 +239,14 @@ has_capability() {
 }
 
 # Whether the installed acpmux is kept current by something other than this
-# line: a Mac (its app), or a Linux box with acpmux-update.timer or the owner's
-# ~/.acpmux/no-auto-update marker (updates turned off on purpose).
+# line: a Mac (its app), or a Linux box whose user manager has
+# acpmux-update.timer enabled (asked of systemd: a unit file it does not read
+# counts for nothing) or the owner's ~/.acpmux/no-auto-update marker (updates
+# turned off on purpose).
 updated_elsewhere() {
   [ "$os" != "Linux" ] ||
-    [ -f "$HOME/.config/systemd/user/acpmux-update.timer" ] ||
-    [ -e "$HOME/.acpmux/no-auto-update" ]
+    [ -e "$HOME/.acpmux/no-auto-update" ] ||
+    systemctl --user is-enabled --quiet acpmux-update.timer >/dev/null 2>&1
 }
 
 # 3. acpmux from the channel, checked against its sha256 before it touches

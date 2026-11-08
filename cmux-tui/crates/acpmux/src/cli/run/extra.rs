@@ -763,8 +763,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     )
                 })
                 .await;
+                // `cmux pair` reads this line's prefix from the join's stderr
+                // (`cmux-server/src/pairing/machine_join.rs`, `TIMER_NOTE`).
                 if let Ok(Some(off)) = timer {
-                    eprintln!("{off}");
+                    eprintln!("acpmux update timer: {off}");
                 }
                 Ok(())
             } else if value.starts_with("cmxt1.") {

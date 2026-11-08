@@ -40,7 +40,7 @@ shims="$root/shims"
 fakes="$root/fakes"
 mkdir -p "$shims" "$fakes"
 for tool in awk basename bash cat chmod cp grep head hostname id install loginctl \
-  mkdir mktemp mv rm sed shasum sha256sum tr launchctl systemctl; do
+  mkdir mktemp mv rm sed shasum sha256sum tr launchctl; do
   real="$(command -v "$tool" 2>/dev/null || true)"
   case "$tool" in
     loginctl | launchctl | systemctl) real="" ;;
@@ -81,6 +81,18 @@ if [ -n "\${CMUX_JOIN+x}" ] || "$real_env" | "$real_grep" -q cmj_; then
   printf '%s\n' "\${0##*/}" >>"\$JT_LOG/env-leak"
 fi
 EOF
+
+# The fake systemctl: the user manager has acpmux-update.timer enabled only
+# with JT_TIMER=enabled; every other call succeeds.
+cat >"$shims/systemctl" <<EOF
+#!/bin/sh
+. "$fakes/record.sh"
+case "\$*" in
+  "--user is-enabled --quiet acpmux-update.timer") [ "\${JT_TIMER:-}" = enabled ] ;;
+  *) exit 0 ;;
+esac
+EOF
+chmod 755 "$shims/systemctl"
 
 # The fake uname: JT_OS and JT_ARCH.
 cat >"$shims/uname" <<EOF
@@ -270,7 +282,7 @@ new_case() {
   JT_OS=Linux JT_ARCH=x86_64
   JT_CAPS="acpmux-v1 machine.join.stdin.v1"
   JT_JOIN_EXIT=0 JT_DOCTOR=0 JT_SERVICE=1 JT_PROBE=unknown JT_JOIN_ERR=""
-  JT_VAULT=fail JT_CODEX_RT=0 JT_SVC=ok JT_RESTART=ok
+  JT_VAULT=fail JT_CODEX_RT=0 JT_SVC=ok JT_RESTART=ok JT_TIMER=off
   : >"$d/log/argv"
 }
 
@@ -284,6 +296,7 @@ run_join() {
     JT_DOCTOR="$JT_DOCTOR" JT_SERVICE="$JT_SERVICE" JT_PROBE="$JT_PROBE" JT_JOIN_ERR="$JT_JOIN_ERR" \
     JT_PENDING="$d/home/pending" JT_REVOKED="$d/home/revoked" \
     JT_VAULT="$JT_VAULT" JT_CODEX_RT="$JT_CODEX_RT" JT_SVC="$JT_SVC" JT_RESTART="$JT_RESTART" \
+    JT_TIMER="$JT_TIMER" \
     CMUX_PLATFORM_URL="$origin" "$@"
   rc=0
   case "$form" in
@@ -455,7 +468,7 @@ suite() {
     { cat "$root/acpmux.src"; echo "# a different build"; } >"$d/home/.local/bin/acpmux"
     chmod 755 "$d/home/.local/bin/acpmux"
     case "$keeper" in
-      timer) mkdir -p "$d/home/.config/systemd/user" && : >"$d/home/.config/systemd/user/acpmux-update.timer" ;;
+      timer) JT_TIMER=enabled ;;
       marker) mkdir -p "$d/home/.acpmux" && : >"$d/home/.acpmux/no-auto-update" ;;
       mac) JT_OS=Darwin JT_ARCH=arm64 ;;
     esac
@@ -465,19 +478,27 @@ suite() {
     check "repair ($keeper) downloads no binary" eval '! fetched_binary'
   done
 
-  # A Linux box joined before the line installed the update timer: a repair
-  # run takes the channel's build, whose service install adds the timer, and
-  # restarts the daemon onto it.
-  new_case capable-mismatch-repair-no-timer
-  mkdir -p "$d/home/.local/bin"
-  { cat "$root/acpmux.src"; echo "# a different build"; } >"$d/home/.local/bin/acpmux"
-  chmod 755 "$d/home/.local/bin/acpmux"
-  run_join none
-  check "repair (no timer) exit 0 (got $rc): $(cat "$d/out")" rc_is 0
-  check "repair (no timer) takes the channel build" test "$(sha "$d/home/.local/bin/acpmux")" = "$(sha "$d/serve/acpmux")"
-  check "repair (no timer) installs the service (and with it the timer)" grep -q "^acpmux daemon service install" "$d/log/argv"
-  check "repair (no timer) restarts the daemon onto it" grep -q "^acpmux daemon restart" "$d/log/argv"
-  check "repair (no timer) redeems nothing" no_redeem
+  # A Linux box joined before the line installed the update timer, or whose
+  # timer file the user manager does not have enabled (a stray file, a
+  # refused enable): a repair run takes the channel's build, whose service
+  # install adds the timer, and restarts the daemon onto it.
+  for why in no-timer stray-file; do
+    new_case "capable-mismatch-repair-$why"
+    mkdir -p "$d/home/.local/bin"
+    { cat "$root/acpmux.src"; echo "# a different build"; } >"$d/home/.local/bin/acpmux"
+    chmod 755 "$d/home/.local/bin/acpmux"
+    if [ "$why" = stray-file ]; then
+      mkdir -p "$d/home/.config/systemd/user"
+      : >"$d/home/.config/systemd/user/acpmux-update.timer"
+    fi
+    run_join none
+    check "repair ($why) exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+    check "repair ($why) takes the channel build" test "$(sha "$d/home/.local/bin/acpmux")" = "$(sha "$d/serve/acpmux")"
+    check "repair ($why) asks systemd, not the file" grep -q "^systemctl --user is-enabled --quiet acpmux-update.timer" "$d/log/argv"
+    check "repair ($why) installs the service (and with it the timer)" grep -q "^acpmux daemon service install" "$d/log/argv"
+    check "repair ($why) restarts the daemon onto it" grep -q "^acpmux daemon restart" "$d/log/argv"
+    check "repair ($why) redeems nothing" no_redeem
+  done
 
   # The channel cannot be read: a token run refuses, a repair run keeps going.
   new_case no-channel

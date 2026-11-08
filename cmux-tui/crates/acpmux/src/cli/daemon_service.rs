@@ -222,22 +222,65 @@ pub(crate) fn install(m: &dyn Machine) -> Result<Report> {
     Ok(report)
 }
 
-/// The script that installs and starts `acpmux-update.timer` ([`hosts::install_script`]), run
-/// once `acpmux.service` runs; how long it may take.
+/// How long the timer's install (or its probe) may take.
 const TIMER_WAIT: Duration = Duration::from_secs(30);
 
 /// Installs `acpmux-update.timer` when `acpmux.service` is acpmux's own unit (one someone else
-/// wrote is theirs, and so is how it updates). Idempotent: units with this build's text are kept
-/// and the timer's `enable --now` is a no-op once it runs. Some(why) when it leaves this machine
-/// without its self-update.
+/// wrote is theirs, and so is how it updates), with `machine enroll --fix`'s guarded install
+/// (`host_enroll_update.rs`): `hosts::install_script`, run only when a probe of the user manager
+/// finds no unit or drop-in acpmux did not write, no other `XDG_CONFIG_HOME` (systemd would read
+/// units from there, not `~/.config/systemd/user`), and a lingering manager. Then the probe runs
+/// again, and the timer counts as installed only when the manager says it is enabled and active.
+/// Idempotent: units with this build's text are kept. None when it runs (or the owner's
+/// `~/.acpmux/no-auto-update` keeps it off); Some(why) when this machine does not update itself.
 fn update_timer(m: &dyn Machine) -> Option<String> {
     let existing = std::fs::read_to_string(unit_path(&m.home())).ok();
     if existing.is_none() || unit_plan(existing.as_deref()) == UnitFile::Foreign {
         return None;
     }
-    match m.run("sh", &["-c", &hosts::install_script()], TIMER_WAIT) {
-        Some((_, out, _)) => hosts::take_auto_update_off(&out).1,
-        None => Some("installing acpmux-update.timer did not finish in time".to_owned()),
+    let script = crate::cli::host_enroll::guarded_install_script();
+    let Some((_, out, _)) = m.run("sh", &["-c", &script], TIMER_WAIT) else {
+        return Some("installing acpmux-update.timer did not finish in time".to_owned());
+    };
+    let found = crate::cli::host_enroll::parse_update_probe(&out);
+    if found.foreign {
+        return Some(
+            "an acpmux-update unit or drop-in acpmux did not write is here, so it is left alone and acpmux-update.timer is not installed"
+                .to_owned(),
+        );
+    }
+    if found.xdg {
+        return Some(
+            "XDG_CONFIG_HOME is set, so systemd reads user units from there, not ~/.config/systemd/user: acpmux-update.timer is not installed"
+                .to_owned(),
+        );
+    }
+    if found.unchecked {
+        return Some(
+            "the user manager's units could not be read to the end, so acpmux-update.timer is not installed"
+                .to_owned(),
+        );
+    }
+    if found.nolinger {
+        return Some(
+            "this user's systemd manager does not linger and loginctl enable-linger was refused, so acpmux-update.timer is not installed"
+                .to_owned(),
+        );
+    }
+    if let Some(why) = hosts::take_auto_update_off(&out).1 {
+        return Some(why);
+    }
+    let probe = crate::cli::host_enroll::probe_script();
+    let after = m
+        .run("sh", &["-c", &probe], TIMER_WAIT)
+        .map(|(_, out, _)| crate::cli::host_enroll::parse_update_probe(&out));
+    match after {
+        Some(after) if after.off => None,
+        Some(after) if after.checked && after.timer => None,
+        _ => Some(
+            "acpmux-update.timer is not enabled and running in the user manager, so this machine does not update itself"
+                .to_owned(),
+        ),
     }
 }
 

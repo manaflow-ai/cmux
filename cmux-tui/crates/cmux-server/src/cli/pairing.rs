@@ -35,6 +35,11 @@ fn output(value: Value, invited_as: Option<&str>) -> Output {
         Some("indeterminate") => format!("{}\n", messages.indeterminate),
         _ => format!("{}\n", messages.unpaired),
     };
+    // Paired and joined, but the box does not keep itself on the newest build: why, as acpmux said.
+    let human = match value.pointer("/machine/note").and_then(Value::as_str) {
+        Some(note) => format!("{human}{note}\n"),
+        None => human,
+    };
     Output::new(value, human)
 }
 
