@@ -89,6 +89,8 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "reopened",
     "host_started",
     "host_ended",
+    // A plan built in new worktrees, and the build kept (`plan_build.rs`): the chat's card.
+    "plan_build",
 ];
 
 /// Which records a page or a live event stream carries. `kinds` entries are

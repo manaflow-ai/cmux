@@ -13,6 +13,7 @@ import { type BtwRow as InlineBtwRow } from "../aside/btwNotes";
 import { BtwAside } from "../aside/BtwAside";
 import { OFFER_RESULT } from "../offer/offersShown";
 import { STARTED_SESSIONS } from "../started/startedSessions";
+import { PLAN_BUILD_KIND } from "../planBuild/planBuild";
 import { type NativeRegistry } from "./rowProps";
 import { MessageRow } from "./MessageRow";
 import { QueuedMessageRow } from "./QueuedMessageRow";
@@ -52,6 +53,7 @@ import { SessionOfferRow } from "./SessionOfferRow";
 import { OfferResultRow } from "./OfferResultRow";
 import { TaskLineRow } from "./TaskLineRow";
 import { StartedSessionsRow } from "./StartedSessionsRow";
+import { PlanBuildRow } from "./PlanBuildRow";
 import { ReadOnlyPermissionRow } from "./ReadOnlyPermissionRow";
 import { ReadOnlyQueuedMessageRow } from "./ReadOnlyQueuedMessageRow";
 import { ReadOnlyAgentPairRow } from "./ReadOnlyAgentPairRow";
@@ -90,6 +92,7 @@ export const defaultRegistry: NativeRegistry = {
   [PENDING_MESSAGES]: PendingMessagesRow,
   [LANE_NOTICE_BATCH]: LaneNoticeBatchRow,
   [STARTED_SESSIONS]: StartedSessionsRow,
+  [PLAN_BUILD_KIND]: PlanBuildRow,
   [TASK_LINE]: TaskLineRow,
   typing: NoticeRow,
   permission: PermissionRow,
@@ -120,6 +123,7 @@ export const readOnlyRegistry: NativeRegistry = {
   sessionOffer: NoRow,
   [OFFER_RESULT]: NoRow,
   [STARTED_SESSIONS]: NoRow,
+  [PLAN_BUILD_KIND]: NoRow,
   [TASK_LINE]: NoRow,
   [NEXT_STEP]: ReadOnlyNextStepRow,
   [RENDER]: NoRow,

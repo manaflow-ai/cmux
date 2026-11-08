@@ -20,10 +20,36 @@ type RowStyle = "light" | "keycap" | "hover" | "trailing";
 /// How the one-time line of an ask the chat's highest mode does not answer reads: "line" (shipped,
 /// a muted line under the title), "callout" (an inset tinted box) or "pill" (a small pill).
 type OneTimeStyle = "line" | "callout" | "pill";
+/// Where a plan's other builds are offered beside Approve plan: "split" (shipped, a chevron joined to
+/// the filled Approve plan), "quiet" (a quiet "Build elsewhere" button at the row's leading edge) or
+/// "detached" (a separate quiet chevron just before Approve plan).
+type BuildStyle = "split" | "quiet" | "detached";
 type Props = Pick<ComponentProps<typeof PermissionCard>, "permission" | "harness" | "fullAccessMode" | "shortcuts"> & {
+  buildStyle?: BuildStyle;
   scopeStyle?: ScopeStyle;
   rowStyle?: RowStyle;
   oneTimeStyle?: OneTimeStyle;
+};
+
+const buildStyles: Record<Exclude<BuildStyle, "split">, string> = {
+  quiet: `
+    .acpmux-permission-ask .acpmux-permission-allows,
+    .acpmux-permission-ask .acpmux-plan-build-split { display: contents; }
+    .acpmux-permission-ask .acpmux-permission-buttons .acpmux-plan-build-split button.acpmux-plan-build-chevron {
+      order: -1; width: auto; gap: 4px; padding: 4px 10px 4px 12px; margin-inline-end: auto;
+      border-radius: var(--ds-radius-popup); background: none; color: var(--agent-muted);
+    }
+    .acpmux-permission-ask .acpmux-plan-build-chevron::before { content: "Build elsewhere"; }
+    .acpmux-permission-ask .acpmux-plan-build-split > button.acpmux-permission-primary:first-child { border-radius: var(--ds-radius-popup); }
+    .acpmux-permission-ask .acpmux-permission-allows > button { order: 1; }
+  `,
+  detached: `
+    .acpmux-permission-ask .acpmux-plan-build-split { gap: 8px; background: none; flex-direction: row-reverse; }
+    .acpmux-permission-ask .acpmux-plan-build-split > button.acpmux-permission-primary:first-child { border-radius: var(--ds-radius-popup); }
+    .acpmux-permission-ask .acpmux-permission-buttons .acpmux-plan-build-split button.acpmux-plan-build-chevron {
+      border-radius: var(--ds-radius-popup); background: color-mix(in srgb, var(--agent-text) 10%, transparent); color: var(--agent-text);
+    }
+  `,
 };
 
 const oneTimeStyles: Record<Exclude<OneTimeStyle, "line">, string> = {
@@ -203,6 +229,7 @@ function GalleryPermissionCard({
   scopeStyle,
   rowStyle,
   oneTimeStyle,
+  buildStyle,
 }: Props) {
   return (
     <div
@@ -215,6 +242,7 @@ function GalleryPermissionCard({
       {scopeStyle && scopeStyle !== "under" && <style>{scopeStyles[scopeStyle]}</style>}
       {rowStyle && rowStyle !== "light" && <style>{rowStyles[rowStyle]}</style>}
       {oneTimeStyle && oneTimeStyle !== "line" && <style>{oneTimeStyles[oneTimeStyle]}</style>}
+      {buildStyle && buildStyle !== "split" && <style>{buildStyles[buildStyle]}</style>}
       <div className="acpmux-main">
         <div className="acpmux-permission acpmux-asks-stack">
           <ShortcutsContext value={labels}>
@@ -224,6 +252,8 @@ function GalleryPermissionCard({
               fullAccessMode={fullAccessMode}
               shortcuts={shortcuts}
               onAnswer={() => undefined}
+              // A plan offers its other builds, as the chat's card does (rows/PermissionAsk.tsx).
+              onBuildPlan={permission.plan ? () => new Promise(() => undefined) : undefined}
             />
           </ShortcutsContext>
         </div>
@@ -241,6 +271,16 @@ const scopeOnce: Play = async (ctx) => {
     throw new Error("A button repeats the scope line");
   if (ctx.document.querySelectorAll(".acpmux-permission-scope").length !== 1)
     throw new Error("The scope is drawn more than once");
+};
+
+/// The build menu opens from Approve plan's chevron with its three targets, and Approve plan keeps
+/// its label and ⌘↩.
+const buildMenu: Play = async (ctx) => {
+  await ctx.click({ selector: 'button[data-menu="plan-build"]' });
+  await ctx.waitFor(() => ctx.document.querySelector('[role="menuitem"][data-value="compare"]'));
+  const approve = ctx.document.querySelector(".acpmux-plan-build-split button.acpmux-permission-primary");
+  if (approve?.getAttribute("aria-label") !== "Approve plan") throw new Error("Approve plan lost its label");
+  if (!approve.getAttribute("aria-keyshortcuts")?.includes("Meta+Enter")) throw new Error("Approve plan lost ⌘↩");
 };
 
 export default componentEntry<Props>({
@@ -298,6 +338,26 @@ export default componentEntry<Props>({
     "plan-claude": {
       note: 'Leo 2026-11-05: "i like these plans too... i want us to be able to render it in ours". Claude Code\'s ExitPlanMode: the plan renders as Markdown in the card, with Approve plan and Keep planning (which opens a field for what to change).',
       props: { permission: claudePlan, harness: "claude" },
+    },
+    "plan-build-split": {
+      note: 'Shipped. Leo 2026-11-08: "esp valuable things that people would think "wow this is awesome"". Approve plan stays the filled primary with ⌘↩; a chevron joined to it opens Build here, Build in a new worktree, and Build on two agents and compare (Claude and Codex), one split button instead of more buttons.',
+      props: { permission: claudePlan, harness: "claude" },
+      play: buildMenu,
+    },
+    "plan-build-quiet": {
+      note: "Alternative: a quiet Build elsewhere button at the row's leading edge opens the same menu. Reads as a third answer competing with Keep planning, and moves Keep planning off the leading edge.",
+      props: { permission: claudePlan, harness: "claude", buildStyle: "quiet" },
+      play: buildMenu,
+    },
+    "plan-build-detached": {
+      note: "Alternative: a separate quiet chevron just before Approve plan. Clear, but reads as an unlabeled fourth button rather than more ways to approve.",
+      props: { permission: claudePlan, harness: "claude", buildStyle: "detached" },
+      play: buildMenu,
+    },
+    "plan-build-codex": {
+      note: "A Codex chat's plan: the compare item names Codex and Claude.",
+      props: { permission: claudePlan, harness: "codex" },
+      play: buildMenu,
     },
     "plan-grok": {
       note: "Grok's plan approval (x.ai/exit_plan_mode): the same plan card.",
