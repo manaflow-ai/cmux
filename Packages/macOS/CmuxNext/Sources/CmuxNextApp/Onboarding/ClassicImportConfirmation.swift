@@ -11,12 +11,13 @@ struct ClassicImportConfirmation {
     let plan: ClassicImportPlan
     let services: AppServices
 
-    func ask() async -> Bool {
+    func ask() async -> ClassicImportAnswer {
         let window = services.windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
             ?? NSApp.windows.first(where: \.isVisible)
-        guard let window else { return false }
-        let answer = await CmuxDialogCenter.shared.present(spec(), in: .window(window))
-        return answer.button == Self.importButton
+        // No window yet (the launch's is still coming up): the dialog shows on its own rather than not at all.
+        let answer = await CmuxDialogCenter.shared.present(spec(), in: window.map(CmuxDialogScope.window) ?? .app)
+        if answer.button == Self.importButton { return .accepted }
+        return answer.isDismissal ? .unanswered : .declined
     }
 
     func spec() -> CmuxDialogSpec {

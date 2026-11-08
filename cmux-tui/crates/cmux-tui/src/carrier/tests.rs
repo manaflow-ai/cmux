@@ -16,7 +16,8 @@ use super::contract::{
     route_line, served_line, serving_line, stdin_line,
 };
 use super::{
-    DialArgs, DialService, ServeArgs, parse, parse_key, parse_serve, public_key_line, with_team_env,
+    DialArgs, DialService, ServeArgs, desktop_failure, parse, parse_key, parse_serve,
+    public_key_line, with_team_env,
 };
 
 fn words(text: &str) -> Vec<String> {
@@ -245,6 +246,13 @@ fn a_credential_s_subject_is_its_jwt_sub_claim_or_none() {
     assert_eq!(token_subject(&jwt(json!({"sub": 7}))), None);
     assert_eq!(token_subject("opaque-token"), None);
     assert_eq!(token_subject("a.!!!.c"), None);
+    // Only a three-segment credential with a JWT header has a `sub`.
+    let claims = encode(json!({"sub": "user-1"}));
+    let header = encode(json!({"alg": "ES256"}));
+    assert_eq!(token_subject(&format!("opaque.{claims}.sig")), None);
+    assert_eq!(token_subject(&format!("{}.{claims}.sig", encode(json!({"typ": "JWT"})))), None);
+    assert_eq!(token_subject(&format!("{header}.{claims}")), None);
+    assert_eq!(token_subject(&format!("{header}.{claims}.sig.extra")), None);
 }
 
 #[test]
@@ -636,4 +644,27 @@ fn key_prints_only_the_public_key_as_one_base64url_line() {
     assert!(text.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'), "{line}");
     assert_eq!(text, key_text(&identity.public_key()), "the platform's noise_key spelling");
     assert_ne!(text, key_text(identity.private_key()), "never the private key");
+}
+
+/// The desktop open's own send (or a heartbeat) can meet the lost session
+/// before the multiplexer's reader marks it: the error itself says
+/// `SessionUnavailable` while `session_unavailable()` is still false. That
+/// is still a session the host lost, so the dial takes a fresh one.
+#[test]
+fn a_carrier_desktop_open_that_its_send_finds_the_session_gone_takes_a_fresh_session() {
+    use cmux_remote::bridge::BridgeError;
+    use cmux_remote::service::ServiceError;
+    let sent = BridgeError::Service(ServiceError::Client(ConnectionError::SessionUnavailable));
+    let failure = desktop_failure(sent, false);
+    assert!(failure.fresh_session && failure.retryable, "{}", failure.detail);
+    assert_eq!(failure.step, Step::Relay);
+    let typed = desktop_failure(BridgeError::Service(ServiceError::SessionUnavailable), false);
+    assert!(typed.fresh_session, "{}", typed.detail);
+    // A session that ended any other way is still the carrier's, and fatal.
+    let closed = desktop_failure(BridgeError::Service(ServiceError::Closed), false);
+    assert!(!closed.fresh_session && !closed.retryable, "{}", closed.detail);
+    // The daemon's refusal is the service's.
+    let refused = desktop_failure(BridgeError::Rejected("not the owner".into()), false);
+    assert_eq!(refused.step, Step::Service);
+    assert!(!refused.fresh_session);
 }

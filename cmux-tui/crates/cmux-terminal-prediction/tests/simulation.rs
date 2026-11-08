@@ -910,3 +910,26 @@ fn a_held_glyph_keeps_its_cell_when_an_undrawn_echo_follows() {
         SimulatedEraseForm::CursorLeftDeleteCharacter,
     ));
 }
+
+/// Backspace at the prompt withdraws, and "s" goes out right behind it,
+/// untracked. The two "s" typed later are tracked, so the untracked "s"
+/// echoed first and was taken for the first tracked one: the window closed
+/// a key early and "o" was drawn where the last "s" lands. Output that fits
+/// both an untracked key and the next tracked one now withdraws.
+#[test]
+fn an_untracked_echo_like_the_next_tracked_key_does_not_close_the_window() {
+    let case = SimulationCase::new(
+        vec![
+            keystroke(Backspace, 132692, 94875, 192625, 18239813732381436499),
+            keystroke(Character(b's'), 30569, 183600, 156400, 3222175671410532008),
+            keystroke(Character(b's'), 137770, 106425, 141075, 7567831139240784298),
+            keystroke(Character(b's'), 35418, 146625, 140875, 4984424437519692256),
+            keystroke(Character(b'o'), 270461, 136500, 58500, 13820163519234489272),
+        ],
+        SimulatedEraseForm::CursorLeftDeleteCharacter,
+    );
+    expect_passes(case.clone());
+    let mut coalescing = case;
+    coalescing.coalesces_typeahead = true;
+    expect_passes(coalescing);
+}

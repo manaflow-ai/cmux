@@ -34,6 +34,8 @@ export interface AcpmuxRequests {
   "trigger/chat.ensure": { params: unknown; result: unknown };
   "trigger/chat.send": { params: unknown; result: unknown };
   "trigger/chat.status": { params: unknown; result: unknown };
+  "chat.fix_from_link.prepare": { params: unknown; result: unknown };
+  "chat.fix_from_link": { params: unknown; result: unknown };
   "_acpmux/sessions": { params: SessionsParams; result: SessionsResult };
   "_acpmux/attach": { params: AttachParams; result: AttachResult };
   "_acpmux/detach": { params: SessionRef; result: Done };
@@ -69,7 +71,11 @@ export interface AcpmuxRequests {
   "_acpmux/workflows": { params: unknown; result: unknown };
   "_acpmux/app_reply": { params: AppReplyParams; result: unknown };
   "_acpmux/stats": { params: unknown; result: unknown };
+  "_acpmux/ledger": { params: unknown; result: unknown };
   "_acpmux/workspace_purge": { params: unknown; result: unknown };
+  "_acpmux/review_queue": { params: unknown; result: unknown };
+  "_acpmux/review_verdict": { params: unknown; result: unknown };
+  "_acpmux/audit": { params: unknown; result: unknown };
   "_acpmux/github_action": { params: unknown; result: unknown };
   "_acpmux/github_app_lease": { params: unknown; result: unknown };
   "_acpmux/bookmark_get": { params: BookmarkGetParams; result: unknown };
@@ -363,6 +369,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "trigger/chat.ensure", kind: "request", acp: false, typed: false },
   { name: "trigger/chat.send", kind: "request", acp: false, typed: false },
   { name: "trigger/chat.status", kind: "request", acp: false, typed: false },
+  { name: "chat.fix_from_link.prepare", kind: "request", acp: false, typed: false },
+  { name: "chat.fix_from_link", kind: "request", acp: false, typed: false },
   { name: "_acpmux/sessions", kind: "request", acp: false, typed: true },
   { name: "_acpmux/attach", kind: "request", acp: false, typed: true },
   { name: "_acpmux/detach", kind: "request", acp: false, typed: true },
@@ -398,7 +406,11 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/workflows", kind: "request", acp: false, typed: false },
   { name: "_acpmux/app_reply", kind: "request", acp: false, typed: true },
   { name: "_acpmux/stats", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/ledger", kind: "request", acp: false, typed: false },
   { name: "_acpmux/workspace_purge", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/review_queue", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/review_verdict", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/audit", kind: "request", acp: false, typed: false },
   { name: "_acpmux/github_action", kind: "request", acp: false, typed: false },
   { name: "_acpmux/github_app_lease", kind: "request", acp: false, typed: false },
   { name: "_acpmux/bookmark_get", kind: "request", acp: false, typed: true },
