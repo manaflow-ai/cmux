@@ -74,7 +74,12 @@ opens only for the machine owner's grant; its refusal is `error_code` `service_r
 Each attempt then writes `cloud.connect route=carrier machine=<vm_id>
 phase=<connect|reconnect|resume> outcome=<ok|error_code> ms=<n>` on stderr and appends it to
 `<workspace state dir>/carrier/connect.log`, a file only the dial writes, never
-emptied or replaced (it stops growing at 4 MiB). One
+emptied or replaced (it stops growing at 4 MiB). A failed attempt's line ends in
+` detail=<code>` after `ms`, when the failure names one: one `[a-z0-9_]{1,24}` token, either
+the relay's WebSocket close code (`1013`), an HTTP status (`http_503`), the relay's error code
+(`slot_busy`), a fixed word (`connect_refused`, `tls`, `timeout`, `deadline`, `closed`,
+`rejected`, `io`, `daemon_key`), or else `other`. The failure's text stays in the reply
+line's `error_detail`; no ticket, grant or token reaches the route line. One
 deadline (`--deadline-ms`, default 180000) covers every step, with full-jitter
 retries inside it. Exit codes: 0, 2 ticket, 3 relay, 4 parked_timeout, 5 handshake,
 6 service_refused, 64 usage. On a Mac the Noise key is a login Keychain item (accessible after first
