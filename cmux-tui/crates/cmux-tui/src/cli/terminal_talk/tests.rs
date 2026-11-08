@@ -78,6 +78,49 @@ fn agent_rows_name_harness_state_title_and_workspace_and_skip_plain_shells() {
 }
 
 #[test]
+fn agent_rows_carry_the_shared_status_and_done_until_seen() {
+    let rows = roster::agent_rows(&snapshot());
+    let statuses: Vec<Option<String>> =
+        rows.iter().map(|row| row.to_json(0)["status"].as_str().map(str::to_string)).collect();
+    assert_eq!(
+        statuses.iter().map(Option::as_deref).collect::<Vec<_>>(),
+        [Some("blocked"), Some("working"), Some("idle")]
+    );
+
+    // An unread notification on the idle claude terminal: its turn finished
+    // and nobody viewed it, so it is done and sorts above working.
+    let mut unseen = snapshot();
+    unseen["notifications"] = json!([
+        {"id": "notification_1", "terminal_id": "term_c1a0de00000000000000000000000001",
+         "unread": true, "title": "Claude finished"},
+        {"id": "notification_2", "terminal_id": "term_c0dec000000000000000000000000004",
+         "unread": false, "title": "Codex needs approval"},
+    ]);
+    let rows = roster::agent_rows(&unseen);
+    let summary: Vec<(&str, &str, &str)> = rows
+        .iter()
+        .map(|row| (row.harness.as_str(), row.status_word(), row.state.as_str()))
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            ("codex", "blocked", "waiting-for-input"),
+            ("claude", "done", "idle"),
+            ("muse", "working", "busy")
+        ],
+        "the old state word stays for compatibility"
+    );
+    let table = roster::table(&rows, 1_000);
+    assert!(table.lines().nth(2).is_some_and(|line| line.contains(" done ")), "{table}");
+
+    let mut ended = snapshot();
+    ended["agents"][0]["state"] = json!("done");
+    let ended = roster::agent_rows(&ended);
+    let last = ended.last().unwrap();
+    assert_eq!((last.status_word(), last.to_json(0)["status"].clone()), ("ended", Value::Null));
+}
+
+#[test]
 fn agent_table_has_one_header_and_one_line_per_agent() {
     let rows = roster::agent_rows(&snapshot());
     let table = roster::table(&rows, 61_000);
@@ -136,7 +179,7 @@ fn reply_after_reads_a_claude_code_answer_without_its_input_box() {
     ]);
     let message = "please summarize the failing test in a sentence and name the file it lives in";
     assert_eq!(
-        reply::reply_after(&screen, message),
+        reply_after(&screen, message),
         Reply {
             text: "⏺ The failing test is pinned_columns_tests.rs:232; it expects\n  three \
                    columns and gets two."
@@ -158,7 +201,7 @@ fn reply_after_reads_a_codex_answer_without_its_composer() {
         "  gpt-5-codex high · 98% context left",
     ]);
     assert_eq!(
-        reply::reply_after(&screen, "what is 2+2?"),
+        reply_after(&screen, "what is 2+2?"),
         Reply { text: "• 4".to_owned(), anchored: true }
     );
 }
@@ -167,7 +210,7 @@ fn reply_after_reads_a_codex_answer_without_its_composer() {
 fn reply_after_without_the_echo_answers_the_screen_less_its_footer() {
     let screen = strings(&["output", "more", "──────────────────────", "❯ ", "──────────"]);
     assert_eq!(
-        reply::reply_after(&screen, "never typed"),
+        reply_after(&screen, "never typed"),
         Reply { text: "output\nmore".to_owned(), anchored: false }
     );
 }
@@ -176,7 +219,12 @@ fn reply_after_without_the_echo_answers_the_screen_less_its_footer() {
 fn reply_anchor_finds_a_long_message_by_its_end_when_its_start_scrolled_away() {
     let message = format!("{} the actual question at the end?", "context ".repeat(40));
     let screen = strings(&["context context the actual question at the end?", "", "answer"]);
-    assert_eq!(reply::reply_after(&screen, &message).text, "answer");
+    assert_eq!(reply_after(&screen, &message).text, "answer");
+}
+
+/// The reply of a send that read no screen before it.
+fn reply_after(lines: &[String], message: &str) -> Reply {
+    reply::reply_since(lines, message, None, lines)
 }
 
 fn idle_sample(screen: &str) -> Sample {
@@ -232,6 +280,8 @@ struct FakeDaemon {
     snapshot: Value,
     screens: RefCell<Vec<(u64, String)>>,
     sent: RefCell<Vec<(String, Value)>>,
+    /// What `agent list --terminal` answers while the send waits.
+    agents: Value,
 }
 
 impl FakeDaemon {
@@ -242,6 +292,7 @@ impl FakeDaemon {
                 screens.iter().map(|(revision, text)| (*revision, (*text).to_owned())).collect(),
             ),
             sent: RefCell::new(Vec::new()),
+            agents: json!([]),
         }
     }
 
@@ -272,7 +323,7 @@ impl Daemon for FakeDaemon {
             "terminal.get" => {
                 json!({"id": "term_c1a0de00000000000000000000000001", "lifecycle": "running", "extra": {}})
             }
-            "agent.list" => json!([]),
+            "agent.list" => self.agents.clone(),
             "terminal.screen.read" => {
                 let mut screens = self.screens.borrow_mut();
                 let (revision, text) =
@@ -445,6 +496,53 @@ fn send_pastes_presses_enter_waits_and_answers_only_the_reply() {
     assert_eq!(receipt["terminal"], "term_c1a0de00000000000000000000000001");
 }
 
+/// Claude Code's screen when a turn stops at a permission dialog: the
+/// earlier turns, the message's echo and the dialog. Claude Code renders
+/// the message's inline code without its backticks.
+const DIALOG_SCREEN: &str = "⏺ OLD_ANSWER_ONE\n\n❯ Reply with exactly ALPHA_OK\n\n⏺ ALPHA_OK\n\n\
+❯ Run the shell command touch /tmp/w4i-perm now.\n\n⏺ Bash(touch /tmp/w4i-perm)\n\n\
+ Bash command\n   touch /tmp/w4i-perm\n Do you want to proceed?\n ❯ 1. Yes\n   2. No";
+
+/// A daemon whose agent waits on a dialog once the message is in.
+fn dialog_daemon(screens: &[(u64, &str)]) -> FakeDaemon {
+    let mut daemon = FakeDaemon::new(snapshot(), screens);
+    daemon.agents = json!([{"terminal_id": "term_c1a0de00000000000000000000000001",
+                            "state": "blocked", "source": "hook",
+                            "updated_at_ms": u64::MAX.to_string()}]);
+    daemon
+}
+
+#[test]
+fn send_stopped_at_a_dialog_anchors_a_message_with_inline_code() {
+    let before = "⏺ OLD_ANSWER_ONE\n\n❯ Reply with exactly ALPHA_OK\n\n⏺ ALPHA_OK\n\n❯ ";
+    let daemon = dialog_daemon(&[(1, before), (2, DIALOG_SCREEN)]);
+    let message = "Run the shell command `touch /tmp/w4i-perm` now.";
+    let receipt = send::run(&daemon, None, &quick(message)).expect("sent");
+    assert_eq!(receipt["state"], "waiting-for-input");
+    assert_eq!(receipt["anchored"], true, "{receipt}");
+    let output = receipt["output"].as_str().unwrap_or_default();
+    assert!(output.starts_with("⏺ Bash(touch /tmp/w4i-perm)"), "{output}");
+    assert!(output.contains("Do you want to proceed?"), "{output}");
+    assert!(!output.contains("ALPHA_OK"), "earlier turns are not the reply: {output}");
+}
+
+#[test]
+fn send_stopped_at_a_dialog_without_an_echo_answers_only_what_came_after_the_send() {
+    // The echo is not on the screen at all (a harness that shows a pasted
+    // message as a placeholder this CLI does not know): the earlier turns
+    // that were on the screen before the send are still not the reply.
+    let before = "⏺ OLD_ANSWER_ONE\n\n⏺ ALPHA_OK\n\n❯ ";
+    let after = "⏺ OLD_ANSWER_ONE\n\n⏺ ALPHA_OK\n\n❯ «message 1»\n\n⏺ Bash(touch /tmp/w4i-perm)\n\n\
+ Do you want to proceed?\n ❯ 1. Yes\n   2. No";
+    let daemon = dialog_daemon(&[(1, before), (2, after)]);
+    let receipt = send::run(&daemon, None, &quick("never echoed as typed")).expect("sent");
+    assert_eq!(receipt["state"], "waiting-for-input");
+    assert_eq!(receipt["anchored"], false, "{receipt}");
+    let output = receipt["output"].as_str().unwrap_or_default();
+    assert!(output.contains("⏺ Bash(touch /tmp/w4i-perm)"), "{output}");
+    assert!(!output.contains("OLD_ANSWER_ONE") && !output.contains("ALPHA_OK"), "{output}");
+}
+
 #[test]
 fn send_with_wait_none_answers_after_enter() {
     let daemon = FakeDaemon::new(snapshot(), &[(1, "")]);
@@ -530,4 +628,349 @@ fn claude_code_plugin_records_name_the_claude_harness() {
     snapshot["agents"][0]["extra"]["agent"] = json!("claude-code");
     let rows = roster::agent_rows(&snapshot);
     assert!(rows.iter().any(|row| row.harness == "claude" && row.source == "hook"));
+}
+
+const SHELL: &str = "term_5be11000000000000000000000000003";
+
+/// A daemon with one zsh terminal: each `terminal.get` answers the next of
+/// `records` (then stays on the last), each screen read the next of
+/// `screens`. Without `unwrap`, it refuses the `unwrap` field as an older
+/// daemon does.
+struct ShellDaemon {
+    snapshot: Value,
+    records: RefCell<Vec<Value>>,
+    screens: RefCell<Vec<String>>,
+    unwrap: bool,
+    sent: RefCell<Vec<(String, Value)>>,
+}
+
+impl ShellDaemon {
+    fn new(before: Option<Value>, records: Vec<Value>, screens: &[&str], unwrap: bool) -> Self {
+        let mut snapshot = snapshot();
+        if let Some(before) = before {
+            snapshot["terminals"][2]["extra"] = json!({"last_command": before});
+        }
+        Self {
+            snapshot,
+            records: RefCell::new(records),
+            screens: RefCell::new(screens.iter().map(|screen| (*screen).to_owned()).collect()),
+            unwrap,
+            sent: RefCell::new(Vec::new()),
+        }
+    }
+
+    fn reads(&self) -> Vec<Value> {
+        self.sent
+            .borrow()
+            .iter()
+            .filter(|(operation, _)| operation == "terminal.screen.read")
+            .map(|(_, params)| params.clone())
+            .collect()
+    }
+}
+
+fn next<T: Clone>(items: &RefCell<Vec<T>>) -> T {
+    let mut items = items.borrow_mut();
+    if items.len() > 1 { items.remove(0) } else { items[0].clone() }
+}
+
+impl Daemon for ShellDaemon {
+    fn request(&self, _session: Option<&str>, plan: RequestPlan) -> Result<Value, CallFailure> {
+        let request = request_value(&plan).expect("a valid request");
+        let operation = request["operation"].as_str().unwrap_or_default().to_owned();
+        let params = request["params"].clone();
+        self.sent.borrow_mut().push((operation.clone(), params.clone()));
+        Ok(match operation.as_str() {
+            "session.snapshot" => self.snapshot.clone(),
+            "terminal.state.read" => json!({"state_base64": ""}),
+            "terminal.get" => next(&self.records),
+            "agent.list" => json!([]),
+            "terminal.screen.read" => {
+                if !self.unwrap && params.get("unwrap").is_some() {
+                    return Err(CallFailure {
+                        kind: FailureKind::Rejected,
+                        error: json!({"code": "validation.invalid", "message": "unknown field"}),
+                        idempotency_key: None,
+                    });
+                }
+                json!({"revision": "1", "text": next(&self.screens)})
+            }
+            "terminal.history.read" => json!({"rows": [], "next": null}),
+            _ => json!({}),
+        })
+    }
+}
+
+fn shell_record(extra: Value) -> Value {
+    json!({"id": SHELL, "lifecycle": "running", "extra": extra})
+}
+
+fn shell_send(text: &str) -> SendRequest {
+    SendRequest {
+        target: SHELL.into(),
+        wait: Wait::Prompt,
+        settle: Duration::from_secs(30),
+        ..quick(text)
+    }
+}
+
+#[test]
+fn read_run_send_wait_prompt_returns_the_typed_commands_exit_status_without_the_settle() {
+    let old = json!({"exit_code": 0, "finished_at_ms": "100"});
+    let new = json!({"exit_code": 7, "started_at_ms": "200", "finished_at_ms": "210"});
+    let daemon = ShellDaemon::new(
+        Some(old.clone()),
+        vec![
+            shell_record(json!({"activity": {"state": "running"}, "last_command": old})),
+            shell_record(json!({"prompt": {"since_ms": "211"}, "last_command": new})),
+        ],
+        &["$ sh -c 'exit 7'", "$ sh -c 'exit 7'\n$"],
+        true,
+    );
+    let started = Instant::now();
+    let receipt = send::run(&daemon, None, &shell_send("sh -c 'exit 7'")).expect("sent");
+    assert!(started.elapsed() < Duration::from_secs(10), "the finished command ends the wait");
+    assert_eq!(receipt["exit_status"], 7);
+    assert_eq!(receipt["state"], "idle");
+    assert_eq!(receipt["timed_out"], false);
+    assert_eq!(super::send_exit_code(&receipt, true), 7);
+    assert_eq!(super::send_exit_code(&receipt, false), 0);
+    assert!(daemon.reads().iter().all(|read| read["unwrap"] == true), "reads join soft wraps");
+}
+
+#[test]
+fn read_run_send_without_shell_integration_has_no_exit_status_and_run_exits_unknown() {
+    // No OSC 133: no prompt, no last_command; the still screen ends the wait.
+    let daemon =
+        ShellDaemon::new(None, vec![shell_record(json!({}))], &["$ sh -c 'exit 7'\n$ "], false);
+    let request = SendRequest {
+        wait: Wait::Idle,
+        settle: Duration::from_millis(40),
+        ..shell_send("sh -c 'exit 7'")
+    };
+    let receipt = send::run(&daemon, None, &request).expect("sent");
+    assert!(receipt.get("exit_status").is_none(), "absent, never guessed: {receipt}");
+    assert_eq!(super::send_exit_code(&receipt, true), 125);
+    // The older daemon refused unwrap once; the rest read plain rows.
+    let reads = daemon.reads();
+    assert_eq!(reads[0]["unwrap"], true);
+    assert!(reads[1..].iter().all(|read| read.get("unwrap").is_none()));
+}
+
+#[test]
+fn read_run_send_ignores_a_last_command_that_finished_before_the_send() {
+    let old = json!({"exit_code": 3, "finished_at_ms": "100"});
+    let daemon = ShellDaemon::new(
+        Some(old.clone()),
+        vec![shell_record(json!({"prompt": {"since_ms": "90"}, "last_command": old}))],
+        &["$ true"],
+        true,
+    );
+    let request = SendRequest { settle: Duration::from_millis(40), ..shell_send("true") };
+    let receipt = send::run(&daemon, None, &request).expect("sent");
+    assert!(receipt.get("exit_status").is_none(), "the old command's status is not this one's");
+}
+
+#[test]
+fn read_run_send_pattern_matches_only_output_after_the_typed_command() {
+    let message = "for i in 1 2 3; do echo step $i; sleep 1; done; echo BENCH_OK";
+    let echo = format!("$ {message}");
+    let daemon = ShellDaemon::new(
+        None,
+        vec![shell_record(json!({"activity": {"state": "running"}}))],
+        &[&echo, &format!("{echo}\nstep 1"), &format!("{echo}\nstep 1\nstep 2\nstep 3\nBENCH_OK")],
+        true,
+    );
+    let request = SendRequest { pattern: Some("(?m)^BENCH_OK".into()), ..shell_send(message) };
+    let receipt = send::run(&daemon, None, &request).expect("sent");
+    assert_eq!(receipt["matched"], true);
+    assert!(receipt["output"].as_str().unwrap().ends_with("BENCH_OK"));
+    assert_eq!(daemon.reads().len(), 3, "the echo alone did not match");
+    // A pattern that never shows, and the command finishes: no match, exit 1.
+    let daemon = ShellDaemon::new(
+        None,
+        vec![shell_record(
+            json!({"prompt": {"since_ms": "5"}, "last_command": {"exit_code": 0, "finished_at_ms": "5"}}),
+        )],
+        &[&format!("{echo}\nstep 1\n$")],
+        true,
+    );
+    let receipt = send::run(&daemon, None, &request).expect("sent");
+    assert_eq!(receipt["matched"], false);
+    assert_eq!(super::send_exit_code(&receipt, false), 1);
+}
+
+#[test]
+fn run_argv_types_each_word_quoted_so_it_runs_as_given() {
+    let words = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    let typed = |args: &[&str]| {
+        let mut flags = words(&["--timeout", "20s", "--"]);
+        flags.extend(words(args));
+        super::parse_run("term_a", &flags).expect("parsed").text
+    };
+    // The audit's case: unquoted, `exit 7` ran in the person's shell and ended it.
+    assert_eq!(typed(&["sh", "-c", "echo failing; exit 7"]), "sh -c 'echo failing; exit 7'");
+    // Spaces, double quotes and runs of spaces survive.
+    assert_eq!(typed(&["sh", "-c", "echo a b; echo \"c  d\""]), "sh -c 'echo a b; echo \"c  d\"'");
+    // An embedded single quote closes, escapes and reopens.
+    assert_eq!(typed(&["echo", "it's"]), "echo 'it'\\''s'");
+    // `$`, globs and `~` reach the program as written, never expanded.
+    assert_eq!(
+        typed(&["printf", "%s\\n", "$HOME", "*.rs", "~/x"]),
+        "printf '%s\\n' '$HOME' '*.rs' '~/x'"
+    );
+    // An empty argument stays one argument.
+    assert_eq!(typed(&["printf", "[%s]", ""]), "printf '[%s]' ''");
+    // zsh expands a bare `=name`; it is quoted.
+    assert_eq!(typed(&["echo", "=ls"]), "echo '=ls'");
+    // A command word the shell reads as syntax is quoted: a reserved word or an assignment.
+    assert_eq!(typed(&["if", "true"]), "'if' true");
+    assert_eq!(typed(&["FOO=bar", "x"]), "'FOO=bar' x");
+    assert_eq!(typed(&["env", "FOO=bar", "x"]), "env FOO=bar x");
+    // Plain words stay readable.
+    assert_eq!(
+        typed(&["npm", "test", "--", "--grep=api", "./src/a.rs", "user@host:1"]),
+        "npm test -- --grep=api ./src/a.rs user@host:1"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn run_argv_line_reads_back_as_the_same_argv_in_sh() {
+    let argv: Vec<String> =
+        ["echo failing; exit 7", "a b", "c  d", "it's", "$HOME", "*", "", "=ls", "x\"y", "--f=1"]
+            .iter()
+            .map(|word| (*word).to_owned())
+            .collect();
+    let line = super::shell_line(&argv);
+    // The shell splits the typed line into printf's arguments, NUL-terminated.
+    let output = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("printf '%s\\0' {line}"))
+        .output()
+        .expect("sh runs");
+    assert!(output.status.success(), "{line}");
+    let words: Vec<String> = String::from_utf8(output.stdout)
+        .expect("utf-8")
+        .split_terminator('\0')
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(words, argv, "{line}");
+}
+
+#[test]
+fn run_one_word_after_dashes_is_a_shell_line_typed_as_written() {
+    let words = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    let request = super::parse_run("term_a", &words(&["--", "npm test && echo ok; ls $HOME"]))
+        .expect("parsed");
+    assert_eq!(request.text, "npm test && echo ok; ls $HOME");
+    let request = super::parse_run("term_a", &words(&["--", "make"])).expect("parsed");
+    assert_eq!(request.text, "make");
+    // --text is a shell line too, never quoted.
+    let request = super::parse_run("term_a", &words(&["--text", "sh -c 'exit 7' || echo $?"]))
+        .expect("parsed");
+    assert_eq!(request.text, "sh -c 'exit 7' || echo $?");
+    // Nothing after -- is still a usage error.
+    assert!(super::parse_run("term_a", &words(&["--"])).is_err());
+}
+
+#[test]
+fn read_run_run_is_send_wait_prompt_with_exit_status() {
+    let words = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    let request =
+        super::parse_run("term_a", &words(&["--timeout", "10s", "--", "sh", "-c", "exit 7"]))
+            .expect("parsed");
+    assert_eq!(request.text, "sh -c 'exit 7'");
+    assert_eq!(request.wait, Wait::Prompt);
+    assert!(request.exit_with_status);
+    assert_eq!(request.timeout, Duration::from_secs(10));
+    let request = super::parse_run("term_a", &words(&["--text", "make"])).expect("parsed");
+    assert_eq!(request.text, "make");
+    assert!(super::parse_run("term_a", &words(&["--wait", "idle", "--", "x"])).is_err());
+    assert!(super::parse_run("term_a", &words(&["--text", "a", "--", "b"])).is_err());
+    assert!(super::parse_run("term_a", &words(&[])).is_err());
+    let send = super::parse_send(
+        "term_a",
+        &words(&["--text", "x", "--pattern", "ok", "--exit-with-status"]),
+    )
+    .expect("parsed");
+    assert_eq!(send.pattern.as_deref(), Some("ok"));
+    assert!(send.exit_with_status);
+    // A timeout wins over the status; a signal-sized status wraps as $? does.
+    assert_eq!(super::send_exit_code(&json!({"timed_out": true, "exit_status": 0}), true), 124);
+    assert_eq!(super::send_exit_code(&json!({"exit_status": 130}), true), 130);
+}
+
+#[test]
+fn read_run_read_and_wait_flags_send_unwrap_lines_and_new() {
+    use super::super::command::{self, CommandPlan};
+    let params = |args: &[&str]| {
+        let args: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
+        match command::parse(&args, super::super::Surface::CmuxTui) {
+            Ok(CommandPlan::Protocol(plan)) => {
+                request_value(&plan).expect("request")["params"].clone()
+            }
+            _ => panic!("{args:?} is a protocol request"),
+        }
+    };
+    let read = params(&["terminal", SHELL, "screen", "read", "--unwrap", "--lines", "5"]);
+    assert_eq!((read["unwrap"].clone(), read["lines"].clone()), (json!(true), json!(5)));
+    let plain = params(&["terminal", SHELL, "screen", "read"]);
+    assert!(plain.get("unwrap").is_none() && plain.get("lines").is_none());
+    let wait = params(&["terminal", SHELL, "screen", "wait", "--pattern", "ok", "--new"]);
+    assert_eq!(wait["new"], true);
+    let copy = params(&["terminal", SHELL, "copy", "--mode", "scrollback", "--unwrap"]);
+    assert_eq!(copy["unwrap"], true);
+    let args: Vec<String> = ["terminal", SHELL, "screen", "read", "--lines", "0"]
+        .iter()
+        .map(|a| (*a).to_owned())
+        .collect();
+    assert!(command::parse(&args, super::super::Surface::CmuxTui).is_err());
+}
+
+/// `terminal run -- sh -c 'exit 7'` (bench round 3, T3): the words after
+/// `--` are an argv, so the shell must get each one as one word. A plain
+/// join made the shell run `sh -c exit 7`, which exits 0.
+#[test]
+fn w4j_run_gives_the_shell_each_argv_word_as_one_word() {
+    let words = |args: &[&str]| args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+    let shell = |line: &str| {
+        std::process::Command::new("/bin/sh").arg("-c").arg(line).output().expect("sh runs")
+    };
+    let request =
+        super::parse_run("term_a", &words(&["--", "sh", "-c", "exit 7"])).expect("parsed");
+    assert_eq!(shell(&request.text).status.code(), Some(7), "typed {:?}", request.text);
+
+    let argv = ["a b", "it's", "say \"hi\"", "$HOME", "*", "back\\slash", "", "tab\there"];
+    let mut command = vec!["--", "printf", "%s\\n"];
+    command.extend(argv);
+    let request = super::parse_run("term_a", &words(&command)).expect("parsed");
+    let printed = shell(&request.text);
+    assert!(printed.status.success(), "typed {:?}", request.text);
+    let printed = String::from_utf8(printed.stdout).expect("utf-8");
+    assert_eq!(printed.lines().collect::<Vec<_>>(), argv, "typed {:?}", request.text);
+
+    // One word after -- stays a shell line, as `run -- 'a; b'` was.
+    let request =
+        super::parse_run("term_a", &words(&["--", "echo AFTER_$((2+2)); exit 3"])).expect("parsed");
+    assert_eq!(request.text, "echo AFTER_$((2+2)); exit 3");
+    assert_eq!(shell(&request.text).status.code(), Some(3));
+}
+
+/// `send --pattern '^BENCH_OK$'` (bench round 3, T2): a pattern is matched
+/// line by line, so `^` and `$` anchor at each line without `(?m)`.
+#[test]
+fn w4j_send_pattern_anchors_match_at_each_line() {
+    let message = "for i in 1 2 3; do echo step $i; done; echo BENCH_OK";
+    let echo = format!("$ {message}");
+    let daemon = ShellDaemon::new(
+        None,
+        vec![shell_record(json!({"activity": {"state": "running"}}))],
+        &[&echo, &format!("{echo}\nstep 1\nstep 2\nstep 3\nBENCH_OK\n$ ")],
+        true,
+    );
+    let request = SendRequest { pattern: Some("^BENCH_OK$".into()), ..shell_send(message) };
+    let receipt = send::run(&daemon, None, &request).expect("sent");
+    assert_eq!(receipt["matched"], true, "{receipt}");
+    assert_eq!(super::send_exit_code(&receipt, false), 0);
 }

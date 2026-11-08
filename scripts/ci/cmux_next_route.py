@@ -137,6 +137,7 @@ SWIFT_JOB_INPUTS = (
     "scripts/cmux-next/tests/sign-cmux-bundle-helpers.test.sh",
     "tests/test_check_app_personalities.sh",
     ".github/actions/setup-cmux-tui-rust/",
+    ".github/actions/runner-cargo-home/",
     # check-app-ffi-pin.sh's sources (the pinned CCmuxAppFFI release) and the
     # sidebar layout reducer's cargo test.
     "cmux-tui/crates/cmux-app-ffi/",
@@ -252,11 +253,11 @@ BUNDLE_INPUTS = (
     "schemas/sync-motion/*", "schemas/agent-pane/*",
     # The layout grid the transcript imports (src/agent-session/acpmux/transcriptGrid.ts).
     "schemas/layout-grid/layout-grid.json",
+    # The cloud catalog's wire types the Cloud page imports (src/pages/cloud/ops.ts).
+    "clients/ts/cloud/src/generated.ts",
     "schemas/type-scale/type-scale.json",
     # The design scale the shared tooltip tokens import (src/ui/tooltipTokens.ts).
     "schemas/design-scale/design-scale.json",
-    # The UI font the gallery frame imports (src/gallery/frame/uiFont.ts).
-    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
 )
 BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity")
 BUNDLE_SWIFT_TEST_REASON = "(no swift test suite reads a built bundle; only the tests that read this file run)"

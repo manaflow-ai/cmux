@@ -68,7 +68,7 @@ extension CloudHandlers {
         return folder.cwd
     }
 
-    static func beginWorkspaceSetup(_ context: AppActionContext, window: WindowState?, askedBy: String?, chat: TabModel? = nil) {
+    static func beginWorkspaceSetup(_ context: AppActionContext, window: WindowState?, askedBy: String?, chat: TabModel? = nil, environment: String? = nil) {
         runTracked("new Cloud workspace", context) {
             let cloud = context.services.cloud, services = context.services
             let userID = cloud.auth.user?.id, teamID = cloud.auth.teamID
@@ -88,7 +88,7 @@ extension CloudHandlers {
                 scopeIsCurrent: { cloud.auth.user?.id == userID && cloud.auth.teamID == teamID },
                 // The app server's create takes no repository and no size for now.
                 supportsRepository: false, suggested: pick?.repo,
-                environments: environments, supportsEnvironments: true,
+                environments: environments, supportsEnvironments: true, selectedEnvironment: environment,
                 sizes: [], autosized: pick?.autosize != nil && pick?.repo != nil, present: present) else { return }
             var request = CloudChatPick.request(plan, sizedFor: pick)
             if let new = plan.newEnvironment {
@@ -176,7 +176,7 @@ extension CloudHandlers {
                 guard await CloudStartChat.loginCopyGate(services).copyAllowed() else { return } // the transfer checks it again last
                 let transfer = CloudCredentialTransfer(provider: .claude,
                     machineID: session.machineID, teamID: teamID, userID: userID,
-                    otherTeams: CloudStartChat.loginScopes(cloud), openTerminal: { [weak services] line in
+                    otherTeams: cloud.auth.loginScopes, openTerminal: { [weak services] line in
                         await services?.openLocalProviderLogin(line) ?? false
                     })
                 try await transfer.run(api: cloud.machineAPI, currentTeamID: { cloud.auth.teamID },

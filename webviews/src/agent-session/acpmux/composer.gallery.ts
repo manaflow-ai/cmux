@@ -687,20 +687,23 @@ const BULLETED_REPLY = [
 const HEADING_AND_CODE_HTML =
   "<meta charset='utf-8'><h2>Retry plan</h2><ul><li>Retry only on <b>429</b> and <b>503</b></li><li>Back off from 200 ms</li></ul><pre><code class='language-ts'>await retry(send, { attempts: 3 });</code></pre>";
 
-/// One long paragraph, as dictation or a chat message gives it: about 1,100 words on a single line.
+/// One huge paragraph on a single line: about 3,600 words, past the chip's limit (pastedText.ts
+/// PASTE_CHIP_WORDS), so a paste of it is a Pasted text chip. A dictation-length paragraph (1,100
+/// words) stays text in the prompt (ask-14d16a6247; Leo, 2026-11-07: "Like just don't separate
+/// these out.").
 const PARAGRAPH = Array.from(
-  { length: 40 },
+  { length: 130 },
   (_, index) =>
     `Okay, but at the same time the retry helper in step ${index + 1} should back off a little longer each attempt, log why it gave up, and keep the`,
 ).join(" ");
 
 /// Pastes PARAGRAPH on the prompt and waits for its card (`card`).
-/// Pastes a 131-line build log into the inline prompt: its card of first lines over "Pasted text ·
-/// 131 lines" (composer/TextAttachmentCard.tsx), with Keep as .txt on it.
+/// Pastes a 601-line build log into the inline prompt: its card of first lines over "Pasted text ·
+/// 601 lines" (composer/TextAttachmentCard.tsx), with Keep as .txt on it.
 async function pasteBuildLog(ctx: PlayContext) {
   const view = ctx.document.defaultView!;
   const data = new view.DataTransfer();
-  const log = Array.from({ length: 130 }, (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`);
+  const log = Array.from({ length: 600 }, (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`);
   data.setData("text/plain", ["Ran a command, read a file", ...log].join("\n"));
   const paste = new view.Event("paste", { bubbles: true, cancelable: true });
   Object.defineProperty(paste, "clipboardData", { value: data });
@@ -709,7 +712,7 @@ async function pasteBuildLog(ctx: PlayContext) {
   const card = ctx.find({ selector: '.acpmux-md-inline-chip[data-preview="text"]' });
   if (!card.querySelector(".acpmux-text-card__lines")?.textContent?.startsWith("Ran a command, read a file"))
     throw new Error("the inline paste card must show the paste's first lines");
-  if (!/131 lines/.test(card.querySelector(".acpmux-text-card__label")?.textContent ?? ""))
+  if (!/601 lines/.test(card.querySelector(".acpmux-text-card__label")?.textContent ?? ""))
     throw new Error("the inline paste card must say its line count");
 }
 
@@ -1082,7 +1085,7 @@ export default agentPaneEntry({
     // Leo (2026-10-21), as in Claude: a huge paste is a chip with its first words and line count,
     // the prompt as typed; a click puts it back in the prompt, × removes it (pastedText.ts).
     "text-pasted": {
-      note: "A 130-line paste (780 words, over the 750-word limit): a Pasted text card (its first lines faded, Pasted text · 130 lines and its characters) over the typed prompt, × on hover.",
+      note: "A 600-line paste (3,600 words, over the 3,500-word limit): a Pasted text card (its first lines faded, Pasted text · 600 lines and its characters) over the typed prompt, × on hover.",
       ready: { draft: "Why does the build fail?" },
       snapshot: chat(finished),
       play: async (ctx) => {
@@ -1091,7 +1094,7 @@ export default agentPaneEntry({
         const view = ctx.document.defaultView!;
         const data = new view.DataTransfer();
         const log = Array.from(
-          { length: 130 },
+          { length: 600 },
           (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`,
         );
         data.setData("text/plain", log.join("\n"));
@@ -1106,7 +1109,7 @@ export default agentPaneEntry({
     // type attachments' previews". In the default inline view the paste is a small page of its first
     // lines in the prompt's line (composer/TextAttachmentCard.tsx), never its name underlined.
     "text-pasted-inline": {
-      note: "A 131-line paste in the default inline view: a card of its first lines, faded, over Pasted text · 131 lines, after the typed words.",
+      note: "A 601-line paste in the default inline view: a card of its first lines, faded, over Pasted text · 601 lines, after the typed words.",
       ready: { draft: "Why does the build fail? " },
       snapshot: chat(finished),
       play: async (ctx) => {
@@ -1172,7 +1175,7 @@ export default agentPaneEntry({
     // previewing one, two, three, four, five words out of a multi-hundred-word pasted text bit". One
     // long dictated paragraph: the card wraps it in the composer's font and says its size.
     "text-pasted-paragraph": {
-      note: "One 1,100-word paragraph pasted in the inline view: the card wraps its first lines in the composer's font, faded, over Pasted text · 5.4K characters (never 1 line).",
+      note: "One 3,600-word paragraph pasted in the inline view, past the chip's limit (a dictation-length one stays text; Leo, 2026-11-07: \"Like just don't separate these out.\"): the card wraps its first lines in the composer's font, faded, over Pasted text · 17.4K characters (never 1 line).",
       ready: { draft: "Can you tighten this up? " },
       snapshot: chat(finished),
       play: (ctx) => pasteParagraph(ctx, '.acpmux-md-inline-chip[data-preview="text"]'),
@@ -1190,13 +1193,13 @@ export default agentPaneEntry({
     // the paste", "if you paste that and then paste again, then you don't have to click it. It just
     // does it." The same block pasted again opens its chip, as a click does (pastedChips.ts).
     "text-pasted-again": {
-      note: "The same 130-line log pasted twice: the second paste opens the first's Pasted text chip, its text in the prompt after the typed words, and no second chip.",
+      note: "The same 600-line log pasted twice: the second paste opens the first's Pasted text chip, its text in the prompt after the typed words, and no second chip.",
       ready: { draft: "Why does the build fail? " },
       snapshot: chat(finished),
       play: async (ctx) => {
         const view = ctx.document.defaultView!;
         const log = Array.from(
-          { length: 130 },
+          { length: 600 },
           (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`,
         ).join("\n");
         const paste = () => {
@@ -1879,10 +1882,14 @@ export default agentPaneEntry({
       play: async (ctx) => {
         // It waits as its own line; with others it waits in their one collapsed group (PendingMessagesCard.tsx).
         if (ctx.document.querySelector(".cv-pending__toggle")) await ctx.click({ selector: ".cv-pending__toggle" });
-        await ctx.waitFor(() => ctx.document.querySelector('[data-queued-message="q1"] .cv-disclosure__toggle'));
-        await ctx.click({ selector: '[data-queued-message="q1"] .cv-disclosure__toggle' });
         await ctx.waitFor(() =>
-          ctx.document.querySelector('[data-queued-message="q1"] .cv-disclosure__toggle[aria-expanded="true"]'),
+          ctx.document.querySelector('[data-queued-message="q1"] :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)'),
+        );
+        await ctx.click({ selector: '[data-queued-message="q1"] :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)' });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(
+            '[data-queued-message="q1"] :is(.cv-agentmsg__toggle, .cv-disclosure__toggle)[aria-expanded="true"]',
+          ),
         );
       },
     },
