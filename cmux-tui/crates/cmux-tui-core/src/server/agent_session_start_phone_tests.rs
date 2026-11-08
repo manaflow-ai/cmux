@@ -19,7 +19,14 @@ struct Phone {
 
 /// A carrier stream of the owner (stamped), declared a phone's when `phone`, with a fresh agent
 /// tab in this machine's store; acpmux starts `family` sessions in `mode`.
-fn connect(label: &str, phone: bool, strict: bool, family: &'static str, mode: &str, stuck: bool) -> Phone {
+fn connect(
+    label: &str,
+    phone: bool,
+    strict: bool,
+    family: &'static str,
+    mode: &str,
+    stuck: bool,
+) -> Phone {
     let mode = Arc::new(Mutex::new(mode.to_owned()));
     let fake = FakeAcpmux::start_with(
         label,
@@ -32,7 +39,7 @@ fn connect(label: &str, phone: bool, strict: bool, family: &'static str, mode: &
     let mux = mux_with(&fake, label);
     mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
     let (_, pane) = terminal_pane(&mux);
-    let host = super::agent_session_attach::agent_session_start::store_host(&mux);
+    let host = agent_session_attach::agent_session_start::store_host(&mux);
     let surface = run(
         &mux,
         json!({"cmd":"new-conversation-tab","pane":pane,
@@ -49,7 +56,7 @@ fn connect(label: &str, phone: bool, strict: bool, family: &'static str, mode: &
         assert_eq!(info["ok"], json!(true), "{info}");
     }
     // The chat's folder: anywhere below the home folder's parent but the home folder itself.
-    let directory = std::path::PathBuf::from(format!("/tmp/cmux-phone-{label}-{}", std::process::id()));
+    let directory = PathBuf::from(format!("/tmp/cmux-phone-{label}-{}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();
     let cwd = directory.to_string_lossy().into_owned();
     Phone { fake, client, surface, cwd, mode }
@@ -65,7 +72,7 @@ impl Phone {
     /// The methods the daemon sent acpmux, in order, until the fake goes quiet.
     fn methods(&self) -> Vec<String> {
         let mut methods = Vec::new();
-        while let Ok(frame) = self.fake.frames.recv_timeout(std::time::Duration::from_millis(300)) {
+        while let Ok(frame) = self.fake.frames.recv_timeout(Duration::from_millis(300)) {
             if let Some(method) = frame["method"].as_str()
                 && method != "_acpmux/watch"
             {
