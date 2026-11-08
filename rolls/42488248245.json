@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42488248245",
+  "recorded_at": "2026-11-08T14:15:08Z",
+  "reason": "cmux-tui 7863464a3219 changes the image's cmux-tui (pinned dacb842785d4)",
+  "dry_run": false,
+  "cmux_tui": "7863464a32195881e915d9e281a0aeb49b53d026",
+  "fixes": [
+    {
+      "sha": "7863464a32195881e915d9e281a0aeb49b53d026",
+      "mergedAt": "2026-11-08T13:52:02Z",
+      "subject": "carrier: a failed attempt's route line names why, as a detail code after ms (#38493)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-08T14:15:08Z",
+    "snapshot_id": "sh-e659c3cd7c434d0782cb5613a5725410",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42488248245): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "787eb6dca63ad7fc50ef6f027138458f77c96a54",
+    "image": "cloud-native-auto-7863464a-42488248245-1",
+    "revision": "ci-42488248245-1",
+    "at": "2026-11-08T14:15:08Z"
+  },
+  "rolled_back": false
+}
