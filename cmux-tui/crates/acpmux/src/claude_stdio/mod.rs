@@ -331,7 +331,11 @@ mod usage_limits;
 mod usage_limits_tests;
 #[cfg(test)]
 mod workflow_tests;
+#[cfg(test)]
+mod workflow_shell_tests;
 mod workflows;
+mod background_shells;
+use background_shells::{BackgroundShell, background_task_update, origin, shell_update};
 pub use usage_limits::{merge_usage_limits, usage_limit_reached};
 
 /// Longest failure text a failed subagent's end carries, in characters.
@@ -661,29 +665,6 @@ pub struct Translator {
     task_plan: Mutex<task_plan::TaskPlan>,
     /// Claude Code's /loop: its tools' calls and the loops armed, the chat's goal (`loops.rs`).
     loops: Mutex<loops::Loops>,
-}
-
-/// A running shell: the session its Bash call ran in, its command, Claude's
-/// task id once a task event named it, and whether it runs in the background.
-#[derive(Debug, Clone)]
-struct BackgroundShell {
-    sid: String,
-    command: String,
-    /// What the Bash call says it does (its `description`): the tray names
-    /// the process by it (webviews `session-info/commandRules.ts`).
-    description: Option<String>,
-    task: Option<String>,
-    background: bool,
-    /// Started in the background (`run_in_background`), not moved there.
-    launched: bool,
-    /// The person asked for it to go to the background (`BACKGROUND_TASKS`):
-    /// once it moves, its origin is `user_backgrounded`.
-    asked: bool,
-    /// Its `running` update went out (`inbound.rs` `running`).
-    announced: bool,
-    /// The file Claude Code writes its output to (`output_file`), once a
-    /// task event named it.
-    output: Option<String>,
 }
 
 #[derive(Debug, Clone)]
