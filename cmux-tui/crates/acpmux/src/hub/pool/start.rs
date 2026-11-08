@@ -129,6 +129,7 @@ impl Hub {
             // Never a sub-session's checked folder: a sub-session start takes no pooled harness.
             cwd_pin: None,
             orphan_exit: None,
+            prompt_suggestions_managed: crate::claude_stdio::prompt_suggestions::managed(),
         };
         // No host starts once `stop_pool` began: it could not end it.
         if self.pool.stopping.load(Ordering::SeqCst) {

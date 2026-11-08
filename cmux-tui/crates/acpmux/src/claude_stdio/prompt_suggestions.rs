@@ -41,7 +41,7 @@ pub(crate) fn set_managed(forced: Option<bool>) {
     MANAGED.store(raw, Ordering::Relaxed);
 }
 
-fn managed() -> Option<bool> {
+pub(crate) fn managed() -> Option<bool> {
     match MANAGED.load(Ordering::Relaxed) {
         1 => Some(false),
         2 => Some(true),
