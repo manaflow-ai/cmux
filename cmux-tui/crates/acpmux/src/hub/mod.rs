@@ -928,6 +928,17 @@ impl Hub {
         Self::build(config, store, mailbox, true, true, None)
     }
 
+    /// A hub whose configured peers may dial over `wireguard` first, as a daemon's do: for tests
+    /// that run two daemons in one process and cut that carrier (`tests/carrier_faults.rs`).
+    #[doc(hidden)]
+    pub fn new_with_wireguard(
+        config: Config,
+        store: Box<dyn Store>,
+        wireguard: Arc<crate::wireguard::Transport>,
+    ) -> Arc<Self> {
+        Self::build(config, store, Mailbox::memory(), false, false, Some(wireguard))
+    }
+
     pub(crate) fn new_loading_with_wireguard(
         config: Config,
         store: Box<dyn Store>,
