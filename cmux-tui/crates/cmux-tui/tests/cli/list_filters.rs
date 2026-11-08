@@ -86,10 +86,10 @@ fn list_filters_find_workspaces_panes_and_terminals_by_name_and_folder() {
     assert_eq!(list(&["--cwd", &old]), vec![dup_old.clone()]);
     assert_eq!(
         list(&["--cwd", root.to_str().unwrap()]),
-        sorted(vec![dup_app.clone(), dup_old.clone(), solo_src.clone()])
+        sorted(vec![dup_app.clone(), dup_old.clone(), solo_src])
     );
     // AND.
-    assert_eq!(list(&["--name", "dup", "--cwd", &app]), vec![dup_app.clone()]);
+    assert_eq!(list(&["--name", "dup", "--cwd", &app]), vec![dup_app]);
     // No match is an empty list and exit 0.
     assert_eq!(list(&["--name", "nope"]), Vec::<String>::new());
     assert_eq!(list(&["--name", "solo", "--cwd", &old]), Vec::<String>::new());
@@ -103,7 +103,7 @@ fn list_filters_find_workspaces_panes_and_terminals_by_name_and_folder() {
         .env_remove("CMUX_TUI_SOCKET")
         .output()
         .unwrap();
-    assert_eq!(ids(&relative), vec![dup_old.clone()]);
+    assert_eq!(ids(&relative), vec![dup_old]);
 
     // The same folder rule on panes and terminals.
     let panes = ids(&json_cli(&server, &["pane", "list", "--cwd", &src]));
@@ -115,7 +115,7 @@ fn list_filters_find_workspaces_panes_and_terminals_by_name_and_folder() {
         .iter()
         .map(|terminal| terminal["cwd"].as_str().unwrap_or_default().to_owned())
         .collect::<Vec<_>>();
-    assert_eq!(sorted(folders), sorted(vec![app.clone(), src.clone()]));
+    assert_eq!(sorted(folders), sorted(vec![app, src]));
 
     // A filter flag without a value is a usage error, not "no filter".
     let bare = json_cli(&server, &["workspace", "list", "--cwd"]);
