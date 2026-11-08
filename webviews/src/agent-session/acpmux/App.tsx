@@ -7726,8 +7726,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             await persistSession(started);
             return started;
           },
-          "chat.fix_from_link": ({ url, cwd }) =>
-            client.fixFromLink(String(url ?? ""), typeof cwd === "string" ? cwd : undefined),
+          "chat.fix_from_link": async ({ url, cwd }) => ({
+            sessionId: await client.fixFromLink(String(url ?? ""), typeof cwd === "string" ? cwd : undefined),
+          }),
           "chat.harness.hint": async ({ harness }) => harnessSwitch.hint(harness ? String(harness) : undefined),
           "chat.harness.retry": async () => harnessSwitch.retry(),
           // The picker's Refresh models: acpmux probes every agent again, then the catalog re-reads.
