@@ -189,35 +189,39 @@ pub(super) fn create(
         // A first run stopped mid-checkout leaves the branch it made: the
         // retry checks that branch out instead of making it again.
         let branch_made = repository.commit(&format!("refs/heads/{}", attempt.branch)).is_some();
-        let arguments: Vec<&str> = if branch_made {
-            vec!["worktree", "add", root.as_ref(), attempt.branch.as_str()]
+        let mut arguments: Vec<&str> = vec!["worktree", "add"];
+        // Untrusted: made with no files, which come once its own
+        // configuration is known (below).
+        if !trusted {
+            arguments.push("--no-checkout");
+        }
+        if branch_made {
+            arguments.extend([root.as_ref(), attempt.branch.as_str()]);
         } else {
             let branch = attempt.branch.as_str();
-            vec!["worktree", "add", "-b", branch, root.as_ref(), attempt.base_commit.as_str()]
-        };
-        let mut settings = Vec::new();
-        if !trusted {
-            settings.push(("core.hooksPath".to_string(), "/dev/null".to_string()));
-            let filters = cmux_git::filter_overrides(&repository.root)
-                .map_err(|failure| run_failed(OPERATION, &failure))?;
-            settings.extend(filters);
+            arguments.extend(["-b", branch, root.as_ref(), attempt.base_commit.as_str()]);
         }
-        // Through `GIT_CONFIG_COUNT`, which keeps a driver's name whole.
-        let mut environment = Vec::new();
-        if !settings.is_empty() {
-            environment.push(("GIT_CONFIG_COUNT".to_string(), settings.len().to_string()));
-        }
-        for (index, (key, value)) in settings.into_iter().enumerate() {
-            environment.push((format!("GIT_CONFIG_KEY_{index}"), key));
-            environment.push((format!("GIT_CONFIG_VALUE_{index}"), value));
-        }
-        let environment: Vec<(&str, &str)> =
-            environment.iter().map(|(name, value)| (name.as_str(), value.as_str())).collect();
+        let environment = if trusted { Vec::new() } else { untrusted(&repository.root)? };
         let run = git
-            .run_with(&arguments, &environment)
+            .run_with(&arguments, &borrowed(&environment))
             .map_err(|failure| run_failed(OPERATION, &failure))?;
         if !run.success && !made(attempt) {
             let message = "git worktree add failed";
+            return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
+        }
+    }
+    if !trusted {
+        // The worktree's own configuration can turn on a filter driver the
+        // main checkout's does not (`includeIf "onbranch:..."`): its files are
+        // checked out with every driver it sees blanked. Again on a retry, so
+        // a run stopped before this step still gets its files.
+        let environment = untrusted(&attempt.root)?;
+        let checkout = UserGit { root: &attempt.root, deadline: git.deadline };
+        let run = checkout
+            .run_with(&["reset", "--hard", "--quiet"], &borrowed(&environment))
+            .map_err(|failure| run_failed(OPERATION, &failure))?;
+        if !run.success {
+            let message = "checking out the worktree's files failed";
             return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
         }
     }
@@ -230,6 +234,30 @@ pub(super) fn create(
         return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
     }
     Ok(())
+}
+
+/// The environment a git run in `root` needs to run none of the checked-out
+/// code: no hook, no fsmonitor command, and every filter driver `root`'s
+/// configuration names blanked. Set through `GIT_CONFIG_COUNT`, which keeps a
+/// driver's name whole and wins over every configuration file.
+fn untrusted(root: &Path) -> Result<Vec<(String, String)>, ResourceError> {
+    let mut settings = vec![
+        ("core.hooksPath".to_string(), "/dev/null".to_string()),
+        ("core.fsmonitor".to_string(), "false".to_string()),
+    ];
+    let filters =
+        cmux_git::filter_overrides(root).map_err(|failure| run_failed(OPERATION, &failure))?;
+    settings.extend(filters);
+    let mut environment = vec![("GIT_CONFIG_COUNT".to_string(), settings.len().to_string())];
+    for (index, (key, value)) in settings.into_iter().enumerate() {
+        environment.push((format!("GIT_CONFIG_KEY_{index}"), key));
+        environment.push((format!("GIT_CONFIG_VALUE_{index}"), value));
+    }
+    Ok(environment)
+}
+
+fn borrowed(environment: &[(String, String)]) -> Vec<(&str, &str)> {
+    environment.iter().map(|(name, value)| (name.as_str(), value.as_str())).collect()
 }
 
 /// Starts the new worktree's setup from the project's recipe; what the

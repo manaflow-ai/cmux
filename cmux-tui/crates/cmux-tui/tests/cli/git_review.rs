@@ -67,7 +67,9 @@ fn v2(
         assert_ne!(reader.read_line(&mut line).unwrap(), 0, "closed before {request}");
         let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
         if reply["id"] == request["id"] {
-            assert_eq!(reply["ok"], true, "{operation} failed: {reply}");
+            // A refusal the test expects comes back as it is.
+            let expected = key.is_some_and(|key| key.ends_with("-refused"));
+            assert!(reply["ok"] == true || expected, "{operation} failed: {reply}");
             return reply;
         }
     }
@@ -131,10 +133,16 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
     // A filter driver the person set up that runs a script from the checkout:
     // the pull request could change that script.
     fs::create_dir_all(checkout.join(".git/info")).unwrap();
-    fs::write(checkout.join(".git/info/attributes"), "*.txt filter=mine\n").unwrap();
+    let attributes = "*.txt filter=mine\na.txt filter=branchy\n";
+    fs::write(checkout.join(".git/info/attributes"), attributes).unwrap();
     let smudge = format!("touch '{}'; cat", hook_ran.display());
     git(&checkout, &["config", "filter.mine.smudge", &smudge]);
     git(&checkout, &["config", "filter.mine.required", "true"]);
+    // And one that only a review branch's own configuration turns on.
+    let branchy = root.join("branchy.gitconfig");
+    let driver = format!("[filter \"branchy\"]\n\tsmudge = \"{smudge}\"\n\trequired = true\n");
+    fs::write(&branchy, driver).unwrap();
+    git(&checkout, &["config", "includeIf.onbranch:cmux/review-*.path", branchy.to_str().unwrap()]);
 
     // gh: `pr view` answers the pull request; a POST keeps what it was sent and
     // counts itself; a read of the reviews answers existing.txt, if any.
@@ -255,9 +263,9 @@ fn git_review_checks_out_a_pull_request_drafts_on_its_diff_and_posts_one_review(
         &server,
         "git.review.post",
         serde_json::json!({"root": review_root, "ids": ids}),
-        Some("post-unversioned"),
+        Some("post-unversioned-refused"),
     );
-    assert!(unversioned["result"].is_null(), "{unversioned}");
+    assert_eq!(unversioned["ok"], false, "{unversioned}");
     assert!(unversioned.to_string().contains("versions"), "{unversioned}");
     let mut versions = serde_json::Map::new();
     for comment in listed["result"]["comments"].as_array().unwrap() {
