@@ -100,8 +100,9 @@ export type FollowChase = {
   hold(following?: () => boolean): void;
   /// Followed again: a held chase goes on home from where it is drawn.
   resume(): void;
-  /// The turn ended: the chase lands now, at once within a line of home, else within BURST_S at no
-  /// more than a line a frame (a snap of the whole trail moved the rows up to two lines in a frame).
+  /// The turn ended: the chase lands within BURST_S at no more than a line a frame, never at once (a
+  /// snap of the whole trail moved the rows up to two lines in a frame, and a snap within a line
+  /// added to what the frame had already moved).
   land(): void;
 };
 
@@ -293,12 +294,15 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
     resume,
     land() {
       const line = currentChatMetrics().lineHeight;
-      if (!thread || Math.abs(x) <= CHASE_MAX_FRAME_LINES * line) {
+      if (!thread || Math.abs(x) < REST_PX) {
         stop();
         return;
       }
-      // Nothing under the stack holds it back (`fit`), and it moves at least the rest of the trail
-      // over BURST_S, no frame more than a line.
+      // Never at once, however near home: the frame the turn ends in has often moved already (the
+      // reply's last line landing, the chase's step), and a snap of what is left on top of that
+      // moved the rows 26-40 px in one frame (send-stream-motion). Nothing under the stack holds it
+      // back (`fit`), and it moves at least the rest of the trail over BURST_S, no frame more than
+      // a line with what the frame already moved.
       landing = true;
       rising = true;
       burst = Math.min((CHASE_MAX_FRAME_LINES * line) / (1 / 120), Math.abs(x) / BURST_S);
